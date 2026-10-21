@@ -19,9 +19,11 @@ test:
 lint:
 	.venv/bin/ruff check hnefatafl tests
 	.venv/bin/ruff format --check hnefatafl tests
+	npm --prefix frontend run format:check
 
 format:
 	.venv/bin/ruff format hnefatafl tests
+	npm --prefix frontend run format
 
 typecheck:
 	.venv/bin/mypy hnefatafl

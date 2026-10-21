@@ -33,6 +33,34 @@ distributed inference/training is future work. CUDA memory usage is included in
 progress when available. This environment verified CPU training; CUDA/MPS
 execution requires separate verification on matching hardware.
 
+### Separate CUDA environment
+
+Keep the reproducible CPU `.venv` intact and create a separate GPU environment.
+Use the wheel index selected by the official PyTorch installer for your driver;
+`cu128` below is an example for a compatible CUDA 12.8 installation, not a claim
+that this host has that runtime or hardware:
+
+```sh
+python3 -m venv .venv-cuda
+.venv-cuda/bin/python -m pip install --upgrade pip
+.venv-cuda/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+.venv-cuda/bin/python -m pip install -e '.[train]'
+.venv-cuda/bin/python -m hnefatafl.cli devices
+.venv-cuda/bin/python -m hnefatafl.cli train --config configs/train-beginner.json
+```
+
+The `auto` device chooses CUDA only when PyTorch can actually initialize it. Do not
+run the CPU `uv sync` command into this separate environment: the project lock
+deliberately selects CPU wheels. Record the chosen PyTorch/driver versions with
+your experiment results. This CUDA recipe requires verification on the GPU host.
+
+For web-managed GPU jobs, launch the server with that environment too:
+`.venv-cuda/bin/python -m uvicorn hnefatafl.server:app --host 127.0.0.1 --port 8000`.
+Workers inherit the server's Python executable. Update the systemd `ExecStart`
+similarly. In Proxmox LXC, expose the host NVIDIA devices and matching driver
+libraries to the container first; check actual device visibility with `nvidia-smi`.
+Driver/device passthrough is host administration, not supplied by installing a wheel.
+
 ## First session
 
 ```sh

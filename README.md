@@ -1,42 +1,135 @@
-# Hnefatafl
+# Hnefatafl — The King's Table
 
-A browser-based Viking board game with Tablut, Brandubh and Copenhagen rules,
-search opponents and a separate self-play learning workflow.
+Play Tablut, Brandubh and Copenhagen in a responsive browser application. Challenge
+search opponents, watch computers compete, or train and import a neural strategist
+using real self-play learning.
 
-## Headless AI and training milestone
+![Tablut in the desktop application](docs/screenshots/desktop.png)
 
-The current milestone provides all three deterministic engines, tactical and search
-opponents, seeded tournaments, real policy/value self-play training and safe model
-storage. Browser gameplay follows in the next milestone. See [PROGRESS.md](PROGRESS.md).
+## Features
 
-Python 3.11+, Node 22+ and [uv](https://docs.astral.sh/uv/getting-started/installation/)
-are required for development. The lockfile selects official CPU PyTorch wheels so
-development does not require a GPU or large CUDA runtime downloads.
+- Three source-specific engines with legal moves, captures, special rules and replay.
+- Pass-and-play, Human vs AI and AI vs AI; configurable opponents, side selection,
+  playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
+- Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
+- SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
+- Training workshop and CLI: actual PyTorch self-play updates, evaluation, safe model
+  import/export, cancellation, exact CPU checkpoint resumption and Optuna studies.
+- CPU operation and configurable CUDA/MPS support, with automatic device detection.
+
+Mouse, touch and keyboard are supported. Arrow keys navigate; Enter/Space select;
+Escape clears selection. See the [mobile screenshot](docs/screenshots/mobile.png).
+A server connection is required; internet multiplayer and offline play are later work.
+
+## Install and start
+
+Use Python **3.12 recommended** (package supports 3.11+), Node **22+**, and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). From the repository root:
 
 ```sh
-uv sync --frozen --all-extras
-make foundation
-.venv/bin/python -m pytest tests/test_engine.py
-.venv/bin/python -m pytest tests/test_ai.py tests/test_models.py tests/test_training.py
-.venv/bin/python -m hnefatafl.cli train --config configs/train-smoke.json
+make install
+make build
+bash scripts/start.sh
 ```
 
-The foundation check exercises a real PyTorch forward/backward operation and imports
-FastAPI and Optuna. See [ARCHITECTURE.md](ARCHITECTURE.md) for component boundaries,
-the serializable state format and the plan for future server-hosted multiplayer.
+The server serves the built frontend and API on port 8000, bound to loopback by
+default. For a phone on the same trusted LAN, run
+`HNEFATAFL_HOST=0.0.0.0 bash scripts/start.sh` and open
+`http://<server-LAN-address>:8000` on the phone. The startup script limits default
+CPU math threads to two, respecting explicit environment overrides.
 
-Rules: [Tablut](docs/rules/tablut.md), [Brandubh](docs/rules/brandubh.md),
-[Copenhagen](docs/rules/copenhagen.md). These document the source-specific differences
-and implementation conventions. Copenhagen's primary page was unavailable during
-research; the cited mirror interpretations and verification limitation are explicit.
+Equivalent installation commands are `uv sync --frozen --all-extras`,
+`npm --prefix frontend ci`, and `npm --prefix frontend run build`. The lockfile
+selects official CPU PyTorch wheels; see [TRAINING.md](docs/TRAINING.md) for CUDA.
+Set `HNEFATAFL_DATA_DIR` for persistent storage (default `./data`). `.env.example`
+is documentation; `.env` is not automatically loaded. For live development use
+`bash scripts/dev.sh`.
 
-See [AI.md](docs/AI.md) for baseline, alpha-beta, MCTS and tournaments; see
-[TRAINING.md](docs/TRAINING.md) for CPU/CUDA installation, training presets,
-checkpoint resumption, model import/export and resumable Optuna studies.
+## Play and replay
 
-## Releases
+Choose a battlefield and mode in **New game**. Configure your side and opponent,
+or both opponents for AI vs AI. Select a piece and a highlighted destination.
+The server validates every move and rejects stale concurrent updates.
 
-Milestone versions use `v0.x.0` until the initial feature set is verified. Each GitHub
-release identifies its exact scope, checks, usage and remaining limitations. Full
-training quality and hardware-dependent GPU validation are reported separately from
-functional correctness.
+**Hall of records** contains profiles, saved games, replay and statistics. Viewing
+an earlier move preserves the recorded result and future moves; making a different
+move branches the local history. Restart creates a new game, preserving the old one.
+
+Rules: [Tablut market rules](docs/rules/tablut.md), [Brandubh](docs/rules/brandubh.md),
+[Copenhagen](docs/rules/copenhagen.md). The linked Tablut leaflet starts defenders,
+uses sandwich king capture and any-edge escape. Other Tablut reconstructions differ.
+
+## Train and use a model
+
+In **AI workshop**, choose a ruleset and **Quick check** for a tiny real training
+job. Inspect progress and evaluation, resume a checkpoint, or export/import a model.
+Select **Neural network** and a compatible model when configuring a new opponent.
+The CLI requires no Python programming:
+
+```sh
+.venv/bin/python -m hnefatafl.cli devices
+.venv/bin/python -m hnefatafl.cli train --config configs/train-smoke.json
+.venv/bin/python -m hnefatafl.cli tune --config configs/tune-smoke.json
+.venv/bin/python -m hnefatafl.cli models --registry data/models
+.venv/bin/python -m hnefatafl.cli tournament --config configs/tournament.json
+```
+
+Use `configs/train-beginner.json` for longer experiments. `last.pt` retains optimizer,
+replay, RNG and the portable best model for exact resumption; `best.pt` and registry
+exports are compact inference snapshots. Resume uses a higher target **total**
+iteration count. See [TRAINING.md](docs/TRAINING.md) and [AI.md](docs/AI.md).
+
+Small runs prove the software workflow, not stronger play. Truncated games are
+reported separately from rules draws. Measure strength with larger balanced seeded
+tournaments. Training workers run separately so gameplay remains responsive.
+
+## Tests
+
+```sh
+make check
+cd frontend
+npx playwright install chromium
+npm run test:e2e
+```
+
+`make check` runs Ruff/Prettier, Python/TypeScript type checks, pytest, Vitest and
+the production build. Playwright uses the actual backend on isolated ports
+8001/4173 for desktop/mobile gameplay and real training followed by neural play.
+One duplicate mobile training test is deliberately skipped; mobile gameplay runs.
+Linux Chromium libraries may need installation on a new host.
+
+See [VALIDATION.md](docs/VALIDATION.md) for evidence and hardware/source limitations.
+GitHub Actions repeats these checks. `make format` formats source files.
+
+## Project map and deployment
+
+React/TypeScript/Vite provide one browser client; FastAPI owns authoritative sessions.
+SQLite supports simple Linux/LXC installation. The pure Python engine is independent
+of HTTP, persistence and tensors; PyTorch/Optuna run in independent workers.
+
+| Path | Responsibility |
+| --- | --- |
+| `hnefatafl/` | Engine, AI, models, training, CLI, storage, API |
+| `frontend/` | Board, archive, workshop, unit/browser tests |
+| `tests/` | Engine, AI, model, training and API suites |
+| `configs/` | Runnable training, tuning and tournament configurations |
+| `scripts/`, `deployment/` | Startup, systemd and reverse-proxy examples |
+| `docs/` | Rules, training, deployment, evidence and release notes |
+
+Read [ARCHITECTURE.md](ARCHITECTURE.md), [DEPLOYMENT.md](docs/DEPLOYMENT.md),
+[PROGRESS.md](PROGRESS.md) and the [requirements](docs/REQUIREMENTS.md).
+The server also exposes API documentation at `/docs`.
+
+Use a trusted network or authenticated TLS reverse proxy: local profiles do not
+provide account authentication, and training endpoints are administrative capabilities.
+Back up the entire data directory consistently before updates. Docker is unnecessary.
+
+Current limitations: CUDA/MPS and systemd/proxy operation need validation on the target
+host. Copenhagen's primary source returned HTTP 455; its rules document identifies
+accessible transcriptions, the shieldwall interpretation and repetition convention.
+Model strength needs longer training and fair evaluation. Internet accounts/lobbies,
+WebSockets, distributed self-play and PostgreSQL migration tooling are future work.
+
+Milestone versions use `v0.x.0` with explicit scope and validation. See
+[GitHub Releases](https://github.com/freeDom-/hnefatafl/releases) and
+[RELEASING.md](docs/RELEASING.md).
