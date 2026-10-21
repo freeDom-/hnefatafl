@@ -55,7 +55,7 @@ and automatic resumption are future work. See `docs/TOURNAMENTS.md`.
 - [x] Delete games with version guards and recalculate all statistics
 - [x] Preview every unfinished model reference and offer explicit discard without results/history
 - [x] Preserve completed replay/checkpoints, reject changed usage and roll back failed removals
-- [x] Pass 252 Python tests, 34 frontend unit tests and 16 real-API browser checks
+- [x] Pass 252 Python tests, 35 frontend unit tests and 16 real-API browser checks
 
 Four duplicate mobile worker checks are intentionally skipped. Schema 3 remains
 unchanged. See `docs/PERSONALIZATION.md` for collection management and ranking rules.

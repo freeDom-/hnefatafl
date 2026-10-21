@@ -91,10 +91,12 @@ export default function Archive({
     }
   };
   const load = async (id: string) => {
+    const request = generation.current;
     try {
-      onLoad(await api<Game>(`/games/${id}`));
+      const game = await api<Game>(`/games/${id}`);
+      if (request === generation.current) onLoad(game);
     } catch (e) {
-      onError((e as Error).message);
+      if (request === generation.current) onError((e as Error).message);
     }
   };
   const removePlayer = async () => {

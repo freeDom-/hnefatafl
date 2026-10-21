@@ -12,7 +12,7 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | API and persistence | 40 baseline API tests plus 21 game-management cases: real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | 35 tests: real isolated workers, balanced scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay, migration and failure/shutdown cleanup |
-| Browser unit flows | 34 Vitest tests, including model ranking/defaults, human/AI selection, game/model deletion consent and races, statistics visibility, training-seed provenance, appearance and tournament flows |
+| Browser unit flows | 35 Vitest tests, including model ranking/defaults, human/AI selection, game/model deletion consent and races, statistics visibility, training-seed provenance, appearance and tournament flows |
 | Browser end to end | 16 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
@@ -60,7 +60,7 @@ gradient updates, registered a compact model and completed both balanced evaluat
 games. It lost both games (0 wins, 2 losses), so no stronger-play claim is made.
 Truncated games elsewhere remain explicit unfinished outcomes, never rules draws.
 
-The v0.7 suite passes **252 Python tests**, **34 frontend unit tests** and
+The v0.7 suite passes **252 Python tests**, **35 frontend unit tests** and
 **16 real-API browser checks**. New browser coverage verifies fresh seeds on new
 games/restart, current-game pointer cleanup, completed-game deletion with recalculated
 counts/rates/averages, statistics before collapsible history and no mobile overflow.

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Archive from './Archive';
 import type { Game, Ruleset } from './types';
@@ -57,12 +57,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
-const show = (onGameDeleted = vi.fn()) =>
+const show = (onGameDeleted = vi.fn(), onLoad = vi.fn()) =>
   render(
     <Archive
       rulesets={rulesets}
       players={[]}
-      onLoad={vi.fn()}
+      onLoad={onLoad}
       onError={noError}
       refreshPlayers={vi.fn()}
       onGameDeleted={onGameDeleted}
@@ -178,5 +178,36 @@ describe('statistics and saved game management', () => {
     await waitFor(() => expect(deletedGame).toHaveBeenCalledWith('saved-one'));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(noError).not.toHaveBeenCalled();
+  });
+
+  it('does not reopen a deleted game when an earlier load response arrives late', async () => {
+    let finishLoad!: (response: Response) => void;
+    let deleted = false;
+    const onLoad = vi.fn();
+    const onDeleted = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'DELETE') {
+          deleted = true;
+          return json({ deleted: true });
+        }
+        if (path === '/api/games/saved-one')
+          return new Promise<Response>((resolve) => {
+            finishLoad = resolve;
+          });
+        return json(
+          path.startsWith('/api/games') ? (deleted ? [] : [game()]) : stats(deleted ? 0 : 1),
+        );
+      }),
+    );
+    const { container } = show(onDeleted, onLoad);
+    await screen.findByRole('button', { name: 'Delete game saved-one' });
+    fireEvent.click(container.querySelector('.record')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete game saved-one' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('saved-one'));
+    await act(async () => finishLoad(await json(game())));
+    expect(onLoad).not.toHaveBeenCalled();
   });
 });
