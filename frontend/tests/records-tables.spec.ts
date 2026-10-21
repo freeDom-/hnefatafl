@@ -147,7 +147,10 @@ test('record tables sort numeric values, filter names independently and keep AI 
     .click();
   const parameters = page.getByRole('dialog', { name: `${aiName} AI parameters`, exact: true });
   await expect(parameters.getByText('Search depth', { exact: true })).toBeVisible();
-  await expect(parameters.getByText('Random seed', { exact: true })).toBeVisible();
+  await expect(parameters.getByText('Random seed', { exact: true })).toHaveCount(0);
+  await expect(
+    parameters.getByText('Game seeds are recorded per game and are excluded from this comparison.'),
+  ).toBeVisible();
   await parameters.getByRole('button', { name: 'Close AI parameters', exact: true }).click();
   await expect(savedRows).toHaveCount(2);
 

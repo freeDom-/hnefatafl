@@ -2721,3 +2721,30 @@ tbody th small {
   font-size: 8px;
   color: var(--ui-subtle, #a6af96);
 }
+
+.language-select select {
+  min-height: 36px;
+  width: auto;
+  max-width: 110px;
+  font-size: 12px;
+  padding: 6px 22px 6px 10px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 760px) {
+  .site-header .language-select {
+    margin-left: auto;
+  }
+  .language-select select {
+    max-width: 92px;
+  }
+}

@@ -101,9 +101,14 @@ test('training dashboard starts, monitors and registers a real CPU smoke model',
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await page.getByLabel('Model name', { exact: true }).fill('Browser smoke strategist');
+  await page.getByRole('combobox', { name: 'Training preset', exact: true }).selectOption('smoke');
   await page.getByRole('button', { name: 'Start training', exact: false }).click();
   await expect(page.getByRole('status')).toContainText('training job has started');
   await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 60000 });
+  await expect(page.getByRole('img', { name: 'Loss by iteration', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: 'Evaluation by iteration', exact: true }),
+  ).toBeVisible();
   await expect(
     page.locator('.model-card').getByRole('heading', { name: 'Browser smoke strategist' }),
   ).toBeVisible();

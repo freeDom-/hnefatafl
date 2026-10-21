@@ -10,6 +10,7 @@ from hnefatafl.ai import choose_move, play_game
 from hnefatafl.engine import Move, legal_moves, new_game, replay
 from hnefatafl.models import ModelRegistry, PolicyValueNet, load_checkpoint
 from hnefatafl.training import evaluate_model, normalize_config, train, tune
+from hnefatafl.training_presets import training_presets
 
 
 def smoke_config(tmp_path, **changes):
@@ -198,6 +199,7 @@ def test_optuna_real_trials_resume_study_and_save_best_config(tmp_path):
         {"optimizer": "invalid"},
         {"mcts_iterations": 0},
         {"unknown": True},
+        {"save_all_best": "true"},
     ],
 )
 def test_training_configuration_rejects_invalid_parameters(tmp_path, changes):
@@ -218,3 +220,70 @@ def test_cli_real_training_smoke(tmp_path):
     result = json.loads((tmp_path / "training" / "result.json").read_text())
     assert result["status"] == "completed"
     assert result["metrics"]["updates"] > 0
+
+
+@pytest.mark.parametrize("ruleset,size", [("brandubh", 7), ("tablut", 9), ("copenhagen", 11)])
+def test_recommended_defaults_cover_board_and_keep_explicit_overrides(tmp_path, ruleset, size):
+    config = normalize_config({"ruleset": ruleset})
+    assert config["preset"] == "recommended"
+    assert 3 + 4 * config["blocks"] >= size
+    assert config["evaluation_games"] >= 12 and config["evaluation_games"] % 2 == 0
+    assert config["evaluation_max_plies"] >= config["max_game_plies"] >= 200
+    assert config["save_all_best"] is False
+    overridden = normalize_config({"ruleset": ruleset, "channels": 8, "games": 3})
+    assert overridden["channels"] == 8 and overridden["games"] == 3
+    smoke = normalize_config(smoke_config(tmp_path, ruleset=ruleset))
+    assert smoke["channels"] == 4 and smoke["iterations"] == 1
+    assert smoke["max_game_plies"] == 12
+    plans = training_presets()
+    next(row for row in plans if row["ruleset"] == ruleset)["config"]["channels"] = 99
+    assert (
+        next(row for row in training_presets() if row["ruleset"] == ruleset)["config"]["channels"]
+        == config["channels"]
+    )
+
+
+def test_best_model_retention_and_history_survive_resume(tmp_path, monkeypatch):
+    scores = iter([0.25, 0.5, 0.5, 0.75])
+
+    def evaluated(model, config, **kwargs):
+        score = 0.0 if kwargs.get("previous") is not None else next(scores)
+        return {
+            "opponent": "previous_model" if kwargs.get("previous") is not None else "baseline",
+            "score": score,
+            "wins": int(4 * score),
+            "losses": int(4 * (1 - score)),
+            "draws": 0,
+            "truncated": 0,
+            "games": [],
+        }
+
+    monkeypatch.setattr("hnefatafl.training.evaluate_model", evaluated)
+    observed = []
+    first = train(
+        smoke_config(tmp_path / "first", iterations=3, save_all_best=True),
+        progress=lambda state: observed.append(
+            (state["status"], state.get("stage"), len(state["history"]))
+        ),
+    )
+    assert ("running", "iteration_complete", 1) in observed
+    assert ("running", "iteration_complete", 2) in observed
+    assert [row["iteration"] for row in first["best_models"]] == [1, 2]
+    assert [row["evaluation_score"] for row in first["history"]] == [0.25, 0.5, 0.5]
+    assert all(row["policy_loss"] > 0 and row["value_loss"] >= 0 for row in first["history"])
+    for row in first["best_models"]:
+        _, payload = load_checkpoint(row["checkpoint"])
+        assert payload["metadata"]["version"] == row["iteration"]
+        assert payload["metadata"]["evaluation"]["score"] == row["score"]
+        assert ModelRegistry(tmp_path / "first" / "models").get(row["model_id"])
+    resumed = train(
+        smoke_config(
+            tmp_path / "resumed", iterations=4, save_all_best=True, resume=first["checkpoint"]
+        )
+    )
+    assert [row["iteration"] for row in resumed["history"]] == [1, 2, 3, 4]
+    assert [row["iteration"] for row in resumed["best_models"]] == [1, 2, 4]
+    _, payload = load_checkpoint(resumed["checkpoint"])
+    assert payload["extra"]["history"] == resumed["history"]
+    assert payload["extra"]["best_models"] == resumed["best_models"]
+    assert first["best_models"][0]["model_id"] != first["best_models"][1]["model_id"]

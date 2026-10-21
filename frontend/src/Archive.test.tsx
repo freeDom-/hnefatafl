@@ -312,6 +312,10 @@ describe('interactive statistics', () => {
       Array.from(battlefield.querySelectorAll('tbody th')).map((cell) => cell.textContent),
     ).toEqual(['Brandubh', 'Tablut', 'Copenhagen']);
     const performance = screen.getByRole('table', { name: 'Player & AI performance' });
+    expect(playerNames(performance)).toEqual(['Hugin', 'Erik', 'Astrid']);
+    expect(
+      within(performance).getByRole('button', { name: 'Sort by W / D / L' }).closest('th'),
+    ).toHaveAttribute('aria-sort', 'descending');
     const played = within(performance).getByRole('button', { name: 'Sort by Played' });
     fireEvent.click(played);
     expect(playerNames(performance)).toEqual(['Astrid', 'Erik', 'Hugin']);

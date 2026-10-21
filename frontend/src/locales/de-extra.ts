@@ -1,0 +1,38 @@
+const translations: Record<string, string> = {
+  'Game seeds are recorded per game and are excluded from this comparison.':
+    'Zufalls-Seeds werden pro Partie gespeichert und für diesen Vergleich nicht unterschieden.',
+  'Agent evaluations': 'Agentenbewertungen',
+  'THROUGH THE AGENT’S EYES': 'MIT DEN AUGEN DES AGENTEN',
+  'Winning chances': 'Gewinnchancen',
+  'For the current player: {side}': 'Für die Seite am Zug: {side}',
+  'Evaluating this position…': 'Stellung wird bewertet…',
+  'The evaluation is unavailable. You can keep playing.':
+    'Die Bewertung ist nicht verfügbar. Du kannst weiterspielen.',
+  'Retry evaluation': 'Bewertung erneut versuchen',
+  'No evaluation was recorded for this position.':
+    'Für diese Stellung wurde keine Bewertung gespeichert.',
+  'Move advisor': 'Zugberater',
+  '{side} agent': 'Agent der {side}',
+  '{agent} estimate for {side}': 'Einschätzung von {agent} für die {side}',
+  'Heuristic estimate': 'Heuristische Einschätzung',
+  'MCTS rollouts': 'MCTS-Simulationen',
+  'Neural value head': 'Neuronale Stellungsbewertung',
+  'Exact outcome': 'Feststehendes Ergebnis',
+  Unavailable: 'Nicht verfügbar',
+  '{count} simulations': '{count} Simulationen',
+  'depth {depth}': 'Tiefe {depth}',
+  'The model is no longer available. Saved evaluations remain in replay.':
+    'Das Modell ist nicht mehr verfügbar. Gespeicherte Bewertungen bleiben in der Wiederholung erhalten.',
+  'This agent could not evaluate the position.': 'Dieser Agent konnte die Stellung nicht bewerten.',
+  'Suggested move: {from} → {to}': 'Zugvorschlag: {from} → {to}',
+  'Agent estimates; draws count as half. These are not calibrated winning probabilities.':
+    'Agentenschätzungen; Remis zählen halb. Dies sind keine kalibrierten Gewinnwahrscheinlichkeiten.',
+  'Agent for move suggestions': 'Agent für Zugvorschläge',
+  None: 'Keiner',
+  'Highlights this agent’s best legal move on the board. The advisor does not play your moves.':
+    'Markiert den besten legalen Zug dieses Agenten auf dem Brett. Der Berater führt keine Züge für dich aus.',
+  'Suggested move from {from} to {to}': 'Zugvorschlag von {from} nach {to}',
+  ', suggested source': ', empfohlener Ausgangspunkt',
+  ', suggested target': ', empfohlenes Ziel',
+};
+export default translations;

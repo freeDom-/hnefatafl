@@ -1,5 +1,6 @@
-import { useRef, type KeyboardEvent } from 'react';
-import type { Game } from './types';
+import { t, useI18n } from './i18n';
+import { useId, useRef, type KeyboardEvent } from 'react';
+import type { Game, Move } from './types';
 import { Token } from './Tokens';
 import { useAppearance } from './Appearance';
 
@@ -19,10 +20,23 @@ interface Props {
   selected: number | null;
   onSelect: (index: number) => void;
   disabled?: boolean;
+  hint?: Move | null;
 }
-export default function Board({ game, selected, onSelect, disabled = false }: Props) {
+export default function Board({ game, selected, onSelect, disabled = false, hint = null }: Props) {
+  useI18n();
   const { appearance } = useAppearance();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const markerId = useId().replaceAll(':', '');
+  const suggestion =
+    hint &&
+    !game.winner &&
+    game.legal_moves.some((move) => move.source === hint.source && move.target === hint.target)
+      ? hint
+      : null;
+  const center = (index: number) => ({
+    x: (((index % game.size) + 0.5) * 100) / game.size,
+    y: ((Math.floor(index / game.size) + 0.5) * 100) / game.size,
+  });
   const targets = new Set(
     game.legal_moves.filter((move) => move.source === selected).map((move) => move.target),
   );
@@ -55,7 +69,7 @@ export default function Board({ game, selected, onSelect, disabled = false }: Pr
         <div
           className="board"
           role="grid"
-          aria-label={`${game.ruleset} game board`}
+          aria-label={t('{ruleset} game board', { ruleset: t(game.ruleset) })}
           style={{ gridTemplateColumns: `repeat(${game.size}, 1fr)` }}
         >
           {game.board.map((piece, index) => {
@@ -76,11 +90,11 @@ export default function Board({ game, selected, onSelect, disabled = false }: Pr
                 }}
                 role="gridcell"
                 type="button"
-                className={`square ${(row + column) % 2 ? 'dark' : 'light'} ${selected === index ? 'selected' : ''} ${targets.has(index) ? 'legal' : ''} ${last ? 'last-move' : ''} ${throne || corner ? 'special' : ''}`}
+                className={`square ${(row + column) % 2 ? 'dark' : 'light'} ${selected === index ? 'selected' : ''} ${targets.has(index) ? 'legal' : ''} ${last ? 'last-move' : ''} ${throne || corner ? 'special' : ''} ${suggestion?.source === index ? 'hint-source' : ''} ${suggestion?.target === index ? 'hint-target' : ''}`}
                 onClick={() => onSelect(index)}
                 disabled={disabled}
                 onKeyDown={(event) => keydown(event, index)}
-                aria-label={`${coordinate(index, game.size)}, ${pieceNames[piece] ?? piece}${targets.has(index) ? ', legal move' : ''}`}
+                aria-label={`${coordinate(index, game.size)}, ${t(pieceNames[piece] ?? piece)}${targets.has(index) ? t(', legal move') : ''}${suggestion?.source === index ? t(', suggested source') : ''}${suggestion?.target === index ? t(', suggested target') : ''}`}
                 aria-selected={selected === index}
               >
                 {piece !== '.' ? (
@@ -94,6 +108,30 @@ export default function Board({ game, selected, onSelect, disabled = false }: Pr
               </button>
             );
           })}
+          {suggestion && (
+            <svg className="hint-overlay" viewBox="0 0 100 100" aria-hidden="true">
+              <defs>
+                <marker
+                  id={markerId}
+                  markerWidth="5"
+                  markerHeight="5"
+                  refX="3"
+                  refY="2.5"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path d="M0 0 5 2.5 0 5Z" />
+                </marker>
+              </defs>
+              <line
+                x1={center(suggestion.source).x}
+                y1={center(suggestion.source).y}
+                x2={center(suggestion.target).x}
+                y2={center(suggestion.target).y}
+                markerEnd={`url(#${markerId})`}
+              />
+            </svg>
+          )}
         </div>
       </div>
       <div className="board-files" aria-hidden="true">

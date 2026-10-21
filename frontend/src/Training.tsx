@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { Metric } from './Archive';
 import type { DeviceInfo, Job, Model, Ruleset } from './types';
@@ -7,6 +7,9 @@ import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
 import './features.css';
 import './workshopManagement.css';
+import { getLocale, t, useI18n } from './i18n';
+import { trainingConfig, changeTrainingPlan, type TrainingPreset } from './trainingPresets';
+import TrainingHistoryChart from './TrainingHistoryChart';
 
 interface ModelUsage {
   model_id: string;
@@ -26,45 +29,17 @@ function trainingSeed(model: Model) {
   const seed = model.training_config?.seed;
   return typeof seed === 'number' && Number.isInteger(seed) && seed >= 0 && seed <= 4294967295
     ? String(seed)
-    : 'Not recorded';
+    : t('Not recorded');
 }
 
-const defaults: Record<string, string | number | boolean> = {
-  ruleset: 'tablut',
-  preset: 'smoke',
-  channels: 4,
-  blocks: 0,
-  iterations: 1,
-  games: 1,
-  epochs: 1,
-  batch_size: 8,
-  learning_rate: 0.001,
-  optimizer: 'adamw',
-  mcts_iterations: 2,
-  mcts_time_limit: 0.1,
-  exploration: 1.4,
-  replay_buffer_size: 2048,
-  weight_decay: 0.0001,
-  checkpoint_frequency: 1,
-  evaluation_frequency: 1,
-  evaluation_games: 2,
-  evaluation_iterations: 2,
-  seed: 42,
-  device: 'auto',
-  mixed_precision: true,
-  max_game_plies: 12,
-  evaluation_max_plies: 12,
-  model_name: 'My first strategist',
-  temperature: 1,
-  cpu_threads: 2,
-  dirichlet_alpha: 0.3,
-  dirichlet_fraction: 0.25,
-};
+const defaults = trainingConfig('tablut', 'recommended');
+
 const metricText = (value: unknown) =>
   typeof value === 'number'
-    ? Number.isInteger(value)
-      ? String(value)
-      : value.toFixed(4)
+    ? new Intl.NumberFormat(getLocale(), {
+        minimumFractionDigits: Number.isInteger(value) ? 0 : 4,
+        maximumFractionDigits: Number.isInteger(value) ? 0 : 4,
+      }).format(value)
     : typeof value === 'string'
       ? value
       : '—';
@@ -82,6 +57,7 @@ export default function Training({
   onError: (error: string) => void;
   onGamesDeleted?: (ids: string[]) => void;
 }) {
+  const { locale } = useI18n();
   const [device, setDevice] = useState<DeviceInfo>({});
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -107,6 +83,23 @@ export default function Training({
   const [usageError, setUsageError] = useState('');
   const [usageRevision, setUsageRevision] = useState(0);
   const [discardUnfinished, setDiscardUnfinished] = useState(false);
+  const seenBestModels = useRef(new Set<string>());
+  useEffect(() => {
+    const retained = selectedJob?.progress?.best_models;
+    if (!Array.isArray(retained)) return;
+    let changed = false;
+    for (const entry of retained) {
+      if (
+        entry &&
+        typeof entry.model_id === 'string' &&
+        !seenBestModels.current.has(entry.model_id)
+      ) {
+        seenBestModels.current.add(entry.model_id);
+        changed = true;
+      }
+    }
+    if (changed) onModelsChanged();
+  }, [selectedJob, onModelsChanged]);
   useEffect(() => {
     if (!deleteModel) return;
     let alive = true;
@@ -185,7 +178,7 @@ export default function Training({
       const job = await api<Job>('/training/jobs', params);
       setJobs((previous) => [job, ...previous]);
       setSelectedJob(job);
-      setNotice('Your training job has started. You can keep playing while it runs.');
+      setNotice(t('Your training job has started. You can keep playing while it runs.'));
     } catch (e) {
       onError((e as Error).message);
     } finally {
@@ -221,7 +214,7 @@ export default function Training({
     }
     const checkpoint = job.checkpoint ?? job.model_id;
     if (!checkpoint) {
-      onError('This job has no saved checkpoint yet.');
+      onError(t('This job has no saved checkpoint yet.'));
       return;
     }
     setBusy(true);
@@ -248,7 +241,7 @@ export default function Training({
     try {
       await api('/models/import', body);
       onModelsChanged();
-      setNotice('Model imported. It is now available in compatible games.');
+      setNotice(t('Model imported. It is now available in compatible games.'));
     } catch (e) {
       onError((e as Error).message);
     } finally {
@@ -290,8 +283,13 @@ export default function Training({
       onModelsChanged();
       setNotice(
         discarded.length
-          ? `Model deleted. ${discarded.length} unfinished ${discarded.length === 1 ? 'game' : 'games'} removed without results. Completed history and training checkpoints have been kept.`
-          : 'Model deleted. Saved game history and training checkpoints have been kept.',
+          ? t(
+              discarded.length === 1
+                ? 'Model deleted. {count} unfinished game removed without results. Completed history and training checkpoints have been kept.'
+                : 'Model deleted. {count} unfinished games removed without results. Completed history and training checkpoints have been kept.',
+              { count: discarded.length },
+            )
+          : t('Model deleted. Saved game history and training checkpoints have been kept.'),
       );
     } catch (error) {
       setDeleteError((error as Error).message);
@@ -310,56 +308,58 @@ export default function Training({
     <>
       <section className="page-intro">
         <div>
-          <p className="eyebrow">CRAFT A WORTHY OPPONENT</p>
-          <h1>The AI workshop.</h1>
+          <p className="eyebrow">{t('CRAFT A WORTHY OPPONENT')}</p>
+          <h1>{t('The AI workshop.')}</h1>
           <p>
-            From first principles to your own strategist. Train, evaluate, and bring it to the
-            table.
+            {t(
+              'From first principles to your own strategist. Train, evaluate, and bring it to the table.',
+            )}
           </p>
         </div>
         <span className="device-tag">
           <span className="status-dot" />
-          {device.cuda_available ? 'CUDA available' : 'CPU training available'}
+          {device.cuda_available ? t('CUDA available') : t('CPU training available')}
         </span>
       </section>
       {notice && (
         <div className="notice" role="status">
           {notice}
-          <button aria-label="Dismiss notice" onClick={() => setNotice('')}>
+          <button aria-label={t('Dismiss notice')} onClick={() => setNotice('')}>
             ×
           </button>
         </div>
       )}
       <div className="metric-grid three">
         <Metric
-          label="TRAINING DEVICE"
+          label={t('TRAINING DEVICE')}
           value={hardwareName.toUpperCase()}
           detail={
             device.cuda_available
-              ? 'NVIDIA acceleration is available'
-              : 'Automatic CPU fallback · CUDA supported'
+              ? t('NVIDIA acceleration is available')
+              : t('Automatic CPU fallback · CUDA supported')
           }
         />
         <Metric
-          label="ACTIVE JOBS"
+          label={t('ACTIVE JOBS')}
           value={running}
-          detail="Training runs independently of your games"
+          detail={t('Training runs independently of your games')}
         />
         <Metric
-          label="TRAINED MODELS"
+          label={t('TRAINED MODELS')}
           value={models.length}
-          detail="Ready to join a compatible battlefield"
+          detail={t('Ready to join a compatible battlefield')}
         />
       </div>
       <div className="training-layout">
         <section className="panel training-config">
           <div className="panel-title">
-            <h2>Forge a new strategist</h2>
-            <span className="badge">SELF-PLAY</span>
+            <h2>{t('Forge a new strategist')}</h2>
+            <span className="badge">{t('SELF-PLAY')}</span>
           </div>
           <p className="subtle">
-            A policy and value network learns from its own games. Small runs verify the workflow;
-            strength takes time and evaluation.
+            {t(
+              'A policy and value network learns from its own games. Small runs verify the workflow; strength takes time and evaluation.',
+            )}
           </p>
           <form onSubmit={start}>
             <div className="segmented">
@@ -368,22 +368,30 @@ export default function Training({
                 className={kind === 'train' ? 'active' : ''}
                 onClick={() => setKind('train')}
               >
-                Train a model
+                {t('Train a model')}
               </button>
               <button
                 type="button"
                 className={kind === 'tune' ? 'active' : ''}
                 onClick={() => setKind('tune')}
               >
-                Tune parameters
+                {t('Tune parameters')}
               </button>
             </div>
             <div className="form-grid">
               <label>
-                Battlefield
+                {t('Battlefield')}
                 <select
                   value={String(config.ruleset)}
-                  onChange={(e) => update('ruleset', e.target.value)}
+                  onChange={(e) =>
+                    setConfig((previous) =>
+                      changeTrainingPlan(
+                        previous,
+                        e.target.value,
+                        String(previous.preset) as TrainingPreset,
+                      ),
+                    )
+                  }
                 >
                   {sortRulesets(rulesets).map((rule) => (
                     <option value={rule.id} key={rule.id}>
@@ -393,59 +401,29 @@ export default function Training({
                 </select>
               </label>
               <label>
-                Training preset
+                {t('Training preset')}
                 <select
                   value={String(config.preset)}
-                  onChange={(e) => {
-                    const preset = e.target.value;
-                    setConfig((previous) => ({
-                      ...previous,
-                      preset,
-                      ...(preset === 'smoke'
-                        ? {
-                            iterations: 1,
-                            games: 1,
-                            mcts_iterations: 2,
-                            batch_size: 8,
-                            channels: 4,
-                            blocks: 0,
-                            max_game_plies: 12,
-                            evaluation_max_plies: 12,
-                            evaluation_iterations: 2,
-                          }
-                        : preset === 'beginner'
-                          ? {
-                              iterations: 10,
-                              games: 8,
-                              mcts_iterations: 32,
-                              batch_size: 64,
-                              channels: 32,
-                              blocks: 2,
-                              max_game_plies: 150,
-                              evaluation_max_plies: 150,
-                              evaluation_iterations: 16,
-                            }
-                          : {
-                              iterations: 50,
-                              games: 32,
-                              mcts_iterations: 128,
-                              batch_size: 128,
-                              channels: 64,
-                              blocks: 4,
-                              max_game_plies: 300,
-                              evaluation_max_plies: 300,
-                              evaluation_iterations: 64,
-                            }),
-                    }));
-                  }}
+                  onChange={(e) =>
+                    setConfig((previous) =>
+                      changeTrainingPlan(
+                        previous,
+                        String(previous.ruleset),
+                        e.target.value as TrainingPreset,
+                      ),
+                    )
+                  }
                 >
-                  <option value="smoke">Quick check · a tiny real training run</option>
-                  <option value="beginner">Beginner · a starting point</option>
-                  <option value="balanced">Balanced · a longer experiment</option>
+                  <option value="recommended">
+                    {t('Recommended · tailored to this battlefield')}
+                  </option>
+                  <option value="smoke">{t('Quick check · a tiny real training run')}</option>
+                  <option value="beginner">{t('Beginner · a starting point')}</option>
+                  <option value="balanced">{t('Balanced · a longer experiment')}</option>
                 </select>
               </label>
               <div className="name-suggestion-field">
-                <label htmlFor="training-model-name">Model name</label>
+                <label htmlFor="training-model-name">{t('Model name')}</label>
                 <div className="name-input-group">
                   <input
                     id="training-model-name"
@@ -457,8 +435,8 @@ export default function Training({
                   <button
                     type="button"
                     className="icon-button"
-                    aria-label="Suggest Viking name"
-                    title="Suggest a Viking name"
+                    aria-label={t('Suggest Viking name')}
+                    title={t('Suggest a Viking name')}
                     onClick={() =>
                       update(
                         'model_name',
@@ -474,17 +452,18 @@ export default function Training({
                 </div>
               </div>
               <label>
-                Device
+                {t('Device')}
                 <select
                   value={String(config.device)}
                   onChange={(e) => update('device', e.target.value)}
                 >
-                  <option value="auto">Automatic</option>
-                  <option value="cpu">CPU</option>
+                  <option value="auto">{t('Automatic')}</option>
+                  <option value="cpu">{t('CPU')}</option>
                   <option value="cuda" disabled={!device.cuda_available}>
-                    NVIDIA CUDA{!device.cuda_available ? ' (unavailable)' : ''}
+                    {t('NVIDIA CUDA')}
+                    {!device.cuda_available ? ` (${t('unavailable')})` : ''}
                   </option>
-                  {device.mps_available && <option value="mps">Apple Metal</option>}
+                  {device.mps_available && <option value="mps">{t('Apple Metal')}</option>}
                 </select>
               </label>
               {numberField('iterations', 'Training iterations', config, update, 1, 10000)}
@@ -492,27 +471,50 @@ export default function Training({
               {numberField('batch_size', 'Batch size', config, update, 1, 2048)}
               {numberField('mcts_iterations', 'MCTS iterations per move', config, update, 1, 10000)}
             </div>
+            {config.preset === 'recommended' && (
+              <p className="training-plan-note subtle">
+                {Number(config.channels)} {t('channels ·')} {Number(config.blocks)}{' '}
+                {t('residual blocks ·')} {Number(config.games) * Number(config.iterations)}{' '}
+                {t('self-play games.')}{' '}
+                {t(
+                  'A board-specific starting budget, not a proven strongest configuration. Full runs can take hours or days; choose Quick check to verify your setup.',
+                )}
+              </p>
+            )}
+            <label className="checkbox-label training-retain-best">
+              <input
+                type="checkbox"
+                checked={Boolean(config.save_all_best)}
+                onChange={(event) => update('save_all_best', event.target.checked)}
+              />
+              {t('Save every new best model')}
+            </label>
+            <p className="subtle">
+              {t(
+                'Retain and register each strict evaluation improvement. Tied scores do not create extra models. Uses additional disk space.',
+              )}
+            </p>
             <button
               type="button"
               className="text-button advanced-toggle"
               onClick={() => setAdvanced((value) => !value)}
               aria-expanded={advanced}
             >
-              {advanced ? '−' : '＋'} Advanced configuration
+              {advanced ? '−' : '＋'} {t('Advanced configuration')}
             </button>
             {advanced && (
               <div className="advanced-config form-grid">
                 {numberField('channels', 'Network channels', config, update, 4, 128)}
                 {numberField('blocks', 'Residual blocks', config, update, 0, 8)}
                 <label>
-                  Optimizer
+                  {t('Optimizer')}
                   <select
                     value={String(config.optimizer)}
                     onChange={(e) => update('optimizer', e.target.value)}
                   >
-                    <option value="adamw">AdamW</option>
-                    <option value="adam">Adam</option>
-                    <option value="sgd">SGD</option>
+                    <option value="adamw">{t('AdamW')}</option>
+                    <option value="adam">{t('Adam')}</option>
+                    <option value="sgd">{t('SGD')}</option>
                   </select>
                 </label>
                 {numberField('epochs', 'Epochs per iteration', config, update, 1, 100)}
@@ -605,19 +607,20 @@ export default function Training({
                     checked={Boolean(config.mixed_precision)}
                     onChange={(e) => update('mixed_precision', e.target.checked)}
                   />
-                  Mixed precision when supported
+                  {t('Mixed precision when supported')}
                 </label>
               </div>
             )}
             {kind === 'tune' && (
               <div className="tuning-config">
                 <p className="subtle">
-                  Trials optimize game results against a baseline. Tuning can take much longer than
-                  a single run. Resume a saved study from its job below.
+                  {t(
+                    'Trials optimize game results against a baseline. Tuning can take much longer than a single run. Resume a saved study from its job below.',
+                  )}
                 </p>
                 <div className="form-grid">
                   <label>
-                    Trial budget
+                    {t('Trial budget')}
                     <input
                       type="number"
                       min="1"
@@ -627,7 +630,7 @@ export default function Training({
                     />
                   </label>
                   <label>
-                    Study name
+                    {t('Study name')}
                     <input
                       required
                       value={studyName}
@@ -636,7 +639,7 @@ export default function Training({
                   </label>
                 </div>
                 <label>
-                  Parameter search space (JSON)
+                  {t('Parameter search space (JSON)')}
                   <textarea
                     value={space}
                     onChange={(e) => setSpace(e.target.value)}
@@ -647,9 +650,9 @@ export default function Training({
               </div>
             )}
             <div className="training-start">
-              <span>Start small. Measure improvement.</span>
+              <span>{t('Start small. Measure improvement.')}</span>
               <button className="button primary" disabled={busy}>
-                {busy ? 'Starting…' : kind === 'train' ? 'Start training' : 'Start tuning'}{' '}
+                {busy ? t('Starting…') : kind === 'train' ? t('Start training') : t('Start tuning')}{' '}
                 <span aria-hidden="true">↗</span>
               </button>
             </div>
@@ -657,7 +660,7 @@ export default function Training({
         </section>
         <section className="panel jobs-panel">
           <div className="panel-title">
-            <h2>At the forge</h2>
+            <h2>{t('At the forge')}</h2>
             <button
               className="text-button"
               onClick={() => {
@@ -665,16 +668,17 @@ export default function Training({
                 onModelsChanged();
               }}
             >
-              Refresh
+              {t('Refresh')}
             </button>
           </div>
           {!jobs.length ? (
             <div className="empty-state compact">
               <span className="empty-rune">ᛏ</span>
-              <h3>Your next opponent starts here.</h3>
+              <h3>{t('Your next opponent starts here.')}</h3>
               <p>
-                Start a quick check to run real self-play, training, evaluation, and checkpoint
-                creation.
+                {t(
+                  'Start a quick check to run real self-play, training, evaluation, and checkpoint creation.',
+                )}
               </p>
             </div>
           ) : (
@@ -685,18 +689,18 @@ export default function Training({
                   className={`job-row ${selectedJob?.id === job.id ? 'selected' : ''}`}
                   onClick={() => void inspect(job)}
                 >
-                  <span className={`job-status ${job.status}`}>{job.status}</span>
+                  <span className={`job-status ${job.status}`}>{t(job.status)}</span>
                   <strong>
                     {String(
                       job.config?.model_name ??
                         job.config?.ruleset ??
                         job.ruleset ??
-                        'Training job',
+                        t('Training job'),
                     )}
                   </strong>
                   <small>
                     {job.created_at
-                      ? new Date(job.created_at).toLocaleString()
+                      ? new Date(job.created_at).toLocaleString(locale)
                       : job.id.slice(0, 8)}
                   </small>
                 </button>
@@ -706,9 +710,15 @@ export default function Training({
           {selectedJob && (
             <div className="job-detail">
               <div className="panel-title">
-                <h3>Training progress</h3>
-                <span className={`job-status ${selectedJob.status}`}>{selectedJob.status}</span>
+                <h3>{t('Training progress')}</h3>
+                <span className={`job-status ${selectedJob.status}`}>{t(selectedJob.status)}</span>
               </div>
+              <TrainingHistoryChart history={metrics.history} />
+              {Array.isArray(metrics.best_models) && metrics.best_models.length > 0 && (
+                <p className="subtle">
+                  {metrics.best_models.length} {t('best models retained during this run.')}
+                </p>
+              )}
               <div className="job-metrics">
                 {Object.entries(metrics)
                   .filter(
@@ -718,20 +728,20 @@ export default function Training({
                   )
                   .map(([key, value]) => (
                     <div key={key}>
-                      <span>{key.replaceAll('_', ' ')}</span>
-                      <strong>{metricText(value)}</strong>
+                      <span>{t(key.replaceAll('_', ' '))}</span>
+                      <strong>{t(metricText(value))}</strong>
                     </div>
                   ))}
               </div>
               {metrics.metrics != null && typeof metrics.metrics === 'object' && (
                 <details>
-                  <summary>Evaluation metrics</summary>
+                  <summary>{t('Evaluation metrics')}</summary>
                   <pre className="log-view">{JSON.stringify(metrics.metrics, null, 2)}</pre>
                 </details>
               )}
               {selectedJob.error && (
                 <p className="form-error" role="alert">
-                  {selectedJob.error}
+                  {t(selectedJob.error)}
                 </p>
               )}
               <div className="job-actions">
@@ -741,7 +751,7 @@ export default function Training({
                     onClick={() => void cancel(selectedJob.id)}
                     disabled={selectedJob.status === 'cancelling'}
                   >
-                    {selectedJob.status === 'cancelling' ? 'Stopping…' : 'Stop training'}
+                    {selectedJob.status === 'cancelling' ? t('Stopping…') : t('Stop training')}
                   </button>
                 ) : (
                   <button
@@ -753,16 +763,16 @@ export default function Training({
                         !(selectedJob.checkpoint || selectedJob.model_id))
                     }
                   >
-                    {selectedJob.kind === 'tune' ? 'Resume study' : 'Resume from checkpoint'}
+                    {selectedJob.kind === 'tune' ? t('Resume study') : t('Resume from checkpoint')}
                   </button>
                 )}
               </div>
               <details>
-                <summary>Training log</summary>
+                <summary>{t('Training log')}</summary>
                 <pre className="log-view">
                   {Array.isArray(selectedJob.logs)
                     ? selectedJob.logs.join('\n')
-                    : selectedJob.logs || 'No log output yet.'}
+                    : selectedJob.logs || t('No log output yet.')}
                 </pre>
               </details>
             </div>
@@ -772,11 +782,11 @@ export default function Training({
       <section className="panel model-registry">
         <div className="panel-title">
           <div>
-            <p className="eyebrow">YOUR STRATEGISTS</p>
-            <h2>Model collection</h2>
+            <p className="eyebrow">{t('YOUR STRATEGISTS')}</p>
+            <h2>{t('Model collection')}</h2>
           </div>
           <label className="button secondary file-button">
-            {importing ? 'Importing…' : '↑ Import model'}
+            {importing ? t('Importing…') : t('↑ Import model')}
             <input
               type="file"
               accept=".pt,.pth"
@@ -789,8 +799,9 @@ export default function Training({
           </label>
         </div>
         <p className="subtle">
-          Compatible checkpoints are validated before registration. Select a trained model under
-          “Neural network” when starting a game.
+          {t(
+            'Compatible checkpoints are validated before registration. Select a trained model under “Neural network” when starting a game.',
+          )}
         </p>
         {models.length ? (
           <div className="models-grid">
@@ -801,13 +812,17 @@ export default function Training({
                   <h3>{model.name}</h3>
                   <p>
                     {model.ruleset} ·{' '}
-                    {model.version == null ? 'Policy / value' : String(model.version)}
+                    {model.version == null
+                      ? t('Policy / value')
+                      : t('Iteration {iteration}', { iteration: String(model.version) })}
                   </p>
                   <small>
-                    {model.created_at ? new Date(model.created_at).toLocaleDateString() : model.id}
+                    {model.created_at
+                      ? new Date(model.created_at).toLocaleDateString(locale)
+                      : model.id}
                   </small>
                   <p className="model-training-seed">
-                    Training seed <strong>{trainingSeed(model)}</strong>
+                    {t('Training seed')} <strong>{trainingSeed(model)}</strong>
                   </p>
                 </div>
                 <div className="model-actions">
@@ -815,15 +830,15 @@ export default function Training({
                     className="icon-button"
                     href={`/api/models/${model.id}/export`}
                     download
-                    aria-label={`Export ${model.name}`}
+                    aria-label={t('Export {name}', { name: model.name })}
                   >
                     ↓
                   </a>
                   <button
                     type="button"
                     className="icon-button danger-text"
-                    aria-label={`Delete model ${model.name}`}
-                    title="Delete model"
+                    aria-label={t('Delete model {name}', { name: model.name })}
+                    title={t('Delete model')}
                     onClick={() => {
                       setDeleteModel(model);
                       setDeleteError('');
@@ -838,21 +853,21 @@ export default function Training({
                 {model.evaluation && (
                   <div className="model-evaluation">
                     <span className="eyebrow">
-                      AGAINST {model.evaluation.opponent ?? 'BASELINE'}
+                      {t('AGAINST')} {t(model.evaluation.opponent ?? 'BASELINE')}
                     </span>
                     <div>
                       <span>
-                        <strong>{model.evaluation.wins ?? 0}</strong> wins
+                        <strong>{model.evaluation.wins ?? 0}</strong> {t('wins')}
                       </span>
                       <span>
-                        <strong>{model.evaluation.draws ?? 0}</strong> draws
+                        <strong>{model.evaluation.draws ?? 0}</strong> {t('draws')}
                       </span>
                       <span>
-                        <strong>{model.evaluation.losses ?? 0}</strong> losses
+                        <strong>{model.evaluation.losses ?? 0}</strong> {t('losses')}
                       </span>
                     </div>
                     <small>
-                      {model.evaluation.truncated ?? 0} unfinished games · limited evaluation
+                      {model.evaluation.truncated ?? 0} {t('unfinished games · limited evaluation')}
                     </small>
                   </div>
                 )}
@@ -863,7 +878,7 @@ export default function Training({
                       .slice(0, 3)
                       .map(([key, value]) => (
                         <span key={key}>
-                          {key.replaceAll('_', ' ')} <strong>{metricText(value)}</strong>
+                          {t(key.replaceAll('_', ' '))} <strong>{t(metricText(value))}</strong>
                         </span>
                       ))}
                   </div>
@@ -872,12 +887,12 @@ export default function Training({
             ))}
           </div>
         ) : (
-          <p className="empty-copy">Your trained and imported models will live here.</p>
+          <p className="empty-copy">{t('Your trained and imported models will live here.')}</p>
         )}
       </section>
       {deleteModel && (
         <RecordsConfirm
-          title={`Delete model ${deleteModel.name}?`}
+          title={t('Delete model {name}?', { name: deleteModel.name })}
           busy={deleting}
           error={deleteError}
           confirmDisabled={
@@ -890,12 +905,14 @@ export default function Training({
           onConfirm={() => void removeModel()}
         >
           <p>
-            This removes <strong>{deleteModel.name}</strong> from your model collection and opponent
-            selection. Completed game histories, statistics and training checkpoints are kept.
+            {t('This removes')} <strong>{deleteModel.name}</strong>{' '}
+            {t(
+              'from your model collection and opponent selection. Completed game histories, statistics and training checkpoints are kept.',
+            )}
           </p>
           {usageLoading && (
             <p className="model-delete-note" role="status">
-              Checking saved games and tournaments…
+              {t('Checking saved games and tournaments…')}
             </p>
           )}
           {usageError && (
@@ -908,7 +925,7 @@ export default function Training({
                 className="button secondary small"
                 onClick={() => setUsageRevision((value) => value + 1)}
               >
-                Check again
+                {t('Check again')}
               </button>
             </div>
           )}
@@ -916,8 +933,8 @@ export default function Training({
             <>
               {!!modelUsage.running_tournaments.length && (
                 <div className="model-usage-warning">
-                  <h3>Running tournament</h3>
-                  <p>Stop these tournaments in Tournaments before deleting this model.</p>
+                  <h3>{t('Running tournament')}</h3>
+                  <p>{t('Stop these tournaments in Tournaments before deleting this model.')}</p>
                   <ul>
                     {modelUsage.running_tournaments.map((tournament) => (
                       <li key={tournament.id}>{tournament.name}</li>
@@ -928,23 +945,24 @@ export default function Training({
               {modelUsage.unfinished_games.length ? (
                 <div className="model-usage-warning">
                   <h3>
-                    {modelUsage.unfinished_games.length} unfinished{' '}
-                    {modelUsage.unfinished_games.length === 1 ? 'game' : 'games'}
+                    {modelUsage.unfinished_games.length} {t('unfinished')}{' '}
+                    {modelUsage.unfinished_games.length === 1 ? t('game') : t('games')}
                   </h3>
                   <p>
-                    Saved games remain on this server even when they are no longer open in your
-                    browser. Continue them from the Hall of records, or discard them here.
+                    {t(
+                      'Saved games remain on this server even when they are no longer open in your browser. Continue them from the Hall of records, or discard them here.',
+                    )}
                   </p>
                   <ul className="model-usage-games">
                     {modelUsage.unfinished_games.map((game) => (
                       <li key={game.id}>
                         <strong>
-                          {game.players.attackers.name} vs {game.players.defenders.name}
+                          {game.players.attackers.name} {t('vs')} {game.players.defenders.name}
                         </strong>
                         <span>
                           {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}{' '}
-                          · {game.total_moves} moves ·{' '}
-                          {new Date(game.created_at).toLocaleDateString()}
+                          · {game.total_moves} {t('moves ·')}{' '}
+                          {new Date(game.created_at).toLocaleDateString(locale)}
                         </span>
                       </li>
                     ))}
@@ -956,17 +974,19 @@ export default function Training({
                       disabled={deleting || !!modelUsage.running_tournaments.length}
                       onChange={(event) => setDiscardUnfinished(event.target.checked)}
                     />
-                    <span>Discard unfinished games and delete model</span>
+                    <span>{t('Discard unfinished games and delete model')}</span>
                   </label>
                   <p>
-                    Discarded games are permanently removed with no result, history or statistics.
-                    Completed games and training checkpoints remain.
+                    {t(
+                      'Discarded games are permanently removed with no result, history or statistics. Completed games and training checkpoints remain.',
+                    )}
                   </p>
                 </div>
               ) : (
                 <p className="model-delete-note">
-                  No unfinished games use this model. Saved games and training checkpoints remain
-                  available.
+                  {t(
+                    'No unfinished games use this model. Saved games and training checkpoints remain available.',
+                  )}
                 </p>
               )}
             </>
@@ -987,7 +1007,7 @@ function numberField(
 ) {
   return (
     <label key={key}>
-      {label}
+      {t(label)}
       <input
         type="number"
         required

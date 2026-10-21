@@ -71,7 +71,9 @@ def effective_ai_config(configuration: dict, profile_id: str | None = None) -> d
 
 
 def ai_variant_id(config: dict) -> str:
-    encoded = json.dumps(config, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    # Randomness changes an experiment, not the identity of its search agent.
+    identity = {key: value for key, value in config.items() if key != "seed"}
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return "ai:" + hashlib.sha256(encoded.encode()).hexdigest()[:24]
 
 
@@ -92,12 +94,20 @@ class SeekRequest(VersionRequest):
     cursor: StrictInt = Field(ge=0)
 
 
+class AdvisorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(default="Move advisor", min_length=1, max_length=80)
+    profile_id: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
 class GameRequest(BaseModel):
     ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
     mode: Literal["human-human", "human-ai", "ai-ai"] = "human-human"
     human_side: Literal["attackers", "defenders"] = "defenders"
     players: dict[str, dict[str, Any]] = Field(default_factory=dict)
     seed: StrictInt | None = Field(default=None, ge=0, le=2**32 - 1)
+    advisor: AdvisorRequest | None = None
 
 
 class PlayerRequest(BaseModel):
@@ -191,6 +201,28 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             state = apply_move(state, Move(recorded["source"], recorded["target"]))
         return state
 
+    def position_key(state: State) -> str:
+        # Repetition history is part of the position's rule semantics. Including
+        # it also prevents an undo/new branch from reusing another line's report.
+        encoded = json.dumps(state.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode()).hexdigest()
+
+    def referenced_agents(game: dict) -> list[dict]:
+        return [*game["players"].values(), *([game["advisor"]] if game.get("advisor") else [])]
+
+    def missing_analysis(game: dict) -> dict:
+        state = state_of(game)
+        return {
+            "cursor": game["cursor"],
+            "ply": state.ply,
+            "side_to_move": state.turn,
+            "position_key": position_key(state),
+            "created_at": None,
+            "evaluations": [],
+            "hint": None,
+            "unavailable_reason": "not_recorded",
+        }
+
     def recorded_outcome(game: dict) -> dict:
         """The end of the retained record is independent of a replay cursor."""
         summary = game.get("recorded_result")
@@ -254,6 +286,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "attackers": start.board.count("A") - state.board.count("A"),
                 "defenders": sum(start.board.count(p) - state.board.count(p) for p in ("D", "K")),
             },
+            analysis=store.game_analysis(game["id"], position_key(state)),
         )
         return result
 
@@ -392,6 +425,33 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     result[side]["model_name"] = model["name"]
         return result
 
+    def normalise_advisor(request: GameRequest, seed: int) -> dict | None:
+        if request.advisor is None:
+            return None
+        from .ai import ai_profiles
+
+        provided = request.advisor
+        name = provided.name.strip()
+        if not name:
+            fail("The move advisor needs a name.")
+        config = clean_ai_config(provided.config, provided.profile_id)
+        config["seed"] = seed
+        profile = next(p for p in ai_profiles() if p["algorithm"] == config["algorithm"])
+        result = {
+            "name": name,
+            "kind": "ai",
+            "profile_id": profile["id"],
+            "profile_name": profile["name"],
+            "config": config,
+        }
+        if config.get("model_id"):
+            model = model_info(config["model_id"])
+            if model["ruleset"] != request.ruleset:
+                fail("This model is for a different ruleset.")
+            model_file(model)
+            result["model_name"] = model["name"]
+        return result
+
     def append_move(game: dict, move: Move, version: int) -> dict:
         with catalog_lock:
             if game["cursor"] < len(game["moves"]):
@@ -399,13 +459,13 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     {model["id"] for model in models_list()}
                     if any(
                         player.get("config", {}).get("model_id")
-                        for player in game["players"].values()
+                        for player in referenced_agents(game)
                     )
                     else set()
                 )
                 if any(
                     player.get("config", {}).get("model_id") not in available
-                    for player in game["players"].values()
+                    for player in referenced_agents(game)
                     if player.get("config", {}).get("model_id")
                 ):
                     fail(
@@ -453,7 +513,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 3}
+        return {"status": "ok", "database": "sqlite", "schema_version": 4}
 
     @app.get("/api/rulesets")
     def rulesets():
@@ -494,6 +554,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "mode": request.mode,
                 "human_side": request.human_side,
                 "players": normalise_players(request, seed),
+                "advisor": normalise_advisor(request, seed),
+                "analysis_enabled": True,
                 "seed": seed,
                 "state": state.to_dict(),
                 "moves": [],
@@ -521,6 +583,87 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.get("/api/games/{game_id}")
     def get_game(game_id: str):
         return response(game_or_404(game_id))
+
+    @app.post("/api/games/{game_id}/analysis")
+    def analyze_game(game_id: str, request: SeekRequest):
+        from .ai import analyze_position
+
+        game = game_or_404(game_id, request.version)
+        if request.cursor != game["cursor"]:
+            fail("This game changed. Reload it before analyzing again.", 409)
+        state = state_of(game)
+        key = position_key(state)
+        cached = store.game_analysis(game_id, key)
+        if cached is not None:
+            return cached
+        # A recorded opinion belongs to the original point in play. Never
+        # fabricate historical evidence by evaluating with newer/deleted weights.
+        if not game.get("analysis_enabled") or game["cursor"] < len(game["moves"]):
+            return missing_analysis(game)
+        snapshot = {
+            "cursor": game["cursor"],
+            "ply": state.ply,
+            "side_to_move": state.turn,
+            "position_key": key,
+            "created_at": now(),
+            "evaluations": [],
+            "hint": None,
+        }
+        agents = [
+            (side, player) for side, player in game["players"].items() if player["kind"] == "ai"
+        ]
+        if game.get("advisor"):
+            agents.append(("advisor", game["advisor"]))
+        for role, agent in agents:
+            configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
+            entry = {
+                "agent_id": role,
+                "role": role,
+                "name": agent["name"],
+                "profile_id": agent.get("profile_id"),
+                "profile_name": agent.get("profile_name"),
+                "model_name": agent.get("model_name"),
+                "config": configuration,
+                "source": "unavailable",
+                "win_probability": None,
+                "estimated": not bool(state.winner),
+                "calibrated": bool(state.winner),
+            }
+            runtime_config = dict(configuration)
+            if "seed" in game:
+                runtime_config["seed"] = (configuration["seed"] + state.ply) % 2**32
+            try:
+                # An exact terminal value does not need model weights and stays
+                # inspectable even if the completed game's model was removed.
+                if runtime_config.get("model_id") and not state.winner:
+                    with catalog_lock:
+                        available = next(
+                            (m for m in models_list() if m["id"] == runtime_config["model_id"]),
+                            None,
+                        )
+                        if available is None:
+                            raise FileNotFoundError("The recorded model is unavailable")
+                        runtime_config["model_path"] = str(model_file(available))
+                report = analyze_position(state, runtime_config)
+                defender_value = report["value"]
+                current_value = defender_value if state.turn == "defenders" else -defender_value
+                entry.update(
+                    report,
+                    value=defender_value,
+                    win_probability=max(0.0, min(1.0, (current_value + 1.0) / 2.0)),
+                    search_seed=runtime_config["seed"],
+                )
+                if role == "advisor" and report.get("best_move") is not None:
+                    snapshot["hint"] = {"agent_id": "advisor", "move": report["best_move"]}
+            except (OSError, HTTPException):
+                entry["unavailable_reason"] = "model_unavailable"
+            except (ValueError, RuntimeError):
+                entry["unavailable_reason"] = "evaluation_failed"
+            snapshot["evaluations"].append(entry)
+        try:
+            return store.save_game_analysis(game_id, request.version, snapshot)
+        except ConflictError as exc:
+            fail(str(exc), 409)
 
     @app.delete("/api/games/{game_id}")
     def delete_game(
@@ -611,8 +754,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         with catalog_lock:
             game = game_or_404(game_id, request.version)
             active = {player["id"] for player in store.players()}
-            for player in game["players"].values():
-                if player["kind"] == "human" and player.get("player_id") not in active:
+            for player in referenced_agents(game):
+                if player.get("kind") == "human" and player.get("player_id") not in active:
                     fail(
                         "Choose active players in a new game; a previous profile was deleted.", 409
                     )
@@ -624,13 +767,13 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     )
             previous_seeds = {game.get("seed")} | {
                 effective_ai_config(player["config"], player.get("profile_id"))["seed"]
-                for player in game["players"].values()
+                for player in referenced_agents(game)
                 if player["kind"] == "ai"
             }
             seed = secrets.randbits(32)
             while seed in previous_seeds:
                 seed = (seed + 1) % 2**32
-            for player in game["players"].values():
+            for player in referenced_agents(game):
                 if player["kind"] == "ai":
                     player["config"] = {
                         **effective_ai_config(player["config"], player.get("profile_id")),
@@ -647,6 +790,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 ended_at=None,
                 recorded_result=None,
                 seed=seed,
+                analysis_enabled=True,
             )
             store.create_game(game)
             return response(game)
@@ -746,6 +890,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     if player["kind"] == "ai"
                     else None
                 )
+                experiment_seed = config.pop("seed", None) if config is not None else None
                 identifier = (
                     player.get("player_id")
                     if player["kind"] == "human"
@@ -801,9 +946,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         "defenders_games": 0,
                         "average_game_length": 0,
                         "_plies": 0,
+                        "_seeds": set(),
                     },
                 )
                 item["games"] += 1
+                if experiment_seed is not None:
+                    item["_seeds"].add(experiment_seed)
                 item[f"{side}_games"] += 1
                 item["_plies"] += outcome["plies"]
                 item[
@@ -820,6 +968,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 win_rate=summary["wins"] / summary["games"],
                 loss_rate=summary["losses"] / summary["games"],
                 draw_rate=summary["draws"] / summary["games"],
+                seed_count=len(summary.pop("_seeds")),
             )
         for summary in by_ruleset.values():
             summary.update(
@@ -961,6 +1110,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
         return device_info()
 
+    @app.get("/api/training/presets")
+    def training_presets_route():
+        from .training_presets import training_presets
+
+        return training_presets()
+
     # Model helpers remain constrained to the registry root; clients never pass paths.
     def models_list() -> list[dict]:
         return registry().list()
@@ -993,7 +1148,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             if not recorded_outcome(game)["winner"]
             and any(
                 player.get("config", {}).get("model_id") == model_id
-                for player in game["players"].values()
+                for player in referenced_agents(game)
             )
         ]
 
@@ -1237,6 +1392,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "seed",
                 "device",
                 "mixed_precision",
+                "save_all_best",
                 "cpu_threads",
                 "resume",
                 "model_name",

@@ -50,7 +50,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 3:
+            if schema > 4:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -62,7 +62,15 @@ class Store:
                     data TEXT NOT NULL
                 )
             """)
-            connection.execute("PRAGMA user_version=3")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS game_analysis (
+                    game_id TEXT NOT NULL,
+                    position_key TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    PRIMARY KEY (game_id, position_key)
+                )
+            """)
+            connection.execute("PRAGMA user_version=4")
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -107,6 +115,36 @@ class Store:
             if cursor.rowcount != 1:
                 raise ConflictError("This game changed. Reload it before moving again.")
 
+    def game_analysis(self, game_id: str, position_key: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
+                (game_id, position_key),
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def save_game_analysis(self, game_id: str, expected_version: int, snapshot: dict) -> dict:
+        """Attach the first analysis without changing the gameplay version.
+
+        The writer lock and version check make deletion, replay seeks and moves
+        invalidate late computations. A duplicate computation returns the first
+        retained snapshot, never overwriting the historical estimate.
+        """
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT version FROM games WHERE id=?", (game_id,)).fetchone()
+            if row is None or row["version"] != expected_version:
+                raise ConflictError("This game changed. Reload it before analyzing again.")
+            connection.execute(
+                "INSERT OR IGNORE INTO game_analysis(game_id,position_key,data) VALUES(?,?,?)",
+                (game_id, snapshot["position_key"], json.dumps(snapshot, allow_nan=False)),
+            )
+            retained = connection.execute(
+                "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
+                (game_id, snapshot["position_key"]),
+            ).fetchone()
+            return json.loads(retained["data"])
+
     @contextmanager
     def discard_games(
         self, versions: dict[str, int], *, archived_model: dict | None = None
@@ -125,6 +163,7 @@ class Store:
                 )
                 if cursor.rowcount != 1:
                     raise ConflictError("This game changed. Reload it before deleting it.")
+                connection.execute("DELETE FROM game_analysis WHERE game_id=?", (game_id,))
             if archived_model is not None:
                 connection.execute(
                     "INSERT OR IGNORE INTO model_history(id,data) VALUES(?,?)",

@@ -75,3 +75,24 @@ unchanged. See `docs/PERSONALIZATION.md` for collection management and ranking r
 Four duplicate mobile worker checks remain intentionally skipped. The database
 remains at schema 3 with no migration. See `docs/designs/king-options.md` for the
 selected king and `docs/TOURNAMENTS.md` for round-robin scheduling.
+
+## Agent insight and a northern workshop (`v0.9.0`)
+
+- [x] Retain independent current-player AI estimates, provenance and replay snapshots
+- [x] Offer an optional advisor and show its searched legal move on the board
+- [x] Protect advisor model references and reject stale/branched analysis writes
+- [x] Remember the last successful game mode; default performance to most wins first
+- [x] Group equal AI settings across seeds while preserving individual game seeds
+- [x] Suggest the strongest compatible tournament model and distinguish equal names by iteration/architecture/ID
+- [x] Suggest editable mythological tournament names with reroll and duplicate avoidance
+- [x] Localize game, records, workshop, tournaments and rules in English/German
+- [x] Add independent wood color mode with northern motifs and preserved preferences
+- [x] Supply board-specific training plans and document network/learning tradeoffs
+- [x] Plot live retained learning history and optionally keep every strict new best model
+- [x] Pass 302 Python, 67 frontend unit and 24 real-API browser checks
+- [x] Verify actual running graph growth, CPU best-model retention and schema-4 startup preserving all seven games
+
+Four duplicate mobile worker checks remain intentionally skipped. Recommended
+plans and uncalibrated agent estimates do not establish stronger play. CUDA/MPS
+and long independent strength comparisons remain unverified. See `docs/ANALYSIS.md`
+and `docs/TRAINING_PLAN.md` for interpretation, scope and budgets.

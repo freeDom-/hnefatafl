@@ -1,0 +1,38 @@
+const appearance: Record<string, string> = {
+  'Appearance settings': 'Darstellungseinstellungen',
+  Appearance: 'Darstellung',
+  'A TABLE OF YOUR OWN': 'DEIN EIGENER SPIELTISCH',
+  'Make the table yours.': 'Gestalte deinen Spieltisch.',
+  'Close appearance settings': 'Darstellungseinstellungen schließen',
+  'Choose the light, the pieces and the battlefield. Your games stay just as you left them.':
+    'Wähle Beleuchtung, Figuren und Spielfeld. Deine Partien bleiben dabei erhalten.',
+  'Color mode': 'Farbmodus',
+  'Follow device': 'Wie auf dem Gerät',
+  'Light or dark with your device': 'Hell oder dunkel gemäß Geräteeinstellung',
+  Light: 'Hell',
+  'Parchment and daylight': 'Pergament und Tageslicht',
+  Dark: 'Dunkel',
+  'A quiet table after dusk': 'Ein ruhiger Spieltisch nach Einbruch der Nacht',
+  Wood: 'Holz',
+  'Timber, bronze and northern sagas': 'Holz, Bronze und nordische Sagen',
+  'Token theme': 'Figurendesign',
+  'Classic stones': 'Klassische Spielsteine',
+  'Smooth dark, ivory and gold pieces': 'Glatte Figuren in Dunkel, Elfenbein und Gold',
+  'Viking figures': 'Wikingerfiguren',
+  'Shield bearers and a crowned king': 'Schildträger und ein gekrönter König',
+  'Carved wood': 'Geschnitztes Holz',
+  'Weathered grain and hand-carved runes': 'Verwitterte Maserung und handgeschnitzte Runen',
+  'Board theme': 'Brettdesign',
+  'Golden oak': 'Goldene Eiche',
+  'Warm, familiar honeyed wood': 'Warmes, vertrautes Holz in Honigtönen',
+  'Old walnut': 'Alter Nussbaum',
+  'Deep timber with a worn bronze edge': 'Dunkles Holz mit abgenutztem Bronzerand',
+  'Fjord slate': 'Fjordschiefer',
+  'Cool stone, silver and northern blue': 'Kühler Stein, Silber und nordisches Blau',
+  'Your choices are saved on this device.': 'Deine Auswahl wird auf diesem Gerät gespeichert.',
+  'Your browser could not save these choices. They will apply for this visit.':
+    'Dein Browser konnte die Auswahl nicht speichern. Sie gilt für diesen Besuch.',
+  'Back to the table': 'Zurück zum Spieltisch',
+};
+
+export default appearance;

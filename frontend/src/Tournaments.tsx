@@ -4,6 +4,10 @@ import Board, { coordinate, Crown } from './Board';
 import RecordsConfirm from './RecordsConfirm';
 import RecordsParameters from './RecordsParameters';
 import { sortRulesets } from './sortRulesets';
+import { suggestTournamentName } from './mythologicalNames';
+import { selectStrongestModel } from './modelSelection';
+import { modelOptionLabel } from './modelLabel';
+import { getLocale, t, useI18n } from './i18n';
 import type { AIProfile, Game, Model, Ruleset } from './types';
 import type {
   Tournament,
@@ -15,8 +19,8 @@ import type {
 import './features.css';
 import './tournaments.css';
 
-const date = (value: string) =>
-  new Date(value).toLocaleDateString(undefined, {
+const date = (value: string, locale: string) =>
+  new Date(value).toLocaleDateString(locale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -27,25 +31,32 @@ const statusLabel: Record<Tournament['status'], string> = {
   cancelled: 'Stopped',
   failed: 'Interrupted',
 };
-const score = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(1));
+const score = (value: number) => value.toLocaleString(getLocale(), { maximumFractionDigits: 1 });
 const active = (tournament: Tournament) => tournament.status === 'running';
 const champion = (tournament: Tournament) => {
-  if (!tournament.result?.games.length) return 'The challenge is set';
+  if (!tournament.result?.games.length) return t('The challenge is set');
   const best = Math.max(...tournament.result.scores);
   const leaders = tournament.config.players.filter(
     (_, index) => tournament.result!.scores[index] === best,
   );
-  if (leaders.length === tournament.config.players.length) return 'Level on points';
+  if (leaders.length === tournament.config.players.length) return t('Level on points');
   if (leaders.length > 1)
-    return `${leaders.map((player) => player.name).join(' & ')} ${tournament.status === 'completed' ? 'finish level on points' : 'share the lead'}`;
-  return `${leaders[0].name} ${tournament.status === 'completed' ? 'wins on points' : 'leads on points'}`;
+    return t(
+      tournament.status === 'completed'
+        ? '{names} finish level on points'
+        : '{names} share the lead',
+      { names: leaders.map((player) => player.name).join(' & ') },
+    );
+  return t(tournament.status === 'completed' ? '{name} wins on points' : '{name} leads on points', {
+    name: leaders[0].name,
+  });
 };
 const defender = (match: TournamentGame) => match.defender_player ?? 1 - match.attacker_player;
 const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
-  if (!match.winner) return 'Move limit reached';
-  if (match.winner === 'draw') return 'Rule draw';
+  if (!match.winner) return t('Move limit reached');
+  if (match.winner === 'draw') return t('Rule draw');
   const winner = match.winner === 'attackers' ? match.attacker_player : defender(match);
-  return `${players[winner].name} wins`;
+  return t('{name} wins', { name: players[winner].name });
 };
 
 export default function Tournaments({
@@ -59,11 +70,13 @@ export default function Tournaments({
   models: Model[];
   onError: (message: string) => void;
 }) {
+  const { locale, language } = useI18n();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selected, setSelected] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [suggestedName, setSuggestedName] = useState('');
   const [deleting, setDeleting] = useState<Tournament | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,7 +89,19 @@ export default function Tournaments({
   const mutating = useRef(false);
   const mounted = useRef(true);
   const errorHandler = useRef(onError);
+  const previousNameSuggestion = useRef('');
   errorHandler.current = onError;
+
+  const openSetup = () => {
+    const next = suggestTournamentName(
+      [...tournaments.map((tournament) => tournament.name), previousNameSuggestion.current],
+      undefined,
+      language,
+    );
+    previousNameSuggestion.current = next;
+    setSuggestedName(next);
+    setNewOpen(true);
+  };
 
   const select = useCallback(async (id: string) => {
     const request = ++requestNumber.current;
@@ -201,37 +226,38 @@ export default function Tournaments({
     <>
       <section className="page-intro tournament-intro">
         <div>
-          <p className="eyebrow">A MEETING OF MINDS</p>
-          <h1>The tournament hall.</h1>
-          <p>Set your strategists against each other. Every result becomes part of their saga.</p>
+          <p className="eyebrow">{t('A MEETING OF MINDS')}</p>
+          <h1>{t('The tournament hall.')}</h1>
+          <p>
+            {t('Set your strategists against each other. Every result becomes part of their saga.')}
+          </p>
         </div>
-        <button
-          className="button primary"
-          onClick={() => setNewOpen(true)}
-          disabled={loading || running}
-        >
-          <span aria-hidden="true">＋</span> New tournament
+        <button className="button primary" onClick={openSetup} disabled={loading || running}>
+          <span aria-hidden="true">＋</span>
+          {t('New tournament')}
         </button>
       </section>
       {notice && (
         <p role="status" className="notice tournament-notice">
-          {notice}
+          {t(notice)}
         </p>
       )}
       <div className="tournament-layout">
-        <aside className="panel tournament-history" aria-label="Saved tournaments">
+        <aside className="panel tournament-history" aria-label={t('Saved tournaments')}>
           <div className="panel-title">
-            <h2>Your tournaments</h2>
+            <h2>{t('Your tournaments')}</h2>
             <span className="badge">{tournaments.length}</span>
           </div>
-          <p className="subtle">{completed} completed · saved on this server</p>
+          <p className="subtle">
+            {t('{count} completed · saved on this server', { count: completed })}
+          </p>
           {loading ? (
-            <p className="empty-copy">Opening the hall…</p>
+            <p className="empty-copy">{t('Opening the hall…')}</p>
           ) : !tournaments.length ? (
             <div className="tournament-history-empty">
               <span aria-hidden="true">ᛟ</span>
-              <p>Your first challenge awaits.</p>
-              <small>Saved tournaments will appear here.</small>
+              <p>{t('Your first challenge awaits.')}</p>
+              <small>{t('Saved tournaments will appear here.')}</small>
             </div>
           ) : (
             <div className="tournament-saved-list">
@@ -239,22 +265,22 @@ export default function Tournaments({
                 <button
                   key={tournament.id}
                   className={`tournament-saved ${selected?.id === tournament.id ? 'selected' : ''}`}
-                  aria-label={`View tournament ${tournament.name}`}
+                  aria-label={t('View tournament {name}', { name: tournament.name })}
                   aria-pressed={selected?.id === tournament.id}
                   onClick={() => void select(tournament.id)}
                 >
                   <span className={`tournament-status ${tournament.status}`}>
-                    {statusLabel[tournament.status]}
+                    {t(statusLabel[tournament.status])}
                   </span>
                   <strong>{tournament.name}</strong>
                   <small>
-                    {tournament.config.players.map((player) => player.name).join(' vs ')}
+                    {tournament.config.players.map((player) => player.name).join(` ${t('vs')} `)}
                   </small>
                   <span className="tournament-saved-meta">
-                    <small>{date(tournament.created_at)}</small>
+                    <small>{date(tournament.created_at, locale)}</small>
                     <small>
                       {tournament.progress.completed_games} / {tournament.progress.total_games}{' '}
-                      games
+                      {t('games')}
                     </small>
                   </span>
                 </button>
@@ -268,43 +294,50 @@ export default function Tournaments({
               <span className="tournament-emblem" aria-hidden="true">
                 <Crown />
               </span>
-              <p className="eyebrow">UP TO FOUR STRATEGISTS. EVERY PAIRING.</p>
-              <h2>Let the strongest ideas meet.</h2>
+              <p className="eyebrow">{t('UP TO FOUR STRATEGISTS. EVERY PAIRING.')}</p>
+              <h2>{t('Let the strongest ideas meet.')}</h2>
               <p>
-                Compare algorithms, search settings or trained models in a balanced series. Every
-                pair meets on both sides of the board.
+                {t(
+                  'Compare algorithms, search settings or trained models in a balanced series. Every pair meets on both sides of the board.',
+                )}
               </p>
               <div className="tournament-promise">
                 <span>
-                  <strong>01</strong> Choose your rivals
+                  <strong>01</strong>
+                  {t('Choose your rivals')}
                 </span>
                 <span>
-                  <strong>02</strong> Set the battlefields
+                  <strong>02</strong>
+                  {t('Set the battlefields')}
                 </span>
                 <span>
-                  <strong>03</strong> Explore every result
+                  <strong>03</strong>
+                  {t('Explore every result')}
                 </span>
               </div>
               <button
                 className="button secondary"
-                onClick={() => setNewOpen(true)}
+                onClick={openSetup}
                 disabled={loading || running}
               >
-                Set up a tournament
+                {t('Set up a tournament')}
               </button>
-              <small>Saved automatically. Come back whenever you like.</small>
+              <small>{t('Saved automatically. Come back whenever you like.')}</small>
             </section>
           ) : (
-            <section className="panel tournament-detail" aria-label="Tournament results">
+            <section className="panel tournament-detail" aria-label={t('Tournament results')}>
               <div className="tournament-detail-heading">
                 <div>
                   <span className={`tournament-status ${selected.status}`}>
-                    {statusLabel[selected.status]}
+                    {t(statusLabel[selected.status])}
                   </span>
                   <h2>{selected.name}</h2>
                   <p className="subtle">
-                    {date(selected.created_at)} · {selected.config.games} games per pairing per
-                    battlefield · seed {selected.config.seed}
+                    {date(selected.created_at, locale)} ·{' '}
+                    {t('{games} games per pairing per battlefield · seed {seed}', {
+                      games: selected.config.games,
+                      seed: selected.config.seed,
+                    })}
                   </p>
                 </div>
                 <div className="tournament-actions">
@@ -314,14 +347,14 @@ export default function Tournaments({
                       disabled={busy || detailLoading}
                       onClick={() => void stop()}
                     >
-                      {busy ? 'Stopping…' : 'Stop tournament'}
+                      {busy ? t('Stopping…') : t('Stop tournament')}
                     </button>
                   ) : (
                     <button
                       type="button"
                       className="icon-button danger-text"
-                      aria-label={`Delete tournament ${selected.name}`}
-                      title="Delete tournament"
+                      aria-label={t('Delete tournament {name}', { name: selected.name })}
+                      title={t('Delete tournament')}
                       disabled={busy || detailLoading}
                       onClick={() => {
                         setDeleting(selected);
@@ -335,30 +368,32 @@ export default function Tournaments({
               </div>
               {selected.error && (
                 <p role="alert" className="form-error">
-                  {selected.error}
+                  {t(selected.error)}
                 </p>
               )}
               <div className="tournament-progress">
                 <div>
                   <strong>
-                    {selected.progress.completed_games} of {selected.progress.total_games} games
-                    saved
+                    {t('{done} of {total} games saved', {
+                      done: selected.progress.completed_games,
+                      total: selected.progress.total_games,
+                    })}
                   </strong>
                   <span>
                     {active(selected)
-                      ? 'Playing the next match…'
-                      : `${selected.progress.completed_games === selected.progress.total_games ? 'Series finished' : 'Partial series saved'}`}
+                      ? t('Playing the next match…')
+                      : `${selected.progress.completed_games === selected.progress.total_games ? t('Series finished') : t('Partial series saved')}`}
                   </span>
                 </div>
                 <progress
-                  aria-label="Tournament progress"
+                  aria-label={t('Tournament progress')}
                   max={selected.progress.total_games}
                   value={selected.progress.completed_games}
                 />
               </div>
               <div className="tournament-standings">
                 <div className="tournament-section-title">
-                  <h3>Standings</h3>
+                  <h3>{t('Standings')}</h3>
                   <span>{champion(selected)}</span>
                 </div>
                 <div className="tournament-opponents">
@@ -372,19 +407,21 @@ export default function Tournaments({
                             {['ᛏ', 'ᛉ', 'ᚱ', 'ᛟ'][index]}
                           </span>
                           <div>
-                            <small>OPPONENT {index + 1}</small>
+                            <small>{t('OPPONENT {number}', { number: index + 1 })}</small>
                             <h3>{player.name}</h3>
                             <p>
                               {player.model_name ||
-                                player.profile_name ||
-                                profiles.find((profile) => profile.id === player.profile_id)
-                                  ?.name ||
-                                String(player.config.algorithm)}
+                                t(
+                                  player.profile_name ||
+                                    profiles.find((profile) => profile.id === player.profile_id)
+                                      ?.name ||
+                                    String(player.config.algorithm),
+                                )}
                             </p>
                           </div>
                           <strong className="tournament-points">
                             {score(points)}
-                            <small>points</small>
+                            <small>{t('points')}</small>
                           </strong>
                         </div>
                         <div className="tournament-score-track" aria-hidden="true">
@@ -396,25 +433,25 @@ export default function Tournaments({
                         </div>
                         <dl className="tournament-score-stats">
                           <div>
-                            <dt>Wins</dt>
+                            <dt>{t('Wins')}</dt>
                             <dd>{standing?.wins ?? 0}</dd>
                           </div>
                           <div>
-                            <dt>Draws</dt>
+                            <dt>{t('Draws')}</dt>
                             <dd>{standing?.draws ?? 0}</dd>
                           </div>
                           <div>
-                            <dt>Losses</dt>
+                            <dt>{t('Losses')}</dt>
                             <dd>{standing?.losses ?? 0}</dd>
                           </div>
                           <div>
-                            <dt>Unfinished</dt>
+                            <dt>{t('Unfinished')}</dt>
                             <dd>{standing?.truncated ?? 0}</dd>
                           </div>
                         </dl>
                         <RecordsParameters
                           config={player.config}
-                          label={`Opponent ${index + 1} parameters`}
+                          label={t('Opponent {number} parameters', { number: index + 1 })}
                           variantId={player.variant_id}
                         />
                       </article>
@@ -422,28 +459,41 @@ export default function Tournaments({
                   })}
                 </div>
                 <p className="tournament-scoring">
-                  Win = 1 point · Rule draw = ½ point · Move limit reached = unfinished, 0 points.
-                  Stopped games still in progress are discarded.
+                  {t(
+                    'Win = 1 point · Rule draw = ½ point · Move limit reached = unfinished, 0 points. Stopped games still in progress are discarded.',
+                  )}
                 </p>
               </div>
               {selected.result && (
                 <>
                   <div className="tournament-summary">
                     <span>
-                      <strong>{selected.result.average_game_length.toFixed(1)}</strong> average
-                      moves
+                      <strong>
+                        {selected.result.average_game_length.toLocaleString(locale, {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: 1,
+                        })}
+                      </strong>
+                      {t('average moves')}
                     </span>
                     <span>
-                      <strong>{selected.result.average_decision_time.toFixed(3)}s</strong> per
-                      decision
+                      <strong>
+                        {selected.result.average_decision_time.toLocaleString(locale, {
+                          minimumFractionDigits: 3,
+                          maximumFractionDigits: 3,
+                        })}
+                        {t('s')}
+                      </strong>
+                      {t('per decision')}
                     </span>
                     <span>
-                      <strong>{selected.result.truncated}</strong> unfinished
+                      <strong>{selected.result.truncated}</strong>
+                      {t('unfinished')}
                     </span>
                   </div>
                   <div className="tournament-section-title">
-                    <h3>Battlefield results</h3>
-                    <span>Wins by opponent</span>
+                    <h3>{t('Battlefield results')}</h3>
+                    <span>{t('Wins by opponent')}</span>
                   </div>
                   <div className="tournament-battlefields">
                     {sortRulesets(rulesets)
@@ -457,18 +507,25 @@ export default function Tournaments({
                               <small>× {rule.size}</small>
                             </span>
                             <div>
-                              <strong>{rule.name}</strong>
-                              <small>{tally?.games ?? 0} games played</small>
+                              <strong>{t(rule.name)}</strong>
+                              <small>
+                                {t('{count} games played', { count: tally?.games ?? 0 })}
+                              </small>
                               <ul className="tournament-battlefield-wins">
                                 {selected.config.players.map((player, index) => (
                                   <li key={index}>
                                     <span>{player.name}</span>
-                                    <strong>{tally?.wins[index] ?? 0} wins</strong>
+                                    <strong>
+                                      {t('{count} wins', { count: tally?.wins[index] ?? 0 })}
+                                    </strong>
                                   </li>
                                 ))}
                               </ul>
                               <p>
-                                {tally?.draws ?? 0} draws · {tally?.truncated ?? 0} unfinished
+                                {t('{draws} draws · {unfinished} unfinished', {
+                                  draws: tally?.draws ?? 0,
+                                  unfinished: tally?.truncated ?? 0,
+                                })}
                               </p>
                             </div>
                           </article>
@@ -478,14 +535,18 @@ export default function Tournaments({
                 </>
               )}
               <div className="tournament-section-title">
-                <h3>Match log</h3>
-                <span>{selected.result?.games.length ?? 0} recorded games</span>
+                <h3>{t('Match log')}</h3>
+                <span>
+                  {t('{count} recorded games', { count: selected.result?.games.length ?? 0 })}
+                </span>
               </div>
               {!selected.result?.games.length ? (
                 <p className="empty-copy">
                   {active(selected)
-                    ? 'The first result will appear when its game finishes. You can leave this page; the tournament will keep running.'
-                    : 'No complete game records were saved for this series.'}
+                    ? t(
+                        'The first result will appear when its game finishes. You can leave this page; the tournament will keep running.',
+                      )
+                    : t('No complete game records were saved for this series.')}
                 </p>
               ) : (
                 <div className="tournament-matches">
@@ -497,29 +558,37 @@ export default function Tournaments({
                       <div>
                         <strong>{outcome(match, selected.config.players)}</strong>
                         <small>
-                          {rulesets.find((rule) => rule.id === match.ruleset)?.name ??
-                            match.ruleset}{' '}
-                          · {match.plies} moves · {match.average_decision_time.toFixed(3)}s /
-                          decision
+                          {t(
+                            rulesets.find((rule) => rule.id === match.ruleset)?.name ??
+                              match.ruleset,
+                          )}{' '}
+                          ·{' '}
+                          {t('{moves} moves · {seconds}s / decision', {
+                            moves: match.plies,
+                            seconds: match.average_decision_time.toLocaleString(locale, {
+                              minimumFractionDigits: 3,
+                              maximumFractionDigits: 3,
+                            }),
+                          })}
                         </small>
                         <p>
                           <span className="mini-piece black" aria-hidden="true" />
                           {selected.config.players[match.attacker_player].name}{' '}
-                          <span className="tournament-versus">vs</span>{' '}
+                          <span className="tournament-versus">{t('vs')}</span>{' '}
                           <span className="mini-piece ivory" aria-hidden="true" />
                           {selected.config.players[defender(match)].name}
                         </p>
                         <small className="tournament-match-reason">
-                          {match.reason.replaceAll('_', ' ')}
+                          {t(match.reason.replaceAll('_', ' '))}
                         </small>
                       </div>
                       <button
                         className="button secondary small"
-                        aria-label={`Replay game ${index + 1}`}
+                        aria-label={t('Replay game {number}', { number: index + 1 })}
                         disabled={replaying !== null || detailLoading}
                         onClick={() => void openReplay(index)}
                       >
-                        {replaying === index ? 'Loading…' : 'Replay ↗'}
+                        {replaying === index ? t('Loading…') : t('Replay ↗')}
                       </button>
                     </article>
                   ))}
@@ -531,6 +600,11 @@ export default function Tournaments({
       </div>
       {newOpen && (
         <TournamentSetup
+          initialName={suggestedName}
+          existingNames={tournaments.map((tournament) => tournament.name)}
+          onSuggestedName={(name) => {
+            previousNameSuggestion.current = name;
+          }}
           rulesets={rulesets}
           profiles={profiles}
           models={models}
@@ -549,15 +623,17 @@ export default function Tournaments({
       )}
       {deleting && (
         <RecordsConfirm
-          title={`Delete tournament ${deleting.name}?`}
+          title={t('Delete tournament {name}?', { name: deleting.name })}
           busy={busy}
-          error={deleteError}
+          error={t(deleteError)}
           onCancel={() => setDeleting(null)}
           onConfirm={() => void remove()}
         >
           <p>
-            This permanently removes <strong>{deleting.name}</strong>, its results and saved
-            tournament replays. Your models, training runs and other saved games are kept.
+            {t(
+              'This permanently removes {name}, its results and saved tournament replays. Your models, training runs and other saved games are kept.',
+              { name: deleting.name },
+            )}
           </p>
         </RecordsConfirm>
       )}
@@ -575,7 +651,7 @@ export default function Tournaments({
   );
 }
 
-const defaultPlayers = (): TournamentPlayer[] => [
+const fallbackPlayers = (): TournamentPlayer[] => [
   {
     name: 'Shield bearer',
     profile_id: 'baseline',
@@ -588,28 +664,60 @@ const defaultPlayers = (): TournamentPlayer[] => [
   },
 ];
 
+function recommendedPlayer(
+  models: Model[],
+  profiles: AIProfile[],
+  ruleset: string | undefined,
+  fallback: TournamentPlayer,
+): TournamentPlayer {
+  const best = ruleset ? selectStrongestModel(models, ruleset)?.model : undefined;
+  if (!best) return fallback;
+  const profile = profiles.find((candidate) => candidate.algorithm === 'neural');
+  return {
+    name: best.name,
+    profile_id: profile?.id ?? 'neural',
+    config: {
+      ...profile?.parameters,
+      algorithm: 'neural',
+      model_id: best.id,
+      time_limit: 0.1,
+    },
+  };
+}
+
 function TournamentSetup({
+  initialName,
+  existingNames,
+  onSuggestedName,
   rulesets,
   profiles,
   models,
   onClose,
   onCreated,
 }: {
+  initialName: string;
+  existingNames: string[];
+  onSuggestedName: (name: string) => void;
   rulesets: Ruleset[];
   profiles: AIProfile[];
   models: Model[];
   onClose: () => void;
   onCreated: (tournament: Tournament) => void;
 }) {
+  const { locale, language } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
-  const [name, setName] = useState('The Raven’s Challenge');
-  const [config, setConfig] = useState<TournamentConfig>({
-    players: defaultPlayers(),
+  const [name, setName] = useState(initialName);
+  const previousSuggestion = useRef(initialName);
+  const manualOpponents = useRef<boolean[]>([false, false]);
+  const [config, setConfig] = useState<TournamentConfig>(() => ({
+    players: fallbackPlayers().map((player) =>
+      recommendedPlayer(models, profiles, 'brandubh', player),
+    ),
     rulesets: ['brandubh'],
     games: 2,
     max_plies: 150,
     seed: 42,
-  });
+  }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -617,6 +725,32 @@ function TournamentSetup({
     dialog?.showModal();
     return () => dialog?.close();
   }, []);
+  const battlefieldKey = config.rulesets.join(',');
+  useEffect(() => {
+    const ruleset = config.rulesets.length === 1 ? config.rulesets[0] : undefined;
+    setConfig((previous) => {
+      let changed = false;
+      const players = previous.players.map((player, index) => {
+        if (manualOpponents.current[index]) return player;
+        const fallback = fallbackPlayers()[index % 2];
+        const next = recommendedPlayer(models, profiles, ruleset, fallback);
+        if (
+          player.config.model_id === next.config.model_id &&
+          player.config.algorithm === next.config.algorithm
+        )
+          return player;
+        changed = true;
+        const previousModel = models.find((model) => model.id === player.config.model_id);
+        const previousProfile = profiles.find((profile) => profile.id === player.profile_id);
+        const keepName =
+          player.name !== previousModel?.name &&
+          player.name !== previousProfile?.name &&
+          !['Shield bearer', 'Jarl'].includes(player.name);
+        return { ...next, name: keepName ? player.name : next.name };
+      });
+      return changed ? { ...previous, players } : previous;
+    });
+  }, [models, profiles, battlefieldKey]);
   const updatePlayer = (index: number, changes: Partial<TournamentPlayer>) =>
     setConfig((previous) => ({
       ...previous,
@@ -624,9 +758,13 @@ function TournamentSetup({
         i === index ? { ...player, ...changes } : player,
       ),
     }));
-  const parameter = (index: number, key: string, value: string | number) =>
+  const parameter = (index: number, key: string, value: string | number) => {
+    manualOpponents.current[index] = true;
     updatePlayer(index, { config: { ...config.players[index].config, [key]: value } });
-  const addPlayer = () =>
+  };
+  const addPlayer = () => {
+    if (config.players.length >= 4) return;
+    manualOpponents.current.push(false);
     setConfig((previous) => {
       if (previous.players.length >= 4) return previous;
       let suffix = previous.players.length + 1;
@@ -635,15 +773,22 @@ function TournamentSetup({
         ...previous,
         players: [
           ...previous.players,
-          {
-            name: `Strategist ${suffix}`,
-            profile_id: 'baseline',
-            config: { algorithm: 'baseline', time_limit: 0.1 },
-          },
+          recommendedPlayer(
+            models,
+            profiles,
+            previous.rulesets.length === 1 ? previous.rulesets[0] : undefined,
+            {
+              name: `Strategist ${suffix}`,
+              profile_id: 'baseline',
+              config: { algorithm: 'baseline', time_limit: 0.1 },
+            },
+          ),
         ],
       };
     });
-  const removePlayer = (index: number) =>
+  };
+  const removePlayer = (index: number) => {
+    if (config.players.length > 2) manualOpponents.current.splice(index, 1);
     setConfig((previous) =>
       previous.players.length <= 2
         ? previous
@@ -652,23 +797,35 @@ function TournamentSetup({
             players: previous.players.filter((_, playerIndex) => playerIndex !== index),
           },
     );
+  };
   const changeProfile = (index: number, id: string) => {
     const profile = profiles.find((item) => item.id === id);
     if (!profile) return;
+    manualOpponents.current[index] = true;
     const previous = config.players[index];
     const previousProfile = profiles.find((item) => item.id === previous.profile_id);
     const keepName =
       previous.name !== previousProfile?.name &&
+      previous.name !== models.find((model) => model.id === previous.config.model_id)?.name &&
       previous.name !== (index ? 'Jarl' : 'Shield bearer');
     updatePlayer(index, {
       profile_id: id,
       name: keepName ? previous.name : profile.name,
-      config: { ...profile.parameters, algorithm: profile.algorithm, time_limit: 0.1 },
+      config: {
+        ...profile.parameters,
+        algorithm: profile.algorithm,
+        time_limit: 0.1,
+        ...(profile.algorithm === 'neural' && config.rulesets.length === 1
+          ? { model_id: selectStrongestModel(models, config.rulesets[0])?.model.id ?? '' }
+          : {}),
+      },
     });
   };
   const compatible = models.filter(
     (model) => config.rulesets.length === 1 && config.rulesets[0] === model.ruleset,
   );
+  const recommendation =
+    config.rulesets.length === 1 ? selectStrongestModel(models, config.rulesets[0]) : null;
   const incompatibleModel = config.players.some(
     (player) =>
       player.config.algorithm === 'neural' &&
@@ -690,7 +847,7 @@ function TournamentSetup({
     <dialog
       ref={ref}
       className="modal tournament-setup"
-      aria-label="Set up a tournament"
+      aria-label={t('Set up a tournament')}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
@@ -699,13 +856,13 @@ function TournamentSetup({
       <form onSubmit={(event) => void submit(event)}>
         <div className="modal-top">
           <div>
-            <p className="eyebrow">A NEW CHALLENGE</p>
-            <h2>Set up a tournament</h2>
+            <p className="eyebrow">{t('A NEW CHALLENGE')}</p>
+            <h2>{t('Set up a tournament')}</h2>
           </div>
           <button
             type="button"
             className="icon-button"
-            aria-label="Close tournament setup"
+            aria-label={t('Close tournament setup')}
             onClick={onClose}
             disabled={busy}
           >
@@ -713,26 +870,49 @@ function TournamentSetup({
           </button>
         </div>
         <p className="tournament-setup-copy">
-          Compare two to four opponents in a round-robin series. Every pair plays an equal number of
-          games as attackers and defenders.
+          {t(
+            'Compare two to four opponents in a round-robin series. Every pair plays an equal number of games as attackers and defenders.',
+          )}
         </p>
-        <label>
-          Tournament name
-          <input
-            required
-            maxLength={80}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
+        <div className="name-suggestion-field">
+          <label htmlFor="tournament-name">{t('Tournament name')}</label>
+          <div className="name-input-group">
+            <input
+              id="tournament-name"
+              required
+              maxLength={80}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t('Suggest tournament name')}
+              title={t('Suggest a mythological name')}
+              disabled={busy}
+              onClick={() => {
+                const next = suggestTournamentName(
+                  [...existingNames, name, previousSuggestion.current],
+                  undefined,
+                  language,
+                );
+                previousSuggestion.current = next;
+                setName(next);
+                onSuggestedName(next);
+              }}
+            >
+              ↻
+            </button>
+          </div>
+        </div>
         <fieldset className="tournament-fields">
-          <legend>Battlefields</legend>
+          <legend>{t('Battlefields')}</legend>
           <div className="tournament-rulesets">
             {sortRulesets(rulesets).map((rule) => (
               <label className={config.rulesets.includes(rule.id) ? 'chosen' : ''} key={rule.id}>
                 <input
                   type="checkbox"
-                  aria-label={`${rule.name} ${rule.size} × ${rule.size}`}
+                  aria-label={`${t(rule.name)} ${rule.size} × ${rule.size}`}
                   checked={config.rulesets.includes(rule.id)}
                   onChange={(event) =>
                     setConfig((previous) => ({
@@ -743,7 +923,7 @@ function TournamentSetup({
                     }))
                   }
                 />
-                <strong>{rule.name}</strong>
+                <strong>{t(rule.name)}</strong>
                 <small>
                   {rule.size} × {rule.size}
                 </small>
@@ -753,7 +933,7 @@ function TournamentSetup({
         </fieldset>
         <div className="tournament-setup-opponents">
           {config.players.map((player, index) => {
-            const prefix = `Opponent ${index + 1}`;
+            const prefix = t('Opponent {number}', { number: index + 1 });
             const algorithm = player.config.algorithm;
             const field = (
               key: string,
@@ -764,10 +944,10 @@ function TournamentSetup({
               fallback = minimum,
             ) => (
               <label key={key}>
-                {label}
+                {t(label)}
                 <input
                   type="number"
-                  aria-label={`${prefix} ${label.toLowerCase()}`}
+                  aria-label={`${prefix} ${t(label).toLocaleLowerCase(locale)}`}
                   min={minimum}
                   max={maximum}
                   step={step}
@@ -784,7 +964,7 @@ function TournamentSetup({
                   <button
                     type="button"
                     className="icon-button tournament-remove-opponent"
-                    aria-label={`Remove ${prefix.toLowerCase()}`}
+                    aria-label={t('Remove opponent {number}', { number: index + 1 })}
                     disabled={busy}
                     onClick={() => removePlayer(index)}
                   >
@@ -792,9 +972,9 @@ function TournamentSetup({
                   </button>
                 )}
                 <label>
-                  Name
+                  {t('Name')}
                   <input
-                    aria-label={`${prefix} name`}
+                    aria-label={`${prefix} ${t('name')}`}
                     maxLength={80}
                     required
                     value={player.name}
@@ -802,41 +982,65 @@ function TournamentSetup({
                   />
                 </label>
                 <label>
-                  Profile
+                  {t('Profile')}
                   <select
-                    aria-label={`${prefix} profile`}
+                    aria-label={`${prefix} ${t('profile')}`}
                     value={player.profile_id}
                     onChange={(event) => changeProfile(index, event.target.value)}
                   >
                     {profiles.map((profile) => (
                       <option value={profile.id} key={profile.id}>
-                        {profile.name}
+                        {t(profile.name)}
                       </option>
                     ))}
                   </select>
                 </label>
                 {algorithm === 'neural' && (
                   <label>
-                    Trained model
+                    {t('Trained model')}
                     <select
-                      aria-label={`${prefix} trained model`}
+                      aria-label={`${prefix} ${t('trained model')}`}
                       required
                       value={String(player.config.model_id ?? '')}
-                      onChange={(event) => parameter(index, 'model_id', event.target.value)}
+                      onChange={(event) => {
+                        manualOpponents.current[index] = true;
+                        parameter(index, 'model_id', event.target.value);
+                      }}
                     >
-                      <option value="">Select a compatible model</option>
+                      <option value="">{t('Select a compatible model')}</option>
                       {compatible.map((model) => (
                         <option value={model.id} key={model.id}>
-                          {model.name}
+                          {modelOptionLabel(model, t)}
                         </option>
                       ))}
                     </select>
-                    <small>Trained models require one matching battlefield.</small>
+                    <small>{t('Trained models require one matching battlefield.')}</small>
+                    {recommendation &&
+                      player.config.model_id === recommendation.model.id &&
+                      !manualOpponents.current[index] && (
+                        <small className="model-recommendation">
+                          {recommendation.basis === 'evaluation'
+                            ? t(
+                                'Best measured model selected: {name} ({score}% across {games} baseline games).',
+                                {
+                                  name: recommendation.model.name,
+                                  score: ((recommendation.score ?? 0) * 100).toLocaleString(
+                                    locale,
+                                    { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+                                  ),
+                                  games: recommendation.games,
+                                },
+                              )
+                            : t('No comparable evaluation; latest model selected: {name}.', {
+                                name: recommendation.model.name,
+                              })}
+                        </small>
+                      )}
                   </label>
                 )}
                 {field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
                 <details className="tournament-advanced">
-                  <summary>Search parameters</summary>
+                  <summary>{t('Search parameters')}</summary>
                   <div className="form-grid">
                     {algorithm === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
                     {['mcts', 'neural'].includes(String(algorithm)) && (
@@ -850,7 +1054,7 @@ function TournamentSetup({
                     )}
                     {algorithm === 'baseline' && (
                       <p className="subtle">
-                        A tactical heuristic with no additional search controls.
+                        {t('A tactical heuristic with no additional search controls.')}
                       </p>
                     )}
                   </div>
@@ -860,22 +1064,26 @@ function TournamentSetup({
           })}
         </div>
         <div className="tournament-add-opponent">
-          <span>{config.players.length} of 4 opponents · every pairing swaps sides</span>
+          <span>
+            {t('{count} of 4 opponents · every pairing swaps sides', {
+              count: config.players.length,
+            })}
+          </span>
           <button
             type="button"
             className="button secondary small"
             onClick={addPlayer}
             disabled={busy || config.players.length >= 4}
           >
-            Add opponent
+            {t('Add opponent')}
           </button>
         </div>
         <div className="form-grid tournament-run-settings">
           <label>
-            Games per battlefield
+            {t('Games per battlefield')}
             <input
               type="number"
-              aria-label="Games per battlefield"
+              aria-label={t('Games per battlefield')}
               aria-describedby="tournament-games-help"
               min={2}
               max={100}
@@ -888,7 +1096,7 @@ function TournamentSetup({
             />
           </label>
           <label>
-            Move limit per game
+            {t('Move limit per game')}
             <input
               type="number"
               min={1}
@@ -901,7 +1109,7 @@ function TournamentSetup({
             />
           </label>
           <label>
-            Tournament seed
+            {t('Tournament seed')}
             <input
               type="number"
               min={0}
@@ -921,36 +1129,38 @@ function TournamentSetup({
                 2}
             </strong>
             <span>
-              games across {(config.players.length * (config.players.length - 1)) / 2} pairings
+              {t('games across {count} pairings', {
+                count: (config.players.length * (config.players.length - 1)) / 2,
+              })}
             </span>
           </div>
         </div>
         <p id="tournament-games-help" className="tournament-scoring">
-          The game count applies to each pairing on every selected battlefield. Use an even count to
-          balance sides. The tournament seed controls all opponents’ game and move seeds. Tight time
-          limits can vary with hardware. Unfinished games score no points.
+          {t(
+            'The game count applies to each pairing on every selected battlefield. Use an even count to balance sides. The tournament seed controls all opponents’ game and move seeds. Tight time limits can vary with hardware. Unfinished games score no points.',
+          )}
         </p>
         {(!config.rulesets.length || incompatibleModel) && (
           <p className="form-error">
             {!config.rulesets.length
-              ? 'Choose at least one battlefield.'
-              : 'Choose a compatible trained model and its single matching battlefield.'}
+              ? t('Choose at least one battlefield.')
+              : t('Choose a compatible trained model and its single matching battlefield.')}
           </p>
         )}
         {error && (
           <p className="form-error" role="alert">
-            {error}
+            {t(error)}
           </p>
         )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button
             className="button primary"
             disabled={busy || !name.trim() || !config.rulesets.length || incompatibleModel}
           >
-            {busy ? 'Starting…' : 'Start tournament'}
+            {busy ? t('Starting…') : t('Start tournament')}
           </button>
         </div>
       </form>
@@ -971,6 +1181,7 @@ function TournamentPlayback({
   rulesets: Ruleset[];
   onClose: () => void;
 }) {
+  useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   const [cursor, setCursor] = useState(0);
   useEffect(() => {
@@ -1007,7 +1218,7 @@ function TournamentPlayback({
     <dialog
       ref={ref}
       className="modal tournament-replay"
-      aria-label={`Replay game ${index + 1}`}
+      aria-label={t('Replay game {number}', { number: index + 1 })}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -1015,34 +1226,37 @@ function TournamentPlayback({
     >
       <div className="modal-top">
         <div>
-          <p className="eyebrow">SAVED TOURNAMENT GAME</p>
+          <p className="eyebrow">{t('SAVED TOURNAMENT GAME')}</p>
           <h2>
-            Game {index + 1} ·{' '}
-            {rulesets.find((rule) => rule.id === match.ruleset)?.name ?? match.ruleset}
+            {t('Game {number}', { number: index + 1 })} ·{' '}
+            {t(rulesets.find((rule) => rule.id === match.ruleset)?.name ?? match.ruleset)}
           </h2>
         </div>
         <button
           type="button"
           className="icon-button"
-          aria-label="Close tournament replay"
+          aria-label={t('Close tournament replay')}
           onClick={onClose}
         >
           ×
         </button>
       </div>
       <p className="tournament-replay-result">
-        {outcome(match, tournament.config.players)} · {match.reason.replaceAll('_', ' ')}
+        {outcome(match, tournament.config.players)} · {t(match.reason.replaceAll('_', ' '))}
       </p>
       <p className="tournament-replay-players">
-        {tournament.config.players[match.attacker_player].name} · Attackers{' '}
-        <span aria-hidden="true">vs</span> {tournament.config.players[defender(match)].name} ·
-        Defenders
+        {tournament.config.players[match.attacker_player].name}
+        {' · '}
+        {t('Attackers')} <span aria-hidden="true">{t('vs')}</span>{' '}
+        {tournament.config.players[defender(match)].name}
+        {' · '}
+        {t('Defenders')}
       </p>
       <Board game={board} selected={null} onSelect={() => undefined} disabled />
       <div className="tournament-replay-controls">
         <button
           className="icon-button"
-          aria-label="First tournament move"
+          aria-label={t('First tournament move')}
           onClick={() => setCursor(0)}
           disabled={!cursor}
         >
@@ -1050,18 +1264,18 @@ function TournamentPlayback({
         </button>
         <button
           className="icon-button"
-          aria-label="Previous tournament move"
+          aria-label={t('Previous tournament move')}
           onClick={() => setCursor((value) => value - 1)}
           disabled={!cursor}
         >
           ←
         </button>
         <span aria-live="polite">
-          Move {cursor} / {match.plies}
+          {t('Move {current} / {total}', { current: cursor, total: match.plies })}
         </span>
         <button
           className="icon-button"
-          aria-label="Next tournament move"
+          aria-label={t('Next tournament move')}
           onClick={() => setCursor((value) => value + 1)}
           disabled={cursor >= data.states.length - 1}
         >
@@ -1069,7 +1283,7 @@ function TournamentPlayback({
         </button>
         <button
           className="icon-button"
-          aria-label="Last tournament move"
+          aria-label={t('Last tournament move')}
           onClick={() => setCursor(data.states.length - 1)}
           disabled={cursor >= data.states.length - 1}
         >
@@ -1077,7 +1291,7 @@ function TournamentPlayback({
         </button>
       </div>
       <label className="tournament-replay-range">
-        Replay position
+        {t('Replay position')}
         <input
           type="range"
           min={0}
@@ -1089,13 +1303,13 @@ function TournamentPlayback({
       <p className="subtle">
         {cursor
           ? `${coordinate(match.moves[cursor - 1].source, size)} → ${coordinate(match.moves[cursor - 1].target, size)}`
-          : 'Starting position'}{' '}
+          : t('Starting position')}{' '}
         ·{' '}
         {state.winner
           ? state.winner === 'draw'
-            ? 'Rule draw'
-            : `${state.winner} win`
-          : `${state.turn} to move`}
+            ? t('Rule draw')
+            : t('{side} win', { side: t(state.winner) })
+          : t('{side} to move', { side: t(state.turn) })}
       </p>
     </dialog>
   );

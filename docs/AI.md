@@ -97,11 +97,20 @@ traditional opponents.
 ## Recorded configurations
 
 The Hall of records separates effective AI configurations, including relevant search
-budgets, depth, exploration, temperature, random seed, evaluation and model identity.
-Expand an AI performance row or recorded game's parameter details to inspect these
+budgets, depth, exploration, temperature, evaluation and model identity. Games
+with otherwise equal agents share a row across random seeds; each game retains
+its own seed. Open an AI performance row's parameter dialog or a recorded game's details to inspect these
 settings. Equivalent omitted/explicit defaults group together, and unrelated stale
 controls do not split the same opponent. Historical explicit-algorithm configurations
 retain the engine defaults they originally used. See [PERSONALIZATION.md](PERSONALIZATION.md).
+
+## Position evaluations and advice
+
+The game interface saves each playing agent's estimate for the current player,
+and an optional advisor can highlight its best searched legal move. Recorded
+estimates remain available during replay. See [ANALYSIS.md](ANALYSIS.md) for
+sources, perspective, draw handling and persistence. These are uncalibrated
+agent assessments rather than measured probabilities of future wins.
 
 ## Extending the player registry
 

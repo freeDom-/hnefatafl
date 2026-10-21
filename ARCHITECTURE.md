@@ -106,3 +106,15 @@ and averages; player/history text searches remain independent. AI parameter dial
 share the same full-value renderer as recorded-game details while keeping table rows
 compact. New browser preferences default to carved wood and walnut; valid saved
 preferences remain authoritative.
+
+Schema 4 stores immutable agent assessments separately from game JSON, keyed by
+game ID and a digest of the full rules state. Analysis saves use gameplay version
+guards without advancing the version. A frontend position request precedes the
+next move; replay retrieves the original estimates rather than re-evaluating with
+new weights. Advisor models use the same catalog reference protections as playing
+models. See `docs/ANALYSIS.md` for sources and probability interpretation.
+
+English/German source-key catalogs localize presentation while identities and
+stored game/configuration values remain unchanged. Browser preferences select
+language, last successful game mode and independent color/token/board themes.
+The wood color mode changes UI surfaces rather than engine state.

@@ -1,0 +1,146 @@
+.agent-analysis {
+  padding: 20px;
+}
+.agent-analysis h2 {
+  margin: 7px 0;
+}
+.analysis-perspective {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 14px;
+}
+.agent-estimate {
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+}
+.agent-estimate-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.agent-estimate-heading > div {
+  min-width: 0;
+}
+.agent-estimate-heading strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  margin: 3px 0 7px;
+}
+.agent-estimate-heading small,
+.estimate-source {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.agent-estimate-heading b {
+  font:
+    25px Georgia,
+    serif;
+  color: var(--green);
+  white-space: nowrap;
+}
+.estimate-meter {
+  height: 7px;
+  background: var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 3px 0 5px;
+}
+.estimate-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: inherit;
+}
+.analysis-explanation {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+  margin: 12px 0 0;
+}
+.analysis-hint {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.analysis-hint > span {
+  font-size: 22px;
+  color: var(--green);
+}
+.analysis-status {
+  font-size: 12px;
+  line-height: 1.6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.analysis-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--line);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: analysis-spin 0.9s linear infinite;
+}
+@keyframes analysis-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.board {
+  position: relative;
+}
+.hint-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
+.hint-overlay line {
+  stroke: #a43c15;
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  filter: drop-shadow(0 1px 0 #fff3d5);
+}
+.hint-overlay path {
+  fill: #a43c15;
+}
+.square.hint-source:after,
+.square.hint-target:after {
+  content: '';
+  position: absolute;
+  inset: 6%;
+  border: 2px dashed #a43c15;
+  border-radius: 7px;
+  pointer-events: none;
+  z-index: 4;
+}
+.square.hint-target:after {
+  border-style: solid;
+  background: #ffedb02b;
+}
+.advisor-settings > p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .analysis-spinner {
+    animation: none;
+  }
+}
+@media (max-width: 1100px) {
+  .game-sidebar .agent-analysis {
+    grid-column: 1 / -1;
+  }
+}

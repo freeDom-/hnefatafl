@@ -12,8 +12,8 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | API and persistence | 40 baseline API tests plus 21 game-management cases: real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | Real isolated workers, balanced two/three/four-player round robins, participation-aware scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay and failure/shutdown cleanup |
-| Browser unit flows | 48 Vitest tests, including numeric column sorting, independent name filters, compact AI parameters, model/default selection, deletion races, appearance and tournament flows |
-| Browser end to end | 20 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
+| Browser unit flows | 67 Vitest tests, including independent analysis requests, localization/persistence, training plans/history, model selection, sorting/filtering, deletion races and appearance |
+| Browser end to end | 24 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -109,6 +109,40 @@ existing games retain their exact IDs, versions and saved JSON against the
 pre-update digest. A complete data backup was made before restart; all four
 existing model-usage endpoints respond. Test games and tournaments stayed in
 isolated temporary storage. No data migration is required.
+
+The v0.9 suite passes **302 Python tests**, **67 frontend unit tests** and
+**24 real-API browser checks**. New analysis coverage checks each source and
+current-player perspective, legal advisor hints, immutable first reports,
+undo/redo/seek, branch isolation, missing models and version/deletion races.
+Advisor models use the same unfinished-game deletion protections as playing AIs.
+Statistics combine otherwise equal agents across seeds without rewriting games.
+
+Desktop/mobile browser checks exercise actual hints, a legal advised move,
+replay/reload preservation, two independent agent opinions and German/wood
+preference persistence. Existing full flows still verify gameplay, training,
+model cleanup, tables and two/four-player tournament reports. Unit cases cover
+model recommendation/manual choices, informative equal-name labels, mythological
+name rerolls, language fallbacks and board-specific training presets.
+
+Real isolated CPU training ran three iterations, published three loss/evaluation
+points and retained two strict best-score improvements as selectable models.
+A bounded longer run showed the compiled UI automatically adding a second graph
+point while its worker remained running. Cancellation retained three completed
+iterations. Smoke scores are workflow evidence, not competitive-strength results.
+Graphs preserve history through resumption and leave skipped evaluations missing.
+
+Compiled views were visually inspected in wood mode at desktop and 390px widths,
+with independent numeric estimates, readable colors and no page overflow/errors.
+German workshop status text preserves stable CSS identifiers and metrics use
+comma decimal formatting. Screenshots include [agent opinions](screenshots/agent-evaluations.png),
+[wood on mobile](screenshots/wood-theme-mobile.png), [training graphs](screenshots/training-progress.png)
+and [actual running progress](screenshots/training-running.png).
+
+Production startup upgraded schema 3 to 4 additively and serves v0.9.0 plus its
+compiled assets and three training plans. All seven pre-existing games retain
+exact IDs, versions and JSON against the pre-upgrade digest. All four existing
+model-usage endpoints respond. A complete backup was taken before migration;
+all training, analysis and screenshot data used separate temporary storage.
 
 ## Reproduce
 

@@ -107,7 +107,7 @@ replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
 
 | Parameter | Purpose |
 | --- | --- |
-| `preset` | `smoke`, `beginner` or `balanced`; explicit fields override it |
+| `preset` | `recommended` (default, ruleset-specific), `smoke`, `beginner` or `balanced`; explicit fields override it |
 | `ruleset` | `brandubh`, `tablut`, `copenhagen` |
 | `channels`, `blocks` | Residual architecture width (4–128) and depth (0–8) |
 | `games`, `iterations`, `epochs` | Games per iteration, total iterations, optimization epochs |
@@ -121,6 +121,12 @@ replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
 | `seed`, `device`, `mixed_precision`, `cpu_threads` | Reproducibility and compute selection |
 | `output_dir`, `registry_dir`, `model_name` | Persistent outputs and human-readable model name |
 | `resume` | Optional safe full checkpoint path |
+| `save_all_best` | Keep and register each strict best-score improvement (boolean, default false) |
+
+See [TRAINING_PLAN.md](TRAINING_PLAN.md) for the 7×7, 9×9 and 11×11 recommended
+budgets, receptive fields, learning targets and comparison plan. The workshop
+applies the matching plan when changing battlefield. Smoke remains an explicit
+short software check; recommended runs are substantially longer experiments.
 
 `balanced` increases model width/depth, games and search budgets. CPU/GPU costs
 grow with games × plies × MCTS iterations, plus optimization/evaluation. Begin
@@ -136,6 +142,12 @@ replay positions, self-play outcomes, baseline/previous-model evaluation,
 durations, and CUDA memory where available. Final `result.json` includes model
 registry data and checkpoint locations. Inspect these files directly for a
 headless run. The web UI polls the same persisted worker results.
+
+The progress panel plots policy/value losses and completion-aware evaluation
+score against completed iterations, including while a worker is running. An
+accessible data table contains the same points. History survives reopening and
+resumption. Enable **Save every new best model** to keep earlier strict record
+improvements as separately selectable models; ties do not create extra snapshots.
 
 Send SIGINT or SIGTERM (or Cancel in the UI) to request a graceful stop. The worker
 checks between moves and minibatches, writes a resumable `last.pt`, and marks

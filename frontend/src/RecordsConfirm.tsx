@@ -1,3 +1,4 @@
+import { t, useI18n } from './i18n';
 import { useEffect, useRef } from 'react';
 
 export default function RecordsConfirm({
@@ -17,6 +18,7 @@ export default function RecordsConfirm({
   error?: string;
   confirmDisabled?: boolean;
 }) {
+  useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -27,18 +29,18 @@ export default function RecordsConfirm({
     <dialog
       ref={ref}
       className="modal confirm-dialog"
-      aria-label={title}
+      aria-label={t(title)}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onCancel();
       }}
     >
       <div className="modal-top">
-        <h2>{title}</h2>
+        <h2>{t(title)}</h2>
         <button
           className="icon-button"
           type="button"
-          aria-label="Close confirmation"
+          aria-label={t('Close confirmation')}
           disabled={busy}
           onClick={onCancel}
         >
@@ -48,12 +50,12 @@ export default function RecordsConfirm({
       <div className="confirmation-copy">{children}</div>
       {error && (
         <p className="form-error" role="alert">
-          {error}
+          {t(error)}
         </p>
       )}
       <div className="modal-actions">
         <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
-          Keep it
+          {t('Keep it')}
         </button>
         <button
           type="button"
@@ -61,7 +63,7 @@ export default function RecordsConfirm({
           disabled={busy || confirmDisabled}
           onClick={onConfirm}
         >
-          {busy ? 'Deleting…' : 'Delete'}
+          {busy ? t('Deleting…') : t('Delete')}
         </button>
       </div>
     </dialog>

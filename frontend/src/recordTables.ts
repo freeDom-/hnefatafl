@@ -1,3 +1,4 @@
+import { t, getLocale } from './i18n';
 import { parameterSummary } from './RecordsParameters';
 import type { Game, Ruleset, StatRow } from './types';
 
@@ -20,7 +21,7 @@ const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
 const normalize = (value: string) => value.trim().toLocaleLowerCase();
 const compareText = (first: string, second: string) =>
-  first.localeCompare(second, undefined, { sensitivity: 'base', numeric: true });
+  first.localeCompare(second, getLocale(), { sensitivity: 'base', numeric: true });
 
 function tuple(row: StatRow, key: StatSortKey): number[] {
   if (key === 'outcomes') return [row.wins, row.draws, row.losses].map(finite);
@@ -75,9 +76,14 @@ const profileNames: Record<string, string> = {
 
 /** A single compact secondary line; the dialog retains the complete parameters. */
 export function statPlayerDescription(row: StatRow): string {
-  if (row.kind !== 'ai') return row.kind === 'human' ? 'Human' : '';
+  if (row.kind !== 'ai') return row.kind === 'human' ? t('Human') : '';
   const profile = row.profile_name ?? profileNames[row.profile_id ?? String(row.config?.algorithm)];
-  const parts = ['Computer', profile, row.model_name, ...parameterSummary(row.config).split(' · ')];
+  const parts = [
+    t('Computer'),
+    profile ? t(profile) : undefined,
+    row.model_name,
+    ...parameterSummary(row.config).split(' · '),
+  ];
   const seen = new Set<string>();
   return parts
     .filter((part): part is string => {

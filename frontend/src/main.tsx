@@ -2,13 +2,16 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AppearanceProvider } from './Appearance';
+import { I18nProvider } from './i18n';
 import './style.css';
 import './appearance.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AppearanceProvider>
-      <App />
-    </AppearanceProvider>
+    <I18nProvider>
+      <AppearanceProvider>
+        <App />
+      </AppearanceProvider>
+    </I18nProvider>
   </React.StrictMode>,
 );

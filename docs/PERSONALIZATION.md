@@ -23,7 +23,8 @@ records; show more when needed. Shared filters apply to both history and statist
 Click a column heading in either statistics table to sort ascending; click again
 to reverse the order. Rates, counts and averages sort numerically. The W/D/L
 column sorts by wins, then draws, then losses; the rate column uses the same
-win/draw/loss priority. Before a sort is chosen, battlefields stay in board-size order.
+win/draw/loss priority. Player performance opens with W/D/L descending, so the
+most wins appear first. Before a battlefield sort is chosen, boards stay in size order.
 Use **Filter players** to search player names and their visible AI summaries.
 Use **Filter recorded games** to find either participant by name. These two
 case-insensitive filters operate independently and do not change the overall
@@ -53,7 +54,9 @@ applicable. Compact summaries help distinguish opponents before opening details.
 
 Identity uses normalized effective settings, not the order of JSON fields. Omitted
 defaults and equivalent explicit defaults group together; different relevant parameter
-values remain separate. Stale controls for a different algorithm do not create false
+values remain separate, except that seed-only differences share one row. Each game
+retains its original seed; an aggregate row omits seed rather than implying a
+single experiment. Stale controls for a different algorithm do not create false
 variants. Historical explicit-algorithm games keep their original engine-default
 meaning rather than receiving a profile's different defaults retroactively.
 
@@ -103,7 +106,32 @@ always change the suggested opponent; manual choices survive option refreshes.
 
 The ranking is a selection convenience based on saved evidence, not a claim that
 short smoke-trained models are strong. Per-game seeds remain inspectable in game
-and AI-variant records; different seeds still distinguish parameter variants.
+and recorded-game parameters; seed-only differences share a performance row.
+
+New games and tournaments both suggest the strongest compatible model using the
+same evidence and fallback rules. Model dropdowns show saved iteration, planned
+iterations when known, network size and a short model ID to distinguish equal names.
+Tournament names are editable northern-mythology suggestions; reroll to find another.
+
+The last successfully created game mode is saved in this browser and preselected
+next time. Cancelling a dialog or a failed creation does not change it.
+
+## Agent opinions and move advice
+
+Choose **Move advisor → Agent for move suggestions** in a new game to highlight
+an agent's best searched legal move. **None** is the default. Playing AI agents
+and the advisor each display an independent estimate for the same current player.
+Snapshots are retained with the position and appear during replay. Missing older
+evaluations are explicit. See [ANALYSIS.md](ANALYSIS.md) for the value sources,
+expected-score interpretation, draw handling and model-reference protection.
+
+## Language
+
+Use the header language selector to switch between English and German without
+leaving the current game. The browser stores the choice under `hnefatafl-language`;
+a fresh visit follows German browser language or otherwise English. Rules, controls,
+accessible labels, number/date formatting and workshop/tournament text follow the
+selection. User names and saved tournament/model names keep their original text.
 
 Battlefields are consistently ordered by board size: Brandubh 7×7, Tablut 9×9,
 Copenhagen 11×11, in new games, records and training.
@@ -114,7 +142,7 @@ Open **Appearance** in the application header. The three settings are independen
 
 | Setting | Choices |
 | --- | --- |
-| Color mode | Follow device, Light, Dark |
+| Color mode | Follow device, Light, Dark, Wood |
 | Token theme | Classic stones, Viking figures, Carved wood |
 | Board theme | Golden oak, Old walnut, Fjord slate |
 
@@ -132,6 +160,13 @@ See the [three king concepts and selected design](designs/king-options.md).
 Side and king distinctions remain visible
 in every theme. Legal destinations, move highlights and keyboard controls keep the
 same behavior. Changing appearance does not change game state or AI parameters.
+
+**Wood** turns the interface into a timber hall with bronze fittings, parchment
+text, carved runes, axes, a dragonboat, a hammer and a shield. It remains independent
+of the token and board themes, so it works with every available set.
+
+See the [wood desktop view](screenshots/wood-theme-desktop.png) and
+[wood mobile view](screenshots/wood-theme-mobile.png).
 
 Preferences are stored in this browser under `hnefatafl-appearance`, not in player
 profiles or the database. Follow-device mode responds to operating-system color

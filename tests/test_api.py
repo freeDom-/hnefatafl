@@ -561,7 +561,7 @@ def test_schema_one_migrates_profiles_without_losing_rows(tmp_path):
     assert reopened.players() == []
     assert reopened.players(include_deleted=True)[0]["name"] == "Freya"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def complete_human_game(client, game):
@@ -728,16 +728,17 @@ def test_ai_statistics_use_effective_parameter_variants_and_stable_defaults(clie
         saved["recorded_result"] = {"winner": "attackers", "reason": "fixture", "plies": 5}
         client.app.state.store.update_game(saved, 0)
     assert variants[0] == variants[1]
-    assert len(set(variants)) == 4
+    assert variants[0] == variants[3]
+    assert len(set(variants)) == 3
     stats = client.get("/api/stats?kind=ai").json()
-    assert len(stats["by_player"]) == 4
+    assert len(stats["by_player"]) == 3
     merged = next(row for row in stats["by_player"] if row["variant_id"] == variants[0])
-    assert merged["games"] == 2
+    assert merged["games"] == 3
+    assert merged["seed_count"] == 2
     assert merged["config"] == {
         "algorithm": "alpha_beta",
         "depth": 2,
         "evaluation": "heuristic",
-        "seed": 0,
         "time_limit": 2.0,
     }
     assert all(row["id"] == row["variant_id"] for row in stats["by_player"])
@@ -824,7 +825,6 @@ def test_model_delete_serializes_with_new_game_reference_creation(client, tmp_pa
         ("exploration", 2),
         ("rollout_depth", 0),
         ("temperature", 0.5),
-        ("seed", 1),
     ],
 )
 def test_mcts_parameter_variants_keep_separate_records(client, parameter, value):

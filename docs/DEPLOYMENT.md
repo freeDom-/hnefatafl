@@ -40,9 +40,10 @@ variables; it is an example, not an automatically loaded configuration file.
 Do not commit data directories, `.env` files or model weights.
 
 Database schema initialization runs at server startup and records a schema version.
-Version 0.6 upgrades earlier databases to schema 3 automatically and additively:
+Version 0.9 upgrades earlier databases to schema 4 automatically and additively:
 schema 2 added player deletion timestamps and historical model metadata; schema 3
-adds saved tournaments. Existing game JSON,
+adds saved tournaments; schema 4 adds immutable per-position agent analysis.
+Existing game JSON,
 stable player IDs, move versions and model/training files are preserved. Startup can
 repeat the migration safely. Deleted players stay hidden under the new application;
 rolling back to old code does not understand those tombstones, so restore a consistent

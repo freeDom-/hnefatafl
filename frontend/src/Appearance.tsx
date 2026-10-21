@@ -19,10 +19,11 @@ import {
   type ColorMode,
 } from './appearanceConfig';
 import { Token } from './Tokens';
+import { useI18n } from './i18n';
 
 interface AppearanceContext {
   appearance: Appearance;
-  resolvedMode: 'light' | 'dark';
+  resolvedMode: Exclude<ColorMode, 'system'>;
   updateAppearance: (patch: Partial<Appearance>) => void;
   canPersist: boolean;
 }
@@ -69,7 +70,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.dataset.colorMode = resolvedMode;
     root.dataset.tokenTheme = appearance.tokens;
     root.dataset.boardTheme = appearance.board;
-    root.style.colorScheme = resolvedMode;
+    root.style.colorScheme = resolvedMode === 'wood' ? 'dark' : resolvedMode;
     const board = BOARD_THEMES.find((theme) => theme.id === appearance.board)!;
     for (const [key, value] of Object.entries(board.palette))
       root.style.setProperty(
@@ -93,15 +94,77 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
         canPersist,
       }}
     >
+      {resolvedMode === 'wood' && <WoodOrnaments />}
       {children}
     </AppearanceContext.Provider>
+  );
+}
+
+function WoodOrnaments() {
+  return (
+    <div className="wood-ornaments" data-wood-ornaments="true" aria-hidden="true">
+      <svg className="wood-frieze" viewBox="0 0 520 128" fill="none">
+        <path d="M5 96h510M5 101h510" stroke="currentColor" strokeWidth="1" />
+        <g
+          data-wood-motif="axes"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="m28 24 48 58m0-58L28 82" strokeWidth="3" />
+          <path d="m25 20 21 3-12 20-15-9Zm54 0-21 3 12 20 15-9Z" strokeWidth="2" />
+          <path d="m32 28 6 6m28 0 6-6" opacity=".55" />
+        </g>
+        <g data-wood-motif="shield" stroke="currentColor" strokeWidth="2">
+          <path d="M145 23q26-11 52 0v26q-4 24-26 37-22-13-26-37Z" />
+          <path d="M151 28q20-8 40 0v21q-4 18-20 30-16-12-20-30Z" opacity=".5" />
+          <path d="M171 33v32m-10-24 10 10 10-10" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+        <g
+          data-wood-motif="dragonboat"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M263 67q38 22 76 0l-9 17h-57Zm76 0 4-21 8-8-1-9-10-3-5 7 8 4m-80 30-7-14-6-3-3 3 2 6 10 4" />
+          <path d="M300 16v58m0-56 28 13-28 23m3-33 18 11-18 16M277 84l-3 6m14-4-1 5m28-5 1 5m12-8 3 7" />
+          <path d="M265 95q12-5 24 0t24 0 24 0" opacity=".6" />
+          <circle cx="345" cy="31" r="1" fill="currentColor" stroke="none" />
+        </g>
+        <g data-wood-motif="hammer" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <path d="m431 25 15-9 15 9 13 2-4 23-16-3v33l-8 7-8-7V47l-16 3-4-23Z" />
+          <path d="m431 31 15-8 15 8m-21 23 12 9-12 9m0-29 6-5 6 5" opacity=".6" />
+        </g>
+        <text
+          x="260"
+          y="121"
+          textAnchor="middle"
+          fill="currentColor"
+          fontSize="15"
+          letterSpacing="8"
+        >
+          ᛏ ᚱ ᛉ ᛟ ᚠ ᛞ ᚱ ᛏ
+        </text>
+      </svg>
+    </div>
   );
 }
 
 function ModeIcon({ mode }: { mode: ColorMode }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      {mode === 'dark' ? (
+      {mode === 'wood' ? (
+        <>
+          <path d="M5 5q7-4 14 0v7q-1 6-7 9-6-3-7-9Z" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M12 7v9m-3-7 3 3 3-3"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        </>
+      ) : mode === 'dark' ? (
         <path
           d="M19.7 15.1A8.3 8.3 0 0 1 8.9 4.3a8.3 8.3 0 1 0 10.8 10.8Z"
           stroke="currentColor"
@@ -129,6 +192,7 @@ function ModeIcon({ mode }: { mode: ColorMode }) {
 }
 
 export function AppearanceSettings() {
+  const { t } = useI18n();
   const { appearance, resolvedMode, updateAppearance, canPersist } = useAppearance();
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -142,15 +206,15 @@ export function AppearanceSettings() {
         className="appearance-trigger"
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Appearance settings"
+        aria-label={t('Appearance settings')}
       >
         <ModeIcon mode={resolvedMode} />
-        <span>Appearance</span>
+        <span>{t('Appearance')}</span>
       </button>
       <dialog
         className="modal appearance-modal"
         ref={dialog}
-        aria-label="Appearance settings"
+        aria-label={t('Appearance settings')}
         onCancel={(event) => {
           event.preventDefault();
           setOpen(false);
@@ -161,23 +225,25 @@ export function AppearanceSettings() {
       >
         <div className="modal-top">
           <div>
-            <p className="eyebrow">A TABLE OF YOUR OWN</p>
-            <h2>Make the table yours.</h2>
+            <p className="eyebrow">{t('A TABLE OF YOUR OWN')}</p>
+            <h2>{t('Make the table yours.')}</h2>
           </div>
           <button
             className="icon-button"
             type="button"
-            aria-label="Close appearance settings"
+            aria-label={t('Close appearance settings')}
             onClick={() => setOpen(false)}
           >
             ×
           </button>
         </div>
         <p className="appearance-intro">
-          Choose the light, the pieces and the battlefield. Your games stay just as you left them.
+          {t(
+            'Choose the light, the pieces and the battlefield. Your games stay just as you left them.',
+          )}
         </p>
         <fieldset className="appearance-section">
-          <legend>Color mode</legend>
+          <legend>{t('Color mode')}</legend>
           <div className="appearance-modes">
             {COLOR_MODES.map((mode) => (
               <label
@@ -190,17 +256,17 @@ export function AppearanceSettings() {
                   value={mode.id}
                   checked={appearance.mode === mode.id}
                   onChange={() => updateAppearance({ mode: mode.id })}
-                  aria-label={mode.name}
+                  aria-label={t(mode.name)}
                 />
                 <ModeIcon mode={mode.id} />
-                <strong>{mode.name}</strong>
-                <small>{mode.description}</small>
+                <strong>{t(mode.name)}</strong>
+                <small>{t(mode.description)}</small>
               </label>
             ))}
           </div>
         </fieldset>
         <fieldset className="appearance-section">
-          <legend>Token theme</legend>
+          <legend>{t('Token theme')}</legend>
           <div className="appearance-choices">
             {TOKEN_THEMES.map((theme) => (
               <label
@@ -213,21 +279,21 @@ export function AppearanceSettings() {
                   value={theme.id}
                   checked={appearance.tokens === theme.id}
                   onChange={() => updateAppearance({ tokens: theme.id })}
-                  aria-label={theme.name}
+                  aria-label={t(theme.name)}
                 />
                 <span className="token-preview">
                   {['A', 'D', 'K'].map((piece) => (
                     <Token key={piece} piece={piece} theme={theme.id} />
                   ))}
                 </span>
-                <strong>{theme.name}</strong>
-                <small>{theme.description}</small>
+                <strong>{t(theme.name)}</strong>
+                <small>{t(theme.description)}</small>
               </label>
             ))}
           </div>
         </fieldset>
         <fieldset className="appearance-section">
-          <legend>Board theme</legend>
+          <legend>{t('Board theme')}</legend>
           <div className="appearance-choices">
             {BOARD_THEMES.map((theme) => (
               <label
@@ -240,7 +306,7 @@ export function AppearanceSettings() {
                   value={theme.id}
                   checked={appearance.board === theme.id}
                   onChange={() => updateAppearance({ board: theme.id })}
-                  aria-label={theme.name}
+                  aria-label={t(theme.name)}
                 />
                 <span
                   className="board-preview"
@@ -262,8 +328,8 @@ export function AppearanceSettings() {
                     </span>
                   ))}
                 </span>
-                <strong>{theme.name}</strong>
-                <small>{theme.description}</small>
+                <strong>{t(theme.name)}</strong>
+                <small>{t(theme.description)}</small>
               </label>
             ))}
           </div>
@@ -271,11 +337,11 @@ export function AppearanceSettings() {
         <div className="appearance-footer">
           <p role="status">
             {canPersist
-              ? 'Your choices are saved on this device.'
-              : 'Your browser could not save these choices. They will apply for this visit.'}
+              ? t('Your choices are saved on this device.')
+              : t('Your browser could not save these choices. They will apply for this visit.')}
           </p>
           <button className="button primary" type="button" onClick={() => setOpen(false)}>
-            Back to the table
+            {t('Back to the table')}
           </button>
         </div>
       </dialog>

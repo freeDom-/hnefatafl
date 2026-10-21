@@ -1,3 +1,4 @@
+import { t, useI18n } from './i18n';
 import type { Config } from './types';
 
 const labels: Record<string, string> = {
@@ -21,9 +22,11 @@ const algorithms: Record<string, string> = {
 
 export function parameterSummary(config: Config = {}) {
   return [
-    algorithms[String(config.algorithm)] ?? config.algorithm,
-    config.depth !== undefined ? `depth ${config.depth}` : undefined,
-    config.iterations !== undefined ? `${config.iterations} iterations` : undefined,
+    t(String(algorithms[String(config.algorithm)] ?? config.algorithm ?? '')),
+    config.depth !== undefined ? t('depth {depth}', { depth: String(config.depth) }) : undefined,
+    config.iterations !== undefined
+      ? t('{iterations} iterations', { iterations: String(config.iterations) })
+      : undefined,
     config.time_limit !== undefined ? `${config.time_limit}s` : undefined,
   ]
     .filter(Boolean)
@@ -39,10 +42,11 @@ export default function RecordsParameters({
   label?: string;
   variantId?: string;
 }) {
+  useI18n();
   return (
     <details className="record-parameters">
       <summary>
-        {label}
+        {t(label)}
         <span>{parameterSummary(config)}</span>
       </summary>
       <ParameterValues config={config} variantId={variantId} />
@@ -57,6 +61,7 @@ export function ParameterValues({
   config?: Config;
   variantId?: string;
 }) {
+  useI18n();
   const entries = Object.entries(config).sort(([a], [b]) => {
     const order = Object.keys(labels);
     const aIndex = order.indexOf(a),
@@ -69,17 +74,24 @@ export function ParameterValues({
         <dl>
           {entries.map(([key, value]) => (
             <div key={key}>
-              <dt>{labels[key] ?? key.replaceAll('_', ' ')}</dt>
+              <dt>{t(labels[key] ?? key.replaceAll('_', ' '))}</dt>
               <dd>
-                {key === 'algorithm' ? (algorithms[String(value)] ?? String(value)) : String(value)}
+                {key === 'algorithm'
+                  ? t(algorithms[String(value)] ?? String(value))
+                  : String(value)}
               </dd>
             </div>
           ))}
         </dl>
       ) : (
-        <p className="subtle">No parameters were recorded for this historical opponent.</p>
+        <p className="subtle">{t('No parameters were recorded for this historical opponent.')}</p>
       )}
-      {variantId && <p className="variant-reference">Configuration {variantId.slice(0, 10)}</p>}
+      {variantId && (
+        <p className="variant-reference">
+          {t('Configuration ')}
+          {variantId.slice(0, 10)}
+        </p>
+      )}
     </>
   );
 }

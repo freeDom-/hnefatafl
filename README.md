@@ -12,12 +12,15 @@ using real self-play learning.
 - Pass-and-play, Human vs AI and AI vs AI; configurable opponents, side selection,
   playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
 - Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
+- Saved agent position estimates in live play/replay and optional legal-move advice.
 - Round-robin tournaments for two to four players, live progress, standings and match replay.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
-- Separate records and inspectable settings for each effective AI parameter configuration.
-- Light/dark/device appearance, independent board themes, Viking figures and carved-wood tokens.
+- Sortable records, seed-independent AI grouping and inspectable effective settings.
+- English/German localization, saved game-mode preference and mythological tournament names.
+- Light/dark/wood/device appearance, independent board themes, Viking figures and carved-wood tokens.
 - Training workshop and CLI: actual PyTorch self-play updates, evaluation, safe model
   import/export, cancellation, exact CPU checkpoint resumption and Optuna studies.
+- Board-specific training plans, live learning graphs and optional retention of every new best model.
 - CPU operation and configurable CUDA/MPS support, with automatic device detection.
 
 Mouse, touch and keyboard are supported. Arrow keys navigate; Enter/Space select;
@@ -121,7 +124,9 @@ The CLI requires no Python programming:
 .venv/bin/python -m hnefatafl.cli tournament --config configs/tournament.json
 ```
 
-Use `configs/train-beginner.json` for longer experiments. `last.pt` retains optimizer,
+The workshop defaults to board-specific recommended plans; see
+[TRAINING_PLAN.md](docs/TRAINING_PLAN.md) for their architecture and budgets.
+Use `configs/train-beginner.json` for a smaller explicit experiment. `last.pt` retains optimizer,
 replay, RNG and the portable best model for exact resumption; `best.pt` and registry
 exports are compact inference snapshots. Resume uses a higher target **total**
 iteration count. See [TRAINING.md](docs/TRAINING.md) and [AI.md](docs/AI.md).

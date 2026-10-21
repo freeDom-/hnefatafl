@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Tournaments from './Tournaments';
 import type { AIProfile, Model, Ruleset } from './types';
 import type { Tournament } from './tournamentTypes';
+import { setLanguage } from './i18n';
 
 const rulesets: Ruleset[] = [
   { id: 'tablut', name: 'Tablut', size: 9, description: '', rules_markdown: '' },
@@ -62,6 +63,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  setLanguage('en', false);
   vi.unstubAllGlobals();
 });
 const show = (models: Model[] = []) =>
@@ -124,6 +126,11 @@ describe('tournament setup and saved selection', () => {
     const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
     fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: 'neural' } });
     const start = setup.getByRole('button', { name: 'Start tournament' });
+    expect(setup.getByLabelText('Opponent 1 trained model')).toHaveValue('raven-model');
+    expect(start).toBeEnabled();
+    fireEvent.change(setup.getByLabelText('Opponent 1 trained model'), {
+      target: { value: '' },
+    });
     expect(start).toBeDisabled();
     fireEvent.change(setup.getByLabelText('Opponent 1 trained model'), {
       target: { value: 'raven-model' },
@@ -134,6 +141,81 @@ describe('tournament setup and saved selection', () => {
     expect(
       setup.getByText('Choose a compatible trained model and its single matching battlefield.'),
     ).toBeInTheDocument();
+  });
+
+  it('suggests the strongest compatible model while preserving manual opponents across model updates', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json([])),
+    );
+    const weak: Model = {
+      id: 'weak1111',
+      name: 'Raven',
+      ruleset: 'brandubh',
+      version: 2,
+      training_config: { iterations: 20, channels: 32, blocks: 2 },
+      evaluation: { wins: 1, losses: 3 },
+    };
+    const strong: Model = {
+      ...weak,
+      id: 'strong22',
+      version: 8,
+      evaluation: { wins: 3, losses: 1 },
+    };
+    const { rerender } = show([weak, strong]);
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    expect(setup.getByLabelText('Opponent 1 trained model')).toHaveValue('strong22');
+    expect(setup.getByLabelText('Opponent 2 trained model')).toHaveValue('strong22');
+    const labels = within(setup.getByLabelText('Opponent 1 trained model'))
+      .getAllByRole('option')
+      .map((option) => option.textContent);
+    expect(labels).toContain('Raven · iteration 2/20 · 32 channels · 2 blocks · #weak1111');
+    expect(labels).toContain('Raven · iteration 8/20 · 32 channels · 2 blocks · #strong22');
+    fireEvent.change(setup.getByLabelText('Opponent 1 trained model'), {
+      target: { value: 'weak1111' },
+    });
+    fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: 'baseline' } });
+    const newer = { ...strong, id: 'newest33', evaluation: { wins: 10, losses: 0 } };
+    rerender(
+      <Tournaments
+        rulesets={rulesets}
+        profiles={profiles}
+        models={[weak, strong, newer]}
+        onError={vi.fn()}
+      />,
+    );
+    expect(setup.getByLabelText('Opponent 1 trained model')).toHaveValue('weak1111');
+    expect(setup.getByLabelText('Opponent 2 profile')).toHaveValue('baseline');
+    fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+    expect(setup.getByLabelText('Opponent 3 trained model')).toHaveValue('newest33');
+  });
+
+  it('prefills mythological names, rerolls without repeating the current title, and localizes setup', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json([])),
+    );
+    show();
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const field = screen.getByLabelText('Tournament name') as HTMLInputElement;
+    const original = field.value;
+    expect(original).toMatch(/’s /);
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest tournament name' }));
+    expect(field.value).not.toBe(original);
+    fireEvent.change(field, { target: { value: 'My own tournament' } });
+    act(() => setLanguage('de', false));
+    expect(screen.getByRole('dialog', { name: 'Turnier einrichten' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Turniername')).toHaveValue('My own tournament');
+    fireEvent.click(screen.getByRole('button', { name: 'Turniernamen vorschlagen' }));
+    expect(field.value).toMatch(
+      /^(Odins|Freyjas|Thors|Tyrs|Skadis|Heimdalls|Baldrs|Njörds|Idunns|Friggs|Hugins|Munins) /,
+    );
+    expect(screen.getByRole('button', { name: 'Turnier starten' })).toBeEnabled();
   });
 
   it('keeps the latest selected result when an earlier detail request finishes late', async () => {

@@ -1,3 +1,4 @@
+import { t, useI18n, getLocale } from './i18n';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import type { Game, Player, Ruleset, Stats, StatRow } from './types';
@@ -15,10 +16,11 @@ import RecordsConfirm from './RecordsConfirm';
 import './features.css';
 import './archive.css';
 
-const percent = (value?: number) => `${((value ?? 0) * 100).toFixed(1)}%`;
+const percent = (value?: number) =>
+  `${((value ?? 0) * 100).toLocaleString(getLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 const date = (value?: string) =>
   value
-    ? new Date(value).toLocaleDateString(undefined, {
+    ? new Date(value).toLocaleDateString(getLocale(), {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -39,6 +41,7 @@ export default function Archive({
   refreshPlayers: () => void;
   onGameDeleted?: (id: string) => void;
 }) {
+  useI18n();
   const [games, setGames] = useState<Game[]>([]);
   const [stats, setStats] = useState<Stats>({});
   const [ruleset, setRuleset] = useState('');
@@ -178,9 +181,9 @@ export default function Archive({
     <>
       <section className="page-intro">
         <div>
-          <p className="eyebrow">EVERY SAGA LEAVES A TRACE</p>
-          <h1>Hall of records.</h1>
-          <p>Revisit your battles. Learn from your victories, and your defeats.</p>
+          <p className="eyebrow">{t('EVERY SAGA LEAVES A TRACE')}</p>
+          <h1>{t('Hall of records.')}</h1>
+          <p>{t('Revisit your battles. Learn from your victories, and your defeats.')}</p>
         </div>
         <span className="decorative-rune" aria-hidden="true">
           ᛟ
@@ -188,59 +191,65 @@ export default function Archive({
       </section>
       <div className="filters panel">
         <label>
-          Battlefield
+          {t('Battlefield')}
           <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
-            <option value="">All rulesets</option>
+            <option value="">{t('All rulesets')}</option>
             {sortRulesets(rulesets).map((rule) => (
               <option key={rule.id} value={rule.id}>
-                {rule.name}
+                {t(rule.name)}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Game mode
+          {t('Game mode')}
           <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="">All modes</option>
-            <option value="human-human">Pass & play</option>
-            <option value="human-ai">Human vs AI</option>
-            <option value="ai-ai">AI vs AI</option>
+            <option value="">{t('All modes')}</option>
+            <option value="human-human">{t('Pass & play')}</option>
+            <option value="human-ai">{t('Human vs AI')}</option>
+            <option value="ai-ai">{t('AI vs AI')}</option>
           </select>
         </label>
         <label>
-          Player type
+          {t('Player type')}
           <select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="">Humans & computers</option>
-            <option value="human">Human players</option>
-            <option value="ai">AI opponents</option>
+            <option value="">{t('Humans & computers')}</option>
+            <option value="human">{t('Human players')}</option>
+            <option value="ai">{t('AI opponents')}</option>
           </select>
         </label>
       </div>
       <div className="metric-grid">
         <Metric
-          label="BATTLES RECORDED"
+          label={t('BATTLES RECORDED')}
           value={stats.total_games ?? games.length}
-          detail={`${stats.completed_games ?? 0} completed games`}
+          detail={t('{count} completed games', { count: stats.completed_games ?? 0 })}
         />
         <Metric
-          label="ATTACKER VICTORIES"
+          label={t('ATTACKER VICTORIES')}
           value={stats.attackers_wins ?? 0}
-          detail={`${percent(stats.attacker_win_rate)} of completed games`}
+          detail={t('{rate} of completed games', { rate: percent(stats.attacker_win_rate) })}
         />
         <Metric
-          label="DEFENDER VICTORIES"
+          label={t('DEFENDER VICTORIES')}
           value={stats.defenders_wins ?? 0}
-          detail={`${percent(stats.defender_win_rate)} of completed games`}
+          detail={t('{rate} of completed games', { rate: percent(stats.defender_win_rate) })}
         />
         <Metric
-          label="AVERAGE GAME LENGTH"
-          value={Number(stats.average_game_length ?? stats.average_length ?? 0).toFixed(1)}
-          detail={`${stats.draws ?? 0} draws · ${percent(stats.draw_rate)} of completed games`}
+          label={t('AVERAGE GAME LENGTH')}
+          value={Number(stats.average_game_length ?? stats.average_length ?? 0).toLocaleString(
+            getLocale(),
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+          )}
+          detail={t('{count} draws · {rate} of completed games', {
+            count: stats.draws ?? 0,
+            rate: percent(stats.draw_rate),
+          })}
         />
       </div>
       {notice && (
         <p className="notice archive-notice" role="status">
-          {notice}
+          {t(notice)}
         </p>
       )}
       <section
@@ -250,14 +259,16 @@ export default function Archive({
       >
         <div className="archive-statistics-heading">
           <div>
-            <p className="eyebrow">THE STORY IN NUMBERS</p>
-            <h2 id="archive-statistics-heading">Statistics</h2>
+            <p className="eyebrow">{t('THE STORY IN NUMBERS')}</p>
+            <h2 id="archive-statistics-heading">{t('Statistics')}</h2>
             <p>
-              Completed battles, compared at a glance. Filters apply to statistics and saved games.
+              {t(
+                'Completed battles, compared at a glance. Filters apply to statistics and saved games.',
+              )}
             </p>
           </div>
           <span className="archive-statistics-count">
-            <strong>{stats.completed_games ?? 0}</strong> completed
+            <strong>{stats.completed_games ?? 0}</strong> {t('completed')}
           </span>
         </div>
         <div className="archive-statistics-grid">
@@ -265,14 +276,14 @@ export default function Archive({
             aria-labelledby="archive-battlefield-heading"
             className="archive-statistics-block"
           >
-            <h3 id="archive-battlefield-heading">Results by battlefield</h3>
+            <h3 id="archive-battlefield-heading">{t('Results by battlefield')}</h3>
             <StatsTable rows={byRules} group="ruleset" rulesets={rulesets} />
           </section>
           <section
             aria-labelledby="archive-performance-heading"
             className="archive-statistics-block"
           >
-            <h3 id="archive-performance-heading">Player & AI performance</h3>
+            <h3 id="archive-performance-heading">{t('Player & AI performance')}</h3>
             <StatsTable rows={byPlayer} group="player" rulesets={rulesets} />
           </section>
         </div>
@@ -283,11 +294,11 @@ export default function Archive({
           open={historyOpen}
           onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
         >
-          <summary aria-label="Recorded games" className="archive-history-summary">
+          <summary aria-label={t('Recorded games')} className="archive-history-summary">
             <div>
-              <p className="eyebrow">YOUR SAVED BATTLES</p>
-              <h2>Recorded games</h2>
-              <p>Reopen a game or remove it from your records.</p>
+              <p className="eyebrow">{t('YOUR SAVED BATTLES')}</p>
+              <h2>{t('Recorded games')}</h2>
+              <p>{t('Reopen a game or remove it from your records.')}</p>
             </div>
             <span className="badge">
               {recordName.trim() ? `${filteredGames.length} / ${games.length}` : games.length}
@@ -298,10 +309,10 @@ export default function Archive({
           </summary>
           <div className="record-name-filter archive-table-filter">
             <label>
-              Filter recorded games
+              {t('Filter recorded games')}
               <input
                 type="search"
-                placeholder="Player or AI name"
+                placeholder={t('Player or AI name')}
                 value={recordName}
                 onChange={(event) => setRecordName(event.target.value)}
               />
@@ -310,25 +321,30 @@ export default function Archive({
               <button
                 type="button"
                 className="button secondary small"
-                aria-label="Clear recorded game filter"
+                aria-label={t('Clear recorded game filter')}
                 onClick={() => setRecordName('')}
               >
-                Clear
+                {t('Clear')}
               </button>
             )}
           </div>
           {loading ? (
-            <p className="empty-copy">Loading your sagas…</p>
+            <p className="empty-copy">{t('Loading your sagas…')}</p>
           ) : !games.length ? (
             <div className="empty-state compact">
               <span className="empty-rune">ᛝ</span>
-              <h3>A history yet to be written.</h3>
-              <p>Your saved games will appear here.</p>
+              <h3>{t('A history yet to be written.')}</h3>
+              <p>{t('Your saved games will appear here.')}</p>
             </div>
           ) : !filteredGames.length ? (
-            <p className="empty-copy">No recorded games match this name.</p>
+            <p className="empty-copy">{t('No recorded games match this name.')}</p>
           ) : (
-            <div className="records-list" role="region" aria-label="Saved game list" tabIndex={0}>
+            <div
+              className="records-list"
+              role="region"
+              aria-label={t('Saved game list')}
+              tabIndex={0}
+            >
               {filteredGames.slice(0, visibleGames).map((game) => (
                 <article className="record-entry" key={game.id} data-game-id={game.id}>
                   <div className="record-actions-row">
@@ -340,23 +356,30 @@ export default function Archive({
                       </span>
                       <span>
                         <strong>
-                          {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}
+                          {t(
+                            rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset,
+                          )}
                         </strong>
                         <small>
-                          {game.players?.attackers?.name ?? 'Attackers'} vs{' '}
+                          {game.players?.attackers?.name ?? 'Attackers'} {t(' vs')}{' '}
                           {game.players?.defenders?.name ?? 'Defenders'}
                         </small>
                       </span>
                       <span className="record-result">
                         <strong>
                           {(game.recorded_winner ?? game.winner) === 'draw'
-                            ? 'Draw'
+                            ? t('Draw')
                             : (game.recorded_winner ?? game.winner)
-                              ? `${(game.recorded_winner ?? game.winner) === 'attackers' ? 'Attackers' : 'Defenders'} win`
-                              : 'In progress'}
+                              ? t('{side} win', {
+                                  side:
+                                    (game.recorded_winner ?? game.winner) === 'attackers'
+                                      ? t('Attackers')
+                                      : t('Defenders'),
+                                })
+                              : t('In progress')}
                         </strong>
                         <small>
-                          {game.recorded_plies ?? game.total_moves ?? game.ply} moves ·{' '}
+                          {game.recorded_plies ?? game.total_moves ?? game.ply} {t(' moves ·')}{' '}
                           {date(game.created_at)}
                         </small>
                       </span>
@@ -365,8 +388,8 @@ export default function Archive({
                     <button
                       type="button"
                       className="icon-button danger-text delete-record"
-                      aria-label={`Delete game ${game.id}`}
-                      title="Delete recorded game"
+                      aria-label={t('Delete game {id}', { id: game.id })}
+                      title={t('Delete recorded game')}
                       onClick={() => {
                         setDeleteGame(game);
                         setDeleteError('');
@@ -376,7 +399,7 @@ export default function Archive({
                     </button>
                   </div>
                   {game.seed !== undefined && (
-                    <p className="record-game-seed">Game seed {game.seed}</p>
+                    <p className="record-game-seed">{t('Game seed {seed}', { seed: game.seed })}</p>
                   )}
                   {(['attackers', 'defenders'] as const)
                     .filter((side) => game.players[side]?.kind === 'ai')
@@ -384,7 +407,9 @@ export default function Archive({
                       <RecordsParameters
                         key={side}
                         config={game.players[side].config}
-                        label={`${side === 'attackers' ? 'Attacker' : 'Defender'} AI parameters`}
+                        label={t('{side} AI parameters', {
+                          side: side === 'attackers' ? t('Attacker') : t('Defender'),
+                        })}
                       />
                     ))}
                 </article>
@@ -394,36 +419,40 @@ export default function Archive({
           {filteredGames.length > visibleGames && (
             <div className="archive-load-more">
               <span>
-                Showing {Math.min(visibleGames, filteredGames.length)} of {filteredGames.length}{' '}
-                games
+                {t('Showing {shown} of {total} games', {
+                  shown: Math.min(visibleGames, filteredGames.length),
+                  total: filteredGames.length,
+                })}
               </span>
               <button
                 type="button"
                 className="button secondary small"
                 onClick={() => setVisibleGames((count) => count + 10)}
               >
-                Show 10 more games
+                {t('Show 10 more games')}
               </button>
             </div>
           )}
         </details>
         <aside className="panel profiles-panel">
-          <p className="eyebrow">MAKE YOUR MARK</p>
-          <h2>Local players</h2>
-          <p className="subtle">Keep your identity across games and build a history of your own.</p>
+          <p className="eyebrow">{t('MAKE YOUR MARK')}</p>
+          <h2>{t('Local players')}</h2>
+          <p className="subtle">
+            {t('Keep your identity across games and build a history of your own.')}
+          </p>
           <form onSubmit={createPlayer} className="profile-form">
             <label>
-              Display name
+              {t('Display name')}
               <input
                 required
                 maxLength={64}
-                placeholder="e.g. Astrid"
+                placeholder={t('e.g. Astrid')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </label>
             <button className="button primary" disabled={saving || !name.trim()}>
-              {saving ? 'Saving…' : 'Create player'}
+              {saving ? t('Saving…') : t('Create player')}
             </button>
           </form>
           <ul className="profile-list">
@@ -435,7 +464,7 @@ export default function Archive({
                 <button
                   type="button"
                   className="icon-button danger-text delete-profile"
-                  aria-label={`Delete player ${player.name}`}
+                  aria-label={t('Delete player {name}', { name: player.name })}
                   onClick={() => {
                     setDeletePlayer(player);
                     setDeleteError('');
@@ -450,40 +479,49 @@ export default function Archive({
       </div>
       {deleteGame && (
         <RecordsConfirm
-          title="Delete recorded game?"
+          title={t('Delete recorded game?')}
           busy={deleting}
           error={deleteError}
           onCancel={() => setDeleteGame(null)}
           onConfirm={() => void removeGame()}
         >
           <p>
-            This permanently removes this game, its moves and result from the history. Statistics
-            are recalculated from the remaining games. Player profiles and models are kept.
+            {t(
+              'This permanently removes this game, its moves and result from the history. Statistics are recalculated from the remaining games. Player profiles and models are kept.',
+            )}
           </p>
           <div className="archive-delete-preview">
             <strong>
-              {deleteGame.players.attackers.name} vs {deleteGame.players.defenders.name}
+              {deleteGame.players.attackers.name} {t(' vs ')}
+              {deleteGame.players.defenders.name}
             </strong>
             <span>
-              {rulesets.find((rule) => rule.id === deleteGame.ruleset)?.name ?? deleteGame.ruleset}{' '}
-              · {deleteGame.recorded_plies ?? deleteGame.total_moves ?? deleteGame.ply} moves ·{' '}
-              {date(deleteGame.created_at)}
+              {t(
+                rulesets.find((rule) => rule.id === deleteGame.ruleset)?.name ?? deleteGame.ruleset,
+              )}{' '}
+              · {deleteGame.recorded_plies ?? deleteGame.total_moves ?? deleteGame.ply}{' '}
+              {t(' moves ·')} {date(deleteGame.created_at)}
             </span>
-            <small>Game {deleteGame.id.slice(0, 8)}</small>
+            <small>
+              {t('Game ')}
+              {deleteGame.id.slice(0, 8)}
+            </small>
           </div>
         </RecordsConfirm>
       )}
       {deletePlayer && (
         <RecordsConfirm
-          title={`Delete player ${deletePlayer.name}?`}
+          title={t('Delete player {name}?', { name: deletePlayer.name })}
           busy={deleting}
           error={deleteError}
           onCancel={() => setDeletePlayer(null)}
           onConfirm={() => void removePlayer()}
         >
           <p>
-            This removes <strong>{deletePlayer.name}</strong> from the player selection. Their saved
-            games, name and statistics remain in the Hall of records.
+            {t(
+              'This removes {name} from the player selection. Their saved games, name and statistics remain in the Hall of records.',
+              { name: deletePlayer.name },
+            )}
           </p>
         </RecordsConfirm>
       )}
@@ -519,10 +557,13 @@ function StatsTable({
   group: 'ruleset' | 'player';
   rulesets: Ruleset[];
 }) {
-  const [sort, setSort] = useState<StatSort | null>(null);
+  const [sort, setSort] = useState<StatSort | null>(() =>
+    group === 'player' ? { key: 'outcomes', direction: 'descending' } : null,
+  );
   const [filter, setFilter] = useState('');
   const [inspected, setInspected] = useState<StatRow | null>(null);
-  if (!rows.length) return <p className="empty-copy">Complete a game to see results here.</p>;
+  if (!rows.length)
+    return <p className="empty-copy">{t('Complete a game to see results here.')}</p>;
   const filtered = group === 'player' ? rows.filter((row) => matchesPlayer(row, filter)) : rows;
   const displayed = sortStatRows(filtered, sort, group, rulesets);
   const columns: StatColumn[] = [
@@ -559,10 +600,10 @@ function StatsTable({
       {group === 'player' && (
         <div className="archive-table-filter">
           <label>
-            Filter players
+            {t('Filter players')}
             <input
               type="search"
-              placeholder="Player, profile or model name"
+              placeholder={t('Player, profile or model name')}
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             />
@@ -571,14 +612,14 @@ function StatsTable({
             <button
               type="button"
               className="button secondary small"
-              aria-label="Clear player filter"
+              aria-label={t('Clear player filter')}
               onClick={() => setFilter('')}
             >
-              Clear
+              {t('Clear')}
             </button>
           )}
           <span className="archive-filter-count" aria-live="polite">
-            {displayed.length} of {rows.length} players
+            {t('{shown} of {total} players', { shown: displayed.length, total: rows.length })}
           </span>
         </div>
       )}
@@ -586,12 +627,16 @@ function StatsTable({
         className="table-scroll"
         role="region"
         aria-label={
-          group === 'ruleset' ? 'Battlefield statistics table' : 'Player and AI statistics table'
+          group === 'ruleset'
+            ? t('Battlefield statistics table')
+            : t('Player and AI statistics table')
         }
         tabIndex={0}
       >
         <table
-          aria-label={group === 'ruleset' ? 'Results by battlefield' : 'Player & AI performance'}
+          aria-label={
+            group === 'ruleset' ? t('Results by battlefield') : t('Player & AI performance')
+          }
         >
           <thead>
             <tr>
@@ -604,11 +649,15 @@ function StatsTable({
                   <button
                     type="button"
                     className="archive-sort-button"
-                    aria-label={`Sort by ${column.label}`}
-                    title={column.help ?? `Sort by ${column.label}`}
+                    aria-label={t('Sort by {column}', { column: t(column.label) })}
+                    title={
+                      column.help
+                        ? t(column.help)
+                        : t('Sort by {column}', { column: t(column.label) })
+                    }
                     onClick={() => changeSort(column.key)}
                   >
-                    {column.label}
+                    {t(column.label)}
                     <span aria-hidden="true">
                       {sort?.key === column.key
                         ? sort.direction === 'ascending'
@@ -626,17 +675,22 @@ function StatsTable({
               <tr key={row.id ?? row.ruleset ?? i}>
                 <th scope="row">
                   {group === 'ruleset' ? (
-                    (rulesets.find((rule) => rule.id === row.ruleset)?.name ??
-                    row.name ??
-                    row.ruleset)
+                    t(
+                      rulesets.find((rule) => rule.id === row.ruleset)?.name ??
+                        row.name ??
+                        row.ruleset ??
+                        '',
+                    )
                   ) : (
                     <div className="stat-player-identity">
                       {row.kind === 'ai' ? (
                         <button
                           type="button"
                           className="stat-parameter-toggle"
-                          aria-label={`Show AI parameters for ${row.name ?? 'Computer'}`}
-                          title="Show AI parameters"
+                          aria-label={t('Show AI parameters for {name}', {
+                            name: row.name ?? t('Computer'),
+                          })}
+                          title={t('Show AI parameters')}
                           aria-haspopup="dialog"
                           aria-expanded={inspected === row}
                           onClick={() => setInspected(row)}
@@ -647,7 +701,7 @@ function StatsTable({
                         <span className="stat-parameter-spacer" aria-hidden="true" />
                       )}
                       <span className="stat-player-copy">
-                        <span className="stat-player-name">{row.name ?? 'Unknown player'}</span>
+                        <span className="stat-player-name">{row.name ?? t('Unknown player')}</span>
                         <small title={statPlayerDescription(row)}>
                           {statPlayerDescription(row)}
                         </small>
@@ -672,15 +726,20 @@ function StatsTable({
                     </td>
                   </>
                 )}
-                <td>{Number(row.average_game_length ?? row.average_length ?? 0).toFixed(1)}</td>
+                <td>
+                  {Number(row.average_game_length ?? row.average_length ?? 0).toLocaleString(
+                    getLocale(),
+                    { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!displayed.length && <p className="empty-copy">No players match this filter.</p>}
+        {!displayed.length && <p className="empty-copy">{t('No players match this filter.')}</p>}
         <p className="table-caption">
-          {group === 'player' ? 'W / D / L = wins, draws, losses. ' : ''}Rates count completed games
-          only. Select a column heading to change its order.
+          {group === 'player' ? t('W / D / L = wins, draws, losses. ') : ''}
+          {t('Rates count completed games only. Select a column heading to change its order.')}
         </p>
       </div>
       {inspected && <AIParameterDialog row={inspected} onClose={() => setInspected(null)} />}
@@ -703,7 +762,7 @@ function AIParameterDialog({ row, onClose }: { row: StatRow; onClose: () => void
     <dialog
       ref={ref}
       className="modal ai-parameter-dialog"
-      aria-label={`${row.name ?? 'Computer'} AI parameters`}
+      aria-label={t('{name} AI parameters', { name: row.name ?? t('Computer') })}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -711,25 +770,30 @@ function AIParameterDialog({ row, onClose }: { row: StatRow; onClose: () => void
     >
       <div className="modal-top">
         <div>
-          <p className="eyebrow">RECORDED OPPONENT SETTINGS</p>
-          <h2>{row.name ?? 'Computer'} AI parameters</h2>
+          <p className="eyebrow">{t('RECORDED OPPONENT SETTINGS')}</p>
+          <h2>{t('{name} AI parameters', { name: row.name ?? t('Computer') })}</h2>
         </div>
         <button
           type="button"
           className="icon-button"
-          aria-label="Close AI parameters"
+          aria-label={t('Close AI parameters')}
           onClick={onClose}
         >
           ×
         </button>
       </div>
       <p className="stat-dialog-description">{statPlayerDescription(row)}</p>
+      {!!row.seed_count && (
+        <p className="subtle">
+          {t('Game seeds are recorded per game and are excluded from this comparison.')}
+        </p>
+      )}
       <div className="record-parameters">
         <ParameterValues config={row.config} variantId={row.variant_id} />
       </div>
       <div className="modal-actions">
         <button type="button" className="button secondary" onClick={onClose}>
-          Close
+          {t('Close')}
         </button>
       </div>
     </dialog>

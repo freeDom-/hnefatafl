@@ -1,3 +1,5 @@
+import type { Advisor, PositionAnalysis } from './analysisTypes';
+
 export type Side = 'attackers' | 'defenders';
 export type Mode = 'human-human' | 'human-ai' | 'ai-ai';
 export type Config = Record<string, string | number | boolean>;
@@ -21,6 +23,9 @@ export interface PlayerConfig {
 }
 export interface Game {
   id: string;
+  advisor?: Advisor | null;
+  analysis_enabled?: boolean;
+  analysis?: PositionAnalysis | null;
   seed?: number;
   ruleset: string;
   size: number;
@@ -65,7 +70,7 @@ export interface Model {
   id: string;
   name: string;
   ruleset: string;
-  version?: string;
+  version?: string | number;
   created_at?: string;
   metrics?: Record<string, number>;
   training_config?: Record<string, unknown>;
@@ -107,6 +112,7 @@ export interface DeviceInfo {
   torch_version?: string;
 }
 export interface StatRow {
+  seed_count?: number;
   name?: string;
   id?: string;
   ruleset?: string;

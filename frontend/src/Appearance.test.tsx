@@ -4,6 +4,7 @@ import { AppearanceProvider, AppearanceSettings } from './Appearance';
 import Board from './Board';
 import type { Game } from './types';
 import { APPEARANCE_KEY, DEFAULT_APPEARANCE, parseAppearance } from './appearanceConfig';
+import { I18nProvider, LANGUAGE_KEY } from './i18n';
 
 const game: Game = {
   id: 'appearance-game',
@@ -60,10 +61,12 @@ afterEach(() => {
 });
 const renderTable = () =>
   render(
-    <AppearanceProvider>
-      <AppearanceSettings />
-      <Board game={game} selected={0} onSelect={vi.fn()} />
-    </AppearanceProvider>,
+    <I18nProvider>
+      <AppearanceProvider>
+        <AppearanceSettings />
+        <Board game={game} selected={0} onSelect={vi.fn()} />
+      </AppearanceProvider>
+    </I18nProvider>,
   );
 const openSettings = () =>
   fireEvent.click(screen.getByRole('button', { name: 'Appearance settings' }));
@@ -161,6 +164,44 @@ describe('appearance preferences', () => {
     expect(document.documentElement).toHaveAttribute('data-color-mode', 'dark');
     fireEvent.click(screen.getByRole('radio', { name: 'Follow device' }));
     expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
+  });
+
+  it('restores wood mode and its decorative motifs without changing board or token choices', () => {
+    const view = renderTable();
+    expect(document.querySelector('[data-wood-ornaments]')).toBeNull();
+    openSettings();
+    fireEvent.click(screen.getByRole('radio', { name: 'Wood' }));
+    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
+    expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
+    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#b69570');
+    expect(document.querySelector('[data-wood-ornaments]')).toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelectorAll('[data-wood-motif]')).toHaveLength(4);
+    changeDevice(true);
+    changeDevice(false);
+    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+    view.unmount();
+    renderTable();
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Wood' })).toBeChecked();
+    fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
+    expect(document.querySelector('[data-wood-ornaments]')).toBeNull();
+    expect(document.documentElement.style.colorScheme).toBe('light');
+  });
+
+  it('uses German appearance labels while saving the same theme identifiers', () => {
+    localStorage.setItem(LANGUAGE_KEY, 'de');
+    renderTable();
+    fireEvent.click(screen.getByRole('button', { name: 'Darstellungseinstellungen' }));
+    expect(screen.getByRole('radio', { name: 'Geschnitztes Holz' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Alter Nussbaum' })).toBeChecked();
+    fireEvent.click(screen.getByRole('radio', { name: 'Holz' }));
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
+      ...DEFAULT_APPEARANCE,
+      mode: 'wood',
+    });
+    expect(screen.getByRole('button', { name: 'Zurück zum Spieltisch' })).toBeInTheDocument();
   });
 
   it('recovers from corrupt or invalid saved preferences instead of breaking the board', () => {

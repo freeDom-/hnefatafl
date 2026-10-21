@@ -3,6 +3,7 @@ export const COLOR_MODES = [
   { id: 'system', name: 'Follow device', description: 'Light or dark with your device' },
   { id: 'light', name: 'Light', description: 'Parchment and daylight' },
   { id: 'dark', name: 'Dark', description: 'A quiet table after dusk' },
+  { id: 'wood', name: 'Wood', description: 'Timber, bronze and northern sagas' },
 ] as const;
 
 export const TOKEN_THEMES = [

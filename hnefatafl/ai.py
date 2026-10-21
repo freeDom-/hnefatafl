@@ -142,7 +142,14 @@ class _Deadline(Exception):
     pass
 
 
-def _alpha_beta(state: State, config: dict, rng: random.Random, deadline: float) -> Move:
+def _alpha_beta(
+    state: State,
+    config: dict,
+    rng: random.Random,
+    deadline: float,
+    *,
+    diagnostics: dict | None = None,
+) -> Move:
     depth = int(config.get("depth", 2))
     if not 1 <= depth <= 8:
         raise ValueError("Search depth must be between 1 and 8")
@@ -151,6 +158,13 @@ def _alpha_beta(state: State, config: dict, rng: random.Random, deadline: float)
     cache: dict[tuple, float] = {}
     model_path = config.get("model_path")
     model = config.get("_model")
+    if diagnostics is not None:
+        diagnostics.update(
+            value=policy_value(state, model_path, model)[1]
+            if model_path or model is not None
+            else evaluate(state),
+            completed_depth=0,
+        )
 
     def search(position: State, remaining: int, alpha: float, beta: float) -> float:
         if time.monotonic() >= deadline:
@@ -201,6 +215,8 @@ def _alpha_beta(state: State, config: dict, rng: random.Random, deadline: float)
         except _Deadline:
             break
         best_move = iteration_best
+        if diagnostics is not None:
+            diagnostics.update(value=sign * score_best, completed_depth=current_depth)
     return best_move
 
 
@@ -213,7 +229,9 @@ class _Node:
     children: dict[Move, "_Node"] = field(default_factory=dict)
 
 
-def mcts_policy(state: State, config: dict | None = None) -> dict[Move, float]:
+def mcts_policy(
+    state: State, config: dict | None = None, *, diagnostics: dict | None = None
+) -> dict[Move, float]:
     """PUCT/UCT tree search returning normalized root visit counts.
 
     Network priors and value replace rollouts when a model path is supplied.
@@ -237,10 +255,14 @@ def mcts_policy(state: State, config: dict | None = None) -> dict[Move, float]:
     model = config.get("_model")
     deadline = time.monotonic() + seconds
     root = _Node(state)
-    root_priors, _ = policy_value(state, model_path, model)
+    root_priors, root_value = policy_value(state, model_path, model)
+    if diagnostics is not None:
+        diagnostics.update(value=root_value, root_value=root_value, simulations=0)
     # Never overlook a one-move win even with a tiny simulation budget.
     for move in root_priors:
         if apply_move(state, move).winner == state.turn:
+            if diagnostics is not None:
+                diagnostics.update(value=1.0 if state.turn == "defenders" else -1.0)
             return {move: 1.0}
     noise_fraction = float(config.get("dirichlet_fraction", 0.0))
     if not 0 <= noise_fraction <= 1:
@@ -312,12 +334,19 @@ def mcts_policy(state: State, config: dict | None = None) -> dict[Move, float]:
             ancestor.visits += 1
             ancestor.total += value
     total = sum(child.visits for child in root.children.values())
+    if diagnostics is not None:
+        diagnostics.update(
+            value=root.total / root.visits if root.visits else root_value,
+            simulations=root.visits,
+        )
     if not total:
         return root_priors
     return {move: child.visits / total for move, child in root.children.items()}
 
 
-def choose_move(state: State, config: dict | None = None) -> Move:
+def choose_move(
+    state: State, config: dict | None = None, *, diagnostics: dict | None = None
+) -> Move:
     config = dict(config or {})
     moves = legal_moves(state)
     if state.winner or not moves:
@@ -332,20 +361,24 @@ def choose_move(state: State, config: dict | None = None) -> Move:
         sign = 1 if state.turn == "defenders" else -1
         rng.shuffle(moves)
         best, score = moves[0], -math.inf
+        searched = 0
         for move in moves:
             if time.monotonic() >= deadline and score > -math.inf:
                 break
             child = apply_move(state, move)
             value = sign * evaluate(child)
+            searched += 1
             if value > score:
                 best, score = move, value
+        if diagnostics is not None:
+            diagnostics.update(value=sign * score, completed_depth=1, searched_moves=searched)
         return best
     if algorithm in ("alpha_beta", "alphabeta"):
-        return _alpha_beta(state, config, rng, deadline)
+        return _alpha_beta(state, config, rng, deadline, diagnostics=diagnostics)
     if algorithm in ("mcts", "neural"):
         if algorithm == "neural" and not config.get("model_path") and config.get("_model") is None:
             raise ValueError("The neural opponent requires a registered model")
-        probabilities = mcts_policy(state, config)
+        probabilities = mcts_policy(state, config, diagnostics=diagnostics)
         temperature = float(config.get("temperature", 0.0))
         if not math.isfinite(temperature) or not 0 <= temperature <= 10:
             raise ValueError("Temperature must be between 0 and 10")
@@ -355,6 +388,45 @@ def choose_move(state: State, config: dict | None = None) -> Move:
             return rng.choices(options, weights=weights, k=1)[0]
         return max(probabilities, key=lambda move: probabilities[move])
     raise ValueError(f"Unknown AI algorithm: {algorithm}")
+
+
+def analyze_position(state: State, config: dict | None = None) -> dict:
+    """Expose an agent's bounded value estimate and strongest legal suggestion.
+
+    Values retain the defender perspective used by training: +1 is a defender
+    win, -1 an attacker win, and a rule draw is zero. A linear conversion to a
+    percentage estimates expected score (draws half), not a calibrated frequency
+    of wins. Traditional MCTS averages terminal/heuristic rollout leaves; a
+    neural-search agent reports its current-position value head. Alpha-beta
+    reports its last completed minimax depth using its heuristic or neural leaf
+    evaluator, falling back to its root evaluator if its deadline expires before
+    completing depth one.
+
+    Temperature affects actual play sampling, but suggestions always select the
+    strongest searched option. Search and evaluation never mutate the position
+    or caller configuration.
+    """
+    if state.winner:
+        return {"value": evaluate(state), "source": "terminal", "best_move": None}
+    configuration = dict(config or {})
+    configuration["temperature"] = 0
+    details: dict = {}
+    move = choose_move(state, configuration, diagnostics=details)
+    algorithm = configuration.get("algorithm", configuration.get("profile_id", "baseline"))
+    model_backed = algorithm in {"alpha_beta", "alphabeta", "mcts", "neural"} and (
+        bool(configuration.get("model_path")) or configuration.get("_model") is not None
+    )
+    source = (
+        "neural_value" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
+    )
+    value = details["root_value"] if model_backed and "root_value" in details else details["value"]
+    if not math.isfinite(value) or not -1 <= value <= 1:
+        raise ValueError("Agent evaluation must be finite and between -1 and 1")
+    result = {"value": value, "source": source, "best_move": move.to_dict()}
+    for key in ("completed_depth", "simulations", "searched_moves"):
+        if key in details:
+            result[key] = details[key]
+    return result
 
 
 def play_game(

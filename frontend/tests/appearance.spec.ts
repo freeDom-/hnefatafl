@@ -52,11 +52,26 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
     .toBe(true);
 
   await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await page.getByRole('radio', { name: 'Wood', exact: true }).check();
+  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await expect(root).toHaveAttribute('data-color-mode', 'wood');
+  await expect(root).toHaveCSS('color-scheme', 'dark');
+  await expect(root).toHaveCSS('background-color', 'rgb(33, 24, 18)');
+  await expect(page.locator('[data-wood-ornaments]')).toBeVisible();
+  await expect(page.locator('[data-wood-motif]')).toHaveCount(4);
+  await expect(board.locator('.token-wood')).toHaveCount(25);
+  await page.reload();
+  await expect(root).toHaveAttribute('data-color-mode', 'wood');
+  await expect(root).toHaveAttribute('data-board-theme', 'slate');
+  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Follow device' }).check();
   await page.getByRole('button', { name: 'Close appearance settings' }).click();
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(root).toHaveAttribute('data-color-mode', 'light');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(root).toHaveAttribute('data-color-mode', 'dark');
+  await expect(page.locator('[data-wood-ornaments]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

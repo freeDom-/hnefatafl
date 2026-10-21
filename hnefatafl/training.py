@@ -30,11 +30,12 @@ from .models import (
     resolve_device,
     save_checkpoint,
 )
+from .training_presets import RECOMMENDED
 
 
 DEFAULTS = {
     "ruleset": "brandubh",
-    "preset": "beginner",
+    "preset": "recommended",
     "channels": 16,
     "blocks": 1,
     "games": 4,
@@ -63,9 +64,11 @@ DEFAULTS = {
     "cpu_threads": 2,
     "output_dir": "data/training",
     "model_name": "Self-play learner",
+    "save_all_best": False,
 }
 
-PRESETS = {
+PRESETS: dict[str, dict] = {
+    "recommended": {},
     "smoke": {
         "channels": 4,
         "blocks": 0,
@@ -74,6 +77,7 @@ PRESETS = {
         "epochs": 1,
         "batch_size": 8,
         "mcts_iterations": 2,
+        "mcts_time_limit": 0.1,
         "evaluation_iterations": 2,
         "max_game_plies": 12,
         "evaluation_max_plies": 12,
@@ -98,10 +102,14 @@ def normalize_config(configuration: dict) -> dict:
     unknown = set(configuration) - set(DEFAULTS) - {"registry_dir", "resume"}
     if unknown:
         raise ValueError(f"Unknown training parameters: {', '.join(sorted(unknown))}")
-    preset = configuration.get("preset", "beginner")
-    if preset not in PRESETS:
+    preset = configuration.get("preset", DEFAULTS["preset"])
+    if not isinstance(preset, str) or preset not in PRESETS:
         raise ValueError("Unknown training preset")
-    config = {**DEFAULTS, **PRESETS[preset], **configuration}
+    ruleset = configuration.get("ruleset", DEFAULTS["ruleset"])
+    if not isinstance(ruleset, str) or ruleset not in RECOMMENDED:
+        raise ValueError("Unknown training ruleset")
+    plan = RECOMMENDED[ruleset] if preset == "recommended" else {}
+    config = {**DEFAULTS, **PRESETS[preset], **plan, **configuration}
     config["preset"] = preset
     if config["ruleset"] not in ("brandubh", "tablut", "copenhagen"):
         raise ValueError("Unknown training ruleset")
@@ -142,6 +150,8 @@ def normalize_config(configuration: dict) -> dict:
         config[key] = value
     if config["optimizer"] not in ("adamw", "adam", "sgd"):
         raise ValueError("optimizer must be adamw, adam, or sgd")
+    if type(config["save_all_best"]) is not bool:
+        raise ValueError("save_all_best must be a boolean")
     if type(config["seed"]) is not int or not 0 <= config["seed"] < 2**32:
         raise ValueError("seed must be an unsigned 32-bit integer")
     if not isinstance(config["output_dir"], str) or not config["output_dir"]:
@@ -336,6 +346,8 @@ def train(
     best_snapshot: dict | None = None
     previous = None
     metrics: dict = {}
+    history: list[dict] = []
+    best_models: list[dict] = []
     resume_payload = None
     if config.get("resume"):
         model, payload = load_checkpoint(config["resume"], device=str(device))
@@ -358,6 +370,8 @@ def train(
             for group in optimizer.param_groups:
                 group["lr"] = config["learning_rate"]
         extra = payload.get("extra", {})
+        history = extra.get("history", [])
+        best_models = extra.get("best_models", [])
         completed = int(extra.get("iteration", 0))
         games_generated = int(extra.get("games_generated", 0))
         replay = extra.get("replay", [])[-config["replay_buffer_size"] :]
@@ -394,6 +408,8 @@ def train(
         "mixed_precision": mixed,
         "checkpoint": None,
         "metrics": metrics,
+        "history": history,
+        "best_models": best_models,
     }
     _write_json(output / "config.json", config)
 
@@ -422,6 +438,8 @@ def train(
             "replay": replay,
             "best_score": best_score,
             "best_snapshot": best_snapshot,
+            "history": history,
+            "best_models": best_models,
             "python_rng": rng.getstate(),
             "torch_rng": torch.get_rng_state(),
             "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
@@ -518,6 +536,24 @@ def train(
             completed = iteration
             metrics["iteration_duration"] = time.monotonic() - iteration_start
             score = metrics.get("evaluation", {}).get("score", -1)
+            point = {
+                "iteration": iteration,
+                "policy_loss": metrics["policy_loss"],
+                "value_loss": metrics["value_loss"],
+                "replay_positions": metrics["replay_positions"],
+                "iteration_duration": metrics["iteration_duration"],
+            }
+            if "evaluation" in metrics:
+                evaluation = metrics["evaluation"]
+                point.update(
+                    evaluation_score=evaluation["score"],
+                    **{
+                        f"evaluation_{key}": evaluation[key]
+                        for key in ("wins", "losses", "draws", "truncated")
+                    },
+                )
+            history.append(point)
+            record_improvement = score >= 0 and score > best_score
             if score >= best_score:
                 best_score = score
                 # Clone: CPU detach alone would still share storage with the
@@ -531,6 +567,19 @@ def train(
                 }
                 save_checkpoint(best_checkpoint, model, best_snapshot["metadata"])
                 previous = deepcopy(model).eval()
+                if config["save_all_best"] and record_improvement:
+                    retained = output / "best" / f"iteration-{iteration:06d}.pt"
+                    save_checkpoint(retained, model, best_snapshot["metadata"])
+                    registry = ModelRegistry(config.get("registry_dir", output.parent / "models"))
+                    registered_best = registry.register(retained, name=config["model_name"])
+                    best_models.append(
+                        {
+                            "iteration": iteration,
+                            "score": score,
+                            "checkpoint": str(retained),
+                            "model_id": registered_best["id"],
+                        }
+                    )
             if iteration % config["checkpoint_frequency"] == 0 or iteration == config["iterations"]:
                 checkpoint_now(checkpoint)
             publish(

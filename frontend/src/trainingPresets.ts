@@ -1,0 +1,139 @@
+export type TrainingPreset = 'recommended' | 'smoke' | 'beginner' | 'balanced';
+export type TrainingConfig = Record<string, string | number | boolean>;
+
+const base: TrainingConfig = {
+  ruleset: 'tablut',
+  preset: 'recommended',
+  channels: 16,
+  blocks: 1,
+  iterations: 5,
+  games: 4,
+  epochs: 2,
+  batch_size: 32,
+  learning_rate: 0.001,
+  optimizer: 'adamw',
+  mcts_iterations: 24,
+  mcts_time_limit: 2,
+  exploration: 1.4,
+  replay_buffer_size: 5000,
+  weight_decay: 0.0001,
+  checkpoint_frequency: 1,
+  evaluation_frequency: 1,
+  evaluation_games: 2,
+  evaluation_iterations: 16,
+  seed: 42,
+  device: 'auto',
+  mixed_precision: true,
+  max_game_plies: 150,
+  evaluation_max_plies: 150,
+  model_name: 'My first strategist',
+  temperature: 1,
+  cpu_threads: 2,
+  dirichlet_alpha: 0.3,
+  dirichlet_fraction: 0.25,
+  save_all_best: false,
+};
+const plans: Record<string, TrainingConfig> = {
+  brandubh: {
+    channels: 32,
+    blocks: 2,
+    iterations: 20,
+    games: 16,
+    epochs: 2,
+    batch_size: 64,
+    learning_rate: 0.001,
+    mcts_iterations: 128,
+    mcts_time_limit: 2,
+    replay_buffer_size: 8000,
+    max_game_plies: 200,
+    evaluation_games: 12,
+    evaluation_iterations: 64,
+    evaluation_max_plies: 300,
+    dirichlet_alpha: 0.3,
+  },
+  tablut: {
+    channels: 48,
+    blocks: 3,
+    iterations: 30,
+    games: 24,
+    epochs: 3,
+    batch_size: 96,
+    learning_rate: 0.0007,
+    mcts_iterations: 192,
+    mcts_time_limit: 3,
+    replay_buffer_size: 12000,
+    max_game_plies: 300,
+    evaluation_games: 16,
+    evaluation_iterations: 96,
+    evaluation_max_plies: 500,
+    dirichlet_alpha: 0.2,
+  },
+  copenhagen: {
+    channels: 64,
+    blocks: 4,
+    iterations: 40,
+    games: 32,
+    epochs: 3,
+    batch_size: 128,
+    learning_rate: 0.0005,
+    mcts_iterations: 256,
+    mcts_time_limit: 4,
+    replay_buffer_size: 20000,
+    max_game_plies: 500,
+    evaluation_games: 20,
+    evaluation_iterations: 128,
+    evaluation_max_plies: 800,
+    dirichlet_alpha: 0.15,
+  },
+};
+
+export function trainingConfig(ruleset: string, preset: TrainingPreset): TrainingConfig {
+  const options =
+    preset === 'recommended'
+      ? (plans[ruleset] ?? plans.tablut)
+      : preset === 'smoke'
+        ? {
+            channels: 4,
+            blocks: 0,
+            games: 1,
+            iterations: 1,
+            epochs: 1,
+            batch_size: 8,
+            mcts_iterations: 2,
+            mcts_time_limit: 0.1,
+            evaluation_iterations: 2,
+            max_game_plies: 12,
+            evaluation_max_plies: 12,
+            replay_buffer_size: 64,
+          }
+        : preset === 'balanced'
+          ? {
+              channels: 32,
+              blocks: 2,
+              games: 16,
+              iterations: 20,
+              epochs: 4,
+              batch_size: 64,
+              mcts_iterations: 100,
+              replay_buffer_size: 10000,
+              max_game_plies: 300,
+            }
+          : {};
+  return { ...base, ...options, ruleset, preset };
+}
+
+export function changeTrainingPlan(
+  previous: TrainingConfig,
+  ruleset: string,
+  preset: TrainingPreset,
+): TrainingConfig {
+  return {
+    ...trainingConfig(ruleset, preset),
+    model_name: previous.model_name,
+    seed: previous.seed,
+    device: previous.device,
+    cpu_threads: previous.cpu_threads,
+    mixed_precision: previous.mixed_precision,
+    save_all_best: previous.save_all_best,
+  };
+}

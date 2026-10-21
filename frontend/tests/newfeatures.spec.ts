@@ -124,6 +124,7 @@ test('workshop suggests Viking names and deletes a model only after confirmation
   await expect(input).not.toHaveValue(original);
   const name = `Runekeeper delete ${info.project.name}`;
   await input.fill(name);
+  await page.getByRole('combobox', { name: 'Training preset', exact: true }).selectOption('smoke');
   await page.getByRole('button', { name: 'Start training', exact: false }).click();
   await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 60000 });
   await expect(page.locator('.model-card').getByRole('heading', { name })).toBeVisible();

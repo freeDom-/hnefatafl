@@ -58,6 +58,113 @@
   outline-color: #103b24;
 }
 
+/* A timber hall, with bronze fittings and carved northern motifs. Board colors
+   remain controlled by their independent palette rather than this UI mode. */
+:root[data-color-mode='wood'] {
+  --page: #211812;
+  --text: #f3e4ca;
+  --surface: #38271d;
+  --surface-raised: #473225;
+  --green: #e6bd7d;
+  --green-dark: #f3d6a3;
+  --muted: #c9b697;
+  --line: #705336;
+  --gold: #e0b372;
+  --ui-header: #2b1e16;
+  --ui-dialog: #35251b;
+  --ui-tint: #493324;
+  --ui-selected: #57402b;
+  --ui-gold-tint: #564027;
+  --ui-error-surface: #532c21;
+  --ui-border: #82603e;
+  --ui-heading: #f5e6cc;
+  --ui-copy: #deccac;
+  --ui-subtle: #c9b697;
+  background-image:
+    repeating-linear-gradient(3deg, #e6ba7c06 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(91deg, transparent 0 119px, #0d08054a 120px 122px),
+    radial-gradient(ellipse at 85% 35%, #6c42221c, transparent 60%);
+}
+:root[data-color-mode='wood'] .site-header {
+  background-image: repeating-linear-gradient(2deg, #e6ba7c08 0 1px, transparent 1px 5px);
+  border-bottom: 3px double #9a7349;
+  box-shadow: 0 4px 16px #0c08053d;
+}
+:root[data-color-mode='wood'] .panel,
+:root[data-color-mode='wood'] .metric,
+:root[data-color-mode='wood'] .welcome-panel,
+:root[data-color-mode='wood'] .modal {
+  background-color: var(--surface);
+  background-image:
+    repeating-linear-gradient(1deg, #d3a86707 0 1px, transparent 1px 7px),
+    radial-gradient(ellipse at 22% 5%, #9d693318, transparent 70%);
+  border-color: #80603c;
+  box-shadow:
+    inset 0 0 0 3px #d0a1640d,
+    inset 0 1px 0 #d4b07738,
+    0 6px 18px #0906032b;
+}
+:root[data-color-mode='wood'] .button.primary {
+  background: linear-gradient(135deg, #e6bd7d, #c99955);
+  border-color: #efcb91;
+  color: #2c1d11;
+  box-shadow:
+    inset 0 1px 0 #fff0c861,
+    0 2px 4px #09060340;
+}
+:root[data-color-mode='wood'] .button.primary:hover {
+  background: #f0ce98;
+}
+:root[data-color-mode='wood'] .variant-pills > span {
+  background: #453123;
+}
+:root[data-color-mode='wood'] .notice {
+  color: #eed5a9;
+}
+:root[data-color-mode='wood'] .error-banner,
+:root[data-color-mode='wood'] .form-error,
+:root[data-color-mode='wood'] .job-status.failed,
+:root[data-color-mode='wood'] .danger-text {
+  color: #ffc1a6;
+}
+:root[data-color-mode='wood'] .turn-banner.finished {
+  border-color: #ba8c48;
+}
+:root[data-color-mode='wood'] .modal::backdrop {
+  background: #100904cf;
+}
+:root[data-color-mode='wood'] .square:focus-visible {
+  outline-color: #103b24;
+}
+:root[data-color-mode='wood'] .brand-emblem,
+:root[data-color-mode='wood'] .tournament-emblem {
+  border-color: #a7814e;
+  background: linear-gradient(140deg, #674a2f, #362419);
+  box-shadow: inset 0 0 0 3px #bb965d26;
+}
+.wood-ornaments {
+  position: fixed;
+  right: 2vw;
+  bottom: 20px;
+  width: min(520px, 64vw);
+  color: #d8ac6f;
+  opacity: 0.16;
+  pointer-events: none;
+  z-index: -1;
+}
+.wood-frieze {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+:root[data-color-mode='wood'] #root {
+  isolation: isolate;
+}
+:root[data-color-mode='wood'] .page-intro .eyebrow,
+:root[data-color-mode='wood'] .panel > .eyebrow {
+  color: #d4b07d;
+}
+
 /* Board palettes are independent of UI mode and of the physical token material. */
 .board-frame {
   background: var(--board-frame, #b69b6d);
@@ -260,6 +367,9 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+.appearance-modes {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .appearance-mode,
 .appearance-choice {
   display: flex;
@@ -418,6 +528,9 @@
   .appearance-modes,
   .appearance-choices {
     gap: 7px;
+  }
+  .appearance-modes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .appearance-mode,
   .appearance-choice {

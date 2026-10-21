@@ -1,3 +1,5 @@
+import { localizedRules } from './locales/rules-de';
+import { t, useI18n, LanguageSelect, getLocale } from './i18n';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate, Crown } from './Board';
@@ -8,7 +10,11 @@ import Training from './Training';
 import Tournaments from './Tournaments';
 import { AppearanceSettings } from './Appearance';
 import { sortRulesets } from './sortRulesets';
+import { readLastGameMode, rememberGameMode } from './gameModePreference';
 import { selectStrongestModel } from './modelSelection';
+import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
+import AdvisorSelect, { advisorOptions } from './AdvisorSelect';
+import { modelLabel } from './modelLabel';
 
 type Tab = 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -17,6 +23,7 @@ const sideGlyph = (side: Side) => (
 );
 
 export default function App() {
+  useI18n();
   const [tab, setTab] = useState<Tab>('play');
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
@@ -35,6 +42,7 @@ export default function App() {
   const initialized = useRef(false);
   const currentGame = useRef<Game | null>(null);
   currentGame.current = game;
+  const analysis = useGameAnalysis(game, tab === 'play');
 
   const refreshOptions = useCallback(async () => {
     const [rules, ais, people, savedModels] = await Promise.all([
@@ -105,13 +113,13 @@ export default function App() {
   }, []);
   const activeAI = !!game && !game.winner && game.players[game.turn]?.kind === 'ai';
   useEffect(() => {
-    if (!game || !activeAI || paused || busy || tab !== 'play') return;
+    if (!game || !activeAI || paused || busy || analysis.pending || tab !== 'play') return;
     const timer = window.setTimeout(() => void action('ai-move'), speed);
     return () => window.clearTimeout(timer);
-  }, [game, activeAI, paused, busy, speed, action, tab]);
+  }, [game, activeAI, paused, busy, analysis.pending, speed, action, tab]);
 
   const selectSquare = (index: number) => {
-    if (!game || game.winner || busy || activeAI) return;
+    if (!game || game.winner || busy || analysis.pending || activeAI) return;
     if (index < 0) {
       setSelected(null);
       return;
@@ -167,10 +175,11 @@ export default function App() {
             <Crown />
           </span>
           <span>
-            HNEFATAFL<small>THE KING’S TABLE</small>
+            {t('HNEFATAFL')}
+            <small>{t('THE KING’S TABLE')}</small>
           </span>
         </a>
-        <nav aria-label="Main navigation">
+        <nav aria-label={t('Main navigation')}>
           {(['play', 'archive', 'training', 'tournaments'] as Tab[]).map((item) => (
             <button
               type="button"
@@ -183,25 +192,27 @@ export default function App() {
               aria-current={tab === item ? 'page' : undefined}
             >
               {item === 'play'
-                ? 'Play'
+                ? t('Play')
                 : item === 'archive'
-                  ? 'Hall of records'
+                  ? t('Hall of records')
                   : item === 'training'
-                    ? 'AI workshop'
-                    : 'Tournaments'}
+                    ? t('AI workshop')
+                    : t('Tournaments')}
             </button>
           ))}
         </nav>
+        <LanguageSelect />
         <AppearanceSettings />
         <span className="header-note">
-          <span />A game of wit, not chance
+          <span />
+          {t('A game of wit, not chance')}
         </span>
       </header>
       <main>
         {error && (
           <div role="alert" className="error-banner">
-            <span>{error}</span>
-            <button onClick={() => setError('')} aria-label="Dismiss error">
+            <span>{t(error)}</span>
+            <button onClick={() => setError('')} aria-label={t('Dismiss error')}>
               ×
             </button>
           </div>
@@ -210,9 +221,9 @@ export default function App() {
           <>
             <section className="page-intro">
               <div>
-                <p className="eyebrow">STRATEGY, FORGED IN THE NORTH</p>
-                <h1>Every move tells a saga.</h1>
-                <p>One king. Two armies. A thousand ways to outwit your opponent.</p>
+                <p className="eyebrow">{t('STRATEGY, FORGED IN THE NORTH')}</p>
+                <h1>{t('Every move tells a saga.')}</h1>
+                <p>{t('One king. Two armies. A thousand ways to outwit your opponent.')}</p>
               </div>
               <button
                 className="button primary"
@@ -222,30 +233,32 @@ export default function App() {
                 }}
                 disabled={initializing}
               >
-                <span aria-hidden="true">＋</span> New game
+                <span aria-hidden="true">＋</span> {t('New game')}
               </button>
             </section>
             {initializing ? (
               <div className="empty-state">
                 <div className="spinner" />
-                <h2>Setting the table…</h2>
+                <h2>{t('Setting the table…')}</h2>
               </div>
             ) : !game ? (
               <section className="welcome-panel">
                 <div className="welcome-rune">ᛟ</div>
-                <p className="eyebrow">A TRADITION OF STRATEGY</p>
-                <h2>The king awaits.</h2>
+                <p className="eyebrow">{t('A TRADITION OF STRATEGY')}</p>
+                <h2>{t('The king awaits.')}</h2>
                 <p>
-                  Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a
-                  historic ruleset and begin your first saga.
+                  {t(
+                    'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
+                  )}
                 </p>
                 <button className="button primary" onClick={() => setNewOpen(true)}>
-                  Choose your game <span aria-hidden="true">↗</span>
+                  {t('Choose your game')}
+                  <span aria-hidden="true">↗</span>
                 </button>
                 <div className="variant-pills">
                   {rulesets.map((r) => (
                     <span key={r.id}>
-                      {r.name}{' '}
+                      {t(r.name)}{' '}
                       <small>
                         {r.size} × {r.size}
                       </small>
@@ -257,49 +270,53 @@ export default function App() {
               <div className="game-layout">
                 <aside className="game-sidebar">
                   <section className="panel game-details">
-                    <p className="eyebrow">THE BATTLEFIELD</p>
+                    <p className="eyebrow">{t('THE BATTLEFIELD')}</p>
                     <div className="variant-heading">
                       <h2>
                         {game.ruleset === 'tablut'
-                          ? 'Tablut'
+                          ? t('Tablut')
                           : game.ruleset === 'copenhagen'
-                            ? 'Copenhagen'
-                            : (activeRules?.name ?? game.ruleset)}
+                            ? t('Copenhagen')
+                            : t(activeRules?.name ?? game.ruleset)}
                       </h2>
                       <span className="badge">
                         {game.size} × {game.size}
                       </span>
                     </div>
                     <p>
-                      {activeRules?.description ?? 'An ancient contest of escape and encirclement.'}
+                      {t(
+                        activeRules?.description ??
+                          'An ancient contest of escape and encirclement.',
+                      )}
                     </p>
                     <button className="text-button" onClick={() => setRulesOpen(true)}>
-                      Read the rules <span aria-hidden="true">↗</span>
+                      {t('Read the rules')}
+                      <span aria-hidden="true">↗</span>
                     </button>
                     <div className="divider" />
                     <div className="detail-row">
-                      <span>Game mode</span>
+                      <span>{t('Game mode')}</span>
                       <strong>
                         {game.mode === 'human-human'
-                          ? 'Pass & play'
+                          ? t('Pass & play')
                           : game.mode === 'human-ai'
-                            ? 'Human vs AI'
-                            : 'AI vs AI'}
+                            ? t('Human vs AI')
+                            : t('AI vs AI')}
                       </strong>
                     </div>
                     <div className="detail-row">
-                      <span>Move</span>
+                      <span>{t('Move')}</span>
                       <strong>{game.cursor}</strong>
                     </div>
                     {game.seed !== undefined && (
                       <div className="detail-row">
-                        <span>Random seed</span>
+                        <span>{t('Random seed')}</span>
                         <strong>{game.seed}</strong>
                       </div>
                     )}
                   </section>
                   <section className="panel armies">
-                    <p className="eyebrow">THE TWO SIDES</p>
+                    <p className="eyebrow">{t('THE TWO SIDES')}</p>
                     {(['attackers', 'defenders'] as Side[]).map((side) => (
                       <div
                         className={`army ${game.turn === side && !game.winner ? 'to-move' : ''}`}
@@ -307,21 +324,21 @@ export default function App() {
                       >
                         <div className="army-symbol">{sideGlyph(side)}</div>
                         <div>
-                          <h3>{game.players[side]?.name || titles[side]}</h3>
+                          <h3>{game.players[side]?.name || t(titles[side])}</h3>
                           <p>
-                            {titles[side]} ·{' '}
+                            {t(titles[side])} ·{' '}
                             {game.players[side]?.kind === 'ai'
-                              ? (game.players[side].config.algorithm ?? 'Computer')
-                              : 'Human'}
+                              ? t(String(game.players[side].config.algorithm ?? 'Computer'))
+                              : t('Human')}
                           </p>
                         </div>
                         {game.turn === side && !game.winner && (
-                          <span className="turn-light" aria-label="Current turn" />
+                          <span className="turn-light" aria-label={t('Current turn')} />
                         )}
                       </div>
                     ))}
                     <div className="captured-row">
-                      <span>Captured</span>
+                      <span>{t('Captured')}</span>
                       <span>
                         {sideGlyph('attackers')} {game.captured?.attackers ?? 0}
                       </span>
@@ -330,16 +347,17 @@ export default function App() {
                       </span>
                     </div>
                   </section>
+                  {analysis.show && <AgentAnalysis game={game} {...analysis} />}
                   <div className="strategy-note">
                     <span aria-hidden="true">ᛉ</span>
                     <p>
                       {game.turn === 'attackers'
-                        ? 'Close the circle. Cut off the king’s path to freedom.'
-                        : 'Protect the king. Find the opening in the siege.'}
+                        ? t('Close the circle. Cut off the king’s path to freedom.')
+                        : t('Protect the king. Find the opening in the siege.')}
                     </p>
                   </div>
                 </aside>
-                <section className="battlefield" aria-label="Game">
+                <section className="battlefield" aria-label={t('Game')}>
                   <div
                     className={`turn-banner ${game.winner ? 'finished' : ''}`}
                     aria-live="polite"
@@ -350,25 +368,27 @@ export default function App() {
                           <Crown />
                           <strong>
                             {game.winner === 'draw'
-                              ? 'An evenly matched saga'
-                              : `${titles[game.winner]} win`}
+                              ? t('An evenly matched saga')
+                              : t('{side} win', { side: t(titles[game.winner]) })}
                           </strong>
-                          <span>{game.reason?.replaceAll('_', ' ')}</span>
+                          <span>{game.reason ? t(game.reason.replaceAll('_', ' ')) : ''}</span>
                         </>
                       ) : (
                         <>
                           {sideGlyph(game.turn)}
-                          <strong>{titles[game.turn]} to move</strong>
+                          <strong>{t('{side} to move', { side: t(titles[game.turn]) })}</strong>
                           <span>
-                            {busy
-                              ? 'Thinking…'
-                              : activeAI
-                                ? paused
-                                  ? 'Computer paused'
-                                  : 'Computer is preparing a move'
-                                : selected !== null
-                                  ? 'Choose a highlighted square'
-                                  : 'Select a piece to see its moves'}
+                            {analysis.pending
+                              ? t('Evaluating this position…')
+                              : busy
+                                ? t('Thinking…')
+                                : activeAI
+                                  ? paused
+                                    ? t('Computer paused')
+                                    : t('Computer is preparing a move')
+                                  : selected !== null
+                                    ? t('Choose a highlighted square')
+                                    : t('Select a piece to see its moves')}
                           </span>
                         </>
                       )}
@@ -379,14 +399,15 @@ export default function App() {
                     game={game}
                     selected={selected}
                     onSelect={selectSquare}
-                    disabled={busy || activeAI || !!game.winner}
+                    disabled={busy || analysis.pending || activeAI || !!game.winner}
+                    hint={analysis.report?.hint?.move ?? null}
                   />
                   <div className="board-toolbar">
                     <div className="button-group">
                       <button
                         className="icon-button"
-                        aria-label="Undo move"
-                        title="Undo"
+                        aria-label={t('Undo move')}
+                        title={t('Undo')}
                         onClick={() => {
                           setPaused(true);
                           void action('undo');
@@ -397,8 +418,8 @@ export default function App() {
                       </button>
                       <button
                         className="icon-button"
-                        aria-label="Redo move"
-                        title="Redo"
+                        aria-label={t('Redo move')}
+                        title={t('Redo')}
                         onClick={() => {
                           setPaused(true);
                           void action('redo');
@@ -410,13 +431,13 @@ export default function App() {
                     </div>
                     <span className="board-help">
                       {game.winner
-                        ? 'A new saga is one move away.'
-                        : 'Move in straight lines. Capture by surrounding.'}
+                        ? t('A new saga is one move away.')
+                        : t('Move in straight lines. Capture by surrounding.')}
                     </span>
                     <button
                       className="icon-button"
-                      aria-label="Restart game"
-                      title="Restart"
+                      aria-label={t('Restart game')}
+                      title={t('Restart')}
                       onClick={() => {
                         setPaused(true);
                         void action('restart');
@@ -433,31 +454,31 @@ export default function App() {
                         onClick={() => setPaused((p) => !p)}
                         disabled={!!game.winner}
                       >
-                        {paused ? '▶ Resume AI' : 'Ⅱ Pause AI'}
+                        {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
                       </button>
                       <button
                         className="text-button"
                         onClick={() => void action('ai-move')}
-                        disabled={!activeAI || busy || !paused}
+                        disabled={!activeAI || busy || analysis.pending || !paused}
                       >
-                        Next move
+                        {t('Next move')}
                       </button>
                       <label>
-                        Playback{' '}
+                        {t('Playback')}{' '}
                         <select
-                          aria-label="AI playback speed"
+                          aria-label={t('AI playback speed')}
                           value={speed}
                           onChange={(e) => setSpeed(Number(e.target.value))}
                         >
-                          <option value={1800}>Relaxed</option>
-                          <option value={900}>Normal</option>
-                          <option value={100}>Fast</option>
+                          <option value={1800}>{t('Relaxed')}</option>
+                          <option value={900}>{t('Normal')}</option>
+                          <option value={100}>{t('Fast')}</option>
                         </select>
                       </label>
                       {busy && (
                         <span className="thinking">
                           <i />
-                          Calculating
+                          {t('Calculating')}
                         </span>
                       )}
                     </div>
@@ -465,14 +486,14 @@ export default function App() {
                 </section>
                 <aside className="panel history-panel">
                   <div className="panel-title">
-                    <h2>The saga so far</h2>
+                    <h2>{t('The saga so far')}</h2>
                     <span className="badge">{game.total_moves}</span>
                   </div>
-                  <p className="subtle">A record of every move</p>
+                  <p className="subtle">{t('A record of every move')}</p>
                   <div className="history-columns">
-                    <span>MOVE</span>
-                    <span>JOURNEY</span>
-                    <span>SIDE</span>
+                    <span>{t('MOVE')}</span>
+                    <span>{t('JOURNEY')}</span>
+                    <span>{t('SIDE')}</span>
                   </div>
                   <ol className="move-list">
                     {game.moves.map((move, i) => (
@@ -488,14 +509,14 @@ export default function App() {
                             void action('seek', { cursor: i + 1 });
                           }}
                           disabled={busy}
-                          aria-label={`Replay to move ${i + 1}`}
+                          aria-label={t('Replay to move {move}', { move: i + 1 })}
                         >
                           <span>{String(i + 1).padStart(2, '0')}</span>
                           <strong>
                             {move.notation ??
                               `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`}
                           </strong>
-                          {sideGlyph(move.side ?? (i % 2 ? 'defenders' : 'attackers'))}
+                          {sideGlyph(move.side ?? (i % 2 ? t('defenders') : t('attackers')))}
                         </button>
                       </li>
                     ))}
@@ -504,9 +525,9 @@ export default function App() {
                     <div className="history-empty">
                       <span aria-hidden="true">ᛝ</span>
                       <p>
-                        Every saga starts
+                        {t('Every saga starts')}
                         <br />
-                        with a first move.
+                        {t('with a first move.')}
                       </p>
                     </div>
                   )}
@@ -518,10 +539,10 @@ export default function App() {
                     }}
                     disabled={busy || game.cursor === 0}
                   >
-                    ↤ Starting position
+                    {t('↤ Starting position')}
                   </button>
                   <div className="history-footer">
-                    <span className="status-dot" /> Game saved automatically
+                    <span className="status-dot" /> {t('Game saved automatically')}
                   </div>
                 </aside>
               </div>
@@ -552,9 +573,9 @@ export default function App() {
         )}
       </main>
       <footer className="site-footer">
-        <span>ᛟ HNEFATAFL</span>
-        <p>An ancient game. An open horizon.</p>
-        <span>Made for thoughtful moves.</span>
+        <span>{t('ᛟ HNEFATAFL')}</span>
+        <p>{t('An ancient game. An open horizon.')}</p>
+        <span>{t('Made for thoughtful moves.')}</span>
       </footer>
       {newOpen && (
         <NewGame
@@ -576,9 +597,14 @@ export default function App() {
         />
       )}
       {rulesOpen && activeRules && (
-        <Modal title={`${activeRules.name} rules`} onClose={() => setRulesOpen(false)}>
+        <Modal
+          title={t('{name} rules', { name: t(activeRules.name) })}
+          onClose={() => setRulesOpen(false)}
+        >
           <article className="rules-document">
-            <ReactMarkdown>{activeRules.rules_markdown}</ReactMarkdown>
+            <ReactMarkdown>
+              {localizedRules(activeRules.id, activeRules.rules_markdown)}
+            </ReactMarkdown>
           </article>
         </Modal>
       )}
@@ -615,10 +641,10 @@ export function Modal({
     >
       <div className="modal-top">
         <div>
-          <p className="eyebrow">THE KING’S TABLE</p>
+          <p className="eyebrow">{t('THE KING’S TABLE')}</p>
           <h2>{title}</h2>
         </div>
-        <button className="icon-button" aria-label="Close dialog" onClick={onClose}>
+        <button className="icon-button" aria-label={t('Close dialog')} onClick={onClose}>
           ×
         </button>
       </div>
@@ -679,38 +705,38 @@ function AIFields({
   return (
     <div className="ai-fields">
       <label>
-        Opponent
+        {t('Opponent')}
         <select
-          aria-label={`${titles[side]} AI profile`}
+          aria-label={t('{side} AI profile', { side: t(titles[side]) })}
           value={value.profile_id ?? ''}
           onChange={(e) => selectProfile(e.target.value)}
         >
-          <option value="">Custom opponent</option>
+          <option value="">{t('Custom opponent')}</option>
           {profiles
             .filter((p) => p.supported_rulesets.includes(ruleset))
             .map((p) => (
               <option value={p.id} key={p.id}>
-                {p.name} · {p.difficulty}
+                {t(p.name)} · {t(p.difficulty)}
               </option>
             ))}
         </select>
       </label>
       <div className="form-grid">
         <label>
-          Algorithm
+          {t('Algorithm')}
           <select
-            aria-label={`${titles[side]} algorithm`}
+            aria-label={t('{side} algorithm', { side: t(titles[side]) })}
             value={String(value.config.algorithm ?? 'baseline')}
             onChange={(e) => update('algorithm', e.target.value)}
           >
-            <option value="baseline">Tactical heuristic</option>
-            <option value="alpha_beta">Alpha-beta search</option>
-            <option value="mcts">Monte Carlo tree search</option>
-            <option value="neural">Neural network</option>
+            <option value="baseline">{t('Tactical heuristic')}</option>
+            <option value="alpha_beta">{t('Alpha-beta search')}</option>
+            <option value="mcts">{t('Monte Carlo tree search')}</option>
+            <option value="neural">{t('Neural network')}</option>
           </select>
         </label>
         <label>
-          Time limit (seconds)
+          {t('Time limit (seconds)')}
           <input
             type="number"
             min="0.05"
@@ -722,7 +748,7 @@ function AIFields({
         </label>
         {value.config.algorithm === 'alpha_beta' && (
           <label>
-            Search depth
+            {t('Search depth')}
             <input
               type="number"
               min="1"
@@ -735,7 +761,7 @@ function AIFields({
         {['mcts', 'neural'].includes(String(value.config.algorithm)) && (
           <>
             <label>
-              Search iterations
+              {t('Search iterations')}
               <input
                 type="number"
                 min="1"
@@ -745,7 +771,7 @@ function AIFields({
               />
             </label>
             <label>
-              Exploration
+              {t('Exploration')}
               <input
                 type="number"
                 min="0"
@@ -756,7 +782,7 @@ function AIFields({
               />
             </label>
             <label>
-              Temperature
+              {t('Temperature')}
               <input
                 type="number"
                 min="0"
@@ -771,24 +797,24 @@ function AIFields({
       </div>
       {value.config.algorithm === 'neural' && (
         <label>
-          Trained model
+          {t('Trained model')}
           <select
-            aria-label={`${titles[side]} trained model`}
+            aria-label={t('{side} trained model', { side: t(titles[side]) })}
             value={String(value.config.model_id ?? '')}
             required
             onChange={(e) => update('model_id', e.target.value)}
           >
-            <option value="">Choose a compatible model</option>
+            <option value="">{t('Choose a compatible model')}</option>
             {models
               .filter((m) => m.ruleset === ruleset)
               .map((m) => (
                 <option value={m.id} key={m.id}>
-                  {m.name} {m.version}
+                  {modelLabel(m)}
                 </option>
               ))}
           </select>
           {!models.some((m) => m.ruleset === ruleset) && (
-            <small>Train or import a model in the AI workshop first.</small>
+            <small>{t('Train or import a model in the AI workshop first.')}</small>
           )}
         </label>
       )}
@@ -836,11 +862,22 @@ export function NewGame({
   onClose: () => void;
   onCreated: (game: Game) => void;
 }) {
+  useI18n();
   const [ruleset, setRuleset] = useState(initialRuleset ?? 'tablut');
-  const [mode, setMode] = useState<Mode>('human-human');
+  const [mode, setMode] = useState<Mode>(readLastGameMode);
   const [humanSide, setHumanSide] = useState<Side>('defenders');
   const [fixedSeed, setFixedSeed] = useState(false);
   const [seed, setSeed] = useState(0);
+  const [advisorId, setAdvisorId] = useState('');
+  const availableAdvisors = advisorOptions(profiles, models, ruleset);
+  const advisor = availableAdvisors.find((option) => option.id === advisorId)?.advisor ?? null;
+  useEffect(() => {
+    if (
+      advisorId &&
+      !advisorOptions(profiles, models, ruleset).some((option) => option.id === advisorId)
+    )
+      setAdvisorId('');
+  }, [advisorId, ruleset, models, profiles]);
   const [people, setPeople] = useState<Record<Side, PlayerConfig>>({
     attackers: {
       name: 'Attacker',
@@ -921,15 +958,16 @@ export function NewGame({
       }),
     );
     try {
-      onCreated(
-        await api<Game>('/games', {
-          ruleset,
-          mode,
-          human_side: humanSide,
-          players: configured,
-          ...(fixedSeed ? { seed } : {}),
-        }),
-      );
+      const created = await api<Game>('/games', {
+        ruleset,
+        mode,
+        human_side: humanSide,
+        players: configured,
+        ...(advisor ? { advisor } : {}),
+        ...(fixedSeed ? { seed } : {}),
+      });
+      rememberGameMode(mode);
+      onCreated(created);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -937,10 +975,10 @@ export function NewGame({
     }
   };
   return (
-    <Modal title="Begin a new saga" onClose={onClose}>
+    <Modal title={t('Begin a new saga')} onClose={onClose}>
       <form onSubmit={submit} className="new-game-form">
         <fieldset>
-          <legend>01 · Choose your battlefield</legend>
+          <legend>{t('01 · Choose your battlefield')}</legend>
           <div className="ruleset-options">
             {sortRulesets(rulesets).map((rule) => (
               <label key={rule.id} className={ruleset === rule.id ? 'chosen' : ''}>
@@ -954,16 +992,14 @@ export function NewGame({
                 <span className="option-rune">
                   {rule.id === 'tablut' ? 'ᛏ' : rule.id === 'brandubh' ? 'ᛒ' : 'ᛟ'}
                 </span>
-                <strong>{rule.name}</strong>
-                <span>
-                  {rule.size} × {rule.size} board
-                </span>
+                <strong>{t(rule.name)}</strong>
+                <span>{t('{size} × {size} board', { size: rule.size })}</span>
               </label>
             ))}
           </div>
         </fieldset>
         <fieldset>
-          <legend>02 · Gather your players</legend>
+          <legend>{t('02 · Gather your players')}</legend>
           <div className="segmented">
             {(
               [
@@ -978,16 +1014,16 @@ export function NewGame({
                 key={option.id}
                 onClick={() => setMode(option.id)}
               >
-                {option.label}
+                {t(option.label)}
               </button>
             ))}
           </div>
           {mode === 'human-ai' && (
             <label className="inline-label">
-              Your side
+              {t('Your side')}
               <select value={humanSide} onChange={(e) => setHumanSide(e.target.value as Side)}>
-                <option value="defenders">Defenders · help the king escape</option>
-                <option value="attackers">Attackers · capture the king</option>
+                <option value="defenders">{t('Defenders · help the king escape')}</option>
+                <option value="attackers">{t('Attackers · capture the king')}</option>
               </select>
             </label>
           )}
@@ -997,8 +1033,8 @@ export function NewGame({
               return (
                 <div className="player-config" key={side}>
                   <h3>
-                    {sideGlyph(side)} {titles[side]}
-                    <small>{ai ? 'COMPUTER' : 'HUMAN'}</small>
+                    {sideGlyph(side)} {t(titles[side])}
+                    <small>{ai ? t('COMPUTER') : t('HUMAN')}</small>
                   </h3>
                   {ai ? (
                     <AIFields
@@ -1015,9 +1051,9 @@ export function NewGame({
                   ) : (
                     <>
                       <label>
-                        Human player
+                        {t('Human player')}
                         <select
-                          aria-label={`${titles[side]} human player`}
+                          aria-label={t('{side} human player', { side: t(titles[side]) })}
                           value={people[side].player_id ?? ''}
                           onChange={(e) => {
                             const player = players.find((p) => p.id === e.target.value);
@@ -1031,7 +1067,7 @@ export function NewGame({
                             }));
                           }}
                         >
-                          <option value="">New player / enter name</option>
+                          <option value="">{t('New player / enter name')}</option>
                           {players.map((p) => (
                             <option key={p.id} value={p.id}>
                               {p.name}
@@ -1044,9 +1080,9 @@ export function NewGame({
                       </label>
                       {!people[side].player_id && (
                         <label>
-                          Player name
+                          {t('Player name')}
                           <input
-                            aria-label={`${titles[side]} player name`}
+                            aria-label={t('{side} player name', { side: t(titles[side]) })}
                             required
                             maxLength={64}
                             value={people[side].name}
@@ -1075,14 +1111,27 @@ export function NewGame({
             ) && (
               <p className="subtle model-recommendation">
                 {recommendation.basis === 'evaluation'
-                  ? `Best measured model selected: ${recommendation.model.name} (${((recommendation.score ?? 0) * 100).toFixed(1)}% across ${recommendation.games} baseline games).`
-                  : `No comparable evaluation; latest model selected: ${recommendation.model.name}.`}{' '}
-                You can choose another opponent or adjust its settings.
+                  ? t(
+                      'Best measured model selected: {name} ({score}% across {games} baseline games).',
+                      {
+                        name: recommendation.model.name,
+                        score: ((recommendation.score ?? 0) * 100).toLocaleString(getLocale(), {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: 1,
+                        }),
+                        games: recommendation.games,
+                      },
+                    )
+                  : t('No comparable evaluation; latest model selected: {name}.', {
+                      name: recommendation.model.name,
+                    })}{' '}
+                {t('You can choose another opponent or adjust its settings.')}
               </p>
             )}
           <p className="subtle game-seed-note">
-            A fresh random seed is generated for every new game and restart. The seed is saved with
-            the game for inspection.
+            {t(
+              'A fresh random seed is generated for every new game and restart. The seed is saved with the game for inspection.',
+            )}
           </p>
           <label className="inline-label">
             <input
@@ -1090,14 +1139,14 @@ export function NewGame({
               checked={fixedSeed}
               onChange={(event) => setFixedSeed(event.target.checked)}
             />
-            Use a fixed seed
+            {t('Use a fixed seed')}
           </label>
           {fixedSeed && (
             <label>
-              Game seed
+              {t('Game seed')}
               <input
                 type="number"
-                aria-label="Game seed"
+                aria-label={t('Game seed')}
                 aria-describedby="fixed-seed-help"
                 min={0}
                 max={4294967295}
@@ -1107,22 +1156,31 @@ export function NewGame({
                 onChange={(event) => setSeed(Number(event.target.value))}
               />
               <small id="fixed-seed-help">
-                Use the same seed and settings to repeat an experiment. Restart uses a new seed.
+                {t(
+                  'Use the same seed and settings to repeat an experiment. Restart uses a new seed.',
+                )}
               </small>
             </label>
           )}
         </fieldset>
+        <AdvisorSelect
+          profiles={profiles}
+          models={models}
+          ruleset={ruleset}
+          value={advisorId}
+          onChange={setAdvisorId}
+        />
         {error && (
           <p className="form-error" role="alert">
-            {error}
+            {t(error)}
           </p>
         )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button type="submit" className="button primary" disabled={busy || !rulesets.length}>
-            {busy ? 'Preparing…' : 'To the table'} <span aria-hidden="true">↗</span>
+            {busy ? t('Preparing…') : t('To the table')} <span aria-hidden="true">↗</span>
           </button>
         </div>
       </form>
