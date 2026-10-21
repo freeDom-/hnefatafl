@@ -430,6 +430,19 @@ class ModelRegistry:
             raise ValueError("Invalid model registry index")
         return entries
 
+    def _write_index(self, entries: list[dict[str, Any]]) -> None:
+        """Atomically replace metadata while the caller holds the registry lock."""
+        descriptor, temporary = tempfile.mkstemp(prefix=".index-", dir=self.root)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as index:
+                json.dump(entries, index, indent=2, allow_nan=False)
+                index.write("\n")
+                index.flush()
+                os.fsync(index.fileno())
+            os.replace(temporary, self.index_path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
     def list(self) -> list[dict[str, Any]]:
         with _registry_lock(self.root / ".registry.lock"):
             entries = self._read_index()
@@ -447,6 +460,28 @@ class ModelRegistry:
 
     def register(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
         return self.import_model(path, name)
+
+    def delete(self, model_id: str) -> dict[str, Any]:
+        """Remove one registry entry and its owned copy, retaining original checkpoints.
+
+        All registry readers and writers use the same lock. Commit metadata first
+        so failed index writes leave weights intact; restore the prior metadata
+        if removing the copy fails. Unlinking a symlink removes only that link.
+        """
+        if not isinstance(model_id, str) or not _MODEL_ID.fullmatch(model_id):
+            raise ValueError("Invalid model ID")
+        with _registry_lock(self.root / ".registry.lock"):
+            entries = self._read_index()
+            removed = next((entry for entry in entries if entry["id"] == model_id), None)
+            if removed is None:
+                raise ValueError("Model is not registered")
+            self._write_index([entry for entry in entries if entry["id"] != model_id])
+            try:
+                (self.root / f"{model_id}.pt").unlink(missing_ok=True)
+            except OSError:
+                self._write_index(entries)
+                raise
+            return dict(removed)
 
     def import_model(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
         """Copy first, validate that exact copy, then publish metadata atomically."""
@@ -508,18 +543,7 @@ class ModelRegistry:
                     return {**existing, "path": str(destination)}
                 os.replace(temporary, destination)
                 entries.append(entry)
-                index_descriptor, index_temporary = tempfile.mkstemp(
-                    prefix=".index-", dir=self.root
-                )
-                try:
-                    with os.fdopen(index_descriptor, "w", encoding="utf-8") as index:
-                        json.dump(entries, index, indent=2, allow_nan=False)
-                        index.write("\n")
-                        index.flush()
-                        os.fsync(index.fileno())
-                    os.replace(index_temporary, self.index_path)
-                finally:
-                    Path(index_temporary).unlink(missing_ok=True)
+                self._write_index(entries)
             return {**entry, "path": str(destination)}
         finally:
             temporary.unlink(missing_ok=True)

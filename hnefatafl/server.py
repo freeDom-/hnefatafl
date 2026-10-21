@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import signal
@@ -27,6 +28,50 @@ from .storage import ConflictError, Store
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SIDES = ("attackers", "defenders")
+
+
+def effective_ai_config(configuration: dict, profile_id: str | None = None) -> dict:
+    """Resolve actual search defaults, including historical profile semantics.
+
+    Older requests merged a profile only when no algorithm was supplied. A
+    stored explicit algorithm therefore uses the engine defaults for missing
+    fields; retroactively applying profile defaults would mislabel old games.
+    Only effective parameters enter the identity, not leftover UI controls for
+    algorithms which are no longer selected.
+    """
+    from .ai import ai_profiles
+
+    raw = dict(configuration)
+    if profile_id and "algorithm" not in raw:
+        profile = next((p for p in ai_profiles() if p["id"] == profile_id), None)
+        if profile:
+            raw = {**profile["parameters"], **raw, "algorithm": profile["algorithm"]}
+    algorithm = raw.get("algorithm", "baseline")
+    if algorithm == "alphabeta":
+        algorithm = "alpha_beta"
+    result = {
+        "algorithm": algorithm,
+        "seed": int(raw.get("seed", 0)),
+        "time_limit": float(raw.get("time_limit", 2.0)),
+        "evaluation": "heuristic",
+    }
+    if algorithm == "alpha_beta":
+        result["depth"] = int(raw.get("depth", 2))
+    elif algorithm in {"mcts", "neural"}:
+        result.update(
+            iterations=int(raw.get("iterations", 80)),
+            rollout_depth=int(raw.get("rollout_depth", 8)),
+            exploration=float(raw.get("exploration", 1.4)),
+            temperature=float(raw.get("temperature", 0.0)),
+        )
+    if algorithm in {"alpha_beta", "mcts", "neural"} and raw.get("model_id"):
+        result.update(model_id=raw["model_id"], evaluation="neural")
+    return result
+
+
+def ai_variant_id(config: dict) -> str:
+    encoded = json.dumps(config, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return "ai:" + hashlib.sha256(encoded.encode()).hexdigest()[:24]
 
 
 def now() -> str:
@@ -72,6 +117,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     app.state.data_dir = root
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.Lock()
+    # Catalog changes and new references must be atomic with respect to each
+    # other in the documented single API-worker deployment.
+    catalog_lock = threading.RLock()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -142,6 +190,29 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         state = state_of(game)
         start = new_game(game["ruleset"])
         result = {key: value for key, value in game.items() if key != "state"}
+        from .ai import ai_profiles
+
+        profiles = {profile["id"]: profile["name"] for profile in ai_profiles()}
+        retired_names = {model["id"]: model["name"] for model in store.historical_models()}
+        result["players"] = {}
+        for side, recorded_player in game["players"].items():
+            player = dict(recorded_player)
+            if player["kind"] == "ai":
+                player["config"] = effective_ai_config(
+                    player.get("config", {}), player.get("profile_id")
+                )
+                actual_profile = player["config"]["algorithm"]
+                player["profile_name"] = (
+                    player.get("profile_name")
+                    if player.get("profile_id") == actual_profile
+                    else None
+                ) or profiles.get(actual_profile, actual_profile)
+                player["profile_id"] = actual_profile
+                player["variant_id"] = ai_variant_id(player["config"])
+                model_id = player["config"].get("model_id")
+                if model_id and not player.get("model_name") and model_id in retired_names:
+                    player["model_name"] = retired_names[model_id]
+            result["players"][side] = player
         result.update(
             size=state.size,
             board=list(state.board),
@@ -199,6 +270,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 fail("Unknown AI profile.")
             config = {**profile.get("parameters", {}), **config, "algorithm": profile["algorithm"]}
         algorithm = config.setdefault("algorithm", "baseline")
+        if algorithm == "alphabeta":
+            algorithm = config["algorithm"] = "alpha_beta"
         if not isinstance(algorithm, str) or algorithm not in {
             "baseline",
             "alpha_beta",
@@ -229,12 +302,19 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     or not minimum <= value <= maximum
                 ):
                     fail(f"AI {name} must be between {minimum} and {maximum}.")
-        if config.get("model_id"):
-            model_info(str(config["model_id"]))
-        return config
+        if "evaluation" in config and config["evaluation"] not in ("heuristic", "neural"):
+            fail("Evaluation must be heuristic or neural.")
+        resolved = effective_ai_config(config)
+        if resolved.get("model_id"):
+            if not isinstance(resolved["model_id"], str):
+                fail("Model ID must be a string.")
+            model_info(resolved["model_id"])
+        if resolved["algorithm"] == "neural" and not resolved.get("model_id"):
+            fail("The neural opponent requires a registered model.")
+        return resolved
 
     def normalise_players(request: GameRequest) -> dict:
-        result = {}
+        result: dict[str, dict[str, Any]] = {}
         for side in SIDES:
             is_ai = request.mode == "ai-ai" or (
                 request.mode == "human-ai" and side != request.human_side
@@ -268,56 +348,91 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 if kind == "ai"
                 else {},
             }
+            if is_ai:
+                from .ai import ai_profiles
+
+                # Manual algorithm selection must not inherit an unrelated
+                # profile label left behind by the setup form.
+                algorithm = result[side]["config"]["algorithm"]
+                profile = next(p for p in ai_profiles() if p["algorithm"] == algorithm)
+                result[side]["profile_id"] = profile["id"]
+                result[side]["profile_name"] = profile["name"]
+                result[side]["variant_id"] = ai_variant_id(result[side]["config"])
+                model_id = result[side]["config"].get("model_id")
+                if model_id:
+                    model = model_info(model_id)
+                    if model["ruleset"] != request.ruleset:
+                        fail("This model is for a different ruleset.")
+                    result[side]["model_name"] = model["name"]
         return result
 
     def append_move(game: dict, move: Move, version: int) -> dict:
-        before = state_of(game)
-        try:
-            after = apply_move(before, move)
-        except (ValueError, IndexError) as exc:
-            fail(str(exc))
-        enemy = {"D", "K"} if before.turn == "attackers" else {"A"}
-        captured = [
-            {"square": i, "piece": piece}
-            for i, piece in enumerate(before.board)
-            if piece in enemy and after.board[i] != piece
-        ]
+        with catalog_lock:
+            if game["cursor"] < len(game["moves"]):
+                available = (
+                    {model["id"] for model in models_list()}
+                    if any(
+                        player.get("config", {}).get("model_id")
+                        for player in game["players"].values()
+                    )
+                    else set()
+                )
+                if any(
+                    player.get("config", {}).get("model_id") not in available
+                    for player in game["players"].values()
+                    if player.get("config", {}).get("model_id")
+                ):
+                    fail(
+                        "This recorded game uses a deleted model. Start a new game to play another line.",
+                        409,
+                    )
+            before = state_of(game)
+            try:
+                after = apply_move(before, move)
+            except (ValueError, IndexError) as exc:
+                fail(str(exc))
+            enemy = {"D", "K"} if before.turn == "attackers" else {"A"}
+            captured = [
+                {"square": i, "piece": piece}
+                for i, piece in enumerate(before.board)
+                if piece in enemy and after.board[i] != piece
+            ]
 
-        def coordinate(square: int) -> str:
-            row, col = divmod(square, before.size)
-            return f"{chr(97 + col)}{before.size - row}"
+            def coordinate(square: int) -> str:
+                row, col = divmod(square, before.size)
+                return f"{chr(97 + col)}{before.size - row}"
 
-        record = {
-            "source": move.source,
-            "target": move.target,
-            "side": before.turn,
-            "captured": captured,
-            "notation": f"{coordinate(move.source)} → {coordinate(move.target)}",
-        }
-        game["moves"] = game["moves"][: game["cursor"]] + [record]
-        game["cursor"] += 1
-        game["state"] = after.to_dict()
-        game["ended_at"] = now() if after.winner else None
-        game["recorded_result"] = (
-            {
-                "winner": after.winner,
-                "reason": after.reason,
-                "plies": after.ply,
-                "ended_at": game["ended_at"],
+            record = {
+                "source": move.source,
+                "target": move.target,
+                "side": before.turn,
+                "captured": captured,
+                "notation": f"{coordinate(move.source)} → {coordinate(move.target)}",
             }
-            if after.winner
-            else None
-        )
-        return persist(game, version)
+            game["moves"] = game["moves"][: game["cursor"]] + [record]
+            game["cursor"] += 1
+            game["state"] = after.to_dict()
+            game["ended_at"] = now() if after.winner else None
+            game["recorded_result"] = (
+                {
+                    "winner": after.winner,
+                    "reason": after.reason,
+                    "plies": after.ply,
+                    "ended_at": game["ended_at"],
+                }
+                if after.winner
+                else None
+            )
+            return persist(game, version)
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 1}
+        return {"status": "ok", "database": "sqlite", "schema_version": 2}
 
     @app.get("/api/rulesets")
     def rulesets():
         result = []
-        for identifier, rule in RULESETS.items():
+        for identifier, rule in sorted(RULESETS.items(), key=lambda item: item[1].size):
             document = PROJECT_ROOT / "docs" / "rules" / f"{identifier}.md"
             text = document.read_text() if document.exists() else ""
             result.append(
@@ -343,24 +458,25 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/games", status_code=201)
     def create_game(request: GameRequest):
-        state = new_game(request.ruleset)
-        game = {
-            "id": uuid4().hex,
-            "ruleset": request.ruleset,
-            "ruleset_version": 1,
-            "mode": request.mode,
-            "human_side": request.human_side,
-            "players": normalise_players(request),
-            "state": state.to_dict(),
-            "moves": [],
-            "cursor": 0,
-            "version": 0,
-            "created_at": now(),
-            "ended_at": None,
-            "recorded_result": None,
-        }
-        store.create_game(game)
-        return response(game)
+        with catalog_lock:
+            state = new_game(request.ruleset)
+            game = {
+                "id": uuid4().hex,
+                "ruleset": request.ruleset,
+                "ruleset_version": 1,
+                "mode": request.mode,
+                "human_side": request.human_side,
+                "players": normalise_players(request),
+                "state": state.to_dict(),
+                "moves": [],
+                "cursor": 0,
+                "version": 0,
+                "created_at": now(),
+                "ended_at": None,
+                "recorded_result": None,
+            }
+            store.create_game(game)
+            return response(game)
 
     @app.get("/api/games")
     def games(ruleset: str | None = None, mode: str | None = None):
@@ -445,19 +561,32 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/games/{game_id}/restart")
     def restart(game_id: str, request: VersionRequest):
-        game = game_or_404(game_id, request.version)
-        game.update(
-            id=uuid4().hex,
-            state=new_game(game["ruleset"]).to_dict(),
-            moves=[],
-            cursor=0,
-            version=0,
-            created_at=now(),
-            ended_at=None,
-            recorded_result=None,
-        )
-        store.create_game(game)
-        return response(game)
+        with catalog_lock:
+            game = game_or_404(game_id, request.version)
+            active = {player["id"] for player in store.players()}
+            for player in game["players"].values():
+                if player["kind"] == "human" and player.get("player_id") not in active:
+                    fail(
+                        "Choose active players in a new game; a previous profile was deleted.", 409
+                    )
+                model_id = player.get("config", {}).get("model_id")
+                if model_id and not any(model["id"] == model_id for model in models_list()):
+                    fail(
+                        "Choose an available model in a new game; the previous model was deleted.",
+                        409,
+                    )
+            game.update(
+                id=uuid4().hex,
+                state=new_game(game["ruleset"]).to_dict(),
+                moves=[],
+                cursor=0,
+                version=0,
+                created_at=now(),
+                ended_at=None,
+                recorded_result=None,
+            )
+            store.create_game(game)
+            return response(game)
 
     @app.get("/api/players")
     def players():
@@ -468,7 +597,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         name = request.name.strip()
         if not name:
             fail("A player needs a display name.")
-        return store.create_player({"id": uuid4().hex, "name": name, "created_at": now()})
+        with catalog_lock:
+            return store.create_player({"id": uuid4().hex, "name": name, "created_at": now()})
+
+    @app.delete("/api/players/{player_id}")
+    def delete_player(player_id: str):
+        with catalog_lock:
+            if not store.delete_player(player_id, now()):
+                fail("Player profile not found.", 404)
+        return {"deleted": True, "id": player_id}
 
     @app.get("/api/stats")
     def stats(
@@ -495,18 +632,23 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         from .ai import ai_profiles
 
         profile_names = {profile["id"]: profile["name"] for profile in ai_profiles()}
-        model_names: dict[str, str] = {}
+        model_names = {model["id"]: model["name"] for model in store.historical_models()}
+        deleted_players = {
+            player["id"] for player in store.players(include_deleted=True) if player["deleted_at"]
+        }
         if any(
             player.get("config", {}).get("model_id")
             for game in completed
             for player in game["players"].values()
         ):
             try:
-                model_names = {
-                    model["id"]: model["name"]
-                    for model in models_list()
-                    if isinstance(model.get("name"), str)
-                }
+                model_names.update(
+                    {
+                        model["id"]: model["name"]
+                        for model in models_list()
+                        if isinstance(model.get("name"), str)
+                    }
+                )
             except (ValueError, OSError):
                 # Historical results still work when a registry was removed or
                 # damaged; its stable model ID remains an unambiguous label.
@@ -536,25 +678,32 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             for side, player in game["players"].items():
                 if kind and player["kind"] != kind:
                     continue
+                config = (
+                    effective_ai_config(player.get("config", {}), player.get("profile_id"))
+                    if player["kind"] == "ai"
+                    else None
+                )
                 identifier = (
                     player.get("player_id")
                     if player["kind"] == "human"
-                    else "ai:"
-                    + (player.get("profile_id") or "baseline")
-                    + ":"
-                    + json.dumps(player["config"], sort_keys=True)
+                    else ai_variant_id(config or {})
                 )
                 identifier = str(identifier)
                 if player_id and identifier != player_id:
                     continue
-                profile_id = (
-                    (player.get("profile_id") or "baseline") if player["kind"] == "ai" else None
+                profile_id = config["algorithm"] if config is not None else None
+                model_id = config.get("model_id") if config is not None else None
+                profile_name = (
+                    (player.get("profile_name") if player.get("profile_id") == profile_id else None)
+                    or profile_names.get(profile_id, profile_id)
+                    if profile_id
+                    else None
                 )
-                model_id = (
-                    player.get("config", {}).get("model_id") if player["kind"] == "ai" else None
+                model_name = (
+                    player.get("model_name") or model_names.get(model_id, f"Model {model_id}")
+                    if model_id
+                    else None
                 )
-                profile_name = profile_names.get(profile_id, profile_id) if profile_id else None
-                model_name = model_names.get(model_id, f"Model {model_id}") if model_id else None
                 opponent_name = (
                     " · ".join(
                         label
@@ -578,6 +727,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         "profile_name": profile_name,
                         "model_name": model_name,
                         "opponent_name": opponent_name,
+                        "config": config,
+                        "variant_id": identifier if config is not None else None,
+                        "deleted": identifier in deleted_players,
                         "games": 0,
                         "wins": 0,
                         "losses": 0,
@@ -629,7 +781,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             / len(completed)
             if completed
             else 0,
-            "by_ruleset": list(by_ruleset.values()),
+            "by_ruleset": sorted(
+                by_ruleset.values(), key=lambda row: RULESETS[row["ruleset"]].size
+            ),
             "by_player": list(by_player.values()),
             "recent_games": [response(g) for g in selected[:10]],
         }
@@ -664,6 +818,31 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.get("/api/models")
     def models():
         return models_list()
+
+    @app.delete("/api/models/{model_id}")
+    def delete_model(model_id: str):
+        with catalog_lock:
+            model = model_info(model_id)
+            if any(
+                not recorded_outcome(game)["winner"]
+                and any(
+                    player.get("config", {}).get("model_id") == model_id
+                    for player in game["players"].values()
+                )
+                for game in store.list_games()
+            ):
+                fail(
+                    "This model is used by an unfinished game. Finish that game before deleting it.",
+                    409,
+                )
+            store.archive_model(
+                {key: model[key] for key in ("id", "name", "ruleset", "version") if key in model}
+            )
+            try:
+                registry().delete(model_id)
+            except ValueError as exc:
+                fail(str(exc), 404)
+            return {"deleted": True, "id": model_id}
 
     @app.post("/api/models/import", status_code=201)
     async def import_model(file: UploadFile = File(...)):

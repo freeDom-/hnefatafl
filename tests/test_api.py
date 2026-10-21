@@ -539,3 +539,302 @@ def test_statistics_rates_include_draws_and_distinguish_model_identities(client,
     empty = client.get("/api/stats?ruleset=copenhagen").json()
     assert empty["attacker_win_rate"] == empty["defender_win_rate"] == empty["draw_rate"] == 0
     assert empty["by_player"] == empty["by_ruleset"] == []
+
+
+def test_schema_one_migrates_profiles_without_losing_rows(tmp_path):
+    import sqlite3
+
+    database = tmp_path / "old.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.executescript("""
+            CREATE TABLE players(id TEXT PRIMARY KEY,name TEXT NOT NULL,created_at TEXT NOT NULL);
+            INSERT INTO players VALUES('legacy-player','Freya','2026-01-01T00:00:00Z');
+            PRAGMA user_version=1;
+        """)
+    store = Store(database)
+    assert store.players()[0]["id"] == "legacy-player"
+    assert store.players()[0]["deleted_at"] is None
+    assert store.delete_player("legacy-player", "2026-01-02T00:00:00Z")
+    assert store.players() == []
+    reopened = Store(database)
+    assert reopened.players() == []
+    assert reopened.players(include_deleted=True)[0]["name"] == "Freya"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+def complete_human_game(client, game):
+    from hnefatafl.ai import choose_move
+
+    for _ in range(100):
+        if game["winner"]:
+            return game
+        saved = client.app.state.store.get_game(game["id"])
+        state = State.from_dict(saved["state"])
+        selected = choose_move(state, {"algorithm": "baseline", "seed": 3 + state.ply})
+        game = move(client, game, selected.to_dict())
+    pytest.fail("Seeded fixture did not reach a rule-terminal outcome")
+
+
+def test_delete_player_hides_selection_but_preserves_real_history_and_identity(client):
+    player = client.post("/api/players", json={"name": "Sigrid"}).json()
+    game = create(client, ruleset="brandubh", players={"defenders": {"player_id": player["id"]}})
+    game = complete_human_game(client, game)
+    stats_before = client.get("/api/stats").json()
+    response = client.delete(f"/api/players/{player['id']}")
+    assert response.status_code == 200 and response.json() == {"deleted": True, "id": player["id"]}
+    assert not any(p["id"] == player["id"] for p in client.get("/api/players").json())
+    assert client.delete(f"/api/players/{player['id']}").status_code == 404
+    record = client.get(f"/api/games/{game['id']}").json()
+    assert record["players"]["defenders"]["name"] == "Sigrid"
+    assert record["players"]["defenders"]["player_id"] == player["id"]
+    assert client.get(f"/api/games/{game['id']}/replay").json()["validated"]
+    stats_after = client.get("/api/stats").json()
+    historical = next(row for row in stats_after["by_player"] if row["id"] == player["id"])
+    assert historical["deleted"] is True
+    assert (
+        historical["games"]
+        == next(row for row in stats_before["by_player"] if row["id"] == player["id"])["games"]
+    )
+    assert (
+        client.post(
+            "/api/games", json={"players": {"defenders": {"player_id": player["id"]}}}
+        ).status_code
+        == 400
+    )
+    restart = client.post(f"/api/games/{game['id']}/restart", json={"version": game["version"]})
+    assert restart.status_code == 409
+    replacement = client.post("/api/players", json={"name": "Sigrid"}).json()
+    assert replacement["id"] != player["id"]
+
+
+def test_deleted_human_can_finish_existing_game_but_is_not_reused_by_name(client):
+    player = client.post("/api/players", json={"name": "Eirik"}).json()
+    game = create(client, ruleset="brandubh", players={"attackers": {"player_id": player["id"]}})
+    assert client.delete(f"/api/players/{player['id']}").status_code == 200
+    game = complete_human_game(client, game)
+    assert game["players"]["attackers"]["player_id"] == player["id"]
+    other = create(client, players={"attackers": {"name": "Eirik"}})
+    assert other["players"]["attackers"]["player_id"] != player["id"]
+
+
+def api_model(client, tmp_path, name="Hugin"):
+    from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
+
+    path = save_checkpoint(
+        tmp_path / "original-training.pt", PolicyValueNet("brandubh", 4, 0), {"name": name}
+    )
+    model = ModelRegistry(client.app.state.data_dir / "models").register(path)
+    return model, path
+
+
+def test_model_delete_preserves_completed_legacy_names_records_and_checkpoints(client, tmp_path):
+    model, original = api_model(client, tmp_path)
+    # Construct a completed legal human game, then attach the legacy AI metadata
+    # shape to isolate catalogue behavior without depending on neural strength.
+    game = complete_human_game(client, create(client, ruleset="brandubh"))
+    store = client.app.state.store
+    saved = store.get_game(game["id"])
+    saved["players"]["attackers"] = {
+        "kind": "ai",
+        "name": "My raven",
+        "profile_id": "neural",
+        "player_id": None,
+        "config": {"algorithm": "neural", "model_id": model["id"], "iterations": 2},
+    }
+    store.update_game(saved, game["version"])
+    before = client.get("/api/stats").json()
+    deleted = client.delete(f"/api/models/{model['id']}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"deleted": True, "id": model["id"]}
+    assert client.get("/api/models").json() == []
+    assert not (client.app.state.data_dir / "models" / f"{model['id']}.pt").exists()
+    assert original.exists()
+    assert client.delete(f"/api/models/{model['id']}").status_code == 404
+    assert client.delete("/api/models/not-a-model").status_code == 404
+    assert client.get(f"/api/models/{model['id']}/export").status_code == 404
+    replay = client.get(f"/api/games/{game['id']}/replay")
+    assert replay.status_code == 200 and replay.json()["validated"]
+    record = client.get(f"/api/games/{game['id']}").json()
+    assert record["players"]["attackers"]["model_name"] == "Hugin"
+    after = client.get("/api/stats").json()
+    assert after["by_player"] == before["by_player"]
+    assert after["by_player"][0]["model_name"] == "Hugin"
+    restarted = client.post(f"/api/games/{game['id']}/restart", json={"version": record["version"]})
+    assert restarted.status_code == 409
+    # Replay is still possible, but branching cannot create an unusable AI game.
+    viewed = client.post(
+        f"/api/games/{game['id']}/seek", json={"cursor": 0, "version": record["version"]}
+    ).json()
+    branch = client.post(f"/api/games/{game['id']}/ai-move", json={"version": viewed["version"]})
+    assert branch.status_code == 404
+    viewed = client.post(
+        f"/api/games/{game['id']}/seek", json={"cursor": 1, "version": viewed["version"]}
+    ).json()
+    human_branch = client.post(
+        f"/api/games/{game['id']}/moves",
+        json={**viewed["legal_moves"][0], "version": viewed["version"]},
+    )
+    assert human_branch.status_code == 409
+    assert client.get(f"/api/games/{game['id']}").json()["total_moves"] == game["total_moves"]
+    assert client.get(f"/api/games/{game['id']}/replay").json()["validated"]
+
+
+def test_model_delete_blocks_live_references_and_snapshots_new_names(client, tmp_path):
+    model, original = api_model(client, tmp_path)
+    game = create(
+        client,
+        ruleset="brandubh",
+        mode="human-ai",
+        human_side="defenders",
+        players={
+            "attackers": {
+                "profile_id": "neural",
+                "config": {"model_id": model["id"], "iterations": 2},
+            }
+        },
+    )
+    assert game["players"]["attackers"]["model_name"] == "Hugin"
+    assert game["players"]["attackers"]["profile_name"] == "Trained model"
+    refused = client.delete(f"/api/models/{model['id']}")
+    assert refused.status_code == 409 and "unfinished game" in refused.json()["detail"]
+    assert len(client.get("/api/models").json()) == 1
+    assert original.exists()
+
+
+def test_ai_statistics_use_effective_parameter_variants_and_stable_defaults(client):
+    configurations = [
+        {"algorithm": "alpha_beta", "depth": 2},
+        {"algorithm": "alpha_beta", "depth": 2, "time_limit": 2, "seed": 0},
+        {"algorithm": "alpha_beta", "depth": 3},
+        {"algorithm": "alpha_beta", "depth": 2, "seed": 1},
+        {"algorithm": "alpha_beta", "depth": 2, "time_limit": 1},
+    ]
+    variants = []
+    for config in configurations:
+        game = create(
+            client, ruleset="brandubh", mode="human-ai", players={"attackers": {"config": config}}
+        )
+        player = game["players"]["attackers"]
+        assert player["profile_id"] == "alpha_beta" and player["profile_name"] == "Jarl"
+        assert player["config"]["evaluation"] == "heuristic"
+        variants.append(player["variant_id"])
+        saved = client.app.state.store.get_game(game["id"])
+        saved["recorded_result"] = {"winner": "attackers", "reason": "fixture", "plies": 5}
+        client.app.state.store.update_game(saved, 0)
+    assert variants[0] == variants[1]
+    assert len(set(variants)) == 4
+    stats = client.get("/api/stats?kind=ai").json()
+    assert len(stats["by_player"]) == 4
+    merged = next(row for row in stats["by_player"] if row["variant_id"] == variants[0])
+    assert merged["games"] == 2
+    assert merged["config"] == {
+        "algorithm": "alpha_beta",
+        "depth": 2,
+        "evaluation": "heuristic",
+        "seed": 0,
+        "time_limit": 2.0,
+    }
+    assert all(row["id"] == row["variant_id"] for row in stats["by_player"])
+
+
+def test_historical_explicit_algorithm_keeps_engine_defaults_not_profile_defaults(client):
+    game = create(client, ruleset="brandubh", mode="human-ai")
+    saved = client.app.state.store.get_game(game["id"])
+    saved["players"]["attackers"]["config"] = {"algorithm": "baseline"}
+    saved["players"]["attackers"].pop("variant_id", None)
+    saved["recorded_result"] = {"winner": "attackers", "reason": "fixture", "plies": 5}
+    client.app.state.store.update_game(saved, 0)
+    row = client.get("/api/stats?kind=ai").json()["by_player"][0]
+    assert row["config"]["time_limit"] == 2.0
+    new_profile = create(client, ruleset="brandubh", mode="human-ai")
+    assert new_profile["players"]["attackers"]["config"]["time_limit"] == 1.0
+    assert new_profile["players"]["attackers"]["variant_id"] != row["variant_id"]
+
+
+def test_rulesets_and_statistics_are_ordered_by_board_size(client):
+    rulesets = client.get("/api/rulesets").json()
+    assert [rule["id"] for rule in rulesets] == ["brandubh", "tablut", "copenhagen"]
+    for ruleset in ["copenhagen", "tablut", "brandubh"]:
+        game = create(client, ruleset=ruleset)
+        saved = client.app.state.store.get_game(game["id"])
+        saved["recorded_result"] = {"winner": "draw", "reason": "fixture", "plies": 5}
+        client.app.state.store.update_game(saved, 0)
+    assert [row["ruleset"] for row in client.get("/api/stats").json()["by_ruleset"]] == [
+        "brandubh",
+        "tablut",
+        "copenhagen",
+    ]
+
+
+def test_model_delete_serializes_with_new_game_reference_creation(client, tmp_path, monkeypatch):
+    import threading
+    from concurrent.futures import TimeoutError
+
+    model, _ = api_model(client, tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    delete_started = threading.Event()
+    original_create = Store.create_game
+
+    def delayed_create(store, game):
+        entered.set()
+        assert release.wait(5)
+        return original_create(store, game)
+
+    def deletion():
+        delete_started.set()
+        return client.delete(f"/api/models/{model['id']}")
+
+    monkeypatch.setattr(Store, "create_game", delayed_create)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        creating = executor.submit(
+            client.post,
+            "/api/games",
+            json={
+                "ruleset": "brandubh",
+                "mode": "human-ai",
+                "players": {
+                    "attackers": {"profile_id": "neural", "config": {"model_id": model["id"]}}
+                },
+            },
+        )
+        assert entered.wait(2)
+        deleting = executor.submit(deletion)
+        assert delete_started.wait(2)
+        try:
+            with pytest.raises(TimeoutError):
+                deleting.result(timeout=0.1)
+        finally:
+            release.set()
+        assert creating.result(timeout=5).status_code == 201
+        assert deleting.result(timeout=5).status_code == 409
+    assert len(client.get("/api/models").json()) == 1
+
+
+@pytest.mark.parametrize(
+    "parameter,value",
+    [
+        ("iterations", 81),
+        ("exploration", 2),
+        ("rollout_depth", 0),
+        ("temperature", 0.5),
+        ("seed", 1),
+    ],
+)
+def test_mcts_parameter_variants_keep_separate_records(client, parameter, value):
+    for configuration in [{"algorithm": "mcts"}, {"algorithm": "mcts", parameter: value}]:
+        game = create(
+            client,
+            ruleset="brandubh",
+            mode="human-ai",
+            players={"attackers": {"config": configuration}},
+        )
+        saved = client.app.state.store.get_game(game["id"])
+        saved["recorded_result"] = {"winner": "attackers", "reason": "fixture", "plies": 5}
+        client.app.state.store.update_game(saved, 0)
+    rows = client.get("/api/stats?kind=ai").json()["by_player"]
+    assert len(rows) == 2
+    assert len({row["variant_id"] for row in rows}) == 2
+    assert rows[0]["config"][parameter] != rows[1]["config"][parameter]
+    assert all(row["games"] == 1 and row["wins"] == 1 for row in rows)

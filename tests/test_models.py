@@ -1,6 +1,8 @@
 """Networks perform real forward/backward passes; imports accept tensor-only files."""
 
 from pathlib import Path
+import json
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import torch
@@ -115,6 +117,108 @@ def test_registry_is_content_addressed_and_reimport_repairs(tmp_path):
         registry.get("0" * 24)
     with pytest.raises(ValueError, match="name"):
         registry.import_model(path, "")
+
+
+def test_registry_delete_preserves_original_checkpoints_and_can_reimport(tmp_path):
+    source = save_checkpoint(
+        tmp_path / "training" / "last.pt", PolicyValueNet("brandubh", 4, 0), {"name": "Astrid"}
+    )
+    original = source.read_bytes()
+    registry = ModelRegistry(tmp_path / "models")
+    model = registry.register(source)
+    unrelated = registry.root / "readme.txt"
+    unrelated.write_text("Retain this unrelated file")
+    deleted = registry.delete(model["id"])
+    assert deleted["id"] == model["id"]
+    assert deleted["name"] == "Astrid"
+    assert registry.list() == []
+    assert json.loads(registry.index_path.read_text()) == []
+    assert not Path(model["path"]).exists()
+    assert source.read_bytes() == original
+    assert unrelated.read_text() == "Retain this unrelated file"
+    assert registry.import_model(source)["id"] == model["id"]
+    assert Path(registry.get(model["id"])["path"]).is_file()
+
+
+@pytest.mark.parametrize("identifier", ["../outside", "", "0" * 24, None])
+def test_registry_delete_rejects_missing_or_invalid_ids_without_changing_models(
+    tmp_path, identifier
+):
+    source = save_checkpoint(tmp_path / "last.pt", PolicyValueNet("brandubh", 4, 0), {})
+    registry = ModelRegistry(tmp_path / "models")
+    model = registry.register(source)
+    before = registry.index_path.read_bytes()
+    with pytest.raises(ValueError, match="Invalid model ID|not registered"):
+        registry.delete(identifier)
+    assert registry.index_path.read_bytes() == before
+    assert Path(model["path"]).is_file()
+
+
+def test_registry_delete_removes_stale_metadata_without_following_symlinks(tmp_path):
+    source = save_checkpoint(tmp_path / "last.pt", PolicyValueNet("brandubh", 4, 0), {})
+    registry = ModelRegistry(tmp_path / "models")
+    model = registry.register(source)
+    owned = Path(model["path"])
+    owned.unlink()
+    registry.delete(model["id"])
+    assert registry.list() == []
+    registry.import_model(source)
+    owned.unlink()
+    owned.symlink_to(source)
+    before = source.read_bytes()
+    registry.delete(model["id"])
+    assert not owned.is_symlink()
+    assert registry.list() == []
+    assert source.read_bytes() == before
+
+
+def test_registry_delete_keeps_weights_when_index_update_fails(tmp_path, monkeypatch):
+    source = save_checkpoint(tmp_path / "last.pt", PolicyValueNet("brandubh", 4, 0), {})
+    registry = ModelRegistry(tmp_path / "models")
+    model = registry.register(source)
+    before = registry.index_path.read_bytes()
+
+    def unavailable_index(_entries):
+        raise OSError("Metadata storage is unavailable")
+
+    monkeypatch.setattr(registry, "_write_index", unavailable_index)
+    with pytest.raises(OSError, match="Metadata storage"):
+        registry.delete(model["id"])
+    assert registry.index_path.read_bytes() == before
+    assert Path(model["path"]).is_file()
+
+
+def test_registry_delete_rolls_back_metadata_when_removing_copy_fails(tmp_path, monkeypatch):
+    source = save_checkpoint(tmp_path / "last.pt", PolicyValueNet("brandubh", 4, 0), {})
+    registry = ModelRegistry(tmp_path / "models")
+    model = registry.register(source)
+    original_unlink = Path.unlink
+
+    def fail_owned_copy(path, *args, **kwargs):
+        if path == Path(model["path"]):
+            raise OSError("Model copy is unavailable")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_owned_copy)
+    with pytest.raises(OSError, match="Model copy"):
+        registry.delete(model["id"])
+    assert registry.get(model["id"])["id"] == model["id"]
+
+
+def test_registry_delete_and_import_serialize_without_lost_entries(tmp_path):
+    source_a = save_checkpoint(tmp_path / "a.pt", PolicyValueNet("brandubh", 4, 0), {})
+    source_b = save_checkpoint(tmp_path / "b.pt", PolicyValueNet("tablut", 4, 0), {})
+    registry = ModelRegistry(tmp_path / "models")
+    model_a = registry.register(source_a)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        deleted = executor.submit(registry.delete, model_a["id"])
+        imported = executor.submit(registry.import_model, source_b)
+        assert deleted.result()["id"] == model_a["id"]
+        model_b = imported.result()
+    assert [entry["id"] for entry in registry.list()] == [model_b["id"]]
+    assert not Path(model_a["path"]).exists()
+    assert Path(model_b["path"]).is_file()
+    assert source_a.is_file() and source_b.is_file()
 
 
 @pytest.mark.parametrize(

@@ -33,15 +33,29 @@ class Store:
                 CREATE TABLE IF NOT EXISTS players (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    deleted_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY,
                     created_at TEXT NOT NULL,
                     data TEXT NOT NULL
                 );
-                PRAGMA user_version=1;
+                CREATE TABLE IF NOT EXISTS model_history (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL
+                );
             """)
+            # An additive, transactional migration preserves identities and
+            # embedded game-history snapshots from the original schema.
+            connection.execute("BEGIN IMMEDIATE")
+            schema = connection.execute("PRAGMA user_version").fetchone()[0]
+            if schema > 2:
+                raise ValueError("This database uses a newer unsupported schema")
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
+            if "deleted_at" not in columns:
+                connection.execute("ALTER TABLE players ADD COLUMN deleted_at TEXT")
+            connection.execute("PRAGMA user_version=2")
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -86,11 +100,25 @@ class Store:
             if cursor.rowcount != 1:
                 raise ConflictError("This game changed. Reload it before moving again.")
 
-    def players(self) -> list[dict]:
+    def players(self, *, include_deleted: bool = False) -> list[dict]:
         with self.connection() as connection:
             return [
-                dict(row) for row in connection.execute("SELECT * FROM players ORDER BY name,id")
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM players "
+                    + ("" if include_deleted else "WHERE deleted_at IS NULL ")
+                    + "ORDER BY name,id"
+                )
             ]
+
+    def delete_player(self, player_id: str, deleted_at: str) -> bool:
+        """Hide a profile from selection while retaining its historical identity."""
+        with self.connection() as connection:
+            cursor = connection.execute(
+                "UPDATE players SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+                (deleted_at, player_id),
+            )
+        return cursor.rowcount == 1
 
     def create_player(self, player: dict) -> dict:
         with self.connection() as connection:
@@ -99,6 +127,19 @@ class Store:
                 (player["id"], player["name"], player["created_at"]),
             )
         return player
+
+    def archive_model(self, metadata: dict) -> None:
+        """Retain display provenance for pre-snapshot games, never model weights."""
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO model_history(id,data) VALUES(?,?)",
+                (metadata["id"], json.dumps(metadata)),
+            )
+
+    def historical_models(self) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute("SELECT data FROM model_history").fetchall()
+        return [json.loads(row["data"]) for row in rows]
 
     def save_job(self, job: dict) -> None:
         with self.connection() as connection:
