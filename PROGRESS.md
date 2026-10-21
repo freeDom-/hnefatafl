@@ -30,3 +30,17 @@ External verification remains explicit: CUDA/MPS hardware execution, the inacces
 Copenhagen primary rule page, and target-host systemd/proxy deployment. The selected
 Copenhagen interpretation and repetition convention are documented. Online multiplayer
 is a later release. Smoke models make no competitive-strength claim.
+
+## Saved tournaments (`v0.6.0`)
+
+- [x] Set up two named AI opponents, compatible models, battlefields and balanced game budgets
+- [x] Run tournaments outside the API process and save progress after each finished match
+- [x] View retained standings, per-battlefield scores, parameters, match logs and legal replays
+- [x] Stop with partial results and delete inactive tournaments after confirmation
+- [x] Protect active model references and preserve regular game/training collections
+- [x] Upgrade schema 1/2 to 3 additively and detect interrupted workers
+- [x] Pass 231 Python tests, 17 frontend unit tests and 13 real-API browser checks
+
+Three duplicate mobile worker checks are intentionally skipped; mobile setup,
+results, replay and deletion run. Tournaments compare two opponents; larger brackets
+and automatic resumption are future work. See `docs/TOURNAMENTS.md`.

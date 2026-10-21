@@ -11,7 +11,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any
+from typing import Any, Callable
 
 from .engine import Move, State, apply_move, legal_moves, new_game
 
@@ -363,6 +363,7 @@ def play_game(
     *,
     seed: int = 0,
     max_plies: int = 300,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict:
     """Play an experiment, distinguishing unfinished cap runs from rule draws."""
     if not 1 <= max_plies <= 5000:
@@ -370,6 +371,8 @@ def play_game(
     state = new_game(ruleset)
     moves, durations = [], []
     for ply in range(max_plies):
+        if should_stop and should_stop():
+            raise InterruptedError("Tournament stopped during the current game")
         if state.winner:
             break
         config = dict((attackers if state.turn == "attackers" else defenders) or {})
@@ -392,7 +395,11 @@ def play_game(
     }
 
 
-def tournament(config: dict) -> dict:
+def tournament(
+    config: dict,
+    report: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> dict:
     profiles = config.get(
         "players", [{"algorithm": "baseline"}, {"algorithm": "mcts", "iterations": 20}]
     )
@@ -401,24 +408,47 @@ def tournament(config: dict) -> dict:
     games_per_ruleset = int(config.get("games", 2))
     if not 2 <= games_per_ruleset <= 10000 or games_per_ruleset % 2:
         raise ValueError("Use an even number of games (2–10000) to alternate sides fairly")
-    results = []
+    results: list[dict] = []
     scores = [0.0, 0.0]
     standings = [
         dict(player=index, wins=0, losses=0, draws=0, truncated=0, games=0, score=0.0)
         for index in range(2)
     ]
     by_ruleset: dict = {}
+
+    def snapshot() -> dict:
+        for index, standing in enumerate(standings):
+            standing["score"] = scores[index]
+        return {
+            "players": profiles,
+            "scores": scores,
+            "standings": standings,
+            "by_ruleset": by_ruleset,
+            "games": results,
+            "truncated": sum(r["winner"] is None for r in results),
+            "average_game_length": sum(r["plies"] for r in results) / max(1, len(results)),
+            "average_decision_time": sum(r["total_decision_time"] for r in results)
+            / max(1, sum(r["plies"] for r in results)),
+            "seed": config.get("seed", 0),
+        }
+
     for ruleset in config.get("rulesets", ["tablut", "brandubh", "copenhagen"]):
         by_ruleset[ruleset] = {"wins": [0, 0], "draws": 0, "truncated": 0, "games": 0}
         for game in range(games_per_ruleset):
+            if should_stop and should_stop():
+                return snapshot()
             a = game % 2
-            result = play_game(
-                ruleset,
-                profiles[a],
-                profiles[1 - a],
-                seed=int(config.get("seed", 0)) + game,
-                max_plies=int(config.get("max_plies", 300)),
-            )
+            try:
+                result = play_game(
+                    ruleset,
+                    profiles[a],
+                    profiles[1 - a],
+                    seed=int(config.get("seed", 0)) + game,
+                    max_plies=int(config.get("max_plies", 300)),
+                    should_stop=should_stop,
+                )
+            except InterruptedError:
+                return snapshot()
             result["attacker_player"] = a
             for standing in standings:
                 standing["games"] += 1
@@ -440,17 +470,6 @@ def tournament(config: dict) -> dict:
                 standings[1]["truncated"] += 1
                 by_ruleset[ruleset]["truncated"] += 1
             results.append(result)
-    for index, standing in enumerate(standings):
-        standing["score"] = scores[index]
-    return {
-        "players": profiles,
-        "scores": scores,
-        "standings": standings,
-        "by_ruleset": by_ruleset,
-        "games": results,
-        "truncated": sum(r["winner"] is None for r in results),
-        "average_game_length": sum(r["plies"] for r in results) / max(1, len(results)),
-        "average_decision_time": sum(r["total_decision_time"] for r in results)
-        / max(1, sum(r["plies"] for r in results)),
-        "seed": config.get("seed", 0),
-    }
+            if report:
+                report(snapshot())
+    return snapshot()

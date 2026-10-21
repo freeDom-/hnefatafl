@@ -12,6 +12,7 @@ using real self-play learning.
 - Pass-and-play, Human vs AI and AI vs AI; configurable opponents, side selection,
   playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
 - Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
+- Tournament setup, live progress, saved standings and match replay, with collection cleanup.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
 - Separate records and inspectable settings for each effective AI parameter configuration.
 - Light/dark/device appearance, independent board themes, Viking figures and carved-wood tokens.
@@ -72,6 +73,19 @@ Rules: [Tablut market rules](docs/rules/tablut.md), [Brandubh](docs/rules/brandu
 [Copenhagen](docs/rules/copenhagen.md). The linked Tablut leaflet starts defenders,
 uses sandwich king capture and any-edge escape. Other Tablut reconstructions differ.
 
+## Run an AI tournament
+
+Open **Tournaments** to compare two configured opponents across one or more
+battlefields. Each pair of games swaps their sides. Choose the number of games,
+move limit and shared seed, then follow progress and inspect standings, results
+by battlefield and individual game replays. Saved tournaments remain available
+after reloading or restarting the server. Stop a running tournament to retain its
+finished matches, or delete an inactive tournament after confirmation.
+
+Wins score one point and rules draws half a point. Games stopped at the move
+limit are marked unfinished and receive no points. See [TOURNAMENTS.md](docs/TOURNAMENTS.md)
+for configuration, scoring and data lifecycle details.
+
 ## Train and use a model
 
 In **AI workshop**, choose a ruleset and **Quick check** for a tiny real training
@@ -79,7 +93,8 @@ job. Inspect progress and evaluation, resume a checkpoint, or export/import a mo
 Select **Neural network** and a compatible model when configuring a new opponent.
 Use the name-suggestion button to generate a Viking name. Model cards offer deletion
 with confirmation: saved game history and original training checkpoints are retained.
-Models referenced by unfinished games must remain available until those games finish.
+Models referenced by unfinished games or running tournaments must remain available
+until those games finish or the tournament stops.
 The CLI requires no Python programming:
 
 ```sh
@@ -111,8 +126,9 @@ npm run test:e2e
 `make check` runs Ruff/Prettier, Python/TypeScript type checks, pytest, Vitest and
 the production build. Playwright uses the actual backend on isolated ports
 8001/4173 for desktop/mobile gameplay and real training followed by neural play.
-Two duplicate mobile training checks are deliberately skipped; mobile gameplay and
-appearance checks run, and actual training/model deletion run on desktop.
+Three duplicate mobile worker checks are deliberately skipped; mobile gameplay,
+appearance and tournament lifecycle checks run. Actual training/model deletion and
+tournament cancellation run on desktop.
 Linux Chromium libraries may need installation on a new host.
 
 See [VALIDATION.md](docs/VALIDATION.md) for evidence and hardware/source limitations.

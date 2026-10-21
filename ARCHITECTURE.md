@@ -30,6 +30,14 @@ Long-running training runs in separate worker processes, never in the API reques
 loop. Retained files (SQLite, checkpoints, model metadata and worker logs) are
 separate from live processes, which must restart after machine restoration.
 
+Browser tournaments also run in a separate process. SQLite schema 3 adds a
+tournament collection containing opponent/configuration snapshots, lifecycle status,
+progress and completed match records. The worker saves after each finished match;
+stopping a run preserves that subset. Replay reconstructs positions through the
+pure engine and does not require the original model weights. Tournament matches
+remain separate from ordinary game statistics. Catalog locking protects the model
+references of active tournaments until the worker exits.
+
 ## Rules
 
 One engine applies configurable board sizes, initial arrangements, restricted

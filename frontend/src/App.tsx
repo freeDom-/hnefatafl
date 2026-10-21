@@ -5,10 +5,11 @@ import { api } from './api';
 import type { AIProfile, Game, Mode, Model, Player, PlayerConfig, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
+import Tournaments from './Tournaments';
 import { AppearanceSettings } from './Appearance';
 import { sortRulesets } from './sortRulesets';
 
-type Tab = 'play' | 'archive' | 'training';
+type Tab = 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const sideGlyph = (side: Side) => (
   <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
@@ -157,15 +158,24 @@ export default function App() {
           </span>
         </a>
         <nav aria-label="Main navigation">
-          {(['play', 'archive', 'training'] as Tab[]).map((item) => (
+          {(['play', 'archive', 'training', 'tournaments'] as Tab[]).map((item) => (
             <button
               type="button"
               key={item}
-              onClick={() => setTab(item)}
+              onClick={() => {
+                setTab(item);
+                if (item === 'tournaments') void refreshOptions().catch((e) => setError(e.message));
+              }}
               className={tab === item ? 'active' : ''}
               aria-current={tab === item ? 'page' : undefined}
             >
-              {item === 'play' ? 'Play' : item === 'archive' ? 'Hall of records' : 'AI workshop'}
+              {item === 'play'
+                ? 'Play'
+                : item === 'archive'
+                  ? 'Hall of records'
+                  : item === 'training'
+                    ? 'AI workshop'
+                    : 'Tournaments'}
             </button>
           ))}
         </nav>
@@ -507,6 +517,9 @@ export default function App() {
             players={players}
             refreshPlayers={() => void refreshOptions().catch((e) => setError(e.message))}
           />
+        )}
+        {tab === 'tournaments' && (
+          <Tournaments rulesets={rulesets} profiles={profiles} models={models} onError={setError} />
         )}
         {tab === 'training' && (
           <Training

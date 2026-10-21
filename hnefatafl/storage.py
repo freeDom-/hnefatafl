@@ -50,12 +50,19 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 2:
+            if schema > 3:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
                 connection.execute("ALTER TABLE players ADD COLUMN deleted_at TEXT")
-            connection.execute("PRAGMA user_version=2")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS tournaments (
+                    id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    data TEXT NOT NULL
+                )
+            """)
+            connection.execute("PRAGMA user_version=3")
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -160,3 +167,49 @@ class Store:
                 "SELECT data FROM jobs ORDER BY created_at DESC,id"
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
+
+    def save_tournament(self, tournament: dict) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO tournaments(id,created_at,data) VALUES(?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (tournament["id"], tournament["created_at"], json.dumps(tournament)),
+            )
+
+    def get_tournament(self, tournament_id: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT data FROM tournaments WHERE id=?", (tournament_id,)
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def tournaments(self) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT data FROM tournaments ORDER BY created_at DESC,id"
+            ).fetchall()
+        return [json.loads(row["data"]) for row in rows]
+
+    def update_tournament(
+        self, tournament_id: str, changes: dict, *, running: bool = False
+    ) -> None:
+        """Merge fields transactionally; never resurrect a deleted or stopped run."""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT data FROM tournaments WHERE id=?", (tournament_id,)
+            ).fetchone()
+            if row is None:
+                return
+            tournament = json.loads(row["data"])
+            if running and tournament["status"] != "running":
+                return
+            tournament.update(changes)
+            connection.execute(
+                "UPDATE tournaments SET data=? WHERE id=?", (json.dumps(tournament), tournament_id)
+            )
+
+    def delete_tournament(self, tournament_id: str) -> bool:
+        with self.connection() as connection:
+            cursor = connection.execute("DELETE FROM tournaments WHERE id=?", (tournament_id,))
+        return cursor.rowcount == 1

@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "tournament":
                 from .ai import tournament
 
-                result = tournament(config)
+                result = tournament(config, should_stop=stop.is_set)
             else:
                 from .training import train, tune
 

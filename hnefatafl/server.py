@@ -20,7 +20,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .storage import ConflictError, Store
@@ -102,6 +102,25 @@ class PlayerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class TournamentPlayerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+    profile_id: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class TournamentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+    rulesets: list[Literal["brandubh", "tablut", "copenhagen"]] = Field(
+        default=["brandubh"], min_length=1, max_length=3
+    )
+    players: list[TournamentPlayerRequest] = Field(min_length=2, max_length=2)
+    games: StrictInt = Field(default=2, ge=2, le=100)
+    max_plies: StrictInt = Field(default=300, ge=1, le=1000)
+    seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
+
+
 def create_app(data_dir: str | Path | None = None) -> FastAPI:
     try:
         package_version = version("hnefatafl")
@@ -113,6 +132,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     (root / "jobs").mkdir(exist_ok=True)
     (root / "models").mkdir(exist_ok=True)
     store = Store(root / "hnefatafl.sqlite3")
+    from .tournaments import TournamentManager
+
+    tournaments = TournamentManager(store, root)
     app.state.store = store
     app.state.data_dir = root
     processes: dict[str, subprocess.Popen] = {}
@@ -124,6 +146,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         yield
+        await asyncio.to_thread(tournaments.shutdown)
         # A server shutdown stops workers it started, preserving completed
         # checkpoints. Restored tasks must explicitly resume retained files.
         for identifier, process in list(processes.items()):
@@ -427,7 +450,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 2}
+        return {"status": "ok", "database": "sqlite", "schema_version": 3}
 
     @app.get("/api/rulesets")
     def rulesets():
@@ -788,6 +811,110 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "recent_games": [response(g) for g in selected[:10]],
         }
 
+    def tournament_or_404(identifier: str) -> dict:
+        tournament = tournaments.read(identifier)
+        if tournament is None:
+            fail("Tournament not found.", 404)
+        return tournament
+
+    @app.get("/api/tournaments")
+    def list_tournaments():
+        return [tournaments.public(item, summary=True) for item in tournaments.list()]
+
+    @app.post("/api/tournaments", status_code=201)
+    def create_tournament(request: TournamentRequest):
+        from .ai import ai_profiles
+
+        if not request.name.strip():
+            fail("Tournament names must contain 1–80 characters.")
+        if len(set(request.rulesets)) != len(request.rulesets):
+            fail("Select each tournament battlefield only once.")
+        if request.games % 2:
+            fail("Use an even number of games so both opponents play each side equally.")
+        with catalog_lock:
+            profiles = {item["algorithm"]: item for item in ai_profiles()}
+            players = []
+            for provided in request.players:
+                name = provided.name.strip()
+                if not name:
+                    fail("Opponent names must contain 1–80 characters.")
+                config = clean_ai_config(provided.config, provided.profile_id)
+                # The existing balanced runner uses a shared tournament seed,
+                # increasing it by game and ply. Snapshot that base value
+                # rather than retaining a per-opponent seed that is not used.
+                config["seed"] = request.seed
+                profile = profiles[config["algorithm"]]
+                snapshot = {
+                    "name": name,
+                    "profile_id": profile["id"],
+                    "profile_name": profile["name"],
+                    "config": config,
+                    "variant_id": ai_variant_id(config),
+                }
+                if config.get("model_id"):
+                    model = model_info(config["model_id"])
+                    if any(ruleset != model["ruleset"] for ruleset in request.rulesets):
+                        fail("A selected model must match every tournament battlefield.")
+                    model_file(model)
+                    snapshot["model_name"] = model["name"]
+                players.append(snapshot)
+            config = {
+                "players": players,
+                "rulesets": sorted(request.rulesets, key=lambda item: RULESETS[item].size),
+                "games": request.games,
+                "max_plies": request.max_plies,
+                "seed": request.seed,
+            }
+            try:
+                return tournaments.launch(request.name.strip(), config)
+            except ValueError as exc:
+                fail(str(exc), 409)
+
+    @app.get("/api/tournaments/{tournament_id}")
+    def get_tournament(tournament_id: str):
+        return tournaments.public(tournament_or_404(tournament_id))
+
+    @app.post("/api/tournaments/{tournament_id}/cancel")
+    def cancel_tournament(tournament_id: str):
+        with catalog_lock:
+            tournament_or_404(tournament_id)
+            try:
+                cancelled = tournaments.cancel(tournament_id)
+            except ValueError as exc:
+                fail(str(exc), 409)
+            if cancelled is None:
+                fail("Tournament not found.", 404)
+            return tournaments.public(cancelled)
+
+    @app.delete("/api/tournaments/{tournament_id}")
+    def delete_tournament(tournament_id: str):
+        with catalog_lock:
+            tournament_or_404(tournament_id)
+            try:
+                tournaments.delete(tournament_id)
+            except ValueError as exc:
+                fail(str(exc), 409)
+            return {"deleted": True, "id": tournament_id}
+
+    @app.get("/api/tournaments/{tournament_id}/games/{game_index}/replay")
+    def replay_tournament_game(tournament_id: str, game_index: int):
+        tournament = tournament_or_404(tournament_id)
+        games = (tournament.get("result") or {}).get("games", [])
+        if not 0 <= game_index < len(games):
+            fail("Tournament game not found.", 404)
+        game = games[game_index]
+        state = new_game(game["ruleset"])
+        states = [state.to_dict()]
+        try:
+            for move in game["moves"]:
+                state = apply_move(state, Move(move["source"], move["target"]))
+                states.append(state.to_dict())
+        except (ValueError, IndexError, KeyError, TypeError):
+            fail("The saved tournament game could not be validated.", 409)
+        if state.to_dict() != game["state"]:
+            fail("The saved tournament game does not match its replay.", 409)
+        return {"validated": True, "ruleset": game["ruleset"], "states": states}
+
     @app.get("/api/training/device")
     def devices():
         from .models import device_info
@@ -823,6 +950,19 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def delete_model(model_id: str):
         with catalog_lock:
             model = model_info(model_id)
+            if any(
+                tournament["status"] == "running"
+                and tournaments.alive(tournament)
+                and any(
+                    player.get("config", {}).get("model_id") == model_id
+                    for player in tournament["config"]["players"]
+                )
+                for tournament in tournaments.list()
+            ):
+                fail(
+                    "This model is used by a running tournament. Stop it before deleting the model.",
+                    409,
+                )
             if any(
                 not recorded_outcome(game)["winner"]
                 and any(

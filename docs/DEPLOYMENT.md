@@ -35,13 +35,14 @@ the backend. Its dev server is for a trusted development network.
 
 `HNEFATAFL_DATA_DIR` selects persistent application storage (default `./data`). Keep
 the directory writable by the service account. It contains the SQLite database,
-model registry and training jobs/checkpoints/logs. `.env.example` documents startup
+model registry, saved tournaments and training jobs/checkpoints/logs. `.env.example` documents startup
 variables; it is an example, not an automatically loaded configuration file.
 Do not commit data directories, `.env` files or model weights.
 
 Database schema initialization runs at server startup and records a schema version.
-Version 0.5 upgrades the original schema 1 to schema 2 automatically and additively:
-it adds player deletion timestamps and historical model metadata. Existing game JSON,
+Version 0.6 upgrades earlier databases to schema 3 automatically and additively:
+schema 2 added player deletion timestamps and historical model metadata; schema 3
+adds saved tournaments. Existing game JSON,
 stable player IDs, move versions and model/training files are preserved. Startup can
 repeat the migration safely. Deleted players stay hidden under the new application;
 rolling back to old code does not understand those tombstones, so restore a consistent
@@ -66,8 +67,9 @@ sudo systemctl status hnefatafl
 
 The service stores data in `/var/lib/hnefatafl` and binds loopback. Run one API
 worker: training process ownership and cancellation belong to that server process.
-On host restart, files remain; interrupted jobs need checkpoint resumption rather
-than being assumed to have continued. The systemd template is supplied for deployment;
+On host restart, files remain; interrupted training jobs need checkpoint resumption.
+Stopped tournament workers retain their completed matches and show a terminal
+status rather than being assumed to have continued. The systemd template is supplied for deployment;
 systemd operation must be validated on the target host.
 
 ## Reverse proxy and access
