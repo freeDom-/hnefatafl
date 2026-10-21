@@ -6,13 +6,13 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | Capability | Evidence |
 | --- | --- |
 | Three engines | 61 source-specific tests: layouts, movement, captures, special squares, royal captures, Copenhagen shieldwalls/encirclement/forts, outcomes, serialization and replay |
-| AI, models and training | 86 tests: real baseline/alpha-beta/MCTS/neural full games in every variant, actual updates and tensor-only compatible imports |
+| AI, models and training | 95 tests: real baseline/alpha-beta/MCTS/neural full games in every variant, actual updates, tensor-only compatible imports and atomic model deletion |
 | Exact resumption | Split CPU training matches uninterrupted weights exactly; an earlier best model survives weaker later iterations and moving/deleting its original directory |
 | Optimization | Actual Optuna trials, persisted study resumption, evaluation-based objectives and exported best configuration |
-| API and persistence | 26 tests: real moves, durable replay, optimistic racing-writer conflicts, restart preservation, statistics/rates, malformed input rejection and controlled model paths |
+| API and persistence | 40 tests: real moves, durable replay, racing-writer conflicts, retained deletion history, canonical AI variants, schema upgrades, deletion/new-game races, statistics/rates and controlled model paths |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
-| Browser unit flows | 5 Vitest tests, including legal interaction and a stale-request/new-game regression |
-| Browser end to end | 5 passed desktop/mobile Chromium checks; 1 duplicate mobile training check intentionally skipped |
+| Browser unit flows | 14 Vitest tests, including legal interaction, stale requests, profile selection/deletion, model confirmations, AI parameters, sorting, name suggestions and appearance persistence |
+| Browser end to end | 10 passed desktop/mobile Chromium checks; 2 duplicate mobile training checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -21,6 +21,20 @@ compatible model selection and a neural move. They assert no horizontal mobile
 overflow. Desktop and mobile additionally complete a real Brandubh AI game,
 verify the disabled final board and archive outcome, and reopen the saved result.
 Screenshots were captured from the running application.
+
+The v0.5 full suite passes **196 Python tests**, **14 frontend tests** and **10 browser
+checks**. New browser flows exercise separate completed AI variants and readable
+parameters, human selection/deletion with retained history, Viking suggestions,
+actual CPU training followed by model deletion, and theme changes followed by reload
+and a legal move. Appearance assertions check actual SVG artwork and computed colors,
+not only preference attributes. Follow-device mode responds to color-scheme changes.
+The redundant mobile training checks are skipped; mobile records, gameplay and
+appearance flows run.
+
+Pytest isolates the module-level ASGI application's data directory before test
+collection. A subprocess collection check verifies that an explicitly supplied
+user-data directory is left untouched. Production restart serves v0.5/schema 2;
+existing saved game JSON, IDs and versions match their pre-restart digest exactly.
 
 The documented CLI smoke training and two-trial optimization configurations were
 executed. One smoke training run generated one self-play game, performed actual

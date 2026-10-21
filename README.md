@@ -4,7 +4,7 @@ Play Tablut, Brandubh and Copenhagen in a responsive browser application. Challe
 search opponents, watch computers compete, or train and import a neural strategist
 using real self-play learning.
 
-![Tablut in the desktop application](docs/screenshots/desktop.png)
+![Brandubh in the desktop application](docs/screenshots/desktop.png)
 
 ## Features
 
@@ -13,6 +13,8 @@ using real self-play learning.
   playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
 - Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
+- Separate records and inspectable settings for each effective AI parameter configuration.
+- Light/dark/device appearance, independent board themes, Viking figures and carved-wood tokens.
 - Training workshop and CLI: actual PyTorch self-play updates, evaluation, safe model
   import/export, cancellation, exact CPU checkpoint resumption and Optuna studies.
 - CPU operation and configurable CUDA/MPS support, with automatic device detection.
@@ -55,6 +57,17 @@ The server validates every move and rejects stale concurrent updates.
 an earlier move preserves the recorded result and future moves; making a different
 move branches the local history. Restart creates a new game, preserving the old one.
 
+New-game human selectors list existing players or let you enter a new name. Delete
+a player in **Hall of records** to remove it from future selections while retaining
+its historical identity, results and replay. AI rows and recorded games have
+expandable parameter details; depth, search budgets, seed and other effective settings
+distinguish AI records. Battlefields are ordered 7×7, 9×9, 11×11 throughout the UI.
+
+Open **Appearance** in the header to choose light/dark/device mode, Classic stones,
+Viking figures or Carved wood tokens, and Golden oak, Old walnut or Fjord slate boards.
+Choices are independent and saved in this browser. See
+[PERSONALIZATION.md](docs/PERSONALIZATION.md) for settings and theme extension points.
+
 Rules: [Tablut market rules](docs/rules/tablut.md), [Brandubh](docs/rules/brandubh.md),
 [Copenhagen](docs/rules/copenhagen.md). The linked Tablut leaflet starts defenders,
 uses sandwich king capture and any-edge escape. Other Tablut reconstructions differ.
@@ -64,6 +77,9 @@ uses sandwich king capture and any-edge escape. Other Tablut reconstructions dif
 In **AI workshop**, choose a ruleset and **Quick check** for a tiny real training
 job. Inspect progress and evaluation, resume a checkpoint, or export/import a model.
 Select **Neural network** and a compatible model when configuring a new opponent.
+Use the name-suggestion button to generate a Viking name. Model cards offer deletion
+with confirmation: saved game history and original training checkpoints are retained.
+Models referenced by unfinished games must remain available until those games finish.
 The CLI requires no Python programming:
 
 ```sh
@@ -95,7 +111,8 @@ npm run test:e2e
 `make check` runs Ruff/Prettier, Python/TypeScript type checks, pytest, Vitest and
 the production build. Playwright uses the actual backend on isolated ports
 8001/4173 for desktop/mobile gameplay and real training followed by neural play.
-One duplicate mobile training test is deliberately skipped; mobile gameplay runs.
+Two duplicate mobile training checks are deliberately skipped; mobile gameplay and
+appearance checks run, and actual training/model deletion run on desktop.
 Linux Chromium libraries may need installation on a new host.
 
 See [VALIDATION.md](docs/VALIDATION.md) for evidence and hardware/source limitations.

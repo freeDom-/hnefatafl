@@ -79,6 +79,15 @@ commands documented in [TRAINING.md](TRAINING.md). Selecting a trained opponent
 in Human vs AI or AI vs AI uses the same engine and legal-action filtering as the
 traditional opponents.
 
+## Recorded configurations
+
+The Hall of records separates effective AI configurations, including relevant search
+budgets, depth, exploration, temperature, random seed, evaluation and model identity.
+Expand an AI performance row or recorded game's parameter details to inspect these
+settings. Equivalent omitted/explicit defaults group together, and unrelated stale
+controls do not split the same opponent. Historical explicit-algorithm configurations
+retain the engine defaults they originally used. See [PERSONALIZATION.md](PERSONALIZATION.md).
+
 ## Extending the player registry
 
 Implement a pure move-selection function against `State`, dispatch it through

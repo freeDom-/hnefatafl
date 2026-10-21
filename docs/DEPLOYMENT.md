@@ -40,6 +40,12 @@ variables; it is an example, not an automatically loaded configuration file.
 Do not commit data directories, `.env` files or model weights.
 
 Database schema initialization runs at server startup and records a schema version.
+Version 0.5 upgrades the original schema 1 to schema 2 automatically and additively:
+it adds player deletion timestamps and historical model metadata. Existing game JSON,
+stable player IDs, move versions and model/training files are preserved. Startup can
+repeat the migration safely. Deleted players stay hidden under the new application;
+rolling back to old code does not understand those tombstones, so restore a consistent
+pre-upgrade data backup when rolling back.
 Before updates, stop the service and archive the entire data directory. SQLite WAL
 files must not be copied independently while writes continue. A consistent backup
 can also be made with SQLite's backup API. Test restoration on an isolated directory.

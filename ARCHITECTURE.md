@@ -53,3 +53,23 @@ checks. Safe tensor-only loading and validated architecture metadata avoid arbit
 Python object deserialization. Functional training tests establish that the pipeline
 works; model strength requires separate, sufficiently sized evaluation tournaments.
 CUDA support does not establish that CUDA was tested on this development host.
+
+## History and presentation configuration
+
+AI record identity is a deterministic digest of normalized effective parameters,
+including algorithm, relevant budgets, randomness and model identity. New sessions
+store resolved parameters and display-name snapshots. Legacy explicit-algorithm
+sessions retain the defaults their original engine used; profile defaults are not
+retroactively applied. Variant statistics expose configuration metadata for inspection.
+
+SQLite schema 2 adds player tombstones and archived model metadata. Deleting a player
+hides it from selection while preserving its ID and saved history; reusing the same
+display name creates a new identity. Deleting an available model removes its registry
+copy and entry, retaining historical labels and original training outputs. Catalog
+reference creation and deletion are serialized in the supported single API process.
+
+Appearance is browser-local state, separate from game configuration. A typed catalog
+defines color modes, board palettes and token sets; shared token rendering is used
+for actual pieces and previews. The provider resolves device color preferences and
+persists choices. New artwork and palettes can be added without changing game rules
+or persistence. See `docs/PERSONALIZATION.md`.
