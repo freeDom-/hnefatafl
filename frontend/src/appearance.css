@@ -1,0 +1,497 @@
+/* Shared UI surfaces also support feature panels without theme-specific overrides. */
+:root {
+  --page: #f6f5ef;
+  --text: #26352e;
+  --surface-raised: #f0f2e8;
+}
+:root[data-color-mode='dark'] {
+  --page: #151d19;
+  --text: #e2eadb;
+  --surface: #202b24;
+  --surface-raised: #29372d;
+  --green: #a7d0bb;
+  --green-dark: #c6e6d3;
+  --muted: #b4c0a9;
+  --line: #3b4a3e;
+  --gold: #d4b371;
+  --ui-header: #1b251f;
+  --ui-dialog: #1e2922;
+  --ui-tint: #2c392e;
+  --ui-selected: #31452f;
+  --ui-gold-tint: #403b27;
+  --ui-error-surface: #472e27;
+  --ui-border: #455542;
+  --ui-heading: #dce8cf;
+  --ui-copy: #bfccb3;
+  --ui-subtle: #acbba1;
+}
+:root[data-color-mode='dark'] .button.primary {
+  background: #8bc3aa;
+  border-color: #8bc3aa;
+  color: #10251c;
+}
+:root[data-color-mode='dark'] .button.primary:hover {
+  background: #a8d7bf;
+}
+:root[data-color-mode='dark'] .welcome-panel {
+  background: radial-gradient(ellipse at top, #293b2b, #1b261f 80%);
+}
+:root[data-color-mode='dark'] .variant-pills > span {
+  background: #243126;
+}
+:root[data-color-mode='dark'] .notice {
+  color: #d0e3be;
+}
+:root[data-color-mode='dark'] .error-banner,
+:root[data-color-mode='dark'] .form-error,
+:root[data-color-mode='dark'] .job-status.failed {
+  color: #f0bca8;
+  border-color: #835846;
+}
+:root[data-color-mode='dark'] .turn-banner.finished {
+  border-color: #847344;
+}
+:root[data-color-mode='dark'] .modal::backdrop {
+  background: #040d0ac2;
+}
+:root[data-color-mode='dark'] .square:focus-visible {
+  outline-color: #103b24;
+}
+
+/* Board palettes are independent of UI mode and of the physical token material. */
+.board-frame {
+  background: var(--board-frame, #b69b6d);
+  border-color: var(--board-rim, #a78a5b);
+  box-shadow:
+    0 10px 20px #241b1826,
+    inset 0 0 0 4px var(--board-inner, #baa275),
+    inset 0 0 0 6px var(--board-rim, #a78a5b);
+}
+.board {
+  border-color: var(--board-edge, #9e875e);
+}
+.square.light {
+  background: var(--board-light, #e4d3ac);
+}
+.square.dark {
+  background: var(--board-dark, #d3bd92);
+}
+.square.special.light {
+  background: var(--board-special-light, #cbb88e);
+}
+.square.special.dark {
+  background: var(--board-special-dark, #c6af82);
+}
+.square.selected {
+  background: var(--board-selected, #9da77b);
+  box-shadow: inset 0 0 0 2px var(--board-select-ring, #536b3e);
+}
+.square.last-move:not(.selected) {
+  box-shadow: inset 0 0 0 100px var(--board-last, #5b793b38);
+}
+.square-rune {
+  color: var(--board-rune, #8a6b3d);
+}
+.move-dot {
+  background: var(--board-legal, #375726c9);
+  box-shadow: 0 0 0 2px #f5f3c877;
+}
+:root[data-board-theme='walnut'] .piece.attacker:not(.token-viking) {
+  outline: 1px solid #e5d0aa80;
+}
+
+/* Small figurines retain dark/ivory sides, while the king has a gold crown/cloak. */
+.piece.token-viking {
+  width: 87%;
+  height: 94%;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  --figure-outline: #263327;
+  --figure-skin: #d3ac7f;
+  --figure-beard: #765538;
+  --figure-metal: #b5bba2;
+  --figure-boots: #4c3c2d;
+  --figure-cloak: #3c5142;
+  --figure-tunic: #2e4132;
+  --figure-shield: #60745a;
+}
+.piece.token-viking.defender {
+  --figure-outline: #6a5336;
+  --figure-skin: #f4d4a8;
+  --figure-beard: #c3985b;
+  --figure-metal: #eee2bb;
+  --figure-cloak: #d3c09a;
+  --figure-tunic: #f3e5bf;
+  --figure-shield: #e4ca91;
+  --figure-boots: #73604c;
+}
+.piece.token-viking.king {
+  width: 91%;
+  height: 98%;
+  --figure-outline: #674a21;
+  --figure-skin: #eed0a0;
+  --figure-beard: #a17a41;
+  --figure-metal: #f5db8b;
+  --figure-cloak: #ad843e;
+  --figure-tunic: #e7c674;
+  --figure-shield: #d3a343;
+  --figure-boots: #614c32;
+}
+.piece.token-viking:before,
+.piece.token-viking:after {
+  display: none;
+}
+.piece.token-viking svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.selected .piece.token-viking {
+  filter: drop-shadow(0 3px 2px #19251c55);
+  box-shadow: none;
+}
+
+/* Layered grain, offset knots and rubbed edges are CSS artwork, not remote assets. */
+.piece.token-wood {
+  background:
+    repeating-linear-gradient(12deg, #ffffff07 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 65% 15%, transparent 38%, #21130666 41%, transparent 43%),
+    linear-gradient(130deg, #926846, #533b28 60%, #7e5939);
+  border: 1px solid #49301e;
+  color: #d0ac7a;
+  box-shadow:
+    0 3px 1px #3c241a70,
+    inset 0 0 0 3px #cda37335,
+    inset 0 -4px 5px #24190d80;
+}
+.piece.token-wood.defender {
+  background:
+    repeating-linear-gradient(8deg, #79562c18 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 65% 25%, transparent 34%, #9e74443b 37%, transparent 40%),
+    linear-gradient(135deg, #ead3a5, #bfa276 67%, #ddc28d);
+  border-color: #947449;
+  color: #76542e;
+  box-shadow:
+    0 3px 1px #4c321e60,
+    inset 0 0 0 3px #f8e1b53b,
+    inset 0 -4px 5px #73512d58;
+}
+.piece.token-wood.king {
+  background:
+    repeating-linear-gradient(17deg, #6d421324 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 35% 60%, transparent 28%, #82552c3b 31%, transparent 33%),
+    linear-gradient(130deg, #d8ad68, #a5783d 68%, #c69951);
+  border: 2px solid #805721;
+  color: #4b341a;
+  --piece-line: #d2ac67;
+  box-shadow:
+    0 3px 1px #38231170,
+    inset 0 0 0 3px #ebcb8c60,
+    inset 0 -4px 5px #54381366;
+}
+.piece.token-wood:before {
+  content: '';
+  position: absolute;
+  inset: 9%;
+  border: 1px solid currentColor;
+  opacity: 0.25;
+  border-radius: 48% 52% 51% 49%;
+}
+.piece.token-wood .wood-carving {
+  width: 72%;
+  height: 72%;
+  filter: drop-shadow(0 1px 0 #fff0c745);
+}
+.piece.token-wood.king .wood-carving {
+  width: 63%;
+  height: 63%;
+}
+
+.appearance-trigger {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.appearance-trigger svg {
+  width: 17px;
+  height: 17px;
+}
+.appearance-trigger:hover {
+  background: var(--surface-raised);
+}
+.appearance-modal {
+  width: min(740px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 29px;
+}
+.appearance-intro {
+  font-size: 12px;
+  color: var(--muted);
+  margin: -2px 0 24px;
+  max-width: 530px;
+}
+.modal .appearance-section {
+  margin: 24px 0 0;
+  padding: 0;
+}
+.modal .appearance-section legend {
+  margin-bottom: 12px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.15px;
+}
+.appearance-modes,
+.appearance-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.appearance-mode,
+.appearance-choice {
+  display: flex;
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface);
+  gap: 7px;
+  color: var(--text);
+}
+.appearance-mode {
+  flex-direction: column;
+}
+.appearance-mode svg {
+  width: 20px;
+  height: 20px;
+  color: var(--green);
+  margin-bottom: 5px;
+}
+.appearance-mode strong,
+.appearance-choice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.appearance-mode small,
+.appearance-choice small {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.55;
+}
+.appearance-mode input,
+.appearance-choice input {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  margin: 0;
+  width: 12px;
+  height: 12px;
+}
+.appearance-mode.chosen,
+.appearance-choice.chosen {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
+  background: var(--surface-raised);
+}
+.appearance-choice {
+  flex-direction: column;
+}
+.token-preview {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 57px;
+  margin: 7px -7px 8px;
+}
+.token-preview .piece {
+  flex-shrink: 0;
+  width: 35px;
+  height: 35px;
+  margin: 0 -1px;
+}
+.token-preview .token-viking {
+  width: 41px;
+  height: 49px;
+  margin: 0 -2px;
+}
+.token-preview .piece.king:not(.token-viking) {
+  width: 37px;
+  height: 37px;
+}
+.board-preview {
+  width: 86px;
+  height: 86px;
+  align-self: center;
+  border: 5px solid var(--preview-rim);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 6px 0 8px;
+}
+.board-preview > span {
+  display: grid;
+  place-items: center;
+  background: var(--preview-light);
+}
+.board-preview > span:nth-child(even) {
+  background: var(--preview-dark);
+}
+.board-preview .piece {
+  width: 73%;
+  height: 73%;
+}
+.board-preview .piece.token-viking {
+  width: 91%;
+  height: 96%;
+}
+.appearance-footer {
+  margin-top: 25px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+}
+.appearance-footer p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .site-header {
+    gap: 12px;
+  }
+  .appearance-trigger {
+    padding: 8px;
+  }
+  .appearance-trigger > span {
+    display: none;
+  }
+}
+@media (max-width: 540px) {
+  .site-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 15px 4% 0;
+    gap: 8px 12px;
+  }
+  .site-header .brand {
+    width: auto;
+    justify-content: flex-start;
+    grid-column: 1;
+    font-size: 19px;
+  }
+  .site-header .appearance-trigger {
+    grid-column: 2;
+    grid-row: 1;
+    width: 36px;
+  }
+  .site-header nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    height: 40px;
+    gap: 28px;
+  }
+  .appearance-modal {
+    padding: 20px 16px;
+  }
+  .appearance-modal .modal-top h2 {
+    font-size: 26px;
+  }
+  .appearance-modes,
+  .appearance-choices {
+    gap: 7px;
+  }
+  .appearance-mode,
+  .appearance-choice {
+    padding: 11px 8px;
+  }
+  .appearance-mode strong,
+  .appearance-choice strong {
+    font-size: 10px;
+  }
+  .appearance-mode small,
+  .appearance-choice small {
+    font-size: 9px;
+  }
+  .appearance-mode input,
+  .appearance-choice input {
+    right: 8px;
+    top: 10px;
+    width: 10px;
+    height: 10px;
+  }
+  .token-preview {
+    margin-left: -3px;
+    margin-right: -3px;
+  }
+  .token-preview .piece {
+    width: 24px;
+    height: 24px;
+  }
+  .token-preview .token-viking {
+    width: 29px;
+    height: 37px;
+  }
+  .token-preview .piece.king:not(.token-viking) {
+    width: 26px;
+    height: 26px;
+  }
+  .board-preview {
+    width: 64px;
+    height: 64px;
+  }
+  .appearance-footer {
+    align-items: flex-start;
+  }
+  .appearance-footer .button {
+    padding: 11px 12px;
+  }
+}
+/* Artwork is decorative: it must never cover a board hit target or a theme radio. */
+.piece,
+.token-preview,
+.board-preview {
+  pointer-events: none;
+}
+.appearance-choice input,
+.appearance-mode input {
+  z-index: 3;
+}
+/* The crowned figure is larger on the board, not in a fixed-size option preview. */
+.token-preview .piece.token-viking.king {
+  width: 43px;
+  height: 51px;
+}
+.board {
+  grid-auto-rows: minmax(0, 1fr);
+}
+.square {
+  min-height: 0;
+}
+:root[data-color-mode='dark'] .danger-text {
+  color: #f1b6a7;
+}
+@media (max-width: 540px) {
+  .token-preview .piece.token-viking.king {
+    width: 30px;
+    height: 38px;
+  }
+}

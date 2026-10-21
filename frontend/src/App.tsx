@@ -5,6 +5,8 @@ import { api } from './api';
 import type { AIProfile, Game, Mode, Model, Player, PlayerConfig, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
+import { AppearanceSettings } from './Appearance';
+import { sortRulesets } from './sortRulesets';
 
 type Tab = 'play' | 'archive' | 'training';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -167,6 +169,7 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <AppearanceSettings />
         <span className="header-note">
           <span />A game of wit, not chance
         </span>
@@ -605,7 +608,11 @@ function AIFields({
   ruleset: string;
 }) {
   const update = (key: string, input: string | number) =>
-    onChange({ ...value, config: { ...value.config, [key]: input } });
+    onChange({
+      ...value,
+      ...(key === 'algorithm' ? { profile_id: undefined, name: 'Computer' } : {}),
+      config: { ...value.config, [key]: input },
+    });
   const selectProfile = (id: string) => {
     const profile = profiles.find((p) => p.id === id);
     onChange({
@@ -781,6 +788,25 @@ function NewGame({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (
+      !Object.values(people).some(
+        (person) => person.player_id && !players.some((profile) => profile.id === person.player_id),
+      )
+    )
+      return;
+    setPeople(
+      (previous) =>
+        Object.fromEntries(
+          Object.entries(previous).map(([side, person]) => [
+            side,
+            person.player_id && !players.some((profile) => profile.id === person.player_id)
+              ? { ...person, name: '', player_id: undefined }
+              : person,
+          ]),
+        ) as Record<Side, PlayerConfig>,
+    );
+  }, [players, people]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -810,7 +836,7 @@ function NewGame({
         <fieldset>
           <legend>01 · Choose your battlefield</legend>
           <div className="ruleset-options">
-            {rulesets.map((rule) => (
+            {sortRulesets(rulesets).map((rule) => (
               <label key={rule.id} className={ruleset === rule.id ? 'chosen' : ''}>
                 <input
                   type="radio"
@@ -880,40 +906,48 @@ function NewGame({
                   ) : (
                     <>
                       <label>
-                        Player name
-                        <input
-                          required
-                          maxLength={64}
-                          value={people[side].name}
-                          onChange={(e) =>
+                        Human player
+                        <select
+                          aria-label={`${titles[side]} human player`}
+                          value={people[side].player_id ?? ''}
+                          onChange={(e) => {
+                            const player = players.find((p) => p.id === e.target.value);
                             setPeople((p) => ({
                               ...p,
-                              [side]: { ...p[side], name: e.target.value, player_id: undefined },
-                            }))
-                          }
-                        />
+                              [side]: {
+                                ...p[side],
+                                name: player?.name ?? '',
+                                player_id: player?.id,
+                              },
+                            }));
+                          }}
+                        >
+                          <option value="">New player / enter name</option>
+                          {players.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                              {players.filter((profile) => profile.name === p.name).length > 1
+                                ? ` · ${p.id.slice(0, 6)}`
+                                : ''}
+                            </option>
+                          ))}
+                        </select>
                       </label>
-                      {players.length > 0 && (
+                      {!people[side].player_id && (
                         <label>
-                          Or use a saved profile
-                          <select
-                            value={people[side].player_id ?? ''}
-                            onChange={(e) => {
-                              const player = players.find((p) => p.id === e.target.value);
-                              if (player)
-                                setPeople((p) => ({
-                                  ...p,
-                                  [side]: { ...p[side], name: player.name, player_id: player.id },
-                                }));
-                            }}
-                          >
-                            <option value="">Guest player</option>
-                            {players.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
+                          Player name
+                          <input
+                            aria-label={`${titles[side]} player name`}
+                            required
+                            maxLength={64}
+                            value={people[side].name}
+                            onChange={(e) =>
+                              setPeople((p) => ({
+                                ...p,
+                                [side]: { ...p[side], name: e.target.value, player_id: undefined },
+                              }))
+                            }
+                          />
                         </label>
                       )}
                     </>

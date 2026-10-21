@@ -1,5 +1,7 @@
 import { useRef, type KeyboardEvent } from 'react';
 import type { Game } from './types';
+import { Token } from './Tokens';
+import { useAppearance } from './Appearance';
 
 export const coordinate = (index: number, size: number) =>
   `${String.fromCharCode(97 + (index % size))}${size - Math.floor(index / size)}`;
@@ -10,19 +12,7 @@ const pieceNames: Record<string, string> = {
   K: 'king',
 };
 
-export function Crown({ className = '' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <path d="m5 9 6 6 5-10 5 10 6-6-3 16H8L5 9Z" fill="currentColor" />
-      <path
-        d="M11 21h10"
-        stroke="var(--piece-line, #173d37)"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+export { Crown } from './Tokens';
 
 interface Props {
   game: Game;
@@ -31,6 +21,7 @@ interface Props {
   disabled?: boolean;
 }
 export default function Board({ game, selected, onSelect, disabled = false }: Props) {
+  const { appearance } = useAppearance();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const targets = new Set(
     game.legal_moves.filter((move) => move.source === selected).map((move) => move.target),
@@ -50,7 +41,11 @@ export default function Board({ game, selected, onSelect, disabled = false }: Pr
     refs.current[next]?.focus();
   };
   return (
-    <div className="board-with-labels">
+    <div
+      className="board-with-labels"
+      data-board-theme={appearance.board}
+      data-token-theme={appearance.tokens}
+    >
       <div className="board-ranks" aria-hidden="true">
         {Array.from({ length: game.size }, (_, i) => (
           <span key={i}>{game.size - i}</span>
@@ -89,11 +84,7 @@ export default function Board({ game, selected, onSelect, disabled = false }: Pr
                 aria-selected={selected === index}
               >
                 {piece !== '.' ? (
-                  <span
-                    className={`piece ${piece === 'A' ? 'attacker' : piece === 'K' ? 'king' : 'defender'}`}
-                  >
-                    {piece === 'K' ? <Crown /> : <span className="piece-etch" />}
-                  </span>
+                  <Token piece={piece} theme={appearance.tokens} />
                 ) : corner || throne ? (
                   <span className="square-rune" aria-hidden="true">
                     {corner ? 'ᛟ' : 'ᛉ'}

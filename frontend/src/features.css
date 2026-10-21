@@ -1,0 +1,99 @@
+.button.danger {
+  background: #993f36;
+  border-color: #993f36;
+  color: #fff;
+}
+.button.danger:hover {
+  background: #7c2d26;
+  border-color: #7c2d26;
+}
+.danger-text {
+  color: #a4473b;
+}
+.confirm-dialog {
+  max-width: 31rem;
+}
+.confirmation-copy {
+  line-height: 1.65;
+}
+.record-entry {
+  border-bottom: 1px solid var(--line, #e3e1d7);
+}
+.record-entry .record {
+  border-bottom: 0;
+  width: 100%;
+}
+.record-parameters {
+  margin: 0.35rem 0 0.85rem;
+  text-align: left;
+}
+.record-entry > .record-parameters {
+  margin-left: 3rem;
+}
+.record-parameters summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.record-parameters summary span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+.record-parameters dl {
+  margin: 0.6rem 0;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+}
+.record-parameters dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.record-parameters dt {
+  font-weight: 400;
+}
+.record-parameters dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  max-width: 65%;
+}
+.variant-reference {
+  opacity: 0.7;
+  font-size: 0.7rem;
+  margin: 0.5rem 0;
+}
+.profile-list .delete-profile {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.model-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: start;
+}
+.name-suggestion-field .name-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.name-suggestion-field .name-input-group input {
+  min-width: 0;
+}
+.name-input-group button {
+  flex: 0 0 auto;
+}
+.model-delete-note {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+@media (max-width: 600px) {
+  .record-entry > .record-parameters {
+    margin-left: 0.5rem;
+  }
+}

@@ -16,6 +16,8 @@ export interface PlayerConfig {
   profile_id?: string;
   config: Config;
   player_id?: string;
+  profile_name?: string;
+  model_name?: string;
 }
 export interface Game {
   id: string;
@@ -108,6 +110,12 @@ export interface StatRow {
   side?: string;
   kind?: string;
   opponent_name?: string;
+  config?: Config;
+  variant_id?: string;
+  profile_id?: string;
+  profile_name?: string;
+  model_id?: string;
+  model_name?: string;
   win_rate?: number;
   loss_rate?: number;
   draw_rate?: number;

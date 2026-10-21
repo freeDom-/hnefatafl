@@ -1,6 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import type { Game, Player, Ruleset, Stats, StatRow } from './types';
+import { sortRulesets } from './sortRulesets';
+import RecordsParameters from './RecordsParameters';
+import RecordsConfirm from './RecordsConfirm';
+import './features.css';
 
 const percent = (value?: number) => `${((value ?? 0) * 100).toFixed(1)}%`;
 const date = (value?: string) =>
@@ -32,6 +36,9 @@ export default function Archive({
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletePlayer, setDeletePlayer] = useState<Player | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -75,7 +82,24 @@ export default function Archive({
       onError((e as Error).message);
     }
   };
-  const byRules = Array.isArray(stats.by_ruleset) ? stats.by_ruleset : [];
+  const removePlayer = async () => {
+    if (!deletePlayer) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api(`/players/${deletePlayer.id}`, undefined, 'DELETE');
+      setDeletePlayer(null);
+      refreshPlayers();
+    } catch (error) {
+      setDeleteError((error as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+  const sizes = new Map(rulesets.map((rule) => [rule.id, rule.size]));
+  const byRules = (Array.isArray(stats.by_ruleset) ? [...stats.by_ruleset] : []).sort(
+    (a, b) => (sizes.get(a.ruleset ?? '') ?? Infinity) - (sizes.get(b.ruleset ?? '') ?? Infinity),
+  );
   const byPlayer = stats.by_player ?? stats.players ?? [];
   return (
     <>
@@ -94,7 +118,7 @@ export default function Archive({
           Battlefield
           <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
             <option value="">All rulesets</option>
-            {rulesets.map((rule) => (
+            {sortRulesets(rulesets).map((rule) => (
               <option key={rule.id} value={rule.id}>
                 {rule.name}
               </option>
@@ -158,36 +182,47 @@ export default function Archive({
           ) : (
             <div className="records-list">
               {games.map((game) => (
-                <button className="record" key={game.id} onClick={() => void load(game.id)}>
-                  <span
-                    className={`record-icon ${(game.recorded_winner ?? game.winner) ? 'complete' : ''}`}
-                  >
-                    {(game.recorded_winner ?? game.winner) ? 'ᛟ' : 'ᛏ'}
-                  </span>
-                  <span>
-                    <strong>
-                      {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}
-                    </strong>
-                    <small>
-                      {game.players?.attackers?.name ?? 'Attackers'} vs{' '}
-                      {game.players?.defenders?.name ?? 'Defenders'}
-                    </small>
-                  </span>
-                  <span className="record-result">
-                    <strong>
-                      {(game.recorded_winner ?? game.winner) === 'draw'
-                        ? 'Draw'
-                        : (game.recorded_winner ?? game.winner)
-                          ? `${(game.recorded_winner ?? game.winner) === 'attackers' ? 'Attackers' : 'Defenders'} win`
-                          : 'In progress'}
-                    </strong>
-                    <small>
-                      {game.recorded_plies ?? game.total_moves ?? game.ply} moves ·{' '}
-                      {date(game.created_at)}
-                    </small>
-                  </span>
-                  <span aria-hidden="true">↗</span>
-                </button>
+                <article className="record-entry" key={game.id}>
+                  <button className="record" onClick={() => void load(game.id)}>
+                    <span
+                      className={`record-icon ${(game.recorded_winner ?? game.winner) ? 'complete' : ''}`}
+                    >
+                      {(game.recorded_winner ?? game.winner) ? 'ᛟ' : 'ᛏ'}
+                    </span>
+                    <span>
+                      <strong>
+                        {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}
+                      </strong>
+                      <small>
+                        {game.players?.attackers?.name ?? 'Attackers'} vs{' '}
+                        {game.players?.defenders?.name ?? 'Defenders'}
+                      </small>
+                    </span>
+                    <span className="record-result">
+                      <strong>
+                        {(game.recorded_winner ?? game.winner) === 'draw'
+                          ? 'Draw'
+                          : (game.recorded_winner ?? game.winner)
+                            ? `${(game.recorded_winner ?? game.winner) === 'attackers' ? 'Attackers' : 'Defenders'} win`
+                            : 'In progress'}
+                      </strong>
+                      <small>
+                        {game.recorded_plies ?? game.total_moves ?? game.ply} moves ·{' '}
+                        {date(game.created_at)}
+                      </small>
+                    </span>
+                    <span aria-hidden="true">↗</span>
+                  </button>
+                  {(['attackers', 'defenders'] as const)
+                    .filter((side) => game.players[side]?.kind === 'ai')
+                    .map((side) => (
+                      <RecordsParameters
+                        key={side}
+                        config={game.players[side].config}
+                        label={`${side === 'attackers' ? 'Attacker' : 'Defender'} AI parameters`}
+                      />
+                    ))}
+                </article>
               ))}
             </div>
           )}
@@ -222,11 +257,36 @@ export default function Archive({
                 <span className="avatar">{player.name.slice(0, 1).toUpperCase()}</span>
                 <strong>{player.name}</strong>
                 <small>#{String(index + 1).padStart(2, '0')}</small>
+                <button
+                  type="button"
+                  className="icon-button danger-text delete-profile"
+                  aria-label={`Delete player ${player.name}`}
+                  onClick={() => {
+                    setDeletePlayer(player);
+                    setDeleteError('');
+                  }}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>
         </aside>
       </div>
+      {deletePlayer && (
+        <RecordsConfirm
+          title={`Delete player ${deletePlayer.name}?`}
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => setDeletePlayer(null)}
+          onConfirm={() => void removePlayer()}
+        >
+          <p>
+            This removes <strong>{deletePlayer.name}</strong> from the player selection. Their saved
+            games, name and statistics remain in the Hall of records.
+          </p>
+        </RecordsConfirm>
+      )}
     </>
   );
 }
@@ -283,6 +343,9 @@ function StatsTable({ rows, group }: { rows: StatRow[]; group: 'ruleset' | 'play
                       ? 'Human'
                       : ''}
                 </small>
+                {row.kind === 'ai' && (
+                  <RecordsParameters config={row.config} variantId={row.variant_id} />
+                )}
               </th>
               <td>{row.games ?? 0}</td>
               {group === 'ruleset' ? (

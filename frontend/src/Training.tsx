@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { Metric } from './Archive';
 import type { DeviceInfo, Job, Model, Ruleset } from './types';
+import { sortRulesets } from './sortRulesets';
+import { suggestVikingName } from './vikingNames';
+import RecordsConfirm from './RecordsConfirm';
+import './features.css';
 
 const defaults: Record<string, string | number | boolean> = {
   ruleset: 'tablut',
@@ -57,7 +61,10 @@ export default function Training({
   const [device, setDevice] = useState<DeviceInfo>({});
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [config, setConfig] = useState(defaults);
+  const [config, setConfig] = useState<Record<string, string | number | boolean>>(() => ({
+    ...defaults,
+    model_name: suggestVikingName(models.map((model) => model.name)),
+  }));
   const [kind, setKind] = useState<'train' | 'tune'>('train');
   const [trials, setTrials] = useState(3);
   const [studyName, setStudyName] = useState('hnefatafl-search');
@@ -68,6 +75,9 @@ export default function Training({
   const [importing, setImporting] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [notice, setNotice] = useState('');
+  const [deleteModel, setDeleteModel] = useState<Model | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const refresh = useCallback(async () => {
     const [hardware, runs] = await Promise.all([
       api<DeviceInfo>('/training/device'),
@@ -200,6 +210,21 @@ export default function Training({
       onError((e as Error).message);
     }
   };
+  const removeModel = async () => {
+    if (!deleteModel) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api(`/models/${deleteModel.id}`, undefined, 'DELETE');
+      setDeleteModel(null);
+      onModelsChanged();
+      setNotice('Model deleted. Saved game history and training checkpoints have been kept.');
+    } catch (error) {
+      setDeleteError((error as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
   const running = jobs.filter((job) =>
     ['running', 'pending', 'queued', 'cancelling'].includes(job.status),
   ).length;
@@ -284,7 +309,7 @@ export default function Training({
                   value={String(config.ruleset)}
                   onChange={(e) => update('ruleset', e.target.value)}
                 >
-                  {rulesets.map((rule) => (
+                  {sortRulesets(rulesets).map((rule) => (
                     <option value={rule.id} key={rule.id}>
                       {rule.name}
                     </option>
@@ -343,15 +368,35 @@ export default function Training({
                   <option value="balanced">Balanced · a longer experiment</option>
                 </select>
               </label>
-              <label>
-                Model name
-                <input
-                  required
-                  maxLength={80}
-                  value={String(config.model_name)}
-                  onChange={(e) => update('model_name', e.target.value)}
-                />
-              </label>
+              <div className="name-suggestion-field">
+                <label htmlFor="training-model-name">Model name</label>
+                <div className="name-input-group">
+                  <input
+                    id="training-model-name"
+                    required
+                    maxLength={80}
+                    value={String(config.model_name)}
+                    onChange={(e) => update('model_name', e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Suggest Viking name"
+                    title="Suggest a Viking name"
+                    onClick={() =>
+                      update(
+                        'model_name',
+                        suggestVikingName([
+                          ...models.map((model) => model.name),
+                          String(config.model_name),
+                        ]),
+                      )
+                    }
+                  >
+                    ⚄
+                  </button>
+                </div>
+              </div>
               <label>
                 Device
                 <select
@@ -686,14 +731,28 @@ export default function Training({
                     {model.created_at ? new Date(model.created_at).toLocaleDateString() : model.id}
                   </small>
                 </div>
-                <a
-                  className="icon-button"
-                  href={`/api/models/${model.id}/export`}
-                  download
-                  aria-label={`Export ${model.name}`}
-                >
-                  ↓
-                </a>
+                <div className="model-actions">
+                  <a
+                    className="icon-button"
+                    href={`/api/models/${model.id}/export`}
+                    download
+                    aria-label={`Export ${model.name}`}
+                  >
+                    ↓
+                  </a>
+                  <button
+                    type="button"
+                    className="icon-button danger-text"
+                    aria-label={`Delete model ${model.name}`}
+                    title="Delete model"
+                    onClick={() => {
+                      setDeleteModel(model);
+                      setDeleteError('');
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
                 {model.evaluation && (
                   <div className="model-evaluation">
                     <span className="eyebrow">
@@ -734,6 +793,23 @@ export default function Training({
           <p className="empty-copy">Your trained and imported models will live here.</p>
         )}
       </section>
+      {deleteModel && (
+        <RecordsConfirm
+          title={`Delete model ${deleteModel.name}?`}
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => setDeleteModel(null)}
+          onConfirm={() => void removeModel()}
+        >
+          <p>
+            This removes <strong>{deleteModel.name}</strong> from your model collection and opponent
+            selection. Saved game histories, statistics and training checkpoints are kept.
+          </p>
+          <p className="model-delete-note">
+            A model used by an unfinished game cannot be deleted until that game finishes.
+          </p>
+        </RecordsConfirm>
+      )}
     </>
   );
 }
