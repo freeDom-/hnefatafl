@@ -15,3 +15,5 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen --all-extras --python 3.12
       - run: make foundation
+      - run: .venv/bin/python -m pytest tests/test_engine.py
+      - run: .venv/bin/ruff check hnefatafl/engine.py tests/test_engine.py

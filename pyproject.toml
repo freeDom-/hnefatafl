@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hnefatafl"
-version = "0.1.0"
+version = "0.2.0"
 description = "Three tafl rulesets, browser gameplay, search opponents and self-play learning"
 requires-python = ">=3.11"
 dependencies = [
@@ -36,7 +36,7 @@ line-length = 100
 select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true
 check_untyped_defs = true
 
