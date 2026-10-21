@@ -4,13 +4,14 @@ import { useI18n } from './i18n';
 import { modelLabel } from './modelLabel';
 
 export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: string) {
-  const options: { id: string; label: string; advisor: Advisor }[] = profiles
+  const options: { id: string; label: string; rune?: string; advisor: Advisor }[] = profiles
     .filter(
       (profile) => profile.algorithm !== 'neural' && profile.supported_rulesets.includes(ruleset),
     )
     .map((profile) => ({
       id: `profile:${profile.id}`,
       label: profile.name,
+      rune: profile.rune,
       advisor: {
         name: profile.name,
         profile_id: profile.id,
@@ -55,7 +56,9 @@ export default function AdvisorSelect({
           <option value="">{t('None')}</option>
           {advisorOptions(profiles, models, ruleset).map((option) => (
             <option value={option.id} key={option.id}>
-              {option.id.startsWith('profile:') ? t(option.label) : option.label}
+              {option.id.startsWith('profile:')
+                ? `${option.rune ? `${option.rune} ` : ''}${t(option.label)}`
+                : option.label}
             </option>
           ))}
         </select>

@@ -4,6 +4,7 @@ import { coordinate } from './Board';
 import { useI18n } from './i18n';
 import type { PositionAnalysis } from './analysisTypes';
 import type { Game } from './types';
+import Rune from './Rune';
 import './analysis.css';
 
 /** Each request is tied to a game revision; late results cannot replace another position. */
@@ -81,7 +82,6 @@ export default function AgentAnalysis({
       aria-label={t('Agent evaluations')}
       aria-busy={pending}
     >
-      <p className="eyebrow">{t('THROUGH THE AGENT’S EYES')}</p>
       <h2>{t('Winning chances')}</h2>
       <p className="analysis-perspective">
         {t('For the current player: {side}', { side: sides[game.turn] })}
@@ -110,7 +110,10 @@ export default function AgentAnalysis({
                     ? t('Move advisor')
                     : t('{side} agent', { side: sides[agent.role] })}
                 </small>
-                <strong>{agent.name}</strong>
+                <strong>
+                  <Rune rune={agent.rune} />
+                  {agent.model_name ?? agent.name}
+                </strong>
               </div>
               <b>{agent.win_probability === null ? '—' : number.format(agent.win_probability)}</b>
             </div>
@@ -119,7 +122,7 @@ export default function AgentAnalysis({
                 className="estimate-meter"
                 role="meter"
                 aria-label={t('{agent} estimate for {side}', {
-                  agent: agent.name,
+                  agent: agent.model_name ?? agent.name,
                   side: sides[game.turn],
                 })}
                 aria-valuemin={0}

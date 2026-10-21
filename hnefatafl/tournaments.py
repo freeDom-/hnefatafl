@@ -20,6 +20,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .storage import Store
+from .identities import agent_identity
 
 
 def timestamp() -> str:
@@ -83,13 +84,26 @@ class TournamentManager:
                 self.processes.pop(identifier, None)
             return tournament
 
-    @staticmethod
-    def public(tournament: dict, *, summary: bool = False) -> dict:
-        return {
+    def public(self, tournament: dict, *, summary: bool = False) -> dict:
+        result = {
             key: value
             for key, value in tournament.items()
             if key != "pid" and not (summary and key == "result")
         }
+        # A tournament seat is distinct from its underlying model/search agent.
+        # Copies also backfill old reports without rewriting their stored JSON.
+        result["config"] = {
+            **tournament["config"],
+            "players": [
+                {
+                    **player,
+                    "rune": self.store.rune(f"tournament:{tournament['id']}:player:{index}"),
+                    "agent_rune": self.store.rune(agent_identity(player)),
+                }
+                for index, player in enumerate(tournament["config"]["players"])
+            ],
+        }
+        return result
 
     def list(self) -> list[dict]:
         with self.lock:
@@ -109,6 +123,17 @@ class TournamentManager:
             identifier = uuid4().hex
             directory = self.directory / identifier
             directory.mkdir()
+            config = {
+                **config,
+                "players": [
+                    {
+                        **player,
+                        "rune": self.store.rune(f"tournament:{identifier}:player:{index}"),
+                        "agent_rune": self.store.rune(agent_identity(player)),
+                    }
+                    for index, player in enumerate(config["players"])
+                ],
+            }
             player_count = len(config["players"])
             pair_count = player_count * (player_count - 1) // 2
             tournament = {

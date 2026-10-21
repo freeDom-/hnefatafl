@@ -225,7 +225,6 @@ export function AppearanceSettings() {
       >
         <div className="modal-top">
           <div>
-            <p className="eyebrow">{t('A TABLE OF YOUR OWN')}</p>
             <h2>{t('Make the table yours.')}</h2>
           </div>
           <button

@@ -260,16 +260,20 @@ describe('tournament setup and saved selection', () => {
     fireEvent.click(create);
     const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
     expect(setup.queryAllByRole('button', { name: /^Remove opponent/ })).toHaveLength(0);
+    const firstNames = [1, 2].map(
+      (number) => (setup.getByLabelText(`Opponent ${number} name`) as HTMLInputElement).value,
+    );
     fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
     expect(setup.getByText('games across 3 pairings')).toBeInTheDocument();
     expect(setup.getByText('6', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
     fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
     expect(setup.getByRole('button', { name: 'Add opponent' })).toBeDisabled();
+    const fourthName = (setup.getByLabelText('Opponent 4 name') as HTMLInputElement).value;
     expect(setup.getByText('12', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
     fireEvent.click(setup.getByRole('checkbox', { name: 'Tablut 9 × 9' }));
     expect(setup.getByText('24', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
     fireEvent.click(setup.getByRole('button', { name: 'Remove opponent 3' }));
-    expect(setup.getByLabelText('Opponent 3 name')).toHaveValue('Strategist 4');
+    expect(setup.getByLabelText('Opponent 3 name')).toHaveValue(fourthName);
     expect(setup.queryByLabelText('Opponent 4 name')).not.toBeInTheDocument();
     expect(setup.getByText('12', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
     fireEvent.click(setup.getByRole('button', { name: 'Remove opponent 3' }));
@@ -283,8 +287,58 @@ describe('tournament setup and saved selection', () => {
     expect(submitted).toMatchObject({
       games: 2,
       rulesets: ['brandubh', 'tablut'],
-      players: [{ name: 'Shield bearer' }, { name: 'Jarl' }, { name: 'Odin' }, { name: 'Freya' }],
+      players: [
+        { name: firstNames[0] },
+        { name: firstNames[1] },
+        { name: 'Odin' },
+        { name: 'Freya' },
+      ],
     });
+  });
+
+  it('gives opponents distinct editable Viking names and rerolls with the same dice without changing agents', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json([])),
+    );
+    const model = { id: 'raven-model', name: 'Raven model', ruleset: 'brandubh' };
+    const { rerender } = show([model]);
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    const first = setup.getByLabelText('Opponent 1 name') as HTMLInputElement;
+    const second = setup.getByLabelText('Opponent 2 name') as HTMLInputElement;
+    const original = first.value;
+    expect(original).not.toBe(second.value);
+    expect(original).not.toBe(model.name);
+    const nameDice = setup.getByRole('button', { name: 'Suggest tournament name' });
+    const playerDice = setup.getByRole('button', { name: 'Suggest opponent 1 name' });
+    expect(nameDice).toHaveTextContent('⚄');
+    expect(playerDice).toHaveTextContent('⚄');
+    fireEvent.click(playerDice);
+    expect(first.value).not.toBe(original);
+    expect(first.value).not.toBe(second.value);
+    expect(setup.getByLabelText('Opponent 1 trained model')).toHaveValue('raven-model');
+    fireEvent.change(first, { target: { value: 'Ulf of the Fjord' } });
+    fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: 'baseline' } });
+    expect(first).toHaveValue('Ulf of the Fjord');
+    rerender(
+      <Tournaments
+        rulesets={rulesets}
+        profiles={profiles}
+        models={[model, { ...model, id: 'newer-model' }]}
+        onError={vi.fn()}
+      />,
+    );
+    expect(first).toHaveValue('Ulf of the Fjord');
+    fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+    const thirdName = (setup.getByLabelText('Opponent 3 name') as HTMLInputElement).value;
+    expect([first.value, second.value]).not.toContain(thirdName);
+    act(() => setLanguage('de', false));
+    expect(
+      screen.getByRole('button', { name: 'Namen für Gegner 3 vorschlagen' }),
+    ).toHaveTextContent('⚄');
   });
 
   it('names the actual third/fourth opponents in partial standings, battlefield wins and replay', async () => {
@@ -294,6 +348,10 @@ describe('tournament setup and saved selection', () => {
       { name: 'Eagle', config: { algorithm: 'baseline' } },
       { name: 'Fox', config: { algorithm: 'baseline' } },
     );
+    tournament.config.players[2].rune = 'ᚠ';
+    tournament.config.players[2].agent_rune = 'ᚱ';
+    tournament.config.players[3].rune = 'ᚢ';
+    tournament.config.players[3].agent_rune = 'ᚱ';
     tournament.progress = { completed_games: 1, total_games: 12 };
     tournament.result = {
       scores: [0, 0, 0, 1],
@@ -351,13 +409,15 @@ describe('tournament setup and saved selection', () => {
     expect(container.querySelectorAll('.tournament-standing')).toHaveLength(4);
     const match = within(container.querySelector('.tournament-match')! as HTMLElement);
     expect(match.getByText('Fox wins')).toBeInTheDocument();
-    expect(match.getByText('Eagle', { exact: false })).toHaveTextContent('Eagle vs Fox');
+    expect(match.getByText('Eagle', { exact: false })).toHaveTextContent('ᚠEagle vs ᚢFox');
+    expect(container.querySelector('.rival-3 .tournament-avatar')).toHaveTextContent('ᚠ');
+    expect(container.querySelector('.rival-3 p [data-rune]')).toHaveAttribute('data-rune', 'ᚱ');
     const wins = container.querySelectorAll('.tournament-battlefield-wins li');
     expect(wins).toHaveLength(4);
     expect(wins[3]).toHaveTextContent('Fox1 wins');
     fireEvent.click(screen.getByRole('button', { name: 'Replay game 1' }));
     const replay = await screen.findByRole('dialog', { name: 'Replay game 1' });
-    expect(replay).toHaveTextContent('Eagle · Attackers vs Fox · Defenders');
+    expect(replay).toHaveTextContent('ᚠEagle · Attackers vs ᚢFox · Defenders');
     expect(replay).toHaveTextContent('Fox wins');
   });
 });

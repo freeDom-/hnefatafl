@@ -10,7 +10,9 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
+
+from .identities import rune_for_ordinal
 
 
 class ConflictError(ValueError):
@@ -50,7 +52,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 4:
+            if schema > 5:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -70,7 +72,22 @@ class Store:
                     PRIMARY KEY (game_id, position_key)
                 )
             """)
-            connection.execute("PRAGMA user_version=4")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS entity_runes (
+                    entity_key TEXT PRIMARY KEY,
+                    ordinal INTEGER NOT NULL UNIQUE,
+                    rune TEXT NOT NULL UNIQUE
+                )
+            """)
+            connection.execute("PRAGMA user_version=5")
+        # Reserve historical humans, including tombstones, in a stable order.
+        # Saved game JSON and model/checkpoint bytes are never rewritten.
+        with self.connection() as connection:
+            player_keys = [
+                f"player:{row['id']}"
+                for row in connection.execute("SELECT id FROM players ORDER BY id")
+            ]
+        self.runes(player_keys)
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -92,6 +109,36 @@ class Store:
                 "INSERT INTO games(id,version,created_at,data) VALUES(?,?,?,?)",
                 (game["id"], game["version"], game["created_at"], json.dumps(game)),
             )
+
+    def runes(self, entity_keys: Iterable[str]) -> dict[str, str]:
+        """Reserve globally unique, non-recycled presentation runes atomically."""
+        keys = list(dict.fromkeys(entity_keys))
+        if not keys:
+            return {}
+        result = {}
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            next_ordinal = connection.execute(
+                "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM entity_runes"
+            ).fetchone()[0]
+            for key in keys:
+                row = connection.execute(
+                    "SELECT rune FROM entity_runes WHERE entity_key=?", (key,)
+                ).fetchone()
+                if row is not None:
+                    result[key] = row["rune"]
+                    continue
+                rune = rune_for_ordinal(next_ordinal)
+                connection.execute(
+                    "INSERT INTO entity_runes(entity_key,ordinal,rune) VALUES(?,?,?)",
+                    (key, next_ordinal, rune),
+                )
+                result[key] = rune
+                next_ordinal += 1
+        return result
+
+    def rune(self, entity_key: str) -> str:
+        return self.runes([entity_key])[entity_key]
 
     def get_game(self, game_id: str) -> dict | None:
         with self.connection() as connection:
@@ -177,7 +224,7 @@ class Store:
 
     def players(self, *, include_deleted: bool = False) -> list[dict]:
         with self.connection() as connection:
-            return [
+            result = [
                 dict(row)
                 for row in connection.execute(
                     "SELECT * FROM players "
@@ -185,6 +232,8 @@ class Store:
                     + "ORDER BY name,id"
                 )
             ]
+        runes = self.runes(f"player:{player['id']}" for player in result)
+        return [{**player, "rune": runes[f"player:{player['id']}"]} for player in result]
 
     def delete_player(self, player_id: str, deleted_at: str) -> bool:
         """Hide a profile from selection while retaining its historical identity."""
@@ -201,7 +250,7 @@ class Store:
                 "INSERT INTO players(id,name,created_at) VALUES(?,?,?)",
                 (player["id"], player["name"], player["created_at"]),
             )
-        return player
+        return {**player, "rune": self.rune(f"player:{player['id']}")}
 
     def archive_model(self, metadata: dict) -> None:
         """Retain display provenance for pre-snapshot games, never model weights."""

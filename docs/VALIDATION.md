@@ -12,8 +12,8 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | API and persistence | 40 baseline API tests plus 21 game-management cases: real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | Real isolated workers, balanced two/three/four-player round robins, participation-aware scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay and failure/shutdown cleanup |
-| Browser unit flows | 67 Vitest tests, including independent analysis requests, localization/persistence, training plans/history, model selection, sorting/filtering, deletion races and appearance |
-| Browser end to end | 24 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
+| Browser unit flows | 74 Vitest tests, including complete setup/name restoration, reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
+| Browser end to end | 26 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -143,6 +143,33 @@ compiled assets and three training plans. All seven pre-existing games retain
 exact IDs, versions and JSON against the pre-upgrade digest. All four existing
 model-usage endpoints respond. A complete backup was taken before migration;
 all training, analysis and screenshot data used separate temporary storage.
+
+The v0.10 suite passes **313 Python tests**, **74 frontend unit tests** and
+**26 real-API browser checks**. New setup checks train separate Ulf/Freydis CPU
+models and verify selected IDs, names and runes across creation, sidebar, reload,
+model dropdowns, workshop and recorded history on desktop/mobile. Agent budgets,
+advisor, fixed-seed toggle/value, mode and board restore from the successful setup.
+Cancelled/failed creation and removed/corrupt stored options have focused coverage.
+
+The workshop browser flow resumes a real one-iteration job to a total of two,
+retaining both graph points. API tests validate checkpoint availability and target
+bounds, reject inference/corrupt sources, preserve the source checkpoint hash and
+compare resumed CPU weights exactly with uninterrupted training. Dialog inspection
+shows actual architecture/optimizer and distinguishes total from additional iterations.
+
+Identity tests verify concurrent allocation, unique combinations beyond 24 entries,
+retention after deletion, stable model identity across budgets and consistent
+legacy tournament agent runes. Existing game JSON and opinion snapshots are not
+rewritten. Compiled [desktop opponents](screenshots/identified-opponents.png),
+[mobile header/runes](screenshots/cleaned-header-mobile.png) and
+[resume dialog](screenshots/resume-dialog.png) were visually inspected without
+page overflow or browser errors, including German identity preservation.
+
+Production startup serves v0.10.0/schema 5 with compiled assets. All seven existing
+games retain exact IDs, versions and JSON against the pre-upgrade digest; all four
+model-usage endpoints respond. Eight current player/model identities have distinct
+persistent runes. A complete backup preceded migration; new training and visual
+fixtures stayed in isolated temporary storage.
 
 ## Reproduce
 

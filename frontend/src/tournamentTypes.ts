@@ -2,6 +2,8 @@ import type { Config, Move, Side } from './types';
 
 export interface TournamentPlayer {
   name: string;
+  rune?: string;
+  agent_rune?: string;
   profile_id?: string;
   profile_name?: string;
   model_name?: string;

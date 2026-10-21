@@ -51,6 +51,19 @@ describe('record table comparisons', () => {
     expect(
       ids(
         sortStatRows(
+          [
+            { id: 'ulf', kind: 'ai', name: 'My first strategist', model_name: 'Ulf' },
+            { id: 'freydis', kind: 'ai', name: 'My first strategist', model_name: 'Freydis' },
+          ],
+          { key: 'name', direction: 'ascending' },
+          'player',
+          [],
+        ),
+      ),
+    ).toEqual(['freydis', 'ulf']);
+    expect(
+      ids(
+        sortStatRows(
           [{ ruleset: 'a' }, { ruleset: 'b' }],
           { key: 'name', direction: 'ascending' },
           'ruleset',

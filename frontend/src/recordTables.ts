@@ -42,7 +42,7 @@ export function sortStatRows(
   const name = (row: StatRow) =>
     group === 'ruleset'
       ? (names.get(row.ruleset ?? '') ?? row.name ?? row.ruleset ?? '')
-      : (row.name ?? '');
+      : (row.kind === 'ai' ? row.model_name : undefined) || row.name || '';
   return rows
     .map((row, index) => ({ row, index }))
     .sort((first, second) => {

@@ -113,6 +113,23 @@ test('training dashboard starts, monitors and registers a real CPU smoke model',
     page.locator('.model-card').getByRole('heading', { name: 'Browser smoke strategist' }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Resume from checkpoint' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Resume from checkpoint' }).click();
+  const resume = page.getByRole('dialog', { name: 'Resume training', exact: true });
+  await expect(resume.getByRole('spinbutton', { name: 'Target total iterations' })).toHaveValue(
+    '2',
+  );
+  await resume.getByRole('button', { name: 'Continue training', exact: true }).click();
+  await expect(resume).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText(
+    'Training resumed from iteration 1 toward 2.',
+  );
+  await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 60000 });
+  await expect(
+    page.getByRole('img', { name: 'Loss by iteration', exact: true }).locator('circle'),
+  ).toHaveCount(4);
+  await expect(
+    page.getByRole('img', { name: 'Evaluation by iteration', exact: true }).locator('circle'),
+  ).toHaveCount(2);
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await page.getByRole('button', { name: /New game/ }).click();
   await page.getByRole('button', { name: 'Human vs AI', exact: true }).click();

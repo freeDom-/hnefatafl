@@ -212,7 +212,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   await detail.getByRole('button', { name: 'Replay game 12', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Replay game 12', exact: true });
   await expect(dialog.locator('.tournament-replay-players')).toHaveText(
-    `Raven ${last.attacker_player + 1} · Attackers vs Raven ${last.defender_player + 1} · Defenders`,
+    `${recorded.config.players[last.attacker_player].rune}Raven ${last.attacker_player + 1} · Attackers vs ${recorded.config.players[last.defender_player].rune}Raven ${last.defender_player + 1} · Defenders`,
   );
   const replay = await (await request.get(`${tournamentApi}/${saved.id}/games/11/replay`)).json();
   expect(replay.validated).toBe(true);

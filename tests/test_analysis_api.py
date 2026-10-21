@@ -203,6 +203,7 @@ def test_completed_model_replay_retains_analysis_after_model_deletion(
     client, tmp_path, monkeypatch
 ):
     registered, _original = model(client, tmp_path)
+    model_rune = client.get("/api/models").json()[0]["rune"]
     game = create(
         client,
         advisor={
@@ -212,6 +213,7 @@ def test_completed_model_replay_retains_analysis_after_model_deletion(
         },
     )
     report = analyze(client, game)
+    assert game["advisor"]["rune"] == report["evaluations"][0]["rune"] == model_rune
     # Complete the retained real game with legal deterministic baseline moves;
     # the advisor's weights affect its opinion, not who controls the players.
     for ply in range(100):
@@ -360,7 +362,7 @@ def test_schema_three_migration_preserves_games_and_analysis_deletion_rolls_back
     upgraded.delete_game("old", 0)
     assert upgraded.game_analysis("old", "abc") is None
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client, tmp_path):
@@ -389,4 +391,5 @@ def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client,
     assert len(rows) == 1
     assert rows[0]["games"] == rows[0]["wins"] == 3
     assert rows[0]["seed_count"] == 2
+    assert rows[0]["rune"] == client.get("/api/models").json()[0]["rune"]
     assert "seed" not in rows[0]["config"]

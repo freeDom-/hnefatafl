@@ -154,6 +154,23 @@ checks between moves and minibatches, writes a resumable `last.pt`, and marks
 the job cancelled. Keep persistent storage; kill -9 cannot save the in-flight
 minibatch, though previous atomic checkpoints remain.
 
+In the workshop, select a stopped or completed job and choose **Resume from
+checkpoint**. The dialog validates its full `last.pt`, shows the saved completed
+iteration, ruleset, network and optimizer, and lets you choose **Target total
+iterations**. The target must exceed the saved completed iteration. The other
+training settings come from the checkpoint rather than the current form.
+
+Model cards linked to a retained source job also offer **Resume training**.
+This continues that job's **latest full checkpoint**, which may be later than
+the selected best model's iteration; the dialog makes that iteration explicit.
+Imported inference-only models without a retained full training checkpoint are
+available for play but cannot restore optimizer/replay/random state.
+
+Resumption starts a new job/output directory and preserves the original run.
+The API uses `GET /api/training/jobs/{id}/resume` for reviewed checkpoint metadata
+and `POST` to the same route with `{ "iterations": <target total> }` to continue.
+It never accepts an arbitrary client checkpoint path or an architecture override.
+
 To resume, keep the same ruleset, architecture and optimizer and increase
 `iterations` in a copied JSON configuration. This field is the target **total**
 iteration count, not the number of additional iterations:
@@ -237,6 +254,8 @@ scores. A tiny study verifies plumbing; strength tuning needs substantially
 larger evaluation budgets and multiple independent seeds.
 
 ## Verification and troubleshooting
+
+![Reviewing a full checkpoint before resuming](screenshots/resume-dialog.png)
 
 ```sh
 .venv/bin/python -m pytest tests/test_ai.py tests/test_models.py tests/test_training.py

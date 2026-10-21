@@ -118,3 +118,16 @@ English/German source-key catalogs localize presentation while identities and
 stored game/configuration values remain unchanged. Browser preferences select
 language, last successful game mode and independent color/token/board themes.
 The wood color mode changes UI surfaces rather than engine state.
+
+Schema 5 adds an atomic, non-recycling rune catalog for stable entity identities.
+Player UUIDs and model IDs reserve distinct runes; ordinary AI configurations
+exclude seed from identity. Tournament seats have their own rune and retain the
+underlying agent rune. Older response snapshots gain runes without rewriting game
+JSON or checkpoint metadata. See `docs/IDENTITIES.md`.
+
+New-game browser preferences retain a validated complete successful setup. Native
+model choices update their canonical names with their IDs, and saved model-name
+snapshots identify earlier games whose supplied aliases were stale. Training
+resumption uses an explicit job checkpoint metadata route and server-derived
+configuration, then creates a new worker/output directory for the chosen total
+iteration target. The UI never reconstructs a resume request from arbitrary paths.

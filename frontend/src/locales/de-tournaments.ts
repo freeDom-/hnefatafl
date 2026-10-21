@@ -137,6 +137,7 @@ const german: Record<string, string> = {
   'Previous tournament move': 'Vorheriger Turnierzug',
   'Move {current} / {total}': 'Zug {current} / {total}',
   'Next tournament move': 'Nächster Turnierzug',
+  'Suggest opponent {number} name': 'Namen für Gegner {number} vorschlagen',
   'Last tournament move': 'Letzter Turnierzug',
   'Replay position': 'Wiedergabeposition',
   'Starting position': 'Ausgangsstellung',

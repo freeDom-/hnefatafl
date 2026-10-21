@@ -113,8 +113,36 @@ same evidence and fallback rules. Model dropdowns show saved iteration, planned
 iterations when known, network size and a short model ID to distinguish equal names.
 Tournament names are editable northern-mythology suggestions; reroll to find another.
 
-The last successfully created game mode is saved in this browser and preselected
-next time. Cancelling a dialog or a failed creation does not change it.
+The complete last successfully created setup is saved in this browser under
+`hnefatafl-new-game-options`: battlefield, mode, human side and player choices,
+both AI profiles/models and search settings, advisor, fixed-seed switch and value.
+Cancelling a dialog or a failed creation does not change it. Removed/incompatible
+models, deleted players and invalid stored settings fall back to valid options.
+The earlier mode-only preference is still read when no full setup is available.
+
+Selecting a trained model updates both its ID and display name. The two-sides
+panel uses the recorded model-name snapshot for older games whose display alias
+was stale; it does not change the actual weights or rewrite historical games.
+
+## Persistent runes and tournament names
+
+Players and models receive persistent unique runes. A model keeps the same rune
+in dropdowns, its workshop card, either game side, advisor, analysis and records.
+Human profiles retain theirs after deletion. Assignments are never recycled;
+after the 24 single Elder Futhark runes, unique combinations extend the catalog.
+See [IDENTITIES.md](IDENTITIES.md) for identity and migration details.
+
+Tournament participants start with distinct, editable Viking names. The same
+**⚄** dice control rerolls model, tournament and participant suggestions. Names
+stay independent of model/profile choices. Each saved tournament seat has a unique
+participant rune, plus the underlying model/agent rune shown with its details.
+
+The header groups language and appearance at the top right. Decorative overlines
+above page and panel headings have been removed; statistics retain their labels.
+
+![Identified opponents in the simplified interface](screenshots/identified-opponents.png)
+
+See the [mobile header and player runes](screenshots/cleaned-header-mobile.png).
 
 ## Agent opinions and move advice
 

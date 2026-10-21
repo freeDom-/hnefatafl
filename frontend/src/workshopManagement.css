@@ -1,3 +1,34 @@
+.training-resume-dialog {
+  max-width: 570px;
+}
+.training-resume-dialog .modal-top p {
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.training-resume-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+  padding: 16px;
+  background: var(--surface-raised);
+  border-radius: 7px;
+}
+.training-resume-details dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.training-resume-details dd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.training-resume-dialog label > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  line-height: 1.6;
+}
 .model-card .model-training-seed {
   display: flex;
   flex-wrap: wrap;

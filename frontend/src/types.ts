@@ -13,6 +13,8 @@ export interface GameMove extends Move {
   notation?: string;
 }
 export interface PlayerConfig {
+  rune?: string;
+  agent_rune?: string;
   name: string;
   kind: 'human' | 'ai';
   profile_id?: string;
@@ -55,6 +57,7 @@ export interface Ruleset {
   rules_markdown: string;
 }
 export interface AIProfile {
+  rune?: string;
   id: string;
   name: string;
   algorithm: string;
@@ -63,10 +66,12 @@ export interface AIProfile {
   supported_rulesets: string[];
 }
 export interface Player {
+  rune?: string;
   id: string;
   name: string;
 }
 export interface Model {
+  rune?: string;
   id: string;
   name: string;
   ruleset: string;
@@ -112,6 +117,7 @@ export interface DeviceInfo {
   torch_version?: string;
 }
 export interface StatRow {
+  rune?: string;
   seed_count?: number;
   name?: string;
   id?: string;

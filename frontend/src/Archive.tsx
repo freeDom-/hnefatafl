@@ -13,6 +13,7 @@ import {
   type StatSortKey,
 } from './recordTables';
 import RecordsConfirm from './RecordsConfirm';
+import Rune, { participantName } from './Rune';
 import './features.css';
 import './archive.css';
 
@@ -181,7 +182,6 @@ export default function Archive({
     <>
       <section className="page-intro">
         <div>
-          <p className="eyebrow">{t('EVERY SAGA LEAVES A TRACE')}</p>
           <h1>{t('Hall of records.')}</h1>
           <p>{t('Revisit your battles. Learn from your victories, and your defeats.')}</p>
         </div>
@@ -259,7 +259,6 @@ export default function Archive({
       >
         <div className="archive-statistics-heading">
           <div>
-            <p className="eyebrow">{t('THE STORY IN NUMBERS')}</p>
             <h2 id="archive-statistics-heading">{t('Statistics')}</h2>
             <p>
               {t(
@@ -296,7 +295,6 @@ export default function Archive({
         >
           <summary aria-label={t('Recorded games')} className="archive-history-summary">
             <div>
-              <p className="eyebrow">{t('YOUR SAVED BATTLES')}</p>
               <h2>{t('Recorded games')}</h2>
               <p>{t('Reopen a game or remove it from your records.')}</p>
             </div>
@@ -361,8 +359,10 @@ export default function Archive({
                           )}
                         </strong>
                         <small>
-                          {game.players?.attackers?.name ?? 'Attackers'} {t(' vs')}{' '}
-                          {game.players?.defenders?.name ?? 'Defenders'}
+                          <Rune rune={game.players?.attackers?.rune} />
+                          {participantName(game.players?.attackers, t('Attackers'))} {t(' vs')}{' '}
+                          <Rune rune={game.players?.defenders?.rune} />
+                          {participantName(game.players?.defenders, t('Defenders'))}
                         </small>
                       </span>
                       <span className="record-result">
@@ -435,7 +435,6 @@ export default function Archive({
           )}
         </details>
         <aside className="panel profiles-panel">
-          <p className="eyebrow">{t('MAKE YOUR MARK')}</p>
           <h2>{t('Local players')}</h2>
           <p className="subtle">
             {t('Keep your identity across games and build a history of your own.')}
@@ -458,7 +457,11 @@ export default function Archive({
           <ul className="profile-list">
             {players.map((player, index) => (
               <li key={player.id}>
-                <span className="avatar">{player.name.slice(0, 1).toUpperCase()}</span>
+                {player.rune ? (
+                  <Rune rune={player.rune} className="avatar" />
+                ) : (
+                  <span className="avatar">{player.name.slice(0, 1).toUpperCase()}</span>
+                )}
                 <strong>{player.name}</strong>
                 <small>#{String(index + 1).padStart(2, '0')}</small>
                 <button
@@ -539,7 +542,7 @@ export function Metric({
 }) {
   return (
     <div className="metric panel">
-      <p className="eyebrow">{label}</p>
+      <p className="metric-label">{label}</p>
       <strong>{value}</strong>
       <span>{detail}</span>
     </div>
@@ -688,7 +691,7 @@ function StatsTable({
                           type="button"
                           className="stat-parameter-toggle"
                           aria-label={t('Show AI parameters for {name}', {
-                            name: row.name ?? t('Computer'),
+                            name: participantName(row, t('Computer')),
                           })}
                           title={t('Show AI parameters')}
                           aria-haspopup="dialog"
@@ -700,8 +703,11 @@ function StatsTable({
                       ) : (
                         <span className="stat-parameter-spacer" aria-hidden="true" />
                       )}
+                      <Rune rune={row.rune} />
                       <span className="stat-player-copy">
-                        <span className="stat-player-name">{row.name ?? t('Unknown player')}</span>
+                        <span className="stat-player-name">
+                          {participantName(row, t('Unknown player'))}
+                        </span>
                         <small title={statPlayerDescription(row)}>
                           {statPlayerDescription(row)}
                         </small>
@@ -762,7 +768,7 @@ function AIParameterDialog({ row, onClose }: { row: StatRow; onClose: () => void
     <dialog
       ref={ref}
       className="modal ai-parameter-dialog"
-      aria-label={t('{name} AI parameters', { name: row.name ?? t('Computer') })}
+      aria-label={t('{name} AI parameters', { name: participantName(row, t('Computer')) })}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -770,8 +776,10 @@ function AIParameterDialog({ row, onClose }: { row: StatRow; onClose: () => void
     >
       <div className="modal-top">
         <div>
-          <p className="eyebrow">{t('RECORDED OPPONENT SETTINGS')}</p>
-          <h2>{t('{name} AI parameters', { name: row.name ?? t('Computer') })}</h2>
+          <h2>
+            <Rune rune={row.rune} />
+            {t('{name} AI parameters', { name: participantName(row, t('Computer')) })}
+          </h2>
         </div>
         <button
           type="button"

@@ -1,0 +1,100 @@
+.identity-rune {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6em;
+  min-height: 1.6em;
+  padding: 1px 3px;
+  border-radius: 5px;
+  background: var(--ui-tint, #edf0e5);
+  color: var(--green);
+  font-family: 'Segoe UI Historic', 'Noto Sans Runic', serif;
+  font-size: 1.15em;
+  line-height: 1;
+  letter-spacing: 1px;
+  vertical-align: middle;
+}
+.army-symbol .identity-rune {
+  font-size: 24px;
+}
+.army-symbol .identity-rune[data-rune-size='compound'] {
+  font-size: 17px;
+  letter-spacing: 0;
+}
+.stat-player-identity > .identity-rune {
+  font-size: 13px;
+}
+.record small .identity-rune {
+  font-size: 11px;
+  margin-inline-end: 4px;
+}
+.model-heading-with-rune {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent-estimate-heading strong .identity-rune {
+  margin-inline-end: 6px;
+}
+.tournament-standing .identity-rune,
+.tournament-match-players .identity-rune {
+  font-size: 12px;
+}
+.header-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.site-header > nav {
+  margin-inline: auto;
+}
+@media (max-width: 760px) {
+  .header-controls {
+    gap: 8px;
+  }
+}
+@media (max-width: 540px) {
+  .site-header .header-controls {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .site-header {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .site-header > nav {
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+  }
+  .site-header > nav button {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .header-controls .language-select select {
+    max-width: 92px;
+  }
+}
+@media (max-width: 400px) {
+  .site-header .brand {
+    font-size: 16px;
+    letter-spacing: 2px;
+    gap: 6px;
+    min-width: 0;
+  }
+  .site-header .brand small {
+    font-size: 6px;
+    letter-spacing: 2px;
+  }
+  .site-header .brand-emblem {
+    width: 30px;
+    height: 35px;
+  }
+  .site-header .brand-emblem svg {
+    width: 23px;
+  }
+}

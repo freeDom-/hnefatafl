@@ -1,6 +1,7 @@
 import type { Config, Move, Side } from './types';
 
 export interface Advisor {
+  rune?: string;
   name: string;
   profile_id?: string;
   profile_name?: string;
@@ -9,6 +10,7 @@ export interface Advisor {
 }
 
 export interface AgentEvaluation {
+  rune?: string;
   agent_id: Side | 'advisor';
   name: string;
   role: Side | 'advisor';

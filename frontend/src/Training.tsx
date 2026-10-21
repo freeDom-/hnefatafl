@@ -10,6 +10,8 @@ import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
 import { trainingConfig, changeTrainingPlan, type TrainingPreset } from './trainingPresets';
 import TrainingHistoryChart from './TrainingHistoryChart';
+import TrainingResumeDialog from './TrainingResumeDialog';
+import Rune from './Rune';
 
 interface ModelUsage {
   model_id: string;
@@ -61,6 +63,7 @@ export default function Training({
   const [device, setDevice] = useState<DeviceInfo>({});
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [resumeJob, setResumeJob] = useState<Job | null>(null);
   const [config, setConfig] = useState<Record<string, string | number | boolean>>(() => ({
     ...defaults,
     model_name: suggestVikingName(models.map((model) => model.name)),
@@ -198,8 +201,22 @@ export default function Training({
     if (job.kind === 'tune') {
       setBusy(true);
       try {
+        const saved = job.config ?? {};
+        const training =
+          saved.training && typeof saved.training === 'object'
+            ? Object.fromEntries(
+                Object.entries(saved.training).filter(
+                  ([key]) => !['output_dir', 'registry_dir', 'resume'].includes(key),
+                ),
+              )
+            : undefined;
         const next = await api<Job>('/training/jobs', {
-          ...job.config,
+          ...Object.fromEntries(
+            Object.entries(saved).filter(([key]) =>
+              ['trials', 'study_name', 'seed', 'search_space'].includes(key),
+            ),
+          ),
+          ...(training ? { training } : {}),
           kind: 'tune',
           resume_study: job.id,
         });
@@ -212,26 +229,7 @@ export default function Training({
       }
       return;
     }
-    const checkpoint = job.checkpoint ?? job.model_id;
-    if (!checkpoint) {
-      onError(t('This job has no saved checkpoint yet.'));
-      return;
-    }
-    setBusy(true);
-    try {
-      const next = await api<Job>('/training/jobs', {
-        ...job.config,
-        iterations: Number(job.config?.iterations ?? 1) + 1,
-        resume: checkpoint,
-        kind: 'train',
-      });
-      setSelectedJob(next);
-      await refresh();
-    } catch (e) {
-      onError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    setResumeJob(job);
   };
   const importModel = async (file?: File) => {
     if (!file) return;
@@ -308,7 +306,6 @@ export default function Training({
     <>
       <section className="page-intro">
         <div>
-          <p className="eyebrow">{t('CRAFT A WORTHY OPPONENT')}</p>
           <h1>{t('The AI workshop.')}</h1>
           <p>
             {t(
@@ -757,11 +754,7 @@ export default function Training({
                   <button
                     className="button secondary small"
                     onClick={() => void resume(selectedJob)}
-                    disabled={
-                      busy ||
-                      (selectedJob.kind !== 'tune' &&
-                        !(selectedJob.checkpoint || selectedJob.model_id))
-                    }
+                    disabled={busy || (selectedJob.kind !== 'tune' && !selectedJob.checkpoint)}
                   >
                     {selectedJob.kind === 'tune' ? t('Resume study') : t('Resume from checkpoint')}
                   </button>
@@ -782,7 +775,6 @@ export default function Training({
       <section className="panel model-registry">
         <div className="panel-title">
           <div>
-            <p className="eyebrow">{t('YOUR STRATEGISTS')}</p>
             <h2>{t('Model collection')}</h2>
           </div>
           <label className="button secondary file-button">
@@ -805,91 +797,140 @@ export default function Training({
         </p>
         {models.length ? (
           <div className="models-grid">
-            {models.map((model) => (
-              <article key={model.id} className="model-card">
-                <div className="model-symbol">ᛉ</div>
-                <div>
-                  <h3>{model.name}</h3>
-                  <p>
-                    {model.ruleset} ·{' '}
-                    {model.version == null
-                      ? t('Policy / value')
-                      : t('Iteration {iteration}', { iteration: String(model.version) })}
-                  </p>
-                  <small>
-                    {model.created_at
-                      ? new Date(model.created_at).toLocaleDateString(locale)
-                      : model.id}
-                  </small>
-                  <p className="model-training-seed">
-                    {t('Training seed')} <strong>{trainingSeed(model)}</strong>
-                  </p>
-                </div>
-                <div className="model-actions">
-                  <a
-                    className="icon-button"
-                    href={`/api/models/${model.id}/export`}
-                    download
-                    aria-label={t('Export {name}', { name: model.name })}
-                  >
-                    ↓
-                  </a>
-                  <button
-                    type="button"
-                    className="icon-button danger-text"
-                    aria-label={t('Delete model {name}', { name: model.name })}
-                    title={t('Delete model')}
-                    onClick={() => {
-                      setDeleteModel(model);
-                      setDeleteError('');
-                      setModelUsage(null);
-                      setUsageLoading(true);
-                      setDiscardUnfinished(false);
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-                {model.evaluation && (
-                  <div className="model-evaluation">
-                    <span className="eyebrow">
-                      {t('AGAINST')} {t(model.evaluation.opponent ?? 'BASELINE')}
-                    </span>
-                    <div>
-                      <span>
-                        <strong>{model.evaluation.wins ?? 0}</strong> {t('wins')}
-                      </span>
-                      <span>
-                        <strong>{model.evaluation.draws ?? 0}</strong> {t('draws')}
-                      </span>
-                      <span>
-                        <strong>{model.evaluation.losses ?? 0}</strong> {t('losses')}
-                      </span>
-                    </div>
+            {models.map((model) => {
+              const sourceJob = jobs.find(
+                (job) =>
+                  job.kind !== 'tune' &&
+                  !!job.checkpoint &&
+                  (job.model_id === model.id ||
+                    (job.result?.model &&
+                      typeof job.result.model === 'object' &&
+                      'id' in job.result.model &&
+                      job.result.model.id === model.id) ||
+                    (Array.isArray(job.progress?.best_models) &&
+                      job.progress.best_models.some((best) => best?.model_id === model.id))),
+              );
+              return (
+                <article key={model.id} className="model-card">
+                  <div className="model-symbol">
+                    <Rune rune={model.rune} />
+                  </div>
+                  <div>
+                    <h3>{model.name}</h3>
+                    <p>
+                      {model.ruleset} ·{' '}
+                      {model.version == null
+                        ? t('Policy / value')
+                        : t('Iteration {iteration}', { iteration: String(model.version) })}
+                    </p>
                     <small>
-                      {model.evaluation.truncated ?? 0} {t('unfinished games · limited evaluation')}
+                      {model.created_at
+                        ? new Date(model.created_at).toLocaleDateString(locale)
+                        : model.id}
                     </small>
+                    <p className="model-training-seed">
+                      {t('Training seed')} <strong>{trainingSeed(model)}</strong>
+                    </p>
                   </div>
-                )}
-                {model.metrics && (
-                  <div className="model-metrics">
-                    {Object.entries(model.metrics)
-                      .filter(([, value]) => typeof value === 'number')
-                      .slice(0, 3)
-                      .map(([key, value]) => (
-                        <span key={key}>
-                          {t(key.replaceAll('_', ' '))} <strong>{t(metricText(value))}</strong>
+                  <div className="model-actions">
+                    {sourceJob && (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={t('Resume training for {name}', { name: model.name })}
+                        title={t('Resume training')}
+                        disabled={['running', 'pending', 'queued', 'cancelling'].includes(
+                          sourceJob.status,
+                        )}
+                        onClick={() => setResumeJob(sourceJob)}
+                      >
+                        ↻
+                      </button>
+                    )}
+                    <a
+                      className="icon-button"
+                      href={`/api/models/${model.id}/export`}
+                      download
+                      aria-label={t('Export {name}', { name: model.name })}
+                    >
+                      ↓
+                    </a>
+                    <button
+                      type="button"
+                      className="icon-button danger-text"
+                      aria-label={t('Delete model {name}', { name: model.name })}
+                      title={t('Delete model')}
+                      onClick={() => {
+                        setDeleteModel(model);
+                        setDeleteError('');
+                        setModelUsage(null);
+                        setUsageLoading(true);
+                        setDiscardUnfinished(false);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  {model.evaluation && (
+                    <div className="model-evaluation">
+                      <span className="eyebrow">
+                        {t('AGAINST')} {t(model.evaluation.opponent ?? 'BASELINE')}
+                      </span>
+                      <div>
+                        <span>
+                          <strong>{model.evaluation.wins ?? 0}</strong> {t('wins')}
                         </span>
-                      ))}
-                  </div>
-                )}
-              </article>
-            ))}
+                        <span>
+                          <strong>{model.evaluation.draws ?? 0}</strong> {t('draws')}
+                        </span>
+                        <span>
+                          <strong>{model.evaluation.losses ?? 0}</strong> {t('losses')}
+                        </span>
+                      </div>
+                      <small>
+                        {model.evaluation.truncated ?? 0}{' '}
+                        {t('unfinished games · limited evaluation')}
+                      </small>
+                    </div>
+                  )}
+                  {model.metrics && (
+                    <div className="model-metrics">
+                      {Object.entries(model.metrics)
+                        .filter(([, value]) => typeof value === 'number')
+                        .slice(0, 3)
+                        .map(([key, value]) => (
+                          <span key={key}>
+                            {t(key.replaceAll('_', ' '))} <strong>{t(metricText(value))}</strong>
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </div>
         ) : (
           <p className="empty-copy">{t('Your trained and imported models will live here.')}</p>
         )}
       </section>
+      {resumeJob && (
+        <TrainingResumeDialog
+          job={resumeJob}
+          onClose={() => setResumeJob(null)}
+          onStarted={(next, completed, target) => {
+            setResumeJob(null);
+            setSelectedJob(next);
+            setJobs((previous) => [next, ...previous]);
+            setNotice(
+              t('Training resumed from iteration {completed} toward {target}.', {
+                completed,
+                target,
+              }),
+            );
+            void refresh().catch((error) => onError(error.message));
+          }}
+        />
+      )}
       {deleteModel && (
         <RecordsConfirm
           title={t('Delete model {name}?', { name: deleteModel.name })}

@@ -15,7 +15,7 @@ export function modelOptionLabel(model: Model, t: Translate = english): string {
   const total = model.training_config?.iterations;
   const channels = metadata.architecture?.channels ?? model.training_config?.channels;
   const blocks = metadata.architecture?.blocks ?? model.training_config?.blocks;
-  const parts = [model.name];
+  const parts = [model.rune ? `${model.rune} ${model.name}` : model.name];
   if (typeof iteration === 'number' && Number.isFinite(iteration)) {
     parts.push(
       typeof total === 'number' && Number.isFinite(total) && total >= iteration

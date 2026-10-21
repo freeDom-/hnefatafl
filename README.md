@@ -17,9 +17,11 @@ using real self-play learning.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
 - Sortable records, seed-independent AI grouping and inspectable effective settings.
 - English/German localization, saved game-mode preference and mythological tournament names.
+- Complete saved game setups, persistent player/model runes and editable tournament player suggestions.
 - Light/dark/wood/device appearance, independent board themes, Viking figures and carved-wood tokens.
 - Training workshop and CLI: actual PyTorch self-play updates, evaluation, safe model
   import/export, cancellation, exact CPU checkpoint resumption and Optuna studies.
+- Reviewed UI resumption from a job's full checkpoint with an editable total iteration target.
 - Board-specific training plans, live learning graphs and optional retention of every new best model.
 - CPU operation and configurable CUDA/MPS support, with automatic device detection.
 

@@ -355,7 +355,7 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     assert upgraded.players(include_deleted=True)[0]["deleted_at"] == "2026-01-02"
     assert upgraded.historical_models() == [{"id": "old-model", "name": "Eir"}]
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_interrupted_worker_is_reported_without_losing_retained_data(tmp_path):
@@ -375,6 +375,11 @@ def test_interrupted_worker_is_reported_without_losing_retained_data(tmp_path):
         assert record["status"] == "failed"
         assert record["ended_at"]
         assert record["error"]
-        assert record["config"] == interrupted["config"]
+        cleaned = deepcopy(record["config"])
+        for player in cleaned["players"]:
+            assert player.pop("rune")
+            assert player.pop("agent_rune")
+        assert cleaned == interrupted["config"]
+        assert store.get_tournament(interrupted["id"])["config"] == interrupted["config"]
         assert record["progress"] == interrupted["progress"]
         assert session.delete(f"/api/tournaments/{interrupted['id']}").status_code == 200

@@ -24,50 +24,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
+from .identities import agent_identity, effective_ai_config
 from .storage import ConflictError, Store
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SIDES = ("attackers", "defenders")
-
-
-def effective_ai_config(configuration: dict, profile_id: str | None = None) -> dict:
-    """Resolve actual search defaults, including historical profile semantics.
-
-    Older requests merged a profile only when no algorithm was supplied. A
-    stored explicit algorithm therefore uses the engine defaults for missing
-    fields; retroactively applying profile defaults would mislabel old games.
-    Only effective parameters enter the identity, not leftover UI controls for
-    algorithms which are no longer selected.
-    """
-    from .ai import ai_profiles
-
-    raw = dict(configuration)
-    if profile_id and "algorithm" not in raw:
-        profile = next((p for p in ai_profiles() if p["id"] == profile_id), None)
-        if profile:
-            raw = {**profile["parameters"], **raw, "algorithm": profile["algorithm"]}
-    algorithm = raw.get("algorithm", "baseline")
-    if algorithm == "alphabeta":
-        algorithm = "alpha_beta"
-    result = {
-        "algorithm": algorithm,
-        "seed": int(raw.get("seed", 0)),
-        "time_limit": float(raw.get("time_limit", 2.0)),
-        "evaluation": "heuristic",
-    }
-    if algorithm == "alpha_beta":
-        result["depth"] = int(raw.get("depth", 2))
-    elif algorithm in {"mcts", "neural"}:
-        result.update(
-            iterations=int(raw.get("iterations", 80)),
-            rollout_depth=int(raw.get("rollout_depth", 8)),
-            exploration=float(raw.get("exploration", 1.4)),
-            temperature=float(raw.get("temperature", 0.0)),
-        )
-    if algorithm in {"alpha_beta", "mcts", "neural"} and raw.get("model_id"):
-        result.update(model_id=raw["model_id"], evaluation="neural")
-    return result
 
 
 def ai_variant_id(config: dict) -> str:
@@ -243,6 +205,20 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "ended_at": game.get("ended_at"),
         }
 
+    def agent_rune(agent: dict) -> str:
+        return store.rune(agent_identity(agent))
+
+    def with_agent_rune(agent: dict) -> dict:
+        return {**agent, "rune": agent_rune(agent)}
+
+    def analysis_response(analysis: dict | None) -> dict | None:
+        if analysis is None:
+            return None
+        return {
+            **analysis,
+            "evaluations": [with_agent_rune(entry) for entry in analysis["evaluations"]],
+        }
+
     def response(game: dict) -> dict:
         state = state_of(game)
         start = new_game(game["ruleset"])
@@ -269,7 +245,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 model_id = player["config"].get("model_id")
                 if model_id and not player.get("model_name") and model_id in retired_names:
                     player["model_name"] = retired_names[model_id]
-            result["players"][side] = player
+            result["players"][side] = with_agent_rune(player)
+        if game.get("advisor"):
+            result["advisor"] = with_agent_rune(game["advisor"])
         result.update(
             size=state.size,
             board=list(state.board),
@@ -286,7 +264,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "attackers": start.board.count("A") - state.board.count("A"),
                 "defenders": sum(start.board.count(p) - state.board.count(p) for p in ("D", "K")),
             },
-            analysis=store.game_analysis(game["id"], position_key(state)),
+            analysis=analysis_response(store.game_analysis(game["id"], position_key(state))),
         )
         return result
 
@@ -423,7 +401,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     if model["ruleset"] != request.ruleset:
                         fail("This model is for a different ruleset.")
                     result[side]["model_name"] = model["name"]
-        return result
+        return {side: with_agent_rune(player) for side, player in result.items()}
 
     def normalise_advisor(request: GameRequest, seed: int) -> dict | None:
         if request.advisor is None:
@@ -450,7 +428,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 fail("This model is for a different ruleset.")
             model_file(model)
             result["model_name"] = model["name"]
-        return result
+        return with_agent_rune(result)
 
     def append_move(game: dict, move: Move, version: int) -> dict:
         with catalog_lock:
@@ -513,7 +491,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 4}
+        return {"status": "ok", "database": "sqlite", "schema_version": 5}
 
     @app.get("/api/rulesets")
     def rulesets():
@@ -540,7 +518,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def ai_profiles_route():
         from .ai import ai_profiles
 
-        return ai_profiles()
+        return [
+            with_agent_rune(
+                {**profile, "config": {**profile["parameters"], "algorithm": profile["algorithm"]}}
+            )
+            for profile in ai_profiles()
+        ]
 
     @app.post("/api/games", status_code=201)
     def create_game(request: GameRequest):
@@ -595,7 +578,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         key = position_key(state)
         cached = store.game_analysis(game_id, key)
         if cached is not None:
-            return cached
+            return analysis_response(cached)
         # A recorded opinion belongs to the original point in play. Never
         # fabricate historical evidence by evaluating with newer/deleted weights.
         if not game.get("analysis_enabled") or game["cursor"] < len(game["moves"]):
@@ -620,6 +603,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "agent_id": role,
                 "role": role,
                 "name": agent["name"],
+                "rune": agent_rune(agent),
                 "profile_id": agent.get("profile_id"),
                 "profile_name": agent.get("profile_name"),
                 "model_name": agent.get("model_name"),
@@ -929,6 +913,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     {
                         "id": identifier,
                         "name": player["name"],
+                        "rune": agent_rune({**player, "config": config or {}}),
                         "kind": player["kind"],
                         "profile_id": profile_id,
                         "model_id": model_id,
@@ -1039,6 +1024,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     "profile_name": profile["name"],
                     "config": config,
                     "variant_id": ai_variant_id(config),
+                    "agent_rune": agent_rune({"kind": "ai", "config": config}),
                 }
                 if config.get("model_id"):
                     model = model_info(config["model_id"])
@@ -1118,7 +1104,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     # Model helpers remain constrained to the registry root; clients never pass paths.
     def models_list() -> list[dict]:
-        return registry().list()
+        models = registry().list()
+        runes = store.runes(f"model:{model['id']}" for model in models)
+        return [{**model, "rune": runes[f"model:{model['id']}"]} for model in models]
 
     def model_info(model_id: str) -> dict:
         result = next((m for m in models_list() if m["id"] == model_id), None)
@@ -1184,7 +1172,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         "created_at": game["created_at"],
                         "total_moves": len(game["moves"]),
                         "players": {
-                            side: {"name": player["name"]}
+                            side: {"name": player["name"], "rune": agent_rune(player)}
                             for side, player in game["players"].items()
                         },
                     }
@@ -1222,7 +1210,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         409,
                     )
             archive = {
-                key: model[key] for key in ("id", "name", "ruleset", "version") if key in model
+                key: model[key]
+                for key in ("id", "name", "ruleset", "version", "rune")
+                if key in model
             }
             discarded = (
                 {game["id"]: game["version"] for game in games} if discard_unfinished else {}
@@ -1261,7 +1251,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 result = registry().import_model(destination)
             except (ValueError, RuntimeError, KeyError, TypeError, EOFError) as exc:
                 fail(f"Invalid or incompatible model: {exc}")
-            return result
+            return {**result, "rune": store.rune(f"model:{result['id']}")}
         finally:
             destination.unlink(missing_ok=True)
             await file.close()
@@ -1345,6 +1335,40 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 job["logs"] = handle.read().decode(errors="replace")
         return job
 
+    training_fields = {
+        "ruleset",
+        "preset",
+        "channels",
+        "blocks",
+        "games",
+        "iterations",
+        "epochs",
+        "batch_size",
+        "learning_rate",
+        "optimizer",
+        "mcts_iterations",
+        "mcts_time_limit",
+        "exploration",
+        "temperature",
+        "dirichlet_alpha",
+        "dirichlet_fraction",
+        "replay_buffer_size",
+        "weight_decay",
+        "checkpoint_frequency",
+        "evaluation_frequency",
+        "evaluation_games",
+        "evaluation_iterations",
+        "max_game_plies",
+        "evaluation_max_plies",
+        "seed",
+        "device",
+        "mixed_precision",
+        "save_all_best",
+        "cpu_threads",
+        "resume",
+        "model_name",
+    }
+
     @app.get("/api/training/jobs")
     def training_jobs():
         return [read_job(j["id"]) for j in store.jobs()]
@@ -1364,39 +1388,6 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             kind = config.pop("kind", "train")
             if kind not in ("train", "tune"):
                 fail("Training kind must be train or tune.")
-            training_fields = {
-                "ruleset",
-                "preset",
-                "channels",
-                "blocks",
-                "games",
-                "iterations",
-                "epochs",
-                "batch_size",
-                "learning_rate",
-                "optimizer",
-                "mcts_iterations",
-                "mcts_time_limit",
-                "exploration",
-                "temperature",
-                "dirichlet_alpha",
-                "dirichlet_fraction",
-                "replay_buffer_size",
-                "weight_decay",
-                "checkpoint_frequency",
-                "evaluation_frequency",
-                "evaluation_games",
-                "evaluation_iterations",
-                "max_game_plies",
-                "evaluation_max_plies",
-                "seed",
-                "device",
-                "mixed_precision",
-                "save_all_best",
-                "cpu_threads",
-                "resume",
-                "model_name",
-            }
             allowed = (
                 training_fields
                 if kind == "train"
@@ -1604,6 +1595,86 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             }
             store.save_job(job)
             return read_job(identifier)
+
+    def resume_checkpoint(job_id: str) -> tuple[dict, dict | None]:
+        """Read one explicitly selected full checkpoint, never a client-supplied path."""
+        job = read_job(job_id)
+        values = job.get("config", {})
+        info = {
+            "job_id": job_id,
+            "completed_iteration": 0,
+            "ruleset": values.get("ruleset", ""),
+            "channels": values.get("channels", 0),
+            "blocks": values.get("blocks", 0),
+            "optimizer": values.get("optimizer", ""),
+            "model_name": values.get("model_name", ""),
+            "can_resume": False,
+        }
+        if job.get("kind") == "tune":
+            info["reason"] = "Optimization jobs use Resume study instead."
+            return info, None
+        if job["status"] in {"running", "cancelling", "pending", "queued"}:
+            info["reason"] = "Stop this training job before resuming its checkpoint."
+            return info, None
+        checkpoint = job_path(job_id) / "last.pt"
+        if not checkpoint.is_file():
+            info["reason"] = "The saved checkpoint was not found."
+            return info, None
+        try:
+            from .models import load_checkpoint
+
+            model, payload = load_checkpoint(checkpoint)
+            saved = payload.get("metadata", {}).get("training_config", {})
+            extra = payload.get("extra", {})
+            completed = extra.get("iteration")
+            if (
+                payload.get("optimizer_state") is None
+                or not isinstance(saved, dict)
+                or not saved.get("optimizer")
+                or type(completed) is not int
+                or completed < 0
+                or not {"replay", "python_rng", "torch_rng"}.issubset(extra)
+            ):
+                info["reason"] = "The saved file is not a full resumable training checkpoint."
+                return info, None
+            info.update(
+                completed_iteration=completed,
+                ruleset=model.ruleset,
+                channels=model.channels,
+                blocks=model.blocks,
+                optimizer=saved["optimizer"],
+                model_name=saved.get("model_name", values.get("model_name", "")),
+                checkpoint=f"{job_id}:last.pt",
+                can_resume=True,
+            )
+            return info, saved
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+            info["reason"] = "The saved training checkpoint could not be read safely."
+            return info, None
+
+    @app.get("/api/training/jobs/{job_id}/resume")
+    def training_resume_info(job_id: str):
+        info, _ = resume_checkpoint(job_id)
+        return info
+
+    @app.post("/api/training/jobs/{job_id}/resume", status_code=201)
+    def resume_training(job_id: str, request: dict[str, Any]):
+        if set(request) != {"iterations"}:
+            fail("Resume accepts only the target total iterations.")
+        target = request["iterations"]
+        if type(target) is not int or not 1 <= target <= 100000:
+            fail("Target total iterations must be an integer between 1 and 100000.")
+        info, saved = resume_checkpoint(job_id)
+        if saved is None:
+            fail(info["reason"], 409)
+        if target <= info["completed_iteration"]:
+            fail("Target total iterations must exceed the saved completed iteration.")
+        # Saved checkpoint settings are authoritative. The only user override is
+        # the reviewed total target; launch_training assigns a new output folder
+        # and rechecks the single-worker constraint under its existing lock.
+        config = {key: value for key, value in saved.items() if key in training_fields}
+        config.update(kind="train", iterations=target, resume=info["checkpoint"])
+        return launch_training(config)
 
     @app.post("/api/training/jobs/{job_id}/cancel")
     def cancel_training(job_id: str):

@@ -58,9 +58,14 @@ test('player selection/deletion preserves records and AI variants expose their p
     'Copenhagen Hnefatafl',
   ]);
   const selection = page.getByRole('combobox', { name: 'Attackers human player' });
-  await selection.selectOption({ label: name });
+  const humans = await (await request.get('http://127.0.0.1:8001/api/players')).json();
+  await selection.selectOption(humans.find((player: { name: string }) => player.name === name).id);
   await expect(page.getByRole('textbox', { name: 'Attackers player name' })).toHaveCount(0);
+  const createdGame = page.waitForResponse(
+    (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'To the table' }).click();
+  const gameId = (await (await createdGame).json()).id;
   await expect(page.getByRole('grid')).toBeVisible();
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
   await page.getByRole('button', { name: `Delete player ${name}` }).click();
@@ -68,7 +73,9 @@ test('player selection/deletion preserves records and AI variants expose their p
   await expect(confirm).toContainText('saved games, name and statistics remain');
   await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.locator('.profile-list').getByText(name, { exact: true })).toHaveCount(0);
-  await expect(page.locator('.records-list .record').filter({ hasText: name })).toBeVisible();
+  await expect(
+    page.locator(`.record-entry[data-game-id="${gameId}"] .record`).filter({ hasText: name }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await page.getByRole('button', { name: /New game/ }).click();
   await expect(

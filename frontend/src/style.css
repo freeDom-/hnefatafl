@@ -1234,7 +1234,7 @@ h1 {
 .metric {
   padding: 22px;
 }
-.metric .eyebrow {
+.metric .metric-label {
   font-size: 8px;
   letter-spacing: 1.1px;
 }
@@ -1803,7 +1803,7 @@ summary {
   .metric {
     padding: 18px;
   }
-  .metric .eyebrow {
+  .metric .metric-label {
     font-size: 7px;
     letter-spacing: 0.8px;
   }
@@ -2465,7 +2465,7 @@ summary {
   .metric {
     padding: 16px;
   }
-  .metric .eyebrow {
+  .metric .metric-label {
     font-size: 7px;
     letter-spacing: 0.8px;
   }

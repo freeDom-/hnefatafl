@@ -96,3 +96,21 @@ Four duplicate mobile worker checks remain intentionally skipped. Recommended
 plans and uncalibrated agent estimates do not establish stronger play. CUDA/MPS
 and long independent strength comparisons remain unverified. See `docs/ANALYSIS.md`
 and `docs/TRAINING_PLAN.md` for interpretation, scope and budgets.
+
+## Reliable setup and persistent identities (`v0.10.0`)
+
+- [x] Synchronize selected model IDs/names and show canonical recorded model names
+- [x] Restore the complete last successful game setup, with safe invalid/deleted-option fallbacks
+- [x] Review full training checkpoints and choose the total iteration target in the UI
+- [x] Resume exact CPU optimizer/replay/random state into a new job without changing the source
+- [x] Suggest distinct editable tournament player names with the shared dice reroll control
+- [x] Remove decorative heading overlines and group header language/appearance controls
+- [x] Persist unique player/model/agent runes and tournament seat identities across views/deletion
+- [x] Upgrade schema 4 to 5 while preserving all seven existing game records
+- [x] Pass 313 Python, 74 frontend unit and 26 real-API browser checks
+
+Four duplicate mobile worker checks remain intentionally skipped. Model cards
+resume the originating job's latest full checkpoint; inference-only imports do
+not contain exact training state. Rune combinations extend the 24 single-rune
+alphabet without reusing identity assignments. See `docs/IDENTITIES.md` and
+`docs/TRAINING.md` for persistence and resumption details.

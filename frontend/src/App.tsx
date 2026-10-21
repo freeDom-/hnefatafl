@@ -10,10 +10,11 @@ import Training from './Training';
 import Tournaments from './Tournaments';
 import { AppearanceSettings } from './Appearance';
 import { sortRulesets } from './sortRulesets';
-import { readLastGameMode, rememberGameMode } from './gameModePreference';
+import { defaultAI, restoreGameSetup, rememberGameSetup, withoutSeed } from './gameSetupPreference';
 import { selectStrongestModel } from './modelSelection';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import AdvisorSelect, { advisorOptions } from './AdvisorSelect';
+import Rune, { participantName } from './Rune';
 import { modelLabel } from './modelLabel';
 
 type Tab = 'play' | 'archive' | 'training' | 'tournaments';
@@ -201,12 +202,10 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <LanguageSelect />
-        <AppearanceSettings />
-        <span className="header-note">
-          <span />
-          {t('A game of wit, not chance')}
-        </span>
+        <div className="header-controls">
+          <LanguageSelect />
+          <AppearanceSettings />
+        </div>
       </header>
       <main>
         {error && (
@@ -221,7 +220,6 @@ export default function App() {
           <>
             <section className="page-intro">
               <div>
-                <p className="eyebrow">{t('STRATEGY, FORGED IN THE NORTH')}</p>
                 <h1>{t('Every move tells a saga.')}</h1>
                 <p>{t('One king. Two armies. A thousand ways to outwit your opponent.')}</p>
               </div>
@@ -244,7 +242,6 @@ export default function App() {
             ) : !game ? (
               <section className="welcome-panel">
                 <div className="welcome-rune">ᛟ</div>
-                <p className="eyebrow">{t('A TRADITION OF STRATEGY')}</p>
                 <h2>{t('The king awaits.')}</h2>
                 <p>
                   {t(
@@ -270,7 +267,6 @@ export default function App() {
               <div className="game-layout">
                 <aside className="game-sidebar">
                   <section className="panel game-details">
-                    <p className="eyebrow">{t('THE BATTLEFIELD')}</p>
                     <div className="variant-heading">
                       <h2>
                         {game.ruleset === 'tablut'
@@ -316,15 +312,20 @@ export default function App() {
                     )}
                   </section>
                   <section className="panel armies">
-                    <p className="eyebrow">{t('THE TWO SIDES')}</p>
                     {(['attackers', 'defenders'] as Side[]).map((side) => (
                       <div
                         className={`army ${game.turn === side && !game.winner ? 'to-move' : ''}`}
                         key={side}
                       >
-                        <div className="army-symbol">{sideGlyph(side)}</div>
+                        <div className="army-symbol">
+                          {game.players[side]?.rune ? (
+                            <Rune rune={game.players[side].rune} />
+                          ) : (
+                            sideGlyph(side)
+                          )}
+                        </div>
                         <div>
-                          <h3>{game.players[side]?.name || t(titles[side])}</h3>
+                          <h3>{participantName(game.players[side], t(titles[side]))}</h3>
                           <p>
                             {t(titles[side])} ·{' '}
                             {game.players[side]?.kind === 'ai'
@@ -641,7 +642,6 @@ export function Modal({
     >
       <div className="modal-top">
         <div>
-          <p className="eyebrow">{t('THE KING’S TABLE')}</p>
           <h2>{title}</h2>
         </div>
         <button className="icon-button" aria-label={t('Close dialog')} onClick={onClose}>
@@ -679,6 +679,9 @@ function AIFields({
     onChange({
       ...value,
       ...(key === 'algorithm' ? { profile_id: undefined, name: 'Computer' } : {}),
+      ...((key === 'model_id' || key === 'algorithm') && config.algorithm === 'neural'
+        ? { name: models.find((model) => model.id === config.model_id)?.name ?? 'Computer' }
+        : {}),
       config,
     });
   };
@@ -688,17 +691,17 @@ function AIFields({
       onChange({ ...value, profile_id: undefined });
       return;
     }
+    const selectedModel =
+      profile.algorithm === 'neural' ? selectStrongestModel(models, ruleset)?.model : undefined;
     onChange({
       ...value,
-      name: profile?.name ?? 'Computer',
+      name: selectedModel?.name ?? profile.name,
       profile_id: id,
       config: withoutSeed({
         time_limit: 1,
         ...profile?.parameters,
         algorithm: profile?.algorithm ?? 'baseline',
-        ...(profile?.algorithm === 'neural'
-          ? { model_id: selectStrongestModel(models, ruleset)?.model.id ?? '' }
-          : {}),
+        ...(profile?.algorithm === 'neural' ? { model_id: selectedModel?.id ?? '' } : {}),
       }),
     });
   };
@@ -716,6 +719,7 @@ function AIFields({
             .filter((p) => p.supported_rulesets.includes(ruleset))
             .map((p) => (
               <option value={p.id} key={p.id}>
+                {p.rune ? `${p.rune} ` : ''}
                 {t(p.name)} · {t(p.difficulty)}
               </option>
             ))}
@@ -822,29 +826,6 @@ function AIFields({
   );
 }
 
-function withoutSeed(config: PlayerConfig['config']) {
-  const next = { ...config };
-  delete next.seed;
-  return next;
-}
-
-function defaultAI(models: Model[], ruleset: string, profiles: AIProfile[]): PlayerConfig {
-  const recommendation = selectStrongestModel(models, ruleset);
-  const algorithm = recommendation ? 'neural' : 'baseline';
-  const profile = profiles.find((candidate) => candidate.algorithm === algorithm);
-  return {
-    name: recommendation?.model.name ?? profile?.name ?? 'Computer',
-    kind: 'ai',
-    profile_id: profile?.id ?? algorithm,
-    config: withoutSeed({
-      time_limit: 1,
-      ...profile?.parameters,
-      algorithm,
-      ...(recommendation ? { model_id: recommendation.model.id } : {}),
-    }),
-  };
-}
-
 export function NewGame({
   rulesets,
   profiles,
@@ -863,12 +844,15 @@ export function NewGame({
   onCreated: (game: Game) => void;
 }) {
   useI18n();
-  const [ruleset, setRuleset] = useState(initialRuleset ?? 'tablut');
-  const [mode, setMode] = useState<Mode>(readLastGameMode);
-  const [humanSide, setHumanSide] = useState<Side>('defenders');
-  const [fixedSeed, setFixedSeed] = useState(false);
-  const [seed, setSeed] = useState(0);
-  const [advisorId, setAdvisorId] = useState('');
+  const [restored] = useState(() =>
+    restoreGameSetup({ rulesets, profiles, models, players, initialRuleset }),
+  );
+  const [ruleset, setRuleset] = useState(restored.ruleset);
+  const [mode, setMode] = useState<Mode>(restored.mode);
+  const [humanSide, setHumanSide] = useState<Side>(restored.humanSide);
+  const [fixedSeed, setFixedSeed] = useState(restored.fixedSeed);
+  const [seed, setSeed] = useState(restored.seed);
+  const [advisorId, setAdvisorId] = useState(restored.advisorId);
   const availableAdvisors = advisorOptions(profiles, models, ruleset);
   const advisor = availableAdvisors.find((option) => option.id === advisorId)?.advisor ?? null;
   useEffect(() => {
@@ -878,26 +862,9 @@ export function NewGame({
     )
       setAdvisorId('');
   }, [advisorId, ruleset, models, profiles]);
-  const [people, setPeople] = useState<Record<Side, PlayerConfig>>({
-    attackers: {
-      name: 'Attacker',
-      kind: 'human',
-      config: {},
-    },
-    defenders: {
-      name: 'Defender',
-      kind: 'human',
-      config: {},
-    },
-  });
-  const [computers, setComputers] = useState<Record<Side, PlayerConfig>>(() => ({
-    attackers: defaultAI(models, ruleset, profiles),
-    defenders: defaultAI(models, ruleset, profiles),
-  }));
-  const [customAI, setCustomAI] = useState<Record<Side, boolean>>({
-    attackers: false,
-    defenders: false,
-  });
+  const [people, setPeople] = useState<Record<Side, PlayerConfig>>(restored.people);
+  const [computers, setComputers] = useState<Record<Side, PlayerConfig>>(restored.computers);
+  const [customAI, setCustomAI] = useState<Record<Side, boolean>>(restored.customAI);
   const priorRuleset = useRef(ruleset);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -966,7 +933,16 @@ export function NewGame({
         ...(advisor ? { advisor } : {}),
         ...(fixedSeed ? { seed } : {}),
       });
-      rememberGameMode(mode);
+      rememberGameSetup({
+        ruleset,
+        mode,
+        humanSide,
+        people,
+        computers,
+        advisorId,
+        fixedSeed,
+        seed,
+      });
       onCreated(created);
     } catch (e) {
       setError((e as Error).message);
@@ -1070,6 +1046,7 @@ export function NewGame({
                           <option value="">{t('New player / enter name')}</option>
                           {players.map((p) => (
                             <option key={p.id} value={p.id}>
+                              {p.rune ? `${p.rune} ` : ''}
                               {p.name}
                               {players.filter((profile) => profile.name === p.name).length > 1
                                 ? ` · ${p.id.slice(0, 6)}`
