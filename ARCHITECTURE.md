@@ -81,3 +81,15 @@ defines color modes, board palettes and token sets; shared token rendering is us
 for actual pieces and previews. The provider resolves device color preferences and
 persists choices. New artwork and palettes can be added without changing game rules
 or persistence. See `docs/PERSONALIZATION.md`.
+
+Ordinary new games store a server-generated base seed; actual decision seeds combine
+the base with the ply. Explicit game seeds support reproducible requests. Restart
+always creates a fresh seed, and legacy records retain their original semantics.
+Game deletion uses an expected version and removes the source record; statistics
+are derived from retained records, so all counts/rates update without cached totals.
+
+Model deletion previews every unfinished reference on the server rather than only
+the browser's current game. Discarding those games requires an explicit opt-in and
+a matching usage fingerprint. SQL and registry failure handling preserve references
+if deletion fails; completed histories and training checkpoints remain. App-level
+deletion callbacks clear matching current-game pointers and reject late AI responses.

@@ -9,6 +9,7 @@ async function finishVariant(
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',
+      seed: 3,
       players: {
         attackers: { name, config: { algorithm: 'alpha_beta', depth, time_limit: 0.1, seed: 3 } },
         defenders: {
@@ -126,7 +127,7 @@ test('workshop suggests Viking names and deletes a model only after confirmation
   await page.getByRole('button', { name: `Delete model ${name}` }).click();
   const confirmation = page.getByRole('dialog', { name: `Delete model ${name}?` });
   await expect(confirmation).toContainText(
-    'Saved game histories, statistics and training checkpoints are kept',
+    'Completed game histories, statistics and training checkpoints are kept',
   );
   await confirmation.getByRole('button', { name: 'Keep it' }).click();
   await expect(page.locator('.model-card').getByRole('heading', { name })).toBeVisible();

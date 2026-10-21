@@ -9,11 +9,11 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | AI, models and training | 95 tests: real baseline/alpha-beta/MCTS/neural full games in every variant, actual updates, tensor-only compatible imports and atomic model deletion |
 | Exact resumption | Split CPU training matches uninterrupted weights exactly; an earlier best model survives weaker later iterations and moving/deleting its original directory |
 | Optimization | Actual Optuna trials, persisted study resumption, evaluation-based objectives and exported best configuration |
-| API and persistence | 40 tests: real moves, durable replay, racing-writer conflicts, retained deletion history, canonical AI variants, schema upgrades, deletion/new-game races, statistics/rates and controlled model paths |
+| API and persistence | 40 baseline API tests plus 21 game-management cases: real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | 35 tests: real isolated workers, balanced scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay, migration and failure/shutdown cleanup |
-| Browser unit flows | 17 Vitest tests, including legal interaction, stale requests, profile selection/deletion, model confirmations, AI parameters, sorting, name suggestions, appearance persistence and tournament setup/selection races |
-| Browser end to end | 13 passed desktop/mobile Chromium checks; 3 duplicate mobile worker checks intentionally skipped |
+| Browser unit flows | 34 Vitest tests, including model ranking/defaults, human/AI selection, game/model deletion consent and races, statistics visibility, training-seed provenance, appearance and tournament flows |
+| Browser end to end | 16 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -59,6 +59,31 @@ executed. One smoke training run generated one self-play game, performed actual
 gradient updates, registered a compact model and completed both balanced evaluation
 games. It lost both games (0 wins, 2 losses), so no stronger-play claim is made.
 Truncated games elsewhere remain explicit unfinished outcomes, never rules draws.
+
+The v0.7 suite passes **252 Python tests**, **34 frontend unit tests** and
+**16 real-API browser checks**. New browser coverage verifies fresh seeds on new
+games/restart, current-game pointer cleanup, completed-game deletion with recalculated
+counts/rates/averages, statistics before collapsible history and no mobile overflow.
+Actual CPU training supplies a model whose training seed differs from its evaluation
+seed; the workshop shows the correct value and the new-game form selects that
+compatible model. Two unfinished model references, including one created outside
+the browser session, require explicit discard consent. Deletion removes them without
+results and retains completed replay and the original training checkpoint.
+
+Focused tests cover malformed/comparable model evaluations, unfinished outcomes
+receiving zero ranking points, deterministic ties, manual opponent choices,
+clearing stale model IDs when switching algorithms, changed-record confirmations,
+model-usage races, rollback on registry failure and late AI responses after deletion.
+Training and tournament test budgets remain explicit and deterministic. Browser
+playback fixtures use an explicit fixed game seed to avoid relying on a random
+game finishing within the test timeout; ordinary UI creation exercises fresh seeds.
+The compiled statistics panel was visually inspected on desktop and mobile in
+light/dark mode, including readable table colors, 12px values and no page overflow.
+The model confirmation screenshot shows two real unfinished references with Delete
+disabled until explicit consent. All screenshot/training records use isolated
+temporary storage. Production startup serves v0.7.0/schema 3 and preserves all seven
+existing game records exactly against a pre-update digest; a full data backup was
+made before restart. The model-usage endpoints also respond for existing models.
 
 ## Reproduce
 

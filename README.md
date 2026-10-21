@@ -54,7 +54,9 @@ Choose a battlefield and mode in **New game**. Configure your side and opponent,
 or both opponents for AI vs AI. Select a piece and a highlighted destination.
 The server validates every move and rejects stale concurrent updates.
 
-**Hall of records** contains profiles, saved games, replay and statistics. Viewing
+**Hall of records** puts statistics above a separate, collapsible saved-game history.
+Delete a game after confirmation to remove its moves/result and recalculate statistics.
+The page also contains profiles and replay. Viewing
 an earlier move preserves the recorded result and future moves; making a different
 move branches the local history. Restart creates a new game, preserving the old one.
 
@@ -68,6 +70,11 @@ Open **Appearance** in the header to choose light/dark/device mode, Classic ston
 Viking figures or Carved wood tokens, and Golden oak, Old walnut or Fjord slate boards.
 Choices are independent and saved in this browser. See
 [PERSONALIZATION.md](docs/PERSONALIZATION.md) for settings and theme extension points.
+
+New games and restarts receive fresh server-generated random seeds. The saved game
+shows its seed; a fixed seed remains an explicit option for reproducible comparisons.
+Compatible AI models are preselected by comparable baseline evaluation results,
+with a labeled newest-model fallback when no such result is available.
 
 Rules: [Tablut market rules](docs/rules/tablut.md), [Brandubh](docs/rules/brandubh.md),
 [Copenhagen](docs/rules/copenhagen.md). The linked Tablut leaflet starts defenders,
@@ -93,8 +100,10 @@ job. Inspect progress and evaluation, resume a checkpoint, or export/import a mo
 Select **Neural network** and a compatible model when configuring a new opponent.
 Use the name-suggestion button to generate a Viking name. Model cards offer deletion
 with confirmation: saved game history and original training checkpoints are retained.
-Models referenced by unfinished games or running tournaments must remain available
-until those games finish or the tournament stops.
+Model cards show the recorded training seed. The delete dialog lists unfinished
+games that still use a model, including records from other browser sessions. You
+can explicitly discard those unfinished games without results and delete the model;
+completed history is kept. Running tournaments must be stopped first.
 The CLI requires no Python programming:
 
 ```sh
@@ -126,9 +135,9 @@ npm run test:e2e
 `make check` runs Ruff/Prettier, Python/TypeScript type checks, pytest, Vitest and
 the production build. Playwright uses the actual backend on isolated ports
 8001/4173 for desktop/mobile gameplay and real training followed by neural play.
-Three duplicate mobile worker checks are deliberately skipped; mobile gameplay,
-appearance and tournament lifecycle checks run. Actual training/model deletion and
-tournament cancellation run on desktop.
+Four duplicate mobile worker checks are deliberately skipped; mobile gameplay,
+appearance, records/statistics and tournament lifecycle checks run. Actual training,
+model cleanup and tournament cancellation run on desktop.
 Linux Chromium libraries may need installation on a new host.
 
 See [VALIDATION.md](docs/VALIDATION.md) for evidence and hardware/source limitations.

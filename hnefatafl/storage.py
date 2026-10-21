@@ -107,6 +107,35 @@ class Store:
             if cursor.rowcount != 1:
                 raise ConflictError("This game changed. Reload it before moving again.")
 
+    @contextmanager
+    def discard_games(
+        self, versions: dict[str, int], *, archived_model: dict | None = None
+    ) -> Iterator[None]:
+        """Commit removals together, rolling back if a related catalog change fails.
+
+        The caller may remove a registry file inside this transaction. Holding
+        the writer lock prevents a replay seek or concurrent move from changing
+        the selected records between consent validation and their removal.
+        """
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for game_id, expected_version in versions.items():
+                cursor = connection.execute(
+                    "DELETE FROM games WHERE id=? AND version=?", (game_id, expected_version)
+                )
+                if cursor.rowcount != 1:
+                    raise ConflictError("This game changed. Reload it before deleting it.")
+            if archived_model is not None:
+                connection.execute(
+                    "INSERT OR IGNORE INTO model_history(id,data) VALUES(?,?)",
+                    (archived_model["id"], json.dumps(archived_model)),
+                )
+            yield
+
+    def delete_game(self, game_id: str, expected_version: int) -> None:
+        with self.discard_games({game_id: expected_version}):
+            pass
+
     def players(self, *, include_deleted: bool = False) -> list[dict]:
         with self.connection() as connection:
             return [

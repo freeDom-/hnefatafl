@@ -44,3 +44,18 @@ is a later release. Smoke models make no competitive-strength claim.
 Three duplicate mobile worker checks are intentionally skipped; mobile setup,
 results, replay and deletion run. Tournaments compare two opponents; larger brackets
 and automatic resumption are future work. See `docs/TOURNAMENTS.md`.
+
+## Fresh games and manageable records (`v0.7.0`)
+
+- [x] Generate and retain fresh ordinary-game/restart seeds; support explicit fixed seeds
+- [x] Show saved training seeds on model cards, distinguishing evaluation seeds
+- [x] Suggest compatible models from completion-aware baseline evaluation evidence
+- [x] Preserve manual opponent choices and clear hidden model references when switching algorithms
+- [x] Place statistics before separate collapsible, paged game history
+- [x] Delete games with version guards and recalculate all statistics
+- [x] Preview every unfinished model reference and offer explicit discard without results/history
+- [x] Preserve completed replay/checkpoints, reject changed usage and roll back failed removals
+- [x] Pass 252 Python tests, 34 frontend unit tests and 16 real-API browser checks
+
+Four duplicate mobile worker checks are intentionally skipped. Schema 3 remains
+unchanged. See `docs/PERSONALIZATION.md` for collection management and ranking rules.

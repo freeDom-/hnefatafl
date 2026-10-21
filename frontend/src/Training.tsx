@@ -6,6 +6,28 @@ import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
 import './features.css';
+import './workshopManagement.css';
+
+interface ModelUsage {
+  model_id: string;
+  unfinished_games: {
+    id: string;
+    version: number;
+    ruleset: string;
+    created_at: string;
+    players: { attackers: { name: string }; defenders: { name: string } };
+    total_moves: number;
+  }[];
+  running_tournaments: { id: string; name: string; status: string }[];
+  usage_token?: string;
+}
+
+function trainingSeed(model: Model) {
+  const seed = model.training_config?.seed;
+  return typeof seed === 'number' && Number.isInteger(seed) && seed >= 0 && seed <= 4294967295
+    ? String(seed)
+    : 'Not recorded';
+}
 
 const defaults: Record<string, string | number | boolean> = {
   ruleset: 'tablut',
@@ -52,11 +74,13 @@ export default function Training({
   models,
   onModelsChanged,
   onError,
+  onGamesDeleted,
 }: {
   rulesets: Ruleset[];
   models: Model[];
   onModelsChanged: () => void;
   onError: (error: string) => void;
+  onGamesDeleted?: (ids: string[]) => void;
 }) {
   const [device, setDevice] = useState<DeviceInfo>({});
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -78,6 +102,34 @@ export default function Training({
   const [deleteModel, setDeleteModel] = useState<Model | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [modelUsage, setModelUsage] = useState<ModelUsage | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState('');
+  const [usageRevision, setUsageRevision] = useState(0);
+  const [discardUnfinished, setDiscardUnfinished] = useState(false);
+  useEffect(() => {
+    if (!deleteModel) return;
+    let alive = true;
+    setUsageLoading(true);
+    setModelUsage(null);
+    setUsageError('');
+    setDiscardUnfinished(false);
+    void api<ModelUsage>(`/models/${deleteModel.id}/usage`)
+      .then((usage) => {
+        if (!Array.isArray(usage.unfinished_games) || !Array.isArray(usage.running_tournaments))
+          throw new Error('The model usage could not be checked. Try again before deleting it.');
+        if (alive) setModelUsage(usage);
+      })
+      .catch((error) => {
+        if (alive) setUsageError((error as Error).message);
+      })
+      .finally(() => {
+        if (alive) setUsageLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [deleteModel, usageRevision]);
   const refresh = useCallback(async () => {
     const [hardware, runs] = await Promise.all([
       api<DeviceInfo>('/training/device'),
@@ -211,16 +263,40 @@ export default function Training({
     }
   };
   const removeModel = async () => {
-    if (!deleteModel) return;
+    if (
+      !deleteModel ||
+      !modelUsage ||
+      usageLoading ||
+      modelUsage.running_tournaments.length ||
+      (modelUsage.unfinished_games.length && !discardUnfinished)
+    )
+      return;
     setDeleting(true);
     setDeleteError('');
     try {
-      await api(`/models/${deleteModel.id}`, undefined, 'DELETE');
+      const query = new URLSearchParams();
+      if (modelUsage.unfinished_games.length) {
+        query.set('discard_unfinished', 'true');
+        if (modelUsage.usage_token) query.set('usage_token', modelUsage.usage_token);
+      }
+      const result = await api<{ discarded_game_ids?: string[] }>(
+        `/models/${deleteModel.id}${query.size ? `?${query}` : ''}`,
+        undefined,
+        'DELETE',
+      );
+      const discarded = result.discarded_game_ids ?? [];
+      if (discarded.length) onGamesDeleted?.(discarded);
       setDeleteModel(null);
       onModelsChanged();
-      setNotice('Model deleted. Saved game history and training checkpoints have been kept.');
+      setNotice(
+        discarded.length
+          ? `Model deleted. ${discarded.length} unfinished ${discarded.length === 1 ? 'game' : 'games'} removed without results. Completed history and training checkpoints have been kept.`
+          : 'Model deleted. Saved game history and training checkpoints have been kept.',
+      );
     } catch (error) {
       setDeleteError((error as Error).message);
+      setDiscardUnfinished(false);
+      setUsageRevision((value) => value + 1);
     } finally {
       setDeleting(false);
     }
@@ -730,6 +806,9 @@ export default function Training({
                   <small>
                     {model.created_at ? new Date(model.created_at).toLocaleDateString() : model.id}
                   </small>
+                  <p className="model-training-seed">
+                    Training seed <strong>{trainingSeed(model)}</strong>
+                  </p>
                 </div>
                 <div className="model-actions">
                   <a
@@ -748,6 +827,9 @@ export default function Training({
                     onClick={() => {
                       setDeleteModel(model);
                       setDeleteError('');
+                      setModelUsage(null);
+                      setUsageLoading(true);
+                      setDiscardUnfinished(false);
                     }}
                   >
                     ×
@@ -798,16 +880,97 @@ export default function Training({
           title={`Delete model ${deleteModel.name}?`}
           busy={deleting}
           error={deleteError}
+          confirmDisabled={
+            usageLoading ||
+            !modelUsage ||
+            !!modelUsage.running_tournaments.length ||
+            (!!modelUsage.unfinished_games.length && !discardUnfinished)
+          }
           onCancel={() => setDeleteModel(null)}
           onConfirm={() => void removeModel()}
         >
           <p>
             This removes <strong>{deleteModel.name}</strong> from your model collection and opponent
-            selection. Saved game histories, statistics and training checkpoints are kept.
+            selection. Completed game histories, statistics and training checkpoints are kept.
           </p>
-          <p className="model-delete-note">
-            A model used by an unfinished game cannot be deleted until that game finishes.
-          </p>
+          {usageLoading && (
+            <p className="model-delete-note" role="status">
+              Checking saved games and tournaments…
+            </p>
+          )}
+          {usageError && (
+            <div className="model-usage-error">
+              <p className="form-error" role="alert">
+                {usageError}
+              </p>
+              <button
+                type="button"
+                className="button secondary small"
+                onClick={() => setUsageRevision((value) => value + 1)}
+              >
+                Check again
+              </button>
+            </div>
+          )}
+          {modelUsage && (
+            <>
+              {!!modelUsage.running_tournaments.length && (
+                <div className="model-usage-warning">
+                  <h3>Running tournament</h3>
+                  <p>Stop these tournaments in Tournaments before deleting this model.</p>
+                  <ul>
+                    {modelUsage.running_tournaments.map((tournament) => (
+                      <li key={tournament.id}>{tournament.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {modelUsage.unfinished_games.length ? (
+                <div className="model-usage-warning">
+                  <h3>
+                    {modelUsage.unfinished_games.length} unfinished{' '}
+                    {modelUsage.unfinished_games.length === 1 ? 'game' : 'games'}
+                  </h3>
+                  <p>
+                    Saved games remain on this server even when they are no longer open in your
+                    browser. Continue them from the Hall of records, or discard them here.
+                  </p>
+                  <ul className="model-usage-games">
+                    {modelUsage.unfinished_games.map((game) => (
+                      <li key={game.id}>
+                        <strong>
+                          {game.players.attackers.name} vs {game.players.defenders.name}
+                        </strong>
+                        <span>
+                          {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}{' '}
+                          · {game.total_moves} moves ·{' '}
+                          {new Date(game.created_at).toLocaleDateString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <label className="model-discard-choice">
+                    <input
+                      type="checkbox"
+                      checked={discardUnfinished}
+                      disabled={deleting || !!modelUsage.running_tournaments.length}
+                      onChange={(event) => setDiscardUnfinished(event.target.checked)}
+                    />
+                    <span>Discard unfinished games and delete model</span>
+                  </label>
+                  <p>
+                    Discarded games are permanently removed with no result, history or statistics.
+                    Completed games and training checkpoints remain.
+                  </p>
+                </div>
+              ) : (
+                <p className="model-delete-note">
+                  No unfinished games use this model. Saved games and training checkpoints remain
+                  available.
+                </p>
+              )}
+            </>
+          )}
         </RecordsConfirm>
       )}
     </>

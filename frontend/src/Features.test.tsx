@@ -150,6 +150,8 @@ describe('records and training controls', () => {
     const fetcher = vi.fn((path: string, init?: RequestInit) => {
       if (init?.method === 'DELETE')
         return json({ detail: 'This model is used by an unfinished game.' }, false);
+      if (path === `/api/models/${model.id}/usage`)
+        return json({ model_id: model.id, unfinished_games: [], running_tournaments: [] });
       return path === '/api/training/device' ? json({ default_device: 'cpu' }) : json([]);
     });
     vi.stubGlobal('fetch', fetcher);
@@ -163,9 +165,12 @@ describe('records and training controls', () => {
     const confirm = screen.getByRole('dialog', { name: `Delete model ${model.name}?` });
     expect(
       within(confirm).getByText(
-        /Saved game histories, statistics and training checkpoints are kept/,
+        /Completed game histories, statistics and training checkpoints are kept/,
       ),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(confirm).getByRole('button', { name: 'Delete' })).toBeEnabled(),
+    );
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
     expect(await within(confirm).findByRole('alert')).toHaveTextContent('unfinished game');
     expect(changed).not.toHaveBeenCalled();

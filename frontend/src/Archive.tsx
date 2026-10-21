@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import type { Game, Player, Ruleset, Stats, StatRow } from './types';
 import { sortRulesets } from './sortRulesets';
 import RecordsParameters from './RecordsParameters';
 import RecordsConfirm from './RecordsConfirm';
 import './features.css';
+import './archive.css';
 
 const percent = (value?: number) => `${((value ?? 0) * 100).toFixed(1)}%`;
 const date = (value?: string) =>
@@ -21,12 +22,14 @@ export default function Archive({
   onError,
   players,
   refreshPlayers,
+  onGameDeleted,
 }: {
   rulesets: Ruleset[];
   onLoad: (game: Game) => void;
   onError: (error: string) => void;
   players: Player[];
   refreshPlayers: () => void;
+  onGameDeleted?: (id: string) => void;
 }) {
   const [games, setGames] = useState<Game[]>([]);
   const [stats, setStats] = useState<Stats>({});
@@ -39,8 +42,17 @@ export default function Archive({
   const [deletePlayer, setDeletePlayer] = useState<Player | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [deleteGame, setDeleteGame] = useState<Game | null>(null);
+  const [notice, setNotice] = useState('');
+  const [revision, setRevision] = useState(0);
+  const [visibleGames, setVisibleGames] = useState(10);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const generation = useRef(0);
+  const currentDelete = useRef<Game | null>(null);
+  currentDelete.current = deleteGame;
   useEffect(() => {
     let alive = true;
+    const request = ++generation.current;
     setLoading(true);
     const query = new URLSearchParams({
       ...(ruleset && { ruleset }),
@@ -49,19 +61,22 @@ export default function Archive({
     });
     Promise.all([api<Game[]>(`/games?${query}`), api<Stats>(`/stats?${query}`)])
       .then(([records, next]) => {
-        if (alive) {
+        if (alive && request === generation.current) {
           setGames(records);
           setStats(next);
         }
       })
-      .catch((e) => onError(e.message))
+      .catch((e) => {
+        if (alive && request === generation.current) onError(e.message);
+      })
       .finally(() => {
-        if (alive) setLoading(false);
+        if (alive && request === generation.current) setLoading(false);
       });
     return () => {
       alive = false;
     };
-  }, [ruleset, mode, kind, onError]);
+  }, [ruleset, mode, kind, onError, revision]);
+  useEffect(() => setVisibleGames(10), [ruleset, mode, kind]);
   const createPlayer = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -92,6 +107,52 @@ export default function Archive({
       refreshPlayers();
     } catch (error) {
       setDeleteError((error as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+  const removed = (id: string) => {
+    generation.current++;
+    setGames((saved) => saved.filter((game) => game.id !== id));
+    setDeleteGame(null);
+    onGameDeleted?.(id);
+    setNotice('Game removed. Statistics now reflect the remaining records.');
+    setRevision((value) => value + 1);
+  };
+  const removeGame = async () => {
+    const game = currentDelete.current;
+    if (!game) return;
+    setDeleting(true);
+    setDeleteError('');
+    generation.current++;
+    try {
+      const result = await fetch(`/api/games/${game.id}?version=${game.version}`, {
+        method: 'DELETE',
+      });
+      if (result.ok || result.status === 404) {
+        removed(game.id);
+        return;
+      }
+      if (result.status === 409) {
+        try {
+          const fresh = await api<Game>(`/games/${game.id}`);
+          setDeleteGame(fresh);
+          setDeleteError(
+            'This game changed. Review the updated game below, then choose Delete again to remove it.',
+          );
+        } catch (error) {
+          setDeleteError((error as Error).message);
+        }
+        setRevision((value) => value + 1);
+        return;
+      }
+      const detail = await result.json().catch(() => ({ detail: result.statusText }));
+      throw new Error(
+        typeof detail.detail === 'string' ? detail.detail : 'The game could not be removed.',
+      );
+    } catch (error) {
+      setDeleteError((error as Error).message);
+      setRevision((value) => value + 1);
     } finally {
       setDeleting(false);
     }
@@ -165,12 +226,62 @@ export default function Archive({
           detail={`${stats.draws ?? 0} draws · ${percent(stats.draw_rate)} of completed games`}
         />
       </div>
-      <div className="archive-layout">
-        <section className="panel records">
-          <div className="panel-title">
-            <h2>Recorded games</h2>
-            <span className="badge">{games.length}</span>
+      {notice && (
+        <p className="notice archive-notice" role="status">
+          {notice}
+        </p>
+      )}
+      <section
+        className="panel archive-statistics"
+        aria-labelledby="archive-statistics-heading"
+        aria-busy={loading}
+      >
+        <div className="archive-statistics-heading">
+          <div>
+            <p className="eyebrow">THE STORY IN NUMBERS</p>
+            <h2 id="archive-statistics-heading">Statistics</h2>
+            <p>
+              Completed battles, compared at a glance. Filters apply to statistics and saved games.
+            </p>
           </div>
+          <span className="archive-statistics-count">
+            <strong>{stats.completed_games ?? 0}</strong> completed
+          </span>
+        </div>
+        <div className="archive-statistics-grid">
+          <section
+            aria-labelledby="archive-battlefield-heading"
+            className="archive-statistics-block"
+          >
+            <h3 id="archive-battlefield-heading">Results by battlefield</h3>
+            <StatsTable rows={byRules} group="ruleset" />
+          </section>
+          <section
+            aria-labelledby="archive-performance-heading"
+            className="archive-statistics-block"
+          >
+            <h3 id="archive-performance-heading">Player & AI performance</h3>
+            <StatsTable rows={byPlayer} group="player" />
+          </section>
+        </div>
+      </section>
+      <div className="archive-layout">
+        <details
+          className="panel records records-history"
+          open={historyOpen}
+          onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
+        >
+          <summary aria-label="Recorded games" className="archive-history-summary">
+            <div>
+              <p className="eyebrow">YOUR SAVED BATTLES</p>
+              <h2>Recorded games</h2>
+              <p>Reopen a game or remove it from your records.</p>
+            </div>
+            <span className="badge">{games.length}</span>
+            <span className="archive-history-chevron" aria-hidden="true">
+              ⌄
+            </span>
+          </summary>
           {loading ? (
             <p className="empty-copy">Loading your sagas…</p>
           ) : !games.length ? (
@@ -180,39 +291,56 @@ export default function Archive({
               <p>Your saved games will appear here.</p>
             </div>
           ) : (
-            <div className="records-list">
-              {games.map((game) => (
-                <article className="record-entry" key={game.id}>
-                  <button className="record" onClick={() => void load(game.id)}>
-                    <span
-                      className={`record-icon ${(game.recorded_winner ?? game.winner) ? 'complete' : ''}`}
+            <div className="records-list" role="region" aria-label="Saved game list" tabIndex={0}>
+              {games.slice(0, visibleGames).map((game) => (
+                <article className="record-entry" key={game.id} data-game-id={game.id}>
+                  <div className="record-actions-row">
+                    <button className="record" onClick={() => void load(game.id)}>
+                      <span
+                        className={`record-icon ${(game.recorded_winner ?? game.winner) ? 'complete' : ''}`}
+                      >
+                        {(game.recorded_winner ?? game.winner) ? 'ᛟ' : 'ᛏ'}
+                      </span>
+                      <span>
+                        <strong>
+                          {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}
+                        </strong>
+                        <small>
+                          {game.players?.attackers?.name ?? 'Attackers'} vs{' '}
+                          {game.players?.defenders?.name ?? 'Defenders'}
+                        </small>
+                      </span>
+                      <span className="record-result">
+                        <strong>
+                          {(game.recorded_winner ?? game.winner) === 'draw'
+                            ? 'Draw'
+                            : (game.recorded_winner ?? game.winner)
+                              ? `${(game.recorded_winner ?? game.winner) === 'attackers' ? 'Attackers' : 'Defenders'} win`
+                              : 'In progress'}
+                        </strong>
+                        <small>
+                          {game.recorded_plies ?? game.total_moves ?? game.ply} moves ·{' '}
+                          {date(game.created_at)}
+                        </small>
+                      </span>
+                      <span aria-hidden="true">↗</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button danger-text delete-record"
+                      aria-label={`Delete game ${game.id}`}
+                      title="Delete recorded game"
+                      onClick={() => {
+                        setDeleteGame(game);
+                        setDeleteError('');
+                      }}
                     >
-                      {(game.recorded_winner ?? game.winner) ? 'ᛟ' : 'ᛏ'}
-                    </span>
-                    <span>
-                      <strong>
-                        {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}
-                      </strong>
-                      <small>
-                        {game.players?.attackers?.name ?? 'Attackers'} vs{' '}
-                        {game.players?.defenders?.name ?? 'Defenders'}
-                      </small>
-                    </span>
-                    <span className="record-result">
-                      <strong>
-                        {(game.recorded_winner ?? game.winner) === 'draw'
-                          ? 'Draw'
-                          : (game.recorded_winner ?? game.winner)
-                            ? `${(game.recorded_winner ?? game.winner) === 'attackers' ? 'Attackers' : 'Defenders'} win`
-                            : 'In progress'}
-                      </strong>
-                      <small>
-                        {game.recorded_plies ?? game.total_moves ?? game.ply} moves ·{' '}
-                        {date(game.created_at)}
-                      </small>
-                    </span>
-                    <span aria-hidden="true">↗</span>
-                  </button>
+                      ×
+                    </button>
+                  </div>
+                  {game.seed !== undefined && (
+                    <p className="record-game-seed">Game seed {game.seed}</p>
+                  )}
                   {(['attackers', 'defenders'] as const)
                     .filter((side) => game.players[side]?.kind === 'ai')
                     .map((side) => (
@@ -226,12 +354,21 @@ export default function Archive({
               ))}
             </div>
           )}
-          <div className="section-separator" />
-          <h3>Results by battlefield</h3>
-          <StatsTable rows={byRules} group="ruleset" />
-          <h3>Player & AI performance</h3>
-          <StatsTable rows={byPlayer} group="player" />
-        </section>
+          {games.length > visibleGames && (
+            <div className="archive-load-more">
+              <span>
+                Showing {Math.min(visibleGames, games.length)} of {games.length} games
+              </span>
+              <button
+                type="button"
+                className="button secondary small"
+                onClick={() => setVisibleGames((count) => count + 10)}
+              >
+                Show 10 more games
+              </button>
+            </div>
+          )}
+        </details>
         <aside className="panel profiles-panel">
           <p className="eyebrow">MAKE YOUR MARK</p>
           <h2>Local players</h2>
@@ -273,6 +410,31 @@ export default function Archive({
           </ul>
         </aside>
       </div>
+      {deleteGame && (
+        <RecordsConfirm
+          title="Delete recorded game?"
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => setDeleteGame(null)}
+          onConfirm={() => void removeGame()}
+        >
+          <p>
+            This permanently removes this game, its moves and result from the history. Statistics
+            are recalculated from the remaining games. Player profiles and models are kept.
+          </p>
+          <div className="archive-delete-preview">
+            <strong>
+              {deleteGame.players.attackers.name} vs {deleteGame.players.defenders.name}
+            </strong>
+            <span>
+              {rulesets.find((rule) => rule.id === deleteGame.ruleset)?.name ?? deleteGame.ruleset}{' '}
+              · {deleteGame.recorded_plies ?? deleteGame.total_moves ?? deleteGame.ply} moves ·{' '}
+              {date(deleteGame.created_at)}
+            </span>
+            <small>Game {deleteGame.id.slice(0, 8)}</small>
+          </div>
+        </RecordsConfirm>
+      )}
       {deletePlayer && (
         <RecordsConfirm
           title={`Delete player ${deletePlayer.name}?`}
@@ -310,7 +472,14 @@ export function Metric({
 function StatsTable({ rows, group }: { rows: StatRow[]; group: 'ruleset' | 'player' }) {
   if (!rows.length) return <p className="empty-copy">Complete a game to see results here.</p>;
   return (
-    <div className="table-scroll">
+    <div
+      className="table-scroll"
+      role="region"
+      aria-label={
+        group === 'ruleset' ? 'Battlefield statistics table' : 'Player and AI statistics table'
+      }
+      tabIndex={0}
+    >
       <table>
         <thead>
           <tr>

@@ -21,6 +21,7 @@ export interface PlayerConfig {
 }
 export interface Game {
   id: string;
+  seed?: number;
   ruleset: string;
   size: number;
   board: string[];
@@ -67,6 +68,7 @@ export interface Model {
   version?: string;
   created_at?: string;
   metrics?: Record<string, number>;
+  training_config?: Record<string, unknown>;
   evaluation?: {
     wins?: number;
     losses?: number;
@@ -74,6 +76,7 @@ export interface Model {
     truncated?: number;
     score?: number;
     opponent?: string;
+    seed?: number;
   };
   path?: string;
 }

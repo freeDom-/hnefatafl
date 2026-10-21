@@ -36,7 +36,7 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
     .getByRole('button', { name: /Tablut.*Attacker vs Defender/ })
     .first()
     .click();
-  await expect(page.getByRole('button', { name: 'Replay to move 1' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Starting position' }).click();
   await expect(page.getByText('Defenders to move', { exact: true })).toBeVisible();
   await expect
@@ -49,11 +49,15 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await page.goto('/');
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'AI vs AI', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('baseline');
+  await page.getByRole('combobox', { name: 'Defenders AI profile' }).selectOption('baseline');
+  await page.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }).check();
+  await page.getByLabel('Game seed', { exact: true }).fill('3');
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(
     page.getByRole('grid', { name: 'brandubh game board' }).getByRole('gridcell'),
   ).toHaveCount(49);
-  await expect(page.getByRole('button', { name: 'Replay to move 1' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible({
     timeout: 20000,
   });
   await page.getByRole('button', { name: 'Pause AI', exact: false }).click();
@@ -68,7 +72,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   const archiveResult = outcomeText === 'An evenly matched saga' ? 'Draw' : outcomeText;
   const completedBoard = page.getByRole('grid', { name: 'brandubh game board' });
   await expect(completedBoard.locator('button:not(:disabled)')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Replay to move 2' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Replay to move 2', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
   const savedGame = page.locator('.records-list .record').first();
   await expect(savedGame).toContainText('Brandubh');
@@ -110,12 +114,12 @@ test('training dashboard starts, monitors and registers a real CPU smoke model',
   await page.getByLabel('Your side').selectOption('attackers');
   await page.getByLabel('Defenders algorithm').selectOption('neural');
   const option = page
-    .getByRole('combobox', { name: 'Trained model', exact: true })
+    .getByRole('combobox', { name: 'Defenders trained model', exact: true })
     .locator('option')
     .filter({ hasText: 'Browser smoke strategist' })
     .first();
   await page
-    .getByRole('combobox', { name: 'Trained model', exact: true })
+    .getByRole('combobox', { name: 'Defenders trained model', exact: true })
     .selectOption((await option.getAttribute('value')) ?? '');
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible({

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -96,6 +97,7 @@ class GameRequest(BaseModel):
     mode: Literal["human-human", "human-ai", "ai-ai"] = "human-human"
     human_side: Literal["attackers", "defenders"] = "defenders"
     players: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    seed: StrictInt | None = Field(default=None, ge=0, le=2**32 - 1)
 
 
 class PlayerRequest(BaseModel):
@@ -336,7 +338,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             fail("The neural opponent requires a registered model.")
         return resolved
 
-    def normalise_players(request: GameRequest) -> dict:
+    def normalise_players(request: GameRequest, seed: int) -> dict:
         result: dict[str, dict[str, Any]] = {}
         for side in SIDES:
             is_ai = request.mode == "ai-ai" or (
@@ -376,6 +378,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
                 # Manual algorithm selection must not inherit an unrelated
                 # profile label left behind by the setup form.
+                result[side]["config"]["seed"] = seed
                 algorithm = result[side]["config"]["algorithm"]
                 profile = next(p for p in ai_profiles() if p["algorithm"] == algorithm)
                 result[side]["profile_id"] = profile["id"]
@@ -483,13 +486,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def create_game(request: GameRequest):
         with catalog_lock:
             state = new_game(request.ruleset)
+            seed = secrets.randbits(32) if request.seed is None else request.seed
             game = {
                 "id": uuid4().hex,
                 "ruleset": request.ruleset,
                 "ruleset_version": 1,
                 "mode": request.mode,
                 "human_side": request.human_side,
-                "players": normalise_players(request),
+                "players": normalise_players(request, seed),
+                "seed": seed,
                 "state": state.to_dict(),
                 "moves": [],
                 "cursor": 0,
@@ -502,16 +507,33 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             return response(game)
 
     @app.get("/api/games")
-    def games(ruleset: str | None = None, mode: str | None = None):
+    def games(ruleset: str | None = None, mode: str | None = None, kind: str | None = None):
+        if kind not in (None, "human", "ai"):
+            fail("Kind must be human or ai.")
         return [
             response(g)
             for g in store.list_games()
-            if (not ruleset or g["ruleset"] == ruleset) and (not mode or g["mode"] == mode)
+            if (not ruleset or g["ruleset"] == ruleset)
+            and (not mode or g["mode"] == mode)
+            and (not kind or any(player["kind"] == kind for player in g["players"].values()))
         ]
 
     @app.get("/api/games/{game_id}")
     def get_game(game_id: str):
         return response(game_or_404(game_id))
+
+    @app.delete("/api/games/{game_id}")
+    def delete_game(
+        game_id: str, version: str = Query(pattern=r"^(0|[1-9][0-9]*)$", max_length=16)
+    ):
+        with catalog_lock:
+            expected_version = int(version)
+            game_or_404(game_id, expected_version)
+            try:
+                store.delete_game(game_id, expected_version)
+            except ConflictError as exc:
+                fail(str(exc), 409)
+            return {"deleted": True, "id": game_id}
 
     @app.get("/api/games/{game_id}/replay")
     def game_replay(game_id: str):
@@ -547,6 +569,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         if state.winner:
             fail("The game is already finished.")
         config = clean_ai_config(player["config"], player["profile_id"])
+        if "seed" in game:
+            config["seed"] = (config["seed"] + state.ply) % 2**32
         if config.get("model_id"):
             model = model_info(config.pop("model_id"))
             if model.get("ruleset") != game["ruleset"]:
@@ -598,6 +622,21 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         "Choose an available model in a new game; the previous model was deleted.",
                         409,
                     )
+            previous_seeds = {game.get("seed")} | {
+                effective_ai_config(player["config"], player.get("profile_id"))["seed"]
+                for player in game["players"].values()
+                if player["kind"] == "ai"
+            }
+            seed = secrets.randbits(32)
+            while seed in previous_seeds:
+                seed = (seed + 1) % 2**32
+            for player in game["players"].values():
+                if player["kind"] == "ai":
+                    player["config"] = {
+                        **effective_ai_config(player["config"], player.get("profile_id")),
+                        "seed": seed,
+                    }
+                    player["variant_id"] = ai_variant_id(player["config"])
             game.update(
                 id=uuid4().hex,
                 state=new_game(game["ruleset"]).to_dict(),
@@ -607,6 +646,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 created_at=now(),
                 ended_at=None,
                 recorded_result=None,
+                seed=seed,
             )
             store.create_game(game)
             return response(game)
@@ -946,43 +986,107 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def models():
         return models_list()
 
+    def unfinished_model_games(model_id: str) -> list[dict]:
+        return [
+            game
+            for game in store.list_games()
+            if not recorded_outcome(game)["winner"]
+            and any(
+                player.get("config", {}).get("model_id") == model_id
+                for player in game["players"].values()
+            )
+        ]
+
+    def running_model_tournaments(model_id: str) -> list[dict]:
+        return [
+            {key: tournament[key] for key in ("id", "name", "status")}
+            for tournament in tournaments.list()
+            if tournament["status"] == "running"
+            and tournaments.alive(tournament)
+            and any(
+                player.get("config", {}).get("model_id") == model_id
+                for player in tournament["config"]["players"]
+            )
+        ]
+
+    def model_usage_token(model_id: str, games: list[dict]) -> str:
+        versions = sorted((game["id"], game["version"]) for game in games)
+        return hashlib.sha256(json.dumps([model_id, versions]).encode()).hexdigest()
+
+    @app.get("/api/models/{model_id}/usage")
+    def model_usage(model_id: str):
+        with catalog_lock:
+            model_info(model_id)
+            games = unfinished_model_games(model_id)
+            return {
+                "model_id": model_id,
+                "usage_token": model_usage_token(model_id, games),
+                "unfinished_games": [
+                    {
+                        "id": game["id"],
+                        "version": game["version"],
+                        "ruleset": game["ruleset"],
+                        "created_at": game["created_at"],
+                        "total_moves": len(game["moves"]),
+                        "players": {
+                            side: {"name": player["name"]}
+                            for side, player in game["players"].items()
+                        },
+                    }
+                    for game in games
+                ],
+                "running_tournaments": running_model_tournaments(model_id),
+            }
+
     @app.delete("/api/models/{model_id}")
-    def delete_model(model_id: str):
+    def delete_model(
+        model_id: str,
+        discard_unfinished: bool = False,
+        usage_token: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+    ):
         with catalog_lock:
             model = model_info(model_id)
-            if any(
-                tournament["status"] == "running"
-                and tournaments.alive(tournament)
-                and any(
-                    player.get("config", {}).get("model_id") == model_id
-                    for player in tournament["config"]["players"]
-                )
-                for tournament in tournaments.list()
-            ):
+            if running_model_tournaments(model_id):
                 fail(
                     "This model is used by a running tournament. Stop it before deleting the model.",
                     409,
                 )
-            if any(
-                not recorded_outcome(game)["winner"]
-                and any(
-                    player.get("config", {}).get("model_id") == model_id
-                    for player in game["players"].values()
-                )
-                for game in store.list_games()
-            ):
+            games = unfinished_model_games(model_id)
+            if games and not discard_unfinished:
                 fail(
-                    "This model is used by an unfinished game. Finish that game before deleting it.",
+                    "This model is used by an unfinished game saved on this server. "
+                    "Resume it from the Hall of records, remove it from history, "
+                    "or explicitly discard its unfinished games when deleting this model.",
                     409,
                 )
-            store.archive_model(
-                {key: model[key] for key in ("id", "name", "ruleset", "version") if key in model}
+            if discard_unfinished and usage_token is not None:
+                expected = model_usage_token(model_id, games)
+                if not secrets.compare_digest(usage_token, expected):
+                    fail(
+                        "The unfinished games changed. Review this model's usage again before deleting it.",
+                        409,
+                    )
+            archive = {
+                key: model[key] for key in ("id", "name", "ruleset", "version") if key in model
+            }
+            discarded = (
+                {game["id"]: game["version"] for game in games} if discard_unfinished else {}
             )
             try:
-                registry().delete(model_id)
+                with store.discard_games(discarded, archived_model=archive):
+                    registry().delete(model_id)
+            except ConflictError as exc:
+                fail(str(exc), 409)
             except ValueError as exc:
                 fail(str(exc), 404)
-            return {"deleted": True, "id": model_id}
+            except OSError:
+                fail(
+                    "The model files could not be removed. No unfinished games were discarded.", 500
+                )
+            result: dict[str, Any] = {"deleted": True, "id": model_id}
+            if discard_unfinished:
+                result["discarded_game_ids"] = list(discarded)
+            return result
 
     @app.post("/api/models/import", status_code=201)
     async def import_model(file: UploadFile = File(...)):

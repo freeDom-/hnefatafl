@@ -59,6 +59,19 @@ For reproducible algorithm comparisons, use fixed seeds and sufficient time that
 the requested simulation/depth budget completes. A tight wall-clock budget can
 produce different completed search depths on different machines.
 
+Browser games use fresh random base seeds by default. The server stores the seed
+and derives each decision's seed as `(base + ply) % 2**32`. Restart gets a new seed.
+For an explicit repeatable API game, supply a top-level `seed` in `POST /api/games`;
+the per-side search configuration no longer controls a new game's base seed.
+Earlier saved games keep their original behavior. Training and tournament runs
+retain their explicit reproducibility configuration and per-game derived seeds.
+
+New-game model suggestions rank compatible models by their comparable baseline
+evaluation results, counting unfinished games as zero points. This uses saved
+measurements, not training loss or a blanket claim of model strength. The workshop
+shows the training seed separately from evaluation/game seeds. See
+[PERSONALIZATION.md](PERSONALIZATION.md) for the ranking and fallback rules.
+
 ## Tournaments
 
 ```sh

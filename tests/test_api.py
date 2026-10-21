@@ -483,6 +483,7 @@ def test_statistics_rates_include_draws_and_distinguish_model_identities(client,
             ruleset="brandubh",
             mode="human-ai",
             human_side="defenders",
+            seed=0,
             players={
                 "defenders": {"player_id": profile["id"]},
                 "attackers": {
@@ -713,7 +714,11 @@ def test_ai_statistics_use_effective_parameter_variants_and_stable_defaults(clie
     variants = []
     for config in configurations:
         game = create(
-            client, ruleset="brandubh", mode="human-ai", players={"attackers": {"config": config}}
+            client,
+            ruleset="brandubh",
+            mode="human-ai",
+            seed=config.get("seed", 0),
+            players={"attackers": {"config": config}},
         )
         player = game["players"]["attackers"]
         assert player["profile_id"] == "alpha_beta" and player["profile_name"] == "Jarl"
@@ -828,6 +833,7 @@ def test_mcts_parameter_variants_keep_separate_records(client, parameter, value)
             client,
             ruleset="brandubh",
             mode="human-ai",
+            seed=configuration.get("seed", 0),
             players={"attackers": {"config": configuration}},
         )
         saved = client.app.state.store.get_game(game["id"])

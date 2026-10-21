@@ -8,6 +8,7 @@ import Training from './Training';
 import Tournaments from './Tournaments';
 import { AppearanceSettings } from './Appearance';
 import { sortRulesets } from './sortRulesets';
+import { selectStrongestModel } from './modelSelection';
 
 type Tab = 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -131,12 +132,24 @@ export default function App() {
     );
   };
   const loadGame = (saved: Game) => {
+    currentGame.current = saved;
     setGame(saved);
     setSelected(null);
     setPaused(true);
     setTab('play');
     setError('');
   };
+  const removeGames = useCallback((ids: string[]) => {
+    if (!currentGame.current || !ids.includes(currentGame.current.id)) return;
+    // Invalidate the ref before any in-flight move can restore the removed game.
+    currentGame.current = null;
+    setGame(null);
+    setSelected(null);
+    setPaused(true);
+    setRulesOpen(false);
+    setError('');
+    localStorage.removeItem('hnefatafl-game');
+  }, []);
   const activeRules = rulesets.find((r) => r.id === game?.ruleset);
 
   return (
@@ -278,6 +291,12 @@ export default function App() {
                       <span>Move</span>
                       <strong>{game.cursor}</strong>
                     </div>
+                    {game.seed !== undefined && (
+                      <div className="detail-row">
+                        <span>Random seed</span>
+                        <strong>{game.seed}</strong>
+                      </div>
+                    )}
                   </section>
                   <section className="panel armies">
                     <p className="eyebrow">THE TWO SIDES</p>
@@ -516,6 +535,7 @@ export default function App() {
             onError={setError}
             players={players}
             refreshPlayers={() => void refreshOptions().catch((e) => setError(e.message))}
+            onGameDeleted={(id) => removeGames([id])}
           />
         )}
         {tab === 'tournaments' && (
@@ -526,6 +546,7 @@ export default function App() {
             rulesets={rulesets}
             models={models}
             onModelsChanged={() => void refreshOptions().catch((e) => setError(e.message))}
+            onGamesDeleted={removeGames}
             onError={setError}
           />
         )}
@@ -544,6 +565,7 @@ export default function App() {
           initialRuleset={game?.ruleset}
           onClose={() => setNewOpen(false)}
           onCreated={(next) => {
+            currentGame.current = next;
             setGame(next);
             setSelected(null);
             setPaused(false);
@@ -620,23 +642,38 @@ function AIFields({
   models: Model[];
   ruleset: string;
 }) {
-  const update = (key: string, input: string | number) =>
+  const update = (key: string, input: string | number) => {
+    const config = withoutSeed({ ...value.config, [key]: input });
+    if (key === 'algorithm') {
+      delete config.model_id;
+      delete config.evaluation;
+      if (input === 'neural')
+        config.model_id = selectStrongestModel(models, ruleset)?.model.id ?? '';
+    }
     onChange({
       ...value,
       ...(key === 'algorithm' ? { profile_id: undefined, name: 'Computer' } : {}),
-      config: { ...value.config, [key]: input },
+      config,
     });
+  };
   const selectProfile = (id: string) => {
     const profile = profiles.find((p) => p.id === id);
+    if (!profile) {
+      onChange({ ...value, profile_id: undefined });
+      return;
+    }
     onChange({
       ...value,
       name: profile?.name ?? 'Computer',
       profile_id: id,
-      config: {
-        ...value.config,
+      config: withoutSeed({
+        time_limit: 1,
         ...profile?.parameters,
         algorithm: profile?.algorithm ?? 'baseline',
-      },
+        ...(profile?.algorithm === 'neural'
+          ? { model_id: selectStrongestModel(models, ruleset)?.model.id ?? '' }
+          : {}),
+      }),
     });
   };
   return (
@@ -731,20 +768,12 @@ function AIFields({
             </label>
           </>
         )}
-        <label>
-          Random seed
-          <input
-            type="number"
-            min="0"
-            value={Number(value.config.seed ?? 42)}
-            onChange={(e) => update('seed', Number(e.target.value))}
-          />
-        </label>
       </div>
       {value.config.algorithm === 'neural' && (
         <label>
           Trained model
           <select
+            aria-label={`${titles[side]} trained model`}
             value={String(value.config.model_id ?? '')}
             required
             onChange={(e) => update('model_id', e.target.value)}
@@ -767,7 +796,30 @@ function AIFields({
   );
 }
 
-function NewGame({
+function withoutSeed(config: PlayerConfig['config']) {
+  const next = { ...config };
+  delete next.seed;
+  return next;
+}
+
+function defaultAI(models: Model[], ruleset: string, profiles: AIProfile[]): PlayerConfig {
+  const recommendation = selectStrongestModel(models, ruleset);
+  const algorithm = recommendation ? 'neural' : 'baseline';
+  const profile = profiles.find((candidate) => candidate.algorithm === algorithm);
+  return {
+    name: recommendation?.model.name ?? profile?.name ?? 'Computer',
+    kind: 'ai',
+    profile_id: profile?.id ?? algorithm,
+    config: withoutSeed({
+      time_limit: 1,
+      ...profile?.parameters,
+      algorithm,
+      ...(recommendation ? { model_id: recommendation.model.id } : {}),
+    }),
+  };
+}
+
+export function NewGame({
   rulesets,
   profiles,
   models,
@@ -787,20 +839,55 @@ function NewGame({
   const [ruleset, setRuleset] = useState(initialRuleset ?? 'tablut');
   const [mode, setMode] = useState<Mode>('human-human');
   const [humanSide, setHumanSide] = useState<Side>('defenders');
+  const [fixedSeed, setFixedSeed] = useState(false);
+  const [seed, setSeed] = useState(0);
   const [people, setPeople] = useState<Record<Side, PlayerConfig>>({
     attackers: {
       name: 'Attacker',
       kind: 'human',
-      config: { algorithm: 'baseline', time_limit: 1, seed: 42 },
+      config: {},
     },
     defenders: {
       name: 'Defender',
       kind: 'human',
-      config: { algorithm: 'baseline', time_limit: 1, seed: 43 },
+      config: {},
     },
   });
+  const [computers, setComputers] = useState<Record<Side, PlayerConfig>>(() => ({
+    attackers: defaultAI(models, ruleset, profiles),
+    defenders: defaultAI(models, ruleset, profiles),
+  }));
+  const [customAI, setCustomAI] = useState<Record<Side, boolean>>({
+    attackers: false,
+    defenders: false,
+  });
+  const priorRuleset = useRef(ruleset);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const recommendation = selectStrongestModel(models, ruleset);
+  useEffect(() => {
+    const changedRuleset = priorRuleset.current !== ruleset;
+    priorRuleset.current = ruleset;
+    const reset: Side[] = (['attackers', 'defenders'] as Side[]).filter((side) => {
+      const configuration = computers[side].config;
+      const removedModel =
+        configuration.algorithm === 'neural' &&
+        !models.some((model) => model.id === configuration.model_id && model.ruleset === ruleset);
+      return changedRuleset || !customAI[side] || removedModel;
+    });
+    if (!reset.length) return;
+    const nextDefault = defaultAI(models, ruleset, profiles);
+    setComputers((previous) => ({
+      ...previous,
+      ...Object.fromEntries(reset.map((side) => [side, nextDefault])),
+    }));
+    if (changedRuleset || reset.some((side) => customAI[side]))
+      setCustomAI((previous) => ({
+        ...previous,
+        ...Object.fromEntries(reset.map((side) => [side, false])),
+      }));
+    // Only option changes reset automatic choices; editing a budget keeps it.
+  }, [ruleset, models, profiles]);
   useEffect(() => {
     if (
       !Object.values(people).some(
@@ -825,17 +912,23 @@ function NewGame({
     setBusy(true);
     setError('');
     const configured = Object.fromEntries(
-      (['attackers', 'defenders'] as Side[]).map((side) => [
-        side,
-        {
-          ...people[side],
-          kind: mode === 'ai-ai' || (mode === 'human-ai' && side !== humanSide) ? 'ai' : 'human',
-        },
-      ]),
+      (['attackers', 'defenders'] as Side[]).map((side) => {
+        const ai = mode === 'ai-ai' || (mode === 'human-ai' && side !== humanSide);
+        return [
+          side,
+          ai ? { ...computers[side], config: withoutSeed(computers[side].config) } : people[side],
+        ];
+      }),
     );
     try {
       onCreated(
-        await api<Game>('/games', { ruleset, mode, human_side: humanSide, players: configured }),
+        await api<Game>('/games', {
+          ruleset,
+          mode,
+          human_side: humanSide,
+          players: configured,
+          ...(fixedSeed ? { seed } : {}),
+        }),
       );
     } catch (e) {
       setError((e as Error).message);
@@ -910,8 +1003,11 @@ function NewGame({
                   {ai ? (
                     <AIFields
                       side={side}
-                      value={people[side]}
-                      onChange={(value) => setPeople((p) => ({ ...p, [side]: value }))}
+                      value={computers[side]}
+                      onChange={(value) => {
+                        setComputers((previous) => ({ ...previous, [side]: value }));
+                        setCustomAI((previous) => ({ ...previous, [side]: true }));
+                      }}
                       profiles={profiles}
                       models={models}
                       ruleset={ruleset}
@@ -969,6 +1065,52 @@ function NewGame({
               );
             })}
           </div>
+          {recommendation &&
+            mode !== 'human-human' &&
+            (['attackers', 'defenders'] as Side[]).some(
+              (side) =>
+                (mode === 'ai-ai' || side !== humanSide) &&
+                !customAI[side] &&
+                computers[side].config.model_id === recommendation.model.id,
+            ) && (
+              <p className="subtle model-recommendation">
+                {recommendation.basis === 'evaluation'
+                  ? `Best measured model selected: ${recommendation.model.name} (${((recommendation.score ?? 0) * 100).toFixed(1)}% across ${recommendation.games} baseline games).`
+                  : `No comparable evaluation; latest model selected: ${recommendation.model.name}.`}{' '}
+                You can choose another opponent or adjust its settings.
+              </p>
+            )}
+          <p className="subtle game-seed-note">
+            A fresh random seed is generated for every new game and restart. The seed is saved with
+            the game for inspection.
+          </p>
+          <label className="inline-label">
+            <input
+              type="checkbox"
+              checked={fixedSeed}
+              onChange={(event) => setFixedSeed(event.target.checked)}
+            />
+            Use a fixed seed
+          </label>
+          {fixedSeed && (
+            <label>
+              Game seed
+              <input
+                type="number"
+                aria-label="Game seed"
+                aria-describedby="fixed-seed-help"
+                min={0}
+                max={4294967295}
+                step={1}
+                required
+                value={seed}
+                onChange={(event) => setSeed(Number(event.target.value))}
+              />
+              <small id="fixed-seed-help">
+                Use the same seed and settings to repeat an experiment. Restart uses a new seed.
+              </small>
+            </label>
+          )}
         </fieldset>
         {error && (
           <p className="form-error" role="alert">

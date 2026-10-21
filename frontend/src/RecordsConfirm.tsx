@@ -7,6 +7,7 @@ export default function RecordsConfirm({
   onConfirm,
   busy,
   error,
+  confirmDisabled = false,
 }: {
   title: string;
   children: React.ReactNode;
@@ -14,6 +15,7 @@ export default function RecordsConfirm({
   onConfirm: () => void;
   busy: boolean;
   error?: string;
+  confirmDisabled?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -53,7 +55,12 @@ export default function RecordsConfirm({
         <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
           Keep it
         </button>
-        <button type="button" className="button danger" disabled={busy} onClick={onConfirm}>
+        <button
+          type="button"
+          className="button danger"
+          disabled={busy || confirmDisabled}
+          onClick={onConfirm}
+        >
           {busy ? 'Deleting…' : 'Delete'}
         </button>
       </div>
