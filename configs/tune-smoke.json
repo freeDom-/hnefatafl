@@ -1,0 +1,16 @@
+{
+  "output_dir": "data/tuning-smoke",
+  "study_name": "brandubh-smoke",
+  "trials": 2,
+  "seed": 0,
+  "training": {
+    "preset": "smoke",
+    "ruleset": "brandubh",
+    "device": "auto",
+    "registry_dir": "data/models"
+  },
+  "search_space": {
+    "learning_rate": {"type": "float", "low": 0.0001, "high": 0.01, "log": true},
+    "exploration": {"type": "float", "low": 0.5, "high": 2.0}
+  }
+}

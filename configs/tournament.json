@@ -1,0 +1,10 @@
+{
+  "players": [
+    {"algorithm": "baseline", "time_limit": 1.0},
+    {"algorithm": "alpha_beta", "depth": 2, "time_limit": 1.0}
+  ],
+  "rulesets": ["brandubh", "tablut", "copenhagen"],
+  "games": 2,
+  "max_plies": 300,
+  "seed": 3
+}

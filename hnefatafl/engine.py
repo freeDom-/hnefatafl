@@ -37,8 +37,18 @@ RULESETS = {
         "brandubh", "Brandubh", 7, "attackers", "corner", "sandwich", True, False, True
     ),
     "copenhagen": Ruleset(
-        "copenhagen", "Copenhagen Hnefatafl", 11, "attackers", "corner", "surround",
-        True, True, True, shieldwall=True, encirclement=True, edge_fort=True,
+        "copenhagen",
+        "Copenhagen Hnefatafl",
+        11,
+        "attackers",
+        "corner",
+        "surround",
+        True,
+        True,
+        True,
+        shieldwall=True,
+        encirclement=True,
+        edge_fort=True,
         repetition="defenders_lose",
     ),
 }
@@ -66,7 +76,9 @@ class State:
     def __post_init__(self) -> None:
         if self.ruleset not in RULESETS:
             raise ValueError("Unknown ruleset")
-        if len(self.board) != self.size * self.size or any(p not in ".ADK" or len(p) != 1 for p in self.board):
+        if len(self.board) != self.size * self.size or any(
+            p not in ".ADK" or len(p) != 1 for p in self.board
+        ):
             raise ValueError("Invalid board")
         if self.turn not in ("attackers", "defenders"):
             raise ValueError("Invalid player to move")
@@ -84,8 +96,12 @@ class State:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "ruleset": self.ruleset, "board": list(self.board), "turn": self.turn,
-            "ply": self.ply, "winner": self.winner, "reason": self.reason,
+            "ruleset": self.ruleset,
+            "board": list(self.board),
+            "turn": self.turn,
+            "ply": self.ply,
+            "winner": self.winner,
+            "reason": self.reason,
             "history": list(self.history),
         }
 
@@ -95,12 +111,18 @@ class State:
             raise ValueError("State must be an object")
         try:
             history = data.get("history", [])
-            if not isinstance(history, (list, tuple)) or any(not isinstance(k, str) for k in history):
+            if not isinstance(history, (list, tuple)) or any(
+                not isinstance(k, str) for k in history
+            ):
                 raise ValueError("Invalid position history")
             return cls(
-                ruleset=data["ruleset"], board=tuple(data["board"]),
-                turn=data.get("turn", "attackers"), ply=data.get("ply", 0),
-                winner=data.get("winner"), reason=data.get("reason"), history=tuple(history),
+                ruleset=data["ruleset"],
+                board=tuple(data["board"]),
+                turn=data.get("turn", "attackers"),
+                ply=data.get("ply", 0),
+                winner=data.get("winner"),
+                reason=data.get("reason"),
+                history=tuple(history),
             )
         except (KeyError, TypeError) as exc:
             raise ValueError("Invalid serialized state") from exc
@@ -124,7 +146,11 @@ def _corners(size: int) -> frozenset[int]:
 
 def _neighbors(index: int, size: int) -> list[int]:
     row, col = divmod(index, size)
-    return [r * size + c for r, c in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)) if 0 <= r < size and 0 <= c < size]
+    return [
+        r * size + c
+        for r, c in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1))
+        if 0 <= r < size and 0 <= c < size
+    ]
 
 
 def _edge(index: int, size: int) -> bool:
@@ -195,13 +221,20 @@ def _piece_moves(state: State, source: int) -> list[Move]:
 def legal_moves(state: State) -> list[Move]:
     if state.winner is not None:
         return []
-    return [move for source, piece in enumerate(state.board) if _side(piece) == state.turn for move in _piece_moves(state, source)]
+    return [
+        move
+        for source, piece in enumerate(state.board)
+        if _side(piece) == state.turn
+        for move in _piece_moves(state, source)
+    ]
 
 
 def _valid_move(state: State, move: Move) -> bool:
     if not isinstance(move, Move) or type(move.source) is not int or type(move.target) is not int:
         return False
-    if state.winner is not None or not (0 <= move.source < len(state.board) and 0 <= move.target < len(state.board)):
+    if state.winner is not None or not (
+        0 <= move.source < len(state.board) and 0 <= move.target < len(state.board)
+    ):
         return False
     if _side(state.board[move.source]) != state.turn:
         return False
@@ -258,8 +291,10 @@ def _shieldwall_captures(board: list[str], target: int, side: str, rules: Rulese
             if end - start < 2 or start == 0 or end == n:
                 continue
             left, right = edge[start - 1], edge[end]
+
             def bracket(index: int) -> bool:
                 return _side(board[index]) == side or (index in _corners(n) and board[index] == ".")
+
             back = inner[start:end]
             if bracket(left) and bracket(right) and all(_side(board[x]) == side for x in back):
                 if target == -1 or target in {left, right, *back}:
@@ -329,9 +364,13 @@ def _edge_fort(board: list[str], n: int) -> bool:
                 r1, c1, r2, c2 = row + dr, col + dc, row - dr, col - dc
                 if 0 <= r1 < n and 0 <= c1 < n and 0 <= r2 < n and 0 <= c2 < n:
                     a, b = r1 * n + c1, r2 * n + c2
-                    if (a in exterior and (b in exterior or b in hostile)) or (b in exterior and a in hostile):
+                    if (a in exterior and (b in exterior or b in hostile)) or (
+                        b in exterior and a in hostile
+                    ):
                         removable.add(cell)
-        saturated = ["A" if i in exterior and i not in hostile else piece for i, piece in enumerate(working)]
+        saturated = [
+            "A" if i in exterior and i not in hostile else piece for i, piece in enumerate(working)
+        ]
         removable |= _shieldwall_captures(saturated, -1, "attackers", RULESETS["copenhagen"])
         if not removable:
             return True
@@ -357,12 +396,18 @@ def apply_move(state: State, move: Move) -> State:
     if winner is None and rules.king_capture == "surround" and state.turn == "attackers":
         king = board.index("K")
         adjacent = _neighbors(king, n)
-        if len(adjacent) == 4 and move.target in adjacent and all(board[x] == "A" or (x == n * n // 2 and board[x] == ".") for x in adjacent):
+        if (
+            len(adjacent) == 4
+            and move.target in adjacent
+            and all(board[x] == "A" or (x == n * n // 2 and board[x] == ".") for x in adjacent)
+        ):
             board[king] = "."
             winner, reason = "attackers", "king_captured"
     if winner is None:
         king = board.index("K")
-        if (rules.escape == "edge" and _edge(king, n)) or (rules.escape == "corner" and king in _corners(n)):
+        if (rules.escape == "edge" and _edge(king, n)) or (
+            rules.escape == "corner" and king in _corners(n)
+        ):
             winner, reason = "defenders", "king_escaped"
         elif rules.encirclement and _encircled(board, n):
             winner, reason = "attackers", "encirclement"

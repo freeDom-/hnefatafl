@@ -1,6 +1,10 @@
 PYTHON := .venv/bin/python
+export UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
+export npm_config_cache ?= $(CURDIR)/.cache/npm
+export OMP_NUM_THREADS ?= 2
+export MKL_NUM_THREADS ?= 2
 
-.PHONY: install foundation test lint typecheck build check serve
+.PHONY: install foundation test lint format typecheck build check serve
 install:
 	uv sync --frozen --all-extras
 	npm --prefix frontend ci
@@ -14,6 +18,10 @@ test:
 
 lint:
 	.venv/bin/ruff check hnefatafl tests
+	.venv/bin/ruff format --check hnefatafl tests
+
+format:
+	.venv/bin/ruff format hnefatafl tests
 
 typecheck:
 	.venv/bin/mypy hnefatafl

@@ -1,0 +1,9 @@
+{
+  "preset": "smoke",
+  "ruleset": "brandubh",
+  "device": "auto",
+  "seed": 0,
+  "output_dir": "data/training-smoke",
+  "registry_dir": "data/models",
+  "model_name": "Brandubh functional smoke model"
+}
