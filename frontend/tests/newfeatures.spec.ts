@@ -86,10 +86,13 @@ test('player selection/deletion preserves records and AI variants expose their p
   await expect(rows).toHaveCount(2);
   await expect(rows.filter({ hasText: 'depth 1' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'depth 2' })).toHaveCount(1);
-  await rows.filter({ hasText: 'depth 2' }).locator('summary').click();
-  await expect(
-    rows.filter({ hasText: 'depth 2' }).getByText('Search depth', { exact: true }),
-  ).toBeVisible();
+  await rows
+    .filter({ hasText: 'depth 2' })
+    .getByRole('button', { name: `Show AI parameters for ${aiName}`, exact: true })
+    .click();
+  const parameters = page.getByRole('dialog', { name: `${aiName} AI parameters`, exact: true });
+  await expect(parameters.getByText('Search depth', { exact: true })).toBeVisible();
+  await parameters.getByRole('button', { name: 'Close AI parameters', exact: true }).click();
   const records = page.locator('.record-entry').filter({ hasText: aiName });
   await expect(records).toHaveCount(2);
   await records.first().getByText('Attacker AI parameters', { exact: false }).click();

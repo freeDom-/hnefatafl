@@ -12,7 +12,7 @@ using real self-play learning.
 - Pass-and-play, Human vs AI and AI vs AI; configurable opponents, side selection,
   playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
 - Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
-- Tournament setup, live progress, saved standings and match replay, with collection cleanup.
+- Round-robin tournaments for two to four players, live progress, standings and match replay.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
 - Separate records and inspectable settings for each effective AI parameter configuration.
 - Light/dark/device appearance, independent board themes, Viking figures and carved-wood tokens.
@@ -60,6 +60,10 @@ The page also contains profiles and replay. Viewing
 an earlier move preserves the recorded result and future moves; making a different
 move branches the local history. Restart creates a new game, preserving the old one.
 
+Both statistics tables have sortable column headers. Search **Filter players** in
+the performance table or **Filter recorded games** in history independently.
+AI rows show a compact summary; the button beside their name opens the full parameters.
+
 New-game human selectors list existing players or let you enter a new name. Delete
 a player in **Hall of records** to remove it from future selections while retaining
 its historical identity, results and replay. AI rows and recorded games have
@@ -70,6 +74,8 @@ Open **Appearance** in the header to choose light/dark/device mode, Classic ston
 Viking figures or Carved wood tokens, and Golden oak, Old walnut or Fjord slate boards.
 Choices are independent and saved in this browser. See
 [PERSONALIZATION.md](docs/PERSONALIZATION.md) for settings and theme extension points.
+Fresh browsers default to Carved wood tokens on an Old walnut board; saved choices
+are preserved.
 
 New games and restarts receive fresh server-generated random seeds. The saved game
 shows its seed; a fixed seed remains an explicit option for reproducible comparisons.
@@ -82,9 +88,10 @@ uses sandwich king capture and any-edge escape. Other Tablut reconstructions dif
 
 ## Run an AI tournament
 
-Open **Tournaments** to compare two configured opponents across one or more
-battlefields. Each pair of games swaps their sides. Choose the number of games,
-move limit and shared seed, then follow progress and inspect standings, results
+Open **Tournaments** to compare two to four configured opponents across one or more
+battlefields. Every pair plays the chosen even number of games and swaps sides.
+Choose the number of games per pairing on each battlefield,
+a move limit and shared seed, then follow progress and inspect standings, results
 by battlefield and individual game replays. Saved tournaments remain available
 after reloading or restarting the server. Stop a running tournament to retain its
 finished matches, or delete an inactive tournament after confirmation.

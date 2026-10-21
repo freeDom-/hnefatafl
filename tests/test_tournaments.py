@@ -40,8 +40,13 @@ def launch(client, config=None):
     assert response.status_code == 201, response.text
     record = response.json()
     assert record["status"] == "running"
-    assert record["progress"]["total_games"] == record["config"]["games"] * len(
-        record["config"]["rulesets"]
+    player_count = len(record["config"]["players"])
+    assert record["progress"]["total_games"] == (
+        record["config"]["games"]
+        * len(record["config"]["rulesets"])
+        * player_count
+        * (player_count - 1)
+        // 2
     )
     return record
 

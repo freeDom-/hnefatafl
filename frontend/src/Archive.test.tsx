@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Archive from './Archive';
-import type { Game, Ruleset } from './types';
+import type { Game, Ruleset, StatRow } from './types';
 
 const rulesets: Ruleset[] = [
   { id: 'brandubh', name: 'Brandubh', size: 7, description: '', rules_markdown: '' },
@@ -209,5 +209,180 @@ describe('statistics and saved game management', () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('saved-one'));
     await act(async () => finishLoad(await json(game())));
     expect(onLoad).not.toHaveBeenCalled();
+  });
+});
+
+describe('interactive statistics', () => {
+  const seer: StatRow = {
+    id: 'seer',
+    name: 'Hugin',
+    kind: 'ai',
+    profile_name: 'Seer',
+    profile_id: 'mcts',
+    games: 10,
+    wins: 6,
+    draws: 1,
+    losses: 3,
+    win_rate: 0.6,
+    draw_rate: 0.1,
+    loss_rate: 0.3,
+    average_game_length: 42,
+    config: { algorithm: 'mcts', iterations: 100, time_limit: 5, seed: 41 },
+    variant_id: 'ai:seer-configuration',
+  };
+  const rows: StatRow[] = [
+    seer,
+    {
+      id: 'astrid',
+      name: 'Astrid',
+      kind: 'human',
+      games: 2,
+      wins: 1,
+      losses: 1,
+      win_rate: 0.5,
+      loss_rate: 0.5,
+      average_game_length: 9,
+    },
+    {
+      id: 'erik',
+      name: 'Erik',
+      kind: 'human',
+      games: 8,
+      wins: 2,
+      losses: 6,
+      win_rate: 0.25,
+      loss_rate: 0.75,
+      average_game_length: 18,
+    },
+  ];
+  const boards: Ruleset[] = [
+    { id: 'copenhagen', name: 'Copenhagen', size: 11, description: '', rules_markdown: '' },
+    { id: 'tablut', name: 'Tablut', size: 9, description: '', rules_markdown: '' },
+    ...rulesets,
+  ];
+  const showStatistics = () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) =>
+        json(
+          path.startsWith('/api/games')
+            ? [
+                game('astrid-game'),
+                game('hugin-game', {
+                  players: {
+                    attackers: {
+                      name: 'Hugin',
+                      kind: 'ai',
+                      profile_name: 'Seer',
+                      config: seer.config!,
+                    },
+                    defenders: { name: 'Erik', kind: 'human', config: {} },
+                  },
+                }),
+              ]
+            : {
+                ...stats(2),
+                by_player: rows,
+                by_ruleset: [
+                  { ruleset: 'copenhagen', games: 10 },
+                  { ruleset: 'tablut', games: 2 },
+                  { ruleset: 'brandubh', games: 8 },
+                ],
+              },
+        ),
+      ),
+    );
+    return render(
+      <Archive
+        rulesets={boards}
+        players={[]}
+        onLoad={vi.fn()}
+        onError={noError}
+        refreshPlayers={vi.fn()}
+      />,
+    );
+  };
+  const playerNames = (table: HTMLElement) =>
+    Array.from(table.querySelectorAll('tbody .stat-player-name')).map((name) => name.textContent);
+
+  it('preserves board-size order initially and sorts all headers in both directions', async () => {
+    showStatistics();
+    const battlefield = await screen.findByRole('table', { name: 'Results by battlefield' });
+    expect(
+      Array.from(battlefield.querySelectorAll('tbody th')).map((cell) => cell.textContent),
+    ).toEqual(['Brandubh', 'Tablut', 'Copenhagen']);
+    const performance = screen.getByRole('table', { name: 'Player & AI performance' });
+    const played = within(performance).getByRole('button', { name: 'Sort by Played' });
+    fireEvent.click(played);
+    expect(playerNames(performance)).toEqual(['Astrid', 'Erik', 'Hugin']);
+    expect(played.closest('th')).toHaveAttribute('aria-sort', 'ascending');
+    fireEvent.click(played);
+    expect(playerNames(performance)).toEqual(['Hugin', 'Erik', 'Astrid']);
+    for (const table of [battlefield, performance]) {
+      for (const button of table.querySelectorAll('thead button')) {
+        const previous = button.closest('th')?.getAttribute('aria-sort');
+        fireEvent.click(button);
+        expect(button.closest('th')).toHaveAttribute(
+          'aria-sort',
+          previous === 'ascending' ? 'descending' : 'ascending',
+        );
+        fireEvent.click(button);
+        expect(button.closest('th')).toHaveAttribute(
+          'aria-sort',
+          previous === 'ascending' ? 'ascending' : 'descending',
+        );
+      }
+    }
+  });
+
+  it('filters player metadata and either recorded participant independently of the totals', async () => {
+    const { container } = showStatistics();
+    const performance = await screen.findByRole('table', { name: 'Player & AI performance' });
+    fireEvent.change(screen.getByLabelText('Filter players'), { target: { value: '  SEER  ' } });
+    expect(playerNames(performance)).toEqual(['Hugin']);
+    expect(container.querySelectorAll('.record-entry')).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText('Filter recorded games'), {
+      target: { value: '  erIK ' },
+    });
+    expect(container.querySelectorAll('.record-entry')).toHaveLength(1);
+    expect(container.querySelector('.record-entry')).toHaveAttribute('data-game-id', 'hugin-game');
+    expect(playerNames(performance)).toEqual(['Hugin']);
+    expect(screen.getByRole('region', { name: 'Statistics' })).toHaveTextContent('2 completed');
+    fireEvent.change(screen.getByLabelText('Filter players'), { target: { value: 'Nobody' } });
+    expect(screen.getByText('No players match this filter.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear player filter' }));
+    expect(playerNames(performance)).toHaveLength(3);
+    fireEvent.change(screen.getByLabelText('Filter recorded games'), {
+      target: { value: 'Nobody' },
+    });
+    expect(screen.getByText('No recorded games match this name.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear recorded game filter' }));
+    expect(container.querySelectorAll('.record-entry')).toHaveLength(2);
+  });
+
+  it('keeps AI statistics in one compact row with full parameters in a dismissible dialog', async () => {
+    showStatistics();
+    const table = await screen.findByRole('table', { name: 'Player & AI performance' });
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(3);
+    const toggle = within(table).getByRole('button', { name: 'Show AI parameters for Hugin' });
+    const row = toggle.closest('tr')!;
+    expect(row.querySelector('details')).toBeNull();
+    expect(row).toHaveTextContent(
+      'Computer · Seer · Monte Carlo tree search · 100 iterations · 5s',
+    );
+    expect(
+      toggle.compareDocumentPosition(row.querySelector('.stat-player-name')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    toggle.focus();
+    fireEvent.click(toggle);
+    const dialog = screen.getByRole('dialog', { name: 'Hugin AI parameters' });
+    expect(within(dialog).getByText('Random seed')).toBeVisible();
+    expect(dialog).toHaveTextContent('41');
+    expect(dialog).toHaveTextContent('Configuration ai:seer-co');
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(3);
   });
 });

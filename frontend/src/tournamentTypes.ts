@@ -23,6 +23,7 @@ export interface TournamentGame {
   plies: number;
   moves: Move[];
   attacker_player: number;
+  defender_player?: number;
   average_decision_time: number;
   total_decision_time: number;
 }

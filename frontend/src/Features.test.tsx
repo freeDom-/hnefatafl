@@ -94,7 +94,7 @@ describe('records and training controls', () => {
       <Archive rulesets={rules} players={[]} onLoad={noop} onError={noop} refreshPlayers={noop} />,
     );
     await screen.findByRole('button', { name: /Tablut.*Jarl vs Astrid/ });
-    expect(container.querySelectorAll('.record-parameters')).toHaveLength(3);
+    expect(container.querySelectorAll('.record-parameters')).toHaveLength(1);
     const aiRows = screen.getByRole('table').querySelectorAll('tbody tr');
     expect(
       within(aiRows[0] as HTMLElement).getByText('depth 2', { exact: false }),
@@ -102,6 +102,14 @@ describe('records and training controls', () => {
     expect(
       within(aiRows[1] as HTMLElement).getByText('depth 4', { exact: false }),
     ).toBeInTheDocument();
+    expect(aiRows[0].querySelector('details')).toBeNull();
+    fireEvent.click(
+      within(aiRows[0] as HTMLElement).getByRole('button', { name: 'Show AI parameters for Jarl' }),
+    );
+    const parameterDialog = screen.getByRole('dialog', { name: 'Jarl AI parameters' });
+    expect(parameterDialog).toHaveTextContent('Search depth');
+    expect(parameterDialog).toHaveTextContent('Configuration variant-a');
+    fireEvent.click(within(parameterDialog).getByRole('button', { name: 'Close AI parameters' }));
     fireEvent.click(container.querySelector('.record-parameters summary')!);
     expect(container.querySelector('.record-parameters')).toHaveAttribute('open');
     expect(screen.getByText('Random seed')).toBeInTheDocument();

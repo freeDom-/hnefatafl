@@ -109,6 +109,8 @@ class TournamentManager:
             identifier = uuid4().hex
             directory = self.directory / identifier
             directory.mkdir()
+            player_count = len(config["players"])
+            pair_count = player_count * (player_count - 1) // 2
             tournament = {
                 "id": identifier,
                 "name": name,
@@ -118,19 +120,24 @@ class TournamentManager:
                 "config": config,
                 "progress": {
                     "completed_games": 0,
-                    "total_games": len(config["rulesets"]) * config["games"],
+                    "total_games": len(config["rulesets"]) * config["games"] * pair_count,
                 },
                 "result": {
                     "players": [player["config"] for player in config["players"]],
-                    "scores": [0.0, 0.0],
+                    "scores": [0.0] * player_count,
                     "standings": [
                         dict(
                             player=index, wins=0, losses=0, draws=0, truncated=0, games=0, score=0.0
                         )
-                        for index in range(2)
+                        for index in range(player_count)
                     ],
                     "by_ruleset": {
-                        ruleset: {"wins": [0, 0], "draws": 0, "truncated": 0, "games": 0}
+                        ruleset: {
+                            "wins": [0] * player_count,
+                            "draws": 0,
+                            "truncated": 0,
+                            "games": 0,
+                        }
                         for ruleset in config["rulesets"]
                     },
                     "games": [],

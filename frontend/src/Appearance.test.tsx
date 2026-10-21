@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppearanceProvider, AppearanceSettings } from './Appearance';
 import Board from './Board';
 import type { Game } from './types';
-import { APPEARANCE_KEY } from './appearanceConfig';
+import { APPEARANCE_KEY, DEFAULT_APPEARANCE, parseAppearance } from './appearanceConfig';
 
 const game: Game = {
   id: 'appearance-game',
@@ -74,6 +74,46 @@ const changeDevice = (dark: boolean) =>
   });
 
 describe('appearance preferences', () => {
+  it('starts a fresh browser with carved wood and old walnut', () => {
+    renderTable();
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Carved wood' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Old walnut' })).toBeChecked();
+    expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
+    expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
+    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#b69570');
+    expect(
+      screen.getByRole('gridcell', { name: 'a3, attacker' }).querySelector('.token-wood'),
+    ).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole('gridcell', { name: 'b2, king' })
+        .querySelector('svg[data-king-design="fjord-diadem"]'),
+    ).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(DEFAULT_APPEARANCE);
+  });
+
+  it('preserves saved classic/oak choices and defaults only missing or invalid fields', () => {
+    const saved = { mode: 'light', tokens: 'classic', board: 'oak' };
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify(saved));
+    renderTable();
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Classic stones' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Golden oak' })).toBeChecked();
+    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#e4d3ac');
+    expect(
+      screen
+        .getByRole('gridcell', { name: 'b2, king' })
+        .querySelector('[data-king-design="fjord-diadem"]'),
+    ).toBeNull();
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(saved);
+    expect(parseAppearance({ mode: 'dark' })).toEqual({ ...DEFAULT_APPEARANCE, mode: 'dark' });
+    expect(parseAppearance({ tokens: 'classic', board: 'invalid' })).toEqual({
+      ...DEFAULT_APPEARANCE,
+      tokens: 'classic',
+    });
+  });
+
   it('changes actual token artwork and board palette without changing game interaction, and restores choices after remount', () => {
     const view = renderTable();
     openSettings();
@@ -127,7 +167,7 @@ describe('appearance preferences', () => {
     localStorage.setItem(APPEARANCE_KEY, '{not valid JSON');
     const view = renderTable();
     openSettings();
-    expect(screen.getByRole('radio', { name: 'Classic stones' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Carved wood' })).toBeChecked();
     expect(screen.getAllByRole('gridcell')).toHaveLength(9);
     view.unmount();
     localStorage.setItem(
@@ -137,7 +177,7 @@ describe('appearance preferences', () => {
     renderTable();
     openSettings();
     expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Golden oak' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Old walnut' })).toBeChecked();
   });
 
   it('still lets users customize and dismiss the dialog when browser storage is unavailable', () => {

@@ -11,9 +11,9 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | Optimization | Actual Optuna trials, persisted study resumption, evaluation-based objectives and exported best configuration |
 | API and persistence | 40 baseline API tests plus 21 game-management cases: real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
-| Saved tournaments | 35 tests: real isolated workers, balanced scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay, migration and failure/shutdown cleanup |
-| Browser unit flows | 35 Vitest tests, including model ranking/defaults, human/AI selection, game/model deletion consent and races, statistics visibility, training-seed provenance, appearance and tournament flows |
-| Browser end to end | 16 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
+| Saved tournaments | Real isolated workers, balanced two/three/four-player round robins, participation-aware scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay and failure/shutdown cleanup |
+| Browser unit flows | 48 Vitest tests, including numeric column sorting, independent name filters, compact AI parameters, model/default selection, deletion races, appearance and tournament flows |
+| Browser end to end | 20 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -84,6 +84,31 @@ disabled until explicit consent. All screenshot/training records use isolated
 temporary storage. Production startup serves v0.7.0/schema 3 and preserves all seven
 existing game records exactly against a pre-update digest; a full data backup was
 made before restart. The model-usage endpoints also respond for existing models.
+
+The v0.8 suite passes **264 Python tests**, **48 frontend unit tests** and
+**20 real-API browser checks**. Round-robin coverage verifies every unordered
+pair, balanced attacker/defender assignments, correct per-opponent participation
+and scores, four-player worker progress, cancellation and retained replay.
+Existing two-player reports remain readable without rewriting stored data.
+
+Browser flows exercise ascending/descending numeric sorts in both statistics
+tables, independent case-insensitive player/history searches, compact AI rows with
+full parameter inspection, and four-opponent tournament setup/results/replay on
+desktop and mobile. Appearance checks verify the actual wood/walnut defaults,
+changed artwork/colors and persistence of valid saved choices. The selected wooden
+king design is **1 · Fjord Diadem**, the low three-peak interlaced circlet from the
+concept comparison; the other token themes retain their existing king artwork.
+The selected SVG was visually inspected on actual 7×7 and 11×11 boards. Desktop
+and mobile appearance flows passed again after the selection, including a legal
+move, reload and preference changes. Compiled-client screenshots show sortable
+records, compact mobile AI entries and a real completed four-player tournament
+with 12 replayable matches. Escape closes the parameter dialog and restores focus.
+
+Production startup serves v0.8.0/schema 3 and both compiled assets. All seven
+existing games retain their exact IDs, versions and saved JSON against the
+pre-update digest. A complete data backup was made before restart; all four
+existing model-usage endpoints respond. Test games and tournaments stayed in
+isolated temporary storage. No data migration is required.
 
 ## Reproduce
 

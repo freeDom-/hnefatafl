@@ -272,6 +272,58 @@
 .rival-2 .tournament-avatar {
   color: var(--gold);
 }
+.rival-3 .tournament-avatar {
+  color: #4d8195;
+}
+.rival-4 .tournament-avatar {
+  color: #94709c;
+}
+.rival-3 .tournament-score-track span {
+  background: #4d8195;
+}
+.rival-4 .tournament-score-track span {
+  background: #94709c;
+}
+.tournament-battlefield-wins {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 10px 0;
+  list-style: none;
+  font-size: 11px;
+}
+.tournament-battlefield-wins li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  justify-content: space-between;
+}
+.tournament-battlefield-wins li strong {
+  font-size: inherit;
+  white-space: nowrap;
+}
+.tournament-add-opponent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -8px 0 25px;
+}
+.tournament-add-opponent > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.tournament-player {
+  position: relative;
+}
+.tournament-remove-opponent {
+  position: absolute;
+  top: 3px;
+  right: 12px;
+  width: 25px;
+  height: 25px;
+}
 .tournament-standing-top > div {
   flex: 1;
   min-width: 0;
@@ -625,6 +677,16 @@
   font-size: 11px;
   color: var(--muted);
   margin: -3px 0 20px;
+}
+.tournament-replay-players {
+  font-size: 11px;
+  color: var(--text);
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.tournament-replay-players span {
+  color: var(--muted);
+  padding: 0 6px;
 }
 .tournament-replay .board-with-labels {
   max-width: 460px;

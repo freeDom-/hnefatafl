@@ -11,6 +11,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
+from itertools import combinations
 from typing import Any, Callable
 
 from .engine import Move, State, apply_move, legal_moves, new_game
@@ -403,16 +404,16 @@ def tournament(
     profiles = config.get(
         "players", [{"algorithm": "baseline"}, {"algorithm": "mcts", "iterations": 20}]
     )
-    if len(profiles) != 2:
-        raise ValueError("A tournament compares exactly two profiles")
+    if not isinstance(profiles, list) or not 2 <= len(profiles) <= 4:
+        raise ValueError("A tournament compares between two and four profiles")
     games_per_ruleset = int(config.get("games", 2))
     if not 2 <= games_per_ruleset <= 10000 or games_per_ruleset % 2:
         raise ValueError("Use an even number of games (2–10000) to alternate sides fairly")
     results: list[dict] = []
-    scores = [0.0, 0.0]
+    scores = [0.0] * len(profiles)
     standings = [
         dict(player=index, wins=0, losses=0, draws=0, truncated=0, games=0, score=0.0)
-        for index in range(2)
+        for index in range(len(profiles))
     ]
     by_ruleset: dict = {}
 
@@ -433,43 +434,56 @@ def tournament(
         }
 
     for ruleset in config.get("rulesets", ["tablut", "brandubh", "copenhagen"]):
-        by_ruleset[ruleset] = {"wins": [0, 0], "draws": 0, "truncated": 0, "games": 0}
-        for game in range(games_per_ruleset):
-            if should_stop and should_stop():
-                return snapshot()
-            a = game % 2
-            try:
-                result = play_game(
-                    ruleset,
-                    profiles[a],
-                    profiles[1 - a],
-                    seed=int(config.get("seed", 0)) + game,
-                    max_plies=int(config.get("max_plies", 300)),
-                    should_stop=should_stop,
-                )
-            except InterruptedError:
-                return snapshot()
-            result["attacker_player"] = a
-            for standing in standings:
-                standing["games"] += 1
-            by_ruleset[ruleset]["games"] += 1
-            if result["winner"] == "draw":
-                scores[0] += 0.5
-                scores[1] += 0.5
-                standings[0]["draws"] += 1
-                standings[1]["draws"] += 1
-                by_ruleset[ruleset]["draws"] += 1
-            elif result["winner"] is not None:
-                winner = a if result["winner"] == "attackers" else 1 - a
-                scores[winner] += 1
-                standings[winner]["wins"] += 1
-                standings[1 - winner]["losses"] += 1
-                by_ruleset[ruleset]["wins"][winner] += 1
-            else:
-                standings[0]["truncated"] += 1
-                standings[1]["truncated"] += 1
-                by_ruleset[ruleset]["truncated"] += 1
-            results.append(result)
-            if report:
-                report(snapshot())
+        by_ruleset[ruleset] = {
+            "wins": [0] * len(profiles),
+            "draws": 0,
+            "truncated": 0,
+            "games": 0,
+        }
+        for first, second in combinations(range(len(profiles)), 2):
+            for game in range(games_per_ruleset):
+                if should_stop and should_stop():
+                    return snapshot()
+                attacker, defender = (first, second) if game % 2 == 0 else (second, first)
+                # Preserve existing two-opponent comparisons; larger round robins
+                # use a distinct derived seed for every scheduled match.
+                game_seed = game if len(profiles) == 2 else len(results)
+                try:
+                    result = play_game(
+                        ruleset,
+                        profiles[attacker],
+                        profiles[defender],
+                        seed=int(config.get("seed", 0)) + game_seed,
+                        max_plies=int(config.get("max_plies", 300)),
+                        should_stop=should_stop,
+                    )
+                except InterruptedError:
+                    return snapshot()
+                result["attacker_player"] = attacker
+                result["defender_player"] = defender
+                for player in (attacker, defender):
+                    standings[player]["games"] += 1
+                by_ruleset[ruleset]["games"] += 1
+                if result["winner"] == "draw":
+                    for player in (attacker, defender):
+                        scores[player] += 0.5
+                        standings[player]["draws"] += 1
+                    by_ruleset[ruleset]["draws"] += 1
+                elif result["winner"] is not None:
+                    winner, loser = (
+                        (attacker, defender)
+                        if result["winner"] == "attackers"
+                        else (defender, attacker)
+                    )
+                    scores[winner] += 1
+                    standings[winner]["wins"] += 1
+                    standings[loser]["losses"] += 1
+                    by_ruleset[ruleset]["wins"][winner] += 1
+                else:
+                    for player in (attacker, defender):
+                        standings[player]["truncated"] += 1
+                    by_ruleset[ruleset]["truncated"] += 1
+                results.append(result)
+                if report:
+                    report(snapshot())
     return snapshot()

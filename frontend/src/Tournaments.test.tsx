@@ -159,4 +159,123 @@ describe('tournament setup and saved selection', () => {
     expect(screen.getByRole('heading', { name: 'Challenge b' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Challenge a' })).not.toBeInTheDocument();
   });
+
+  it('configures two to four opponents and scales the schedule by pairings and battlefields', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('four'));
+        }
+        return json(path === '/api/tournaments' ? [] : saved('four'));
+      }),
+    );
+    show();
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    expect(setup.queryAllByRole('button', { name: /^Remove opponent/ })).toHaveLength(0);
+    fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+    expect(setup.getByText('games across 3 pairings')).toBeInTheDocument();
+    expect(setup.getByText('6', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+    expect(setup.getByRole('button', { name: 'Add opponent' })).toBeDisabled();
+    expect(setup.getByText('12', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('checkbox', { name: 'Tablut 9 × 9' }));
+    expect(setup.getByText('24', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('button', { name: 'Remove opponent 3' }));
+    expect(setup.getByLabelText('Opponent 3 name')).toHaveValue('Strategist 4');
+    expect(setup.queryByLabelText('Opponent 4 name')).not.toBeInTheDocument();
+    expect(setup.getByText('12', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('button', { name: 'Remove opponent 3' }));
+    expect(setup.queryAllByRole('button', { name: /^Remove opponent/ })).toHaveLength(0);
+    fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+    fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+    fireEvent.change(setup.getByLabelText('Opponent 3 name'), { target: { value: 'Odin' } });
+    fireEvent.change(setup.getByLabelText('Opponent 4 name'), { target: { value: 'Freya' } });
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted).toMatchObject({
+      games: 2,
+      rulesets: ['brandubh', 'tablut'],
+      players: [{ name: 'Shield bearer' }, { name: 'Jarl' }, { name: 'Odin' }, { name: 'Freya' }],
+    });
+  });
+
+  it('names the actual third/fourth opponents in partial standings, battlefield wins and replay', async () => {
+    const tournament = saved('last-pair');
+    tournament.status = 'cancelled';
+    tournament.config.players.push(
+      { name: 'Eagle', config: { algorithm: 'baseline' } },
+      { name: 'Fox', config: { algorithm: 'baseline' } },
+    );
+    tournament.progress = { completed_games: 1, total_games: 12 };
+    tournament.result = {
+      scores: [0, 0, 0, 1],
+      standings: tournament.config.players.map((_, player) => ({
+        player,
+        wins: player === 3 ? 1 : 0,
+        losses: player === 2 ? 1 : 0,
+        draws: 0,
+        truncated: 0,
+        games: player >= 2 ? 1 : 0,
+        score: player === 3 ? 1 : 0,
+      })),
+      by_ruleset: { brandubh: { wins: [0, 0, 0, 1], draws: 0, truncated: 0, games: 1 } },
+      games: [
+        {
+          ruleset: 'brandubh',
+          winner: 'defenders',
+          outcome: 'completed',
+          reason: 'king_escaped',
+          plies: 0,
+          moves: [],
+          attacker_player: 2,
+          defender_player: 3,
+          average_decision_time: 0,
+          total_decision_time: 0,
+        },
+      ],
+      truncated: 0,
+      average_game_length: 0,
+      average_decision_time: 0,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path.endsWith('/replay'))
+          return json({
+            validated: true,
+            states: [
+              {
+                ruleset: 'brandubh',
+                board: Array(49).fill('.'),
+                turn: 'attackers',
+                ply: 0,
+                winner: 'defenders',
+                reason: 'king_escaped',
+              },
+            ],
+          });
+        return json(path === '/api/tournaments' ? [tournament] : tournament);
+      }),
+    );
+    const { container } = show();
+    await screen.findByRole('heading', { name: 'Challenge last-pair' });
+    expect(screen.getByText('Fox leads on points')).toBeInTheDocument();
+    expect(container.querySelectorAll('.tournament-standing')).toHaveLength(4);
+    const match = within(container.querySelector('.tournament-match')! as HTMLElement);
+    expect(match.getByText('Fox wins')).toBeInTheDocument();
+    expect(match.getByText('Eagle', { exact: false })).toHaveTextContent('Eagle vs Fox');
+    const wins = container.querySelectorAll('.tournament-battlefield-wins li');
+    expect(wins).toHaveLength(4);
+    expect(wins[3]).toHaveTextContent('Fox1 wins');
+    fireEvent.click(screen.getByRole('button', { name: 'Replay game 1' }));
+    const replay = await screen.findByRole('dialog', { name: 'Replay game 1' });
+    expect(replay).toHaveTextContent('Eagle · Attackers vs Fox · Defenders');
+    expect(replay).toHaveTextContent('Fox wins');
+  });
 });

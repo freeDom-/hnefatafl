@@ -117,7 +117,7 @@ class TournamentRequest(BaseModel):
     rulesets: list[Literal["brandubh", "tablut", "copenhagen"]] = Field(
         default=["brandubh"], min_length=1, max_length=3
     )
-    players: list[TournamentPlayerRequest] = Field(min_length=2, max_length=2)
+    players: list[TournamentPlayerRequest] = Field(min_length=2, max_length=4)
     games: StrictInt = Field(default=2, ge=2, le=100)
     max_plies: StrictInt = Field(default=300, ge=1, le=1000)
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)

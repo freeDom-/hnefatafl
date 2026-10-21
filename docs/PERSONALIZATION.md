@@ -20,7 +20,18 @@ battlefield rates and player/AI performance appear before the saved-game list.
 **Recorded games** is collapsible and initially shows a short page of recent
 records; show more when needed. Shared filters apply to both history and statistics.
 
-![Statistics before a separate saved-game history](screenshots/records-overview.png)
+Click a column heading in either statistics table to sort ascending; click again
+to reverse the order. Rates, counts and averages sort numerically. The W/D/L
+column sorts by wins, then draws, then losses; the rate column uses the same
+win/draw/loss priority. Before a sort is chosen, battlefields stay in board-size order.
+Use **Filter players** to search player names and their visible AI summaries.
+Use **Filter recorded games** to find either participant by name. These two
+case-insensitive filters operate independently and do not change the overall
+summary cards or the global battlefield/mode/player-type filters.
+
+![Sortable statistics and compact AI rows before saved-game history](screenshots/sortable-records.png)
+
+See the [compact AI row on mobile](screenshots/compact-ai-mobile.png).
 
 See the [mobile dark view](screenshots/records-mobile.png) and the
 [model cleanup confirmation](screenshots/model-cleanup.png).
@@ -32,9 +43,12 @@ other games remain. Deleting the game currently open in this browser clears its
 local game selection. A changed record requires a fresh confirmation before deletion.
 
 Different effective AI configurations have separate records even when they share
-an opponent name or model. Expand **AI parameters** under a recorded game or AI
-performance row to inspect the actual algorithm and settings: depth, iteration/time
-budget, rollout depth, exploration, temperature, seed, evaluation and model ID as
+an opponent name or model. Each AI performance entry occupies one compact row,
+with its profile, algorithm and main search budget below its name. The parameter
+button to the left opens all saved settings without enlarging the table row.
+Expand **AI parameters** under a recorded game to inspect the actual algorithm and
+settings: depth, iteration/time budget, rollout depth, exploration, temperature,
+seed, evaluation and model ID as
 applicable. Compact summaries help distinguish opponents before opening details.
 
 Identity uses normalized effective settings, not the order of JSON fields. Omitted
@@ -107,11 +121,15 @@ Open **Appearance** in the application header. The three settings are independen
 ![Appearance settings with live previews](screenshots/appearance.png)
 
 See the [Viking figures in dark mode](screenshots/dark-vikings.png),
-[carved wood on walnut](screenshots/carved-wood.png), and
+[Fjord Diadem with carved wood on walnut](screenshots/default-wood-walnut.png), and
 [mobile dark mode](screenshots/mobile.png) for actual rendered examples.
 
 The Viking set renders shield bearers and a crowned king. The carved set uses
-weathered wood grain and carved markings. Side and king distinctions remain visible
+weathered wood grain and carved markings. Its king uses the selected **Fjord Diadem**:
+a low three-peak northern circlet with an interlaced band, rendered as scalable SVG.
+This motif applies only to Carved wood; the other token sets retain their king art.
+See the [three king concepts and selected design](designs/king-options.md).
+Side and king distinctions remain visible
 in every theme. Legal destinations, move highlights and keyboard controls keep the
 same behavior. Changing appearance does not change game state or AI parameters.
 
@@ -119,7 +137,9 @@ Preferences are stored in this browser under `hnefatafl-appearance`, not in play
 profiles or the database. Follow-device mode responds to operating-system color
 changes. Invalid saved values fall back to supported defaults. If browser storage is
 unavailable, settings still work for the visit and the dialog reports the limitation.
-Choose Follow device + Classic stones + Golden oak to return to the defaults.
+Fresh browsers use **Follow device + Carved wood + Old walnut**. Valid saved choices
+remain in effect; missing or invalid fields fall back to these defaults. Choose
+those three settings to return to the defaults.
 
 ## Adding another theme
 

@@ -1,10 +1,10 @@
 # AI tournaments
 
 Use **Tournaments** in the main navigation to set up a balanced comparison and
-return to its saved results later. This is a two-opponent comparison: each
+return to its saved results later. Compare two, three or four opponents: each
 opponent can use a different algorithm, budget or compatible trained model.
 
-![Saved tournament standings and match results](screenshots/tournaments.png)
+![Saved four-player tournament standings and match results](screenshots/four-player-tournament.png)
 
 The [setup dialog](screenshots/tournament-setup.png) and
 [mobile dark view](screenshots/tournaments-mobile.png) use the same saved collection.
@@ -13,14 +13,19 @@ The [setup dialog](screenshots/tournament-setup.png) and
 
 1. Choose **New tournament** and give the run a recognizable name.
 2. Select one or more battlefields, listed in board-size order.
-3. Name both opponents and select their profiles and search parameters. A neural
+3. Name the opponents and select their profiles and search parameters. Use **Add
+   opponent** to include a third or fourth participant. A neural
    model must match every selected battlefield; use separate tournaments to compare
    models trained for different rulesets.
-4. Choose an even number of games per battlefield, a move limit and a seed.
+4. Choose an even number of games per pairing on each battlefield, a move limit and a seed.
 5. Start the tournament. The saved view shows progress while the worker plays.
 
-Opponents swap attacker/defender sides after every game. The total number of
-scheduled games is games per battlefield multiplied by selected battlefields.
+Every unordered pair of opponents plays a balanced series, swapping
+attacker/defender sides after every game. Two players have one pairing, three
+have three, and four have six. Total scheduled games are games per pairing
+multiplied by pairings and selected battlefields. For example, four opponents
+playing two games per pairing on one battlefield schedule 12 games; each
+opponent participates in six. Standings count only the games that opponent plays.
 The move limit counts individual moves (plies), not pairs of turns.
 The shared tournament seed determines the per-game/per-move randomness; it
 supersedes individual profile seeds. Tight wall-clock budgets can still produce
@@ -40,6 +45,8 @@ decision timings. Each retained match includes its side assignments, recorded
 moves and outcome. **Replay game** opens a read-only board with move navigation.
 Replay uses the rules engine, so it still works after the original model is deleted.
 The selected appearance settings also apply to tournament boards.
+Each saved match identifies its attacker and defender explicitly. Earlier
+two-player tournament records remain viewable and replayable without migration.
 
 ## Keep, stop and delete
 

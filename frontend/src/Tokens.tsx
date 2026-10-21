@@ -113,7 +113,28 @@ function VikingFigure({ piece }: { piece: string }) {
 }
 
 function WoodCarving({ piece }: { piece: string }) {
-  if (piece === 'K') return <Crown className="wood-carving" />;
+  if (piece === 'K')
+    return (
+      <svg
+        className="wood-carving"
+        data-token-art="wood"
+        data-king-design="fjord-diadem"
+        viewBox="0 0 48 48"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="m24 5 6 12-6 10-6-10 6-12ZM7 12l7 10-3 4H9v3H6l1-17Zm34 0 1 17h-3v-3h-2l-3-4 7-10ZM6 30q18-5 36 0v11H6V30Z"
+          fill="currentColor"
+        />
+        <path
+          d="M24 10v13M7 34l6-2 11 7 11-7 6 2M7 38l11-7 6 4 6-4 11 7"
+          stroke="var(--piece-line)"
+          strokeWidth="1.7"
+          strokeLinejoin="miter"
+        />
+      </svg>
+    );
   return (
     <svg
       className="wood-carving"

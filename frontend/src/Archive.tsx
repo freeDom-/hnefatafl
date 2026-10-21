@@ -2,7 +2,15 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import type { Game, Player, Ruleset, Stats, StatRow } from './types';
 import { sortRulesets } from './sortRulesets';
-import RecordsParameters from './RecordsParameters';
+import RecordsParameters, { ParameterValues } from './RecordsParameters';
+import {
+  matchesPlayer,
+  matchesRecordedGame,
+  sortStatRows,
+  statPlayerDescription,
+  type StatSort,
+  type StatSortKey,
+} from './recordTables';
 import RecordsConfirm from './RecordsConfirm';
 import './features.css';
 import './archive.css';
@@ -47,6 +55,7 @@ export default function Archive({
   const [revision, setRevision] = useState(0);
   const [visibleGames, setVisibleGames] = useState(10);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const [recordName, setRecordName] = useState('');
   const generation = useRef(0);
   const currentDelete = useRef<Game | null>(null);
   currentDelete.current = deleteGame;
@@ -76,7 +85,7 @@ export default function Archive({
       alive = false;
     };
   }, [ruleset, mode, kind, onError, revision]);
-  useEffect(() => setVisibleGames(10), [ruleset, mode, kind]);
+  useEffect(() => setVisibleGames(10), [ruleset, mode, kind, recordName]);
   const createPlayer = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -164,6 +173,7 @@ export default function Archive({
     (a, b) => (sizes.get(a.ruleset ?? '') ?? Infinity) - (sizes.get(b.ruleset ?? '') ?? Infinity),
   );
   const byPlayer = stats.by_player ?? stats.players ?? [];
+  const filteredGames = games.filter((game) => matchesRecordedGame(game, recordName));
   return (
     <>
       <section className="page-intro">
@@ -256,14 +266,14 @@ export default function Archive({
             className="archive-statistics-block"
           >
             <h3 id="archive-battlefield-heading">Results by battlefield</h3>
-            <StatsTable rows={byRules} group="ruleset" />
+            <StatsTable rows={byRules} group="ruleset" rulesets={rulesets} />
           </section>
           <section
             aria-labelledby="archive-performance-heading"
             className="archive-statistics-block"
           >
             <h3 id="archive-performance-heading">Player & AI performance</h3>
-            <StatsTable rows={byPlayer} group="player" />
+            <StatsTable rows={byPlayer} group="player" rulesets={rulesets} />
           </section>
         </div>
       </section>
@@ -279,11 +289,34 @@ export default function Archive({
               <h2>Recorded games</h2>
               <p>Reopen a game or remove it from your records.</p>
             </div>
-            <span className="badge">{games.length}</span>
+            <span className="badge">
+              {recordName.trim() ? `${filteredGames.length} / ${games.length}` : games.length}
+            </span>
             <span className="archive-history-chevron" aria-hidden="true">
               ⌄
             </span>
           </summary>
+          <div className="record-name-filter archive-table-filter">
+            <label>
+              Filter recorded games
+              <input
+                type="search"
+                placeholder="Player or AI name"
+                value={recordName}
+                onChange={(event) => setRecordName(event.target.value)}
+              />
+            </label>
+            {recordName && (
+              <button
+                type="button"
+                className="button secondary small"
+                aria-label="Clear recorded game filter"
+                onClick={() => setRecordName('')}
+              >
+                Clear
+              </button>
+            )}
+          </div>
           {loading ? (
             <p className="empty-copy">Loading your sagas…</p>
           ) : !games.length ? (
@@ -292,9 +325,11 @@ export default function Archive({
               <h3>A history yet to be written.</h3>
               <p>Your saved games will appear here.</p>
             </div>
+          ) : !filteredGames.length ? (
+            <p className="empty-copy">No recorded games match this name.</p>
           ) : (
             <div className="records-list" role="region" aria-label="Saved game list" tabIndex={0}>
-              {games.slice(0, visibleGames).map((game) => (
+              {filteredGames.slice(0, visibleGames).map((game) => (
                 <article className="record-entry" key={game.id} data-game-id={game.id}>
                   <div className="record-actions-row">
                     <button className="record" onClick={() => void load(game.id)}>
@@ -356,10 +391,11 @@ export default function Archive({
               ))}
             </div>
           )}
-          {games.length > visibleGames && (
+          {filteredGames.length > visibleGames && (
             <div className="archive-load-more">
               <span>
-                Showing {Math.min(visibleGames, games.length)} of {games.length} games
+                Showing {Math.min(visibleGames, filteredGames.length)} of {filteredGames.length}{' '}
+                games
               </span>
               <button
                 type="button"
@@ -471,79 +507,231 @@ export function Metric({
     </div>
   );
 }
-function StatsTable({ rows, group }: { rows: StatRow[]; group: 'ruleset' | 'player' }) {
+type StatColumn = { key: StatSortKey; label: string; help?: string };
+const sharedColumns: StatColumn[] = [{ key: 'games', label: 'Played' }];
+
+function StatsTable({
+  rows,
+  group,
+  rulesets,
+}: {
+  rows: StatRow[];
+  group: 'ruleset' | 'player';
+  rulesets: Ruleset[];
+}) {
+  const [sort, setSort] = useState<StatSort | null>(null);
+  const [filter, setFilter] = useState('');
+  const [inspected, setInspected] = useState<StatRow | null>(null);
   if (!rows.length) return <p className="empty-copy">Complete a game to see results here.</p>;
+  const filtered = group === 'player' ? rows.filter((row) => matchesPlayer(row, filter)) : rows;
+  const displayed = sortStatRows(filtered, sort, group, rulesets);
+  const columns: StatColumn[] = [
+    { key: 'name', label: group === 'ruleset' ? 'Ruleset' : 'Player' },
+    ...sharedColumns,
+    ...(group === 'ruleset'
+      ? [
+          { key: 'attacker_win_rate' as const, label: 'Attacker win' },
+          { key: 'defender_win_rate' as const, label: 'Defender win' },
+          { key: 'draw_rate' as const, label: 'Draw' },
+        ]
+      : [
+          {
+            key: 'outcomes' as const,
+            label: 'W / D / L',
+            help: 'Sort wins first, then draws, then losses',
+          },
+          {
+            key: 'rates' as const,
+            label: 'Win / draw / loss %',
+            help: 'Sort win percentage first, then draw percentage, then loss percentage',
+          },
+        ]),
+    { key: 'average_game_length', label: 'Avg. moves' },
+  ];
+  const changeSort = (key: StatSortKey) =>
+    setSort((current) => ({
+      key,
+      direction:
+        current?.key === key && current.direction === 'ascending' ? 'descending' : 'ascending',
+    }));
   return (
-    <div
-      className="table-scroll"
-      role="region"
-      aria-label={
-        group === 'ruleset' ? 'Battlefield statistics table' : 'Player and AI statistics table'
-      }
-      tabIndex={0}
-    >
-      <table>
-        <thead>
-          <tr>
-            <th>{group === 'ruleset' ? 'Ruleset' : 'Player'}</th>
-            <th>Played</th>
-            {group === 'ruleset' ? (
-              <>
-                <th>Attacker win</th>
-                <th>Defender win</th>
-                <th>Draw</th>
-              </>
-            ) : (
-              <>
-                <th>W / D / L</th>
-                <th>Win / draw / loss %</th>
-              </>
-            )}
-            <th>Avg. moves</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.id ?? row.ruleset ?? i}>
-              <th>
-                {row.name ?? row.ruleset}
-                <small>
-                  {row.kind === 'ai'
-                    ? `Computer${row.opponent_name ? ` · ${row.opponent_name}` : ''}`
-                    : row.kind === 'human'
-                      ? 'Human'
-                      : ''}
-                </small>
-                {row.kind === 'ai' && (
-                  <RecordsParameters config={row.config} variantId={row.variant_id} />
-                )}
-              </th>
-              <td>{row.games ?? 0}</td>
-              {group === 'ruleset' ? (
-                <>
-                  <td>{percent(row.attacker_win_rate)}</td>
-                  <td>{percent(row.defender_win_rate)}</td>
-                  <td>{percent(row.draw_rate)}</td>
-                </>
-              ) : (
-                <>
-                  <td className="ratio-cell">
-                    {row.wins ?? 0} / {row.draws ?? 0} / {row.losses ?? 0}
-                  </td>
-                  <td className="ratio-cell">
-                    {percent(row.win_rate)} / {percent(row.draw_rate)} / {percent(row.loss_rate)}
-                  </td>
-                </>
-              )}
-              <td>{Number(row.average_game_length ?? row.average_length ?? 0).toFixed(1)}</td>
+    <>
+      {group === 'player' && (
+        <div className="archive-table-filter">
+          <label>
+            Filter players
+            <input
+              type="search"
+              placeholder="Player, profile or model name"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+          </label>
+          {filter && (
+            <button
+              type="button"
+              className="button secondary small"
+              aria-label="Clear player filter"
+              onClick={() => setFilter('')}
+            >
+              Clear
+            </button>
+          )}
+          <span className="archive-filter-count" aria-live="polite">
+            {displayed.length} of {rows.length} players
+          </span>
+        </div>
+      )}
+      <div
+        className="table-scroll"
+        role="region"
+        aria-label={
+          group === 'ruleset' ? 'Battlefield statistics table' : 'Player and AI statistics table'
+        }
+        tabIndex={0}
+      >
+        <table
+          aria-label={group === 'ruleset' ? 'Results by battlefield' : 'Player & AI performance'}
+        >
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th
+                  key={column.key}
+                  scope="col"
+                  aria-sort={sort?.key === column.key ? sort.direction : 'none'}
+                >
+                  <button
+                    type="button"
+                    className="archive-sort-button"
+                    aria-label={`Sort by ${column.label}`}
+                    title={column.help ?? `Sort by ${column.label}`}
+                    onClick={() => changeSort(column.key)}
+                  >
+                    {column.label}
+                    <span aria-hidden="true">
+                      {sort?.key === column.key
+                        ? sort.direction === 'ascending'
+                          ? '↑'
+                          : '↓'
+                        : '↕'}
+                    </span>
+                  </button>
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="table-caption">
-        {group === 'player' ? 'W / D / L = wins, draws, losses. ' : ''}Rates count completed games
-        only.
-      </p>
-    </div>
+          </thead>
+          <tbody>
+            {displayed.map((row, i) => (
+              <tr key={row.id ?? row.ruleset ?? i}>
+                <th scope="row">
+                  {group === 'ruleset' ? (
+                    (rulesets.find((rule) => rule.id === row.ruleset)?.name ??
+                    row.name ??
+                    row.ruleset)
+                  ) : (
+                    <div className="stat-player-identity">
+                      {row.kind === 'ai' ? (
+                        <button
+                          type="button"
+                          className="stat-parameter-toggle"
+                          aria-label={`Show AI parameters for ${row.name ?? 'Computer'}`}
+                          title="Show AI parameters"
+                          aria-haspopup="dialog"
+                          aria-expanded={inspected === row}
+                          onClick={() => setInspected(row)}
+                        >
+                          <span aria-hidden="true">›</span>
+                        </button>
+                      ) : (
+                        <span className="stat-parameter-spacer" aria-hidden="true" />
+                      )}
+                      <span className="stat-player-copy">
+                        <span className="stat-player-name">{row.name ?? 'Unknown player'}</span>
+                        <small title={statPlayerDescription(row)}>
+                          {statPlayerDescription(row)}
+                        </small>
+                      </span>
+                    </div>
+                  )}
+                </th>
+                <td>{row.games ?? 0}</td>
+                {group === 'ruleset' ? (
+                  <>
+                    <td>{percent(row.attacker_win_rate)}</td>
+                    <td>{percent(row.defender_win_rate)}</td>
+                    <td>{percent(row.draw_rate)}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="ratio-cell">
+                      {row.wins ?? 0} / {row.draws ?? 0} / {row.losses ?? 0}
+                    </td>
+                    <td className="ratio-cell">
+                      {percent(row.win_rate)} / {percent(row.draw_rate)} / {percent(row.loss_rate)}
+                    </td>
+                  </>
+                )}
+                <td>{Number(row.average_game_length ?? row.average_length ?? 0).toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!displayed.length && <p className="empty-copy">No players match this filter.</p>}
+        <p className="table-caption">
+          {group === 'player' ? 'W / D / L = wins, draws, losses. ' : ''}Rates count completed games
+          only. Select a column heading to change its order.
+        </p>
+      </div>
+      {inspected && <AIParameterDialog row={inspected} onClose={() => setInspected(null)} />}
+    </>
+  );
+}
+
+function AIParameterDialog({ row, onClose }: { row: StatRow; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      trigger?.focus();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="modal ai-parameter-dialog"
+      aria-label={`${row.name ?? 'Computer'} AI parameters`}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <div className="modal-top">
+        <div>
+          <p className="eyebrow">RECORDED OPPONENT SETTINGS</p>
+          <h2>{row.name ?? 'Computer'} AI parameters</h2>
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close AI parameters"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <p className="stat-dialog-description">{statPlayerDescription(row)}</p>
+      <div className="record-parameters">
+        <ParameterValues config={row.config} variantId={row.variant_id} />
+      </div>
+      <div className="modal-actions">
+        <button type="button" className="button secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </dialog>
   );
 }

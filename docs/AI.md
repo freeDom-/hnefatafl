@@ -78,8 +78,10 @@ shows the training seed separately from evaluation/game seeds. See
 .venv/bin/python -m hnefatafl.cli tournament --config configs/tournament.json > tournament-results.json
 ```
 
-The configuration compares two independently configured profiles, alternates
-sides, and runs an even number of games for each requested ruleset. The report
+The configuration compares two to four independently configured profiles in a
+round robin. Every pair alternates sides and runs the configured even number of
+games for each requested ruleset. Four profiles with two games on one ruleset
+schedule 12 matches. The report
 contains individual move records, outcome/reason, side assignment, per-player
 scores, average game length and average decision time. Wins score one and actual
 rules draws score half. A game reaching `max_plies` with no engine outcome is

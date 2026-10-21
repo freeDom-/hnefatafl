@@ -39,6 +39,24 @@ export default function RecordsParameters({
   label?: string;
   variantId?: string;
 }) {
+  return (
+    <details className="record-parameters">
+      <summary>
+        {label}
+        <span>{parameterSummary(config)}</span>
+      </summary>
+      <ParameterValues config={config} variantId={variantId} />
+    </details>
+  );
+}
+
+export function ParameterValues({
+  config = {},
+  variantId,
+}: {
+  config?: Config;
+  variantId?: string;
+}) {
   const entries = Object.entries(config).sort(([a], [b]) => {
     const order = Object.keys(labels);
     const aIndex = order.indexOf(a),
@@ -46,11 +64,7 @@ export default function RecordsParameters({
     return (aIndex < 0 ? 100 : aIndex) - (bIndex < 0 ? 100 : bIndex) || a.localeCompare(b);
   });
   return (
-    <details className="record-parameters">
-      <summary>
-        {label}
-        <span>{parameterSummary(config)}</span>
-      </summary>
+    <>
       {entries.length ? (
         <dl>
           {entries.map(([key, value]) => (
@@ -66,6 +80,6 @@ export default function RecordsParameters({
         <p className="subtle">No parameters were recorded for this historical opponent.</p>
       )}
       {variantId && <p className="variant-reference">Configuration {variantId.slice(0, 10)}</p>}
-    </details>
+    </>
   );
 }

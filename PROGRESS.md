@@ -59,3 +59,19 @@ and automatic resumption are future work. See `docs/TOURNAMENTS.md`.
 
 Four duplicate mobile worker checks are intentionally skipped. Schema 3 remains
 unchanged. See `docs/PERSONALIZATION.md` for collection management and ranking rules.
+
+## Four-player tournaments and clearer records (`v0.8.0`)
+
+- [x] Support two to four tournament opponents with balanced round-robin pairings
+- [x] Track both participants, per-player scores and pairing-aware progress; retain old two-player replay
+- [x] Sort every column in battlefield and player/AI statistics numerically or by name
+- [x] Filter player performance and recorded-game participant names independently
+- [x] Keep AI performance to one compact row with a left-side full-parameter toggle
+- [x] Default fresh/invalid preferences to Carved wood tokens and Old walnut boards
+- [x] Preserve valid saved appearance preferences
+- [x] Present three king concepts and implement selected design 1, Fjord Diadem, for the wooden king
+- [x] Pass 264 Python tests, 48 frontend unit tests and 20 real-API browser checks
+
+Four duplicate mobile worker checks remain intentionally skipped. The database
+remains at schema 3 with no migration. See `docs/designs/king-options.md` for the
+selected king and `docs/TOURNAMENTS.md` for round-robin scheduling.

@@ -99,6 +99,113 @@
 .archive-statistics-block .record-parameters {
   min-width: 150px;
 }
+.archive-table-filter {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 5px 15px;
+}
+.archive-table-filter label {
+  flex: 1 1 170px;
+  font-size: 10px;
+  min-width: 0;
+}
+.archive-table-filter input {
+  padding: 9px 10px;
+  font-size: 11px;
+}
+.archive-table-filter .button {
+  min-height: 34px;
+  font-size: 10px;
+}
+.archive-filter-count {
+  flex: 1 0 100%;
+  font-size: 9px;
+  color: var(--muted);
+}
+.record-name-filter {
+  margin: 20px 0 10px;
+}
+.archive-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  line-height: 1.5;
+  border: 0;
+  padding: 3px 0;
+  background: transparent;
+}
+.archive-sort-button:hover {
+  color: var(--green);
+}
+.archive-sort-button > span {
+  flex: 0 0 auto;
+  color: var(--green);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.stat-player-identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 170px;
+}
+.stat-player-copy {
+  display: block;
+  min-width: 0;
+  max-width: 320px;
+}
+.stat-player-name {
+  display: block;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.archive-statistics .stat-player-copy small {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-parameter-toggle,
+.stat-parameter-spacer {
+  width: 21px;
+  height: 23px;
+  flex: 0 0 21px;
+}
+.stat-parameter-toggle {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--green);
+  background: var(--surface-raised);
+  font-size: 20px;
+  line-height: 1;
+}
+.stat-parameter-toggle:hover {
+  border-color: var(--green);
+}
+.ai-parameter-dialog {
+  max-width: 620px;
+}
+.ai-parameter-dialog .record-parameters {
+  margin: 20px 0;
+  font-size: 12px;
+}
+.stat-dialog-description {
+  color: var(--muted);
+  font-size: 12px;
+}
 .archive-layout {
   align-items: start;
 }

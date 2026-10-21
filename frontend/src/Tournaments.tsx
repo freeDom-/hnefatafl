@@ -31,15 +31,20 @@ const score = (value: number) => (Number.isInteger(value) ? String(value) : valu
 const active = (tournament: Tournament) => tournament.status === 'running';
 const champion = (tournament: Tournament) => {
   if (!tournament.result?.games.length) return 'The challenge is set';
-  const [first, second] = tournament.result.scores;
-  if (first === second) return 'Level on points';
-  const name = tournament.config.players[first > second ? 0 : 1].name;
-  return `${name} ${tournament.status === 'completed' ? 'wins on points' : 'leads on points'}`;
+  const best = Math.max(...tournament.result.scores);
+  const leaders = tournament.config.players.filter(
+    (_, index) => tournament.result!.scores[index] === best,
+  );
+  if (leaders.length === tournament.config.players.length) return 'Level on points';
+  if (leaders.length > 1)
+    return `${leaders.map((player) => player.name).join(' & ')} ${tournament.status === 'completed' ? 'finish level on points' : 'share the lead'}`;
+  return `${leaders[0].name} ${tournament.status === 'completed' ? 'wins on points' : 'leads on points'}`;
 };
+const defender = (match: TournamentGame) => match.defender_player ?? 1 - match.attacker_player;
 const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
   if (!match.winner) return 'Move limit reached';
   if (match.winner === 'draw') return 'Rule draw';
-  const winner = match.winner === 'attackers' ? match.attacker_player : 1 - match.attacker_player;
+  const winner = match.winner === 'attackers' ? match.attacker_player : defender(match);
   return `${players[winner].name} wins`;
 };
 
@@ -263,11 +268,11 @@ export default function Tournaments({
               <span className="tournament-emblem" aria-hidden="true">
                 <Crown />
               </span>
-              <p className="eyebrow">TWO STRATEGISTS. BOTH SIDES.</p>
+              <p className="eyebrow">UP TO FOUR STRATEGISTS. EVERY PAIRING.</p>
               <h2>Let the strongest ideas meet.</h2>
               <p>
-                Compare algorithms, search settings or trained models in a balanced series.
-                Opponents swap armies after every game.
+                Compare algorithms, search settings or trained models in a balanced series. Every
+                pair meets on both sides of the board.
               </p>
               <div className="tournament-promise">
                 <span>
@@ -298,8 +303,8 @@ export default function Tournaments({
                   </span>
                   <h2>{selected.name}</h2>
                   <p className="subtle">
-                    {date(selected.created_at)} · {selected.config.games} games per battlefield ·
-                    seed {selected.config.seed}
+                    {date(selected.created_at)} · {selected.config.games} games per pairing per
+                    battlefield · seed {selected.config.seed}
                   </p>
                 </div>
                 <div className="tournament-actions">
@@ -364,7 +369,7 @@ export default function Tournaments({
                       <article className={`tournament-standing rival-${index + 1}`} key={index}>
                         <div className="tournament-standing-top">
                           <span className="tournament-avatar" aria-hidden="true">
-                            {index ? 'ᛉ' : 'ᛏ'}
+                            {['ᛏ', 'ᛉ', 'ᚱ', 'ᛟ'][index]}
                           </span>
                           <div>
                             <small>OPPONENT {index + 1}</small>
@@ -385,7 +390,7 @@ export default function Tournaments({
                         <div className="tournament-score-track" aria-hidden="true">
                           <span
                             style={{
-                              width: `${(100 * points) / Math.max(1, selected.progress.completed_games)}%`,
+                              width: `${(100 * points) / Math.max(1, standing?.games ?? 0)}%`,
                             }}
                           />
                         </div>
@@ -454,8 +459,15 @@ export default function Tournaments({
                             <div>
                               <strong>{rule.name}</strong>
                               <small>{tally?.games ?? 0} games played</small>
+                              <ul className="tournament-battlefield-wins">
+                                {selected.config.players.map((player, index) => (
+                                  <li key={index}>
+                                    <span>{player.name}</span>
+                                    <strong>{tally?.wins[index] ?? 0} wins</strong>
+                                  </li>
+                                ))}
+                              </ul>
                               <p>
-                                {tally?.wins[0] ?? 0}–{tally?.wins[1] ?? 0} wins ·{' '}
                                 {tally?.draws ?? 0} draws · {tally?.truncated ?? 0} unfinished
                               </p>
                             </div>
@@ -495,7 +507,7 @@ export default function Tournaments({
                           {selected.config.players[match.attacker_player].name}{' '}
                           <span className="tournament-versus">vs</span>{' '}
                           <span className="mini-piece ivory" aria-hidden="true" />
-                          {selected.config.players[1 - match.attacker_player].name}
+                          {selected.config.players[defender(match)].name}
                         </p>
                         <small className="tournament-match-reason">
                           {match.reason.replaceAll('_', ' ')}
@@ -614,6 +626,32 @@ function TournamentSetup({
     }));
   const parameter = (index: number, key: string, value: string | number) =>
     updatePlayer(index, { config: { ...config.players[index].config, [key]: value } });
+  const addPlayer = () =>
+    setConfig((previous) => {
+      if (previous.players.length >= 4) return previous;
+      let suffix = previous.players.length + 1;
+      while (previous.players.some((player) => player.name === `Strategist ${suffix}`)) suffix++;
+      return {
+        ...previous,
+        players: [
+          ...previous.players,
+          {
+            name: `Strategist ${suffix}`,
+            profile_id: 'baseline',
+            config: { algorithm: 'baseline', time_limit: 0.1 },
+          },
+        ],
+      };
+    });
+  const removePlayer = (index: number) =>
+    setConfig((previous) =>
+      previous.players.length <= 2
+        ? previous
+        : {
+            ...previous,
+            players: previous.players.filter((_, playerIndex) => playerIndex !== index),
+          },
+    );
   const changeProfile = (index: number, id: string) => {
     const profile = profiles.find((item) => item.id === id);
     if (!profile) return;
@@ -675,8 +713,8 @@ function TournamentSetup({
           </button>
         </div>
         <p className="tournament-setup-copy">
-          Two opponents, equal turns as attackers and defenders. Choose a quick comparison or give
-          your rivals room to think.
+          Compare two to four opponents in a round-robin series. Every pair plays an equal number of
+          games as attackers and defenders.
         </p>
         <label>
           Tournament name
@@ -742,6 +780,17 @@ function TournamentSetup({
             return (
               <fieldset key={index} className="tournament-player">
                 <legend>{prefix}</legend>
+                {config.players.length > 2 && (
+                  <button
+                    type="button"
+                    className="icon-button tournament-remove-opponent"
+                    aria-label={`Remove ${prefix.toLowerCase()}`}
+                    disabled={busy}
+                    onClick={() => removePlayer(index)}
+                  >
+                    ×
+                  </button>
+                )}
                 <label>
                   Name
                   <input
@@ -810,11 +859,24 @@ function TournamentSetup({
             );
           })}
         </div>
+        <div className="tournament-add-opponent">
+          <span>{config.players.length} of 4 opponents · every pairing swaps sides</span>
+          <button
+            type="button"
+            className="button secondary small"
+            onClick={addPlayer}
+            disabled={busy || config.players.length >= 4}
+          >
+            Add opponent
+          </button>
+        </div>
         <div className="form-grid tournament-run-settings">
           <label>
             Games per battlefield
             <input
               type="number"
+              aria-label="Games per battlefield"
+              aria-describedby="tournament-games-help"
               min={2}
               max={100}
               step={2}
@@ -852,14 +914,21 @@ function TournamentSetup({
             />
           </label>
           <div className="tournament-run-count">
-            <strong>{config.games * config.rulesets.length}</strong>
-            <span>games in this series</span>
+            <strong>
+              {(config.games *
+                config.rulesets.length *
+                (config.players.length * (config.players.length - 1))) /
+                2}
+            </strong>
+            <span>
+              games across {(config.players.length * (config.players.length - 1)) / 2} pairings
+            </span>
           </div>
         </div>
-        <p className="tournament-scoring">
-          Use an even game count to balance sides. The tournament seed controls all opponents’ game
-          and move seeds. Tight time limits can vary with hardware. Unfinished games score no
-          points.
+        <p id="tournament-games-help" className="tournament-scoring">
+          The game count applies to each pairing on every selected battlefield. Use an even count to
+          balance sides. The tournament seed controls all opponents’ game and move seeds. Tight time
+          limits can vary with hardware. Unfinished games score no points.
         </p>
         {(!config.rulesets.length || incompatibleModel) && (
           <p className="form-error">
@@ -928,7 +997,7 @@ function TournamentPlayback({
     mode: 'ai-ai',
     players: {
       attackers: player(match.attacker_player),
-      defenders: player(1 - match.attacker_player),
+      defenders: player(defender(match)),
     },
     version: 0,
     captured: { attackers: 0, defenders: 0 },
@@ -963,6 +1032,11 @@ function TournamentPlayback({
       </div>
       <p className="tournament-replay-result">
         {outcome(match, tournament.config.players)} · {match.reason.replaceAll('_', ' ')}
+      </p>
+      <p className="tournament-replay-players">
+        {tournament.config.players[match.attacker_player].name} · Attackers{' '}
+        <span aria-hidden="true">vs</span> {tournament.config.players[defender(match)].name} ·
+        Defenders
       </p>
       <Board game={board} selected={null} onSelect={() => undefined} disabled />
       <div className="tournament-replay-controls">

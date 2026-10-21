@@ -38,6 +38,12 @@ pure engine and does not require the original model weights. Tournament matches
 remain separate from ordinary game statistics. Catalog locking protects the model
 references of active tournaments until the worker exits.
 
+Tournament schedules support two to four opponents. Every unordered pair plays
+the configured even game count on each battlefield, alternating sides. Progress
+uses the number of pairings, and standings update only the two participating
+opponents. New matches retain explicit attacker and defender indexes; the browser
+can still infer the defender in earlier two-player records without migrating them.
+
 ## Rules
 
 One engine applies configurable board sizes, initial arrangements, restricted
@@ -93,3 +99,10 @@ the browser's current game. Discarding those games requires an explicit opt-in a
 a matching usage fingerprint. SQL and registry failure handling preserve references
 if deletion fails; completed histories and training checkpoints remain. App-level
 deletion callbacks clear matching current-game pointers and reject late AI responses.
+
+Hall tables sort and filter presentation data locally without rewriting stored
+results or changing aggregate statistics. Numeric comparisons cover counts, rates
+and averages; player/history text searches remain independent. AI parameter dialogs
+share the same full-value renderer as recorded-game details while keeping table rows
+compact. New browser preferences default to carved wood and walnut; valid saved
+preferences remain authoritative.

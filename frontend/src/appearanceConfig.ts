@@ -83,7 +83,7 @@ export interface Appearance {
   board: BoardTheme;
 }
 export const APPEARANCE_KEY = 'hnefatafl-appearance';
-export const DEFAULT_APPEARANCE: Appearance = { mode: 'system', tokens: 'classic', board: 'oak' };
+export const DEFAULT_APPEARANCE: Appearance = { mode: 'system', tokens: 'wood', board: 'walnut' };
 
 export function parseAppearance(value: unknown): Appearance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_APPEARANCE };
@@ -91,12 +91,12 @@ export function parseAppearance(value: unknown): Appearance {
   return {
     mode: COLOR_MODES.some((mode) => mode.id === candidate.mode)
       ? (candidate.mode as ColorMode)
-      : 'system',
+      : DEFAULT_APPEARANCE.mode,
     tokens: TOKEN_THEMES.some((theme) => theme.id === candidate.tokens)
       ? (candidate.tokens as TokenTheme)
-      : 'classic',
+      : DEFAULT_APPEARANCE.tokens,
     board: BOARD_THEMES.some((theme) => theme.id === candidate.board)
       ? (candidate.board as BoardTheme)
-      : 'oak',
+      : DEFAULT_APPEARANCE.board,
   };
 }
