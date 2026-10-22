@@ -7,10 +7,12 @@ player UUIDs and model IDs. A model keeps its rune across different search budge
 and uses on either side. Ordinary non-model AI agents use their normalized search
 configuration, excluding game seed, so equivalent agents have the same rune.
 
-A tournament seat has its own unique `rune` even when two participants use the
-same model or search configuration. Its `agent_rune` identifies that underlying
-model/agent consistently with games and the model collection. Standings, match
-logs and replay use the seat rune; model information uses the agent rune.
+Tournament participants display their underlying model/agent rune consistently
+with games and the model collection. Reusing the same model also reuses its rune;
+opponent numbers and search parameters distinguish seats with different budgets.
+Earlier records can retain reserved seat runes in storage, but the response/view
+uses the underlying agent identity. Those earlier assignments are not recycled.
+Renaming a model changes its catalog label without changing its rune.
 
 SQLite schema 5 adds `entity_runes`, an atomic mapping from stable identity keys
 to a globally unique ordinal/rune. The first 24 identities use single Elder

@@ -136,7 +136,7 @@ def test_completed_rule_outcomes_update_named_opponent_standings(client):
         player["config"]["time_limit"] = 0.1
     created = launch(client, config)
     completed = wait_for(client, created["id"], lambda row: row["status"] == "completed")
-    assert [row["name"] for row in completed["config"]["players"]] == ["Hugin", "Munin"]
+    assert [row["name"] for row in completed["config"]["players"]] == ["Shield bearer"] * 2
     result = completed["result"]
     assert result["truncated"] == 0
     assert all(match["outcome"] == "completed" for match in result["games"])
@@ -175,7 +175,7 @@ def test_completed_rule_outcomes_update_named_opponent_standings(client):
         {"seed": True},
         {"players": []},
         {"players": [{"name": "Alone", "config": {"algorithm": "baseline"}}]},
-        {"players": [{"name": "A", "config": {}}, {"name": "B", "config": {}}, {}]},
+        {"players": [{"config": {}}] * 5},
         {"output": "/tmp/unsafe-output"},
     ],
 )
@@ -188,7 +188,6 @@ def test_invalid_tournament_setup_is_rejected_before_creating_data(client, chang
 @pytest.mark.parametrize(
     "player",
     [
-        {"name": "   ", "config": {}},
         {"name": "Raven", "config": {"algorithm": "unknown"}},
         {"name": "Raven", "config": {"algorithm": "baseline", "time_limit": 0}},
         {"name": "Raven", "config": {"algorithm": "baseline", "model_path": "/etc/passwd"}},
@@ -242,7 +241,20 @@ def test_registered_model_is_protected_while_running_and_snapshot_survives_delet
     from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
 
     checkpoint = save_checkpoint(
-        tmp_path / "training-original.pt", PolicyValueNet("brandubh", 4, 0), {"name": "Eir"}
+        tmp_path / "training-original.pt",
+        PolicyValueNet("brandubh", 4, 0),
+        {
+            "name": "Eir",
+            "iteration": 3,
+            "training_config": {
+                "iterations": 5,
+                "games": 4,
+                "mcts_iterations": 16,
+                "seed": 42,
+                "output_dir": str(tmp_path),
+                "resume": str(tmp_path / "secret.pt"),
+            },
+        },
     )
     model = ModelRegistry(client.app.state.data_dir / "models").register(checkpoint)
     config = configuration()
@@ -262,7 +274,19 @@ def test_registered_model_is_protected_while_running_and_snapshot_survives_delet
     completed = launch(client, config)
     completed = wait_for(client, completed["id"], lambda row: row["status"] == "completed")
     opponent = completed["config"]["players"][0]
-    assert opponent["model_name"] == "Eir"
+    assert opponent["name"] == opponent["model_name"] == "Eir"
+    assert opponent["rune"] == opponent["agent_rune"] == client.get("/api/models").json()[0]["rune"]
+    assert opponent["model"]["architecture"]["channels"] == 4
+    assert opponent["model"]["iteration"] == 3
+    assert opponent["model"]["training_config"] == {
+        "iterations": 5,
+        "games": 4,
+        "mcts_iterations": 16,
+        "seed": 42,
+    }
+    renamed = client.patch(f"/api/models/{model['id']}", json={"name": "Eir renamed"})
+    assert renamed.status_code == 200
+    assert client.get(f"/api/tournaments/{completed['id']}").json() == completed
     assert opponent["config"]["model_id"] == model["id"]
     assert opponent["config"]["algorithm"] == "neural"
     assert opponent["variant_id"].startswith("ai:")
@@ -383,3 +407,20 @@ def test_interrupted_worker_is_reported_without_losing_retained_data(tmp_path):
         assert store.get_tournament(interrupted["id"])["config"] == interrupted["config"]
         assert record["progress"] == interrupted["progress"]
         assert session.delete(f"/api/tournaments/{interrupted['id']}").status_code == 200
+
+
+def test_tournament_names_come_from_profiles_without_client_aliases(client):
+    config = configuration()
+    config["players"] = [
+        {"profile_id": "baseline", "config": {"time_limit": 0.01}},
+        {
+            "name": "This alias is ignored",
+            "profile_id": "alpha_beta",
+            "config": {"time_limit": 0.01, "depth": 1},
+        },
+    ]
+    created = launch(client, config)
+    players = created["config"]["players"]
+    assert [player["name"] for player in players] == ["Shield bearer", "Jarl"]
+    assert all(player["name"] == player["profile_name"] for player in players)
+    wait_for(client, created["id"], lambda row: row["status"] == "completed")

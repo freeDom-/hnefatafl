@@ -278,6 +278,16 @@ class Store:
             row = connection.execute("SELECT data FROM jobs WHERE id=?", (job_id,)).fetchone()
         return json.loads(row["data"]) if row else None
 
+    @contextmanager
+    def discard_job(self, job_id: str) -> Iterator[None]:
+        """Remove a job only if its related filesystem cleanup also succeeds."""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            if cursor.rowcount != 1:
+                raise ConflictError("Training job not found.")
+            yield
+
     def jobs(self) -> list[dict]:
         with self.connection() as connection:
             rows = connection.execute(

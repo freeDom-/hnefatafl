@@ -30,12 +30,13 @@ async function setUpTournament(
   for (let extra = 2; extra < opponents; extra++)
     await setup.getByRole('button', { name: 'Add opponent', exact: true }).click();
   for (let index = 1; index <= opponents; index++) {
-    await setup.getByLabel(`Opponent ${index} name`, { exact: true }).fill(`Raven ${index}`);
     await setup.getByLabel(`Opponent ${index} profile`, { exact: true }).selectOption('baseline');
     await setup
       .getByLabel(`Opponent ${index} time limit (seconds)`, { exact: true })
       .fill(String(seconds));
   }
+  await expect(setup.getByRole('textbox')).toHaveCount(1);
+  await expect(setup.getByLabel(/Opponent \d+ name/, { exact: true })).toHaveCount(0);
   await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
   await expect(setup).not.toBeVisible();
 }
@@ -74,8 +75,14 @@ test('tournaments retain results, expose parameters and replay moves, and delete
   expect(
     recorded.result.games.map((game: { attacker_player: number }) => game.attacker_player),
   ).toEqual([0, 1]);
-  await expect(detail.locator('.tournament-standings')).toContainText('Raven 1');
-  await expect(detail.locator('.tournament-standings')).toContainText('Raven 2');
+  expect(recorded.config.players.map((player: { name: string }) => player.name)).toEqual([
+    'Shield bearer',
+    'Shield bearer',
+  ]);
+  await expect(detail.locator('.tournament-standing h3')).toHaveText([
+    'Shield bearer',
+    'Shield bearer',
+  ]);
   await expect(detail.locator('.tournament-standings')).toContainText('Unfinished');
   await expect(detail.locator('.tournament-matches')).toContainText('Move limit reached');
   await expect(detail.getByRole('button', { name: 'Replay game 1', exact: true })).toBeVisible();
@@ -84,7 +91,10 @@ test('tournaments retain results, expose parameters and replay moves, and delete
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
-  await expect(detail.locator('.tournament-standings')).toContainText('Raven 1');
+  await expect(detail.locator('.tournament-standing h3')).toHaveText([
+    'Shield bearer',
+    'Shield bearer',
+  ]);
   await detail.getByText('Opponent 1 parameters', { exact: false }).click();
   await expect(detail.locator('details[open]')).toContainText('0.01');
   await expect(detail).toContainText('19');
@@ -202,8 +212,8 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   expect(assignments).toContain('3-2');
   const last = recorded.result.games[11];
   const lastMatch = detail.locator('.tournament-match').last();
-  await expect(lastMatch).toContainText(`Raven ${last.attacker_player + 1}`);
-  await expect(lastMatch).toContainText(`Raven ${last.defender_player + 1}`);
+  await expect(lastMatch).toContainText(recorded.config.players[last.attacker_player].name);
+  await expect(lastMatch).toContainText(recorded.config.players[last.defender_player].name);
   await page.reload();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
@@ -212,7 +222,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   await detail.getByRole('button', { name: 'Replay game 12', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Replay game 12', exact: true });
   await expect(dialog.locator('.tournament-replay-players')).toHaveText(
-    `${recorded.config.players[last.attacker_player].rune}Raven ${last.attacker_player + 1} · Attackers vs ${recorded.config.players[last.defender_player].rune}Raven ${last.defender_player + 1} · Defenders`,
+    `${recorded.config.players[last.attacker_player].rune}${recorded.config.players[last.attacker_player].name} · Attackers vs ${recorded.config.players[last.defender_player].rune}${recorded.config.players[last.defender_player].name} · Defenders`,
   );
   const replay = await (await request.get(`${tournamentApi}/${saved.id}/games/11/replay`)).json();
   expect(replay.validated).toBe(true);

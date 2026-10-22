@@ -121,9 +121,9 @@ The wood color mode changes UI surfaces rather than engine state.
 
 Schema 5 adds an atomic, non-recycling rune catalog for stable entity identities.
 Player UUIDs and model IDs reserve distinct runes; ordinary AI configurations
-exclude seed from identity. Tournament seats have their own rune and retain the
-underlying agent rune. Older response snapshots gain runes without rewriting game
-JSON or checkpoint metadata. See `docs/IDENTITIES.md`.
+exclude seed from identity. Tournaments display the underlying agent rune; older
+seat-rune reservations remain stored. Older response snapshots gain runes without
+rewriting game JSON or checkpoint metadata. See `docs/IDENTITIES.md`.
 
 New-game browser preferences retain a validated complete successful setup. Native
 model choices update their canonical names with their IDs, and saved model-name
@@ -131,3 +131,11 @@ snapshots identify earlier games whose supplied aliases were stale. Training
 resumption uses an explicit job checkpoint metadata route and server-derived
 configuration, then creates a new worker/output directory for the chosen total
 iteration target. The UI never reconstructs a resume request from arbitrary paths.
+
+Model renames atomically update registry presentation metadata without touching
+content-addressed checkpoint bytes, IDs, runes or historical name snapshots.
+Training-data deletion removes an inactive job's owned directory and database
+record separately from inference model copies. Job lifecycle locking prevents
+late worker reconciliation from recreating deleted records, and retained shared
+optimization studies are protected while referenced. Tournament model summaries
+use path-free saved metadata rather than depending on retained training folders.

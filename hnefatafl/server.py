@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -76,9 +77,15 @@ class PlayerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class ModelNameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+
+
 class TournamentPlayerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1, max_length=80)
+    # Legacy clients may still send aliases; canonical names always come from the catalog.
+    name: str | None = Field(default=None, max_length=100)
     profile_id: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
 
@@ -112,7 +119,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     app.state.store = store
     app.state.data_dir = root
     processes: dict[str, subprocess.Popen] = {}
-    job_lock = threading.Lock()
+    job_lock = threading.RLock()
     # Catalog changes and new references must be atomic with respect to each
     # other in the documented single API-worker deployment.
     catalog_lock = threading.RLock()
@@ -1009,9 +1016,6 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             profiles = {item["algorithm"]: item for item in ai_profiles()}
             players = []
             for provided in request.players:
-                name = provided.name.strip()
-                if not name:
-                    fail("Opponent names must contain 1–80 characters.")
                 config = clean_ai_config(provided.config, provided.profile_id)
                 # The existing balanced runner uses a shared tournament seed,
                 # increasing it by game and ply. Snapshot that base value
@@ -1019,7 +1023,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 config["seed"] = request.seed
                 profile = profiles[config["algorithm"]]
                 snapshot = {
-                    "name": name,
+                    "name": profile["name"],
                     "profile_id": profile["id"],
                     "profile_name": profile["name"],
                     "config": config,
@@ -1031,7 +1035,31 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     if any(ruleset != model["ruleset"] for ruleset in request.rulesets):
                         fail("A selected model must match every tournament battlefield.")
                     model_file(model)
-                    snapshot["model_name"] = model["name"]
+                    snapshot["name"] = snapshot["model_name"] = model["name"]
+                    # Retain provenance after catalog renames/deletion, without server paths.
+                    snapshot["model"] = {
+                        key: value
+                        for key, value in model.items()
+                        if key
+                        in {
+                            "id",
+                            "name",
+                            "ruleset",
+                            "rune",
+                            "version",
+                            "iteration",
+                            "created_at",
+                            "architecture",
+                            "metrics",
+                            "evaluation",
+                        }
+                    }
+                    if isinstance(model.get("training_config"), dict):
+                        snapshot["model"]["training_config"] = {
+                            key: value
+                            for key, value in model["training_config"].items()
+                            if key in training_fields - {"resume"}
+                        }
                 players.append(snapshot)
             config = {
                 "players": players,
@@ -1128,6 +1156,18 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.get("/api/models")
     def models():
         return models_list()
+
+    @app.patch("/api/models/{model_id}")
+    def rename_model(model_id: str, request: ModelNameRequest):
+        with catalog_lock:
+            model_info(model_id)
+            try:
+                model = registry().rename(model_id, request.name)
+            except ValueError as exc:
+                fail(str(exc))
+            except OSError:
+                fail("The model name could not be saved. Try again.", 500)
+            return {**model, "rune": store.rune(f"model:{model_id}")}
 
     def unfinished_model_games(model_id: str) -> list[dict]:
         return [
@@ -1272,6 +1312,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return root / "jobs" / identifier
 
     def read_job(identifier: str) -> dict:
+        # Serialize reads that reconcile worker state with launch/deletion so a
+        # late response cannot reinsert a deleted record.
+        with job_lock:
+            return read_job_locked(identifier)
+
+    def read_job_locked(identifier: str) -> dict:
         job = store.get_job(identifier)
         if job is None:
             fail("Training job not found.", 404)
@@ -1371,11 +1417,82 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/training/jobs")
     def training_jobs():
-        return [read_job(j["id"]) for j in store.jobs()]
+        with job_lock:
+            return [read_job(j["id"]) for j in store.jobs()]
 
     @app.get("/api/training/jobs/{job_id}")
     def training_job(job_id: str):
         return read_job(job_id)
+
+    def job_worker_alive(job: dict) -> bool:
+        process = processes.get(job["id"])
+        if process is not None:
+            return process.poll() is None
+        if not job.get("pid"):
+            return False
+        try:
+            command = Path(f"/proc/{job['pid']}/cmdline").read_bytes()
+            return (
+                b"hnefatafl.cli" in command
+                and str(job_path(job["id"]) / "config.json").encode() in command
+            )
+        except OSError:
+            return False
+
+    @app.delete("/api/training/jobs/{job_id}")
+    def delete_training_job(job_id: str):
+        with job_lock:
+            job = read_job(job_id)
+            if job["status"] in {"running", "cancelling", "pending", "queued"} or job_worker_alive(
+                job
+            ):
+                fail("Stop this training job before deleting its data.", 409)
+            directory = job_path(job_id)
+            jobs_root = root / "jobs"
+            # Never follow a replacement directory outside this server's store.
+            # rmtree itself unlinks internal symlinks rather than their targets.
+            if jobs_root.is_symlink() or directory.is_symlink() or directory.resolve() != directory:
+                fail("The saved training directory is not a safe local job directory.", 409)
+            if directory.exists() and not directory.is_dir():
+                fail("The saved training directory is not a safe local job directory.", 409)
+            for candidate in store.jobs():
+                if candidate["id"] == job_id:
+                    continue
+                saved = candidate.get("config", {})
+                storage = saved.get("storage", "")
+                if isinstance(storage, str) and storage.startswith("sqlite:///"):
+                    database = Path(storage[len("sqlite:///") :]).resolve()
+                    if database.is_relative_to(directory):
+                        fail(
+                            "Another saved optimization job uses this job's study. "
+                            "Delete the dependent optimization job first.",
+                            409,
+                        )
+                resumed = saved.get("resume")
+                nested = saved.get("training", {})
+                if not resumed and isinstance(nested, dict):
+                    resumed = nested.get("resume")
+                if (
+                    isinstance(resumed, str)
+                    and Path(resumed).resolve().is_relative_to(directory)
+                    and job_worker_alive(candidate)
+                ):
+                    fail(
+                        "A running training job uses this checkpoint. Stop it before deleting the data.",
+                        409,
+                    )
+            try:
+                # Keep the job row if cleanup fails, permitting inspection and
+                # retry. Models are owned registry copies outside this tree.
+                with store.discard_job(job_id):
+                    if directory.exists():
+                        shutil.rmtree(directory)
+            except ConflictError:
+                fail("Training job not found.", 404)
+            except OSError:
+                fail("The training data could not be completely removed. Try again.", 500)
+            processes.pop(job_id, None)
+            return {"deleted": True, "job_id": job_id}
 
     @app.post("/api/training/jobs", status_code=201)
     def launch_training(config: dict[str, Any]):
@@ -1659,6 +1776,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/training/jobs/{job_id}/resume", status_code=201)
     def resume_training(job_id: str, request: dict[str, Any]):
+        with job_lock:
+            return resume_training_locked(job_id, request)
+
+    def resume_training_locked(job_id: str, request: dict[str, Any]):
         if set(request) != {"iterations"}:
             fail("Resume accepts only the target total iterations.")
         target = request["iterations"]
@@ -1678,6 +1799,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/training/jobs/{job_id}/cancel")
     def cancel_training(job_id: str):
+        with job_lock:
+            return cancel_training_locked(job_id)
+
+    def cancel_training_locked(job_id: str):
         job = read_job(job_id)
         if job["status"] not in {"running", "cancelling"}:
             return job

@@ -76,6 +76,8 @@ export interface Model {
   name: string;
   ruleset: string;
   version?: string | number;
+  iteration?: number;
+  architecture?: { name?: string; channels?: number; blocks?: number };
   created_at?: string;
   metrics?: Record<string, number>;
   training_config?: Record<string, unknown>;

@@ -13,12 +13,21 @@ The [setup dialog](screenshots/tournament-setup.png) and
 
 1. Choose **New tournament** and give the run a recognizable name.
 2. Select one or more battlefields, listed in board-size order.
-3. Name the opponents and select their profiles and search parameters. Use **Add
+3. Select the opponents' models or profiles and search parameters. Use **Add
    opponent** to include a third or fourth participant. A neural
    model must match every selected battlefield; use separate tournaments to compare
    models trained for different rulesets.
 4. Choose an even number of games per pairing on each battlefield, a move limit and a seed.
 5. Start the tournament. The saved view shows progress while the worker plays.
+
+Participants use their model's name, or the AI profile name for ordinary agents.
+There is no second participant alias. Model summaries show the network and key
+training settings next to each selected model, with its persistent rune and ID.
+Saved tournaments retain a model metadata snapshot, so those details remain
+readable after deleting training data or removing the model from the catalog.
+Later catalog renames apply to new tournaments; existing reports keep their
+recorded model names. Older alias-based records display their recorded model or
+profile name where available, with the original alias as a legacy fallback.
 
 Every unordered pair of opponents plays a balanced series, swapping
 attacker/defender sides after every game. Two players have one pairing, three

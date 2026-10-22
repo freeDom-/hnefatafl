@@ -90,9 +90,11 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   ).toHaveCount(121);
 });
 
-test('training dashboard starts, monitors and registers a real CPU smoke model', async ({
+test('training dashboard resumes, renames, reuses parameters and deletes training data while preserving playable models', async ({
   page,
+  request,
 }, testInfo) => {
+  test.setTimeout(180000);
   test.skip(
     testInfo.project.name === 'mobile',
     'CPU training is verified once; mobile gameplay is checked separately.',
@@ -102,9 +104,14 @@ test('training dashboard starts, monitors and registers a real CPU smoke model',
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await page.getByLabel('Model name', { exact: true }).fill('Browser smoke strategist');
   await page.getByRole('combobox', { name: 'Training preset', exact: true }).selectOption('smoke');
+  const firstTraining = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/training/jobs') && response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Start training', exact: false }).click();
+  const firstJob = await (await firstTraining).json();
   await expect(page.getByRole('status')).toContainText('training job has started');
-  await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 60000 });
+  await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 90000 });
   await expect(page.getByRole('img', { name: 'Loss by iteration', exact: true })).toBeVisible();
   await expect(
     page.getByRole('img', { name: 'Evaluation by iteration', exact: true }),
@@ -118,33 +125,212 @@ test('training dashboard starts, monitors and registers a real CPU smoke model',
   await expect(resume.getByRole('spinbutton', { name: 'Target total iterations' })).toHaveValue(
     '2',
   );
+  const continued = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/training/jobs/${firstJob.id}/resume`) &&
+      response.request().method() === 'POST',
+  );
   await resume.getByRole('button', { name: 'Continue training', exact: true }).click();
+  const continuedJob = await (await continued).json();
   await expect(resume).toHaveCount(0);
   await expect(page.getByRole('status')).toContainText(
     'Training resumed from iteration 1 toward 2.',
   );
-  await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 60000 });
+  await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 90000 });
   await expect(
     page.getByRole('img', { name: 'Loss by iteration', exact: true }).locator('circle'),
   ).toHaveCount(4);
   await expect(
     page.getByRole('img', { name: 'Evaluation by iteration', exact: true }).locator('circle'),
   ).toHaveCount(2);
+  const api = 'http://127.0.0.1:8001/api';
+  const savedJob = await (await request.get(`${api}/training/jobs/${continuedJob.id}`)).json();
+  const models = await (await request.get(`${api}/models`)).json();
+  const model = models.find((entry: { id: string }) => entry.id === savedJob.model_id);
+  expect(model).toBeTruthy();
+  const card = page.locator(`.model-card[data-model-id="${model.id}"]`);
+  await expect(
+    card.getByRole('definition').filter({ hasText: '4 channels · 0 blocks' }),
+  ).toBeVisible();
+  await expect(card.locator('[data-rune]')).toHaveAttribute('data-rune', model.rune);
+
+  const historyResponse = await request.post(`${api}/games`, {
+    data: {
+      ruleset: model.ruleset,
+      mode: 'human-ai',
+      human_side: 'attackers',
+      players: {
+        defenders: {
+          kind: 'ai',
+          name: model.name,
+          profile_id: 'neural',
+          config: { algorithm: 'neural', model_id: model.id, iterations: 2, time_limit: 0.05 },
+        },
+      },
+    },
+  });
+  expect(historyResponse.ok()).toBe(true);
+  const history = await historyResponse.json();
+
+  await card.getByRole('button', { name: `Rename model ${model.name}`, exact: true }).click();
+  const rename = page.getByRole('dialog', { name: 'Rename model', exact: true });
+  const renamedName = 'Browser Fjord strategist';
+  await rename.getByRole('textbox', { name: 'Model name', exact: true }).fill(renamedName);
+  await rename.getByRole('button', { name: 'Save name', exact: true }).click();
+  await expect(rename).toHaveCount(0);
+  await expect(card.getByRole('heading', { name: renamedName, exact: true })).toBeVisible();
+  const renamed = (await (await request.get(`${api}/models`)).json()).find(
+    (entry: { id: string }) => entry.id === model.id,
+  );
+  expect(renamed).toMatchObject({
+    id: model.id,
+    name: renamedName,
+    rune: model.rune,
+    training_config: model.training_config,
+    architecture: model.architecture,
+  });
+  expect(await (await request.get(`${api}/games/${history.id}`)).json()).toEqual(history);
+
+  await page
+    .getByRole('combobox', { name: 'Training preset', exact: true })
+    .selectOption('recommended');
+  await page.getByRole('combobox', { name: 'Battlefield', exact: true }).selectOption('brandubh');
+  await card
+    .getByRole('button', { name: `Load training parameters for ${renamedName}`, exact: true })
+    .click();
+  await expect(page.getByRole('status')).toContainText(
+    `Training parameters loaded from ${renamedName}.`,
+  );
+  await expect(page.getByRole('combobox', { name: 'Battlefield', exact: true })).toHaveValue(
+    model.ruleset,
+  );
+  await expect(page.getByRole('textbox', { name: 'Model name', exact: true })).toHaveValue(
+    renamedName,
+  );
+  await expect(
+    page.getByRole('spinbutton', { name: 'Training iterations', exact: true }),
+  ).toHaveValue(String(model.training_config.iterations));
+  await expect(
+    page.getByRole('spinbutton', { name: 'Self-play games per iteration', exact: true }),
+  ).toHaveValue(String(model.training_config.games));
+  await expect(page.getByRole('spinbutton', { name: 'Network channels', exact: true })).toHaveValue(
+    String(model.architecture.channels),
+  );
+  await expect(page.getByRole('spinbutton', { name: 'Residual blocks', exact: true })).toHaveValue(
+    String(model.architecture.blocks),
+  );
+  await expect(page.getByRole('spinbutton', { name: 'Random seed', exact: true })).toHaveValue(
+    String(model.training_config.seed),
+  );
+
+  expect(
+    await page
+      .locator('.training-config form')
+      .evaluate((form: HTMLFormElement) => form.checkValidity()),
+  ).toBe(true);
+
+  await page.getByRole('button', { name: 'Delete training data', exact: true }).click();
+  const removeTraining = page.getByRole('dialog', { name: 'Delete training data?', exact: true });
+  await expect(removeTraining).toContainText('checkpoints');
+  await removeTraining.getByRole('button', { name: 'Keep it', exact: true }).click();
+  expect((await request.get(`${api}/training/jobs/${continuedJob.id}`)).ok()).toBe(true);
+  await page.getByRole('button', { name: 'Delete training data', exact: true }).click();
+  await removeTraining.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(removeTraining).toHaveCount(0);
+  await expect(page.locator('.job-detail')).toHaveCount(0);
+  expect((await request.get(`${api}/training/jobs/${continuedJob.id}`)).status()).toBe(404);
+  expect((await request.get(`${api}/training/jobs/${continuedJob.id}/resume`)).status()).toBe(404);
+  expect((await request.get(`${api}/training/jobs/${firstJob.id}`)).ok()).toBe(true);
+  await expect(card.getByRole('heading', { name: renamedName, exact: true })).toBeVisible();
+  expect(await (await request.get(`${api}/games/${history.id}`)).json()).toEqual(history);
+
+  await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
+  await page.getByRole('button', { name: 'New tournament', exact: true }).click();
+  const tournamentSetup = page.getByRole('dialog', { name: 'Set up a tournament', exact: true });
+  await expect(tournamentSetup.getByRole('textbox')).toHaveCount(1);
+  await tournamentSetup
+    .getByRole('textbox', { name: 'Tournament name', exact: true })
+    .fill('Fjord model provenance');
+  await tournamentSetup.getByRole('checkbox', { name: 'Brandubh 7 × 7', exact: true }).uncheck();
+  await tournamentSetup
+    .getByRole('checkbox', { name: 'Tablut (market rules) 9 × 9', exact: true })
+    .check();
+  await tournamentSetup.getByLabel('Opponent 1 profile', { exact: true }).selectOption('neural');
+  await tournamentSetup
+    .getByLabel('Opponent 1 trained model', { exact: true })
+    .selectOption(model.id);
+  await tournamentSetup.getByLabel('Opponent 2 profile', { exact: true }).selectOption('baseline');
+  await expect(tournamentSetup.locator('.model-training-summary')).toContainText(
+    '4 channels · 0 blocks',
+  );
+  await tournamentSetup.getByLabel('Opponent 1 time limit (seconds)', { exact: true }).fill('0.01');
+  await tournamentSetup.getByLabel('Move limit per game', { exact: true }).fill('1');
+  const tournamentCreated = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/tournaments') && response.request().method() === 'POST',
+  );
+  await tournamentSetup.getByRole('button', { name: 'Start tournament', exact: true }).click();
+  const tournament = await (await tournamentCreated).json();
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 30000,
+  });
+  const snapshotConfig = Object.fromEntries(
+    Object.entries(model.training_config).filter(
+      ([key]) => !['output_dir', 'registry_dir', 'resume'].includes(key),
+    ),
+  );
+  expect(tournament.config.players[0]).toMatchObject({
+    name: renamedName,
+    model_name: renamedName,
+    rune: model.rune,
+    model: {
+      id: model.id,
+      architecture: model.architecture,
+      training_config: snapshotConfig,
+    },
+  });
+  expect(tournament.config.players[0].model).not.toHaveProperty('path');
+  for (const pathField of ['output_dir', 'registry_dir', 'resume'])
+    expect(tournament.config.players[0].model.training_config).not.toHaveProperty(pathField);
+  await expect(
+    page
+      .locator('.tournament-standing')
+      .first()
+      .getByRole('heading', { name: renamedName, exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.tournament-standing').first().locator('.model-training-summary'),
+  ).toContainText('4 channels · 0 blocks');
+  await page.reload();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'View tournament Fjord model provenance', exact: true })
+    .click();
+  await expect(
+    page.locator('.tournament-standing').first().locator('.model-training-summary'),
+  ).toContainText('4 channels · 0 blocks');
+
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await page.getByRole('button', { name: /New game/ }).click();
   await page.getByRole('button', { name: 'Human vs AI', exact: true }).click();
+  await page.getByRole('radio', { name: /Tablut/ }).check();
   await page.getByLabel('Your side').selectOption('attackers');
   await page.getByLabel('Defenders algorithm').selectOption('neural');
-  const option = page
-    .getByRole('combobox', { name: 'Defenders trained model', exact: true })
-    .locator('option')
-    .filter({ hasText: 'Browser smoke strategist' })
-    .first();
   await page
     .getByRole('combobox', { name: 'Defenders trained model', exact: true })
-    .selectOption((await option.getAttribute('value')) ?? '');
+    .selectOption(model.id);
+  const played = page.waitForResponse(
+    (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'To the table' }).click();
+  expect((await (await played).json()).players.defenders).toMatchObject({
+    name: renamedName,
+    model_name: renamedName,
+    config: { model_id: model.id },
+  });
   await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible({
     timeout: 20000,
   });
+  await expect(page.locator('.army h3').nth(1)).toContainText(renamedName);
 });

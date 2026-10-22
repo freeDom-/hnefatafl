@@ -8,10 +8,18 @@ import RecordsConfirm from './RecordsConfirm';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
-import { trainingConfig, changeTrainingPlan, type TrainingPreset } from './trainingPresets';
+import {
+  trainingConfig,
+  changeTrainingPlan,
+  recordedTrainingConfig,
+  type TrainingPreset,
+} from './trainingPresets';
 import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingResumeDialog from './TrainingResumeDialog';
 import Rune from './Rune';
+import ModelRenameDialog from './ModelRenameDialog';
+import ModelTrainingSummary from './ModelTrainingSummary';
+import { modelIteration } from './modelLabel';
 
 interface ModelUsage {
   model_id: string;
@@ -25,13 +33,6 @@ interface ModelUsage {
   }[];
   running_tournaments: { id: string; name: string; status: string }[];
   usage_token?: string;
-}
-
-function trainingSeed(model: Model) {
-  const seed = model.training_config?.seed;
-  return typeof seed === 'number' && Number.isInteger(seed) && seed >= 0 && seed <= 4294967295
-    ? String(seed)
-    : t('Not recorded');
 }
 
 const defaults = trainingConfig('tablut', 'recommended');
@@ -64,6 +65,11 @@ export default function Training({
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [resumeJob, setResumeJob] = useState<Job | null>(null);
+  const [renameModel, setRenameModel] = useState<Model | null>(null);
+  const [deleteJob, setDeleteJob] = useState<Job | null>(null);
+  const [deletingJob, setDeletingJob] = useState(false);
+  const [deleteJobError, setDeleteJobError] = useState('');
+  const trainingForm = useRef<HTMLElement>(null);
   const [config, setConfig] = useState<Record<string, string | number | boolean>>(() => ({
     ...defaults,
     model_name: suggestVikingName(models.map((model) => model.name)),
@@ -253,6 +259,37 @@ export default function Training({
       onError((e as Error).message);
     }
   };
+  const removeTrainingData = async () => {
+    if (!deleteJob) return;
+    setDeletingJob(true);
+    setDeleteJobError('');
+    try {
+      await api(`/training/jobs/${deleteJob.id}`, undefined, 'DELETE');
+      setJobs((previous) => previous.filter((job) => job.id !== deleteJob.id));
+      setSelectedJob((previous) => (previous?.id === deleteJob.id ? null : previous));
+      setDeleteJob(null);
+      setNotice(
+        t('Training data deleted. Registered models and saved game history have been kept.'),
+      );
+    } catch (error) {
+      setDeleteJobError((error as Error).message);
+    } finally {
+      setDeletingJob(false);
+    }
+  };
+  const loadParameters = (model: Model) => {
+    const loaded = recordedTrainingConfig(config, model);
+    if (!loaded) return;
+    setConfig(loaded);
+    setKind('train');
+    setAdvanced(true);
+    setNotice(
+      t('Training parameters loaded from {name}. Unrecorded inputs keep their current values.', {
+        name: model.name,
+      }),
+    );
+    trainingForm.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
   const removeModel = async () => {
     if (
       !deleteModel ||
@@ -348,7 +385,7 @@ export default function Training({
         />
       </div>
       <div className="training-layout">
-        <section className="panel training-config">
+        <section className="panel training-config" ref={trainingForm}>
           <div className="panel-title">
             <h2>{t('Forge a new strategist')}</h2>
             <span className="badge">{t('SELF-PLAY')}</span>
@@ -425,7 +462,7 @@ export default function Training({
                   <input
                     id="training-model-name"
                     required
-                    maxLength={80}
+                    maxLength={100}
                     value={String(config.model_name)}
                     onChange={(e) => update('model_name', e.target.value)}
                   />
@@ -460,13 +497,23 @@ export default function Training({
                     {t('NVIDIA CUDA')}
                     {!device.cuda_available ? ` (${t('unavailable')})` : ''}
                   </option>
-                  {device.mps_available && <option value="mps">{t('Apple Metal')}</option>}
+                  <option value="mps" disabled={!device.mps_available}>
+                    {t('Apple Metal')}
+                    {!device.mps_available ? ` (${t('unavailable')})` : ''}
+                  </option>
                 </select>
               </label>
-              {numberField('iterations', 'Training iterations', config, update, 1, 10000)}
+              {numberField('iterations', 'Training iterations', config, update, 1, 100000)}
               {numberField('games', 'Self-play games per iteration', config, update, 1, 10000)}
               {numberField('batch_size', 'Batch size', config, update, 1, 2048)}
-              {numberField('mcts_iterations', 'MCTS iterations per move', config, update, 1, 10000)}
+              {numberField(
+                'mcts_iterations',
+                'MCTS iterations per move',
+                config,
+                update,
+                1,
+                100000,
+              )}
             </div>
             {config.preset === 'recommended' && (
               <p className="training-plan-note subtle">
@@ -515,25 +562,41 @@ export default function Training({
                   </select>
                 </label>
                 {numberField('epochs', 'Epochs per iteration', config, update, 1, 100)}
-                {numberField('learning_rate', 'Learning rate', config, update, 0.000001, 1, 0.0001)}
+                {numberField(
+                  'learning_rate',
+                  'Learning rate',
+                  config,
+                  update,
+                  0.0000001,
+                  1,
+                  0.0001,
+                )}
                 {numberField(
                   'mcts_time_limit',
                   'Search time limit (seconds)',
                   config,
                   update,
-                  0.01,
-                  30,
+                  0.001,
+                  300,
                   0.01,
                 )}
-                {numberField('exploration', 'MCTS exploration', config, update, 0, 10, 0.1)}
-                {numberField('temperature', 'Self-play temperature', config, update, 0.01, 3, 0.01)}
+                {numberField('exploration', 'MCTS exploration', config, update, 0, 20, 0.1)}
+                {numberField(
+                  'temperature',
+                  'Self-play temperature',
+                  config,
+                  update,
+                  0.01,
+                  10,
+                  0.01,
+                )}
                 {numberField(
                   'dirichlet_alpha',
                   'Exploration noise alpha',
                   config,
                   update,
-                  0.01,
-                  10,
+                  0.001,
+                  100,
                   0.01,
                 )}
                 {numberField(
@@ -576,7 +639,7 @@ export default function Training({
                   config,
                   update,
                   2,
-                  1000,
+                  10000,
                   2,
                 )}
                 {numberField(
@@ -585,19 +648,19 @@ export default function Training({
                   config,
                   update,
                   1,
-                  10000,
+                  100000,
                 )}
-                {numberField('max_game_plies', 'Self-play move limit', config, update, 10, 2000)}
+                {numberField('max_game_plies', 'Self-play move limit', config, update, 2, 5000)}
                 {numberField(
                   'evaluation_max_plies',
                   'Evaluation move limit',
                   config,
                   update,
-                  10,
-                  2000,
+                  2,
+                  5000,
                 )}
                 {numberField('cpu_threads', 'CPU threads', config, update, 1, 64)}
-                {numberField('seed', 'Random seed', config, update, 0, 2147483647)}
+                {numberField('seed', 'Random seed', config, update, 0, 4294967295)}
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -759,6 +822,18 @@ export default function Training({
                     {selectedJob.kind === 'tune' ? t('Resume study') : t('Resume from checkpoint')}
                   </button>
                 )}
+                {!['running', 'pending', 'queued', 'cancelling'].includes(selectedJob.status) && (
+                  <button
+                    type="button"
+                    className="button secondary small danger-text"
+                    onClick={() => {
+                      setDeleteJob(selectedJob);
+                      setDeleteJobError('');
+                    }}
+                  >
+                    {t('Delete training data')}
+                  </button>
+                )}
               </div>
               <details>
                 <summary>{t('Training log')}</summary>
@@ -798,6 +873,7 @@ export default function Training({
         {models.length ? (
           <div className="models-grid">
             {models.map((model) => {
+              const iteration = modelIteration(model);
               const sourceJob = jobs.find(
                 (job) =>
                   job.kind !== 'tune' &&
@@ -811,7 +887,7 @@ export default function Training({
                       job.progress.best_models.some((best) => best?.model_id === model.id))),
               );
               return (
-                <article key={model.id} className="model-card">
+                <article key={model.id} className="model-card" data-model-id={model.id}>
                   <div className="model-symbol">
                     <Rune rune={model.rune} />
                   </div>
@@ -819,20 +895,26 @@ export default function Training({
                     <h3>{model.name}</h3>
                     <p>
                       {model.ruleset} ·{' '}
-                      {model.version == null
+                      {iteration === undefined
                         ? t('Policy / value')
-                        : t('Iteration {iteration}', { iteration: String(model.version) })}
+                        : t('Iteration {iteration}', { iteration })}
                     </p>
                     <small>
                       {model.created_at
                         ? new Date(model.created_at).toLocaleDateString(locale)
                         : model.id}
                     </small>
-                    <p className="model-training-seed">
-                      {t('Training seed')} <strong>{trainingSeed(model)}</strong>
-                    </p>
                   </div>
                   <div className="model-actions">
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={t('Rename model {name}', { name: model.name })}
+                      title={t('Rename model')}
+                      onClick={() => setRenameModel(model)}
+                    >
+                      ✎
+                    </button>
                     {sourceJob && (
                       <button
                         type="button"
@@ -871,6 +953,21 @@ export default function Training({
                       ×
                     </button>
                   </div>
+                  <ModelTrainingSummary model={model} />
+                  <button
+                    type="button"
+                    className="button secondary small model-load-parameters"
+                    aria-label={t('Load training parameters for {name}', { name: model.name })}
+                    disabled={!recordedTrainingConfig(config, model)}
+                    title={
+                      !recordedTrainingConfig(config, model)
+                        ? t('No recorded training parameters are available for this model.')
+                        : undefined
+                    }
+                    onClick={() => loadParameters(model)}
+                  >
+                    {t('Load training parameters')}
+                  </button>
                   {model.evaluation && (
                     <div className="model-evaluation">
                       <span className="eyebrow">
@@ -913,6 +1010,51 @@ export default function Training({
           <p className="empty-copy">{t('Your trained and imported models will live here.')}</p>
         )}
       </section>
+      {renameModel && (
+        <ModelRenameDialog
+          key={renameModel.id}
+          model={renameModel}
+          onClose={() => setRenameModel(null)}
+          onRenamed={() => {
+            setRenameModel(null);
+            onModelsChanged();
+            setNotice(t('Model renamed. Its identity and saved history are unchanged.'));
+          }}
+        />
+      )}
+      {deleteJob && (
+        <RecordsConfirm
+          title={t('Delete training data?')}
+          busy={deletingJob}
+          error={deleteJobError}
+          onCancel={() => setDeleteJob(null)}
+          onConfirm={() => void removeTrainingData()}
+        >
+          <p>
+            {t(
+              'Permanently remove the checkpoints, replay buffer, learning history and logs for this training run?',
+            )}
+          </p>
+          <p>
+            <strong>
+              {String(
+                deleteJob.config?.model_name ?? deleteJob.config?.ruleset ?? t('Training job'),
+              )}
+            </strong>{' '}
+            <span className="subtle">#{deleteJob.id.slice(0, 8)}</span>
+          </p>
+          <p>
+            {t(
+              'This run can no longer be resumed. Registered models, their recorded training parameters, saved games and tournaments are kept.',
+            )}
+          </p>
+          {deleteJob.kind === 'tune' && (
+            <p>
+              {t('A study shared by other saved jobs must be kept until those jobs are removed.')}
+            </p>
+          )}
+        </RecordsConfirm>
+      )}
       {resumeJob && (
         <TrainingResumeDialog
           job={resumeJob}
@@ -1054,7 +1196,7 @@ function numberField(
         required
         min={min}
         max={max}
-        step={step}
+        step={Number.isInteger(step) ? step : 'any'}
         value={Number(config[key])}
         onChange={(e) => update(key, Number(e.target.value))}
       />

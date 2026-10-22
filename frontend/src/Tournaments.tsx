@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from './api';
 import Board, { coordinate, Crown } from './Board';
 import RecordsConfirm from './RecordsConfirm';
-import RecordsParameters from './RecordsParameters';
+import RecordsParameters, { parameterSummary } from './RecordsParameters';
 import { sortRulesets } from './sortRulesets';
 import { suggestTournamentName } from './mythologicalNames';
-import { suggestVikingName } from './vikingNames';
+import ModelTrainingSummary from './ModelTrainingSummary';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { getLocale, t, useI18n } from './i18n';
@@ -34,10 +34,12 @@ const statusLabel: Record<Tournament['status'], string> = {
 };
 const score = (value: number) => value.toLocaleString(getLocale(), { maximumFractionDigits: 1 });
 const active = (tournament: Tournament) => tournament.status === 'running';
+const playerName = (player: TournamentPlayer) =>
+  player.model_name || (player.profile_name ? t(player.profile_name) : player.name);
 const seatRune = (player: TournamentPlayer) =>
-  player.rune ? (
-    <span className="identity-rune" data-rune={player.rune} aria-hidden="true">
-      {player.rune}
+  player.agent_rune || player.rune ? (
+    <span className="identity-rune" data-rune={player.agent_rune || player.rune} aria-hidden="true">
+      {player.agent_rune || player.rune}
     </span>
   ) : null;
 const champion = (tournament: Tournament) => {
@@ -52,10 +54,10 @@ const champion = (tournament: Tournament) => {
       tournament.status === 'completed'
         ? '{names} finish level on points'
         : '{names} share the lead',
-      { names: leaders.map((player) => player.name).join(' & ') },
+      { names: leaders.map(playerName).join(' & ') },
     );
   return t(tournament.status === 'completed' ? '{name} wins on points' : '{name} leads on points', {
-    name: leaders[0].name,
+    name: playerName(leaders[0]),
   });
 };
 const defender = (match: TournamentGame) => match.defender_player ?? 1 - match.attacker_player;
@@ -63,7 +65,7 @@ const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
   if (!match.winner) return t('Move limit reached');
   if (match.winner === 'draw') return t('Rule draw');
   const winner = match.winner === 'attackers' ? match.attacker_player : defender(match);
-  return t('{name} wins', { name: players[winner].name });
+  return t('{name} wins', { name: playerName(players[winner]) });
 };
 
 export default function Tournaments({
@@ -284,7 +286,7 @@ export default function Tournaments({
                       <span key={index}>
                         {index > 0 ? ` ${t('vs')} ` : ''}
                         {seatRune(player)}
-                        {player.name}
+                        {playerName(player)}
                       </span>
                     ))}
                   </small>
@@ -411,36 +413,25 @@ export default function Tournaments({
                   {selected.config.players.map((player, index) => {
                     const standing = selected.result?.standings.find((row) => row.player === index);
                     const points = standing?.score ?? 0;
+                    const model =
+                      player.model ?? models.find((entry) => entry.id === player.config.model_id);
                     return (
                       <article className={`tournament-standing rival-${index + 1}`} key={index}>
                         <div className="tournament-standing-top">
                           <span
                             className="tournament-avatar"
                             aria-hidden="true"
-                            data-rune={player.rune}
+                            data-rune={player.agent_rune || player.rune}
                           >
-                            {player.rune ?? '·'}
+                            {player.agent_rune || player.rune || '·'}
                           </span>
                           <div>
                             <small>{t('OPPONENT {number}', { number: index + 1 })}</small>
-                            <h3>{player.name}</h3>
+                            <h3>{playerName(player)}</h3>
                             <p>
-                              {player.agent_rune && (
-                                <span
-                                  className="identity-rune"
-                                  data-rune={player.agent_rune}
-                                  aria-hidden="true"
-                                >
-                                  {player.agent_rune}
-                                </span>
-                              )}
-                              {player.model_name ||
-                                t(
-                                  player.profile_name ||
-                                    profiles.find((profile) => profile.id === player.profile_id)
-                                      ?.name ||
-                                    String(player.config.algorithm),
-                                )}
+                              {player.config.model_id
+                                ? `#${String(player.config.model_id).slice(0, 8)} · ${parameterSummary(player.config)}`
+                                : parameterSummary(player.config)}
                             </p>
                           </div>
                           <strong className="tournament-points">
@@ -473,6 +464,7 @@ export default function Tournaments({
                             <dd>{standing?.truncated ?? 0}</dd>
                           </div>
                         </dl>
+                        {model && <ModelTrainingSummary model={model} compact />}
                         <RecordsParameters
                           config={player.config}
                           label={t('Opponent {number} parameters', { number: index + 1 })}
@@ -540,7 +532,7 @@ export default function Tournaments({
                                   <li key={index}>
                                     <span>
                                       {seatRune(player)}
-                                      {player.name}
+                                      {playerName(player)}
                                     </span>
                                     <strong>
                                       {t('{count} wins', { count: tally?.wins[index] ?? 0 })}
@@ -601,11 +593,11 @@ export default function Tournaments({
                         <p>
                           <span className="mini-piece black" aria-hidden="true" />
                           {seatRune(selected.config.players[match.attacker_player])}
-                          {selected.config.players[match.attacker_player].name}{' '}
+                          {playerName(selected.config.players[match.attacker_player])}{' '}
                           <span className="tournament-versus">{t('vs')}</span>{' '}
                           <span className="mini-piece ivory" aria-hidden="true" />
                           {seatRune(selected.config.players[defender(match)])}
-                          {selected.config.players[defender(match)].name}
+                          {playerName(selected.config.players[defender(match)])}
                         </p>
                         <small className="tournament-match-reason">
                           {t(match.reason.replaceAll('_', ' '))}
@@ -631,9 +623,6 @@ export default function Tournaments({
         <TournamentSetup
           initialName={suggestedName}
           existingNames={tournaments.map((tournament) => tournament.name)}
-          existingPlayerNames={tournaments.flatMap((tournament) =>
-            tournament.config.players.map((player) => player.name),
-          )}
           onSuggestedName={(name) => {
             previousNameSuggestion.current = name;
           }}
@@ -683,20 +672,18 @@ export default function Tournaments({
   );
 }
 
-const fallbackPlayer = (index: number, name: string): TournamentPlayer =>
+const fallbackPlayer = (index: number): TournamentPlayer =>
   index % 2
     ? {
-        name,
+        name: 'Alpha-beta',
         profile_id: 'alpha_beta',
         config: { algorithm: 'alpha_beta', depth: 2, time_limit: 0.1 },
       }
-    : { name, profile_id: 'baseline', config: { algorithm: 'baseline', time_limit: 0.1 } };
-
-const fallbackPlayers = (existing: string[]): TournamentPlayer[] => {
-  const first = suggestVikingName(existing);
-  const second = suggestVikingName([...existing, first]);
-  return [fallbackPlayer(0, first), fallbackPlayer(1, second)];
-};
+    : {
+        name: 'Baseline',
+        profile_id: 'baseline',
+        config: { algorithm: 'baseline', time_limit: 0.1 },
+      };
 
 function recommendedPlayer(
   models: Model[],
@@ -708,7 +695,7 @@ function recommendedPlayer(
   if (!best) return fallback;
   const profile = profiles.find((candidate) => candidate.algorithm === 'neural');
   return {
-    name: fallback.name,
+    name: best.name,
     profile_id: profile?.id ?? 'neural',
     config: {
       ...profile?.parameters,
@@ -722,7 +709,6 @@ function recommendedPlayer(
 function TournamentSetup({
   initialName,
   existingNames,
-  existingPlayerNames,
   onSuggestedName,
   rulesets,
   profiles,
@@ -732,7 +718,6 @@ function TournamentSetup({
 }: {
   initialName: string;
   existingNames: string[];
-  existingPlayerNames: string[];
   onSuggestedName: (name: string) => void;
   rulesets: Ruleset[];
   profiles: AIProfile[];
@@ -746,8 +731,8 @@ function TournamentSetup({
   const previousSuggestion = useRef(initialName);
   const manualOpponents = useRef<boolean[]>([false, false]);
   const [config, setConfig] = useState<TournamentConfig>(() => ({
-    players: fallbackPlayers([...existingPlayerNames, ...models.map((model) => model.name)]).map(
-      (player) => recommendedPlayer(models, profiles, 'brandubh', player),
+    players: [0, 1].map((index) =>
+      recommendedPlayer(models, profiles, 'brandubh', fallbackPlayer(index)),
     ),
     rulesets: ['brandubh'],
     games: 2,
@@ -768,7 +753,7 @@ function TournamentSetup({
       let changed = false;
       const players = previous.players.map((player, index) => {
         if (manualOpponents.current[index]) return player;
-        const fallback = fallbackPlayer(index, player.name);
+        const fallback = fallbackPlayer(index);
         const next = recommendedPlayer(models, profiles, ruleset, fallback);
         if (
           player.config.model_id === next.config.model_id &&
@@ -797,11 +782,6 @@ function TournamentSetup({
     manualOpponents.current.push(false);
     setConfig((previous) => {
       if (previous.players.length >= 4) return previous;
-      const playerName = suggestVikingName([
-        ...existingPlayerNames,
-        ...models.map((model) => model.name),
-        ...previous.players.map((player) => player.name),
-      ]);
       return {
         ...previous,
         players: [
@@ -810,11 +790,7 @@ function TournamentSetup({
             models,
             profiles,
             previous.rulesets.length === 1 ? previous.rulesets[0] : undefined,
-            {
-              name: playerName,
-              profile_id: 'baseline',
-              config: { algorithm: 'baseline', time_limit: 0.1 },
-            },
+            fallbackPlayer(previous.players.length),
           ),
         ],
       };
@@ -862,7 +838,16 @@ function TournamentSetup({
     setBusy(true);
     setError('');
     try {
-      onCreated(await api<Tournament>('/tournaments', { name: name.trim(), ...config }));
+      onCreated(
+        await api<Tournament>('/tournaments', {
+          name: name.trim(),
+          ...config,
+          players: config.players.map(({ profile_id, config: search }) => ({
+            profile_id,
+            config: search,
+          })),
+        }),
+      );
     } catch (failure) {
       setError((failure as Error).message);
     } finally {
@@ -960,6 +945,7 @@ function TournamentSetup({
           {config.players.map((player, index) => {
             const prefix = t('Opponent {number}', { number: index + 1 });
             const algorithm = player.config.algorithm;
+            const selectedModel = models.find((model) => model.id === player.config.model_id);
             const field = (
               key: string,
               label: string,
@@ -996,37 +982,6 @@ function TournamentSetup({
                     ×
                   </button>
                 )}
-                <div className="name-suggestion-field">
-                  <label htmlFor={`tournament-player-${index}-name`}>{t('Name')}</label>
-                  <div className="name-input-group">
-                    <input
-                      id={`tournament-player-${index}-name`}
-                      aria-label={`${prefix} ${t('name')}`}
-                      maxLength={80}
-                      required
-                      value={player.name}
-                      onChange={(event) => updatePlayer(index, { name: event.target.value })}
-                    />
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={t('Suggest opponent {number} name', { number: index + 1 })}
-                      title={t('Suggest a Viking name')}
-                      disabled={busy}
-                      onClick={() =>
-                        updatePlayer(index, {
-                          name: suggestVikingName([
-                            ...existingPlayerNames,
-                            ...models.map((model) => model.name),
-                            ...config.players.map((opponent) => opponent.name),
-                          ]),
-                        })
-                      }
-                    >
-                      ⚄
-                    </button>
-                  </div>
-                </div>
                 <label>
                   {t('Profile')}
                   <select
@@ -1083,6 +1038,9 @@ function TournamentSetup({
                         </small>
                       )}
                   </label>
+                )}
+                {selectedModel && algorithm === 'neural' && (
+                  <ModelTrainingSummary model={selectedModel} compact />
                 )}
                 {field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
                 <details className="tournament-advanced">
@@ -1291,11 +1249,11 @@ function TournamentPlayback({
       </p>
       <p className="tournament-replay-players">
         {seatRune(tournament.config.players[match.attacker_player])}
-        {tournament.config.players[match.attacker_player].name}
+        {playerName(tournament.config.players[match.attacker_player])}
         {' · '}
         {t('Attackers')} <span aria-hidden="true">{t('vs')}</span>{' '}
         {seatRune(tournament.config.players[defender(match)])}
-        {tournament.config.players[defender(match)].name}
+        {playerName(tournament.config.players[defender(match)])}
         {' · '}
         {t('Defenders')}
       </p>

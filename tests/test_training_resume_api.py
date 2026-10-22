@@ -21,7 +21,7 @@ def client(tmp_path):
 def completed(client, response):
     assert response.status_code == 201, response.text
     identifier = response.json()["id"]
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         job = client.get(f"/api/training/jobs/{identifier}").json()
         if job["status"] not in {"running", "cancelling"}:
@@ -38,6 +38,12 @@ def test_reviewed_job_resume_retains_full_state_and_separate_outputs(client, tmp
         "model_name": "Resume witness",
         "seed": 17,
         "device": "cpu",
+        # Compare RNG/optimizer resumption with complete two-visit searches,
+        # rather than different wall-clock cutoffs under shared CI load.
+        "mcts_time_limit": 5,
+        "cpu_threads": 1,
+        "max_game_plies": 6,
+        "evaluation_max_plies": 2,
         "save_all_best": True,
     }
     first = completed(client, client.post("/api/training/jobs", json=config))

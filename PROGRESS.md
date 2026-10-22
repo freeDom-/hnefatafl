@@ -114,3 +114,19 @@ resume the originating job's latest full checkpoint; inference-only imports do
 not contain exact training state. Rune combinations extend the 24 single-rune
 alphabet without reusing identity assignments. See `docs/IDENTITIES.md` and
 `docs/TRAINING.md` for persistence and resumption details.
+
+## A manageable model workshop (`v0.11.0`)
+
+- [x] Rename catalog models while preserving IDs, runes, weights and historical names
+- [x] Delete inactive training jobs/checkpoints/logs independently of registered models and saved games
+- [x] Protect live workers, checkpoint consumers and referenced optimization studies during deletion
+- [x] Load recorded training parameters into the form, with explicit handling of missing values
+- [x] Accept valid recorded numeric values in the advanced form without decimal-step errors
+- [x] Show recorded network, iteration, self-play, search and learning settings on model cards
+- [x] Remove tournament participant aliases and use canonical model/profile names and agent runes
+- [x] Retain path-free model provenance in saved tournaments and display it after source removal
+- [x] Pass 327 Python tests, 81 frontend unit tests and 26 real-API browser checks
+
+Schema 5 and checkpoint formats remain unchanged. Catalog renames preserve
+historical snapshots and exported checkpoint bytes. Deleting a source job
+permanently removes its exact resumption state while retaining inference copies.

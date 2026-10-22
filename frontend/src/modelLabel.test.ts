@@ -21,6 +21,9 @@ describe('model descriptions and northern tournament names', () => {
     expect(modelOptionLabel({ ...model, version: undefined, training_config: undefined })).toBe(
       'Eir · #abcdef01',
     );
+    expect(modelOptionLabel({ ...model, version: 1, training_config: undefined })).toBe(
+      'Eir · version 1 · #abcdef01',
+    );
   });
 
   it('excludes normalized saved titles and the current suggestion, including a full catalogue', () => {

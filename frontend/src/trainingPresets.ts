@@ -137,3 +137,32 @@ export function changeTrainingPlan(
     save_all_best: previous.save_all_best,
   };
 }
+
+/** Copy recorded input values only; checkpoint paths and worker metadata are never inputs. */
+export function recordedTrainingConfig(
+  previous: TrainingConfig,
+  model: { name: string; ruleset: string; training_config?: Record<string, unknown> },
+): TrainingConfig | null {
+  const recorded = model.training_config;
+  if (!recorded || typeof recorded !== 'object') return null;
+  const values: TrainingConfig = {};
+  for (const key of Object.keys(base)) {
+    const value = recorded[key];
+    if (
+      typeof value === typeof base[key] &&
+      (typeof value !== 'number' || Number.isFinite(value))
+    ) {
+      if (
+        key === 'preset' &&
+        !['recommended', 'smoke', 'beginner', 'balanced'].includes(String(value))
+      )
+        continue;
+      if (key === 'device' && !['auto', 'cpu', 'cuda', 'mps'].includes(String(value))) continue;
+      if (key === 'optimizer' && !['adamw', 'adam', 'sgd'].includes(String(value))) continue;
+      values[key] = value as string | number | boolean;
+    }
+  }
+  if (!Object.keys(values).some((key) => !['model_name', 'ruleset', 'preset'].includes(key)))
+    return null;
+  return { ...previous, ...values, model_name: model.name, ruleset: model.ruleset };
+}

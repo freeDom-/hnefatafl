@@ -90,17 +90,20 @@ class TournamentManager:
             for key, value in tournament.items()
             if key != "pid" and not (summary and key == "result")
         }
-        # A tournament seat is distinct from its underlying model/search agent.
-        # Copies also backfill old reports without rewriting their stored JSON.
+        # Present the canonical recorded model/profile name and underlying agent rune.
+        # Copies backfill legacy aliases and seat runes without rewriting saved JSON.
         result["config"] = {
             **tournament["config"],
             "players": [
                 {
                     **player,
-                    "rune": self.store.rune(f"tournament:{tournament['id']}:player:{index}"),
+                    "name": player.get("model_name")
+                    or player.get("profile_name")
+                    or player["name"],
+                    "rune": self.store.rune(agent_identity(player)),
                     "agent_rune": self.store.rune(agent_identity(player)),
                 }
-                for index, player in enumerate(tournament["config"]["players"])
+                for player in tournament["config"]["players"]
             ],
         }
         return result
@@ -128,10 +131,10 @@ class TournamentManager:
                 "players": [
                     {
                         **player,
-                        "rune": self.store.rune(f"tournament:{identifier}:player:{index}"),
+                        "rune": self.store.rune(agent_identity(player)),
                         "agent_rune": self.store.rune(agent_identity(player)),
                     }
-                    for index, player in enumerate(config["players"])
+                    for player in config["players"]
                 ],
             }
             player_count = len(config["players"])

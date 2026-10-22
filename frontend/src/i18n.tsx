@@ -5,12 +5,21 @@ import tournaments from './locales/de-tournaments';
 import appearance from './locales/de-appearance';
 import training from './locales/de-training';
 import resume from './locales/de-resume';
+import modelManagement from './locales/de-model-management';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
 export type Translate = (source: string, values?: TranslationValues) => string;
 export const LANGUAGE_KEY = 'hnefatafl-language';
-const dictionary = { ...german, ...extra, ...tournaments, ...appearance, ...training, ...resume };
+const dictionary = {
+  ...german,
+  ...extra,
+  ...tournaments,
+  ...appearance,
+  ...training,
+  ...resume,
+  ...modelManagement,
+};
 let current: Language = 'en';
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {

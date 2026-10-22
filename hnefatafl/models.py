@@ -461,6 +461,21 @@ class ModelRegistry:
     def register(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
         return self.import_model(path, name)
 
+    def rename(self, model_id: str, name: str) -> dict[str, Any]:
+        """Change the catalog label without altering checkpoint bytes or identity."""
+        if not isinstance(model_id, str) or not _MODEL_ID.fullmatch(model_id):
+            raise ValueError("Invalid model ID")
+        if not isinstance(name, str) or not name.strip() or len(name) > 100:
+            raise ValueError("Model name must contain 1 to 100 characters")
+        with _registry_lock(self.root / ".registry.lock"):
+            entries = self._read_index()
+            entry = next((value for value in entries if value["id"] == model_id), None)
+            if entry is None:
+                raise ValueError("Model is not registered")
+            entry["name"] = name.strip()
+            self._write_index(entries)
+            return {**entry, "path": str(self.root / f"{model_id}.pt")}
+
     def delete(self, model_id: str) -> dict[str, Any]:
         """Remove one registry entry and its owned copy, retaining original checkpoints.
 

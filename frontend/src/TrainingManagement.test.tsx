@@ -58,7 +58,8 @@ function show(models: Model[] = [model], onGamesDeleted = vi.fn(), onModelsChang
   return { onGamesDeleted, onModelsChanged };
 }
 function openDelete() {
-  fireEvent.click(screen.getByRole('button', { name: `Delete model ${model.name}` }));
+  const card = screen.getByText(model.name).closest('article')!;
+  fireEvent.click(within(card).getByRole('button', { name: `Delete model ${model.name}` }));
   return within(screen.getByRole('dialog', { name: `Delete model ${model.name}?` }));
 }
 
@@ -111,10 +112,10 @@ describe('workshop model provenance and deletion', () => {
     fireEvent.click(dialog.getByRole('button', { name: 'Keep it' }));
     expect(fetcher.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
     dialog = openDelete();
-    await dialog.findByRole('checkbox', { name: 'Discard unfinished games and delete model' });
-    fireEvent.click(
-      dialog.getByRole('checkbox', { name: 'Discard unfinished games and delete model' }),
-    );
+    const consent = await dialog.findByRole('checkbox', {
+      name: 'Discard unfinished games and delete model',
+    });
+    fireEvent.click(consent);
     fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(callbacks.onGamesDeleted).toHaveBeenCalledWith(['hidden-one']));
     expect(callbacks.onModelsChanged).toHaveBeenCalledOnce();

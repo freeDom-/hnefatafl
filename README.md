@@ -17,12 +17,13 @@ using real self-play learning.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
 - Sortable records, seed-independent AI grouping and inspectable effective settings.
 - English/German localization, saved game-mode preference and mythological tournament names.
-- Complete saved game setups, persistent player/model runes and editable tournament player suggestions.
+- Complete saved game setups and persistent player/model runes across games and tournaments.
 - Light/dark/wood/device appearance, independent board themes, Viking figures and carved-wood tokens.
 - Training workshop and CLI: actual PyTorch self-play updates, evaluation, safe model
   import/export, cancellation, exact CPU checkpoint resumption and Optuna studies.
 - Reviewed UI resumption from a job's full checkpoint with an editable total iteration target.
 - Board-specific training plans, live learning graphs and optional retention of every new best model.
+- Model renaming, reusable recorded training settings and independent training-data cleanup.
 - CPU operation and configurable CUDA/MPS support, with automatic device detection.
 
 Mouse, touch and keyboard are supported. Arrow keys navigate; Enter/Space select;
@@ -95,6 +96,8 @@ uses sandwich king capture and any-edge escape. Other Tablut reconstructions dif
 
 Open **Tournaments** to compare two to four configured opponents across one or more
 battlefields. Every pair plays the chosen even number of games and swaps sides.
+Participants use their model or AI profile name, with network/training summaries
+retained in saved model comparisons.
 Choose the number of games per pairing on each battlefield,
 a move limit and shared seed, then follow progress and inspect standings, results
 by battlefield and individual game replays. Saved tournaments remain available
@@ -112,7 +115,11 @@ job. Inspect progress and evaluation, resume a checkpoint, or export/import a mo
 Select **Neural network** and a compatible model when configuring a new opponent.
 Use the name-suggestion button to generate a Viking name. Model cards offer deletion
 with confirmation: saved game history and original training checkpoints are retained.
-Model cards show the recorded training seed. The delete dialog lists unfinished
+Model cards show the recorded network and key training settings, including seed.
+Rename a model or load its recorded parameters into the form from its card.
+Delete an inactive job's training data separately from the progress panel; this
+removes its resumption checkpoints and logs while keeping registered models and
+saved games. The model-delete dialog lists unfinished
 games that still use a model, including records from other browser sessions. You
 can explicitly discard those unfinished games without results and delete the model;
 completed history is kept. Running tournaments must be stopped first.

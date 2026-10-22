@@ -66,10 +66,17 @@ In **AI workshop**, use the name-suggestion button beside the model name to gene
 a Viking-inspired name such as “Astrid Ravenwise”. Suggestions avoid names already
 in the model collection and the current suggestion. You can always edit the name.
 
-Each model card supports export and deletion. Deletion requires confirmation,
+Each model card supports renaming, loading recorded training settings, export and
+deletion. Renaming keeps its model ID and rune; historical reports retain their
+recorded names. Model deletion requires confirmation,
 removes the registered inference copy and its model entry, and refreshes the available
 AI choices. Original training checkpoints remain for resumption or re-import.
 Completed game histories and historical model labels remain.
+
+Training data has a separate delete action on inactive jobs. It removes that
+job's checkpoints and logs, preserving registered model copies and saved games.
+See [training management](TRAINING.md#managing-models-and-retained-training-data)
+for resumption consequences and shared-study protections.
 
 The delete dialog checks the server's saved records, including unfinished games
 from other browser sessions or games replaced by **New game**. The browser's

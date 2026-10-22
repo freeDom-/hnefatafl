@@ -1,4 +1,4 @@
-import type { Config, Move, Side } from './types';
+import type { Config, Model, Move, Side } from './types';
 
 export interface TournamentPlayer {
   name: string;
@@ -7,6 +7,7 @@ export interface TournamentPlayer {
   profile_id?: string;
   profile_name?: string;
   model_name?: string;
+  model?: Model;
   variant_id?: string;
   config: Config;
 }

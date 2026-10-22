@@ -231,6 +231,37 @@ objects. Imports have file and expanded-storage bounds; no unsafe loading
 fallback exists. Keep full job checkpoints for resumption; compact inference
 exports intentionally cannot resume an optimizer.
 
+## Managing models and retained training data
+
+Model cards show the recorded policy/value network width and residual depth,
+snapshot iteration, self-play/search budget and optimizer settings. These describe
+the saved snapshot rather than the current training form. Earlier imports can lack
+training metadata; missing values are identified rather than inferred from today's
+recommended plan. Tournament setup and saved reports use the same summary.
+
+**Rename model** changes its catalog label while preserving its model ID, rune,
+weights and original training metadata. New selections use the new name; existing
+games and tournaments retain their recorded name snapshots. Checkpoint exports
+still contain their original embedded name. Reimporting the same checkpoint into
+the existing catalog keeps the chosen catalog name.
+
+**Load training parameters** copies recorded, editable training settings into the
+workshop form, including architecture and advanced settings. Review them before
+starting a new run. This does not restore weights, optimizer or replay state; use
+**Resume training** for that. Server paths and resume tokens are never copied into
+the form. Unrecorded settings keep their current form values, with an explicit
+notice. Models without any usable recorded settings cannot supply this action.
+
+Select a saved job and choose **Delete training data** to remove its job record,
+checkpoints, replay state, progress and logs after confirmation. Registered model
+copies and existing game/tournament histories remain available. Deleting a source
+job removes the ability to resume that source checkpoint. Stop a running worker
+before deleting its data. Shared optimization study data remains protected while
+another saved job references it; remove dependent jobs first.
+
+The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
+`DELETE /api/training/jobs/{id}`. These are separate from model deletion.
+
 ## Hyperparameter optimization
 
 ```sh

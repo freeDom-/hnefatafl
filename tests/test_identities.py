@@ -112,7 +112,7 @@ def test_model_rune_is_shared_by_playing_sides_advice_and_analysis(tmp_path):
         assert reloaded.get(f"/api/games/{game['id']}").json()["analysis"] == report
 
 
-def test_tournament_seats_are_distinct_from_shared_agent_and_survive_deletion(tmp_path):
+def test_tournament_uses_shared_agent_rune_and_survives_deletion(tmp_path):
     app = create_app(tmp_path)
     with TestClient(app) as client:
         game = client.post(
@@ -134,9 +134,8 @@ def test_tournament_seats_are_distinct_from_shared_agent_and_survive_deletion(tm
         assert created.status_code == 201, created.text
         tournament = created.json()
         players = tournament["config"]["players"]
-        assert len({player["rune"] for player in players}) == 2
+        assert {player["rune"] for player in players} == {agent_rune}
         assert {player["agent_rune"] for player in players} == {agent_rune}
-        assert agent_rune not in {player["rune"] for player in players}
         for _ in range(200):
             saved = client.get(f"/api/tournaments/{tournament['id']}").json()
             assert saved["config"]["players"] == players
@@ -145,11 +144,10 @@ def test_tournament_seats_are_distinct_from_shared_agent_and_survive_deletion(tm
             time.sleep(0.025)
         assert saved["status"] == "completed", saved
         assert client.delete(f"/api/tournaments/{tournament['id']}").status_code == 200
-        for index, player in enumerate(players):
-            assert (
-                app.state.store.rune(f"tournament:{tournament['id']}:player:{index}")
-                == player["rune"]
-            )
+        assert (
+            client.get(f"/api/games/{game['id']}").json()["players"]["attackers"]["rune"]
+            == agent_rune
+        )
 
 
 def test_legacy_tournament_uses_effective_agent_identity_without_rewriting_config(tmp_path):
@@ -178,5 +176,5 @@ def test_legacy_tournament_uses_effective_agent_identity_without_rewriting_confi
         saved = client.get("/api/tournaments/old-report").json()
         player = saved["config"]["players"][0]
         assert player["agent_rune"] == game["players"]["attackers"]["rune"]
-        assert player["rune"] != player["agent_rune"]
+        assert player["rune"] == player["agent_rune"]
         assert app.state.store.get_tournament("old-report") == old

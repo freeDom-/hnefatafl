@@ -171,6 +171,36 @@ model-usage endpoints respond. Eight current player/model identities have distin
 persistent runes. A complete backup preceded migration; new training and visual
 fixtures stayed in isolated temporary storage.
 
+The v0.11 suite passes **327 Python tests**, **81 frontend unit tests** and
+**26 real-API browser checks**, with four duplicate mobile worker checks skipped.
+The expanded CPU browser workflow resumes a run, renames its registered model,
+loads original training parameters into the form, confirms/cancels deletion,
+removes training data, saves tournament provenance and uses the retained model
+in a new game. It verifies unchanged identity/rune, existing history and original
+recorded parameters. Decimal inputs accept valid recorded values; paths/resume
+tokens are excluded from loaded inputs and tournament snapshots.
+
+API checks cover active/stale worker status, source checkpoints used by active
+resumed jobs, shared optimization studies, symlinked directories, cleanup errors
+and concurrent job-list/deletion requests. Models remain playable after removing
+both source and resumed training data. Rename checks preserve checkpoint hashes,
+embedded names, game snapshots and chosen catalog names on reimport.
+Saved tournaments retain network/training metadata and canonical model names
+after catalog renaming/deletion, with legal replay still available.
+
+Compiled [model cards](screenshots/model-workshop.png),
+[mobile cards](screenshots/model-workshop-mobile.png) and
+[saved tournament summaries](screenshots/model-tournament.png) were inspected at
+desktop and 390px widths. English/German controls and wood appearance remain
+usable without overflow or browser errors. Imported networks without training
+metadata show an unknown training iteration rather than inferring it from the
+registry's default version number.
+
+Startup serves v0.11.0 and compiled assets on schema 5. A complete backup preceded
+startup. All seven existing games, four model entries and eight rune assignments
+match their pre-update digests. Model usage routes respond for all four entries.
+Feature tests and screenshots use separate temporary data directories.
+
 ## Reproduce
 
 ```sh
