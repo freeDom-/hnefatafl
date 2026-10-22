@@ -362,7 +362,7 @@ def test_schema_three_migration_preserves_games_and_analysis_deletion_rolls_back
     upgraded.delete_game("old", 0)
     assert upgraded.game_analysis("old", "abc") is None
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client, tmp_path):

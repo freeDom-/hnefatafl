@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { useI18n } from './i18n';
-import type { Job } from './types';
+import type { Job, TrainingWorker } from './types';
+import TrainingTarget, { jobTarget, targetRequest } from './TrainingTarget';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -18,10 +19,12 @@ export interface ResumeCheckpoint {
 
 export default function TrainingResumeDialog({
   job,
+  workers = [],
   onClose,
   onStarted,
 }: {
   job: Job;
+  workers?: TrainingWorker[];
   onClose: () => void;
   onStarted: (next: Job, completed: number, target: number) => void;
 }) {
@@ -35,6 +38,7 @@ export default function TrainingResumeDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [target, setTarget] = useState(1);
+  const [executionTarget, setExecutionTarget] = useState(() => jobTarget(job));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -70,14 +74,21 @@ export default function TrainingResumeDialog({
     checkpoint?.can_resume &&
     Number.isInteger(target) &&
     target > checkpoint.completed_iteration &&
-    target <= 100000;
+    target <= 100000 &&
+    (!executionTarget.startsWith('worker:') ||
+      workers.some(
+        (worker) => `worker:${worker.id}` === executionTarget && worker.status !== 'revoked',
+      ));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!checkpoint || !valid) return;
     setBusy(true);
     setError('');
     try {
-      const next = await api<Job>(`/training/jobs/${job.id}/resume`, { iterations: target });
+      const next = await api<Job>(`/training/jobs/${job.id}/resume`, {
+        iterations: target,
+        ...(executionTarget !== jobTarget(job) ? targetRequest(executionTarget) : {}),
+      });
       onStarted(next, checkpoint.completed_iteration, target);
     } catch (error) {
       setError((error as Error).message);
@@ -145,24 +156,32 @@ export default function TrainingResumeDialog({
                 )}
               </p>
               {checkpoint.can_resume ? (
-                <label>
-                  {t('Target total iterations')}
-                  <input
-                    type="number"
-                    aria-label={t('Target total iterations')}
-                    aria-describedby="resume-target-help"
-                    min={checkpoint.completed_iteration + 1}
-                    max={100000}
-                    step={1}
-                    required
-                    value={target}
+                <>
+                  <TrainingTarget
+                    value={executionTarget}
+                    workers={workers}
+                    onChange={setExecutionTarget}
                     disabled={busy}
-                    onChange={(event) => setTarget(Number(event.target.value))}
                   />
-                  <small id="resume-target-help">
-                    {t('This is the total iteration count, not the number of extra iterations.')}
-                  </small>
-                </label>
+                  <label>
+                    {t('Target total iterations')}
+                    <input
+                      type="number"
+                      aria-label={t('Target total iterations')}
+                      aria-describedby="resume-target-help"
+                      min={checkpoint.completed_iteration + 1}
+                      max={100000}
+                      step={1}
+                      required
+                      value={target}
+                      disabled={busy}
+                      onChange={(event) => setTarget(Number(event.target.value))}
+                    />
+                    <small id="resume-target-help">
+                      {t('This is the total iteration count, not the number of extra iterations.')}
+                    </small>
+                  </label>
+                </>
               ) : (
                 <p className="form-error" role="alert">
                   {t(checkpoint.reason ?? 'No resumable full training checkpoint is available.')}

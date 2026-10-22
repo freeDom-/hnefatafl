@@ -1,0 +1,81 @@
+.training-workers {
+  margin-bottom: 24px;
+}
+.training-workers .panel-title {
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.training-workers .panel-title p {
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.workers-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+.worker-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+.worker-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.worker-heading h3 {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.worker-status {
+  color: var(--muted);
+  font-size: 10px;
+}
+.worker-status.online {
+  color: var(--ui-copy, #437347);
+}
+.worker-card p,
+.worker-card small {
+  display: block;
+  margin-top: 9px;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.worker-card .text-button {
+  margin-top: 12px;
+}
+.worker-setup-dialog .form-grid {
+  margin-top: 20px;
+}
+.worker-instructions > p {
+  margin: 16px 0;
+  line-height: 1.65;
+}
+.worker-token-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.worker-command {
+  max-height: none;
+  font-size: 12px;
+}
+.job-worker {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 15px;
+  overflow-wrap: anywhere;
+}
+.job-status.queued {
+  background: var(--ui-tint, #edf3e4);
+}

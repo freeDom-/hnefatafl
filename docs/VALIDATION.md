@@ -201,6 +201,46 @@ startup. All seven existing games, four model entries and eight rune assignments
 match their pre-update digests. Model usage routes respond for all four entries.
 Feature tests and screenshots use separate temporary data directories.
 
+The v0.12 suite passes **355 Python tests**, **88 frontend unit tests** and
+**28 real-API browser checks**, with four duplicate mobile worker checks skipped.
+New tests exercise worker credential hashing and scope, concurrent atomic claims,
+retry identifiers, ordered progress, worker revocation, cancellation and expired
+leases. Reopening the server against the same data preserves active leases and
+progress. Explicit CUDA jobs queue without a server GPU and skip CPU-only workers.
+
+The real HTTP integration launches a two-slot CLI worker with separate storage,
+claims two jobs concurrently and performs actual CPU self-play/optimizer updates.
+Both jobs upload models, learning history and full optimizer/replay checkpoints.
+One resumes through the remote queue to a total of two iterations. After removing
+the entire worker directory, the server still loads the imported model and makes
+a legal neural move. These checks validate transfers and concurrency, not a cloud
+provider, accelerator hardware or stronger model play.
+
+Artifact tests reject incompatible networks, inference-only resume files, corrupt
+and oversized data, incomplete final checkpoints and stale reports. Temporary
+uploads are cleaned up. Cancelled completion acknowledgements remain idempotent;
+final progress reports arrive before finish. Queued resume jobs own their copied
+input even after the source job is deleted. CLI tests cover credentials, redirect
+protection, private ledgers, safe directories, capacity, cancellation and orphan
+recovery, including a supervisor restart or changed credential.
+
+Desktop/mobile browser flows enroll a worker, queue two models, retain independent
+charts, cancel queued work and reload saved progress. GPU capability data is
+simulated for selection tests; actual remote training is CPU. Compiled
+[worker cards](screenshots/remote-workers.png),
+[mobile worker cards](screenshots/remote-workers-mobile.png) and
+[remote progress](screenshots/remote-progress.png) use copies of actual CPU
+integration outputs. English/German views, resume targets and masked enrollment
+dialogs have no horizontal overflow or browser errors. Tokens are absent from
+command text and browser storage. Terminal progress metrics follow server status.
+
+Startup serves v0.12.0 and compiled assets on schema 6. The additive worker-table
+migration preserves exact pre-update digests of all seven games, four model
+entries and eight rune assignments. All four model-usage routes respond, and the
+production worker collection remains empty: test enrollment/training uses isolated
+data. A complete schema-5 backup was taken before migration. The Linux service
+example and CUDA/MPS installation still require validation on their target host.
+
 ## Reproduce
 
 ```sh

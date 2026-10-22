@@ -24,6 +24,7 @@ using real self-play learning.
 - Reviewed UI resumption from a job's full checkpoint with an editable total iteration target.
 - Board-specific training plans, live learning graphs and optional retention of every new best model.
 - Model renaming, reusable recorded training settings and independent training-data cleanup.
+- Remote API workers with simultaneous training slots, retained progress and automatic model transfer.
 - CPU operation and configurable CUDA/MPS support, with automatic device detection.
 
 Mouse, touch and keyboard are supported. Arrow keys navigate; Enter/Space select;
@@ -143,6 +144,12 @@ iteration count. See [TRAINING.md](docs/TRAINING.md) and [AI.md](docs/AI.md).
 Small runs prove the software workflow, not stronger play. Truncated games are
 reported separately from rules draws. Measure strength with larger balanced seeded
 tournaments. Training workers run separately so gameplay remains responsive.
+
+For a cloud CPU/GPU, enroll a worker in **AI workshop**, start the provided CLI
+on that machine, and choose a remote execution target for new or resumed jobs.
+Multiple worker slots train independent models concurrently; the server retains
+their charts, checkpoints and imported models. See
+[REMOTE_TRAINING.md](docs/REMOTE_TRAINING.md) for setup and access requirements.
 
 ## Tests
 

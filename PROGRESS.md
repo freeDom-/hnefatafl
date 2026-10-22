@@ -130,3 +130,22 @@ alphabet without reusing identity assignments. See `docs/IDENTITIES.md` and
 Schema 5 and checkpoint formats remain unchanged. Catalog renames preserve
 historical snapshots and exported checkpoint bytes. Deleting a source job
 permanently removes its exact resumption state while retaining inference copies.
+
+## Remote training workers (`v0.12.0`)
+
+- [x] Enroll named remote workers with hashed credentials, capacity and hardware reports
+- [x] Queue independent remote training jobs while preserving local training behavior
+- [x] Run concurrent worker subprocesses and transfer real progress, models and full checkpoints
+- [x] Scope expiring leases, make claims/reports/finish retry-safe and reject late results
+- [x] Cancel queued/active jobs, revoke workers and retain uploaded resumption state
+- [x] Resume on a chosen execution target with an independent input checkpoint copy
+- [x] Show simultaneous jobs, worker status and retained charts in English/German
+- [x] Verify two concurrent CPU jobs, actual updates, remote resumption and server-only inference
+- [x] Pass 355 Python tests, 88 frontend unit tests and 28 real-API browser checks
+- [x] Upgrade schema 5 to 6 while preserving seven games, four model entries and eight runes
+
+Schema 6 adds remote-worker storage without rewriting existing games or model
+formats. Workers use outbound HTTP(S); private networking or a restricted HTTPS
+proxy remains necessary for the existing administrative APIs. Remote Optuna,
+automatic GPU allocation and cross-machine optimization of a single model are
+outside this milestone. See `docs/REMOTE_TRAINING.md` for setup and lifecycle.

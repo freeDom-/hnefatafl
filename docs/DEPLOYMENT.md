@@ -40,10 +40,11 @@ variables; it is an example, not an automatically loaded configuration file.
 Do not commit data directories, `.env` files or model weights.
 
 Database schema initialization runs at server startup and records a schema version.
-Version 0.10 upgrades earlier databases to schema 5 automatically and additively:
+Version 0.12 upgrades earlier databases to schema 6 automatically and additively:
 schema 2 added player deletion timestamps and historical model metadata; schema 3
 adds saved tournaments; schema 4 adds immutable per-position agent analysis;
-schema 5 adds persistent identity rune assignments.
+schema 5 adds persistent identity rune assignments; schema 6 adds enrolled remote
+training workers and their credential hashes.
 Existing game JSON,
 stable player IDs, move versions and model/training files are preserved. Startup can
 repeat the migration safely. Deleted players stay hidden under the new application;
@@ -73,6 +74,13 @@ On host restart, files remain; interrupted training jobs need checkpoint resumpt
 Stopped tournament workers retain their completed matches and show a terminal
 status rather than being assumed to have continued. The systemd template is supplied for deployment;
 systemd operation must be validated on the target host.
+
+Remote training has an independent queue and lease lifecycle. Cloud workers only
+need outbound HTTP(S) access and may run multiple independent training slots.
+The workshop retains their reports and imported model copies. Follow
+[REMOTE_TRAINING.md](REMOTE_TRAINING.md) for enrollment, GPU installation,
+resumption and private-network/HTTPS access requirements. Keep administrative
+routes private: worker bearer tokens protect only `/api/worker/` routes.
 
 ## Reverse proxy and access
 

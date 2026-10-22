@@ -139,3 +139,30 @@ record separately from inference model copies. Job lifecycle locking prevents
 late worker reconciliation from recreating deleted records, and retained shared
 optimization studies are protected while referenced. Tournament model summaries
 use path-free saved metadata rather than depending on retained training folders.
+
+## Remote training
+
+Schema 6 adds worker credentials/status in `training_workers`; job JSON retains
+queue targets, scoped expiring leases, ordered progress and imported artifacts.
+`remote_training.py` coordinates authenticated outbound pull workers, independently
+of the local worker-process limit. `remote_worker.py` supervises separate training
+processes per slot and transfers reports/checkpoints/models through the API.
+Training and engine implementations remain shared with local runs.
+
+The trusted administrator enrolls a machine and receives a one-time bearer token;
+the database stores its hash. Worker APIs require that token and job-specific
+leases. Public responses strip lease secrets and structured worker file references;
+diagnostic log text is retained as a bounded tail.
+Claims are idempotent, progress is ordered and stale leases cannot publish results.
+The server validates and imports tensor-only artifacts into owned storage rather
+than trusting remote model IDs or paths. Remote resume jobs copy their input
+checkpoint before entering the queue, so source cleanup cannot break them.
+
+Remote jobs continue across server restarts if their lease can still be renewed.
+Expired leases retain uploaded state and require explicit resumption; they are
+not automatically dispatched again. Queued cancellation, graceful active-job
+cancellation and credential revocation remain distinct from deleting retained
+training data. The browser polls the same persisted progress and charts for both
+execution targets. Remote worker credentials do not authenticate the rest of the
+existing trusted-local application; use private networking or a suitably scoped
+authenticated HTTPS proxy. See `docs/REMOTE_TRAINING.md`.

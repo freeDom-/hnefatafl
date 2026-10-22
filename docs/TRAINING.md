@@ -136,6 +136,11 @@ limit; reduce the buffer or model dimensions rather than bypassing validation.
 
 ## Monitoring, cancellation and resumption
 
+Training can also run on enrolled remote CPU/GPU workers, with simultaneous jobs
+and the same saved progress/charts. See [REMOTE_TRAINING.md](REMOTE_TRAINING.md)
+for the API, worker CLI, network setup and checkpoint/model transfers. Local
+training keeps its original one-job limit and can run alongside remote jobs.
+
 Workers emit JSON-line progress and atomically update `progress.json`. It reports
 stage, device, iteration, games generated, policy/value loss, update count,
 replay positions, self-play outcomes, baseline/previous-model evaluation,

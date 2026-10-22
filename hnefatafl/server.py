@@ -123,6 +123,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     # Catalog changes and new references must be atomic with respect to each
     # other in the documented single API-worker deployment.
     catalog_lock = threading.RLock()
+    from .remote_training import RemoteTraining
+
+    remote_training = RemoteTraining(store, root, job_lock, catalog_lock)
+    remote_training.attach_routes(app)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -498,7 +502,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 5}
+        return {"status": "ok", "database": "sqlite", "schema_version": 6}
 
     @app.get("/api/rulesets")
     def rulesets():
@@ -1317,10 +1321,14 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         with job_lock:
             return read_job_locked(identifier)
 
-    def read_job_locked(identifier: str) -> dict:
+    def read_job_locked(identifier: str, *, reconcile: bool = True) -> dict:
+        if reconcile:
+            remote_training.reconcile()
         job = store.get_job(identifier)
         if job is None:
             fail("Training job not found.", 404)
+        if job.get("execution") == "remote":
+            return remote_training.public_job(job)
         directory = job_path(identifier)
         for filename, key in (("progress.json", "progress"), ("result.json", "result")):
             path = directory / filename
@@ -1418,13 +1426,16 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.get("/api/training/jobs")
     def training_jobs():
         with job_lock:
-            return [read_job(j["id"]) for j in store.jobs()]
+            remote_training.reconcile()
+            return [read_job_locked(j["id"], reconcile=False) for j in store.jobs()]
 
     @app.get("/api/training/jobs/{job_id}")
     def training_job(job_id: str):
         return read_job(job_id)
 
     def job_worker_alive(job: dict) -> bool:
+        if job.get("execution") == "remote":
+            return job["status"] in {"running", "cancelling"}
         process = processes.get(job["id"])
         if process is not None:
             return process.poll() is None
@@ -1497,14 +1508,27 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.post("/api/training/jobs", status_code=201)
     def launch_training(config: dict[str, Any]):
         with job_lock:
-            if any(
-                read_job(j["id"])["status"] in {"running", "cancelling"} for j in store.jobs()
-            ) or any(process.poll() is None for process in list(processes.values())):
-                fail("A training job is already running. Stop it before starting another.", 409)
             config = dict(config)
+            execution = config.pop("execution", "local")
+            worker_id = config.pop("worker_id", None)
+            if execution not in ("local", "remote"):
+                fail("Training execution must be local or remote.")
+            if worker_id is not None and (execution != "remote" or not isinstance(worker_id, str)):
+                fail("Select a remote worker only for remote training.")
+            if execution == "local" and (
+                any(
+                    j.get("execution", "local") == "local"
+                    and read_job(j["id"])["status"] in {"running", "cancelling"}
+                    for j in store.jobs()
+                )
+                or any(process.poll() is None for process in list(processes.values()))
+            ):
+                fail("A training job is already running. Stop it before starting another.", 409)
             kind = config.pop("kind", "train")
             if kind not in ("train", "tune"):
                 fail("Training kind must be train or tune.")
+            if kind == "tune" and execution == "remote":
+                fail("Remote optimization is not supported. Run tuning on this server.")
             allowed = (
                 training_fields
                 if kind == "train"
@@ -1554,7 +1578,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     from .training import normalize_config
 
                     result = normalize_config(values)
-                    resolve_device(result["device"])
+                    if result["device"] not in {"auto", "cpu", "cuda", "mps"}:
+                        fail("Training device must be auto, cpu, cuda or mps.")
+                    if execution == "local":
+                        resolve_device(result["device"])
                     if result.get("resume"):
                         model, checkpoint_data = load_checkpoint(result["resume"])
                         if checkpoint_data.get("optimizer_state") is None:
@@ -1683,6 +1710,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         fail("This job has no saved optimization study.")
                     config["storage"] = "sqlite:///" + str(database)
                 config.update(training=training, output_dir=str(directory))
+            if execution == "remote":
+                return remote_training.enqueue(identifier, config, worker_id)
             directory.mkdir()
             config_file = directory / "config.json"
             config_file.write_text(json.dumps(config, indent=2))
@@ -1700,6 +1729,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             job = {
                 "id": identifier,
                 "kind": kind,
+                "execution": "local",
                 "status": "running",
                 "config": {
                     k: v for k, v in config.items() if k not in {"output_dir", "registry_dir"}
@@ -1780,7 +1810,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             return resume_training_locked(job_id, request)
 
     def resume_training_locked(job_id: str, request: dict[str, Any]):
-        if set(request) != {"iterations"}:
+        if "iterations" not in request or set(request) - {"iterations", "execution", "worker_id"}:
             fail("Resume accepts only the target total iterations.")
         target = request["iterations"]
         if type(target) is not int or not 1 <= target <= 100000:
@@ -1790,11 +1820,19 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             fail(info["reason"], 409)
         if target <= info["completed_iteration"]:
             fail("Target total iterations must exceed the saved completed iteration.")
-        # Saved checkpoint settings are authoritative. The only user override is
-        # the reviewed total target; launch_training assigns a new output folder
-        # and rechecks the single-worker constraint under its existing lock.
+        # Saved learning settings remain authoritative. The reviewed total and
+        # execution target may change; launch assigns a fresh owned directory.
         config = {key: value for key, value in saved.items() if key in training_fields}
         config.update(kind="train", iterations=target, resume=info["checkpoint"])
+        source = read_job(job_id)
+        config["execution"] = request.get("execution", source.get("execution", "local"))
+        worker_id = (
+            request.get("worker_id")
+            if "execution" in request
+            else request.get("worker_id", source.get("target_worker_id"))
+        )
+        if config["execution"] == "remote" and worker_id is not None:
+            config["worker_id"] = worker_id
         return launch_training(config)
 
     @app.post("/api/training/jobs/{job_id}/cancel")
@@ -1804,6 +1842,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     def cancel_training_locked(job_id: str):
         job = read_job(job_id)
+        if job.get("execution") == "remote":
+            return remote_training.cancel(job)
         if job["status"] not in {"running", "cancelling"}:
             return job
         process = processes.get(job_id)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { Metric } from './Archive';
-import type { DeviceInfo, Job, Model, Ruleset } from './types';
+import type { DeviceInfo, Job, Model, Ruleset, TrainingWorker } from './types';
 import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
@@ -20,6 +20,8 @@ import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { modelIteration } from './modelLabel';
+import TrainingWorkers from './TrainingWorkers';
+import TrainingTarget, { targetRequest } from './TrainingTarget';
 
 interface ModelUsage {
   model_id: string;
@@ -62,6 +64,8 @@ export default function Training({
 }) {
   const { locale } = useI18n();
   const [device, setDevice] = useState<DeviceInfo>({});
+  const [workers, setWorkers] = useState<TrainingWorker[]>([]);
+  const [target, setTarget] = useState('local');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [resumeJob, setResumeJob] = useState<Job | null>(null);
@@ -92,23 +96,40 @@ export default function Training({
   const [usageError, setUsageError] = useState('');
   const [usageRevision, setUsageRevision] = useState(0);
   const [discardUnfinished, setDiscardUnfinished] = useState(false);
-  const seenBestModels = useRef(new Set<string>());
+  const seenBestModels = useRef(new Set(models.map((model) => model.id)));
+  const observedJobs = useRef<Map<string, string> | null>(null);
+  const refreshRevision = useRef(0);
+  const selectionRevision = useRef(0);
+  const selectJob = (job: Job | null) => {
+    selectionRevision.current++;
+    setSelectedJob(job);
+  };
   useEffect(() => {
-    const retained = selectedJob?.progress?.best_models;
-    if (!Array.isArray(retained)) return;
+    if (!observedJobs.current) return;
     let changed = false;
-    for (const entry of retained) {
-      if (
-        entry &&
-        typeof entry.model_id === 'string' &&
-        !seenBestModels.current.has(entry.model_id)
-      ) {
-        seenBestModels.current.add(entry.model_id);
+    for (const job of jobs) {
+      const previous = observedJobs.current.get(job.id);
+      if (previous !== job.status && job.status === 'completed') changed = true;
+      observedJobs.current.set(job.id, job.status);
+      if (job.model_id && !seenBestModels.current.has(job.model_id)) {
+        seenBestModels.current.add(job.model_id);
         changed = true;
+      }
+      const retained = job.progress?.best_models;
+      if (!Array.isArray(retained)) continue;
+      for (const entry of retained) {
+        if (
+          entry &&
+          typeof entry.model_id === 'string' &&
+          !seenBestModels.current.has(entry.model_id)
+        ) {
+          seenBestModels.current.add(entry.model_id);
+          changed = true;
+        }
       }
     }
     if (changed) onModelsChanged();
-  }, [selectedJob, onModelsChanged]);
+  }, [jobs, onModelsChanged]);
   useEffect(() => {
     if (!deleteModel) return;
     let alive = true;
@@ -133,40 +154,41 @@ export default function Training({
     };
   }, [deleteModel, usageRevision]);
   const refresh = useCallback(async () => {
-    const [hardware, runs] = await Promise.all([
+    const revision = ++refreshRevision.current;
+    const selectedRevision = selectionRevision.current;
+    const [hardware, runs, connected] = await Promise.all([
       api<DeviceInfo>('/training/device'),
       api<Job[]>('/training/jobs'),
+      api<TrainingWorker[]>('/training/workers'),
     ]);
+    if (revision !== refreshRevision.current) return;
+    if (!observedJobs.current) {
+      observedJobs.current = new Map(runs.map((job) => [job.id, job.status]));
+    }
     setDevice(hardware);
     setJobs(runs);
+    setWorkers(Array.isArray(connected) ? connected : []);
+    if (selectionRevision.current === selectedRevision) {
+      setSelectedJob((previous) =>
+        previous ? (runs.find((job) => job.id === previous.id) ?? null) : null,
+      );
+    }
   }, []);
   useEffect(() => {
     void refresh().catch((e) => onError(e.message));
+    return () => {
+      refreshRevision.current++;
+    };
   }, [refresh, onError]);
   useEffect(() => {
-    if (!jobs.some((job) => ['running', 'pending', 'queued', 'cancelling'].includes(job.status)))
+    if (
+      !jobs.some((job) => ['running', 'pending', 'queued', 'cancelling'].includes(job.status)) &&
+      !workers.some((worker) => worker.status !== 'revoked')
+    )
       return;
     const timer = window.setInterval(() => void refresh().catch((e) => onError(e.message)), 2500);
     return () => window.clearInterval(timer);
-  }, [jobs, refresh, onError]);
-  useEffect(() => {
-    if (
-      !selectedJob ||
-      !['running', 'pending', 'queued', 'cancelling'].includes(selectedJob.status)
-    )
-      return;
-    const timer = window.setInterval(
-      () =>
-        void api<Job>(`/training/jobs/${selectedJob.id}`)
-          .then((job) => {
-            setSelectedJob(job);
-            if (job.status === 'completed') onModelsChanged();
-          })
-          .catch((e) => onError(e.message)),
-      2000,
-    );
-    return () => window.clearInterval(timer);
-  }, [selectedJob, onModelsChanged, onError]);
+  }, [jobs, workers, refresh, onError]);
   const update = (key: string, value: string | number | boolean) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
   const start = async (event: FormEvent) => {
@@ -183,11 +205,20 @@ export default function Training({
               search_space: JSON.parse(space),
               training: config,
             }
-          : { ...config, kind };
+          : { ...config, kind, ...(target !== 'local' ? targetRequest(target) : {}) };
       const job = await api<Job>('/training/jobs', params);
+      refreshRevision.current++;
+      if (!observedJobs.current) observedJobs.current = new Map();
+      observedJobs.current.set(job.id, job.status);
       setJobs((previous) => [job, ...previous]);
-      setSelectedJob(job);
-      setNotice(t('Your training job has started. You can keep playing while it runs.'));
+      selectJob(job);
+      setNotice(
+        t(
+          job.execution === 'remote'
+            ? 'Training queued. An available remote worker will pick it up.'
+            : 'Your training job has started. You can keep playing while it runs.',
+        ),
+      );
     } catch (e) {
       onError((e as Error).message);
     } finally {
@@ -195,9 +226,10 @@ export default function Training({
     }
   };
   const cancel = async (id: string) => {
+    const revision = selectionRevision.current;
     try {
       const job = await api<Job>(`/training/jobs/${id}/cancel`, {});
-      setSelectedJob(job);
+      if (selectionRevision.current === revision) selectJob(job);
       await refresh();
     } catch (e) {
       onError((e as Error).message);
@@ -226,7 +258,8 @@ export default function Training({
           kind: 'tune',
           resume_study: job.id,
         });
-        setSelectedJob(next);
+        refreshRevision.current++;
+        selectJob(next);
         await refresh();
       } catch (e) {
         onError((e as Error).message);
@@ -253,10 +286,11 @@ export default function Training({
     }
   };
   const inspect = async (job: Job) => {
+    selectJob(job);
     try {
-      setSelectedJob(await api<Job>(`/training/jobs/${job.id}`));
-    } catch (e) {
-      onError((e as Error).message);
+      await refresh();
+    } catch (error) {
+      onError((error as Error).message);
     }
   };
   const removeTrainingData = async () => {
@@ -265,6 +299,8 @@ export default function Training({
     setDeleteJobError('');
     try {
       await api(`/training/jobs/${deleteJob.id}`, undefined, 'DELETE');
+      refreshRevision.current++;
+      selectionRevision.current++;
       setJobs((previous) => previous.filter((job) => job.id !== deleteJob.id));
       setSelectedJob((previous) => (previous?.id === deleteJob.id ? null : previous));
       setDeleteJob(null);
@@ -338,7 +374,16 @@ export default function Training({
     ['running', 'pending', 'queued', 'cancelling'].includes(job.status),
   ).length;
   const metrics = selectedJob?.progress ?? selectedJob?.metrics ?? {};
-  const hardwareName = device.default_device ?? device.selected ?? device.device ?? 'CPU';
+  const isRemote = kind === 'train' && target !== 'local';
+  const selectedWorker = workers.find((worker) => `worker:${worker.id}` === target);
+  const unavailableTarget =
+    isRemote &&
+    target.startsWith('worker:') &&
+    (!selectedWorker || selectedWorker.status === 'revoked');
+  const targetDevice = isRemote ? selectedWorker?.capabilities : device;
+  const hardwareName = isRemote
+    ? (selectedWorker?.name ?? t('Remote workers'))
+    : (device.default_device ?? device.selected ?? device.device ?? 'CPU');
   return (
     <>
       <section className="page-intro">
@@ -368,9 +413,11 @@ export default function Training({
           label={t('TRAINING DEVICE')}
           value={hardwareName.toUpperCase()}
           detail={
-            device.cuda_available
-              ? t('NVIDIA acceleration is available')
-              : t('Automatic CPU fallback · CUDA supported')
+            isRemote
+              ? t('Training runs on the selected worker')
+              : device.cuda_available
+                ? t('NVIDIA acceleration is available')
+                : t('Automatic CPU fallback · CUDA supported')
           }
         />
         <Metric
@@ -384,6 +431,10 @@ export default function Training({
           detail={t('Ready to join a compatible battlefield')}
         />
       </div>
+      <TrainingWorkers
+        workers={workers}
+        onChanged={() => void refresh().catch((error) => onError(error.message))}
+      />
       <div className="training-layout">
         <section className="panel training-config" ref={trainingForm}>
           <div className="panel-title">
@@ -413,6 +464,15 @@ export default function Training({
               </button>
             </div>
             <div className="form-grid">
+              <TrainingTarget
+                value={kind === 'tune' ? 'local' : target}
+                workers={workers}
+                disabled={kind === 'tune'}
+                onChange={(value) => {
+                  setTarget(value);
+                  update('device', 'auto');
+                }}
+              />
               <label>
                 {t('Battlefield')}
                 <select
@@ -493,13 +553,28 @@ export default function Training({
                 >
                   <option value="auto">{t('Automatic')}</option>
                   <option value="cpu">{t('CPU')}</option>
-                  <option value="cuda" disabled={!device.cuda_available}>
+                  <option
+                    value="cuda"
+                    disabled={
+                      targetDevice?.cuda_available === false ||
+                      (!isRemote && !device.cuda_available)
+                    }
+                  >
                     {t('NVIDIA CUDA')}
-                    {!device.cuda_available ? ` (${t('unavailable')})` : ''}
+                    {targetDevice?.cuda_available === false || (!isRemote && !device.cuda_available)
+                      ? ` (${t('unavailable')})`
+                      : ''}
                   </option>
-                  <option value="mps" disabled={!device.mps_available}>
+                  <option
+                    value="mps"
+                    disabled={
+                      targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
+                    }
+                  >
                     {t('Apple Metal')}
-                    {!device.mps_available ? ` (${t('unavailable')})` : ''}
+                    {targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
+                      ? ` (${t('unavailable')})`
+                      : ''}
                   </option>
                 </select>
               </label>
@@ -515,6 +590,18 @@ export default function Training({
                 100000,
               )}
             </div>
+            {kind === 'tune' && (
+              <p className="subtle">
+                {t('Parameter tuning runs on this server. Remote workers support model training.')}
+              </p>
+            )}
+            {isRemote && (
+              <p className="subtle">
+                {t(
+                  'Jobs wait in the queue until a compatible worker has capacity. You can queue several runs with different settings.',
+                )}
+              </p>
+            )}
             {config.preset === 'recommended' && (
               <p className="training-plan-note subtle">
                 {Number(config.channels)} {t('channels ·')} {Number(config.blocks)}{' '}
@@ -711,8 +798,14 @@ export default function Training({
             )}
             <div className="training-start">
               <span>{t('Start small. Measure improvement.')}</span>
-              <button className="button primary" disabled={busy}>
-                {busy ? t('Starting…') : kind === 'train' ? t('Start training') : t('Start tuning')}{' '}
+              <button className="button primary" disabled={busy || unavailableTarget}>
+                {busy
+                  ? t('Starting…')
+                  : kind === 'train'
+                    ? isRemote
+                      ? t('Queue training')
+                      : t('Start training')
+                    : t('Start tuning')}{' '}
                 <span aria-hidden="true">↗</span>
               </button>
             </div>
@@ -762,6 +855,12 @@ export default function Training({
                     {job.created_at
                       ? new Date(job.created_at).toLocaleString(locale)
                       : job.id.slice(0, 8)}
+                    {job.execution === 'remote' && (
+                      <span className="job-location">
+                        {' '}
+                        · {job.worker_name ?? t('Remote queue')}
+                      </span>
+                    )}
                   </small>
                 </button>
               ))}
@@ -773,6 +872,14 @@ export default function Training({
                 <h3>{t('Training progress')}</h3>
                 <span className={`job-status ${selectedJob.status}`}>{t(selectedJob.status)}</span>
               </div>
+              <p className="job-worker">
+                {selectedJob.execution === 'remote'
+                  ? (selectedJob.worker_name ?? t('Waiting for an available worker'))
+                  : t('This server')}
+                {selectedJob.last_reported_at
+                  ? ` · ${t('Last update {time}', { time: new Date(selectedJob.last_reported_at).toLocaleString(locale) })}`
+                  : ''}
+              </p>
               <TrainingHistoryChart history={metrics.history} />
               {Array.isArray(metrics.best_models) && metrics.best_models.length > 0 && (
                 <p className="subtle">
@@ -1058,10 +1165,14 @@ export default function Training({
       {resumeJob && (
         <TrainingResumeDialog
           job={resumeJob}
+          workers={workers}
           onClose={() => setResumeJob(null)}
           onStarted={(next, completed, target) => {
             setResumeJob(null);
-            setSelectedJob(next);
+            refreshRevision.current++;
+            if (!observedJobs.current) observedJobs.current = new Map();
+            observedJobs.current.set(next.id, next.status);
+            selectJob(next);
             setJobs((previous) => [next, ...previous]);
             setNotice(
               t('Training resumed from iteration {completed} toward {target}.', {

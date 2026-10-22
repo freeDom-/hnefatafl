@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import sys
 import threading
@@ -22,6 +23,16 @@ def main(argv: list[str] | None = None) -> int:
         if name == "train":
             command.add_argument("--resume", help="Safe checkpoint to resume")
     sub.add_parser("devices", help="Show CPU/CUDA/MPS availability")
+    worker = sub.add_parser("worker", help="Run leased training jobs from a remote server")
+    worker.add_argument("--server", required=True, help="Server HTTP(S) URL")
+    worker.add_argument(
+        "--work-dir", default="data/remote-worker", help="Owned local job directory"
+    )
+    worker.add_argument(
+        "--concurrency", type=int, default=1, help="Parallel training subprocesses (1–16)"
+    )
+    worker.add_argument("--once", action="store_true", help="Exit when the queue becomes idle")
+    worker.add_argument("--max-jobs", type=int, help="Exit after accepting this many jobs")
     models = sub.add_parser("models", help="List, import or export safe model checkpoints")
     models.add_argument("--registry", default="data/models")
     models.add_argument("--import", dest="import_path")
@@ -34,7 +45,24 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     try:
         result: Any
-        if args.command == "devices":
+        if args.command == "worker":
+            from .remote_worker import run_worker
+
+            token = os.environ.get("HNEFATAFL_WORKER_TOKEN", "")
+            if not token:
+                raise ValueError(
+                    "Set HNEFATAFL_WORKER_TOKEN to the server-issued worker credential"
+                )
+            result = run_worker(
+                args.server,
+                token,
+                args.work_dir,
+                concurrency=args.concurrency,
+                once=args.once,
+                max_jobs=args.max_jobs,
+                should_stop=stop,
+            )
+        elif args.command == "devices":
             from .models import device_info
 
             result = device_info()

@@ -107,6 +107,22 @@ export interface Job {
   checkpoint_path?: string;
   created_at?: string;
   result?: Record<string, unknown>;
+  execution?: 'local' | 'remote';
+  target_worker_id?: string | null;
+  worker_id?: string | null;
+  worker_name?: string | null;
+  lease_expires_at?: string | null;
+  last_reported_at?: string | null;
+}
+export interface TrainingWorker {
+  id: string;
+  name: string;
+  capacity: number;
+  status: 'online' | 'offline' | 'revoked';
+  last_seen: string | null;
+  created_at?: string;
+  capabilities: DeviceInfo;
+  active_jobs: number;
 }
 export interface DeviceInfo {
   device?: string;

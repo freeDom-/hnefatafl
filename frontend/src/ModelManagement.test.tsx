@@ -100,7 +100,12 @@ describe('model and training collection controls', () => {
     const loaded = recordedTrainingConfig(trainingConfig('tablut', 'recommended'), model)!;
     expect(loaded).not.toHaveProperty('output_dir');
     expect(loaded).not.toHaveProperty('resume');
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith(
+        '/api/training/jobs',
+        expect.objectContaining({ method: 'GET' }),
+      ),
+    );
     expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
     expect(screen.getByLabelText('Learning rate', { exact: true })).toBeValid();
   });

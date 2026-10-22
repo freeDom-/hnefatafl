@@ -6,6 +6,7 @@ import appearance from './locales/de-appearance';
 import training from './locales/de-training';
 import resume from './locales/de-resume';
 import modelManagement from './locales/de-model-management';
+import workers from './locales/de-workers';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
@@ -19,6 +20,7 @@ const dictionary = {
   ...training,
   ...resume,
   ...modelManagement,
+  ...workers,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();

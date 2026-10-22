@@ -72,40 +72,21 @@ it('starts Ulf against Freydis with the selected IDs/names and restores the enti
   vi.stubGlobal('fetch', fetcher);
   const onCreated = vi.fn();
   const first = render(<NewGame {...options} onClose={vi.fn()} onCreated={onCreated} />);
-  change(screen.getByRole('combobox', { name: 'Attackers human player' }), 'astrid');
-  change(screen.getByRole('textbox', { name: 'Defenders player name' }), 'Liv');
+  change(screen.getByLabelText('Attackers human player'), 'astrid');
+  change(screen.getByLabelText('Defenders player name'), 'Liv');
   fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-  change(screen.getByRole('combobox', { name: 'Your side' }), 'attackers');
+  change(screen.getByLabelText('Your side'), 'attackers');
   fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
-  change(screen.getByRole('combobox', { name: 'Attackers trained model' }), 'ulf');
-  change(screen.getByRole('combobox', { name: 'Defenders trained model' }), 'freydis');
+  change(screen.getByLabelText('Attackers trained model'), 'ulf');
+  change(screen.getByLabelText('Defenders trained model'), 'freydis');
   const configurations = document.querySelectorAll('.player-config');
-  change(
-    within(configurations[0] as HTMLElement).getByRole('spinbutton', { name: 'Search iterations' }),
-    '123',
-  );
-  change(
-    within(configurations[1] as HTMLElement).getByRole('spinbutton', { name: 'Search iterations' }),
-    '87',
-  );
-  change(
-    within(configurations[0] as HTMLElement).getByRole('spinbutton', {
-      name: 'Time limit (seconds)',
-    }),
-    '.5',
-  );
-  change(
-    within(configurations[1] as HTMLElement).getByRole('spinbutton', {
-      name: 'Time limit (seconds)',
-    }),
-    '.25',
-  );
-  change(
-    screen.getByRole('combobox', { name: 'Agent for move suggestions' }),
-    'profile:alpha_beta',
-  );
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Use a fixed seed' }));
-  change(screen.getByRole('spinbutton', { name: 'Game seed' }), '213');
+  change(within(configurations[0] as HTMLElement).getByLabelText('Search iterations'), '123');
+  change(within(configurations[1] as HTMLElement).getByLabelText('Search iterations'), '87');
+  change(within(configurations[0] as HTMLElement).getByLabelText('Time limit (seconds)'), '.5');
+  change(within(configurations[1] as HTMLElement).getByLabelText('Time limit (seconds)'), '.25');
+  change(screen.getByLabelText('Agent for move suggestions'), 'profile:alpha_beta');
+  fireEvent.click(screen.getByLabelText('Use a fixed seed'));
+  change(screen.getByLabelText('Game seed'), '213');
   fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
   await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
   const submitted = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
@@ -138,26 +119,22 @@ it('starts Ulf against Freydis with the selected IDs/names and restores the enti
   );
   expect(screen.getByRole('radio', { name: /Tablut/ })).toBeChecked();
   expect(screen.getByRole('button', { name: 'AI vs AI' })).toHaveClass('active');
-  expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue('ulf');
-  expect(screen.getByRole('combobox', { name: 'Defenders trained model' })).toHaveValue('freydis');
+  expect(screen.getByLabelText('Attackers trained model')).toHaveValue('ulf');
+  expect(screen.getByLabelText('Defenders trained model')).toHaveValue('freydis');
   expect(
-    screen
-      .getAllByRole('spinbutton', { name: 'Search iterations' })
-      .map((input) => (input as HTMLInputElement).value),
+    screen.getAllByLabelText('Search iterations').map((input) => (input as HTMLInputElement).value),
   ).toEqual(['123', '87']);
   expect(
     screen
-      .getAllByRole('spinbutton', { name: 'Time limit (seconds)' })
+      .getAllByLabelText('Time limit (seconds)')
       .map((input) => (input as HTMLInputElement).value),
   ).toEqual(['0.5', '0.25']);
-  expect(screen.getByRole('combobox', { name: 'Agent for move suggestions' })).toHaveValue(
-    'profile:alpha_beta',
-  );
-  expect(screen.getByRole('checkbox', { name: 'Use a fixed seed' })).toBeChecked();
-  expect(screen.getByRole('spinbutton', { name: 'Game seed' })).toHaveValue(213);
+  expect(screen.getByLabelText('Agent for move suggestions')).toHaveValue('profile:alpha_beta');
+  expect(screen.getByLabelText('Use a fixed seed')).toBeChecked();
+  expect(screen.getByLabelText('Game seed')).toHaveValue(213);
   fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-  expect(screen.getByRole('combobox', { name: 'Your side' })).toHaveValue('attackers');
-  expect(screen.getByRole('combobox', { name: 'Attackers human player' })).toHaveValue('astrid');
+  expect(screen.getByLabelText('Your side')).toHaveValue('attackers');
+  expect(screen.getByLabelText('Attackers human player')).toHaveValue('astrid');
   const successful = localStorage.getItem(GAME_SETUP_KEY);
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(successful);
@@ -231,8 +208,8 @@ it('keeps the complete previous setup when another creation fails', async () => 
   );
   render(<NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
-  change(screen.getByRole('combobox', { name: 'Agent for move suggestions' }), '');
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Use a fixed seed' }));
+  change(screen.getByLabelText('Agent for move suggestions'), '');
+  fireEvent.click(screen.getByLabelText('Use a fixed seed'));
   fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
   await screen.findByText('Creation failed.');
   expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(previous);

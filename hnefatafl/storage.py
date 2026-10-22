@@ -52,7 +52,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 5:
+            if schema > 6:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -79,7 +79,14 @@ class Store:
                     rune TEXT NOT NULL UNIQUE
                 )
             """)
-            connection.execute("PRAGMA user_version=5")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS training_workers (
+                    id TEXT PRIMARY KEY,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    data TEXT NOT NULL
+                )
+            """)
+            connection.execute("PRAGMA user_version=6")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.
         with self.connection() as connection:
@@ -293,6 +300,39 @@ class Store:
             rows = connection.execute(
                 "SELECT data FROM jobs ORDER BY created_at DESC,id"
             ).fetchall()
+        return [json.loads(row["data"]) for row in rows]
+
+    def create_worker(self, worker: dict, token_hash: str) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO training_workers(id,token_hash,data) VALUES(?,?,?)",
+                (worker["id"], token_hash, json.dumps(worker)),
+            )
+
+    def save_worker(self, worker: dict) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "UPDATE training_workers SET data=? WHERE id=?",
+                (json.dumps(worker), worker["id"]),
+            )
+
+    def get_worker(self, worker_id: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT data FROM training_workers WHERE id=?", (worker_id,)
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def worker_for_token(self, token_hash: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT data FROM training_workers WHERE token_hash=?", (token_hash,)
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def workers(self) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute("SELECT data FROM training_workers ORDER BY id").fetchall()
         return [json.loads(row["data"]) for row in rows]
 
     def save_tournament(self, tournament: dict) -> None:
