@@ -1,5 +1,11 @@
 # Delivery checklist
 
+Historical milestone record: each section describes its release at delivery,
+including limitations later resolved. For current behavior use the
+[documentation index](docs/README.md); for exact original evidence use
+[release notes](docs/README.md#rulesets-release-history-and-historical-requirements)
+and [Validation](docs/VALIDATION.md). This checklist is not a current user manual.
+
 Releases are created only after the corresponding implementation and validation.
 See GitHub Releases and `docs/releases/` for exact evidence and limitations.
 

@@ -1,5 +1,7 @@
 # Remote training workers
 
+[Documentation index](README.md) · [Data and migration](TRAINING_DATA.md)
+
 The server keeps the queue, progress, charts, checkpoints and registered models.
 Remote workers pull jobs over HTTP and run the existing self-play trainer on
 their own CPU or GPU. Each job has a separate training process. Several workers,
@@ -40,26 +42,26 @@ This does not split a single model's optimization across machines.
    Submit additional models while earlier jobs are running. Pending jobs wait in
    the server queue until a compatible slot can claim them.
 
-The locked default installs CPU PyTorch. On an NVIDIA machine, install the
-appropriate official CUDA build and verify `cuda_available` with `devices` before
-choosing CUDA. Recent `uv` versions support automatic backend selection:
-
-```sh
-uv pip install --python .venv/bin/python --reinstall --torch-backend=auto 'torch>=2.6,<3'
-.venv/bin/python -m hnefatafl.cli devices
-```
-
-Check the [PyTorch installation selector](https://pytorch.org/get-started/locally/)
-for your driver/platform. A later locked `uv sync` can reinstall the CPU wheel.
-The server does not need a GPU to accept a job intended for a CUDA worker.
-Choose **Automatic** to let the worker select its available device. GPU execution
-requires suitable hardware and drivers; the release's functional checks use CPU.
+The locked default installs CPU PyTorch. Follow the authoritative
+[separate CUDA environment recipe](PERFORMANCE.md#separate-cuda-environment)
+on an NVIDIA worker and use that environment's Python for the worker command.
+Do not resynchronize a CPU lock into the CUDA environment. Verify actual device
+availability with `devices` first. The server need not have a GPU to queue a job
+for a GPU worker; explicit device jobs wait for compatible advertised hardware.
+Automatic device selection runs on the worker. CUDA/MPS execution remains
+unverified on the release's CPU host.
 
 Slots share the worker's visible devices; the client does not automatically
 allocate a different GPU to each slot. To isolate GPUs, run separate enrolled
 workers with separate work directories and `CUDA_VISIBLE_DEVICES` selections.
 Choose concurrency according to available GPU memory and CPU/RAM, not just the
 number of models you want to queue.
+
+Worker job-slot concurrency is separate from a single job's
+`self_play_concurrency` and `inference_batch_size`. See [Performance](PERFORMANCE.md)
+for concurrent MCTS scheduling. Keep workers updated with the server's release;
+v0.17.0 fields require the updated trainer even though the protocol remains 1.
+The CLI accepts 1–16 slots; enrollment capacity must also permit those claims.
 
 ## Progress, models and resumption
 
@@ -165,3 +167,18 @@ Without an explicit remote execution target, existing clients continue to start
 local training. Local training retains its one-job limit; it can run alongside
 remote training. Workers use protocol version 1 and should run the same release
 as the server. Keep token values out of logs and URLs in custom clients as well.
+
+## Troubleshooting
+
+| Symptom | Check and next action |
+| --- | --- |
+| Job stays queued | Worker online status, token, enrolled/free slots, selected worker ID and advertised requested device; `auto` can use CPU |
+| Unauthorized worker request | Correct server URL and current token; revoked credentials require fresh enrollment, not an insecure TLS bypass |
+| Lease expired after disconnect | Inspect retained progress/checkpoint; explicitly resume a new job rather than reusing the old lease |
+| Server lacks newest progress | Compare last successful report/upload with worker-local progress; only uploaded state can resume on the server |
+| Model available but job not resumable | A compact model lacks full state; see [checkpoint types](TRAINING_DATA.md#checkpoints-registry-import-and-export) |
+| GPU unavailable or out of memory | Check the worker's Python/driver/device permissions; reduce independent slots and per-job batches |
+| Cleanup did not free worker disk | Server cleanup does not remove worker-local artifacts; stop affected processes and manage that private directory separately |
+
+Service templates are examples. Verify real HTTP training, upload and server-side
+model play on the target machine; heartbeat success alone does not validate it.

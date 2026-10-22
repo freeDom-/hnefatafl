@@ -1,5 +1,7 @@
 # AI tournaments
 
+[Documentation index](README.md) · [Opponent settings](AI.md)
+
 Use **Tournaments** in the main navigation to set up a balanced comparison and
 return to its saved results later. Compare two, three or four opponents: each
 opponent can use a different algorithm, budget or compatible trained model.
@@ -40,6 +42,11 @@ The shared tournament seed determines the per-game/per-move randomness; it
 supersedes individual profile seeds. Tight wall-clock budgets can still produce
 different search completion on different hardware. A larger balanced sample is
 needed to assess playing strength.
+
+The browser API accepts an even `games` count from 2–100 per pairing, `max_plies`
+from 1–1,000 and a seed from 0–4,294,967,295. Defaults are 2 games, 300 plies and
+seed 0. The headless tournament accepts even game counts 2–10,000 and move caps
+1–5,000; do not assume its wider limits are accepted by the browser API.
 
 ## Read the results
 

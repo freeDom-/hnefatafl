@@ -68,7 +68,8 @@ piece the same movement and capture rules without special-square exceptions.
   conventions, not claims about the six-rule leaflet.
 
 There is no built-in move cap in the rules engine. Tournament and training
-budgets may adjudicate a separate draw when their configured limit is reached.
+budgets report an unfinished/truncated game when their configured limit is reached;
+this is not a rules draw.
 
 ## Differences from the other profiles
 

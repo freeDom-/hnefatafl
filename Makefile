@@ -4,7 +4,7 @@ export npm_config_cache ?= $(CURDIR)/.cache/npm
 export OMP_NUM_THREADS ?= 2
 export MKL_NUM_THREADS ?= 2
 
-.PHONY: install foundation test lint format typecheck build check serve
+.PHONY: install foundation test lint format typecheck build check serve docs
 install:
 	uv sync --frozen --all-extras
 	npm --prefix frontend ci
@@ -32,7 +32,10 @@ typecheck:
 build:
 	npm --prefix frontend run build
 
-check: lint typecheck test build
+docs:
+	$(PYTHON) scripts/check_docs.py
+
+check: docs lint typecheck test build
 
 serve:
 	$(PYTHON) -m uvicorn hnefatafl.server:app --host 0.0.0.0 --port 8000

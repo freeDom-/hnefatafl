@@ -1,7 +1,31 @@
 # Validation evidence
 
-Validation uses the actual Linux cloud machine, Python 3.12, Node 24 and the
-hash-locked CPU dependency environment. Tests use isolated temporary persistence.
+[Documentation index](README.md) · [Reproduce checks](#reproduce)
+
+## Latest release evidence at a glance
+
+Evidence below belongs to the specified release and scope, not to every platform
+or a fresh rerun after a documentation edit. Release notes retain their original
+claims unchanged.
+
+| Evidence | Latest recorded scope |
+| --- | --- |
+| [v0.17.0](releases/v0.17.0.md#validation) | `make foundation check`: 478 backend tests passed, one CUDA case skipped; 137 frontend tests, formatting/type checks and production build passed |
+| [v0.17.0 CPU experiment](releases/v0.17.0.md#performance-evidence) | Four-game batched smoke training with real updates/reload/legal model play; equal-work tiny CPU comparisons showed 0.98× and 0.65× speedups, **no CPU batching improvement** |
+| [v0.16.0](releases/v0.16.0.md#validation) | 90 targeted backend and 68 frontend tests for editable resume, optimizer-state retention and all three neural wrappers; full browser suite not rerun for that milestone |
+| [v0.15.0](releases/v0.15.0.md#validation) | Latest release-recorded full browser suite: 38 desktop/mobile passes, four intentional mobile duplicates skipped |
+| Hardware/deployment limits | CUDA/MPS execution, GPU speedup, physical-device/browser-engine compatibility and target-host systemd/proxy operation remain unverified |
+
+Functional tests prove data generation, real optimizer updates, checkpoint
+restoration and legal play. They do not establish model strength, calibrated
+winning probabilities or acceleration. See [Performance](PERFORMANCE.md) for units
+and fair work comparisons; [Development](DEVELOPMENT.md) for current commands.
+
+## Capability coverage
+
+Tests use isolated temporary persistence on Linux/Python 3.12/Node 24 with the
+hash-locked CPU environment. The following describes exercised capabilities;
+exact counts and subset/full-suite distinctions belong to the release records.
 
 | Capability | Evidence |
 | --- | --- |
@@ -12,8 +36,8 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | API and persistence | Real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, completed-game restart guards, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | Real isolated workers, balanced two/three/four-player round robins, participation-aware scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay and failure/shutdown cleanup |
-| Browser unit flows | 107 Vitest tests, including tournament win matrices, complete setup/name restoration, editable reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
-| Browser end to end | 30 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
+| Browser unit flows | Vitest cases include tournament win matrices, complete setup/name restoration, editable reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
+| Browser end to end | Actual desktop/mobile Chromium flows; see v0.15.0 above for the latest release-recorded full run and intentional skips |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -22,6 +46,14 @@ compatible model selection and a neural move. They assert no horizontal mobile
 overflow. Desktop and mobile additionally complete a real Brandubh AI game,
 verify the disabled final board and archive outcome, and reopen the saved result.
 Screenshots were captured from the running application.
+
+## Historical validation by release
+
+These retained observations describe the machine/data at each milestone, not the
+current contents of a new installation. See the [release index](README.md#rulesets-release-history-and-historical-requirements)
+for every original note.
+
+### Records and personalization (`v0.5.0`)
 
 The v0.5 full suite passes **196 Python tests**, **14 frontend tests** and **10 browser
 checks**. New browser flows exercise separate completed AI variants and readable
@@ -36,6 +68,8 @@ Pytest isolates the module-level ASGI application's data directory before test
 collection. A subprocess collection check verifies that an explicitly supplied
 user-data directory is left untouched. The v0.5 production restart served schema 2;
 existing saved game JSON, IDs and versions match their pre-restart digest exactly.
+
+### Saved tournaments (`v0.6.0`)
 
 The v0.6 full suite passes **231 Python tests**, **17 frontend unit tests** and
 **13 real-API browser checks**. Tournament browser flows create balanced comparisons,
@@ -59,6 +93,8 @@ executed. One smoke training run generated one self-play game, performed actual
 gradient updates, registered a compact model and completed both balanced evaluation
 games. It lost both games (0 wins, 2 losses), so no stronger-play claim is made.
 Truncated games elsewhere remain explicit unfinished outcomes, never rules draws.
+
+### Fresh games and manageable records (`v0.7.0`)
 
 The v0.7 suite passes **252 Python tests**, **35 frontend unit tests** and
 **16 real-API browser checks**. New browser coverage verifies fresh seeds on new
@@ -85,6 +121,8 @@ temporary storage. Production startup serves v0.7.0/schema 3 and preserves all s
 existing game records exactly against a pre-update digest; a full data backup was
 made before restart. The model-usage endpoints also respond for existing models.
 
+### Four-player tournaments and records (`v0.8.0`)
+
 The v0.8 suite passes **264 Python tests**, **48 frontend unit tests** and
 **20 real-API browser checks**. Round-robin coverage verifies every unordered
 pair, balanced attacker/defender assignments, correct per-opponent participation
@@ -109,6 +147,8 @@ existing games retain their exact IDs, versions and saved JSON against the
 pre-update digest. A complete data backup was made before restart; all four
 existing model-usage endpoints respond. Test games and tournaments stayed in
 isolated temporary storage. No data migration is required.
+
+### Agent insight and training plans (`v0.9.0`)
 
 The v0.9 suite passes **302 Python tests**, **67 frontend unit tests** and
 **24 real-API browser checks**. New analysis coverage checks each source and
@@ -144,6 +184,8 @@ exact IDs, versions and JSON against the pre-upgrade digest. All four existing
 model-usage endpoints respond. A complete backup was taken before migration;
 all training, analysis and screenshot data used separate temporary storage.
 
+### Setup and identities (`v0.10.0`)
+
 The v0.10 suite passes **313 Python tests**, **74 frontend unit tests** and
 **26 real-API browser checks**. New setup checks train separate Ulf/Freydis CPU
 models and verify selected IDs, names and runes across creation, sidebar, reload,
@@ -170,6 +212,8 @@ games retain exact IDs, versions and JSON against the pre-upgrade digest; all fo
 model-usage endpoints respond. Eight current player/model identities have distinct
 persistent runes. A complete backup preceded migration; new training and visual
 fixtures stayed in isolated temporary storage.
+
+### Model and training-data management (`v0.11.0`)
 
 The v0.11 suite passes **327 Python tests**, **81 frontend unit tests** and
 **26 real-API browser checks**, with four duplicate mobile worker checks skipped.
@@ -200,6 +244,8 @@ Startup serves v0.11.0 and compiled assets on schema 5. A complete backup preced
 startup. All seven existing games, four model entries and eight rune assignments
 match their pre-update digests. Model usage routes respond for all four entries.
 Feature tests and screenshots use separate temporary data directories.
+
+### Remote workers (`v0.12.0`)
 
 The v0.12 suite passes **355 Python tests**, **88 frontend unit tests** and
 **28 real-API browser checks**, with four duplicate mobile worker checks skipped.
@@ -241,7 +287,7 @@ production worker collection remains empty: test enrollment/training uses isolat
 data. A complete schema-5 backup was taken before migration. The Linux service
 example and CUDA/MPS installation still require validation on their target host.
 
-## Adjustable resumption and agent settings (`v0.13.0`)
+### Adjustable resumption and agent settings (`v0.13.0`)
 
 Backend verification covers **369 cases**; **101 frontend unit tests** pass.
 New checks restore actual SGD momentum buffers before applying learning-rate,
@@ -279,7 +325,7 @@ All seven games, four model entries and eight rune assignments match their
 pre-update digests; a complete data-directory backup was taken before restart.
 Test training and workers use isolated temporary storage. No migration is needed.
 
-## Battlefield win matrices (`v0.14.0`)
+### Battlefield win matrices (`v0.14.0`)
 
 The full local check passes **369 backend cases** and **107 frontend unit tests**.
 Six matrix cases cover directional wins with swapped sides, battlefield isolation,
@@ -303,7 +349,7 @@ Startup serves v0.14.0 and both compiled assets. All seven retained games, four
 model entries and eight rune assignments match their pre-update digests against
 a complete data-directory backup. Test tournaments remain in isolated storage.
 
-## Background analytics and faithful playback (`v0.15.0`)
+### Background analytics and faithful playback (`v0.15.0`)
 
 `make check` passes with **401 Python cases** and **126 frontend unit tests**,
 including formatting, mypy, TypeScript and the built browser application. The
@@ -331,18 +377,38 @@ runes were preserved. All model file hashes remain unchanged; integrity checks
 pass. Production startup on port 8000 serves the built assets, reports application
 version 0.15.0/schema 7 and retains seven games/four registered models.
 
+## Documentation maintenance (2026-10-23)
+
+The documentation-only revision checks all 42 Markdown documents for local links,
+heading anchors, images and reachability from the documentation index. Six
+standalone link-checker regression cases pass, including broken anchors/images,
+fenced examples, reference links and orphaned documents. All earlier heading
+anchors in changed documents remain available; the 17 release-note files and
+original requirements body are preserved.
+
+Twenty-three current-guide shell blocks pass `bash -n`; CLI help and example
+training configurations match the current interfaces. The documented neural
+alpha-beta API example creates a game and makes a legal move using untrained
+fixture weights. Four focused existing wrapper gameplay/analysis cases pass;
+seven other cases in that file are deselected. `make lint`, checker Ruff checks
+and `git diff --check` pass. No training job, full application suite or full
+browser suite was rerun for this documentation revision. Prior release evidence
+above retains its original scope.
+
 ## Reproduce
 
 ```sh
 make install
+make docs
 make check
 cd frontend
 npx playwright install chromium
 npm run test:e2e
 ```
 
-On this cloud machine, browsers are retained at `/workspace/.cache/ms-playwright`;
-set `PLAYWRIGHT_BROWSERS_PATH` to that location when running the browser tests.
+If installing browsers in a custom cache, set `PLAYWRIGHT_BROWSERS_PATH` to that
+same directory for both installation and execution. A previous machine's retained
+cache does not establish that a new environment has browser binaries.
 For a fresh Linux host, install required browser runtime libraries (Playwright's
 `install --with-deps chromium` is suitable on supported distributions).
 
