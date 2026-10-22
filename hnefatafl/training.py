@@ -46,6 +46,9 @@ DEFAULTS = {
     "optimizer": "adamw",
     "mcts_iterations": 24,
     "mcts_time_limit": 2.0,
+    "self_play_mode": "auto",
+    "self_play_concurrency": 16,
+    "inference_batch_size": 32,
     "exploration": 1.4,
     "temperature": 1.0,
     "dirichlet_alpha": 0.3,
@@ -130,10 +133,14 @@ def normalize_config(configuration: dict) -> dict:
         "evaluation_frequency": (1, 10000),
         "evaluation_games": (2, 10000),
         "cpu_threads": (1, 64),
+        "self_play_concurrency": (1, 1024),
+        "inference_batch_size": (1, 4096),
     }
     for key, (low, high) in integer_bounds.items():
         if type(config[key]) is not int or not low <= config[key] <= high:
             raise ValueError(f"{key} must be an integer between {low} and {high}")
+    if config["self_play_mode"] not in ("auto", "sequential", "batched"):
+        raise ValueError("self_play_mode must be auto, sequential or batched")
     if config["evaluation_games"] % 2:
         raise ValueError("evaluation_games must be even so the model plays both sides")
     for key, minimum, maximum in (
@@ -171,7 +178,12 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def self_play(
-    model: PolicyValueNet, config: dict, *, seed: int, should_stop: Callable[[], bool] | None = None
+    model: PolicyValueNet,
+    config: dict,
+    *,
+    seed: int,
+    should_stop: Callable[[], bool] | None = None,
+    inference_metrics=None,
 ) -> tuple[list[dict], dict]:
     """Generate legal MCTS policy targets and final defender-perspective returns."""
     rng = random.Random(seed)
@@ -179,6 +191,7 @@ def self_play(
     examples = []
     model.eval()
     started = time.monotonic()
+    simulations = 0
     for ply in range(config["max_game_plies"]):
         if should_stop and should_stop():
             raise InterruptedError("Training was cancelled")
@@ -195,7 +208,15 @@ def self_play(
             "dirichlet_alpha": config["dirichlet_alpha"],
             "dirichlet_fraction": config["dirichlet_fraction"],
         }
-        policy = mcts_policy(state, search_config)
+        details: dict = {}
+        policy = mcts_policy(
+            state,
+            search_config,
+            diagnostics=details,
+            should_stop=should_stop,
+            inference_metrics=inference_metrics,
+        )
+        simulations += details.get("simulations", 0)
         area = state.size**2
         examples.append(
             {
@@ -214,11 +235,13 @@ def self_play(
         state = apply_move(state, move)
     winner = state.winner
     # Truncation is not a rules draw. Bootstrap from the current value network.
-    value = (
-        {"attackers": -1.0, "defenders": 1.0, "draw": 0.0}[winner]
-        if winner is not None
-        else policy_value(state, model=model)[1]
-    )
+    if winner is not None:
+        value = {"attackers": -1.0, "defenders": 1.0, "draw": 0.0}[winner]
+    elif inference_metrics is not None and legal_moves(state):
+        with inference_metrics.measure(1, device=next(model.parameters()).device):
+            value = policy_value(state, model=model)[1]
+    else:
+        value = policy_value(state, model=model)[1]
     for example in examples:
         example["value"] = value
     return examples, {
@@ -227,8 +250,83 @@ def self_play(
         "reason": state.reason or "training_ply_limit",
         "bootstrap_value": value if winner is None else None,
         "plies": len(examples),
+        "simulations": simulations,
         "duration": time.monotonic() - started,
     }
+
+
+def generate_self_play(
+    model: PolicyValueNet,
+    config: dict,
+    *,
+    seed: int,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[dict], None] | None = None,
+    on_game: Callable[[int, list[dict], dict], None] | None = None,
+    measure_cuda: bool = False,
+    retain_examples: bool = True,
+) -> tuple[list[tuple[list[dict], dict]], dict]:
+    """Generate an iteration's games, retaining a sequential reference path.
+
+    Every game uses the original seed + game-index derivation. Ordered replay
+    callbacks are committed as soon as a completed prefix becomes available.
+    CUDA activity events are opt-in for benchmarks; ordinary training records
+    host inference timing and allocator peaks without per-batch event overhead.
+    """
+    from .self_play import SelfPlayMetrics, batched_self_play
+
+    device = next(model.parameters()).device
+    mode = config["self_play_mode"]
+    if mode == "auto":
+        mode = "batched" if device.type == "cuda" else "sequential"
+    concurrency = min(config["games"], config["self_play_concurrency"]) if mode == "batched" else 1
+    metrics = SelfPlayMetrics(model, mode, concurrency, measure_cuda=measure_cuda)
+    if mode == "batched":
+        if progress:
+            progress({"game": 0, "performance": metrics.snapshot()})
+        games = batched_self_play(
+            model,
+            config,
+            seed=seed,
+            metrics=metrics,
+            should_stop=should_stop,
+            progress=progress,
+            on_game=on_game,
+            retain_examples=retain_examples,
+        )
+    else:
+        games = []
+        for index in range(config["games"]):
+            if should_stop and should_stop():
+                raise InterruptedError("Training was cancelled")
+            if progress:
+                progress({"game": index + 1, "performance": metrics.snapshot()})
+            wall_started = time.monotonic()
+            cpu_started = time.process_time()
+            inference_wall = metrics.inference.host_seconds
+            inference_cpu = metrics.inference.cpu_seconds
+            examples, result = self_play(
+                model,
+                config,
+                seed=seed + index,
+                should_stop=should_stop,
+                inference_metrics=metrics.inference,
+            )
+            metrics.cpu_search_seconds += max(
+                0.0,
+                time.process_time() - cpu_started - (metrics.inference.cpu_seconds - inference_cpu),
+            )
+            metrics.search_traversal_wall_seconds += max(
+                0.0,
+                time.monotonic() - wall_started - (metrics.inference.host_seconds - inference_wall),
+            )
+            games.append((examples if retain_examples else [], result))
+            metrics.record(result)
+            if on_game:
+                on_game(index, examples, result)
+            if progress:
+                progress({"game": index + 1, "performance": metrics.snapshot()})
+    return games, metrics.snapshot(finalize_cuda=measure_cuda)
 
 
 def evaluate_model(
@@ -465,21 +563,26 @@ def train(
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
             iteration_start = time.monotonic()
-            generated = []
-            for game in range(config["games"]):
-                publish(stage="self_play", game=game + 1)
-                examples, game_result = self_play(
-                    model,
-                    config,
-                    seed=config["seed"] + iteration * 100000 + game,
-                    should_stop=should_stop,
-                )
+
+            def commit_game(index: int, examples: list[dict], result: dict) -> None:
+                nonlocal replay, games_generated
                 replay.extend(examples)
                 replay = replay[-config["replay_buffer_size"] :]
                 games_generated += 1
-                generated.append(game_result)
+
+            generated_games, performance = generate_self_play(
+                model,
+                config,
+                seed=config["seed"] + iteration * 100000,
+                should_stop=should_stop,
+                progress=lambda info: publish(stage="self_play", **info),
+                on_game=commit_game,
+                retain_examples=False,
+            )
+            generated = [result for _, result in generated_games]
             if not replay:
                 raise ValueError("Self-play generated no training examples")
+            optimization_started = time.monotonic()
             model.train()
             policy_losses, value_losses = [], []
             updates = 0
@@ -522,13 +625,16 @@ def train(
                     updates += 1
                 publish(stage="optimization", epoch=epoch + 1)
             model.eval()
+            performance["optimization_seconds"] = time.monotonic() - optimization_started
             metrics = {
                 "policy_loss": sum(policy_losses) / len(policy_losses),
                 "value_loss": sum(value_losses) / len(value_losses),
                 "updates": updates,
                 "self_play": generated,
                 "replay_positions": len(replay),
+                "performance": performance,
             }
+            evaluation_started = time.monotonic()
             if iteration % config["evaluation_frequency"] == 0 or iteration == config["iterations"]:
                 publish(stage="evaluation")
                 metrics["evaluation"] = evaluate_model(
@@ -545,8 +651,16 @@ def train(
                         seed=config["seed"] + iteration * 1000000 + 100,
                         should_stop=should_stop,
                     )
+            performance["evaluation_seconds"] = time.monotonic() - evaluation_started
+            if device.type == "cuda":
+                performance.update(
+                    gpu_peak_allocated_bytes=torch.cuda.max_memory_allocated(device),
+                    gpu_peak_reserved_bytes=torch.cuda.max_memory_reserved(device),
+                )
             completed = iteration
             metrics["iteration_duration"] = time.monotonic() - iteration_start
+            performance["iteration_compute_seconds"] = metrics["iteration_duration"]
+            performance["iteration_wall_seconds"] = metrics["iteration_duration"]
             score = metrics.get("evaluation", {}).get("score", -1)
             point = {
                 "iteration": iteration,
@@ -554,6 +668,7 @@ def train(
                 "value_loss": metrics["value_loss"],
                 "replay_positions": metrics["replay_positions"],
                 "iteration_duration": metrics["iteration_duration"],
+                "performance": dict(performance),
             }
             if "evaluation" in metrics:
                 evaluation = metrics["evaluation"]
@@ -565,6 +680,7 @@ def train(
                     },
                 )
             history.append(point)
+            artifact_started = time.monotonic()
             record_improvement = score >= 0 and score > best_score
             if score >= best_score:
                 best_score = score
@@ -594,6 +710,15 @@ def train(
                     )
             if iteration % config["checkpoint_frequency"] == 0 or iteration == config["iterations"]:
                 checkpoint_now(checkpoint)
+            # Preserve exactly the history captured in the checkpoint. Final
+            # progress/result metrics can additionally include its own write,
+            # which the checkpoint's timing snapshot necessarily predates.
+            performance = {
+                **performance,
+                "artifact_persistence_seconds": time.monotonic() - artifact_started,
+                "iteration_wall_seconds": time.monotonic() - iteration_start,
+            }
+            metrics["performance"] = performance
             publish(
                 stage="iteration_complete",
                 iteration=iteration,
@@ -602,6 +727,7 @@ def train(
                 value_loss=metrics["value_loss"],
                 checkpoint=str(checkpoint) if checkpoint.exists() else None,
                 metrics=metrics,
+                performance=performance,
             )
     except InterruptedError:
         checkpoint_now(checkpoint)

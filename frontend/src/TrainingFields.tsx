@@ -6,6 +6,8 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   games: ['Self-play games per iteration', 1, 10000],
   batch_size: ['Batch size', 1, 2048],
   mcts_iterations: ['MCTS iterations per move', 1, 100000],
+  self_play_concurrency: ['Concurrent self-play games', 1, 1024],
+  inference_batch_size: ['Inference batch size', 1, 4096],
   channels: ['Network channels', 4, 128],
   blocks: ['Residual blocks', 0, 8],
   epochs: ['Epochs per iteration', 1, 100],
@@ -27,6 +29,27 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   cpu_threads: ['CPU threads', 1, 64],
   seed: ['Random seed', 0, 4294967295],
 };
+
+export function SelfPlayModeField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label>
+      {t('Self-play execution')}
+      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        <option value="auto">{t('Automatic · batched on CUDA')}</option>
+        <option value="sequential">{t('Sequential')}</option>
+        <option value="batched">{t('Batched')}</option>
+      </select>
+    </label>
+  );
+}
 
 export function validTrainingNumbers(config: TrainingConfig): boolean {
   return Object.entries(trainingNumberFields).every(([key, [, min, max, step = 1]]) => {

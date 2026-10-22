@@ -218,3 +218,25 @@ Schema 7 and checkpoint/model formats remain unchanged; no migration is required
 Validation covers CPU execution and short real training/resumption checks. The full
 browser end-to-end suite was not rerun locally for this milestone. GPU execution,
 long training and model-strength comparisons were not performed. See `docs/releases/v0.16.0.md` for scope, compatibility and update commands.
+
+## Concurrent self-play and batched inference (`v0.17.0`)
+
+- [x] Interleave independent games and resumable MCTS contexts through one shared network
+- [x] Batch pending neural requests while preserving legal policies, search backups and training targets
+- [x] Retain sequential CPU/CUDA execution and select batching automatically only on CUDA
+- [x] Configure execution mode, game concurrency and inference batch size in Start/Resume, CLI and remote jobs
+- [x] Preserve existing checkpoints, optimizer/replay/RNG state, history and best-model tracking
+- [x] Retain throughput, actual batch sizes, outcomes and distinct wall/CPU/optional CUDA timing metrics
+- [x] Display live/completed-job performance and throughput history alongside existing learning graphs
+- [x] Provide a reproducible, small sequential/batched CPU/CUDA comparison command
+- [x] Pass 478 backend tests and 137 frontend tests, static checks and build; skip one unavailable CUDA test
+- [x] Complete batched CPU CLI training with four updates, checkpoint reload and legal registered-model play
+- [x] Measure equal-work CPU batching: 0.98× (4 channels/0 blocks) and 0.65× (32 channels/2 blocks), with fewer forward passes
+
+Schema 7, network architecture and checkpoint formats remain unchanged. Missing
+execution fields retain compatible defaults; updated remote-worker code is needed
+to execute new settings. Validation is CPU-only; CUDA/MPS behavior and GPU speedups
+remain unverified. Passing short training and throughput checks does not establish
+stronger play. The small CPU comparisons did not show a speed improvement; CPU
+automatic execution stays sequential. See `docs/releases/v0.17.0.md` for measured
+work, scope, update commands and limits.

@@ -27,10 +27,10 @@ without CUDA; a CPU wheel alone does not provide NVIDIA acceleration.
 CUDA training uses mixed precision when `mixed_precision` is true. The model
 stays on the chosen device during self-play and optimization; each optimization
 minibatch transfers inputs and targets together. There is no forked CUDA context:
-the API launches an independent Python process. Self-play is sequential within a
-worker, which makes small machines usable and seeded debugging simple; larger
-distributed inference/training is future work. CUDA memory usage is included in
-progress when available. This environment verified CPU training; CUDA/MPS
+the API launches an independent Python process. Self-play can cooperatively batch
+independent games through that worker's shared network; sequential execution
+remains the default on CPU/MPS and an explicit option on CUDA. CUDA memory usage
+is included in progress when available. This environment verified CPU training; CUDA/MPS
 execution requires separate verification on matching hardware.
 
 ### Separate CUDA environment
@@ -113,6 +113,9 @@ replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
 | `games`, `iterations`, `epochs` | Games per iteration, total iterations, optimization epochs |
 | `batch_size`, `learning_rate`, `optimizer`, `momentum` | Optimization settings; momentum applies to SGD (0–1, default 0.9) |
 | `mcts_iterations`, `mcts_time_limit`, `exploration` | Search simulation/time budget and PUCT constant |
+| `self_play_mode` | `auto` (default): batched on CUDA, sequential otherwise; or explicitly `sequential`/`batched` on either CPU or CUDA |
+| `self_play_concurrency` | Maximum independent active self-play games, 1–1024 (default 16), bounded by games remaining |
+| `inference_batch_size` | Maximum positions per neural inference batch, 1–4096 (default 32); separate from optimization `batch_size` |
 | `temperature`, `dirichlet_alpha`, `dirichlet_fraction` | Self-play action and root exploration |
 | `replay_buffer_size`, `weight_decay` | Replay capacity and regularization |
 | `checkpoint_frequency`, `evaluation_frequency` | Cadence measured in training iterations |
@@ -133,6 +136,53 @@ grow with games × plies × MCTS iterations, plus optimization/evaluation. Begin
 with an affordable run and inspect timings before increasing budgets. Very
 large replay buffers/checkpoints can exceed the enforced 128 MiB safe checkpoint
 limit; reduce the buffer or model dimensions rather than bypassing validation.
+
+### Concurrent self-play and performance comparisons
+
+`batched` interleaves independent game/MCTS contexts through one shared model.
+Pending positions from different searches share a forward pass; each dependent
+simulation waits for its own result. Finished games are replaced until the
+configured game count is reached. Legal masking, PUCT/backup semantics, root
+noise, policy targets, defender-relative values and truncated-game bootstrapping
+remain unchanged. Per-game RNGs/seeds stay independent. Fixed settings and seeds
+are reproducible within an execution mode under consistent conditions; different
+modes need not produce bitwise-identical results.
+
+Start Training and Resume Training expose all three execution fields. Existing
+checkpoints/configurations missing them use `auto`, concurrency 16 and inference
+batch size 32. Resume can change these settings while retaining the five immutable
+checkpoint settings and saved learning state. Update remote-worker code with the
+server so workers recognize the new parameters; no new worker protocol, model
+format or storage migration is needed.
+
+Progress/result JSON and every completed history point retain performance metrics.
+The workshop shows games/hour, positions/s, simulations/s, neural evaluations/s,
+actual batch sizes, outcomes, memory where available and phase timings, including
+completed jobs. Existing loss/evaluation graphs remain separate. Wall-clock phase
+durations differ from accumulated process CPU activity (`cpu_search_seconds`)
+and host inference time. Optional CUDA-event activity is collected for benchmarks,
+not ordinary per-inference training instrumentation. Phase/activity times are not
+additive; CPU activity can exceed wall time when multiple math threads run.
+Checkpoint history contains the timing snapshot taken before its own serialization.
+Final progress/result metrics additionally include artifact persistence in
+`iteration_wall_seconds`; `iteration_compute_seconds` keeps the earlier learning
+phase boundary. Learning history is not rewritten after saving a checkpoint.
+
+Run a short comparison without starting a training job or registering a model:
+
+```sh
+.venv/bin/python -m hnefatafl.cli benchmark
+# Supply a small training configuration to choose another budget:
+.venv/bin/python -m hnefatafl.cli benchmark --config configs/train-smoke.json
+```
+
+The benchmark uses identical weights, seeds and generous search deadlines to
+compare sequential and batched modes on the same device. It reports actual work,
+rates, batch sizes, optional GPU memory and same-device speedup, and skips absent
+CUDA hardware explicitly. Inspect actual simulation counts and
+`work_matches_sequential` before interpreting speedup. Small CPU workloads may be
+slower when batched; no GPU performance or stronger play is implied. CUDA execution remains unverified on
+this CPU-only development host.
 
 ## Monitoring, cancellation and resumption
 
@@ -161,11 +211,13 @@ minibatch, though previous atomic checkpoints remain.
 
 In the workshop, select a stopped or completed job and choose **Resume from
 checkpoint**. The dialog validates its full `last.pt`, shows the saved completed
-iteration, ruleset, network and optimizer, and lets you choose **Target total
-iterations**. The target must exceed the saved completed iteration. Learning rate,
-weight decay and SGD momentum are prefilled from the saved optimizer and can be
-changed before continuing. Momentum does not apply to Adam or AdamW. Other training
-settings come from the checkpoint rather than the current form.
+iteration, ruleset, network, seed and optimizer, and lets you choose **Target total
+iterations**. The target must exceed the saved completed iteration. All new-job
+settings except ruleset, channels, blocks, seed and optimizer type are editable,
+initialized from the effective saved configuration rather than the current form.
+Learning rate, weight decay and SGD momentum reflect saved optimizer groups;
+momentum does not apply to Adam or AdamW. Execution mode/concurrency/inference
+batch size can change without replacing the retained learning state.
 
 Model cards linked to a retained source job also offer **Resume training**.
 This continues that job's **latest full checkpoint**, which may be later than
@@ -176,8 +228,9 @@ available for play but cannot restore optimizer/replay/random state.
 Resumption starts a new job/output directory and preserves the original run.
 The API uses `GET /api/training/jobs/{id}/resume` for reviewed checkpoint metadata
 and `POST` to the same route with `{ "iterations": <target total> }` to continue.
-Optional `learning_rate` (0.0000001–1), `weight_decay` (0–1) and `momentum` (0–1)
-override those settings for the new job, on both local and remote workers.
+Optional editable training fields, including `self_play_mode`,
+`self_play_concurrency` and `inference_batch_size`, override saved settings for
+the new job on local or updated remote workers, using new-job validation.
 It never accepts an arbitrary client checkpoint path or an architecture override.
 
 To resume, keep the same ruleset, architecture and optimizer and increase

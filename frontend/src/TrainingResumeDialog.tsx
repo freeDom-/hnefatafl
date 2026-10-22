@@ -3,7 +3,12 @@ import { api } from './api';
 import { useI18n } from './i18n';
 import type { Job, TrainingWorker } from './types';
 import TrainingTarget, { jobTarget, targetRequest } from './TrainingTarget';
-import { numberField, trainingNumberFields, validTrainingNumbers } from './TrainingFields';
+import {
+  numberField,
+  SelfPlayModeField,
+  trainingNumberFields,
+  validTrainingNumbers,
+} from './TrainingFields';
 import { changeTrainingPlan, type TrainingConfig, type TrainingPreset } from './trainingPresets';
 
 export interface ResumeCheckpoint {
@@ -127,9 +132,14 @@ export default function TrainingResumeDialog({
             ([key, value]) =>
               !['ruleset', 'channels', 'blocks', 'seed', 'optimizer', 'iterations'].includes(key) &&
               (key in trainingNumberFields ||
-                ['model_name', 'preset', 'device', 'mixed_precision', 'save_all_best'].includes(
-                  key,
-                )) &&
+                [
+                  'model_name',
+                  'preset',
+                  'device',
+                  'mixed_precision',
+                  'save_all_best',
+                  'self_play_mode',
+                ].includes(key)) &&
               value !== savedConfig.current[key],
           ),
         ),
@@ -287,6 +297,13 @@ export default function TrainingResumeDialog({
                           <option value="mps">{t('Apple Metal')}</option>
                         </select>
                       </label>
+                    )}
+                    {config.self_play_mode !== undefined && (
+                      <SelfPlayModeField
+                        value={String(config.self_play_mode)}
+                        onChange={(value) => update('self_play_mode', value)}
+                        disabled={busy}
+                      />
                     )}
                     {Object.keys(trainingNumberFields)
                       .filter(

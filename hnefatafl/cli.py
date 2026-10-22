@@ -23,6 +23,9 @@ def main(argv: list[str] | None = None) -> int:
         if name == "train":
             command.add_argument("--resume", help="Safe checkpoint to resume")
     sub.add_parser("devices", help="Show CPU/CUDA/MPS availability")
+    benchmark = sub.add_parser("benchmark", help="Compare sequential and batched self-play")
+    benchmark.add_argument("--config", help="Optional training JSON with benchmark budgets")
+    benchmark.add_argument("--output", help="Also save the JSON comparison to this file")
     worker = sub.add_parser("worker", help="Run leased training jobs from a remote server")
     worker.add_argument("--server", required=True, help="Server HTTP(S) URL")
     worker.add_argument(
@@ -45,7 +48,22 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     try:
         result: Any
-        if args.command == "worker":
+        if args.command == "benchmark":
+            from .benchmark import run_benchmark
+
+            config = (
+                json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
+            )
+            if not isinstance(config, dict):
+                raise ValueError("Configuration must be a JSON object")
+            result = run_benchmark(config, should_stop=stop.is_set)
+            if args.output:
+                target = Path(args.output)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+                )
+        elif args.command == "worker":
             from .remote_worker import run_worker
 
             token = os.environ.get("HNEFATAFL_WORKER_TOKEN", "")

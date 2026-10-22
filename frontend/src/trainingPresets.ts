@@ -14,6 +14,9 @@ const base: TrainingConfig = {
   optimizer: 'adamw',
   mcts_iterations: 24,
   mcts_time_limit: 2,
+  self_play_mode: 'auto',
+  self_play_concurrency: 16,
+  inference_batch_size: 32,
   exploration: 1.4,
   replay_buffer_size: 5000,
   weight_decay: 0.0001,
@@ -136,6 +139,9 @@ export function changeTrainingPlan(
     cpu_threads: previous.cpu_threads,
     mixed_precision: previous.mixed_precision,
     save_all_best: previous.save_all_best,
+    self_play_mode: previous.self_play_mode ?? 'auto',
+    self_play_concurrency: previous.self_play_concurrency ?? 16,
+    inference_batch_size: previous.inference_batch_size ?? 32,
   };
 }
 
@@ -160,6 +166,8 @@ export function recordedTrainingConfig(
         continue;
       if (key === 'device' && !['auto', 'cpu', 'cuda', 'mps'].includes(String(value))) continue;
       if (key === 'optimizer' && !['adamw', 'adam', 'sgd'].includes(String(value))) continue;
+      if (key === 'self_play_mode' && !['auto', 'sequential', 'batched'].includes(String(value)))
+        continue;
       values[key] = value as string | number | boolean;
     }
   }

@@ -16,7 +16,8 @@ import {
 } from './trainingPresets';
 import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingResumeDialog from './TrainingResumeDialog';
-import { numberField } from './TrainingFields';
+import { numberField, SelfPlayModeField } from './TrainingFields';
+import TrainingPerformance from './TrainingPerformance';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
@@ -583,6 +584,12 @@ export default function Training({
               {numberField('games', config, update)}
               {numberField('batch_size', config, update)}
               {numberField('mcts_iterations', config, update)}
+              <SelfPlayModeField
+                value={String(config.self_play_mode)}
+                onChange={(value) => update('self_play_mode', value)}
+              />
+              {numberField('self_play_concurrency', config, update)}
+              {numberField('inference_batch_size', config, update)}
             </div>
             {kind === 'tune' && (
               <p className="subtle">
@@ -793,6 +800,7 @@ export default function Training({
                   : ''}
               </p>
               <TrainingHistoryChart history={metrics.history} />
+              <TrainingPerformance progress={metrics} />
               {Array.isArray(metrics.best_models) && metrics.best_models.length > 0 && (
                 <p className="subtle">
                   {metrics.best_models.length} {t('best models retained during this run.')}

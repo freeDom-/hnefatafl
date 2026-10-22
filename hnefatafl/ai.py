@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import combinations
-from typing import Any, Callable
+from typing import Any, Callable, Generator
 
 from .engine import Move, State, apply_move, legal_moves, new_game
 
@@ -240,17 +240,19 @@ class _Node:
     children: dict[Move, "_Node"] = field(default_factory=dict)
 
 
-def mcts_policy(
+def mcts_context(
     state: State,
     config: dict | None = None,
     *,
     diagnostics: dict | None = None,
     progress: Callable[[dict], None] | None = None,
-) -> dict[Move, float]:
-    """PUCT/UCT tree search returning normalized root visit counts.
+    should_stop: Callable[[], bool] | None = None,
+) -> Generator[State, tuple[dict[Move, float], float], dict[Move, float]]:
+    """Cooperative PUCT search yielding one dependent evaluation at a time.
 
-    Network priors and value replace rollouts when a model path is supplied.
-    The stored value always has defender perspective, including at opponent nodes.
+    Send legal priors and a defender-relative value for each yielded position.
+    Independent searches can share inference batches; this context never advances
+    a dependent simulation until its evaluation has been supplied.
     """
     config = {"algorithm": "mcts", **(config or {})}
     budget = int(config.get("iterations", 80))
@@ -270,7 +272,16 @@ def mcts_policy(
     model = config.get("_model")
     deadline = time.monotonic() + seconds
     root = _Node(state)
-    root_priors, root_value = policy_value(state, model_path, model)
+
+    def check_cancelled() -> None:
+        if should_stop is not None and should_stop():
+            raise InterruptedError("Self-play search cancelled")
+
+    check_cancelled()
+    if state.winner or not legal_moves(state):
+        raise ValueError("No legal moves in terminal position")
+    root_priors, root_value = yield state
+    check_cancelled()
     if diagnostics is None and progress is not None:
         diagnostics = {}
     if diagnostics is not None:
@@ -305,14 +316,17 @@ def mcts_policy(
     unexpanded: dict[int, dict[Move, float]] = {id(root): root_priors.copy()}
     next_report = 0.0
     for _ in range(budget):
+        check_cancelled()
         if time.monotonic() >= deadline and root.visits:
             break
         node = root
         path = [node]
         while not node.state.winner:
+            check_cancelled()
             remaining = unexpanded.get(id(node))
             if remaining is None:
-                priors, _ = policy_value(node.state, model_path, model)
+                priors, _ = yield node.state
+                check_cancelled()
                 remaining = dict(priors)
                 unexpanded[id(node)] = remaining
             # Progressive widening explores deeply even on an opening board
@@ -342,7 +356,8 @@ def mcts_policy(
         if node.state.winner:
             value = evaluate(node.state)
         elif model_path or model is not None:
-            _, value = policy_value(node.state, model_path, model)
+            _, value = yield node.state
+            check_cancelled()
         else:
             rollout = node.state
             for _ in range(rollout_depth):
@@ -356,6 +371,8 @@ def mcts_policy(
         for ancestor in path:
             ancestor.visits += 1
             ancestor.total += value
+        if diagnostics is not None:
+            diagnostics["simulations"] = root.visits
         # Bound observer overhead while making long-running searches useful live.
         if progress is not None and time.monotonic() >= next_report:
             assert diagnostics is not None
@@ -384,6 +401,38 @@ def mcts_policy(
     if not total:
         return root_priors
     return {move: child.visits / total for move, child in root.children.items()}
+
+
+def mcts_policy(
+    state: State,
+    config: dict | None = None,
+    *,
+    diagnostics: dict | None = None,
+    progress: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    inference_metrics: Any = None,
+) -> dict[Move, float]:
+    """Drive the cooperative search synchronously with reference single inference."""
+    configuration = config or {}
+    model_path = configuration.get("model_path")
+    model = configuration.get("_model")
+    context = mcts_context(
+        state, config, diagnostics=diagnostics, progress=progress, should_stop=should_stop
+    )
+    try:
+        pending = next(context)
+        while True:
+            if inference_metrics is not None and (model_path or model is not None):
+                device = next(model.parameters()).device if model is not None else "cpu"
+                with inference_metrics.measure(1, device=device):
+                    result = policy_value(pending, model_path, model)
+            else:
+                result = policy_value(pending, model_path, model)
+            pending = context.send(result)
+    except StopIteration as finished:
+        return finished.value
+    finally:
+        context.close()
 
 
 def _profile_configuration(config: dict | None) -> dict:
