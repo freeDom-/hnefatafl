@@ -1,4 +1,13 @@
 const translations: Record<string, string> = {
+  Advanced: 'Fortgeschritten',
+  Analytics: 'Analyse',
+  'Show winning chances': 'Gewinnchancen anzeigen',
+  'Custom move advisor': 'Eigener Zugberater',
+  'Maximum search time (seconds)': 'Maximale Suchzeit (Sekunden)',
+  'Analysis runs in the background. You can keep playing while the advisor searches.':
+    'Die Analyse läuft im Hintergrund. Du kannst weiterspielen, während der Zugberater sucht.',
+  'Saving analytics settings…': 'Analyseeinstellungen werden gespeichert…',
+
   'Game seeds are recorded per game and are excluded from this comparison.':
     'Zufalls-Seeds werden pro Partie gespeichert und für diesen Vergleich nicht unterschieden.',
   'Agent evaluations': 'Agentenbewertungen',

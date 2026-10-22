@@ -1,7 +1,17 @@
-import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  fireEvent,
+} from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
-import { advisorOptions } from './AdvisorSelect';
+import { advisorOptions, AnalyticsSettingsPanel } from './AdvisorSelect';
+import { defaultAnalyticsSettings } from './analysisTypes';
+import { useState } from 'react';
 import type { Game } from './types';
 import type { PositionAnalysis } from './analysisTypes';
 
@@ -23,6 +33,7 @@ const game = {
   captured: { attackers: 0, defenders: 0 },
   created_at: '',
   analysis_enabled: true,
+  analytics: defaultAnalyticsSettings,
   players: {
     attackers: { name: 'Hugin', kind: 'ai', config: { algorithm: 'baseline' } },
     defenders: { name: 'Munin', kind: 'ai', config: { algorithm: 'alpha_beta' } },
@@ -93,7 +104,7 @@ it('ignores a delayed result after switching games and reuses a recorded replay 
     initialProps: { current: game },
   });
   expect(view.result.current.pending).toBe(true);
-  const saved = { ...report, position_key: 'saved-position' };
+  const saved: PositionAnalysis = { ...report, position_key: 'saved-position', status: 'complete' };
   view.rerender({ current: { ...game, id: 'two', analysis: saved } });
   expect(view.result.current.report).toEqual(saved);
   await act(async () => finish(response(report)));
@@ -162,4 +173,278 @@ it('labels newly searched neural values and retains the original label for recor
   );
   expect(screen.getByText('Neural search estimate · 123 simulations')).toBeInTheDocument();
   expect(screen.getByText('Neural value head · 40 simulations')).toBeInTheDocument();
+});
+
+it('keeps partial estimates visible while background search improves them', async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      response({
+        ...report,
+        status: ++calls === 1 ? 'pending' : 'complete',
+        evaluations: [{ ...report.evaluations[0], completed_depth: calls }],
+      }),
+    ),
+  );
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await waitFor(() => expect(view.result.current.report?.evaluations[0].completed_depth).toBe(1));
+  expect(view.result.current.pending).toBe(true);
+  await waitFor(() => expect(view.result.current.report?.evaluations[0].completed_depth).toBe(2));
+  expect(view.result.current.pending).toBe(false);
+  expect(calls).toBe(2);
+});
+
+it('hides chances with the checkbox while retaining the advisor move', () => {
+  const hint = { agent_id: 'advisor' as const, move: { source: 0, target: 1 } };
+  function Harness() {
+    const [settings, setSettings] = useState(defaultAnalyticsSettings);
+    return (
+      <AgentAnalysis
+        game={game}
+        report={{ ...report, hint }}
+        pending={false}
+        failed={false}
+        retry={vi.fn()}
+        settings={settings}
+        updateSettings={async (next) => {
+          setSettings(next);
+        }}
+      />
+    );
+  }
+  render(<Harness />);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show winning chances' }));
+  expect(screen.queryByRole('meter')).not.toBeInTheDocument();
+  expect(screen.getByText('Suggested move: a7 → b7')).toBeInTheDocument();
+  expect(screen.getByRole('checkbox', { name: 'Show winning chances' })).not.toBeChecked();
+});
+
+it('renders progressively available estimates without waiting for the final search', () => {
+  render(<AgentAnalysis game={game} report={report} pending failed={false} retry={vi.fn()} />);
+  expect(screen.getByText('Evaluating this position…')).toBeInTheDocument();
+  expect(screen.getByRole('meter', { name: 'Hugin estimate for Attackers' })).toHaveAttribute(
+    'aria-valuenow',
+    '70',
+  );
+});
+
+it('configures a custom advisor independently of game creation and hides custom fields for named agents', () => {
+  const onChange = vi.fn(async (_next: typeof defaultAnalyticsSettings) => undefined);
+  const profiles = [
+    {
+      id: 'alpha_beta',
+      name: 'Jarl',
+      algorithm: 'alpha_beta',
+      difficulty: 'strong',
+      parameters: { depth: 5 },
+      supported_rulesets: ['brandubh'],
+    },
+  ];
+  const view = render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={[]}
+      settings={defaultAnalyticsSettings}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.getByRole('combobox', { name: 'Move advisor' })).toHaveValue('');
+  expect(screen.getByRole('spinbutton', { name: 'Maximum search time (seconds)' })).toHaveValue(5);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Move advisor' }), {
+    target: { value: 'custom' },
+  });
+  const customSettings = onChange.mock.calls[0][0];
+  expect(customSettings.advisor?.config).toMatchObject({ algorithm: 'alpha_beta', depth: 5 });
+  view.rerender(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={[]}
+      settings={customSettings}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.getByRole('spinbutton', { name: 'Search depth' })).toHaveValue(5);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Move advisor' }), {
+    target: { value: 'profile:alpha_beta' },
+  });
+  const namedSettings = onChange.mock.calls[1][0];
+  view.rerender(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={[]}
+      settings={namedSettings}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.queryByRole('spinbutton', { name: 'Search depth' })).not.toBeInTheDocument();
+});
+
+it('serializes analytics writes and ignores earlier settings responses', async () => {
+  let finishFirst!: (response: Response) => void;
+  let writes = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_url, options) => {
+      if (options?.method !== 'PUT')
+        return Promise.resolve(response({ ...report, advisor_revision: writes }));
+      writes += 1;
+      if (writes === 1)
+        return new Promise<Response>((resolve) => {
+          finishFirst = resolve;
+        });
+      return Promise.resolve(response({ ...defaultAnalyticsSettings, time_limit: 9, revision: 2 }));
+    }),
+  );
+  const view = renderHook(() => useGameAnalysis(game, true));
+  let first!: Promise<void>;
+  let second!: Promise<void>;
+  act(() => {
+    first = view.result.current.updateSettings({ ...defaultAnalyticsSettings, time_limit: 7 });
+    second = view.result.current.updateSettings({ ...defaultAnalyticsSettings, time_limit: 9 });
+  });
+  await waitFor(() => expect(writes).toBe(1));
+  expect(view.result.current.settings.time_limit).toBe(9);
+  await act(async () => {
+    finishFirst(response({ ...defaultAnalyticsSettings, time_limit: 7, revision: 1 }));
+    await Promise.all([first, second]);
+  });
+  expect(writes).toBe(2);
+  expect(view.result.current.settings).toMatchObject({ time_limit: 9, revision: 2 });
+});
+
+it('replaces advisor predictions when settings change and rejects an earlier search result', async () => {
+  let finishOld!: (response: Response) => void;
+  const advisor = {
+    name: 'Jarl',
+    profile_id: 'alpha_beta',
+    config: { algorithm: 'alpha_beta', depth: 5 },
+  };
+  let searches = 0;
+  const nextHint = { agent_id: 'advisor' as const, move: { source: 5, target: 6 } };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_url, options) => {
+      if (options?.method === 'PUT')
+        return Promise.resolve(
+          response({
+            ...defaultAnalyticsSettings,
+            advisor,
+            revision: 1,
+          }),
+        );
+      searches += 1;
+      if (searches === 1)
+        return new Promise<Response>((resolve) => {
+          finishOld = resolve;
+        });
+      return Promise.resolve(
+        response({ ...report, hint: nextHint, advisor_revision: 1, status: 'complete' }),
+      );
+    }),
+  );
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await waitFor(() => expect(searches).toBe(1));
+  await act(() => view.result.current.updateSettings({ ...defaultAnalyticsSettings, advisor }));
+  await waitFor(() => expect(view.result.current.report?.hint).toEqual(nextHint));
+  await act(async () =>
+    finishOld(
+      response({ ...report, hint: { agent_id: 'advisor', move: { source: 1, target: 2 } } }),
+    ),
+  );
+  expect(view.result.current.report?.hint).toEqual(nextHint);
+});
+
+it('does not let a delayed settings read overwrite an edit made while loading', async () => {
+  let finishRead!: (response: Response) => void;
+  const fetcher = vi.fn((_url, options) => {
+    if (options?.method === 'GET')
+      return new Promise<Response>((resolve) => {
+        finishRead = resolve;
+      });
+    if (options?.method === 'PUT')
+      return Promise.resolve(response({ ...defaultAnalyticsSettings, time_limit: 9, revision: 1 }));
+    return Promise.resolve(response({ ...report, advisor_revision: 1, status: 'complete' }));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis({ ...game, analytics: undefined }, true));
+  expect(view.result.current.settingsPending).toBe(true);
+  await act(() =>
+    view.result.current.updateSettings({ ...defaultAnalyticsSettings, time_limit: 9 }),
+  );
+  expect(view.result.current.settings).toMatchObject({ time_limit: 9, revision: 1 });
+  await act(async () => finishRead(response(defaultAnalyticsSettings)));
+  expect(view.result.current.settings).toMatchObject({ time_limit: 9, revision: 1 });
+});
+
+it('recovers server settings after a rejected edit instead of analyzing the unsaved advisor', async () => {
+  const invalidAdvisor = {
+    name: 'Unavailable model',
+    config: { algorithm: 'neural', model_id: 'missing' },
+  };
+  const fetcher = vi.fn((_url, options) => {
+    if (options?.method === 'PUT') return Promise.reject(new Error('This model is unavailable.'));
+    if (options?.method === 'GET') return Promise.resolve(response(defaultAnalyticsSettings));
+    return Promise.resolve(response({ ...report, status: 'complete' }));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await act(() =>
+    view.result.current.updateSettings({
+      ...defaultAnalyticsSettings,
+      advisor: invalidAdvisor,
+      revision: 8,
+    }),
+  );
+  expect(view.result.current.settings).toEqual(defaultAnalyticsSettings);
+  expect(view.result.current.settingsError).toBe('This model is unavailable.');
+  expect(view.result.current.settingsPending).toBe(false);
+  await waitFor(() => expect(view.result.current.pending).toBe(false));
+});
+
+it('stops background polling if saving and reloading settings both fail', async () => {
+  let searches = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_url, options) => {
+      if (options?.method === 'PUT' || options?.method === 'GET')
+        return Promise.reject(new Error('offline'));
+      searches += 1;
+      return Promise.resolve(response({ ...report, status: 'complete' }));
+    }),
+  );
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await waitFor(() => expect(view.result.current.pending).toBe(false));
+  const before = searches;
+  await act(() =>
+    view.result.current.updateSettings({ ...defaultAnalyticsSettings, time_limit: 9, revision: 8 }),
+  );
+  expect(view.result.current.settings).toEqual(defaultAnalyticsSettings);
+  expect(view.result.current.settingsError).toBe('offline');
+  expect(view.result.current.pending).toBe(false);
+  expect(searches).toBe(before);
+});
+
+it('disables custom neural advisors until a compatible model exists', () => {
+  const onChange = vi.fn(async (_next: typeof defaultAnalyticsSettings) => undefined);
+  render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={[]}
+      models={[]}
+      settings={{
+        ...defaultAnalyticsSettings,
+        advisor: { name: 'Custom move advisor', config: { algorithm: 'alpha_beta', depth: 5 } },
+      }}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.getByRole('option', { name: 'Neural network' })).toBeDisabled();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Algorithm' }), {
+    target: { value: 'neural' },
+  });
+  expect(onChange).not.toHaveBeenCalled();
 });

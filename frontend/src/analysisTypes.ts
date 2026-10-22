@@ -9,6 +9,21 @@ export interface Advisor {
   config: Config;
 }
 
+/** Per-game analysis preferences; changing these never advances the game. */
+export interface AnalyticsSettings {
+  advisor: Advisor | null;
+  time_limit: number;
+  show_win_chances: boolean;
+  revision: number;
+}
+
+export const defaultAnalyticsSettings: AnalyticsSettings = {
+  advisor: null,
+  time_limit: 5,
+  show_win_chances: true,
+  revision: 0,
+};
+
 export interface AgentEvaluation {
   rune?: string;
   agent_id: Side | 'advisor';
@@ -46,4 +61,6 @@ export interface PositionAnalysis {
   evaluations: AgentEvaluation[];
   hint: { agent_id: 'advisor'; move: Move } | null;
   unavailable_reason?: 'not_recorded';
+  status?: 'pending' | 'complete';
+  advisor_revision?: number;
 }

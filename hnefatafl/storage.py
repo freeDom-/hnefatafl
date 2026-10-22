@@ -52,7 +52,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 6:
+            if schema > 7:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -86,7 +86,22 @@ class Store:
                     data TEXT NOT NULL
                 )
             """)
-            connection.execute("PRAGMA user_version=6")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS game_analytics (
+                    game_id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS advisor_analysis (
+                    game_id TEXT NOT NULL,
+                    position_key TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    data TEXT NOT NULL,
+                    PRIMARY KEY (game_id, position_key, revision)
+                )
+            """)
+            connection.execute("PRAGMA user_version=7")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.
         with self.connection() as connection:
@@ -159,7 +174,7 @@ class Store:
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
-    def update_game(self, game: dict, expected_version: int) -> None:
+    def update_game(self, game: dict, expected_version: int, analysis: dict | None = None) -> None:
         game["version"] = expected_version + 1
         with self.connection() as connection:
             cursor = connection.execute(
@@ -168,6 +183,23 @@ class Store:
             )
             if cursor.rowcount != 1:
                 raise ConflictError("This game changed. Reload it before moving again.")
+            if analysis is not None:
+                row = connection.execute(
+                    "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
+                    (game["id"], analysis["position_key"]),
+                ).fetchone()
+                retained = json.loads(row["data"]) if row else {**analysis, "evaluations": []}
+                actual_roles = {entry["agent_id"] for entry in analysis["evaluations"]}
+                retained["evaluations"] = [
+                    entry
+                    for entry in retained["evaluations"]
+                    if entry["agent_id"] not in actual_roles
+                ] + analysis["evaluations"]
+                connection.execute(
+                    "INSERT INTO game_analysis(game_id,position_key,data) VALUES(?,?,?) "
+                    "ON CONFLICT(game_id,position_key) DO UPDATE SET data=excluded.data",
+                    (game["id"], analysis["position_key"], json.dumps(retained, allow_nan=False)),
+                )
 
     def game_analysis(self, game_id: str, position_key: str) -> dict | None:
         with self.connection() as connection:
@@ -199,6 +231,109 @@ class Store:
             ).fetchone()
             return json.loads(retained["data"])
 
+    def analytics(self, game_id: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def save_analytics(self, game_id: str, settings: dict) -> dict:
+        """Preferences use their own revision, independently of gameplay moves."""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM games WHERE id=?", (game_id,)).fetchone() is None:
+                raise ConflictError("Game not found.")
+            row = connection.execute(
+                "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
+            ).fetchone()
+            previous = json.loads(row["data"]) if row else None
+            previous_values = (
+                {key: value for key, value in previous.items() if key != "revision"}
+                if previous
+                else None
+            )
+            revision = previous.get("revision", 0) if previous else 0
+            result = {**settings, "revision": revision + (previous_values != settings)}
+            connection.execute(
+                "INSERT INTO game_analytics(game_id,data) VALUES(?,?) "
+                "ON CONFLICT(game_id) DO UPDATE SET data=excluded.data",
+                (game_id, json.dumps(result, allow_nan=False)),
+            )
+            return result
+
+    def advisor_analysis(self, game_id: str, key: str, revision: int) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT data FROM advisor_analysis WHERE game_id=? AND position_key=? AND revision=?",
+                (game_id, key, revision),
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def save_analysis_entry(
+        self,
+        original: dict,
+        snapshot: dict,
+        entry: dict,
+        *,
+        advisor_revision: int | None = None,
+        partial: bool = False,
+    ) -> dict:
+        """Save late work only while the exact searched line remains retained.
+
+        Moving or seeking does not destroy an opinion about a retained position.
+        Deletion, a shortened branch and changed analytics preferences reject late
+        writes. Player opinions are immutable per role once completed; advisor
+        progress occupies a separate, revisioned collection.
+        """
+        game_id, key, cursor = original["id"], snapshot["position_key"], snapshot["cursor"]
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT data FROM games WHERE id=?", (game_id,)).fetchone()
+            if row is None:
+                raise ConflictError("Game no longer exists.")
+            current = json.loads(row["data"])
+            if (
+                current.get("seed") != original.get("seed")
+                or current.get("ruleset") != original.get("ruleset")
+                or len(current["moves"]) < cursor
+                or current["moves"][:cursor] != original["moves"][:cursor]
+            ):
+                raise ConflictError("The analyzed line is no longer retained.")
+            if advisor_revision is not None:
+                preferences = connection.execute(
+                    "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
+                ).fetchone()
+                revision = json.loads(preferences["data"])["revision"] if preferences else 0
+                if revision != advisor_revision:
+                    raise ConflictError("The move advisor changed.")
+                report = {**snapshot, "evaluations": [entry], "partial": partial}
+                report["hint"] = (
+                    {"agent_id": "advisor", "move": entry["best_move"]}
+                    if entry.get("best_move")
+                    else None
+                )
+                connection.execute(
+                    "INSERT INTO advisor_analysis(game_id,position_key,revision,data) VALUES(?,?,?,?) "
+                    "ON CONFLICT(game_id,position_key,revision) DO UPDATE SET data=excluded.data",
+                    (game_id, key, advisor_revision, json.dumps(report, allow_nan=False)),
+                )
+                return report
+            row = connection.execute(
+                "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?", (game_id, key)
+            ).fetchone()
+            report = (
+                json.loads(row["data"]) if row else {**snapshot, "evaluations": [], "hint": None}
+            )
+            if not any(item["agent_id"] == entry["agent_id"] for item in report["evaluations"]):
+                report["evaluations"].append(entry)
+                connection.execute(
+                    "INSERT INTO game_analysis(game_id,position_key,data) VALUES(?,?,?) "
+                    "ON CONFLICT(game_id,position_key) DO UPDATE SET data=excluded.data",
+                    (game_id, key, json.dumps(report, allow_nan=False)),
+                )
+            return report
+
     @contextmanager
     def discard_games(
         self, versions: dict[str, int], *, archived_model: dict | None = None
@@ -218,6 +353,8 @@ class Store:
                 if cursor.rowcount != 1:
                     raise ConflictError("This game changed. Reload it before deleting it.")
                 connection.execute("DELETE FROM game_analysis WHERE game_id=?", (game_id,))
+                connection.execute("DELETE FROM game_analytics WHERE game_id=?", (game_id,))
+                connection.execute("DELETE FROM advisor_analysis WHERE game_id=?", (game_id,))
             if archived_model is not None:
                 connection.execute(
                     "INSERT OR IGNORE INTO model_history(id,data) VALUES(?,?)",

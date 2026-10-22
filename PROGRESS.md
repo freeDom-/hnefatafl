@@ -181,3 +181,23 @@ agent estimates do not establish calibrated winning probabilities or model stren
 - [x] Pass 369 backend cases, 107 frontend tests and seven targeted tournament browser checks
 
 Schema 6, tournament scoring and saved records remain unchanged.
+
+## Background analytics and faithful game playback (`v0.15.0`)
+
+- [x] Capture actual AI move-search estimates atomically with successful moves
+- [x] Evaluate other agents without blocking human input or AI requests
+- [x] Configure live/replay advisors in a persistent in-game Analytics section
+- [x] Publish progressive hints and estimates with advisor-revision guards
+- [x] Hide winning chances independently of move advice
+- [x] Preserve late reports for retained positions and reject deleted/branched work
+- [x] Hide completed-game AI controls, including during history replay
+- [x] Dismiss dialogs on an outside pointer press rather than release
+- [x] Fix Jarl/Seer presets across games and tournaments; retain Custom settings
+- [x] Preserve captured kings visually without changing engine rules
+- [x] Pass 398 backend cases, 125 frontend tests and 38 desktop/mobile browser checks
+- [x] Back up and migrate workspace schema 5 to 7 without changing retained records or model files
+
+Schema 7 adds analytics preferences and revisioned advisor reports. Existing player
+opinions retain their provenance; explicit new replay-advisor opinions are separate.
+Search deadlines remain effective, and displayed estimates are uncalibrated expected
+scores. See `docs/ANALYSIS.md` for persistence, sources and API details.

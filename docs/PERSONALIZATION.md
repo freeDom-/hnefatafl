@@ -122,7 +122,8 @@ Tournament names are editable northern-mythology suggestions; reroll to find ano
 
 The complete last successfully created setup is saved in this browser under
 `hnefatafl-new-game-options`: battlefield, mode, human side and player choices,
-both AI profiles/models and search settings, advisor, fixed-seed switch and value.
+both AI profiles/models and search settings, fixed-seed switch and value.
+Advisor choices are saved per game through its Analytics section.
 Cancelling a dialog or a failed creation does not change it. Removed/incompatible
 models, deleted players and invalid stored settings fall back to valid options.
 The earlier mode-only preference is still read when no full setup is available.
@@ -153,11 +154,14 @@ See the [mobile header and player runes](screenshots/cleaned-header-mobile.png).
 
 ## Agent opinions and move advice
 
-Choose **Move advisor → Agent for move suggestions** in a new game to highlight
-an agent's best searched legal move. **None** is the default. Playing AI agents
-and the advisor each display an independent estimate for the same current player.
-Snapshots are retained with the position and appear during replay. Missing older
-evaluations are explicit. See [ANALYSIS.md](ANALYSIS.md) for the value sources,
+Choose **Analytics → Move advisor** below the game's move history to highlight
+an agent's best searched legal move. **None** is the default, with a 5-second
+maximum search time. The settings are also available during history replay.
+The advisor updates in the background without blocking either player. Playing
+AI estimates reuse actual move searches; other opinions run in the background.
+Use **Show winning chances** to hide or reveal estimates while keeping move
+suggestions. Saved snapshots appear during replay; missing older evaluations
+are explicit. See [ANALYSIS.md](ANALYSIS.md) for the value sources,
 expected-score interpretation, draw handling and model-reference protection.
 
 ## Language

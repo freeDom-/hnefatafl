@@ -303,6 +303,34 @@ Startup serves v0.14.0 and both compiled assets. All seven retained games, four
 model entries and eight rune assignments match their pre-update digests against
 a complete data-directory backup. Test tournaments remain in isolated storage.
 
+## Background analytics and faithful playback (`v0.15.0`)
+
+`make check` passes with **398 Python cases** and **125 frontend unit tests**,
+including formatting, mypy, TypeScript and the built browser application. The
+full real-API Chromium suite passes **38 desktop/mobile cases**, with four
+intentional duplicated mobile skips.
+
+Fifteen dedicated async API tests cover human moves and AI requests while other
+searches are held, actual-move single-search evidence, two independent opinions,
+progressive hints, advisor revision changes, hidden chances, stale polls,
+deleted/branched positions, replay seeks, concurrent AI compare-and-swap and
+restart preferences. Search tests verify completed-depth and throttled MCTS
+callbacks use independent snapshots and match final diagnostics without a second
+search. UI tests exercise delayed/rejected settings saves and recovery.
+
+Browser coverage includes Copenhagen partial depth results while a human moves,
+replacing an active advisor, retaining hints with chances hidden, persisted
+English/German replay analytics, both AI opinions, fixed/custom game and tournament
+presets, dialog drag/release versus outside press, captured kings, and missing
+AI playback controls in completed records at both final and starting positions.
+
+A SQLite backup was taken before upgrading this workspace's schema 5 database
+to 7. Exact existing rows in games, players, jobs, tournaments, rune assignments
+and player analysis remain equal: seven games, four profiles and eight existing
+runes were preserved. All model file hashes remain unchanged; integrity checks
+pass. Production startup on port 8000 serves the built assets, reports application
+version 0.15.0/schema 7 and retains seven games/four registered models.
+
 ## Reproduce
 
 ```sh

@@ -144,3 +144,53 @@
     grid-column: 1 / -1;
   }
 }
+.analysis-visibility {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 14px;
+  font-size: 12px;
+}
+.analysis-visibility input {
+  width: auto;
+  margin: 0;
+}
+.analytics-settings {
+  padding: 20px;
+}
+.analytics-settings h2 {
+  margin: 7px 0 16px;
+}
+.analytics-settings > label,
+.advisor-custom-fields > label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.analytics-settings select,
+.analytics-settings input {
+  width: 100%;
+  min-width: 0;
+}
+.advisor-custom-fields {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.advisor-custom-fields legend {
+  font-size: 12px;
+  padding: 0 5px;
+}
+.analytics-settings .subtle {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.history-panel > .analytics-settings {
+  margin: 0 -16px;
+  border-inline: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+}

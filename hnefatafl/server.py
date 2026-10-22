@@ -57,11 +57,21 @@ class SeekRequest(VersionRequest):
     cursor: StrictInt = Field(ge=0)
 
 
+class AnalysisRequest(SeekRequest):
+    background: bool = False
+
+
 class AdvisorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="Move advisor", min_length=1, max_length=80)
     profile_id: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyticsRequest(BaseModel):
+    advisor: AdvisorRequest | None = None
+    time_limit: float = Field(default=5, ge=0.01, le=15, allow_inf_nan=False)
+    show_win_chances: bool = True
 
 
 class GameRequest(BaseModel):
@@ -132,6 +142,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI):
         yield
         await asyncio.to_thread(tournaments.shutdown)
+        await asyncio.to_thread(analyses.shutdown)
         # A server shutdown stops workers it started, preserving completed
         # checkpoints. Restored tasks must explicitly resume retained files.
         for identifier, process in list(processes.items()):
@@ -180,8 +191,17 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         encoded = json.dumps(state.to_dict(), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode()).hexdigest()
 
+    def analytics_settings(game: dict) -> dict:
+        return store.analytics(game["id"]) or {
+            "advisor": game.get("advisor"),
+            "time_limit": 5,
+            "show_win_chances": True,
+            "revision": 0,
+        }
+
     def referenced_agents(game: dict) -> list[dict]:
-        return [*game["players"].values(), *([game["advisor"]] if game.get("advisor") else [])]
+        advisor = analytics_settings(game)["advisor"]
+        return [*game["players"].values(), *([advisor] if advisor else [])]
 
     def missing_analysis(game: dict) -> dict:
         state = state_of(game)
@@ -275,13 +295,14 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "attackers": start.board.count("A") - state.board.count("A"),
                 "defenders": sum(start.board.count(p) - state.board.count(p) for p in ("D", "K")),
             },
-            analysis=analysis_response(store.game_analysis(game["id"], position_key(state))),
+            analysis=analysis_response(current_analysis(game)),
+            analytics=analytics_settings(game),
         )
         return result
 
-    def persist(game: dict, version: int) -> dict:
+    def persist(game: dict, version: int, analysis: dict | None = None) -> dict:
         try:
-            store.update_game(game, version)
+            store.update_game(game, version, analysis)
         except ConflictError as exc:
             fail(str(exc), 409)
         return response(game)
@@ -367,6 +388,14 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 request.mode == "human-ai" and side != request.human_side
             )
             provided = request.players.get(side, {})
+            provided_config = provided.get("config")
+            # A named preset is fixed for new games. Custom opponents omit a
+            # profile ID and retain explicit budgets; saved games are unchanged.
+            if is_ai and provided.get("profile_id") in {"alpha_beta", "mcts"}:
+                from .ai import ai_profiles
+
+                preset = next(p for p in ai_profiles() if p["id"] == provided["profile_id"])
+                provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
             kind = "ai" if is_ai else "human"
             player_id = provided.get("player_id")
             name = str(provided.get("name") or ("Computer" if is_ai else side.title())).strip()
@@ -389,9 +418,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 "kind": kind,
                 "player_id": player_id if kind == "human" else None,
                 "profile_id": provided.get("profile_id", "baseline") if kind == "ai" else None,
-                "config": clean_ai_config(
-                    provided.get("config"), provided.get("profile_id", "baseline")
-                )
+                "config": clean_ai_config(provided_config, provided.get("profile_id", "baseline"))
                 if kind == "ai"
                 else {},
             }
@@ -429,7 +456,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         result = {
             "name": name,
             "kind": "ai",
-            "profile_id": profile["id"],
+            "profile_id": profile["id"] if provided.profile_id else None,
             "profile_name": profile["name"],
             "config": config,
         }
@@ -441,7 +468,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             result["model_name"] = model["name"]
         return with_agent_rune(result)
 
-    def append_move(game: dict, move: Move, version: int) -> dict:
+    def append_move(game: dict, move: Move, version: int, analysis: dict | None = None) -> dict:
         with catalog_lock:
             if game["cursor"] < len(game["moves"]):
                 available = (
@@ -498,11 +525,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 if after.winner
                 else None
             )
-            return persist(game, version)
+            return persist(game, version, analysis)
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 6}
+        return {"status": "ok", "database": "sqlite", "schema_version": 7}
 
     @app.get("/api/rulesets")
     def rulesets():
@@ -578,13 +605,210 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def get_game(game_id: str):
         return response(game_or_404(game_id))
 
+    def position_snapshot(game: dict) -> dict:
+        state = state_of(game)
+        return {
+            "cursor": game["cursor"],
+            "ply": state.ply,
+            "side_to_move": state.turn,
+            "position_key": position_key(state),
+            "created_at": now(),
+            "evaluations": [],
+            "hint": None,
+        }
+
+    def current_analysis(game: dict, settings: dict | None = None) -> dict | None:
+        settings = settings or analytics_settings(game)
+        key = position_key(state_of(game))
+        recorded = store.game_analysis(game["id"], key)
+        advisor = store.advisor_analysis(game["id"], key, settings["revision"])
+        # Before the first preference change, legacy advisor reports keep their
+        # original representation and remain usable without model weights.
+        if store.analytics(game["id"]) is None and advisor is None:
+            return recorded
+        if recorded is None and advisor is None:
+            return None
+        result = dict(recorded or advisor or {})
+        result["evaluations"] = [
+            entry
+            for entry in (recorded or {}).get("evaluations", [])
+            if entry["agent_id"] != "advisor"
+        ]
+        result["hint"] = None
+        if settings["advisor"] and advisor:
+            result["evaluations"].extend(advisor["evaluations"])
+            result["hint"] = advisor["hint"]
+        result.pop("partial", None)
+        return result
+
+    def evaluation_entry(
+        game: dict, role: str, agent: dict, settings: dict, report: dict | None = None
+    ) -> dict:
+        state = state_of(game)
+        configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
+        if role == "advisor":
+            configuration["time_limit"] = settings["time_limit"]
+        entry = {
+            "agent_id": role,
+            "role": role,
+            "name": agent["name"],
+            "rune": agent_rune(agent),
+            "profile_id": agent.get("profile_id"),
+            "profile_name": agent.get("profile_name"),
+            "model_name": agent.get("model_name"),
+            "config": configuration,
+            "source": "unavailable",
+            "win_probability": None,
+            "estimated": not bool(state.winner),
+            "calibrated": bool(state.winner),
+        }
+        if report is not None:
+            entry.update(report)
+            value = report["value"] if state.turn == "defenders" else -report["value"]
+            if role != "advisor" or settings["show_win_chances"]:
+                entry["win_probability"] = max(0.0, min(1.0, (value + 1.0) / 2.0))
+            else:
+                # Move selection needs search scores, but probability conversion
+                # and publication are optional and never require a second search.
+                entry.pop("value", None)
+            entry["search_seed"] = (
+                (configuration["seed"] + state.ply) % 2**32
+                if "seed" in game
+                else configuration["seed"]
+            )
+        return entry
+
+    def evaluate_background(game: dict, role: str, agent: dict, settings: dict, progress):
+        from .ai import analyze_position
+
+        state = state_of(game)
+        configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
+        if role == "advisor":
+            configuration["time_limit"] = settings["time_limit"]
+        if "seed" in game:
+            configuration["seed"] = (configuration["seed"] + state.ply) % 2**32
+        entry = evaluation_entry(game, role, agent, settings)
+        try:
+            if configuration.get("model_id") and not state.winner:
+                with catalog_lock:
+                    available = model_info(configuration["model_id"])
+                    configuration["model_path"] = str(model_file(available))
+            report = analyze_position(
+                state,
+                configuration,
+                progress=lambda partial: progress(
+                    evaluation_entry(game, role, agent, settings, partial)
+                ),
+            )
+            return evaluation_entry(game, role, agent, settings, report)
+        except (OSError, HTTPException):
+            entry["unavailable_reason"] = "model_unavailable"
+        except (ValueError, RuntimeError):
+            entry["unavailable_reason"] = "evaluation_failed"
+        return entry
+
+    from .analysis_service import AnalysisService
+
+    analyses = AnalysisService(store, evaluate_background)
+    app.state.analyses = analyses
+
+    @app.get("/api/games/{game_id}/analytics")
+    def get_analytics(game_id: str):
+        return analytics_settings(game_or_404(game_id))
+
+    @app.put("/api/games/{game_id}/analytics")
+    def set_analytics(game_id: str, request: AnalyticsRequest):
+        with catalog_lock:
+            game = game_or_404(game_id)
+            existing = analytics_settings(game)["advisor"]
+            same_advisor = bool(
+                existing
+                and request.advisor
+                and request.advisor.model_dump()
+                == {
+                    "name": existing["name"],
+                    "profile_id": existing.get("profile_id"),
+                    "config": existing["config"],
+                }
+            )
+            # Completed histories may refer to removed weights. Visibility/time
+            # preferences still remain editable without restoring that model.
+            advisor = (
+                existing
+                if same_advisor
+                else normalise_advisor(
+                    GameRequest(ruleset=game["ruleset"], advisor=request.advisor),
+                    game.get("seed", 0),
+                )
+            )
+            try:
+                return store.save_analytics(
+                    game_id,
+                    {
+                        "advisor": advisor,
+                        "time_limit": request.time_limit,
+                        "show_win_chances": request.show_win_chances,
+                    },
+                )
+            except ConflictError as exc:
+                fail(str(exc), 409)
+
+    def background_analysis(game: dict) -> dict:
+        state, settings = state_of(game), analytics_settings(game)
+        snapshot = position_snapshot(game)
+        recorded = current_analysis(game, settings)
+        existing = {entry["agent_id"] for entry in (recorded or {}).get("evaluations", [])}
+        tasks = []
+        # Actual AI turns produce their own evidence in /ai-move. Historical
+        # player evidence is never invented later using changed model weights.
+        frontier = game["cursor"] == len(game["moves"])
+        human_turn = game["players"][state.turn]["kind"] == "human"
+        if settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
+            for role, agent in game["players"].items():
+                if (
+                    agent["kind"] == "ai"
+                    and role not in existing
+                    and (human_turn or state.winner or role != state.turn)
+                ):
+                    tasks.append(analyses.schedule(game, snapshot, role, agent, settings))
+        if settings["advisor"]:
+            advisor_report = store.advisor_analysis(
+                game["id"], snapshot["position_key"], settings["revision"]
+            )
+            if (
+                advisor_report is None
+                and "advisor" in existing
+                and store.analytics(game["id"]) is None
+            ):
+                pass  # An immutable legacy advisor report is already retained.
+            elif advisor_report is None or advisor_report.get("partial"):
+                tasks.append(
+                    analyses.schedule(game, snapshot, "advisor", settings["advisor"], settings)
+                )
+        # Read activity before data: a worker can commit between these reads.
+        # A stale "pending" only causes another poll; stale "complete" could
+        # otherwise hide the newly committed result indefinitely.
+        pending = any(analyses.active(key) for key in tasks)
+        result = current_analysis(game, settings) or missing_analysis(game)
+        rendered = analysis_response(
+            {
+                **result,
+                "status": "pending" if pending else "complete",
+                "advisor_revision": settings["revision"],
+            }
+        )
+        assert rendered is not None
+        return rendered
+
     @app.post("/api/games/{game_id}/analysis")
-    def analyze_game(game_id: str, request: SeekRequest):
+    def analyze_game(game_id: str, request: AnalysisRequest):
         from .ai import analyze_position
 
         game = game_or_404(game_id, request.version)
         if request.cursor != game["cursor"]:
             fail("This game changed. Reload it before analyzing again.", 409)
+        if request.background:
+            return background_analysis(game)
         state = state_of(game)
         key = position_key(state)
         cached = store.game_analysis(game_id, key)
@@ -697,7 +921,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/games/{game_id}/ai-move")
     def ai_move(game_id: str, request: VersionRequest):
-        from .ai import choose_move
+        from .ai import analysis_from_search, choose_move
 
         game = game_or_404(game_id, request.version)
         state = state_of(game)
@@ -715,10 +939,14 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 fail("This model is for a different ruleset.")
             config["model_path"] = str(model_file(model))
         try:
-            move = choose_move(state, config)
+            details: dict = {}
+            move = choose_move(state, config, diagnostics=details)
+            searched = analysis_from_search(state, config, move, details)
+            entry = evaluation_entry(game, state.turn, player, analytics_settings(game), searched)
+            snapshot = {**position_snapshot(game), "evaluations": [entry]}
         except (ValueError, FileNotFoundError) as exc:
             fail(str(exc))
-        return append_move(game, move, request.version)
+        return append_move(game, move, request.version, snapshot)
 
     @app.post("/api/games/{game_id}/seek")
     def seek(game_id: str, request: SeekRequest):
@@ -770,7 +998,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             seed = secrets.randbits(32)
             while seed in previous_seeds:
                 seed = (seed + 1) % 2**32
-            for player in referenced_agents(game):
+            settings = analytics_settings(game)
+            selected_advisor = settings["advisor"]
+            agents = [*game["players"].values(), *([selected_advisor] if selected_advisor else [])]
+            for player in agents:
                 if player["kind"] == "ai":
                     player["config"] = {
                         **effective_ai_config(player["config"], player.get("profile_id")),
@@ -778,6 +1009,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     }
                     player["variant_id"] = ai_variant_id(player["config"])
             game.update(
+                advisor=selected_advisor,
                 id=uuid4().hex,
                 state=new_game(game["ruleset"]).to_dict(),
                 moves=[],
@@ -790,6 +1022,14 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 analysis_enabled=True,
             )
             store.create_game(game)
+            store.save_analytics(
+                game["id"],
+                {
+                    "advisor": selected_advisor,
+                    "time_limit": settings["time_limit"],
+                    "show_win_chances": settings["show_win_chances"],
+                },
+            )
             return response(game)
 
     @app.get("/api/players")
@@ -1022,7 +1262,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             profiles = {item["algorithm"]: item for item in ai_profiles()}
             players = []
             for provided in request.players:
-                config = clean_ai_config(provided.config, provided.profile_id)
+                provided_config = provided.config
+                if provided.profile_id in {"alpha_beta", "mcts"}:
+                    preset = profiles[provided.profile_id]
+                    provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
+                config = clean_ai_config(provided_config, provided.profile_id)
                 # The existing balanced runner uses a shared tournament seed,
                 # increasing it by game and ply. Snapshot that base value
                 # rather than retaining a per-opponent seed that is not used.

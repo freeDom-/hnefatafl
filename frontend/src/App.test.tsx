@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import App from './App';
+import App, { Modal } from './App';
 import type { Game } from './types';
 
 const initial: Game = {
@@ -49,12 +49,25 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function setup(moveResponse?: Promise<Response>) {
+function setup(
+  moveResponse?: Promise<Response>,
+  game = initial,
+  analysisResponse?: Promise<Response>,
+) {
   const fetcher = vi.fn((path: string, options?: RequestInit) => {
     if (path === '/api/rulesets') return json(rules);
     if (path === '/api/ai/profiles' || path === '/api/players' || path === '/api/models')
       return json([]);
-    if (path === '/api/games/g1' && options?.method === 'GET') return json(initial);
+    if (path === '/api/games/g1' && options?.method === 'GET') return json(game);
+    if (path === '/api/games/g1/analytics')
+      return json({ advisor: null, time_limit: 5, show_win_chances: true, revision: 0 });
+    if (path === '/api/games/g1/analysis')
+      return (
+        analysisResponse ??
+        json({ cursor: game.cursor, evaluations: [], hint: null, status: 'complete' })
+      );
+    if (path === '/api/games/g1/ai-move')
+      return moveResponse ?? json({ ...game, version: 1, winner: 'draw' });
     if (path === '/api/games/g1/moves')
       return (
         moveResponse ??
@@ -82,6 +95,50 @@ function setup(moveResponse?: Promise<Response>) {
   return fetcher;
 }
 describe('game flow', () => {
+  it.each([false, true])(
+    'hides AI playback controls for a completed record (replay: %s)',
+    async (replay) => {
+      setup(undefined, {
+        ...initial,
+        mode: 'ai-ai',
+        winner: replay ? null : 'attackers',
+        recorded_winner: 'attackers',
+        players: {
+          attackers: { name: 'Hugin', kind: 'ai', config: { algorithm: 'baseline' } },
+          defenders: { name: 'Munin', kind: 'ai', config: { algorithm: 'baseline' } },
+        },
+      });
+      render(<App />);
+      await screen.findByRole('grid');
+      expect(screen.queryByRole('button', { name: /Resume AI|Pause AI/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Next move' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Restart game' })).not.toBeInTheDocument();
+      expect(
+        screen.getAllByRole('gridcell').every((cell) => (cell as HTMLButtonElement).disabled),
+      ).toBe(true);
+    },
+  );
+  it('allows human moves while background analysis is still pending', async () => {
+    const fetcher = setup(
+      undefined,
+      {
+        ...initial,
+        mode: 'human-ai',
+        analysis_enabled: true,
+        players: {
+          ...initial.players,
+          defenders: { name: 'Seer', kind: 'ai', config: { algorithm: 'mcts' } },
+        },
+      },
+      new Promise(() => {}),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole('gridcell', { name: 'a3, attacker' }));
+    fireEvent.click(screen.getByRole('gridcell', { name: 'b3, empty, legal move' }));
+    await waitFor(() =>
+      expect(fetcher.mock.calls.some(([path]) => path.endsWith('/moves'))).toBe(true),
+    );
+  });
   it('sends only highlighted legal moves with the current optimistic version', async () => {
     const fetcher = setup();
     render(<App />);
@@ -116,4 +173,28 @@ describe('game flow', () => {
     expect(screen.getByRole('gridcell', { name: 'c3, attacker' })).toBeInTheDocument();
     expect(screen.getByRole('gridcell', { name: 'a3, empty' })).toBeInTheDocument();
   });
+});
+
+it('dismisses a dialog on an outside press, and ignores a release or click after an inside press', () => {
+  const close = vi.fn();
+  render(
+    <Modal title="New saga" onClose={close}>
+      <input aria-label="Inside" />
+    </Modal>,
+  );
+  const dialog = screen.getByRole('dialog');
+  vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({
+    left: 10,
+    right: 100,
+    top: 10,
+    bottom: 100,
+  } as DOMRect);
+  fireEvent.pointerDown(screen.getByLabelText('Inside'), { clientX: 50, clientY: 50 });
+  fireEvent.pointerUp(dialog, { clientX: 1, clientY: 1 });
+  fireEvent.click(dialog, { clientX: 1, clientY: 1 });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.pointerDown(dialog, { clientX: 50, clientY: 50 });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.pointerDown(dialog, { clientX: 1, clientY: 1 });
+  expect(close).toHaveBeenCalledOnce();
 });

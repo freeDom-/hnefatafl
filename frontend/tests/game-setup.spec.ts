@@ -1,6 +1,77 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 const api = 'http://127.0.0.1:8001/api';
+
+test('named opponents keep fixed presets, custom settings stay editable and the dialog closes on outside press', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
+  await setup.getByRole('radio', { name: /Brandubh/ }).check();
+  await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
+  const attackers = setup.locator('.player-config').nth(0);
+  const defenders = setup.locator('.player-config').nth(1);
+  await attackers
+    .getByRole('combobox', { name: 'Attackers AI profile' })
+    .selectOption('alpha_beta');
+  await defenders.getByRole('combobox', { name: 'Defenders AI profile' }).selectOption('mcts');
+  for (const fields of [attackers, defenders]) {
+    await expect(fields.getByRole('spinbutton')).toHaveCount(0);
+    await expect(fields.getByRole('combobox', { name: /algorithm/ })).toHaveCount(0);
+  }
+  await expect(setup.getByRole('combobox', { name: /move advisor|move suggestions/i })).toHaveCount(
+    0,
+  );
+  const created = page.waitForResponse(
+    (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
+  );
+  await setup.getByRole('button', { name: 'To the table' }).click();
+  const response = await created;
+  expect(response.ok()).toBe(true);
+  const game = await response.json();
+  expect(game.players.attackers.config).toMatchObject({
+    algorithm: 'alpha_beta',
+    depth: 5,
+    time_limit: 2,
+  });
+  expect(game.players.defenders.config).toMatchObject({
+    algorithm: 'mcts',
+    iterations: 5000,
+    temperature: 0,
+    exploration: 1.4,
+    time_limit: 2,
+  });
+  await page.getByRole('button', { name: /Pause AI/ }).click();
+  await page.getByRole('button', { name: /New game/ }).click();
+  await setup.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('');
+  await attackers.getByRole('combobox', { name: 'Attackers algorithm' }).selectOption('alpha_beta');
+  await attackers.getByRole('spinbutton', { name: 'Search depth', exact: true }).fill('3');
+  await attackers
+    .getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true })
+    .fill('0.5');
+  await expect(
+    attackers.getByRole('spinbutton', { name: 'Search depth', exact: true }),
+  ).toHaveValue('3');
+  await expect(
+    attackers.getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true }),
+  ).toHaveValue('0.5');
+
+  // A drag that begins inside the dialog must not close it when released on the backdrop.
+  const title = setup.getByRole('heading', { name: 'Begin a new saga' });
+  await title.scrollIntoViewIfNeeded();
+  const heading = await title.boundingBox();
+  expect(heading).not.toBeNull();
+  await page.mouse.move(heading!.x + heading!.width / 2, heading!.y + heading!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(2, 2);
+  await page.mouse.up();
+  await expect(setup).toBeVisible();
+  // An outside press closes immediately, before releasing the mouse button.
+  await page.mouse.down();
+  await expect(setup).toHaveCount(0);
+  await page.mouse.up();
+});
+
 async function trainedModel(request: APIRequestContext, name: string, seed: number) {
   const started = await request.post(`${api}/training/jobs`, {
     data: {
@@ -61,9 +132,9 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
       .getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true })
       .fill('0.05');
   }
-  await page
-    .getByRole('combobox', { name: 'Agent for move suggestions', exact: true })
-    .selectOption('profile:baseline');
+  await expect(
+    page.getByRole('combobox', { name: 'Agent for move suggestions', exact: true }),
+  ).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }).check();
   await page.getByRole('spinbutton', { name: 'Game seed', exact: true }).fill('711');
   const created = page.waitForResponse(
@@ -114,7 +185,7 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
   }
   await expect(
     setup.getByRole('combobox', { name: 'Agent for move suggestions', exact: true }),
-  ).toHaveValue('profile:baseline');
+  ).toHaveCount(0);
   await expect(
     setup.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }),
   ).toBeChecked();

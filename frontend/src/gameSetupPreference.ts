@@ -30,6 +30,21 @@ export function withoutSeed(config: Config): Config {
   return next;
 }
 
+/** Named opponents have stable presets; custom opponents keep their own budgets. */
+export function profileConfiguration(profile: AIProfile): Config {
+  if (profile.id === 'alpha_beta') return { algorithm: 'alpha_beta', depth: 5, time_limit: 2 };
+  if (profile.id === 'mcts')
+    return {
+      algorithm: 'mcts',
+      iterations: 5000,
+      exploration: 1.4,
+      temperature: 0,
+      rollout_depth: 8,
+      time_limit: 2,
+    };
+  return { ...profile.parameters, algorithm: profile.algorithm };
+}
+
 export function defaultAI(models: Model[], ruleset: string, profiles: AIProfile[]): PlayerConfig {
   const recommendation = selectStrongestModel(models, ruleset);
   const algorithm = recommendation ? 'neural' : 'baseline';
@@ -102,7 +117,10 @@ function restoredComputer(
     name: model?.name ?? profile?.name ?? 'Computer',
     kind: 'ai',
     profile_id: profile?.id,
-    config,
+    config:
+      profile && ['alpha_beta', 'mcts'].includes(profile.id)
+        ? profileConfiguration(profile)
+        : config,
   };
 }
 

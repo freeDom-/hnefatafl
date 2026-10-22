@@ -105,8 +105,7 @@ def test_saved_agents_keep_their_own_depth_for_both_actual_play_and_estimates(cl
         players={
             side: {
                 "name": f"Jarl {depth}",
-                "profile_id": "alpha_beta",
-                "config": {"depth": depth, "time_limit": 15},
+                "config": {"algorithm": "alpha_beta", "depth": depth, "time_limit": 15},
             }
             for side, depth in (("attackers", 1), ("defenders", 2))
         },
@@ -119,9 +118,9 @@ def test_saved_agents_keep_their_own_depth_for_both_actual_play_and_estimates(cl
     selected_depths = []
     original = ai.choose_move
 
-    def choose_at_saved_depth(state, config):
+    def choose_at_saved_depth(state, config, **kwargs):
         selected_depths.append((state.turn, config["depth"]))
-        return original(state, config)
+        return original(state, config, **kwargs)
 
     monkeypatch.setattr(ai, "choose_move", choose_at_saved_depth)
     attacker_move = client.post(path + "/ai-move", json={"version": game["version"]})
@@ -402,7 +401,7 @@ def test_schema_three_migration_preserves_games_and_analysis_deletion_rolls_back
     upgraded.delete_game("old", 0)
     assert upgraded.game_analysis("old", "abc") is None
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client, tmp_path):
@@ -433,3 +432,68 @@ def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client,
     assert rows[0]["seed_count"] == 2
     assert rows[0]["rune"] == client.get("/api/models").json()[0]["rune"]
     assert "seed" not in rows[0]["config"]
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "expected"),
+    [
+        ("alpha_beta", {"algorithm": "alpha_beta", "depth": 5, "time_limit": 2.0}),
+        (
+            "mcts",
+            {
+                "algorithm": "mcts",
+                "iterations": 5000,
+                "temperature": 0.0,
+                "exploration": 1.4,
+                "time_limit": 2.0,
+            },
+        ),
+    ],
+)
+def test_named_opponents_always_use_fixed_search_presets(client, profile_id, expected):
+    game = create(
+        client,
+        mode="ai-ai",
+        players={
+            side: {
+                "profile_id": profile_id,
+                "config": {
+                    "algorithm": "baseline",
+                    "depth": 1,
+                    "iterations": 2,
+                    "temperature": 1,
+                    "exploration": 0.2,
+                    "time_limit": 0.01,
+                },
+            }
+            for side in ("attackers", "defenders")
+        },
+    )
+    for player in game["players"].values():
+        for key, value in expected.items():
+            assert player["config"][key] == value
+
+
+def test_custom_opponent_keeps_explicit_search_budgets(client):
+    game = create(
+        client,
+        mode="ai-ai",
+        players={
+            "attackers": {"config": {"algorithm": "alpha_beta", "depth": 3, "time_limit": 0.2}},
+            "defenders": {
+                "config": {
+                    "algorithm": "mcts",
+                    "iterations": 7,
+                    "exploration": 0.5,
+                    "temperature": 0.3,
+                    "time_limit": 0.4,
+                }
+            },
+        },
+    )
+    assert game["players"]["attackers"]["config"]["depth"] == 3
+    assert game["players"]["attackers"]["config"]["time_limit"] == 0.2
+    assert game["players"]["defenders"]["config"]["iterations"] == 7
+    assert game["players"]["defenders"]["config"]["exploration"] == 0.5
+    assert game["players"]["defenders"]["config"]["temperature"] == 0.3
+    assert game["players"]["defenders"]["config"]["time_limit"] == 0.4

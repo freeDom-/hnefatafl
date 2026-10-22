@@ -56,4 +56,63 @@ describe('accessible game board', () => {
     fireEvent.click(screen.getByRole('gridcell', { name: 'a3, attacker' }));
     expect(select).not.toHaveBeenCalled();
   });
+  it('keeps the captured king visible in the final arrangement without changing the stored board', () => {
+    const finished: Game = {
+      ...game,
+      board: ['.', 'A', '.', 'A', '.', 'A', '.', '.', 'D'],
+      winner: 'attackers',
+      recorded_winner: 'attackers',
+      reason: 'king_captured',
+      cursor: 1,
+      total_moves: 1,
+      moves: [
+        {
+          source: 0,
+          target: 1,
+          side: 'attackers',
+          captured: [{ square: 4, piece: 'K' }],
+        },
+      ],
+      legal_moves: [],
+    };
+    const view = render(<Board game={finished} selected={null} onSelect={vi.fn()} disabled />);
+    expect(screen.getByRole('gridcell', { name: 'b2, king' })).toBeDisabled();
+    expect(finished.board[4]).toBe('.');
+    expect(screen.getAllByRole('gridcell', { name: /king/ })).toHaveLength(1);
+
+    // Rewinding a completed record displays its actual earlier board, not the final overlay.
+    view.rerender(
+      <Board
+        game={{ ...finished, board: [...game.board], cursor: 0, winner: null, reason: null }}
+        selected={null}
+        onSelect={vi.fn()}
+        disabled
+      />,
+    );
+    expect(screen.getAllByRole('gridcell', { name: /king/ })).toHaveLength(1);
+    expect(screen.getByRole('gridcell', { name: 'b2, king' })).toBeDisabled();
+  });
+  it('does not restore ordinary captures or a king from a different replay turn', () => {
+    render(
+      <Board
+        game={{
+          ...game,
+          board: ['.', 'A', '.', '.', '.', '.', '.', '.', 'D'],
+          recorded_winner: 'attackers',
+          winner: null,
+          cursor: 1,
+          total_moves: 2,
+          moves: [
+            { source: 0, target: 1, side: 'attackers', captured: [{ square: 4, piece: 'D' }] },
+            { source: 2, target: 5, side: 'attackers', captured: [{ square: 4, piece: 'K' }] },
+          ],
+        }}
+        selected={null}
+        onSelect={vi.fn()}
+        disabled
+      />,
+    );
+    expect(screen.getByRole('gridcell', { name: 'b2, empty' })).toBeInTheDocument();
+    expect(screen.queryByRole('gridcell', { name: /king/ })).not.toBeInTheDocument();
+  });
 });

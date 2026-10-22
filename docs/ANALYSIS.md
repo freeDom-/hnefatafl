@@ -1,88 +1,109 @@
 # Agent evaluation and move advice
 
-New games can retain an agent's opinion of every displayed position. When either
-side uses an AI, the game interface requests a report from each AI independently.
-Both opinions use the **current side to move** as the displayed perspective,
-including the AI that is playing the other side. A human-versus-human game can
-also select an optional move advisor. The advisor evaluates the same position and
-suggests its best searched legal move; it does not move a piece for the player.
-The default advisor is **None**.
+Winning chances are independent agent estimates for the **current side to move**.
+The **Show winning chances** checkbox hides or reveals them. Estimates use the
+agent's configured search and are saved for replay; background work never locks
+board input or delays an AI move request.
 
-![Independent agent estimates and a legal advisor hint](screenshots/agent-evaluations.png)
+## Playing agents
+
+The moving AI's estimate comes from its actual move search. The server saves its
+value, best move, source, effective configuration, derived seed and available
+search diagnostics before advancing the game. It does not run a preliminary
+search to calculate winning chances. The other AI can evaluate independently in
+the background, including during a human turn. Two AI opponents can therefore
+retain different opinions about the same position without searching twice for
+the moving agent.
+
+Jarl is a fixed opponent preset: depth 5, maximum 2 seconds. Seer uses 5,000
+iterations, temperature 0, exploration 1.4 and maximum 2 seconds. Custom opponents
+retain editable search budgets. These new-game presets do not rewrite saved
+agent configurations or historical reports.
+
+## Move advisor
+
+Every live or saved game has an **Analytics** section below its move history.
+Choose None (the default), Custom move advisor, Shield bearer, Seer, Jarl or a
+compatible registered model. The maximum search time defaults to 5 seconds and
+is independent of the playing agents' time limits. Custom advisors expose the
+same algorithm, depth, iterations, exploration, temperature and model choices as
+custom opponents. New-game setup no longer contains advisor settings.
+
+Advisor search runs on a bounded background executor, separate from gameplay
+requests. Completed alpha-beta depths and MCTS checkpoints update the suggested
+move and, when enabled, its winning-chance estimate. Changing advisor settings
+starts a new settings revision and discards superseded results from the display.
+With winning chances hidden, the advisor still searches for a move, but does not
+publish a probability. Searching necessarily uses internal evaluation scores.
+
+Explicit advisor analysis also works in past replay positions and completed
+games. It is stored separately from original playing-agent evidence. A new
+advisor opinion is an analysis of the replay, rather than a claim that the
+original player produced that opinion during the game.
 
 ## Interpreting the numbers
 
-These are agent estimates, not calibrated predictions of match outcomes. All
-engine values use the defender's perspective in `[-1, 1]`. The display converts
-the current player's signed value to `(value + 1) / 2`. A draw is half a point,
-so this number estimates expected score, rather than separating win and draw
-probabilities. Comparing two agents' estimates can reveal disagreement; it does
-not establish which agent is correct or stronger.
+These are estimates of expected score, not calibrated match-winning
+probabilities. All engine values use the defender's perspective in `[-1, 1]`.
+The display converts the current player's signed value to `(value + 1) / 2`.
+Draws count as half a point. Disagreement between agents can help evaluate their
+judgment, but does not establish which agent is stronger.
 
 | Agent | Recorded value source |
 | --- | --- |
 | Tactical heuristic | Heuristic value after its best searched one-ply move |
-| Alpha-beta | Minimax value from the deepest fully completed iteration; current-position evaluator if the deadline prevents depth one from finishing |
-| Monte Carlo tree search | Mean backed-up root value from the completed simulations, including heuristic leaf/rollout cutoffs |
-| Neural search / model-backed MCTS | Mean backed-up neural/terminal leaf value from the completed simulations |
+| Alpha-beta | Minimax value from the deepest fully completed depth; current-position evaluation if depth one cannot finish |
+| Monte Carlo tree search | Mean backed-up root value from completed simulations, including heuristic leaf/rollout cutoffs |
+| Neural search / model-backed MCTS | Mean backed-up neural/terminal leaf value from completed simulations |
 | Alpha-beta with a model | Minimax value from neural leaf evaluations |
 | Finished position | Exact rules outcome: win 100%, loss 0%, draw 50% |
 
-Reports retain source, effective agent configuration, derived search seed and
-available search diagnostics. Search uses the configured time/iteration budget.
-Alpha-beta reports both the requested depth and the deepest fully completed
-iteration. The configured time limit can stop a search before that depth; the
-interface identifies this limit instead of presenting the reached depth as the
-agent's configured setting. Profile defaults apply when only a profile is
-selected, and explicit settings take precedence in both gameplay and analysis.
-Network-backed search loads the exact residual-block count saved in the model's
-validated architecture. Its search budget is separate from network depth.
-The advisor always suggests the most promising searched option, regardless of
-nonzero play-sampling temperature. Actual play retains its original sampling
-behavior. “Best” means best found within the selected agent's budget.
+Search time is a maximum, not a guarantee that all requested depths or
+simulations finish. The display distinguishes configured and completed depth.
+Network depth is taken from the validated model architecture and is independent
+of search depth. Advisors recommend the best searched move regardless of play
+sampling temperature; actual players keep their configured sampling behavior.
+Older `neural_value` reports retain their original value-head source label.
 
-Older saved `neural_value` reports remain unchanged and retain their original
-current-position value-head label. New `neural_search` reports reflect the same
-configured search used to select a move, including discovered terminal wins.
+## API and persistence
 
-## Persistence and replay
+- `GET /api/games/{id}/analytics` returns `advisor`, `time_limit`,
+  `show_win_chances` and an independent settings `revision`.
+- `PUT /api/games/{id}/analytics` saves those settings without changing the
+  gameplay version or moves.
+- `POST /api/games/{id}/analysis` with `{ "version": ..., "cursor": ...,
+  "background": true }` schedules missing work and returns immediately with the
+  available position report, `status` (`pending` or `complete`) and
+  `advisor_revision`. Poll the same request for progressive updates. The UI polls
+  only while work remains pending and ignores obsolete position/settings replies.
+- The older synchronous analysis request remains available to existing API
+  clients. The game UI uses background requests and actual-move diagnostics.
 
-`POST /api/games/{id}/analysis` accepts `{ "version": ..., "cursor": ... }`.
-The client requests it before moving at a new position. It returns a position
-snapshot containing separate `evaluations` entries for AI attackers, AI defenders
-and the optional advisor, plus an advisor `hint`. `win_probability` is the
-current-player estimate described above; an unavailable estimate is `null`.
+Game responses include saved `analysis` and `analytics`. Reloads, undo, redo and
+seeks recover retained reports. Player opinions are immutable per position and
+agent; advisor reports are separated by settings revision. Original player
+opinions are never invented retroactively for missing historical positions.
 
-The first completed report for a position is immutable. Ordinary game responses
-include the retained report in `analysis`, or `null` if none was saved. Undo,
-redo, seek, reload and server restart recover the same snapshot, including after
-model deletion from a completed game. Reports are stored separately from the
-gameplay payload: saving an opinion does not increment the game version, change
-moves, advance a turn or affect statistics.
+SQLite schema 7 adds `game_analytics` and `advisor_analysis` to the existing
+schema 6 database. Migration is additive. Back up the data directory before
+upgrading; older servers cannot open schema 7. Checkpoint formats are unchanged.
 
-SQLite schema 4 adds `game_analysis`, keyed by game ID and a digest of the entire
-rules state, including repetition history and ply. A different branch cannot
-reuse an earlier branch's report. The migration from schema 3 is additive and
-does not rewrite existing games. Deleting a game or explicitly discarding an
-unfinished model reference removes its analysis in the same transaction.
+A late computation can finish after a move or seek and still save its opinion
+about a retained position. Storage checks the original game seed and retained
+move prefix. Restarting, branching away, changing advisor revision or deleting a
+game rejects invalid late writes. Analysis cannot recreate deleted records.
+Deleting a game removes its preferences and all analysis in the same transaction.
 
-A move, replay seek or deletion that wins a race against analysis invalidates
-the late result with HTTP 409. Analysis cannot overwrite a game or recreate a
-deleted record. Duplicate computations retain the first report. The endpoint
-computes only a new game's current frontier; missing reports in older games or
-past replay positions return `unavailable_reason: "not_recorded"`. It never
-creates historical evidence using newer or absent weights.
-
-An advisor model is a live reference just like a playing AI's model. Model
-deletion previews its unfinished games and requires the existing explicit
-discard flow. Completed games preserve their reports and cannot be restarted,
-including from earlier replay positions. Restarting an unfinished game or
-starting a new branch requires that all referenced models remain available.
+Advisor models use catalog reference protections just like playing models.
+Completed histories keep their reports after source-model deletion. Completed
+games hide AI playback and restart controls, including when seeking to an earlier
+position. Captured kings remain visible in the finished board presentation;
+the authoritative engine state and capture rules are unchanged.
 
 ## Statistics across seeds
 
 AI identity includes algorithm, effective search parameters and model ID while
 excluding random seed. The Hall of records combines otherwise equal agents
 across game seeds. Aggregate configuration omits seed and reports `seed_count`;
-the individual recorded games keep their actual seeds and full parameters.
-Different model IDs remain distinct even if their display names match.
+individual recorded games retain their actual seeds and full parameters.
+Different model IDs remain distinct even if display names match.

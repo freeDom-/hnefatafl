@@ -53,8 +53,10 @@ def complete(client, game, monkeypatch):
     # record. Neural execution itself has separate model/tournament coverage.
     from hnefatafl.ai import choose_move
 
-    def tactical(state, _config):
-        return choose_move(state, {"algorithm": "baseline", "seed": 3 + state.ply})
+    def tactical(state, _config, *, diagnostics=None):
+        return choose_move(
+            state, {"algorithm": "baseline", "seed": 3 + state.ply}, diagnostics=diagnostics
+        )
 
     monkeypatch.setattr("hnefatafl.ai.choose_move", tactical)
     for _ in range(100):
@@ -96,8 +98,9 @@ def test_explicit_seed_is_reproducible_and_per_move_seed_wraps_without_mutating_
 ):
     observed = []
 
-    def choose(state, config):
+    def choose(state, config, *, diagnostics=None):
         observed.append(config["seed"])
+        diagnostics.update(value=0)
         return legal_moves(state)[0]
 
     monkeypatch.setattr("hnefatafl.ai.choose_move", choose)
@@ -139,8 +142,9 @@ def test_legacy_saved_game_preserves_original_constant_seed_semantics(client, mo
     store.update_game(legacy, 0)
     observed = []
 
-    def choose(state, config):
+    def choose(state, config, *, diagnostics=None):
         observed.append(config["seed"])
+        diagnostics.update(value=0)
         return legal_moves(state)[0]
 
     monkeypatch.setattr("hnefatafl.ai.choose_move", choose)
@@ -225,9 +229,10 @@ def test_game_removal_during_ai_search_never_resurrects_the_record(client, monke
     game = create(client, mode="ai-ai")
     entered, release = threading.Event(), threading.Event()
 
-    def paused_choose(state, _config):
+    def paused_choose(state, _config, *, diagnostics=None):
         entered.set()
         assert release.wait(5)
+        diagnostics.update(value=0)
         return legal_moves(state)[0]
 
     monkeypatch.setattr("hnefatafl.ai.choose_move", paused_choose)

@@ -196,10 +196,13 @@ describe('new game defaults', () => {
     const profileRequest = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
     expect(profileRequest.players.attackers.config).toEqual({
       algorithm: 'alpha_beta',
-      depth: 2,
-      time_limit: 1,
+      depth: 5,
+      time_limit: 2,
     });
     await waitFor(() => expect(screen.getByRole('button', { name: /To the table/ })).toBeEnabled());
+    fireEvent.change(screen.getByRole('combobox', { name: 'Attackers AI profile' }), {
+      target: { value: '' },
+    });
     fireEvent.change(screen.getByRole('combobox', { name: 'Attackers algorithm' }), {
       target: { value: 'neural' },
     });

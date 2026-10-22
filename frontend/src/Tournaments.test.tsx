@@ -27,6 +27,14 @@ const profiles: AIProfile[] = [
     supported_rulesets: [],
   },
   {
+    id: 'mcts',
+    name: 'Seer',
+    algorithm: 'mcts',
+    difficulty: '',
+    parameters: { iterations: 80, temperature: 1 },
+    supported_rulesets: [],
+  },
+  {
     id: 'neural',
     name: 'Trained model',
     algorithm: 'neural',
@@ -97,6 +105,7 @@ describe('tournament setup and saved selection', () => {
     fireEvent.change(setup.getByLabelText('Opponent 1 time limit (seconds)'), {
       target: { value: '0.02' },
     });
+    fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: '' } });
     fireEvent.change(setup.getByLabelText('Opponent 2 time limit (seconds)'), {
       target: { value: '0.15' },
     });
@@ -109,7 +118,7 @@ describe('tournament setup and saved selection', () => {
       rulesets: ['brandubh'],
       players: [
         { config: { algorithm: 'baseline', time_limit: 0.02 } },
-        { config: { algorithm: 'alpha_beta', depth: 2, time_limit: 0.15 } },
+        { config: { algorithm: 'alpha_beta', depth: 5, time_limit: 0.15 } },
       ],
     });
   });
@@ -434,4 +443,80 @@ describe('tournament setup and saved selection', () => {
     expect(replay).toHaveTextContent('ᚱEagle · Attackers vs ᚱFox · Defenders');
     expect(replay).toHaveTextContent('Fox wins');
   });
+});
+
+it('keeps named Jarl and Seer presets fixed while exposing independent custom search controls', async () => {
+  let submitted: Record<string, unknown> | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string, options?: RequestInit) => {
+      if (options?.method === 'POST') {
+        submitted = JSON.parse(String(options.body));
+        return json(saved('presets'));
+      }
+      return json(path === '/api/tournaments' ? [] : saved('presets'));
+    }),
+  );
+  show();
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  expect(setup.queryByLabelText('Opponent 2 time limit (seconds)')).not.toBeInTheDocument();
+  expect(setup.queryByLabelText('Opponent 2 search depth')).not.toBeInTheDocument();
+  fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: 'alpha_beta' } });
+  fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: 'mcts' } });
+  expect(setup.queryByLabelText('Opponent 1 time limit (seconds)')).not.toBeInTheDocument();
+  expect(setup.queryByLabelText('Opponent 2 search iterations')).not.toBeInTheDocument();
+  fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() => expect(submitted).toBeDefined());
+  expect(submitted).toMatchObject({
+    players: [
+      { profile_id: 'alpha_beta', config: { algorithm: 'alpha_beta', depth: 5, time_limit: 2 } },
+      {
+        profile_id: 'mcts',
+        config: {
+          algorithm: 'mcts',
+          iterations: 5000,
+          temperature: 0,
+          exploration: 1.4,
+          time_limit: 2,
+        },
+      },
+    ],
+  });
+});
+
+it('lets custom tournament opponents select algorithms and edit search settings', async () => {
+  let submitted: Record<string, unknown> | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string, options?: RequestInit) => {
+      if (options?.method === 'POST') {
+        submitted = JSON.parse(String(options.body));
+        return json(saved('custom'));
+      }
+      return json(path === '/api/tournaments' ? [] : saved('custom'));
+    }),
+  );
+  show();
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: '' } });
+  fireEvent.change(setup.getByLabelText('Opponent 2 algorithm'), { target: { value: 'mcts' } });
+  fireEvent.change(setup.getByLabelText('Opponent 2 search iterations'), {
+    target: { value: '17' },
+  });
+  fireEvent.change(setup.getByLabelText('Opponent 2 time limit (seconds)'), {
+    target: { value: '0.15' },
+  });
+  fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() => expect(submitted).toBeDefined());
+  const players = (
+    submitted as { players: { profile_id?: string; config: Record<string, unknown> }[] }
+  ).players;
+  expect(players[1].profile_id).toBeUndefined();
+  expect(players[1].config).toMatchObject({ algorithm: 'mcts', iterations: 17, time_limit: 0.15 });
 });

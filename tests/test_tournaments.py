@@ -379,7 +379,7 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     assert upgraded.players(include_deleted=True)[0]["deleted_at"] == "2026-01-02"
     assert upgraded.historical_models() == [{"id": "old-model", "name": "Eir"}]
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 def test_interrupted_worker_is_reported_without_losing_retained_data(tmp_path):
@@ -424,3 +424,53 @@ def test_tournament_names_come_from_profiles_without_client_aliases(client):
     assert [player["name"] for player in players] == ["Shield bearer", "Jarl"]
     assert all(player["name"] == player["profile_name"] for player in players)
     wait_for(client, created["id"], lambda row: row["status"] == "completed")
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "expected"),
+    [
+        ("alpha_beta", {"algorithm": "alpha_beta", "depth": 5, "time_limit": 2.0}),
+        (
+            "mcts",
+            {
+                "algorithm": "mcts",
+                "iterations": 5000,
+                "temperature": 0.0,
+                "exploration": 1.4,
+                "time_limit": 2.0,
+            },
+        ),
+    ],
+)
+def test_tournament_named_presets_have_fixed_budgets(client, monkeypatch, profile_id, expected):
+    from hnefatafl.tournaments import TournamentManager
+
+    monkeypatch.setattr(
+        TournamentManager, "launch", lambda _manager, _name, config: {"config": config}
+    )
+    response = client.post(
+        "/api/tournaments",
+        json=configuration(
+            players=[
+                {
+                    "profile_id": profile_id,
+                    "config": {
+                        "algorithm": "baseline",
+                        "depth": 1,
+                        "iterations": 2,
+                        "time_limit": 0.01,
+                        "temperature": 1,
+                        "exploration": 0.2,
+                    },
+                },
+                {"config": {"algorithm": "alpha_beta", "depth": 3, "time_limit": 0.2}},
+            ]
+        ),
+    )
+    assert response.status_code == 201, response.text
+    players = response.json()["config"]["players"]
+    for key, value in expected.items():
+        assert players[0]["config"][key] == value
+    assert players[1]["config"]["algorithm"] == "alpha_beta"
+    assert players[1]["config"]["depth"] == 3
+    assert players[1]["config"]["time_limit"] == 0.2

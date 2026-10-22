@@ -32,19 +32,20 @@ def ai_profiles() -> list[dict[str, Any]]:
             "id": "alpha_beta",
             "name": "Jarl",
             "algorithm": "alpha_beta",
-            "difficulty": "Configurable",
-            "parameters": {"depth": 2, "time_limit": 2.0},
+            "difficulty": "Advanced",
+            "parameters": {"depth": 5, "time_limit": 2.0},
             "supported_rulesets": common,
         },
         {
             "id": "mcts",
             "name": "Seer",
             "algorithm": "mcts",
-            "difficulty": "Configurable",
+            "difficulty": "Advanced",
             "parameters": {
-                "iterations": 80,
+                "iterations": 5000,
                 "time_limit": 2.0,
                 "exploration": 1.4,
+                "temperature": 0.0,
                 "rollout_depth": 8,
             },
             "supported_rulesets": common,
@@ -149,6 +150,7 @@ def _alpha_beta(
     deadline: float,
     *,
     diagnostics: dict | None = None,
+    progress: Callable[[dict], None] | None = None,
 ) -> Move:
     depth = int(config.get("depth", 2))
     if not 1 <= depth <= 8:
@@ -158,12 +160,15 @@ def _alpha_beta(
     cache: dict[tuple, float] = {}
     model_path = config.get("model_path")
     model = config.get("_model")
+    if diagnostics is None and progress is not None:
+        diagnostics = {}
     if diagnostics is not None:
         diagnostics.update(
             value=policy_value(state, model_path, model)[1]
             if model_path or model is not None
             else evaluate(state),
             completed_depth=0,
+            best_move=best_move.to_dict(),
         )
 
     def search(position: State, remaining: int, alpha: float, beta: float) -> float:
@@ -216,7 +221,13 @@ def _alpha_beta(
             break
         best_move = iteration_best
         if diagnostics is not None:
-            diagnostics.update(value=sign * score_best, completed_depth=current_depth)
+            diagnostics.update(
+                value=sign * score_best,
+                completed_depth=current_depth,
+                best_move=best_move.to_dict(),
+            )
+            if progress is not None:
+                progress(analysis_from_search(state, config, best_move, diagnostics))
     return best_move
 
 
@@ -230,14 +241,18 @@ class _Node:
 
 
 def mcts_policy(
-    state: State, config: dict | None = None, *, diagnostics: dict | None = None
+    state: State,
+    config: dict | None = None,
+    *,
+    diagnostics: dict | None = None,
+    progress: Callable[[dict], None] | None = None,
 ) -> dict[Move, float]:
     """PUCT/UCT tree search returning normalized root visit counts.
 
     Network priors and value replace rollouts when a model path is supplied.
     The stored value always has defender perspective, including at opponent nodes.
     """
-    config = config or {}
+    config = {"algorithm": "mcts", **(config or {})}
     budget = int(config.get("iterations", 80))
     if not 1 <= budget <= 100_000:
         raise ValueError("MCTS iterations must be between 1 and 100000")
@@ -256,13 +271,20 @@ def mcts_policy(
     deadline = time.monotonic() + seconds
     root = _Node(state)
     root_priors, root_value = policy_value(state, model_path, model)
+    if diagnostics is None and progress is not None:
+        diagnostics = {}
     if diagnostics is not None:
         diagnostics.update(value=root_value, root_value=root_value, simulations=0)
     # Never overlook a one-move win even with a tiny simulation budget.
     for move in root_priors:
         if apply_move(state, move).winner == state.turn:
             if diagnostics is not None:
-                diagnostics.update(value=1.0 if state.turn == "defenders" else -1.0)
+                diagnostics.update(
+                    value=1.0 if state.turn == "defenders" else -1.0,
+                    best_move=move.to_dict(),
+                )
+                if progress is not None:
+                    progress(analysis_from_search(state, config, move, diagnostics))
             return {move: 1.0}
     noise_fraction = float(config.get("dirichlet_fraction", 0.0))
     if not 0 <= noise_fraction <= 1:
@@ -281,6 +303,7 @@ def mcts_policy(
         raise ValueError("No legal moves in terminal position")
     # Lazily create states. Expanding hundreds of moves is otherwise expensive.
     unexpanded: dict[int, dict[Move, float]] = {id(root): root_priors.copy()}
+    next_report = 0.0
     for _ in range(budget):
         if time.monotonic() >= deadline and root.visits:
             break
@@ -333,12 +356,31 @@ def mcts_policy(
         for ancestor in path:
             ancestor.visits += 1
             ancestor.total += value
+        # Bound observer overhead while making long-running searches useful live.
+        if progress is not None and time.monotonic() >= next_report:
+            assert diagnostics is not None
+            best = max(root.children, key=lambda move: root.children[move].visits)
+            diagnostics.update(
+                value=root.total / root.visits,
+                simulations=root.visits,
+                best_move=best.to_dict(),
+            )
+            progress(analysis_from_search(state, config, best, diagnostics))
+            next_report = time.monotonic() + 0.1
     total = sum(child.visits for child in root.children.values())
     if diagnostics is not None:
+        best = (
+            max(root.children, key=lambda move: root.children[move].visits)
+            if total
+            else max(root_priors, key=lambda move: root_priors[move])
+        )
         diagnostics.update(
             value=root.total / root.visits if root.visits else root_value,
             simulations=root.visits,
+            best_move=best.to_dict(),
         )
+        if progress is not None:
+            progress(analysis_from_search(state, config, best, diagnostics))
     if not total:
         return root_priors
     return {move: child.visits / total for move, child in root.children.items()}
@@ -368,8 +410,17 @@ def _profile_configuration(config: dict | None) -> dict:
 
 
 def choose_move(
-    state: State, config: dict | None = None, *, diagnostics: dict | None = None
+    state: State,
+    config: dict | None = None,
+    *,
+    diagnostics: dict | None = None,
+    progress: Callable[[dict], None] | None = None,
 ) -> Move:
+    """Search once, optionally exposing completed results to an observer.
+
+    Progress receives independent analysis snapshots. Observer exceptions propagate,
+    permitting callers to cancel a superseded background search cleanly.
+    """
     config = _profile_configuration(config)
     moves = legal_moves(state)
     if state.winner or not moves:
@@ -380,6 +431,25 @@ def choose_move(
     if not math.isfinite(seconds) or not 0 < seconds <= 300:
         raise ValueError("Time limit must be positive and at most 300 seconds")
     deadline = time.monotonic() + seconds
+    if diagnostics is None and progress is not None:
+        diagnostics = {}
+    latest: dict | None = None
+
+    def notify(snapshot: dict) -> None:
+        nonlocal latest
+        if progress is not None and snapshot != latest:
+            # Keep private comparison state even if an observer changes its snapshot.
+            latest = {**snapshot, "best_move": dict(snapshot["best_move"])}
+            progress(snapshot)
+
+    observer = notify if progress is not None else None
+
+    def finished(move: Move) -> Move:
+        if diagnostics is not None:
+            diagnostics["best_move"] = move.to_dict()
+            notify(analysis_from_search(state, config, move, diagnostics))
+        return move
+
     if algorithm == "baseline":
         sign = 1 if state.turn == "defenders" else -1
         rng.shuffle(moves)
@@ -395,25 +465,53 @@ def choose_move(
                 best, score = move, value
         if diagnostics is not None:
             diagnostics.update(value=sign * score, completed_depth=1, searched_moves=searched)
-        return best
+        return finished(best)
     if algorithm in ("alpha_beta", "alphabeta"):
-        return _alpha_beta(state, config, rng, deadline, diagnostics=diagnostics)
+        return finished(
+            _alpha_beta(state, config, rng, deadline, diagnostics=diagnostics, progress=observer)
+        )
     if algorithm in ("mcts", "neural"):
         if algorithm == "neural" and not config.get("model_path") and config.get("_model") is None:
             raise ValueError("The neural opponent requires a registered model")
-        probabilities = mcts_policy(state, config, diagnostics=diagnostics)
+        probabilities = mcts_policy(state, config, diagnostics=diagnostics, progress=observer)
         temperature = float(config.get("temperature", 0.0))
         if not math.isfinite(temperature) or not 0 <= temperature <= 10:
             raise ValueError("Temperature must be between 0 and 10")
         if temperature > 0:
             options = list(probabilities)
             weights = [probabilities[move] ** (1 / temperature) for move in options]
-            return rng.choices(options, weights=weights, k=1)[0]
-        return max(probabilities, key=lambda move: probabilities[move])
+            return finished(rng.choices(options, weights=weights, k=1)[0])
+        return finished(max(probabilities, key=lambda move: probabilities[move]))
     raise ValueError(f"Unknown AI algorithm: {algorithm}")
 
 
-def analyze_position(state: State, config: dict | None = None) -> dict:
+def analysis_from_search(
+    state: State, config: dict | None, move: Move | None, details: dict
+) -> dict:
+    """Build a report from actual search diagnostics without evaluating again."""
+    if state.winner:
+        return {"value": evaluate(state), "source": "terminal", "best_move": None}
+    configuration = _profile_configuration(config)
+    algorithm = configuration.get("algorithm", configuration.get("profile_id", "baseline"))
+    model_backed = algorithm in {"alpha_beta", "alphabeta", "mcts", "neural"} and (
+        bool(configuration.get("model_path")) or configuration.get("_model") is not None
+    )
+    source = (
+        "neural_search" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
+    )
+    value = details["value"]
+    if not math.isfinite(value) or not -1 <= value <= 1:
+        raise ValueError("Agent evaluation must be finite and between -1 and 1")
+    result = {"value": value, "source": source, "best_move": move.to_dict() if move else None}
+    for key in ("completed_depth", "simulations", "searched_moves"):
+        if key in details:
+            result[key] = details[key]
+    return result
+
+
+def analyze_position(
+    state: State, config: dict | None = None, *, progress: Callable[[dict], None] | None = None
+) -> dict:
     """Expose an agent's bounded value estimate and strongest legal suggestion.
 
     Values retain the defender perspective used by training: +1 is a defender
@@ -430,26 +528,15 @@ def analyze_position(state: State, config: dict | None = None) -> dict:
     or caller configuration.
     """
     if state.winner:
-        return {"value": evaluate(state), "source": "terminal", "best_move": None}
+        result = analysis_from_search(state, config, None, {})
+        if progress is not None:
+            progress(result.copy())
+        return result
     configuration = _profile_configuration(config)
     configuration["temperature"] = 0
     details: dict = {}
-    move = choose_move(state, configuration, diagnostics=details)
-    algorithm = configuration.get("algorithm", configuration.get("profile_id", "baseline"))
-    model_backed = algorithm in {"alpha_beta", "alphabeta", "mcts", "neural"} and (
-        bool(configuration.get("model_path")) or configuration.get("_model") is not None
-    )
-    source = (
-        "neural_search" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
-    )
-    value = details["value"]
-    if not math.isfinite(value) or not -1 <= value <= 1:
-        raise ValueError("Agent evaluation must be finite and between -1 and 1")
-    result = {"value": value, "source": source, "best_move": move.to_dict()}
-    for key in ("completed_depth", "simulations", "searched_moves"):
-        if key in details:
-            result[key] = details[key]
-    return result
+    move = choose_move(state, configuration, diagnostics=details, progress=progress)
+    return analysis_from_search(state, configuration, move, details)
 
 
 def play_game(

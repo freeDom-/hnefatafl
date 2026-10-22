@@ -40,11 +40,12 @@ variables; it is an example, not an automatically loaded configuration file.
 Do not commit data directories, `.env` files or model weights.
 
 Database schema initialization runs at server startup and records a schema version.
-Version 0.12 upgrades earlier databases to schema 6 automatically and additively:
+Version 0.15 upgrades earlier databases to schema 7 automatically and additively:
 schema 2 added player deletion timestamps and historical model metadata; schema 3
 adds saved tournaments; schema 4 adds immutable per-position agent analysis;
 schema 5 adds persistent identity rune assignments; schema 6 adds enrolled remote
-training workers and their credential hashes.
+training workers and their credential hashes; schema 7 adds per-game analytics
+preferences and revisioned advisor reports. Older servers reject schema 7.
 Existing game JSON,
 stable player IDs, move versions and model/training files are preserved. Startup can
 repeat the migration safely. Deleted players stay hidden under the new application;

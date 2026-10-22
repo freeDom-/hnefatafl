@@ -1,4 +1,4 @@
-import type { Advisor, PositionAnalysis } from './analysisTypes';
+import type { Advisor, AnalyticsSettings, PositionAnalysis } from './analysisTypes';
 
 export type Side = 'attackers' | 'defenders';
 export type Mode = 'human-human' | 'human-ai' | 'ai-ai';
@@ -28,6 +28,7 @@ export interface Game {
   advisor?: Advisor | null;
   analysis_enabled?: boolean;
   analysis?: PositionAnalysis | null;
+  analytics?: AnalyticsSettings;
   seed?: number;
   ruleset: string;
   size: number;

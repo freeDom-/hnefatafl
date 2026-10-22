@@ -33,6 +33,14 @@ const profiles: AIProfile[] = [
     parameters: { depth: 2, time_limit: 1 },
     supported_rulesets: ['tablut', 'brandubh'],
   },
+  {
+    id: 'mcts',
+    name: 'Seer',
+    algorithm: 'mcts',
+    difficulty: '',
+    parameters: { iterations: 80, time_limit: 1 },
+    supported_rulesets: ['tablut', 'brandubh'],
+  },
 ];
 const models: Model[] = [
   {
@@ -84,7 +92,7 @@ it('starts Ulf against Freydis with the selected IDs/names and restores the enti
   change(within(configurations[1] as HTMLElement).getByLabelText('Search iterations'), '87');
   change(within(configurations[0] as HTMLElement).getByLabelText('Time limit (seconds)'), '.5');
   change(within(configurations[1] as HTMLElement).getByLabelText('Time limit (seconds)'), '.25');
-  change(screen.getByLabelText('Agent for move suggestions'), 'profile:alpha_beta');
+  expect(screen.queryByLabelText('Agent for move suggestions')).not.toBeInTheDocument();
   fireEvent.click(screen.getByLabelText('Use a fixed seed'));
   change(screen.getByLabelText('Game seed'), '213');
   fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
@@ -99,7 +107,7 @@ it('starts Ulf against Freydis with the selected IDs/names and restores the enti
     config: { model_id: 'freydis', iterations: 87, time_limit: 0.25 },
   });
   expect(submitted.seed).toBe(213);
-  expect(submitted.advisor.profile_id).toBe('alpha_beta');
+  expect(submitted.advisor).toBeUndefined();
   first.unmount();
 
   const changedModels = [...models].reverse().concat({
@@ -129,7 +137,7 @@ it('starts Ulf against Freydis with the selected IDs/names and restores the enti
       .getAllByLabelText('Time limit (seconds)')
       .map((input) => (input as HTMLInputElement).value),
   ).toEqual(['0.5', '0.25']);
-  expect(screen.getByLabelText('Agent for move suggestions')).toHaveValue('profile:alpha_beta');
+  expect(screen.queryByLabelText('Agent for move suggestions')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Use a fixed seed')).toBeChecked();
   expect(screen.getByLabelText('Game seed')).toHaveValue(213);
   fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
@@ -208,7 +216,6 @@ it('keeps the complete previous setup when another creation fails', async () => 
   );
   render(<NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
-  change(screen.getByLabelText('Agent for move suggestions'), '');
   fireEvent.click(screen.getByLabelText('Use a fixed seed'));
   fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
   await screen.findByText('Creation failed.');

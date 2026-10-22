@@ -10,10 +10,16 @@ import Training from './Training';
 import Tournaments from './Tournaments';
 import { AppearanceSettings } from './Appearance';
 import { sortRulesets } from './sortRulesets';
-import { defaultAI, restoreGameSetup, rememberGameSetup, withoutSeed } from './gameSetupPreference';
+import {
+  defaultAI,
+  restoreGameSetup,
+  rememberGameSetup,
+  withoutSeed,
+  profileConfiguration,
+} from './gameSetupPreference';
 import { selectStrongestModel } from './modelSelection';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
-import AdvisorSelect, { advisorOptions } from './AdvisorSelect';
+import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
 import { modelLabel } from './modelLabel';
 
@@ -112,15 +118,16 @@ export default function App() {
       aiLock.current = false;
     }
   }, []);
-  const activeAI = !!game && !game.winner && game.players[game.turn]?.kind === 'ai';
+  const activeAI =
+    !!game && !game.winner && !game.recorded_winner && game.players[game.turn]?.kind === 'ai';
   useEffect(() => {
-    if (!game || !activeAI || paused || busy || analysis.pending || tab !== 'play') return;
+    if (!game || !activeAI || paused || busy || tab !== 'play') return;
     const timer = window.setTimeout(() => void action('ai-move'), speed);
     return () => window.clearTimeout(timer);
-  }, [game, activeAI, paused, busy, analysis.pending, speed, action, tab]);
+  }, [game, activeAI, paused, busy, speed, action, tab]);
 
   const selectSquare = (index: number) => {
-    if (!game || game.winner || busy || analysis.pending || activeAI) return;
+    if (!game || game.winner || game.recorded_winner || busy || activeAI) return;
     if (index < 0) {
       setSelected(null);
       return;
@@ -379,17 +386,15 @@ export default function App() {
                           {sideGlyph(game.turn)}
                           <strong>{t('{side} to move', { side: t(titles[game.turn]) })}</strong>
                           <span>
-                            {analysis.pending
-                              ? t('Evaluating this position…')
-                              : busy
-                                ? t('Thinking…')
-                                : activeAI
-                                  ? paused
-                                    ? t('Computer paused')
-                                    : t('Computer is preparing a move')
-                                  : selected !== null
-                                    ? t('Choose a highlighted square')
-                                    : t('Select a piece to see its moves')}
+                            {busy
+                              ? t('Thinking…')
+                              : activeAI
+                                ? paused
+                                  ? t('Computer paused')
+                                  : t('Computer is preparing a move')
+                                : selected !== null
+                                  ? t('Choose a highlighted square')
+                                  : t('Select a piece to see its moves')}
                           </span>
                         </>
                       )}
@@ -400,7 +405,7 @@ export default function App() {
                     game={game}
                     selected={selected}
                     onSelect={selectSquare}
-                    disabled={busy || analysis.pending || activeAI || !!game.winner}
+                    disabled={busy || activeAI || !!game.winner || !!game.recorded_winner}
                     hint={analysis.report?.hint?.move ?? null}
                   />
                   <div className="board-toolbar">
@@ -450,7 +455,7 @@ export default function App() {
                       </button>
                     )}
                   </div>
-                  {game.mode !== 'human-human' && (
+                  {game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
                     <div className="playback">
                       <button
                         className="button small"
@@ -462,7 +467,7 @@ export default function App() {
                       <button
                         className="text-button"
                         onClick={() => void action('ai-move')}
-                        disabled={!activeAI || busy || analysis.pending || !paused}
+                        disabled={!activeAI || busy || !paused}
                       >
                         {t('Next move')}
                       </button>
@@ -547,6 +552,15 @@ export default function App() {
                   <div className="history-footer">
                     <span className="status-dot" /> {t('Game saved automatically')}
                   </div>
+                  <AnalyticsSettingsPanel
+                    game={game}
+                    profiles={profiles}
+                    models={models}
+                    settings={analysis.settings}
+                    onChange={analysis.updateSettings}
+                    pending={analysis.settingsPending}
+                    error={analysis.settingsError}
+                  />
                 </aside>
               </div>
             )}
@@ -638,8 +652,16 @@ export function Modal({
         event.preventDefault();
         onClose();
       }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+      onPointerDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          event.clientX < bounds.left ||
+          event.clientX > bounds.right ||
+          event.clientY < bounds.top ||
+          event.clientY > bounds.bottom
+        )
+          onClose();
       }}
     >
       <div className="modal-top">
@@ -701,7 +723,7 @@ function AIFields({
       profile_id: id,
       config: withoutSeed({
         time_limit: 1,
-        ...profile?.parameters,
+        ...profileConfiguration(profile),
         algorithm: profile?.algorithm ?? 'baseline',
         ...(profile?.algorithm === 'neural' ? { model_id: selectedModel?.id ?? '' } : {}),
       }),
@@ -727,80 +749,88 @@ function AIFields({
             ))}
         </select>
       </label>
-      <div className="form-grid">
-        <label>
-          {t('Algorithm')}
-          <select
-            aria-label={t('{side} algorithm', { side: t(titles[side]) })}
-            value={String(value.config.algorithm ?? 'baseline')}
-            onChange={(e) => update('algorithm', e.target.value)}
-          >
-            <option value="baseline">{t('Tactical heuristic')}</option>
-            <option value="alpha_beta">{t('Alpha-beta search')}</option>
-            <option value="mcts">{t('Monte Carlo tree search')}</option>
-            <option value="neural">{t('Neural network')}</option>
-          </select>
-        </label>
-        <label>
-          {t('Time limit (seconds)')}
-          <input
-            type="number"
-            min="0.05"
-            max="15"
-            step="0.05"
-            value={Number(value.config.time_limit ?? 1)}
-            onChange={(e) => update('time_limit', Number(e.target.value))}
-          />
-        </label>
-        {value.config.algorithm === 'alpha_beta' && (
+      {['alpha_beta', 'mcts'].includes(value.profile_id ?? '') ? (
+        <p className="subtle">
+          {value.profile_id === 'alpha_beta'
+            ? `${t('Search depth')}: 5 · ${t('Time limit (seconds)')}: 2`
+            : `${t('Search iterations')}: 5000 · ${t('Temperature')}: 0 · ${t('Exploration')}: 1.4 · ${t('Time limit (seconds)')}: 2`}
+        </p>
+      ) : (
+        <div className="form-grid">
           <label>
-            {t('Search depth')}
+            {t('Algorithm')}
+            <select
+              aria-label={t('{side} algorithm', { side: t(titles[side]) })}
+              value={String(value.config.algorithm ?? 'baseline')}
+              onChange={(e) => update('algorithm', e.target.value)}
+            >
+              <option value="baseline">{t('Tactical heuristic')}</option>
+              <option value="alpha_beta">{t('Alpha-beta search')}</option>
+              <option value="mcts">{t('Monte Carlo tree search')}</option>
+              <option value="neural">{t('Neural network')}</option>
+            </select>
+          </label>
+          <label>
+            {t('Time limit (seconds)')}
             <input
               type="number"
-              min="1"
-              max="5"
-              value={Number(value.config.depth ?? 2)}
-              onChange={(e) => update('depth', Number(e.target.value))}
+              min="0.05"
+              max="15"
+              step="0.05"
+              value={Number(value.config.time_limit ?? 1)}
+              onChange={(e) => update('time_limit', Number(e.target.value))}
             />
           </label>
-        )}
-        {['mcts', 'neural'].includes(String(value.config.algorithm)) && (
-          <>
+          {value.config.algorithm === 'alpha_beta' && (
             <label>
-              {t('Search iterations')}
+              {t('Search depth')}
               <input
                 type="number"
                 min="1"
-                max="5000"
-                value={Number(value.config.iterations ?? 64)}
-                onChange={(e) => update('iterations', Number(e.target.value))}
+                max="5"
+                value={Number(value.config.depth ?? 2)}
+                onChange={(e) => update('depth', Number(e.target.value))}
               />
             </label>
-            <label>
-              {t('Exploration')}
-              <input
-                type="number"
-                min="0"
-                max="10"
-                step="0.1"
-                value={Number(value.config.exploration ?? 1.4)}
-                onChange={(e) => update('exploration', Number(e.target.value))}
-              />
-            </label>
-            <label>
-              {t('Temperature')}
-              <input
-                type="number"
-                min="0"
-                max="2"
-                step="0.1"
-                value={Number(value.config.temperature ?? 0)}
-                onChange={(e) => update('temperature', Number(e.target.value))}
-              />
-            </label>
-          </>
-        )}
-      </div>
+          )}
+          {['mcts', 'neural'].includes(String(value.config.algorithm)) && (
+            <>
+              <label>
+                {t('Search iterations')}
+                <input
+                  type="number"
+                  min="1"
+                  max="5000"
+                  value={Number(value.config.iterations ?? 64)}
+                  onChange={(e) => update('iterations', Number(e.target.value))}
+                />
+              </label>
+              <label>
+                {t('Exploration')}
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  value={Number(value.config.exploration ?? 1.4)}
+                  onChange={(e) => update('exploration', Number(e.target.value))}
+                />
+              </label>
+              <label>
+                {t('Temperature')}
+                <input
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={Number(value.config.temperature ?? 0)}
+                  onChange={(e) => update('temperature', Number(e.target.value))}
+                />
+              </label>
+            </>
+          )}
+        </div>
+      )}
       {value.config.algorithm === 'neural' && (
         <label>
           {t('Trained model')}
@@ -854,16 +884,6 @@ export function NewGame({
   const [humanSide, setHumanSide] = useState<Side>(restored.humanSide);
   const [fixedSeed, setFixedSeed] = useState(restored.fixedSeed);
   const [seed, setSeed] = useState(restored.seed);
-  const [advisorId, setAdvisorId] = useState(restored.advisorId);
-  const availableAdvisors = advisorOptions(profiles, models, ruleset);
-  const advisor = availableAdvisors.find((option) => option.id === advisorId)?.advisor ?? null;
-  useEffect(() => {
-    if (
-      advisorId &&
-      !advisorOptions(profiles, models, ruleset).some((option) => option.id === advisorId)
-    )
-      setAdvisorId('');
-  }, [advisorId, ruleset, models, profiles]);
   const [people, setPeople] = useState<Record<Side, PlayerConfig>>(restored.people);
   const [computers, setComputers] = useState<Record<Side, PlayerConfig>>(restored.computers);
   const [customAI, setCustomAI] = useState<Record<Side, boolean>>(restored.customAI);
@@ -932,7 +952,6 @@ export function NewGame({
         mode,
         human_side: humanSide,
         players: configured,
-        ...(advisor ? { advisor } : {}),
         ...(fixedSeed ? { seed } : {}),
       });
       rememberGameSetup({
@@ -941,7 +960,7 @@ export function NewGame({
         humanSide,
         people,
         computers,
-        advisorId,
+        advisorId: '',
         fixedSeed,
         seed,
       });
@@ -1142,13 +1161,6 @@ export function NewGame({
             </label>
           )}
         </fieldset>
-        <AdvisorSelect
-          profiles={profiles}
-          models={models}
-          ruleset={ruleset}
-          value={advisorId}
-          onChange={setAdvisorId}
-        />
         {error && (
           <p className="form-error" role="alert">
             {t(error)}

@@ -113,12 +113,18 @@ share the same full-value renderer as recorded-game details while keeping table 
 compact. New browser preferences default to carved wood and walnut; valid saved
 preferences remain authoritative.
 
-Schema 4 stores immutable agent assessments separately from game JSON, keyed by
-game ID and a digest of the full rules state. Analysis saves use gameplay version
-guards without advancing the version. A frontend position request precedes the
-next move; replay retrieves the original estimates rather than re-evaluating with
-new weights. Advisor models use the same catalog reference protections as playing
-models. See `docs/ANALYSIS.md` for sources and probability interpretation.
+Schema 7 adds per-game analytics preferences and revisioned advisor reports to
+schema 4's position-scoped player assessments. Playing-agent reports remain
+immutable per role. The moving AI's actual search supplies its estimate; other
+agents and advisors use a bounded background executor independent of gameplay
+requests. Completed alpha-beta depths and MCTS checkpoints publish progressive
+advisor hints. Polling keys include the game position and settings revision;
+analysis never gates board input or AI playback. Late work can save against a
+retained move prefix without changing gameplay versions, while deleted games,
+restarted/removed branches and superseded advisor revisions reject stale writes.
+Explicit replay advisor analysis is kept separate from original player evidence.
+Advisor models use the same catalog reference protections as playing models.
+See `docs/ANALYSIS.md` for sources, settings and probability interpretation.
 
 English/German source-key catalogs localize presentation while identities and
 stored game/configuration values remain unchanged. Browser preferences select

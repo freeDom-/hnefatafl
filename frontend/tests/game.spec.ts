@@ -72,6 +72,10 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   const archiveResult = outcomeText === 'An evenly matched saga' ? 'Draw' : outcomeText;
   const completedBoard = page.getByRole('grid', { name: 'brandubh game board' });
   await expect(completedBoard.locator('button:not(:disabled)')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
+  if (outcomeText === 'Attackers win') {
+    await expect(completedBoard.getByRole('gridcell', { name: /king/ })).toHaveCount(1);
+  }
   await expect(page.getByRole('button', { name: 'Replay to move 2', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
   const savedGame = page.locator('.records-list .record').first();
@@ -82,6 +86,18 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await expect(
     page.getByRole('grid', { name: 'brandubh game board' }).locator('button:not(:disabled)'),
   ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
+  const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
+  await expect(analytics).toBeVisible();
+  await analytics
+    .getByRole('combobox', { name: 'Move advisor', exact: true })
+    .selectOption('profile:baseline');
+  await expect(
+    page.getByRole('grid', { name: 'brandubh game board' }).locator('.hint-overlay'),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
   await page.getByRole('button', { name: /New game/ }).click();
   await page.getByRole('radio', { name: /Copenhagen/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();

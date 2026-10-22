@@ -41,6 +41,14 @@ export default function Board({ game, selected, onSelect, disabled = false, hint
     game.legal_moves.filter((move) => move.source === selected).map((move) => move.target),
   );
   const lastMove = game.cursor > 0 ? game.moves[game.cursor - 1] : undefined;
+  // Retain the final capture arrangement for display without changing the rules state.
+  const capturedKingSquare =
+    game.winner === 'attackers' &&
+    game.reason === 'king_captured' &&
+    !game.board.includes('K') &&
+    Array.isArray(lastMove?.captured)
+      ? lastMove.captured.find((capture) => capture.piece === 'K')?.square
+      : undefined;
   const keydown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
     if (event.key === 'ArrowRight') next = Math.min(index + 1, game.board.length - 1);
@@ -72,7 +80,8 @@ export default function Board({ game, selected, onSelect, disabled = false, hint
           aria-label={t('{ruleset} game board', { ruleset: t(game.ruleset) })}
           style={{ gridTemplateColumns: `repeat(${game.size}, 1fr)` }}
         >
-          {game.board.map((piece, index) => {
+          {game.board.map((storedPiece, index) => {
+            const piece = index === capturedKingSquare && storedPiece === '.' ? 'K' : storedPiece;
             const row = Math.floor(index / game.size),
               column = index % game.size;
             const throne =

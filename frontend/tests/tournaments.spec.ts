@@ -50,6 +50,63 @@ function squareLabels(board: string[], size: number) {
   );
 }
 
+test('tournament named opponents use fixed presets while a custom opponent keeps editable search settings', async ({
+  page,
+  request,
+}, info) => {
+  await openTournaments(page);
+  await page.getByRole('button', { name: 'New tournament', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: 'Set up a tournament' });
+  await setup
+    .getByRole('textbox', { name: 'Tournament name', exact: true })
+    .fill(`Preset rivals ${info.project.name}`);
+  await setup.getByLabel('Move limit per game', { exact: true }).fill('1');
+  await setup.getByLabel('Games per battlefield', { exact: true }).fill('2');
+  const first = setup.locator('.tournament-player').nth(0);
+  const second = setup.locator('.tournament-player').nth(1);
+  await first.getByLabel('Opponent 1 profile', { exact: true }).selectOption('alpha_beta');
+  await second.getByLabel('Opponent 2 profile', { exact: true }).selectOption('mcts');
+  for (const opponent of [first, second]) {
+    await expect(opponent.getByRole('spinbutton')).toHaveCount(0);
+    await expect(opponent.getByRole('combobox', { name: /algorithm/i })).toHaveCount(0);
+  }
+  await first.getByLabel('Opponent 1 profile', { exact: true }).selectOption('');
+  await first.getByRole('combobox', { name: /Opponent 1 algorithm/i }).selectOption('alpha_beta');
+  await first.getByText('Search parameters', { exact: true }).click();
+  await first.getByLabel('Opponent 1 search depth', { exact: true }).fill('3');
+  await first.getByLabel('Opponent 1 time limit (seconds)', { exact: true }).fill('0.05');
+  await expect(first.getByLabel('Opponent 1 search depth', { exact: true })).toHaveValue('3');
+  await expect(first.getByLabel('Opponent 1 time limit (seconds)', { exact: true })).toHaveValue(
+    '0.05',
+  );
+  await first.getByLabel('Opponent 1 profile', { exact: true }).selectOption('alpha_beta');
+  await expect(first.getByRole('spinbutton')).toHaveCount(0);
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/tournaments') && response.request().method() === 'POST',
+  );
+  await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
+  const response = await created;
+  expect(response.ok()).toBe(true);
+  const tournament = await response.json();
+  expect(tournament.config.players[0].config).toMatchObject({
+    algorithm: 'alpha_beta',
+    depth: 5,
+    time_limit: 2,
+  });
+  expect(tournament.config.players[1].config).toMatchObject({
+    algorithm: 'mcts',
+    iterations: 5000,
+    temperature: 0,
+    exploration: 1.4,
+    time_limit: 2,
+  });
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 30000,
+  });
+  expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
+});
+
 async function expectWinMatrices(page: Page, tournament: Tournament) {
   for (const ruleset of tournament.config.rulesets) {
     const matrix = page.locator(`.tournament-win-matrix[data-ruleset="${ruleset}"]`);

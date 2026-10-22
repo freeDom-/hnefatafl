@@ -209,3 +209,125 @@ def test_search_suggestion_ignores_play_sampling_temperature_without_mutating_it
     expected = ai.choose_move(state, {**config, "temperature": 0})
     assert result["best_move"] == expected.to_dict()
     assert config["temperature"] == 2.0
+
+
+def test_named_search_profiles_have_fixed_play_budgets():
+    profiles = {profile["id"]: profile["parameters"] for profile in ai.ai_profiles()}
+    assert profiles["alpha_beta"] == {"depth": 5, "time_limit": 2.0}
+    assert profiles["mcts"] == {
+        "iterations": 5000,
+        "temperature": 0.0,
+        "exploration": 1.4,
+        "rollout_depth": 8,
+        "time_limit": 2.0,
+    }
+
+
+def test_alpha_beta_publishes_completed_depths_without_restarting_search(monkeypatch):
+    state = new_game("brandubh")
+    configuration = {"algorithm": "alpha_beta", "depth": 2, "time_limit": 15, "seed": 9}
+    root_calls = 0
+    ordered = ai._ordered
+
+    def count_root(position, moves, rng):
+        nonlocal root_calls
+        if position is state:
+            root_calls += 1
+        return ordered(position, moves, rng)
+
+    monkeypatch.setattr(ai, "_ordered", count_root)
+    snapshots = []
+    final = ai.analyze_position(state, configuration, progress=snapshots.append)
+    assert root_calls == 2
+    assert [snapshot["completed_depth"] for snapshot in snapshots] == [1, 2]
+    assert snapshots[-1] == final
+    assert all(Move(**snapshot["best_move"]) in legal_moves(state) for snapshot in snapshots)
+    snapshots[-1]["best_move"]["source"] = -1
+    assert final["best_move"]["source"] >= 0
+
+
+@pytest.mark.parametrize("algorithm", ["baseline", "alpha_beta", "mcts"])
+def test_actual_move_diagnostics_are_reusable_without_any_second_search(algorithm, monkeypatch):
+    state = new_game("brandubh")
+    config = {
+        "algorithm": algorithm,
+        "depth": 1,
+        "iterations": 4,
+        "rollout_depth": 1,
+        "time_limit": 15,
+        "temperature": 1.5,
+        "seed": 33,
+    }
+    diagnostics = {}
+    snapshots = []
+    selected = ai.choose_move(state, config, diagnostics=diagnostics, progress=snapshots.append)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Converting retained search data must not evaluate or search")
+
+    monkeypatch.setattr(ai, "choose_move", forbidden)
+    monkeypatch.setattr(ai, "evaluate", forbidden)
+    monkeypatch.setattr(ai, "policy_value", forbidden)
+    report = ai.analysis_from_search(state, config, selected, diagnostics)
+    assert report["value"] == diagnostics["value"]
+    assert report["best_move"] == selected.to_dict() == diagnostics["best_move"]
+    assert snapshots[-1] == report
+    assert config["temperature"] == 1.5
+
+
+def test_mcts_publishes_intermediate_and_final_values_of_the_same_search():
+    state = new_game("brandubh")
+    snapshots = []
+    final = ai.analyze_position(
+        state,
+        {"algorithm": "mcts", "iterations": 8, "rollout_depth": 0, "time_limit": 15},
+        progress=snapshots.append,
+    )
+    assert snapshots[0]["simulations"] == 1
+    assert snapshots[-1]["simulations"] == 8
+    assert len(snapshots) >= 2
+    assert [item["simulations"] for item in snapshots] == sorted(
+        {item["simulations"] for item in snapshots}
+    )
+    assert snapshots[-1] == final
+    assert all(snapshot["source"] == "mcts_rollout" for snapshot in snapshots)
+
+
+def test_direct_mcts_policy_observer_identifies_its_search_source():
+    state = new_game("brandubh")
+    snapshots = []
+    probabilities = ai.mcts_policy(
+        state, {"iterations": 2, "rollout_depth": 0}, progress=snapshots.append
+    )
+    assert snapshots[-1]["source"] == "mcts_rollout"
+    assert snapshots[-1]["best_move"] == max(probabilities, key=probabilities.get).to_dict()
+
+
+def test_background_search_can_be_cancelled_by_its_progress_observer():
+    state = new_game("brandubh")
+    observations = []
+
+    def cancel(snapshot):
+        observations.append(snapshot["completed_depth"])
+        raise InterruptedError("Analysis settings changed")
+
+    with pytest.raises(InterruptedError, match="Analysis settings changed"):
+        ai.analyze_position(
+            state,
+            {"algorithm": "alpha_beta", "depth": 5, "time_limit": 15},
+            progress=cancel,
+        )
+    assert observations == [1]
+
+
+def test_expired_alpha_beta_still_publishes_legal_fallback(monkeypatch):
+    def expired(*_args):
+        raise ai._Deadline
+
+    monkeypatch.setattr(ai, "_ordered", expired)
+    snapshots = []
+    result = ai.analyze_position(
+        new_game("brandubh"), {"algorithm": "alpha_beta"}, progress=snapshots.append
+    )
+    assert snapshots == [result]
+    assert result["completed_depth"] == 0

@@ -9,8 +9,9 @@ import ModelTrainingSummary from './ModelTrainingSummary';
 import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
+import { profileConfiguration } from './gameSetupPreference';
 import { getLocale, t, useI18n } from './i18n';
-import type { AIProfile, Game, Model, Ruleset } from './types';
+import type { AIProfile, Config, Game, Model, Ruleset } from './types';
 import type {
   Tournament,
   TournamentConfig,
@@ -684,9 +685,9 @@ export default function Tournaments({
 const fallbackPlayer = (index: number): TournamentPlayer =>
   index % 2
     ? {
-        name: 'Alpha-beta',
+        name: 'Jarl',
         profile_id: 'alpha_beta',
-        config: { algorithm: 'alpha_beta', depth: 2, time_limit: 0.1 },
+        config: { algorithm: 'alpha_beta', depth: 5, time_limit: 2 },
       }
     : {
         name: 'Baseline',
@@ -818,19 +819,30 @@ function TournamentSetup({
   };
   const changeProfile = (index: number, id: string) => {
     const profile = profiles.find((item) => item.id === id);
-    if (!profile) return;
     manualOpponents.current[index] = true;
+    if (!profile) {
+      updatePlayer(index, { profile_id: undefined, name: 'Computer' });
+      return;
+    }
     updatePlayer(index, {
       profile_id: id,
       config: {
-        ...profile.parameters,
-        algorithm: profile.algorithm,
-        time_limit: 0.1,
+        ...profileConfiguration(profile),
+        ...(!['alpha_beta', 'mcts'].includes(id) ? { time_limit: 0.1 } : {}),
         ...(profile.algorithm === 'neural' && config.rulesets.length === 1
           ? { model_id: selectStrongestModel(models, config.rulesets[0])?.model.id ?? '' }
           : {}),
       },
     });
+  };
+  const changeAlgorithm = (index: number, algorithm: string) => {
+    manualOpponents.current[index] = true;
+    const next: Config = { ...config.players[index].config, algorithm };
+    delete next.model_id;
+    delete next.evaluation;
+    if (algorithm === 'neural' && config.rulesets.length === 1)
+      next.model_id = selectStrongestModel(models, config.rulesets[0])?.model.id ?? '';
+    updatePlayer(index, { profile_id: undefined, name: 'Computer', config: next });
   };
   const compatible = models.filter(
     (model) => config.rulesets.length === 1 && config.rulesets[0] === model.ruleset,
@@ -954,6 +966,7 @@ function TournamentSetup({
           {config.players.map((player, index) => {
             const prefix = t('Opponent {number}', { number: index + 1 });
             const algorithm = player.config.algorithm;
+            const fixedPreset = ['alpha_beta', 'mcts'].includes(player.profile_id ?? '');
             const selectedModel = models.find((model) => model.id === player.config.model_id);
             const field = (
               key: string,
@@ -995,9 +1008,10 @@ function TournamentSetup({
                   {t('Profile')}
                   <select
                     aria-label={`${prefix} ${t('profile')}`}
-                    value={player.profile_id}
+                    value={player.profile_id ?? ''}
                     onChange={(event) => changeProfile(index, event.target.value)}
                   >
+                    <option value="">{t('Custom opponent')}</option>
                     {profiles.map((profile) => (
                       <option value={profile.id} key={profile.id}>
                         {t(profile.name)}
@@ -1005,6 +1019,21 @@ function TournamentSetup({
                     ))}
                   </select>
                 </label>
+                {!player.profile_id && (
+                  <label>
+                    {t('Algorithm')}
+                    <select
+                      aria-label={`${prefix} ${t('Algorithm').toLocaleLowerCase(locale)}`}
+                      value={String(algorithm)}
+                      onChange={(event) => changeAlgorithm(index, event.target.value)}
+                    >
+                      <option value="baseline">{t('Tactical heuristic')}</option>
+                      <option value="alpha_beta">{t('Alpha-beta search')}</option>
+                      <option value="mcts">{t('Monte Carlo tree search')}</option>
+                      <option value="neural">{t('Neural network')}</option>
+                    </select>
+                  </label>
+                )}
                 {algorithm === 'neural' && (
                   <label>
                     {t('Trained model')}
@@ -1051,27 +1080,31 @@ function TournamentSetup({
                 {selectedModel && algorithm === 'neural' && (
                   <ModelTrainingSummary model={selectedModel} compact />
                 )}
-                {field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
-                <details className="tournament-advanced">
-                  <summary>{t('Search parameters')}</summary>
-                  <div className="form-grid">
-                    {algorithm === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
-                    {['mcts', 'neural'].includes(String(algorithm)) && (
-                      <>
-                        {field('iterations', 'Search iterations', 1, 5000, 1, 80)}
-                        {field('exploration', 'Exploration', 0, 10, 0.1, 1.4)}
-                        {field('temperature', 'Temperature', 0, 5, 0.1, 0)}
-                        {algorithm === 'mcts' &&
-                          field('rollout_depth', 'Rollout depth', 0, 50, 1, 8)}
-                      </>
-                    )}
-                    {algorithm === 'baseline' && (
-                      <p className="subtle">
-                        {t('A tactical heuristic with no additional search controls.')}
-                      </p>
-                    )}
-                  </div>
-                </details>
+                {!fixedPreset && (
+                  <>
+                    {field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
+                    <details className="tournament-advanced">
+                      <summary>{t('Search parameters')}</summary>
+                      <div className="form-grid">
+                        {algorithm === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
+                        {['mcts', 'neural'].includes(String(algorithm)) && (
+                          <>
+                            {field('iterations', 'Search iterations', 1, 5000, 1, 80)}
+                            {field('exploration', 'Exploration', 0, 10, 0.1, 1.4)}
+                            {field('temperature', 'Temperature', 0, 5, 0.1, 0)}
+                            {algorithm === 'mcts' &&
+                              field('rollout_depth', 'Rollout depth', 0, 50, 1, 8)}
+                          </>
+                        )}
+                        {algorithm === 'baseline' && (
+                          <p className="subtle">
+                            {t('A tactical heuristic with no additional search controls.')}
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                  </>
+                )}
               </fieldset>
             );
           })}
@@ -1214,7 +1247,16 @@ function TournamentPlayback({
     ...state,
     id: tournament.id,
     size,
-    moves: match.moves.map((move, i) => ({ ...move, side: data.states[i].turn })),
+    moves: match.moves.map((move, i) => ({
+      ...move,
+      side: data.states[i].turn,
+      captured: data.states[i].board.flatMap((piece, square) => {
+        const enemy = data.states[i].turn === 'attackers' ? ['D', 'K'] : ['A'];
+        return enemy.includes(piece) && data.states[i + 1].board[square] !== piece
+          ? [{ square, piece }]
+          : [];
+      }),
+    })),
     cursor,
     total_moves: match.moves.length,
     legal_moves: [],

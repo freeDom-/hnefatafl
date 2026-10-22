@@ -12,7 +12,8 @@ using real self-play learning.
 - Pass-and-play, Human vs AI and AI vs AI; configurable opponents, side selection,
   playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
 - Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
-- Saved agent position estimates in live play/replay and optional legal-move advice.
+- Saved agent position estimates from actual move searches, background analysis
+  and configurable live/replay advisors with progressive legal-move hints.
 - Round-robin tournaments for two to four players, live progress, standings,
   battlefield opponent win matrices and match replay.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
