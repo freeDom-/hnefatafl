@@ -32,6 +32,7 @@ export function withoutSeed(config: Config): Config {
 
 /** Named opponents have stable presets; custom opponents keep their own budgets. */
 export function profileConfiguration(profile: AIProfile): Config {
+  if (profile.id === 'baseline') return { algorithm: 'baseline', time_limit: 1 };
   if (profile.id === 'alpha_beta') return { algorithm: 'alpha_beta', depth: 5, time_limit: 2 };
   if (profile.id === 'mcts')
     return {
@@ -55,7 +56,7 @@ export function defaultAI(models: Model[], ruleset: string, profiles: AIProfile[
     profile_id: profile?.id ?? algorithm,
     config: withoutSeed({
       time_limit: 1,
-      ...profile?.parameters,
+      ...(profile ? profileConfiguration(profile) : {}),
       algorithm,
       ...(recommendation ? { model_id: recommendation.model.id } : {}),
     }),
@@ -118,7 +119,7 @@ function restoredComputer(
     kind: 'ai',
     profile_id: profile?.id,
     config:
-      profile && ['alpha_beta', 'mcts'].includes(profile.id)
+      profile && ['baseline', 'alpha_beta', 'mcts'].includes(profile.id)
         ? profileConfiguration(profile)
         : config,
   };

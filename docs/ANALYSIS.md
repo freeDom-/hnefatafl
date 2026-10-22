@@ -15,9 +15,10 @@ the background, including during a human turn. Two AI opponents can therefore
 retain different opinions about the same position without searching twice for
 the moving agent.
 
-Jarl is a fixed opponent preset: depth 5, maximum 2 seconds. Seer uses 5,000
+Shield bearer is a fixed opponent preset with a maximum 1-second search.
+Jarl uses depth 5, maximum 2 seconds. Seer uses 5,000
 iterations, temperature 0, exploration 1.4 and maximum 2 seconds. Custom opponents
-retain editable search budgets. These new-game presets do not rewrite saved
+retain editable search budgets. These presets do not rewrite saved
 agent configurations or historical reports.
 
 ## Move advisor

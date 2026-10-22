@@ -11,6 +11,10 @@ test('named opponents keep fixed presets, custom settings stay editable and the 
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
   const attackers = setup.locator('.player-config').nth(0);
   const defenders = setup.locator('.player-config').nth(1);
+  await attackers.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('baseline');
+  await expect(attackers.getByRole('spinbutton')).toHaveCount(0);
+  await expect(attackers.getByRole('combobox', { name: /algorithm/ })).toHaveCount(0);
+  await expect(attackers).toContainText('Time limit (seconds): 1');
   await attackers
     .getByRole('combobox', { name: 'Attackers AI profile' })
     .selectOption('alpha_beta');

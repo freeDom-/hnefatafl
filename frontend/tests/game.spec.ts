@@ -53,7 +53,14 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await page.getByRole('combobox', { name: 'Defenders AI profile' }).selectOption('baseline');
   await page.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }).check();
   await page.getByLabel('Game seed', { exact: true }).fill('3');
+  const created = page.waitForResponse(
+    (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'To the table' }).click();
+  const configured = await (await created).json();
+  for (const side of ['attackers', 'defenders']) {
+    expect(configured.players[side].config).toMatchObject({ algorithm: 'baseline', time_limit: 1 });
+  }
   await expect(
     page.getByRole('grid', { name: 'brandubh game board' }).getByRole('gridcell'),
   ).toHaveCount(49);

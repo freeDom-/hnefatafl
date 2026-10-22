@@ -692,7 +692,7 @@ const fallbackPlayer = (index: number): TournamentPlayer =>
     : {
         name: 'Baseline',
         profile_id: 'baseline',
-        config: { algorithm: 'baseline', time_limit: 0.1 },
+        config: { algorithm: 'baseline', time_limit: 1 },
       };
 
 function recommendedPlayer(
@@ -828,7 +828,7 @@ function TournamentSetup({
       profile_id: id,
       config: {
         ...profileConfiguration(profile),
-        ...(!['alpha_beta', 'mcts'].includes(id) ? { time_limit: 0.1 } : {}),
+        ...(!['baseline', 'alpha_beta', 'mcts'].includes(id) ? { time_limit: 0.1 } : {}),
         ...(profile.algorithm === 'neural' && config.rulesets.length === 1
           ? { model_id: selectStrongestModel(models, config.rulesets[0])?.model.id ?? '' }
           : {}),
@@ -966,7 +966,9 @@ function TournamentSetup({
           {config.players.map((player, index) => {
             const prefix = t('Opponent {number}', { number: index + 1 });
             const algorithm = player.config.algorithm;
-            const fixedPreset = ['alpha_beta', 'mcts'].includes(player.profile_id ?? '');
+            const fixedPreset = ['baseline', 'alpha_beta', 'mcts'].includes(
+              player.profile_id ?? '',
+            );
             const selectedModel = models.find((model) => model.id === player.config.model_id);
             const field = (
               key: string,
@@ -1080,7 +1082,9 @@ function TournamentSetup({
                 {selectedModel && algorithm === 'neural' && (
                   <ModelTrainingSummary model={selectedModel} compact />
                 )}
-                {!fixedPreset && (
+                {fixedPreset ? (
+                  <p className="subtle">{parameterSummary(player.config)}</p>
+                ) : (
                   <>
                     {field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
                     <details className="tournament-advanced">

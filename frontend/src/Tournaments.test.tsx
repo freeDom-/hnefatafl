@@ -102,6 +102,7 @@ describe('tournament setup and saved selection', () => {
     fireEvent.change(setup.getByLabelText('Tournament name'), {
       target: { value: 'Ravens at dawn' },
     });
+    fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: '' } });
     fireEvent.change(setup.getByLabelText('Opponent 1 time limit (seconds)'), {
       target: { value: '0.02' },
     });
@@ -445,7 +446,7 @@ describe('tournament setup and saved selection', () => {
   });
 });
 
-it('keeps named Jarl and Seer presets fixed while exposing independent custom search controls', async () => {
+it('keeps Shield bearer, Jarl and Seer presets fixed while exposing independent custom search controls', async () => {
   let submitted: Record<string, unknown> | undefined;
   vi.stubGlobal(
     'fetch',
@@ -464,6 +465,10 @@ it('keeps named Jarl and Seer presets fixed while exposing independent custom se
   const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
   expect(setup.queryByLabelText('Opponent 2 time limit (seconds)')).not.toBeInTheDocument();
   expect(setup.queryByLabelText('Opponent 2 search depth')).not.toBeInTheDocument();
+  expect(setup.queryByLabelText('Opponent 1 time limit (seconds)')).not.toBeInTheDocument();
+  expect(setup.getByText('Tactical heuristic · 1s')).toBeInTheDocument();
+  fireEvent.click(setup.getByRole('button', { name: 'Add opponent' }));
+  expect(setup.queryByLabelText('Opponent 3 time limit (seconds)')).not.toBeInTheDocument();
   fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: 'alpha_beta' } });
   fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: 'mcts' } });
   expect(setup.queryByLabelText('Opponent 1 time limit (seconds)')).not.toBeInTheDocument();
@@ -483,6 +488,7 @@ it('keeps named Jarl and Seer presets fixed while exposing independent custom se
           time_limit: 2,
         },
       },
+      { profile_id: 'baseline', config: { algorithm: 'baseline', time_limit: 1 } },
     ],
   });
 });

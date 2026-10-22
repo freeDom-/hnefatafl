@@ -220,7 +220,8 @@ describe('new game defaults', () => {
   it('updates automatic choices when models arrive but preserves a manual choice until battlefield changes', () => {
     const { rerender } = render(<NewGame {...setupProps} models={[]} />);
     fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-    expect(screen.getByRole('combobox', { name: 'Attackers algorithm' })).toHaveValue('baseline');
+    expect(screen.getByRole('combobox', { name: 'Attackers AI profile' })).toHaveValue('baseline');
+    expect(screen.queryByRole('combobox', { name: 'Attackers algorithm' })).not.toBeInTheDocument();
     rerender(<NewGame {...setupProps} />);
     expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue('strong');
     fireEvent.change(screen.getByRole('combobox', { name: 'Attackers AI profile' }), {
@@ -232,7 +233,7 @@ describe('new game defaults', () => {
       measured('brandubh-model', 1, 1, { ruleset: 'brandubh' }),
     ];
     rerender(<NewGame {...setupProps} models={changedModels} />);
-    expect(screen.getByRole('combobox', { name: 'Attackers algorithm' })).toHaveValue('baseline');
+    expect(screen.getByRole('combobox', { name: 'Attackers AI profile' })).toHaveValue('baseline');
     fireEvent.click(screen.getByRole('radio', { name: /Brandubh/ }));
     expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue(
       'brandubh-model',

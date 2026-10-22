@@ -749,11 +749,13 @@ function AIFields({
             ))}
         </select>
       </label>
-      {['alpha_beta', 'mcts'].includes(value.profile_id ?? '') ? (
+      {['baseline', 'alpha_beta', 'mcts'].includes(value.profile_id ?? '') ? (
         <p className="subtle">
-          {value.profile_id === 'alpha_beta'
-            ? `${t('Search depth')}: 5 · ${t('Time limit (seconds)')}: 2`
-            : `${t('Search iterations')}: 5000 · ${t('Temperature')}: 0 · ${t('Exploration')}: 1.4 · ${t('Time limit (seconds)')}: 2`}
+          {value.profile_id === 'baseline'
+            ? `${t('Time limit (seconds)')}: 1`
+            : value.profile_id === 'alpha_beta'
+              ? `${t('Search depth')}: 5 · ${t('Time limit (seconds)')}: 2`
+              : `${t('Search iterations')}: 5000 · ${t('Temperature')}: 0 · ${t('Exploration')}: 1.4 · ${t('Time limit (seconds)')}: 2`}
         </p>
       ) : (
         <div className="form-grid">

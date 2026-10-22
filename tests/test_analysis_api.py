@@ -437,6 +437,7 @@ def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client,
 @pytest.mark.parametrize(
     ("profile_id", "expected"),
     [
+        ("baseline", {"algorithm": "baseline", "time_limit": 1.0}),
         ("alpha_beta", {"algorithm": "alpha_beta", "depth": 5, "time_limit": 2.0}),
         (
             "mcts",
@@ -497,3 +498,16 @@ def test_custom_opponent_keeps_explicit_search_budgets(client):
     assert game["players"]["defenders"]["config"]["exploration"] == 0.5
     assert game["players"]["defenders"]["config"]["temperature"] == 0.3
     assert game["players"]["defenders"]["config"]["time_limit"] == 0.4
+
+
+def test_custom_shield_bearer_algorithm_keeps_its_budget(client):
+    game = create(
+        client,
+        mode="human-ai",
+        human_side="defenders",
+        players={
+            "attackers": {"config": {"algorithm": "baseline", "time_limit": 0.03}},
+        },
+    )
+    assert game["players"]["attackers"]["config"]["algorithm"] == "baseline"
+    assert game["players"]["attackers"]["config"]["time_limit"] == 0.03

@@ -305,7 +305,7 @@ a complete data-directory backup. Test tournaments remain in isolated storage.
 
 ## Background analytics and faithful playback (`v0.15.0`)
 
-`make check` passes with **398 Python cases** and **125 frontend unit tests**,
+`make check` passes with **401 Python cases** and **126 frontend unit tests**,
 including formatting, mypy, TypeScript and the built browser application. The
 full real-API Chromium suite passes **38 desktop/mobile cases**, with four
 intentional duplicated mobile skips.

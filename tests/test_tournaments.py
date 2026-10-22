@@ -429,6 +429,7 @@ def test_tournament_names_come_from_profiles_without_client_aliases(client):
 @pytest.mark.parametrize(
     ("profile_id", "expected"),
     [
+        ("baseline", {"algorithm": "baseline", "time_limit": 1.0}),
         ("alpha_beta", {"algorithm": "alpha_beta", "depth": 5, "time_limit": 2.0}),
         (
             "mcts",
@@ -464,6 +465,7 @@ def test_tournament_named_presets_have_fixed_budgets(client, monkeypatch, profil
                     },
                 },
                 {"config": {"algorithm": "alpha_beta", "depth": 3, "time_limit": 0.2}},
+                {"config": {"algorithm": "baseline", "time_limit": 0.03}},
             ]
         ),
     )
@@ -474,3 +476,5 @@ def test_tournament_named_presets_have_fixed_budgets(client, monkeypatch, profil
     assert players[1]["config"]["algorithm"] == "alpha_beta"
     assert players[1]["config"]["depth"] == 3
     assert players[1]["config"]["time_limit"] == 0.2
+    assert players[2]["config"]["algorithm"] == "baseline"
+    assert players[2]["config"]["time_limit"] == 0.03

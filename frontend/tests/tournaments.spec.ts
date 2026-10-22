@@ -31,7 +31,8 @@ async function setUpTournament(
   for (let extra = 2; extra < opponents; extra++)
     await setup.getByRole('button', { name: 'Add opponent', exact: true }).click();
   for (let index = 1; index <= opponents; index++) {
-    await setup.getByLabel(`Opponent ${index} profile`, { exact: true }).selectOption('baseline');
+    await setup.getByLabel(`Opponent ${index} profile`, { exact: true }).selectOption('');
+    await setup.getByLabel(`Opponent ${index} algorithm`, { exact: true }).selectOption('baseline');
     await setup
       .getByLabel(`Opponent ${index} time limit (seconds)`, { exact: true })
       .fill(String(seconds));
@@ -66,7 +67,11 @@ test('tournament named opponents use fixed presets while a custom opponent keeps
   const second = setup.locator('.tournament-player').nth(1);
   await first.getByLabel('Opponent 1 profile', { exact: true }).selectOption('alpha_beta');
   await second.getByLabel('Opponent 2 profile', { exact: true }).selectOption('mcts');
-  for (const opponent of [first, second]) {
+  await setup.getByRole('button', { name: 'Add opponent', exact: true }).click();
+  const third = setup.locator('.tournament-player').nth(2);
+  await third.getByLabel('Opponent 3 profile', { exact: true }).selectOption('baseline');
+  await expect(third).toContainText('Tactical heuristic · 1s');
+  for (const opponent of [first, second, third]) {
     await expect(opponent.getByRole('spinbutton')).toHaveCount(0);
     await expect(opponent.getByRole('combobox', { name: /algorithm/i })).toHaveCount(0);
   }
@@ -100,6 +105,10 @@ test('tournament named opponents use fixed presets while a custom opponent keeps
     temperature: 0,
     exploration: 1.4,
     time_limit: 2,
+  });
+  expect(tournament.config.players[2].config).toMatchObject({
+    algorithm: 'baseline',
+    time_limit: 1,
   });
   await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
     timeout: 30000,
@@ -164,8 +173,7 @@ test('battlefield win matrices show directed wins and runes, and survive reload'
       // Same profile name, distinct agent settings/runes: seats must remain
       // separate on both axes even when every name is identical.
       players: Array.from({ length: 4 }, (_, index) => ({
-        profile_id: 'baseline',
-        config: { time_limit: (index + 1) * 0.05 },
+        config: { algorithm: 'baseline', time_limit: (index + 1) * 0.05 },
       })),
     },
   });

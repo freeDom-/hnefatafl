@@ -192,9 +192,9 @@ Schema 6, tournament scoring and saved records remain unchanged.
 - [x] Preserve late reports for retained positions and reject deleted/branched work
 - [x] Hide completed-game AI controls, including during history replay
 - [x] Dismiss dialogs on an outside pointer press rather than release
-- [x] Fix Jarl/Seer presets across games and tournaments; retain Custom settings
+- [x] Fix Shield bearer/Jarl/Seer presets across games and tournaments; retain Custom settings
 - [x] Preserve captured kings visually without changing engine rules
-- [x] Pass 398 backend cases, 125 frontend tests and 38 desktop/mobile browser checks
+- [x] Pass 401 backend cases, 126 frontend tests and 38 desktop/mobile browser checks
 - [x] Back up and migrate workspace schema 5 to 7 without changing retained records or model files
 
 Schema 7 adds analytics preferences and revisioned advisor reports. Existing player

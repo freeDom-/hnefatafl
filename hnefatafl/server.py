@@ -391,7 +391,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             provided_config = provided.get("config")
             # A named preset is fixed for new games. Custom opponents omit a
             # profile ID and retain explicit budgets; saved games are unchanged.
-            if is_ai and provided.get("profile_id") in {"alpha_beta", "mcts"}:
+            if is_ai and provided.get("profile_id") in {"baseline", "alpha_beta", "mcts"}:
                 from .ai import ai_profiles
 
                 preset = next(p for p in ai_profiles() if p["id"] == provided["profile_id"])
@@ -1263,7 +1263,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             players = []
             for provided in request.players:
                 provided_config = provided.config
-                if provided.profile_id in {"alpha_beta", "mcts"}:
+                if provided.profile_id in {"baseline", "alpha_beta", "mcts"}:
                     preset = profiles[provided.profile_id]
                     provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
                 config = clean_ai_config(provided_config, provided.profile_id)

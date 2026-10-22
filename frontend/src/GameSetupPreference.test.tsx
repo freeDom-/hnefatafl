@@ -221,3 +221,30 @@ it('keeps the complete previous setup when another creation fails', async () => 
   await screen.findByText('Creation failed.');
   expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(previous);
 });
+
+it('keeps Shield bearer at one second and exposes search time only for Custom opponent', async () => {
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json({ id: 'created', ...JSON.parse(String(init?.body)) }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
+  change(screen.getByLabelText('Attackers AI profile'), 'baseline');
+  expect(screen.queryByLabelText('Time limit (seconds)')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Attackers algorithm')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).players.attackers).toMatchObject({
+    profile_id: 'baseline',
+    config: { algorithm: 'baseline', time_limit: 1 },
+  });
+  await waitFor(() => expect(screen.getByRole('button', { name: /To the table/ })).toBeEnabled());
+  change(screen.getByLabelText('Attackers AI profile'), '');
+  expect(screen.getByLabelText('Attackers algorithm')).toHaveValue('baseline');
+  change(screen.getByLabelText('Time limit (seconds)'), '0.25');
+  fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  const custom = JSON.parse(String(fetcher.mock.calls[1][1]?.body)).players.attackers;
+  expect(custom.profile_id).toBeUndefined();
+  expect(custom.config).toMatchObject({ algorithm: 'baseline', time_limit: 0.25 });
+});
