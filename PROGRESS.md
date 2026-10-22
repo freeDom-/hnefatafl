@@ -201,3 +201,20 @@ Schema 7 adds analytics preferences and revisioned advisor reports. Existing pla
 opinions retain their provenance; explicit new replay-advisor opinions are separate.
 Search deadlines remain effective, and displayed estimates are uncalibrated expected
 scores. See `docs/ANALYSIS.md` for persistence, sources and API details.
+
+## Editable resumption and neural search wrappers (`0.16.0`)
+
+- [x] Initialize all resume controls from effective saved training settings
+- [x] Keep ruleset, channels, residual blocks, random seed and optimizer type read-only
+- [x] Apply editable self-play, learning, evaluation, device and checkpoint settings to resumed jobs
+- [x] Preserve optimizer buffers, replay, RNG state, history and best-model tracking before applying overrides
+- [x] Keep iterations as a validated target total and retain local/remote checkpoint compatibility
+- [x] Select MCTS, alpha-beta or direct policy moves for trained models in games and tournaments
+- [x] Reuse existing search algorithms and honor the selected wrapper in position analysis
+- [x] Default missing `search_wrapper` settings to MCTS and retain hidden UI search values
+- [x] Pass 90 targeted backend tests, 68 frontend unit tests, static checks and the production build
+
+Schema 7 and checkpoint/model formats remain unchanged; no migration is required.
+Validation covers CPU execution and short real training/resumption checks. The full
+browser end-to-end suite was not rerun locally for this milestone. GPU execution,
+long training and model-strength comparisons were not performed. See `docs/releases/v0.16.0.md` for scope, compatibility and update commands.

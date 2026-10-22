@@ -124,6 +124,61 @@ describe('tournament setup and saved selection', () => {
     });
   });
 
+  it('configures neural wrappers and retains settings when switching search modes', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('new'));
+        }
+        return json(path === '/api/tournaments' ? [] : saved('new'));
+      }),
+    );
+    show([{ id: 'raven-model', name: 'Raven model', ruleset: 'brandubh' }]);
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: 'baseline' } });
+    expect(setup.queryByLabelText('Opponent 2 search wrapper')).not.toBeInTheDocument();
+    const wrapper = setup.getByLabelText('Opponent 1 search wrapper');
+    expect(wrapper).toHaveValue('mcts');
+    fireEvent.change(setup.getByLabelText('Opponent 1 search iterations'), {
+      target: { value: '93' },
+    });
+    fireEvent.change(wrapper, { target: { value: 'alpha_beta' } });
+    expect(setup.queryByLabelText('Opponent 1 search iterations')).not.toBeInTheDocument();
+    expect(setup.queryByLabelText('Opponent 1 exploration')).not.toBeInTheDocument();
+    expect(setup.queryByLabelText('Opponent 1 temperature')).not.toBeInTheDocument();
+    fireEvent.change(setup.getByLabelText('Opponent 1 search depth'), { target: { value: '3' } });
+    fireEvent.change(wrapper, { target: { value: 'none' } });
+    expect(setup.queryByLabelText('Opponent 1 time limit (seconds)')).not.toBeInTheDocument();
+    expect(setup.queryByLabelText('Opponent 1 search depth')).not.toBeInTheDocument();
+    fireEvent.change(setup.getByLabelText('Opponent 1 temperature'), { target: { value: '0.5' } });
+    fireEvent.change(wrapper, { target: { value: 'mcts' } });
+    expect(setup.getByLabelText('Opponent 1 search iterations')).toHaveValue(93);
+    expect(setup.getByLabelText('Opponent 1 temperature')).toHaveValue(0.5);
+    fireEvent.change(wrapper, { target: { value: 'alpha_beta' } });
+    expect(setup.getByLabelText('Opponent 1 search depth')).toHaveValue(3);
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted).toMatchObject({
+      players: [
+        {
+          config: {
+            algorithm: 'neural',
+            model_id: 'raven-model',
+            search_wrapper: 'alpha_beta',
+            depth: 3,
+          },
+        },
+        { config: { algorithm: 'baseline' } },
+      ],
+    });
+  });
+
   it('requires a single compatible battlefield before allowing trained models', async () => {
     vi.stubGlobal(
       'fetch',

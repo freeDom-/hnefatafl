@@ -22,6 +22,7 @@ import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
 import { modelLabel } from './modelLabel';
+import SearchWrapper from './SearchWrapper';
 
 type Tab = 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -692,11 +693,15 @@ function AIFields({
   models: Model[];
   ruleset: string;
 }) {
+  const neural = value.config.algorithm === 'neural';
+  const wrapper = String(value.config.search_wrapper ?? 'mcts');
+  const search = neural ? wrapper : String(value.config.algorithm);
   const update = (key: string, input: string | number) => {
     const config = withoutSeed({ ...value.config, [key]: input });
     if (key === 'algorithm') {
       delete config.model_id;
       delete config.evaluation;
+      delete config.search_wrapper;
       if (input === 'neural')
         config.model_id = selectStrongestModel(models, ruleset)?.model.id ?? '';
     }
@@ -772,18 +777,27 @@ function AIFields({
               <option value="neural">{t('Neural network')}</option>
             </select>
           </label>
-          <label>
-            {t('Time limit (seconds)')}
-            <input
-              type="number"
-              min="0.05"
-              max="15"
-              step="0.05"
-              value={Number(value.config.time_limit ?? 1)}
-              onChange={(e) => update('time_limit', Number(e.target.value))}
+          {neural && (
+            <SearchWrapper
+              value={wrapper}
+              label={t('{side} search wrapper', { side: t(titles[side]) })}
+              onChange={(next) => update('search_wrapper', next)}
             />
-          </label>
-          {value.config.algorithm === 'alpha_beta' && (
+          )}
+          {search !== 'none' && (
+            <label>
+              {t('Time limit (seconds)')}
+              <input
+                type="number"
+                min="0.05"
+                max="15"
+                step="0.05"
+                value={Number(value.config.time_limit ?? 1)}
+                onChange={(e) => update('time_limit', Number(e.target.value))}
+              />
+            </label>
+          )}
+          {search === 'alpha_beta' && (
             <label>
               {t('Search depth')}
               <input
@@ -795,7 +809,7 @@ function AIFields({
               />
             </label>
           )}
-          {['mcts', 'neural'].includes(String(value.config.algorithm)) && (
+          {search === 'mcts' && (
             <>
               <label>
                 {t('Search iterations')}
@@ -818,18 +832,20 @@ function AIFields({
                   onChange={(e) => update('exploration', Number(e.target.value))}
                 />
               </label>
-              <label>
-                {t('Temperature')}
-                <input
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={Number(value.config.temperature ?? 0)}
-                  onChange={(e) => update('temperature', Number(e.target.value))}
-                />
-              </label>
             </>
+          )}
+          {(search === 'mcts' || (neural && search === 'none')) && (
+            <label>
+              {t('Temperature')}
+              <input
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value={Number(value.config.temperature ?? 0)}
+                onChange={(e) => update('temperature', Number(e.target.value))}
+              />
+            </label>
           )}
         </div>
       )}

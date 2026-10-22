@@ -115,6 +115,23 @@ def test_resume_optimizer_overrides_preserve_buffers_and_effective_settings(tmp_
     )
     source_model, source = load_checkpoint(first["checkpoint"])
     assert source["optimizer_state"]["state"]
+    for changes in (
+        {"seed": 1},
+        {"optimizer": "adam"},
+        {"ruleset": "tablut"},
+        {"channels": 8},
+        {"blocks": 1},
+    ):
+        with pytest.raises(ValueError, match="must match"):
+            train(
+                smoke_config(
+                    tmp_path / "invalid",
+                    optimizer="sgd",
+                    iterations=2,
+                    resume=first["checkpoint"],
+                )
+                | changes
+            )
     optimizers = []
     make_optimizer = training._make_optimizer
 

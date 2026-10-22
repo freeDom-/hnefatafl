@@ -149,6 +149,38 @@ it('starts Ulf against Freydis with the selected IDs/names and restores the enti
   second.unmount();
 });
 
+it('restores neural wrappers and rejects unsupported wrapper preferences', () => {
+  const saved = {
+    version: 1,
+    ruleset: 'tablut',
+    mode: 'human-ai',
+    computers: {
+      attackers: {
+        kind: 'ai',
+        profile_id: 'neural',
+        config: {
+          algorithm: 'neural',
+          model_id: 'ulf',
+          search_wrapper: 'alpha_beta',
+          depth: 3,
+          iterations: 23,
+        },
+      },
+    },
+  };
+  localStorage.setItem(GAME_SETUP_KEY, JSON.stringify(saved));
+  expect(restoreGameSetup(options).computers.attackers.config).toMatchObject({
+    algorithm: 'neural',
+    model_id: 'ulf',
+    search_wrapper: 'alpha_beta',
+    depth: 3,
+    iterations: 23,
+  });
+  saved.computers.attackers.config.search_wrapper = 'unknown';
+  localStorage.setItem(GAME_SETUP_KEY, JSON.stringify(saved));
+  expect(restoreGameSetup(options).computers.attackers.config).not.toHaveProperty('search_wrapper');
+});
+
 it('sanitizes missing identities, corrupted budgets and obsolete hidden model references', () => {
   localStorage.setItem(
     GAME_SETUP_KEY,

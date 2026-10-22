@@ -3,6 +3,8 @@ import { api } from './api';
 import { useI18n } from './i18n';
 import type { Job, TrainingWorker } from './types';
 import TrainingTarget, { jobTarget, targetRequest } from './TrainingTarget';
+import { numberField, trainingNumberFields, validTrainingNumbers } from './TrainingFields';
+import { changeTrainingPlan, type TrainingConfig, type TrainingPreset } from './trainingPresets';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -12,6 +14,8 @@ export interface ResumeCheckpoint {
   channels: number;
   blocks: number;
   optimizer: string;
+  seed?: number;
+  config?: TrainingConfig;
   learning_rate?: number;
   weight_decay?: number;
   momentum?: number;
@@ -40,10 +44,11 @@ export default function TrainingResumeDialog({
   const optimizerNames: Record<string, string> = { adamw: 'AdamW', adam: 'Adam', sgd: 'SGD' };
   const ref = useRef<HTMLDialogElement>(null);
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
-  const [target, setTarget] = useState(1);
-  const [learningRate, setLearningRate] = useState(0.001);
-  const [weightDecay, setWeightDecay] = useState(0.0001);
-  const [momentum, setMomentum] = useState(0.9);
+  const [config, setConfig] = useState<TrainingConfig>({});
+  const savedConfig = useRef<TrainingConfig>({});
+  const update = (key: string, value: string | number | boolean) =>
+    setConfig((previous) => ({ ...previous, [key]: value }));
+  const target = Number(config.iterations);
   const [executionTarget, setExecutionTarget] = useState(() => jobTarget(job));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -61,13 +66,31 @@ export default function TrainingResumeDialog({
       .then((info) => {
         if (!alive) return;
         setCheckpoint(info);
-        setLearningRate(info.learning_rate ?? 0.001);
-        setWeightDecay(info.weight_decay ?? 0.0001);
-        setMomentum(info.momentum ?? 0.9);
-        const priorTarget = Number(job.config?.iterations);
-        setTarget(
-          Math.max(info.completed_iteration + 1, Number.isInteger(priorTarget) ? priorTarget : 1),
-        );
+        // The API returns effective checkpoint values, including optimizer groups.
+        // Older servers can still supply their original job config and metadata.
+        const saved: TrainingConfig = {};
+        for (const [key, value] of Object.entries({ ...job.config, ...info.config })) {
+          if (['string', 'number', 'boolean'].includes(typeof value))
+            saved[key] = value as string | number | boolean;
+        }
+        saved.ruleset = info.ruleset;
+        saved.channels = info.channels;
+        saved.blocks = info.blocks;
+        saved.optimizer = info.optimizer;
+        if (info.seed !== undefined) saved.seed = info.seed;
+        saved.learning_rate = info.learning_rate ?? saved.learning_rate ?? 0.001;
+        saved.weight_decay = info.weight_decay ?? saved.weight_decay ?? 0.0001;
+        saved.momentum = info.momentum ?? saved.momentum ?? 0.9;
+        saved.model_name = info.model_name;
+        savedConfig.current = saved;
+        const priorTarget = Number(saved.iterations);
+        setConfig({
+          ...saved,
+          iterations: Math.max(
+            info.completed_iteration + 1,
+            Number.isInteger(priorTarget) ? priorTarget : 1,
+          ),
+        });
       })
       .catch((error) => {
         if (alive) setError((error as Error).message);
@@ -84,14 +107,9 @@ export default function TrainingResumeDialog({
     Number.isInteger(target) &&
     target > checkpoint.completed_iteration &&
     target <= 100000 &&
-    Number.isFinite(learningRate) &&
-    learningRate >= 1e-7 &&
-    learningRate <= 1 &&
-    Number.isFinite(weightDecay) &&
-    weightDecay >= 0 &&
-    weightDecay <= 1 &&
-    (checkpoint.optimizer !== 'sgd' ||
-      (Number.isFinite(momentum) && momentum >= 0 && momentum <= 1)) &&
+    validTrainingNumbers(config) &&
+    (config.model_name === undefined ||
+      (String(config.model_name).length >= 1 && String(config.model_name).length <= 100)) &&
     (!executionTarget.startsWith('worker:') ||
       workers.some(
         (worker) => `worker:${worker.id}` === executionTarget && worker.status !== 'revoked',
@@ -104,15 +122,17 @@ export default function TrainingResumeDialog({
     try {
       const next = await api<Job>(`/training/jobs/${job.id}/resume`, {
         iterations: target,
-        ...(learningRate !== (checkpoint.learning_rate ?? 0.001)
-          ? { learning_rate: learningRate }
-          : {}),
-        ...(weightDecay !== (checkpoint.weight_decay ?? 0.0001)
-          ? { weight_decay: weightDecay }
-          : {}),
-        ...(checkpoint.optimizer === 'sgd' && momentum !== (checkpoint.momentum ?? 0.9)
-          ? { momentum }
-          : {}),
+        ...Object.fromEntries(
+          Object.entries(config).filter(
+            ([key, value]) =>
+              !['ruleset', 'channels', 'blocks', 'seed', 'optimizer', 'iterations'].includes(key) &&
+              (key in trainingNumberFields ||
+                ['model_name', 'preset', 'device', 'mixed_precision', 'save_all_best'].includes(
+                  key,
+                )) &&
+              value !== savedConfig.current[key],
+          ),
+        ),
         ...(executionTarget !== jobTarget(job) ? targetRequest(executionTarget) : {}),
       });
       onStarted(next, checkpoint.completed_iteration, target);
@@ -163,7 +183,9 @@ export default function TrainingResumeDialog({
                   <dd>{t(ruleNames[checkpoint.ruleset] ?? checkpoint.ruleset)}</dd>
                 </div>
                 <div>
-                  <dt>{t('Network')}</dt>
+                  <dt>
+                    {t('Network channels')} · {t('Residual blocks')}
+                  </dt>
                   <dd>
                     {t('{channels} channels · {blocks} blocks', {
                       channels: checkpoint.channels,
@@ -172,13 +194,17 @@ export default function TrainingResumeDialog({
                   </dd>
                 </div>
                 <div>
+                  <dt>{t('Random seed')}</dt>
+                  <dd>{config.seed ?? '—'}</dd>
+                </div>
+                <div>
                   <dt>{t('Optimizer')}</dt>
                   <dd>{optimizerNames[checkpoint.optimizer] ?? checkpoint.optimizer}</dd>
                 </div>
               </dl>
               <p className="subtle">
                 {t(
-                  'Continues the latest full checkpoint, including optimizer state, replay, random state and learning history. The architecture is kept. You can adjust the learning rate, weight decay and SGD momentum below.',
+                  'Continues the latest full checkpoint, including optimizer state, replay, random state and learning history.',
                 )}
               </p>
               {checkpoint.can_resume ? (
@@ -189,73 +215,116 @@ export default function TrainingResumeDialog({
                     onChange={setExecutionTarget}
                     disabled={busy}
                   />
-                  <label>
-                    {t('Target total iterations')}
-                    <input
-                      type="number"
-                      aria-label={t('Target total iterations')}
-                      aria-describedby="resume-target-help"
-                      min={checkpoint.completed_iteration + 1}
-                      max={100000}
-                      step={1}
-                      required
-                      value={target}
-                      disabled={busy}
-                      onChange={(event) => setTarget(Number(event.target.value))}
-                    />
-                    <small id="resume-target-help">
+                  <div className="form-grid resume-optimizer-settings">
+                    {numberField('iterations', config, update, {
+                      label: 'Target total iterations',
+                      min: checkpoint.completed_iteration + 1,
+                      disabled: busy,
+                    })}
+                    <small>
                       {t('This is the total iteration count, not the number of extra iterations.')}
                     </small>
-                  </label>
-                  <div className="form-grid resume-optimizer-settings">
-                    <label>
-                      {t('Learning rate')}
-                      <input
-                        type="number"
-                        aria-label={t('Learning rate')}
-                        min={1e-7}
-                        max={1}
-                        step="any"
-                        required
-                        value={Number.isNaN(learningRate) ? '' : learningRate}
-                        disabled={busy}
-                        onChange={(event) => setLearningRate(event.currentTarget.valueAsNumber)}
-                      />
-                    </label>
-                    <label>
-                      {t('Weight decay')}
-                      <input
-                        type="number"
-                        aria-label={t('Weight decay')}
-                        min={0}
-                        max={1}
-                        step="any"
-                        required
-                        value={Number.isNaN(weightDecay) ? '' : weightDecay}
-                        disabled={busy}
-                        onChange={(event) => setWeightDecay(event.currentTarget.valueAsNumber)}
-                      />
-                    </label>
-                    <label>
-                      {t('Momentum')}
-                      <input
-                        type="number"
-                        aria-label={t('Momentum')}
-                        aria-describedby="resume-momentum-help"
-                        min={0}
-                        max={1}
-                        step="any"
-                        required
-                        value={Number.isNaN(momentum) ? '' : momentum}
-                        disabled={busy || checkpoint.optimizer !== 'sgd'}
-                        onChange={(event) => setMomentum(event.currentTarget.valueAsNumber)}
-                      />
-                      <small id="resume-momentum-help">
-                        {t(
-                          'Momentum applies to SGD only. Adam and AdamW keep their saved moments.',
-                        )}
-                      </small>
-                    </label>
+                    {config.model_name !== undefined && (
+                      <label>
+                        {t('Model name')}
+                        <input
+                          required
+                          maxLength={100}
+                          value={String(config.model_name)}
+                          disabled={busy}
+                          onChange={(event) => update('model_name', event.target.value)}
+                        />
+                      </label>
+                    )}
+                    {config.preset !== undefined && (
+                      <label>
+                        {t('Training preset')}
+                        <select
+                          value={String(config.preset)}
+                          disabled={busy}
+                          onChange={(event) => {
+                            const preset = event.target.value as TrainingPreset;
+                            setConfig((previous) => {
+                              const next = changeTrainingPlan(previous, checkpoint.ruleset, preset);
+                              for (const key of [
+                                'ruleset',
+                                'channels',
+                                'blocks',
+                                'seed',
+                                'optimizer',
+                              ])
+                                next[key] = savedConfig.current[key];
+                              next.iterations = Math.max(
+                                checkpoint.completed_iteration + 1,
+                                Number(next.iterations),
+                              );
+                              return next;
+                            });
+                          }}
+                        >
+                          <option value="recommended">
+                            {t('Recommended · tailored to this battlefield')}
+                          </option>
+                          <option value="smoke">
+                            {t('Quick check · a tiny real training run')}
+                          </option>
+                          <option value="beginner">{t('Beginner · a starting point')}</option>
+                          <option value="balanced">{t('Balanced · a longer experiment')}</option>
+                        </select>
+                      </label>
+                    )}
+                    {config.device !== undefined && (
+                      <label>
+                        {t('Device')}
+                        <select
+                          value={String(config.device)}
+                          disabled={busy}
+                          onChange={(event) => update('device', event.target.value)}
+                        >
+                          <option value="auto">{t('Automatic')}</option>
+                          <option value="cpu">{t('CPU')}</option>
+                          <option value="cuda">{t('NVIDIA CUDA')}</option>
+                          <option value="mps">{t('Apple Metal')}</option>
+                        </select>
+                      </label>
+                    )}
+                    {Object.keys(trainingNumberFields)
+                      .filter(
+                        (key) =>
+                          !['iterations', 'channels', 'blocks', 'seed'].includes(key) &&
+                          config[key] !== undefined,
+                      )
+                      .map((key) =>
+                        numberField(key, config, update, {
+                          label: key === 'weight_decay' ? 'Weight decay' : undefined,
+                          disabled: busy || (key === 'momentum' && checkpoint.optimizer !== 'sgd'),
+                        }),
+                      )}
+                    <small>
+                      {t('Momentum applies to SGD only. Adam and AdamW keep their saved moments.')}
+                    </small>
+                    {config.mixed_precision !== undefined && (
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(config.mixed_precision)}
+                          disabled={busy}
+                          onChange={(event) => update('mixed_precision', event.target.checked)}
+                        />
+                        {t('Mixed precision when supported')}
+                      </label>
+                    )}
+                    {config.save_all_best !== undefined && (
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(config.save_all_best)}
+                          disabled={busy}
+                          onChange={(event) => update('save_all_best', event.target.checked)}
+                        />
+                        {t('Save every new best model')}
+                      </label>
+                    )}
                   </div>
                 </>
               ) : (

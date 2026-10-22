@@ -363,6 +363,8 @@ def train(
         saved_config = payload["metadata"].get("training_config", {})
         if saved_config.get("optimizer") != config["optimizer"]:
             raise ValueError("Resume optimizer must match the checkpoint")
+        if "seed" in saved_config and config["seed"] != saved_config["seed"]:
+            raise ValueError("Resume seed must match the checkpoint")
         optimizer = _make_optimizer(model, config)
         if payload.get("optimizer_state") is None:
             raise ValueError("This checkpoint has no optimizer state and cannot resume training")

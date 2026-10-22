@@ -160,6 +160,53 @@ const setupProps = {
 };
 
 describe('new game defaults', () => {
+  it('configures all neural search wrappers without losing hidden search settings', async () => {
+    const fetcher = vi.fn((_path: string, _options?: RequestInit) => json(initial));
+    vi.stubGlobal('fetch', fetcher);
+    render(<NewGame {...setupProps} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
+    const wrapper = screen.getByLabelText('Attackers search wrapper');
+    expect(wrapper).toHaveValue('mcts');
+    fireEvent.change(screen.getByLabelText('Search iterations'), { target: { value: '73' } });
+    fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.7' } });
+    fireEvent.change(wrapper, { target: { value: 'alpha_beta' } });
+    expect(screen.queryByLabelText('Search iterations')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Exploration')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Temperature')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Time limit (seconds)')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search depth'), { target: { value: '4' } });
+    fireEvent.change(wrapper, { target: { value: 'none' } });
+    expect(screen.queryByLabelText('Search depth')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Time limit (seconds)')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Temperature')).toHaveValue(0.7);
+    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    expect(
+      JSON.parse(String(fetcher.mock.calls[0][1]?.body)).players.attackers.config,
+    ).toMatchObject({
+      algorithm: 'neural',
+      model_id: 'strong',
+      search_wrapper: 'none',
+      temperature: 0.7,
+    });
+    fireEvent.change(wrapper, { target: { value: 'mcts' } });
+    expect(screen.getByLabelText('Search iterations')).toHaveValue(73);
+    fireEvent.change(wrapper, { target: { value: 'alpha_beta' } });
+    expect(screen.getByLabelText('Search depth')).toHaveValue(4);
+    await waitFor(() => expect(screen.getByRole('button', { name: /To the table/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    expect(
+      JSON.parse(String(fetcher.mock.calls[1][1]?.body)).players.attackers.config,
+    ).toMatchObject({
+      algorithm: 'neural',
+      search_wrapper: 'alpha_beta',
+      depth: 4,
+    });
+    fireEvent.change(screen.getByLabelText('Attackers algorithm'), { target: { value: 'mcts' } });
+    expect(screen.queryByLabelText('Attackers search wrapper')).not.toBeInTheDocument();
+  });
+
   it('preselects the best compatible model and omits inherited seeds unless explicitly fixed', async () => {
     const fetcher = vi.fn((_path: string, _options?: RequestInit) => json(initial));
     vi.stubGlobal('fetch', fetcher);

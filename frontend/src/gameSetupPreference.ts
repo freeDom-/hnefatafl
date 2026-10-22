@@ -102,6 +102,10 @@ function restoredComputer(
   }
   if (raw.evaluation === 'heuristic' || raw.evaluation === 'neural')
     config.evaluation = raw.evaluation;
+  if (config.algorithm === 'neural' && raw.search_wrapper !== undefined) {
+    if (!['mcts', 'alpha_beta', 'none'].includes(String(raw.search_wrapper))) return null;
+    config.search_wrapper = String(raw.search_wrapper);
+  }
   const usesModel = config.algorithm === 'neural' || config.evaluation === 'neural';
   const model = usesModel
     ? models.find((candidate) => candidate.id === raw.model_id && candidate.ruleset === ruleset)

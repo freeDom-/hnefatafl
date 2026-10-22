@@ -327,6 +327,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "evaluation",
             "model_id",
             "rollout_depth",
+            "search_wrapper",
         }
         if set(config) - supported:
             fail("Unsupported AI configuration field.")
@@ -372,6 +373,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     fail(f"AI {name} must be between {minimum} and {maximum}.")
         if "evaluation" in config and config["evaluation"] not in ("heuristic", "neural"):
             fail("Evaluation must be heuristic or neural.")
+        if "search_wrapper" in config:
+            if algorithm != "neural":
+                fail("Search wrappers apply only to trained neural models.")
+            if config["search_wrapper"] not in ("mcts", "alpha_beta", "none"):
+                fail("Search wrapper must be mcts, alpha_beta or none.")
         resolved = effective_ai_config(config)
         if resolved.get("model_id"):
             if not isinstance(resolved["model_id"], str):
@@ -1831,6 +1837,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                         resolve_device(result["device"])
                     if result.get("resume"):
                         model, checkpoint_data = load_checkpoint(result["resume"])
+                        saved_config = checkpoint_data.get("metadata", {}).get(
+                            "training_config", {}
+                        )
+                        for name in ("optimizer", "seed"):
+                            if name in saved_config and saved_config[name] != result[name]:
+                                fail(f"Resume {name} must match the saved training job.")
                         if checkpoint_data.get("optimizer_state") is None:
                             fail(
                                 "This model is for play; resume requires a full last.pt checkpoint."
@@ -2037,14 +2049,32 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 channels=model.channels,
                 blocks=model.blocks,
                 optimizer=saved["optimizer"],
+                seed=saved.get("seed", values.get("seed", 0)),
                 model_name=saved.get("model_name", values.get("model_name", "")),
                 checkpoint=f"{job_id}:last.pt",
             )
             # Optimizer groups are authoritative: older checkpoint metadata may
             # differ after a prior resume restored its parameter values.
-            from .training import DEFAULTS
+            from .training import DEFAULTS, normalize_config
 
-            saved = dict(saved)
+            # Checkpoint inputs are authoritative. Older checkpoints may omit
+            # fields introduced later; prefer their job's saved inputs before
+            # filling only genuinely absent fields through normal validation.
+            saved = normalize_config(
+                {
+                    **{
+                        key: value
+                        for key, value in values.items()
+                        if key in training_fields - {"resume"}
+                    },
+                    **{
+                        key: value
+                        for key, value in saved.items()
+                        if key in training_fields - {"resume"}
+                    },
+                    **model.config,
+                }
+            )
             optimizer_state = payload["optimizer_state"]
             if not isinstance(optimizer_state, dict):
                 raise ValueError("Invalid optimizer state")
@@ -2060,6 +2090,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 if not (1e-7 if name == "learning_rate" else 0) <= value <= 1:
                     raise ValueError("Invalid saved optimizer parameter")
                 info[name] = saved[name] = value
+            info["config"] = {
+                key: value for key, value in saved.items() if key in training_fields - {"resume"}
+            }
             info["can_resume"] = True
             return info, saved
         except (OSError, ValueError, TypeError, KeyError, RuntimeError):
@@ -2077,16 +2110,16 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             return resume_training_locked(job_id, request)
 
     def resume_training_locked(job_id: str, request: dict[str, Any]):
-        editable = {"learning_rate", "weight_decay", "momentum"}
-        if "iterations" not in request or set(request) - {
-            "iterations",
-            "execution",
-            "worker_id",
-            *editable,
-        }:
-            fail("Resume accepts only total iterations, execution target and optimizer settings.")
+        from .training import DEFAULTS
+
+        immutable = {"ruleset", "channels", "blocks", "seed", "optimizer"}
+        editable = training_fields - immutable - {"resume"}
+        if "iterations" not in request or set(request) - (editable | {"execution", "worker_id"}):
+            fail(
+                "Resume accepts editable training settings and execution target; checkpoint identity is immutable."
+            )
         for name in editable & request.keys():
-            if type(request[name]) not in (int, float):
+            if isinstance(DEFAULTS[name], float) and type(request[name]) not in (int, float):
                 fail(f"{name} must be a number.")
         target = request["iterations"]
         if type(target) is not int or not 1 <= target <= 100000:
@@ -2096,8 +2129,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             fail(info["reason"], 409)
         if target <= info["completed_iteration"]:
             fail("Target total iterations must exceed the saved completed iteration.")
-        # Keep saved settings except reviewed optimizer overrides. Launch assigns
-        # a fresh owned directory and validates bounds before queueing/spawning.
+        # Keep every saved input except reviewed overrides. Launch assigns a
+        # fresh owned directory and applies the normal new-job validation.
         config = {key: value for key, value in saved.items() if key in training_fields}
         config.update({name: request[name] for name in editable & request.keys()})
         config.update(kind="train", iterations=target, resume=info["checkpoint"])

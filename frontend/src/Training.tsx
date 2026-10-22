@@ -16,6 +16,7 @@ import {
 } from './trainingPresets';
 import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingResumeDialog from './TrainingResumeDialog';
+import { numberField } from './TrainingFields';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
@@ -578,17 +579,10 @@ export default function Training({
                   </option>
                 </select>
               </label>
-              {numberField('iterations', 'Training iterations', config, update, 1, 100000)}
-              {numberField('games', 'Self-play games per iteration', config, update, 1, 10000)}
-              {numberField('batch_size', 'Batch size', config, update, 1, 2048)}
-              {numberField(
-                'mcts_iterations',
-                'MCTS iterations per move',
-                config,
-                update,
-                1,
-                100000,
-              )}
+              {numberField('iterations', config, update)}
+              {numberField('games', config, update)}
+              {numberField('batch_size', config, update)}
+              {numberField('mcts_iterations', config, update)}
             </div>
             {kind === 'tune' && (
               <p className="subtle">
@@ -635,8 +629,8 @@ export default function Training({
             </button>
             {advanced && (
               <div className="advanced-config form-grid">
-                {numberField('channels', 'Network channels', config, update, 4, 128)}
-                {numberField('blocks', 'Residual blocks', config, update, 0, 8)}
+                {numberField('channels', config, update)}
+                {numberField('blocks', config, update)}
                 <label>
                   {t('Optimizer')}
                   <select
@@ -648,108 +642,24 @@ export default function Training({
                     <option value="sgd">{t('SGD')}</option>
                   </select>
                 </label>
-                {numberField('epochs', 'Epochs per iteration', config, update, 1, 100)}
-                {numberField(
-                  'learning_rate',
-                  'Learning rate',
-                  config,
-                  update,
-                  0.0000001,
-                  1,
-                  0.0001,
-                )}
-                {numberField(
-                  'mcts_time_limit',
-                  'Search time limit (seconds)',
-                  config,
-                  update,
-                  0.001,
-                  300,
-                  0.01,
-                )}
-                {numberField('exploration', 'MCTS exploration', config, update, 0, 20, 0.1)}
-                {numberField(
-                  'temperature',
-                  'Self-play temperature',
-                  config,
-                  update,
-                  0.01,
-                  10,
-                  0.01,
-                )}
-                {numberField(
-                  'dirichlet_alpha',
-                  'Exploration noise alpha',
-                  config,
-                  update,
-                  0.001,
-                  100,
-                  0.01,
-                )}
-                {numberField(
-                  'dirichlet_fraction',
-                  'Exploration noise fraction',
-                  config,
-                  update,
-                  0,
-                  1,
-                  0.05,
-                )}
-                {numberField(
-                  'replay_buffer_size',
-                  'Replay buffer positions',
-                  config,
-                  update,
-                  1,
-                  20000,
-                )}
-                {numberField('weight_decay', 'Weight regularization', config, update, 0, 1, 0.0001)}
-                {config.optimizer === 'sgd' &&
-                  numberField('momentum', 'Momentum', config, update, 0, 1, 0.01)}
-                {numberField(
-                  'checkpoint_frequency',
-                  'Checkpoint every (iterations)',
-                  config,
-                  update,
-                  1,
-                  10000,
-                )}
-                {numberField(
-                  'evaluation_frequency',
-                  'Evaluate every (iterations)',
-                  config,
-                  update,
-                  1,
-                  10000,
-                )}
-                {numberField(
-                  'evaluation_games',
-                  'Evaluation games (even)',
-                  config,
-                  update,
-                  2,
-                  10000,
-                  2,
-                )}
-                {numberField(
-                  'evaluation_iterations',
-                  'Evaluation search iterations',
-                  config,
-                  update,
-                  1,
-                  100000,
-                )}
-                {numberField('max_game_plies', 'Self-play move limit', config, update, 2, 5000)}
-                {numberField(
-                  'evaluation_max_plies',
-                  'Evaluation move limit',
-                  config,
-                  update,
-                  2,
-                  5000,
-                )}
-                {numberField('cpu_threads', 'CPU threads', config, update, 1, 64)}
-                {numberField('seed', 'Random seed', config, update, 0, 4294967295)}
+                {numberField('epochs', config, update)}
+                {numberField('learning_rate', config, update)}
+                {numberField('mcts_time_limit', config, update)}
+                {numberField('exploration', config, update)}
+                {numberField('temperature', config, update)}
+                {numberField('dirichlet_alpha', config, update)}
+                {numberField('dirichlet_fraction', config, update)}
+                {numberField('replay_buffer_size', config, update)}
+                {numberField('weight_decay', config, update)}
+                {config.optimizer === 'sgd' && numberField('momentum', config, update)}
+                {numberField('checkpoint_frequency', config, update)}
+                {numberField('evaluation_frequency', config, update)}
+                {numberField('evaluation_games', config, update)}
+                {numberField('evaluation_iterations', config, update)}
+                {numberField('max_game_plies', config, update)}
+                {numberField('evaluation_max_plies', config, update)}
+                {numberField('cpu_threads', config, update)}
+                {numberField('seed', config, update)}
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -1290,29 +1200,5 @@ export default function Training({
         </RecordsConfirm>
       )}
     </>
-  );
-}
-function numberField(
-  key: string,
-  label: string,
-  config: Record<string, string | number | boolean>,
-  update: (key: string, value: number) => void,
-  min: number,
-  max: number,
-  step = 1,
-) {
-  return (
-    <label key={key}>
-      {t(label)}
-      <input
-        type="number"
-        required
-        min={min}
-        max={max}
-        step={Number.isInteger(step) ? step : 'any'}
-        value={Number(config[key])}
-        onChange={(e) => update(key, Number(e.target.value))}
-      />
-    </label>
   );
 }

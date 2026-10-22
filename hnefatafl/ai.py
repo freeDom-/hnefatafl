@@ -426,6 +426,12 @@ def choose_move(
     if state.winner or not moves:
         raise ValueError("Cannot choose a move in a terminal position")
     algorithm = config.get("algorithm", config.get("profile_id", "baseline"))
+    wrapper = config.get("search_wrapper", "mcts")
+    if algorithm == "neural":
+        if wrapper not in ("mcts", "alpha_beta", "none"):
+            raise ValueError("Neural search wrapper must be mcts, alpha_beta or none")
+        if not config.get("model_path") and config.get("_model") is None:
+            raise ValueError("The neural opponent requires a registered model")
     rng = random.Random(config.get("seed", 0))
     seconds = float(config.get("time_limit", 2.0))
     if not math.isfinite(seconds) or not 0 < seconds <= 300:
@@ -466,20 +472,40 @@ def choose_move(
         if diagnostics is not None:
             diagnostics.update(value=sign * score, completed_depth=1, searched_moves=searched)
         return finished(best)
-    if algorithm in ("alpha_beta", "alphabeta"):
+    if algorithm in ("alpha_beta", "alphabeta") or (
+        algorithm == "neural" and wrapper == "alpha_beta"
+    ):
         return finished(
-            _alpha_beta(state, config, rng, deadline, diagnostics=diagnostics, progress=observer)
+            _alpha_beta(
+                state,
+                config,
+                rng,
+                deadline,
+                diagnostics=diagnostics if diagnostics is not None or algorithm != "neural" else {},
+                progress=observer,
+            )
         )
     if algorithm in ("mcts", "neural"):
-        if algorithm == "neural" and not config.get("model_path") and config.get("_model") is None:
-            raise ValueError("The neural opponent requires a registered model")
-        probabilities = mcts_policy(state, config, diagnostics=diagnostics, progress=observer)
+        if algorithm == "neural" and wrapper == "none":
+            probabilities, value = policy_value(
+                state, config.get("model_path"), config.get("_model")
+            )
+            if diagnostics is not None:
+                diagnostics["value"] = value
+        else:
+            probabilities = mcts_policy(state, config, diagnostics=diagnostics, progress=observer)
         temperature = float(config.get("temperature", 0.0))
         if not math.isfinite(temperature) or not 0 <= temperature <= 10:
             raise ValueError("Temperature must be between 0 and 10")
         if temperature > 0:
             options = list(probabilities)
-            weights = [probabilities[move] ** (1 / temperature) for move in options]
+            # Scale before exponentiating so a low temperature cannot underflow
+            # every legal policy probability to zero. Preserve historical MCTS
+            # sampling arithmetic for existing seeded games.
+            maximum = (
+                max(probabilities.values()) if algorithm == "neural" and wrapper == "none" else 1
+            )
+            weights = [(probabilities[move] / maximum) ** (1 / temperature) for move in options]
             return finished(rng.choices(options, weights=weights, k=1)[0])
         return finished(max(probabilities, key=lambda move: probabilities[move]))
     raise ValueError(f"Unknown AI algorithm: {algorithm}")
@@ -499,6 +525,8 @@ def analysis_from_search(
     source = (
         "neural_search" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
     )
+    if model_backed and algorithm == "neural" and configuration.get("search_wrapper") == "none":
+        source = "neural_value"
     value = details["value"]
     if not math.isfinite(value) or not -1 <= value <= 1:
         raise ValueError("Agent evaluation must be finite and between -1 and 1")

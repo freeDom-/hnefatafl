@@ -7,10 +7,28 @@ import time
 
 from fastapi.testclient import TestClient
 
-from hnefatafl.identities import RUNES, rune_for_ordinal
+from hnefatafl.identities import RUNES, effective_ai_config, rune_for_ordinal
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
 from hnefatafl.server import create_app
 from hnefatafl.storage import Store
+
+
+def test_neural_wrapper_effective_settings_preserve_legacy_mcts_defaults():
+    original = {"algorithm": "neural", "model_id": "registered"}
+    legacy = effective_ai_config(original)
+    assert legacy == effective_ai_config({**original, "search_wrapper": "mcts"})
+    assert "search_wrapper" not in legacy
+    assert legacy["iterations"] == 80
+    alpha = effective_ai_config(
+        {**original, "search_wrapper": "alpha_beta", "depth": 3, "iterations": 12}
+    )
+    assert alpha["algorithm"] == "neural" and alpha["search_wrapper"] == "alpha_beta"
+    assert alpha["depth"] == 3 and "iterations" not in alpha
+    policy = effective_ai_config(
+        {**original, "search_wrapper": "none", "temperature": 0.8, "depth": 3}
+    )
+    assert policy["temperature"] == 0.8 and policy["evaluation"] == "neural"
+    assert "depth" not in policy and "iterations" not in policy
 
 
 def test_allocator_is_unique_past_single_alphabet_and_safe_across_connections(tmp_path):

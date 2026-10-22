@@ -66,7 +66,26 @@ def test_reviewed_job_resume_retains_full_state_and_separate_outputs(client, tmp
         0,
         "adamw",
     )
-    for body in ({"iterations": 1}, {"iterations": True}, {"iterations": 2, "channels": 128}):
+    assert info["seed"] == info["config"]["seed"] == 17
+    for field, value in first["config"].items():
+        if field not in {"output_dir", "registry_dir", "resume"}:
+            assert info["config"][field] == value, field
+    for body in (
+        {"iterations": 1},
+        {"iterations": True},
+        *(
+            {"iterations": 2, name: value}
+            for name, value in {
+                "channels": 128,
+                "blocks": 1,
+                "ruleset": "tablut",
+                "seed": 18,
+                "optimizer": "adam",
+                "resume": "last.pt",
+                "output_dir": "elsewhere",
+            }.items()
+        ),
+    ):
         assert client.post(route, json=body).status_code == 400
     assert len(client.get("/api/training/jobs").json()) == 1
     resumed = completed(client, client.post(route, json={"iterations": 2}))
@@ -116,11 +135,16 @@ def test_reviewed_resume_updates_optimizer_groups_with_validated_hyperparameters
     # Earlier versions had no momentum metadata and could record stale
     # optimizer values after resuming. Prefill from the effective parameter group.
     old_checkpoint["metadata"]["training_config"].pop("momentum")
+    # Legacy missing fields fall back to the job's original inputs, rather than
+    # today's new-job plan. Full saved values remain authoritative otherwise.
+    old_checkpoint["metadata"]["training_config"].pop("batch_size")
     old_checkpoint["metadata"]["training_config"]["learning_rate"] = 0.001
     old_checkpoint["metadata"]["training_config"]["weight_decay"] = 0.0001
     torch.save(old_checkpoint, checkpoint_path)
     info = client.get(route).json()
     assert (info["learning_rate"], info["weight_decay"], info["momentum"]) == (0.002, 0.02, 0.7)
+    assert info["config"]["batch_size"] == first["config"]["batch_size"] == 8
+    assert info["config"]["learning_rate"] == 0.002
     for changes in (
         {"learning_rate": 0},
         {"learning_rate": True},
@@ -129,11 +153,43 @@ def test_reviewed_resume_updates_optimizer_groups_with_validated_hyperparameters
         {"momentum": 1.01},
         {"momentum": None},
         {"optimizer": "adamw"},
+        {"batch_size": 0},
+        {"epochs": 101},
+        {"evaluation_games": 3},
+        {"device": "invalid"},
+        {"mixed_precision": "false"},
+        {"mcts_time_limit": True},
     ):
         response = client.post(route, json={"iterations": 2, **changes})
         assert response.status_code == 400, response.text
     assert len(client.get("/api/training/jobs").json()) == 1
-    changes = {"learning_rate": 0.0004, "weight_decay": 0.005, "momentum": 0.4}
+    changes = {
+        "learning_rate": 0.0004,
+        "weight_decay": 0.005,
+        "momentum": 0.4,
+        "preset": "beginner",
+        "model_name": "Reviewed continuation",
+        "games": 2,
+        "batch_size": 2,
+        "epochs": 2,
+        "mcts_iterations": 1,
+        "mcts_time_limit": 0.2,
+        "exploration": 0.7,
+        "temperature": 0.8,
+        "dirichlet_alpha": 0.5,
+        "dirichlet_fraction": 0.1,
+        "replay_buffer_size": 32,
+        "checkpoint_frequency": 2,
+        "evaluation_frequency": 2,
+        "evaluation_games": 4,
+        "evaluation_iterations": 1,
+        "evaluation_max_plies": 2,
+        "max_game_plies": 4,
+        "device": "cpu",
+        "mixed_precision": False,
+        "cpu_threads": 1,
+        "save_all_best": True,
+    }
     resumed = completed(client, client.post(route, json={"iterations": 2, **changes}))
     assert resumed["config"]["seed"] == 29
     assert resumed["config"]["optimizer"] == "sgd"
@@ -145,6 +201,14 @@ def test_reviewed_resume_updates_optimizer_groups_with_validated_hyperparameters
         assert checkpoint["metadata"]["training_config"][name] == value
     assert checkpoint["extra"]["replay"]
     assert resumed["progress"]["metrics"]["updates"] > 0
+    assert checkpoint["extra"]["games_generated"] == 3
+    assert len(checkpoint["extra"]["history"]) == 2
+    assert len(checkpoint["extra"]["replay"]) <= 32
+    assert checkpoint["metadata"]["training_config"]["channels"] == 4
+    assert checkpoint["metadata"]["training_config"]["blocks"] == 0
+    assert resumed["progress"]["metrics"]["updates"] == (
+        2 * ((len(checkpoint["extra"]["replay"]) + 1) // 2)
+    )
 
 
 @pytest.mark.parametrize(

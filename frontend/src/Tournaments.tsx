@@ -10,6 +10,7 @@ import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { profileConfiguration } from './gameSetupPreference';
+import SearchWrapper from './SearchWrapper';
 import { getLocale, t, useI18n } from './i18n';
 import type { AIProfile, Config, Game, Model, Ruleset } from './types';
 import type {
@@ -840,6 +841,7 @@ function TournamentSetup({
     const next: Config = { ...config.players[index].config, algorithm };
     delete next.model_id;
     delete next.evaluation;
+    delete next.search_wrapper;
     if (algorithm === 'neural' && config.rulesets.length === 1)
       next.model_id = selectStrongestModel(models, config.rulesets[0])?.model.id ?? '';
     updatePlayer(index, { profile_id: undefined, name: 'Computer', config: next });
@@ -966,6 +968,9 @@ function TournamentSetup({
           {config.players.map((player, index) => {
             const prefix = t('Opponent {number}', { number: index + 1 });
             const algorithm = player.config.algorithm;
+            const neural = algorithm === 'neural';
+            const wrapper = String(player.config.search_wrapper ?? 'mcts');
+            const search = neural ? wrapper : String(algorithm);
             const fixedPreset = ['baseline', 'alpha_beta', 'mcts'].includes(
               player.profile_id ?? '',
             );
@@ -1082,24 +1087,33 @@ function TournamentSetup({
                 {selectedModel && algorithm === 'neural' && (
                   <ModelTrainingSummary model={selectedModel} compact />
                 )}
+                {neural && (
+                  <SearchWrapper
+                    value={wrapper}
+                    label={`${prefix} ${t('Search wrapper').toLocaleLowerCase(locale)}`}
+                    onChange={(next) => parameter(index, 'search_wrapper', next)}
+                  />
+                )}
                 {fixedPreset ? (
                   <p className="subtle">{parameterSummary(player.config)}</p>
                 ) : (
                   <>
-                    {field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
+                    {search !== 'none' &&
+                      field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 0.1)}
                     <details className="tournament-advanced">
                       <summary>{t('Search parameters')}</summary>
                       <div className="form-grid">
-                        {algorithm === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
-                        {['mcts', 'neural'].includes(String(algorithm)) && (
+                        {search === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
+                        {search === 'mcts' && (
                           <>
                             {field('iterations', 'Search iterations', 1, 5000, 1, 80)}
                             {field('exploration', 'Exploration', 0, 10, 0.1, 1.4)}
-                            {field('temperature', 'Temperature', 0, 5, 0.1, 0)}
                             {algorithm === 'mcts' &&
                               field('rollout_depth', 'Rollout depth', 0, 50, 1, 8)}
                           </>
                         )}
+                        {(search === 'mcts' || (neural && search === 'none')) &&
+                          field('temperature', 'Temperature', 0, 5, 0.1, 0)}
                         {algorithm === 'baseline' && (
                           <p className="subtle">
                             {t('A tactical heuristic with no additional search controls.')}

@@ -4,6 +4,7 @@ import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDia
 import Training from './Training';
 import type { Job, Model } from './types';
 import { setLanguage } from './i18n';
+import { trainingConfig } from './trainingPresets';
 
 const job: Job = {
   id: 'source-job',
@@ -171,4 +172,133 @@ it('opens checkpoint resumption from the linked model card and keeps an imported
   expect(await screen.findByRole('spinbutton', { name: 'Target total iterations' })).toHaveValue(
     10,
   );
+});
+
+it('uses all saved training fields and submits only editable changes without replacing checkpoint identity', async () => {
+  const config = {
+    ...trainingConfig('brandubh', 'smoke'),
+    channels: 12,
+    blocks: 3,
+    seed: 918,
+    model_name: 'Freydis',
+    iterations: 14,
+    games: 7,
+    epochs: 4,
+    batch_size: 13,
+    mcts_iterations: 11,
+    mcts_time_limit: 0.35,
+    exploration: 2.3,
+    temperature: 0.8,
+    dirichlet_alpha: 0.13,
+    dirichlet_fraction: 0.17,
+    replay_buffer_size: 217,
+    weight_decay: 0.002,
+    learning_rate: 0.0007,
+    evaluation_frequency: 3,
+    checkpoint_frequency: 4,
+    evaluation_games: 6,
+    evaluation_iterations: 9,
+    max_game_plies: 31,
+    evaluation_max_plies: 41,
+    cpu_threads: 3,
+    device: 'cpu',
+    mixed_precision: false,
+    save_all_best: true,
+  };
+  const saved = { ...info, config, channels: 12, blocks: 3, seed: 918 };
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' ? job : saved),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  expect(await screen.findByLabelText('Target total iterations')).toHaveValue(14);
+  for (const [label, value] of [
+    ['Self-play games per iteration', 7],
+    ['Epochs per iteration', 4],
+    ['Batch size', 13],
+    ['MCTS iterations per move', 11],
+    ['Search time limit (seconds)', 0.35],
+    ['MCTS exploration', 2.3],
+    ['Self-play temperature', 0.8],
+    ['Exploration noise alpha', 0.13],
+    ['Exploration noise fraction', 0.17],
+    ['Replay buffer positions', 217],
+    ['Checkpoint every (iterations)', 4],
+    ['Evaluate every (iterations)', 3],
+    ['Evaluation games (even)', 6],
+    ['Evaluation search iterations', 9],
+    ['Self-play move limit', 31],
+    ['Evaluation move limit', 41],
+    ['CPU threads', 3],
+  ] as const)
+    expect(screen.getByLabelText(label)).toHaveValue(value);
+  expect(screen.getByLabelText('Device')).toHaveValue('cpu');
+  expect(screen.getByLabelText('Mixed precision when supported')).not.toBeChecked();
+  expect(screen.getByLabelText('Save every new best model')).toBeChecked();
+  expect(screen.getByText('918')).toBeInTheDocument();
+  expect(screen.queryByRole('spinbutton', { name: 'Random seed' })).toBeNull();
+  expect(screen.queryByRole('spinbutton', { name: 'Network channels' })).toBeNull();
+  expect(screen.queryByRole('spinbutton', { name: 'Residual blocks' })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: 'Optimizer' })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: 'Battlefield' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Batch size'), { target: { value: '17' } });
+  fireEvent.change(screen.getByLabelText('Epochs per iteration'), { target: { value: '5' } });
+  fireEvent.change(screen.getByLabelText('MCTS exploration'), { target: { value: '3.2' } });
+  fireEvent.change(screen.getByLabelText('Evaluation games (even)'), { target: { value: '8' } });
+  fireEvent.change(screen.getByLabelText('Device'), { target: { value: 'auto' } });
+  fireEvent.click(screen.getByLabelText('Mixed precision when supported'));
+  fireEvent.click(screen.getByLabelText('Save every new best model'));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
+    iterations: 14,
+    batch_size: 17,
+    epochs: 5,
+    exploration: 3.2,
+    evaluation_games: 8,
+    device: 'auto',
+    mixed_precision: true,
+    save_all_best: false,
+  });
+});
+
+it('validates the same integer bounds and even evaluation budget as new training', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      json({ ...info, config: { ...trainingConfig('brandubh', 'smoke'), iterations: 10 } }),
+    ),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  const batch = await screen.findByLabelText('Batch size');
+  fireEvent.change(batch, { target: { value: '2.5' } });
+  expect(screen.getByRole('button', { name: 'Continue training' })).toBeDisabled();
+  fireEvent.change(batch, { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText('Evaluation games (even)'), { target: { value: '3' } });
+  expect(screen.getByRole('button', { name: 'Continue training' })).toBeDisabled();
+});
+
+it('applies a selected preset while preserving all five checkpoint settings', async () => {
+  const config = {
+    ...trainingConfig('brandubh', 'smoke'),
+    channels: 12,
+    blocks: 3,
+    seed: 918,
+    optimizer: 'sgd',
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json({ ...info, channels: 12, blocks: 3, optimizer: 'sgd', seed: 918, config })),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  const preset = await screen.findByLabelText('Training preset');
+  fireEvent.change(preset, { target: { value: 'balanced' } });
+  expect(screen.getByLabelText('Target total iterations')).toHaveValue(20);
+  expect(screen.getByLabelText('Self-play games per iteration')).toHaveValue(16);
+  expect(screen.getByLabelText('Batch size')).toHaveValue(64);
+  expect(screen.getByText('12 channels · 3 blocks')).toBeInTheDocument();
+  expect(screen.getByText('918')).toBeInTheDocument();
+  expect(screen.getByText('SGD')).toBeInTheDocument();
+  fireEvent.change(preset, { target: { value: 'smoke' } });
+  expect(screen.getByLabelText('Target total iterations')).toHaveValue(6);
 });

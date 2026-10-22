@@ -39,8 +39,16 @@ def effective_ai_config(configuration: dict, profile_id: str | None = None) -> d
         "time_limit": float(raw.get("time_limit", 2.0)),
         "evaluation": "heuristic",
     }
-    if algorithm == "alpha_beta":
+    wrapper = raw.get("search_wrapper", "mcts") if algorithm == "neural" else None
+    if wrapper not in (None, "mcts", "alpha_beta", "none"):
+        raise ValueError("Unknown neural search wrapper")
+    # Keep the historical MCTS representation when no wrapper was recorded.
+    if wrapper in ("alpha_beta", "none"):
+        result["search_wrapper"] = wrapper
+    if algorithm == "alpha_beta" or wrapper == "alpha_beta":
         result["depth"] = int(raw.get("depth", 2))
+    elif wrapper == "none":
+        result["temperature"] = float(raw.get("temperature", 0.0))
     elif algorithm in {"mcts", "neural"}:
         result.update(
             iterations=int(raw.get("iterations", 80)),

@@ -47,5 +47,9 @@ const translations: Record<string, string> = {
   'Suggested move from {from} to {to}': 'Zugvorschlag von {from} nach {to}',
   ', suggested source': ', empfohlener Ausgangspunkt',
   ', suggested target': ', empfohlenes Ziel',
+  'Search wrapper': 'Suchverfahren',
+  '{side} search wrapper': '{side}: Suchverfahren',
+  'MCTS (default)': 'MCTS (Standard)',
+  'None (policy only)': 'Keines (nur Strategieausgabe)',
 };
 export default translations;

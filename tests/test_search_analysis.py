@@ -331,3 +331,133 @@ def test_expired_alpha_beta_still_publishes_legal_fallback(monkeypatch):
     )
     assert snapshots == [result]
     assert result["completed_depth"] == 0
+
+
+@pytest.mark.parametrize("ruleset", ["brandubh", "tablut", "copenhagen"])
+@pytest.mark.parametrize("wrapper", ["mcts", "alpha_beta", "none"])
+def test_neural_wrappers_load_the_same_checkpoint_and_play_legal_seeded_moves(
+    tmp_path, ruleset, wrapper
+):
+    model = PolicyValueNet(ruleset, channels=4, blocks=1)
+    path = save_checkpoint(tmp_path / "model.pt", model, {})
+    state = new_game(ruleset)
+    config = {
+        "algorithm": "neural",
+        "search_wrapper": wrapper,
+        "model_path": str(path),
+        "iterations": 3,
+        "depth": 1,
+        "time_limit": 15,
+        "seed": 19,
+    }
+    report = ai.analyze_position(state, config)
+    selected = ai.choose_move(state, config)
+    assert selected in legal_moves(state)
+    assert report["best_move"] == selected.to_dict()
+    assert ai._loaded_model(str(path)).blocks == 1
+    assert report["source"] == ("neural_value" if wrapper == "none" else "neural_search")
+    if wrapper == "mcts":
+        assert report["simulations"] == 3
+        assert report == ai.analyze_position(
+            state, {k: v for k, v in config.items() if k != "search_wrapper"}
+        )
+    elif wrapper == "alpha_beta":
+        assert report["completed_depth"] == 1
+    else:
+        assert "simulations" not in report and "completed_depth" not in report
+
+
+def test_policy_only_uses_one_network_pass_and_no_search_or_rollout(monkeypatch):
+    state = new_game("brandubh")
+    moves = legal_moves(state)
+    calls = []
+
+    def policy_value(position, *_args):
+        calls.append(position)
+        return {move: 0.75 if move == moves[-1] else 0.25 / (len(moves) - 1) for move in moves}, 0.4
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Policy-only play must not search or create child positions")
+
+    monkeypatch.setattr(ai, "policy_value", policy_value)
+    monkeypatch.setattr(ai, "mcts_policy", forbidden)
+    monkeypatch.setattr(ai, "_alpha_beta", forbidden)
+    monkeypatch.setattr(ai, "apply_move", forbidden)
+    config = {"algorithm": "neural", "search_wrapper": "none", "_model": object()}
+    reports = []
+    chosen = ai.choose_move(state, config, progress=reports.append)
+    assert chosen == moves[-1]
+    assert calls == [state]
+    assert reports == [{"value": 0.4, "source": "neural_value", "best_move": chosen.to_dict()}]
+
+
+def test_policy_only_temperature_sampling_is_seeded_and_handles_small_temperature(tmp_path):
+    model = PolicyValueNet("brandubh", channels=4, blocks=0)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+    path = save_checkpoint(tmp_path / "uniform.pt", model, {})
+    state = new_game("brandubh")
+    config = {"algorithm": "neural", "search_wrapper": "none", "model_path": str(path)}
+    assert ai.choose_move(state, config) == legal_moves(state)[0]
+    samples = []
+    for seed in range(8):
+        sampled = {**config, "temperature": 0.0001, "seed": seed}
+        first = ai.choose_move(state, sampled)
+        assert first == ai.choose_move(state, sampled)
+        assert first in legal_moves(state)
+        samples.append(first)
+    assert len(set(samples)) > 1
+
+
+def test_neural_alpha_beta_uses_value_head_for_leaves_and_exact_terminal_results(monkeypatch):
+    state = new_game("brandubh")
+    chosen = legal_moves(state)[-1]
+    expected_board = apply_move(state, chosen).board
+    seen = []
+
+    def policy_value(position, *_args):
+        seen.append(position.ply)
+        return {}, -0.7 if position.board == expected_board else 0.6
+
+    monkeypatch.setattr(ai, "policy_value", policy_value)
+    config = {
+        "algorithm": "neural",
+        "search_wrapper": "alpha_beta",
+        "_model": object(),
+        "depth": 1,
+        "time_limit": 15,
+    }
+    result = ai.analyze_position(state, config)
+    assert result["best_move"] == chosen.to_dict()
+    assert result["value"] == -0.7 and result["source"] == "neural_search"
+    assert 0 in seen and seen.count(1) == len(legal_moves(state))
+    board = ["."] * 49
+    board[1], board[24], board[8], board[48] = "K", "D", "A", "A"
+    escaping = State("brandubh", tuple(board), turn="defenders")
+    result = ai.analyze_position(escaping, config)
+    assert apply_move(escaping, Move(**result["best_move"])).winner == "defenders"
+    assert result["value"] == 1
+
+
+@pytest.mark.parametrize("wrapper", ["mcts", "alpha_beta", "none"])
+def test_neural_wrappers_reject_incompatible_models_even_before_a_search_depth(tmp_path, wrapper):
+    path = save_checkpoint(tmp_path / "brandubh.pt", PolicyValueNet("brandubh", 4, 0), {})
+    with pytest.raises(ValueError, match="ruleset"):
+        ai.choose_move(
+            new_game("tablut"),
+            {
+                "algorithm": "neural",
+                "search_wrapper": wrapper,
+                "model_path": str(path),
+                "time_limit": 0.000001,
+            },
+        )
+
+
+def test_neural_wrappers_reject_unknown_selection():
+    with pytest.raises(ValueError, match="wrapper"):
+        ai.choose_move(
+            new_game("brandubh"),
+            {"algorithm": "neural", "search_wrapper": "unsupported", "_model": object()},
+        )

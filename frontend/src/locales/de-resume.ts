@@ -6,6 +6,8 @@ const translations: Record<string, string> = {
   Network: 'Netzwerk',
   'Continues the latest full checkpoint, including optimizer state, replay, random state and learning history. The architecture is kept. You can adjust the learning rate, weight decay and SGD momentum below.':
     'Setzt den neuesten vollständigen Kontrollpunkt fort, einschließlich Optimiererzustand, Trainingspuffer, Zufallszustand und Lernverlauf. Die Architektur bleibt erhalten. Lernrate, Gewichtsverfall und SGD-Momentum können unten angepasst werden.',
+  'Continues the latest full checkpoint, including optimizer state, replay, random state and learning history.':
+    'Setzt den neuesten vollständigen Kontrollpunkt fort, einschließlich Optimiererzustand, Trainingspuffer, Zufallszustand und Lernverlauf.',
   'Weight decay': 'Gewichtsverfall',
   'Momentum applies to SGD only. Adam and AdamW keep their saved moments.':
     'Momentum gilt nur für SGD. Adam und AdamW behalten ihre gespeicherten Momente.',

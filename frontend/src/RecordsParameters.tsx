@@ -3,6 +3,7 @@ import type { Config } from './types';
 
 const labels: Record<string, string> = {
   algorithm: 'Algorithm',
+  search_wrapper: 'Search wrapper',
   depth: 'Search depth',
   iterations: 'Search iterations',
   rollout_depth: 'Rollout depth',
@@ -23,6 +24,11 @@ const algorithms: Record<string, string> = {
 export function parameterSummary(config: Config = {}) {
   return [
     t(String(algorithms[String(config.algorithm)] ?? config.algorithm ?? '')),
+    config.search_wrapper === 'alpha_beta'
+      ? t('Alpha-beta')
+      : config.search_wrapper === 'none'
+        ? t('None (policy only)')
+        : undefined,
     config.depth !== undefined ? t('depth {depth}', { depth: String(config.depth) }) : undefined,
     config.iterations !== undefined
       ? t('{iterations} iterations', { iterations: String(config.iterations) })
@@ -78,7 +84,13 @@ export function ParameterValues({
               <dd>
                 {key === 'algorithm'
                   ? t(algorithms[String(value)] ?? String(value))
-                  : String(value)}
+                  : key === 'search_wrapper'
+                    ? t(
+                        value === 'none'
+                          ? 'None (policy only)'
+                          : (algorithms[String(value)] ?? String(value)),
+                      )
+                    : String(value)}
               </dd>
             </div>
           ))}
