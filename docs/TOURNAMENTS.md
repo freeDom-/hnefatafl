@@ -57,6 +57,21 @@ The selected appearance settings also apply to tournament boards.
 Each saved match identifies its attacker and defender explicitly. Earlier
 two-player tournament records remain viewable and replayable without migration.
 
+Each battlefield also has a **Head-to-head wins** table. Opponents appear in the
+same numbered order across rows and columns. A cell counts how often the row
+opponent beat the column opponent on that battlefield, across both side
+assignments. Draws and unfinished games do not count as wins. The diagonal shows
+each opponent's persistent rune instead of a self-match count. Numbered headers
+keep seats distinct when opponents share a name or model. Running and stopped
+series show only saved results; unplayed pairings display zero. The matrix is
+reconstructed from retained matches when you reopen the tournament. On narrow
+screens, scroll the table horizontally; row headers remain visible.
+
+![Battlefield opponent win matrices](screenshots/tournament-win-matrix.png)
+
+The [mobile view](screenshots/tournament-win-matrix-mobile.png) keeps the title and
+row labels visible while scrolling to later opponents.
+
 ## Keep, stop and delete
 
 Tournaments are stored on the server in the application's SQLite database, not

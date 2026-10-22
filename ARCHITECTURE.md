@@ -43,6 +43,10 @@ the configured even game count on each battlefield, alternating sides. Progress
 uses the number of pairings, and standings update only the two participating
 opponents. New matches retain explicit attacker and defender indexes; the browser
 can still infer the defender in earlier two-player records without migrating them.
+Battlefield win matrices are browser projections of those saved matches: rows
+win against columns, indexed by tournament seat rather than model/name identity.
+They exclude draws and unfinished games and use existing runes on the diagonal;
+no additional aggregate or storage migration is required.
 
 ## Rules
 

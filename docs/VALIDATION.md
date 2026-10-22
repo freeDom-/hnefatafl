@@ -12,7 +12,7 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | API and persistence | Real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, completed-game restart guards, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | Real isolated workers, balanced two/three/four-player round robins, participation-aware scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay and failure/shutdown cleanup |
-| Browser unit flows | 101 Vitest tests, including complete setup/name restoration, editable reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
+| Browser unit flows | 107 Vitest tests, including tournament win matrices, complete setup/name restoration, editable reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
 | Browser end to end | 30 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
@@ -278,6 +278,30 @@ or browser errors. Startup serves v0.13.0 and the compiled client on schema 6.
 All seven games, four model entries and eight rune assignments match their
 pre-update digests; a complete data-directory backup was taken before restart.
 Test training and workers use isolated temporary storage. No migration is needed.
+
+## Battlefield win matrices (`v0.14.0`)
+
+The full local check passes **369 backend cases** and **107 frontend unit tests**.
+Six matrix cases cover directional wins with swapped sides, battlefield isolation,
+draws/truncation, legacy two-player assignments, partial updates, repeated names,
+canonical model/profile labels, rune precedence and English/German accessibility.
+
+All **seven targeted desktop/mobile tournament browser checks** pass; one
+duplicate mobile cancellation check is intentionally skipped. A real four-player
+tournament plays 24 games across Brandubh/Tablut. Every cell is compared with
+saved match outcomes and each row total with existing battlefield totals, then
+checked again after reload. The mobile flow verifies keyboard scrolling, fixed
+row headers and no page overflow. Both new matrix flows pass again after placing
+the visible title outside the scroll area while retaining a semantic caption.
+
+The actual [desktop](screenshots/tournament-win-matrix.png) and
+[scrolled mobile](screenshots/tournament-win-matrix-mobile.png) views were visually
+inspected. No scoring or persistence fields change; matrices are derived from
+retained records. Storage remains schema 6.
+
+Startup serves v0.14.0 and both compiled assets. All seven retained games, four
+model entries and eight rune assignments match their pre-update digests against
+a complete data-directory backup. Test tournaments remain in isolated storage.
 
 ## Reproduce
 

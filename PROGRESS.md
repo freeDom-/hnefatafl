@@ -167,3 +167,17 @@ Schema 6 and checkpoint formats remain unchanged. Momentum applies to SGD;
 Adam/AdamW retain their saved moments. Previous immutable analysis reports retain
 their original values and source labels. Time limits still bound search, and
 agent estimates do not establish calibrated winning probabilities or model strength.
+
+## Battlefield opponent win matrices (`v0.14.0`)
+
+- [x] Show every configured opponent on both axes of each battlefield's win table
+- [x] Count row wins against column opponents across both side assignments
+- [x] Exclude draws/unfinished matches and show runes on the diagonal
+- [x] Keep repeated names/models distinct by numbered tournament seat
+- [x] Reconstruct running, partial and reopened results from retained match records
+- [x] Preserve legacy two-player side assignments without changing storage
+- [x] Localize English/German labels and retain accessible table headers/captions
+- [x] Support keyboard/touch scrolling with fixed row headers and a persistent title
+- [x] Pass 369 backend cases, 107 frontend tests and seven targeted tournament browser checks
+
+Schema 6, tournament scoring and saved records remain unchanged.

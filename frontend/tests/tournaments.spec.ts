@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { Tournament } from '../src/tournamentTypes';
 
 const tournamentApi = 'http://127.0.0.1:8001/api/tournaments';
 
@@ -48,6 +49,108 @@ function squareLabels(board: string[], size: number) {
       `${String.fromCharCode(97 + (index % size))}${size - Math.floor(index / size)}, ${pieces[piece]}`,
   );
 }
+
+async function expectWinMatrices(page: Page, tournament: Tournament) {
+  for (const ruleset of tournament.config.rulesets) {
+    const matrix = page.locator(`.tournament-win-matrix[data-ruleset="${ruleset}"]`);
+    await expect(matrix).toBeVisible();
+    await expect(matrix.getByRole('rowheader')).toHaveCount(tournament.config.players.length);
+    await expect(matrix.getByRole('columnheader')).toHaveCount(
+      tournament.config.players.length + 1,
+    );
+    for (let row = 0; row < tournament.config.players.length; row++) {
+      const player = tournament.config.players[row];
+      let rowWins = 0;
+      for (let column = 0; column < tournament.config.players.length; column++) {
+        const cell = matrix.locator(`td[data-row-player="${row}"][data-column-player="${column}"]`);
+        if (row === column) {
+          await expect(cell.locator('[data-rune]')).toHaveAttribute(
+            'data-rune',
+            player.agent_rune || player.rune || '',
+          );
+          continue;
+        }
+        const wins = tournament.result!.games.filter(
+          (match) =>
+            match.ruleset === ruleset &&
+            match.outcome === 'completed' &&
+            ((match.winner === 'attackers' &&
+              match.attacker_player === row &&
+              match.defender_player === column) ||
+              (match.winner === 'defenders' &&
+                match.defender_player === row &&
+                match.attacker_player === column)),
+        ).length;
+        await expect(cell).toHaveText(String(wins));
+        rowWins += wins;
+      }
+      expect(rowWins).toBe(tournament.result!.by_ruleset[ruleset].wins[row]);
+    }
+  }
+}
+
+test('battlefield win matrices show directed wins and runes, and survive reload', async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(180000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const name = `Win matrix ${info.project.name}`;
+  const created = await request.post(tournamentApi, {
+    data: {
+      name,
+      rulesets: ['brandubh', 'tablut'],
+      games: 2,
+      max_plies: 100,
+      seed: 19,
+      // Same profile name, distinct agent settings/runes: seats must remain
+      // separate on both axes even when every name is identical.
+      players: Array.from({ length: 4 }, (_, index) => ({
+        profile_id: 'baseline',
+        config: { time_limit: (index + 1) * 0.05 },
+      })),
+    },
+  });
+  expect(created.status()).toBe(201);
+  const started = (await created.json()) as Tournament;
+  await openTournaments(page);
+  await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 90000,
+  });
+  const saved = (await (await request.get(`${tournamentApi}/${started.id}`)).json()) as Tournament;
+  expect(saved.result!.games).toHaveLength(24);
+  expect(saved.result!.games.some((game) => game.winner && game.winner !== 'draw')).toBe(true);
+  await expectWinMatrices(page, saved);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    .toBe(true);
+
+  await page.reload();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
+  await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
+  await expectWinMatrices(page, saved);
+  if (info.project.name === 'mobile') {
+    const scroller = page.locator('.tournament-win-matrix-scroll').first();
+    const rowHeader = scroller.getByRole('rowheader').first();
+    const left = await rowHeader.evaluate((element) => element.getBoundingClientRect().left);
+    await scroller.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    await scroller.evaluate((element) => (element.scrollLeft = element.scrollWidth));
+    expect(await rowHeader.evaluate((element) => element.getBoundingClientRect().left)).toBeCloseTo(
+      left,
+      0,
+    );
+  }
+  await page.locator('.tournament-battlefields').screenshot({
+    path: info.outputPath('battlefield-win-matrices.png'),
+  });
+  expect(errors).toEqual([]);
+  expect((await request.delete(`${tournamentApi}/${started.id}`)).ok()).toBe(true);
+});
 
 test('tournaments retain results, expose parameters and replay moves, and delete after confirmation', async ({
   page,

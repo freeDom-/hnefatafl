@@ -13,7 +13,8 @@ using real self-play learning.
   playback speed, pause, undo/redo, restart, captured pieces and in-game rules.
 - Tactical baseline, iterative alpha-beta, Monte Carlo tree search and neural search.
 - Saved agent position estimates in live play/replay and optional legal-move advice.
-- Round-robin tournaments for two to four players, live progress, standings and match replay.
+- Round-robin tournaments for two to four players, live progress, standings,
+  battlefield opponent win matrices and match replay.
 - SQLite histories, stable local profiles and filtered player/AI statistics and ratios.
 - Sortable records, seed-independent AI grouping and inspectable effective settings.
 - English/German localization, saved game-mode preference and mythological tournament names.

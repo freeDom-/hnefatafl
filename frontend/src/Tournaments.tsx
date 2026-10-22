@@ -6,6 +6,7 @@ import RecordsParameters, { parameterSummary } from './RecordsParameters';
 import { sortRulesets } from './sortRulesets';
 import { suggestTournamentName } from './mythologicalNames';
 import ModelTrainingSummary from './ModelTrainingSummary';
+import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { getLocale, t, useI18n } from './i18n';
@@ -517,36 +518,44 @@ export default function Tournaments({
                       .map((rule) => {
                         const tally = selected.result?.by_ruleset[rule.id];
                         return (
-                          <article key={rule.id}>
-                            <span className="tournament-board-size">
-                              {rule.size}
-                              <small>× {rule.size}</small>
-                            </span>
-                            <div>
-                              <strong>{t(rule.name)}</strong>
-                              <small>
-                                {t('{count} games played', { count: tally?.games ?? 0 })}
-                              </small>
-                              <ul className="tournament-battlefield-wins">
-                                {selected.config.players.map((player, index) => (
-                                  <li key={index}>
-                                    <span>
-                                      {seatRune(player)}
-                                      {playerName(player)}
-                                    </span>
-                                    <strong>
-                                      {t('{count} wins', { count: tally?.wins[index] ?? 0 })}
-                                    </strong>
-                                  </li>
-                                ))}
-                              </ul>
-                              <p>
-                                {t('{draws} draws · {unfinished} unfinished', {
-                                  draws: tally?.draws ?? 0,
-                                  unfinished: tally?.truncated ?? 0,
-                                })}
-                              </p>
+                          <article className="tournament-battlefield" key={rule.id}>
+                            <div className="tournament-battlefield-summary">
+                              <span className="tournament-board-size">
+                                {rule.size}
+                                <small>× {rule.size}</small>
+                              </span>
+                              <div>
+                                <strong>{t(rule.name)}</strong>
+                                <small>
+                                  {t('{count} games played', { count: tally?.games ?? 0 })}
+                                </small>
+                                <ul className="tournament-battlefield-wins">
+                                  {selected.config.players.map((player, index) => (
+                                    <li key={index}>
+                                      <span>
+                                        {seatRune(player)}
+                                        {playerName(player)}
+                                      </span>
+                                      <strong>
+                                        {t('{count} wins', { count: tally?.wins[index] ?? 0 })}
+                                      </strong>
+                                    </li>
+                                  ))}
+                                </ul>
+                                <p>
+                                  {t('{draws} draws · {unfinished} unfinished', {
+                                    draws: tally?.draws ?? 0,
+                                    unfinished: tally?.truncated ?? 0,
+                                  })}
+                                </p>
+                              </div>
                             </div>
+                            <TournamentWinMatrix
+                              players={selected.config.players}
+                              games={selected.result?.games ?? []}
+                              ruleset={rule.id}
+                              battlefield={t(rule.name)}
+                            />
                           </article>
                         );
                       })}

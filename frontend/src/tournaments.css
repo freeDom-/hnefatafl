@@ -435,12 +435,15 @@
   margin: 0 0 28px;
 }
 .tournament-battlefields article {
-  display: flex;
-  align-items: center;
-  gap: 15px;
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+.tournament-battlefield-summary {
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 .tournament-board-size {
   width: 40px;
@@ -459,9 +462,11 @@
 .tournament-board-size small {
   font-size: 9px;
 }
-.tournament-battlefields article > div {
+.tournament-battlefield-summary > div {
   display: grid;
   gap: 5px;
+  min-width: 0;
+  flex: 1;
 }
 .tournament-battlefields strong {
   font-size: 11px;

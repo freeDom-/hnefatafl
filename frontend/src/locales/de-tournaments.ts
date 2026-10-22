@@ -61,6 +61,13 @@ const german: Record<string, string> = {
   unfinished: 'unbeendet',
   'Battlefield results': 'Ergebnisse nach Schlachtfeld',
   'Wins by opponent': 'Siege je Gegner',
+  '{battlefield} head-to-head results': 'Direktvergleiche auf {battlefield}',
+  'Head-to-head wins · {battlefield}': 'Siege im Direktvergleich · {battlefield}',
+  'Wins against →': 'Siege gegen →',
+  'Rune of {opponent}': 'Rune von {opponent}',
+  'No rune recorded for {opponent}': 'Keine Rune für {opponent} gespeichert',
+  "Cells show the row opponent's wins against the column opponent. Draws and unfinished games do not count as wins.":
+    'Jede Zelle zeigt die Siege des Zeilengegners gegen den Spaltengegner. Remis und unbeendete Partien zählen nicht als Siege.',
   '{count} games played': '{count} gespielte Partien',
   '{count} wins': '{count} Siege',
   '{draws} draws · {unfinished} unfinished': '{draws} Remis · {unfinished} unbeendet',
