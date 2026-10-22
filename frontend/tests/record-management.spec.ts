@@ -45,6 +45,28 @@ async function statistics(request: APIRequestContext, query = '') {
   return response.json();
 }
 
+test('completed games have no restart control, including after undo in replay', async ({
+  page,
+  request,
+}, info) => {
+  const completed = await completedGame(request, `No restart ${info.project.name}`);
+  await page.goto('/');
+  await page.evaluate((id) => localStorage.setItem('hnefatafl-game', id), completed.id);
+  await page.reload();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo move', exact: true }).click();
+  await expect
+    .poll(async () => (await currentGame(page, request)).cursor)
+    .toBe(completed.cursor - 1);
+  await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
+  const replay = await currentGame(page, request);
+  const denied = await request.post(`${api}/games/${replay.id}/restart`, {
+    data: { version: replay.version },
+  });
+  expect(denied.status()).toBe(409);
+});
+
 test('new games and restarts receive fresh seeds; record deletion refreshes prominent statistics', async ({
   page,
   request,

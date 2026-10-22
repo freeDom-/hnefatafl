@@ -221,7 +221,9 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
     logfile = tmp_path / "worker.log"
     with live_server(server_data) as (client, url):
         remote, headers = worker(client, "Two-slot CPU cloud", capacity=2)
-        first = queued(client, "Cloud Ulf", seed=17, worker_id=remote["id"])
+        first = queued(
+            client, "Cloud Ulf", seed=17, worker_id=remote["id"], optimizer="sgd", momentum=0.7
+        )
         second = queued(client, "Cloud Freydis", seed=23, worker_id=remote["id"])
         environment = {
             **os.environ,
@@ -278,11 +280,29 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 assert payload["optimizer_state"] is not None
                 assert payload["extra"]["replay"]
                 resumed_response = client.post(
-                    f"/api/training/jobs/{first['id']}/resume", json={"iterations": 2}
+                    f"/api/training/jobs/{first['id']}/resume",
+                    json={
+                        "iterations": 2,
+                        "learning_rate": 0.0002,
+                        "weight_decay": 0.02,
+                        "momentum": 0.4,
+                    },
                 )
                 assert resumed_response.status_code == 201, resumed_response.text
                 resumed = wait_completed(client, resumed_response.json()["id"], process, logfile)
                 assert [point["iteration"] for point in resumed["progress"]["history"]] == [1, 2]
+                _, resumed_checkpoint = load_checkpoint(
+                    server_data / "jobs" / resumed["id"] / "last.pt"
+                )
+                group = resumed_checkpoint["optimizer_state"]["param_groups"][0]
+                assert (group["lr"], group["weight_decay"], group["momentum"]) == (
+                    0.0002,
+                    0.02,
+                    0.4,
+                )
+                assert resumed_checkpoint["metadata"]["training_config"]["seed"] == 17
+                assert resumed_checkpoint["extra"]["replay"]
+                assert resumed["progress"]["metrics"]["updates"] > 0
                 process.wait(timeout=30)
                 assert process.returncode == 0, logfile.read_text()
                 # The server owns imported copies; inference needs no cloud filesystem.

@@ -6,14 +6,14 @@ hash-locked CPU dependency environment. Tests use isolated temporary persistence
 | Capability | Evidence |
 | --- | --- |
 | Three engines | 61 source-specific tests: layouts, movement, captures, special squares, royal captures, Copenhagen shieldwalls/encirclement/forts, outcomes, serialization and replay |
-| AI, models and training | 95 tests: real baseline/alpha-beta/MCTS/neural full games in every variant, actual updates, tensor-only compatible imports and atomic model deletion |
+| AI, models and training | Real baseline/alpha-beta/MCTS/neural full games in every variant, actual updates, tensor-only compatible imports, exact saved architecture and atomic model deletion |
 | Exact resumption | Split CPU training matches uninterrupted weights exactly; an earlier best model survives weaker later iterations and moving/deleting its original directory |
 | Optimization | Actual Optuna trials, persisted study resumption, evaluation-based objectives and exported best configuration |
-| API and persistence | 40 baseline API tests plus 21 game-management cases: real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, hidden model references, consent fingerprints, rollback and in-flight request races |
+| API and persistence | Real moves/replay, versioned deletion, recalculated statistics, fresh/fixed seeds, completed-game restart guards, hidden model references, consent fingerprints, rollback and in-flight request races |
 | Worker lifecycle | Actual subprocess training/resumption/export/import/neural moves, optimization-study resumption, health requests during training, cancellation/exit/reaping and shutdown cleanup |
 | Saved tournaments | Real isolated workers, balanced two/three/four-player round robins, participation-aware scoring, unfinished outcomes, durable partial results, stop/delete, model reference protection, legal replay and failure/shutdown cleanup |
-| Browser unit flows | 74 Vitest tests, including complete setup/name restoration, reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
-| Browser end to end | 26 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
+| Browser unit flows | 101 Vitest tests, including complete setup/name restoration, editable reviewed resumption, independent analysis requests, localization, training plans, sorting/filtering and deletion races |
+| Browser end to end | 30 passed desktop/mobile Chromium checks; 4 duplicate mobile worker checks intentionally skipped |
 | Quality/build | Ruff and Prettier formatting/lint, mypy, TypeScript checks and production Vite build |
 
 Browser tests use real API services and cover Tablut interaction, undo/redo, rules,
@@ -240,6 +240,44 @@ entries and eight rune assignments. All four model-usage routes respond, and the
 production worker collection remains empty: test enrollment/training uses isolated
 data. A complete schema-5 backup was taken before migration. The Linux service
 example and CUDA/MPS installation still require validation on their target host.
+
+## Adjustable resumption and agent settings (`v0.13.0`)
+
+Backend verification covers **369 cases**; **101 frontend unit tests** pass.
+New checks restore actual SGD momentum buffers before applying learning-rate,
+weight-decay and momentum overrides, preserve weights/replay/random state/history,
+and continue with real optimizer updates. Local API tests prefill from effective
+optimizer groups even when older metadata is missing or stale, and reject malformed
+optimizer containers without an HTTP 500. The real HTTP worker integration trains
+two jobs concurrently, resumes SGD with all three changed settings, and inspects
+the uploaded full checkpoint's actual parameter groups.
+
+Search checks verify independent configured depths in AI moves and current-player
+estimates, profile-default/explicit-setting resolution, exact saved residual-block
+counts, and a searched terminal win that disagrees with the raw neural value head.
+The interface distinguishes completed/requested alpha-beta depth and preserves
+historical `neural_value` labels while displaying new `neural_search` reports.
+Completed-game restart rejection also covers earlier replay positions and legacy
+records, without creating games or changing statistics.
+
+All **30 real-API browser checks** pass, with four intentional duplicate mobile
+worker checks skipped. The real training/resume flow edits all three SGD settings,
+continues to iteration two, and reads back the effective saved values.
+Desktop/mobile checks verify that a completed game has no restart control even
+after undo, and that the API rejects a direct restart request.
+
+Cold worker-process smoke checks allow 90 seconds for startup on shared runners
+while retaining small training/search budgets and live health checks. The first
+local full run passed 367 cases and hit two earlier 30-second startup timeouts;
+both pass with the revised allowance. Exact CPU resumption comparisons complete
+their fixed simulation budget rather than relying on a 0.1-second cutoff.
+
+Desktop/mobile remote-worker cards were visually inspected in English/German:
+panel content has consistent insets and text gaps, with no horizontal overflow
+or browser errors. Startup serves v0.13.0 and the compiled client on schema 6.
+All seven games, four model entries and eight rune assignments match their
+pre-update digests; a complete data-directory backup was taken before restart.
+Test training and workers use isolated temporary storage. No migration is needed.
 
 ## Reproduce
 

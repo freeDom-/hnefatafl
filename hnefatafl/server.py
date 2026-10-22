@@ -748,6 +748,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def restart(game_id: str, request: VersionRequest):
         with catalog_lock:
             game = game_or_404(game_id, request.version)
+            if recorded_outcome(game)["winner"] or state_of(game).winner:
+                fail("Completed games cannot be restarted. Start a new game instead.", 409)
             active = {player["id"] for player in store.players()}
             for player in referenced_agents(game):
                 if player.get("kind") == "human" and player.get("player_id") not in active:
@@ -1408,6 +1410,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         "dirichlet_fraction",
         "replay_buffer_size",
         "weight_decay",
+        "momentum",
         "checkpoint_frequency",
         "evaluation_frequency",
         "evaluation_games",
@@ -1792,8 +1795,28 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 optimizer=saved["optimizer"],
                 model_name=saved.get("model_name", values.get("model_name", "")),
                 checkpoint=f"{job_id}:last.pt",
-                can_resume=True,
             )
+            # Optimizer groups are authoritative: older checkpoint metadata may
+            # differ after a prior resume restored its parameter values.
+            from .training import DEFAULTS
+
+            saved = dict(saved)
+            optimizer_state = payload["optimizer_state"]
+            if not isinstance(optimizer_state, dict):
+                raise ValueError("Invalid optimizer state")
+            groups = optimizer_state.get("param_groups", [])
+            if not isinstance(groups, list) or not groups or not isinstance(groups[0], dict):
+                raise ValueError("Missing optimizer parameter groups")
+            for name, parameter in (
+                ("learning_rate", "lr"),
+                ("weight_decay", "weight_decay"),
+                ("momentum", "momentum"),
+            ):
+                value = float(groups[0].get(parameter, saved.get(name, DEFAULTS[name])))
+                if not (1e-7 if name == "learning_rate" else 0) <= value <= 1:
+                    raise ValueError("Invalid saved optimizer parameter")
+                info[name] = saved[name] = value
+            info["can_resume"] = True
             return info, saved
         except (OSError, ValueError, TypeError, KeyError, RuntimeError):
             info["reason"] = "The saved training checkpoint could not be read safely."
@@ -1810,8 +1833,17 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             return resume_training_locked(job_id, request)
 
     def resume_training_locked(job_id: str, request: dict[str, Any]):
-        if "iterations" not in request or set(request) - {"iterations", "execution", "worker_id"}:
-            fail("Resume accepts only the target total iterations.")
+        editable = {"learning_rate", "weight_decay", "momentum"}
+        if "iterations" not in request or set(request) - {
+            "iterations",
+            "execution",
+            "worker_id",
+            *editable,
+        }:
+            fail("Resume accepts only total iterations, execution target and optimizer settings.")
+        for name in editable & request.keys():
+            if type(request[name]) not in (int, float):
+                fail(f"{name} must be a number.")
         target = request["iterations"]
         if type(target) is not int or not 1 <= target <= 100000:
             fail("Target total iterations must be an integer between 1 and 100000.")
@@ -1820,9 +1852,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             fail(info["reason"], 409)
         if target <= info["completed_iteration"]:
             fail("Target total iterations must exceed the saved completed iteration.")
-        # Saved learning settings remain authoritative. The reviewed total and
-        # execution target may change; launch assigns a fresh owned directory.
+        # Keep saved settings except reviewed optimizer overrides. Launch assigns
+        # a fresh owned directory and validates bounds before queueing/spawning.
         config = {key: value for key, value in saved.items() if key in training_fields}
+        config.update({name: request[name] for name in editable & request.keys()})
         config.update(kind="train", iterations=target, resume=info["checkpoint"])
         source = read_job(job_id)
         config["execution"] = request.get("execution", source.get("execution", "local"))

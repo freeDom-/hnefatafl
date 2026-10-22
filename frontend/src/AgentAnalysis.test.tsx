@@ -122,3 +122,44 @@ it('offers compatible advisor models and keeps the no-advisor selection separate
   expect(options.map((option) => option.id)).toEqual(['model:seven']);
   expect(options[0].advisor.config.model_id).toBe('seven');
 });
+
+it('distinguishes configured alpha-beta depth from the depth completed within the time limit', () => {
+  const limited: PositionAnalysis = {
+    ...report,
+    evaluations: [
+      {
+        ...report.evaluations[0],
+        config: { algorithm: 'alpha_beta', depth: 4 },
+        completed_depth: 2,
+      },
+      {
+        ...report.evaluations[1],
+        config: { algorithm: 'alpha_beta', depth: 3 },
+        completed_depth: 3,
+      },
+    ],
+  };
+  render(
+    <AgentAnalysis game={game} report={limited} pending={false} failed={false} retry={vi.fn()} />,
+  );
+  expect(screen.getByText('Heuristic estimate · depth 2 / 4')).toBeInTheDocument();
+  expect(screen.getByText('Heuristic estimate · depth 3 / 3')).toBeInTheDocument();
+  expect(
+    screen.getAllByText('The time limit was reached before the configured depth finished.'),
+  ).toHaveLength(1);
+});
+
+it('labels newly searched neural values and retains the original label for recorded root values', () => {
+  const searched: PositionAnalysis = {
+    ...report,
+    evaluations: [
+      { ...report.evaluations[0], source: 'neural_search', simulations: 123 },
+      { ...report.evaluations[1], source: 'neural_value', simulations: 40 },
+    ],
+  };
+  render(
+    <AgentAnalysis game={game} report={searched} pending={false} failed={false} retry={vi.fn()} />,
+  );
+  expect(screen.getByText('Neural search estimate · 123 simulations')).toBeInTheDocument();
+  expect(screen.getByText('Neural value head · 40 simulations')).toBeInTheDocument();
+});

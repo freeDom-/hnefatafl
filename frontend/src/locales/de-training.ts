@@ -51,6 +51,7 @@ const translations: Record<string, string> = {
   SGD: 'SGD',
   'Epochs per iteration': 'Epochen pro Iteration',
   'Learning rate': 'Lernrate',
+  Momentum: 'Momentum',
   'Search time limit (seconds)': 'Suchzeitlimit (Sekunden)',
   'MCTS exploration': 'MCTS-Erkundung',
   'Self-play temperature': 'Selbstspieltemperatur',

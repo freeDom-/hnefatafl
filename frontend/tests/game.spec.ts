@@ -104,6 +104,11 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await page.getByLabel('Model name', { exact: true }).fill('Browser smoke strategist');
   await page.getByRole('combobox', { name: 'Training preset', exact: true }).selectOption('smoke');
+  await page.getByRole('button', { name: /Advanced configuration/ }).click();
+  await page.getByRole('combobox', { name: 'Optimizer', exact: true }).selectOption('sgd');
+  await page.getByRole('spinbutton', { name: 'Learning rate', exact: true }).fill('0.002');
+  await page.getByRole('spinbutton', { name: 'Weight regularization', exact: true }).fill('0.003');
+  await page.getByRole('spinbutton', { name: 'Momentum', exact: true }).fill('0.8');
   const firstTraining = page.waitForResponse(
     (response) =>
       response.url().endsWith('/api/training/jobs') && response.request().method() === 'POST',
@@ -125,6 +130,12 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await expect(resume.getByRole('spinbutton', { name: 'Target total iterations' })).toHaveValue(
     '2',
   );
+  await expect(resume.getByLabel('Learning rate', { exact: true })).toHaveValue('0.002');
+  await expect(resume.getByLabel('Weight decay', { exact: true })).toHaveValue('0.003');
+  await expect(resume.getByLabel('Momentum', { exact: true })).toHaveValue('0.8');
+  await resume.getByLabel('Learning rate', { exact: true }).fill('0.0007');
+  await resume.getByLabel('Weight decay', { exact: true }).fill('0.004');
+  await resume.getByLabel('Momentum', { exact: true }).fill('0.65');
   const continued = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/training/jobs/${firstJob.id}/resume`) &&
@@ -132,6 +143,12 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   );
   await resume.getByRole('button', { name: 'Continue training', exact: true }).click();
   const continuedJob = await (await continued).json();
+  expect(continuedJob.config).toMatchObject({
+    learning_rate: 0.0007,
+    weight_decay: 0.004,
+    momentum: 0.65,
+    optimizer: 'sgd',
+  });
   await expect(resume).toHaveCount(0);
   await expect(page.getByRole('status')).toContainText(
     'Training resumed from iteration 1 toward 2.',
@@ -145,6 +162,15 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toHaveCount(2);
   const api = 'http://127.0.0.1:8001/api';
   const savedJob = await (await request.get(`${api}/training/jobs/${continuedJob.id}`)).json();
+  const retainedSettings = await (
+    await request.get(`${api}/training/jobs/${continuedJob.id}/resume`)
+  ).json();
+  expect(retainedSettings).toMatchObject({
+    learning_rate: 0.0007,
+    weight_decay: 0.004,
+    momentum: 0.65,
+    completed_iteration: 2,
+  });
   const models = await (await request.get(`${api}/models`)).json();
   const model = models.find((entry: { id: string }) => entry.id === savedJob.model_id);
   expect(model).toBeTruthy();

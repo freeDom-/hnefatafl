@@ -84,9 +84,14 @@ def test_trained_registered_model_plays_complete_game_to_engine_terminal(tmp_pat
 
 
 def test_checkpoint_resume_matches_uninterrupted_training_weights(tmp_path):
-    first = train(smoke_config(tmp_path / "split"))
-    resumed = train(smoke_config(tmp_path / "resumed", iterations=2, resume=first["checkpoint"]))
-    full = train(smoke_config(tmp_path / "full", iterations=2))
+    # Reproducibility requires complete seeded searches, not a wall-clock cutoff
+    # whose number of visits can vary when other test processes use the CPU.
+    common = {"mcts_time_limit": 5, "cpu_threads": 1}
+    first = train(smoke_config(tmp_path / "split", **common))
+    resumed = train(
+        smoke_config(tmp_path / "resumed", **common, iterations=2, resume=first["checkpoint"])
+    )
+    full = train(smoke_config(tmp_path / "full", **common, iterations=2))
     resumed_model, payload = load_checkpoint(resumed["checkpoint"])
     full_model, _ = load_checkpoint(full["checkpoint"])
     assert resumed["iteration"] == 2
@@ -94,6 +99,84 @@ def test_checkpoint_resume_matches_uninterrupted_training_weights(tmp_path):
     assert payload["extra"]["iteration"] == 2
     for key, value in resumed_model.state_dict().items():
         torch.testing.assert_close(value, full_model.state_dict()[key], rtol=0, atol=0)
+
+
+def test_resume_optimizer_overrides_preserve_buffers_and_effective_settings(tmp_path, monkeypatch):
+    from hnefatafl import training
+
+    first = train(
+        smoke_config(
+            tmp_path / "first",
+            optimizer="sgd",
+            learning_rate=0.002,
+            weight_decay=0.03,
+            momentum=0.8,
+        )
+    )
+    source_model, source = load_checkpoint(first["checkpoint"])
+    assert source["optimizer_state"]["state"]
+    optimizers = []
+    make_optimizer = training._make_optimizer
+
+    def capture_optimizer(model, config):
+        optimizer = make_optimizer(model, config)
+        optimizers.append(optimizer)
+        return optimizer
+
+    monkeypatch.setattr(training, "_make_optimizer", capture_optimizer)
+
+    def restored(progress):
+        if progress["stage"] != "initializing":
+            return
+        state = optimizers[-1].state_dict()
+        group = state["param_groups"][0]
+        assert (group["lr"], group["weight_decay"], group["momentum"]) == (0.0003, 0.01, 0.6)
+        for parameter, values in source["optimizer_state"]["state"].items():
+            torch.testing.assert_close(
+                state["state"][parameter]["momentum_buffer"], values["momentum_buffer"]
+            )
+
+    # Stop before another update to inspect the exact restored state, including
+    # optimizer buffers, replay, history, weights and both random generators.
+    stopped = train(
+        smoke_config(
+            tmp_path / "stopped",
+            optimizer="sgd",
+            iterations=2,
+            resume=first["checkpoint"],
+            learning_rate=0.0003,
+            weight_decay=0.01,
+            momentum=0.6,
+        ),
+        progress=restored,
+        should_stop=lambda: True,
+    )
+    stopped_model, snapshot = load_checkpoint(stopped["checkpoint"])
+    for key, value in source_model.state_dict().items():
+        assert torch.equal(value, stopped_model.state_dict()[key]), key
+    for key in ("history", "python_rng", "iteration", "games_generated"):
+        assert snapshot["extra"][key] == source["extra"][key]
+    assert torch.equal(snapshot["extra"]["torch_rng"], source["extra"]["torch_rng"])
+    assert len(snapshot["extra"]["replay"]) == len(source["extra"]["replay"])
+
+    # No overrides on the next CLI-style resume: the saved effective values must
+    # survive rather than silently reverting to global defaults in metadata.
+    continued = train(
+        smoke_config(
+            tmp_path / "continued", optimizer="sgd", iterations=2, resume=stopped["checkpoint"]
+        )
+    )
+    _, result = load_checkpoint(continued["checkpoint"])
+    group = result["optimizer_state"]["param_groups"][0]
+    assert (group["lr"], group["weight_decay"], group["momentum"]) == (0.0003, 0.01, 0.6)
+    saved = result["metadata"]["training_config"]
+    assert (saved["learning_rate"], saved["weight_decay"], saved["momentum"]) == (
+        0.0003,
+        0.01,
+        0.6,
+    )
+    assert continued["metrics"]["updates"] > 0
+    assert [point["iteration"] for point in continued["history"]] == [1, 2]
 
 
 def test_resume_preserves_portable_best_when_later_iterations_are_weaker(tmp_path, monkeypatch):
@@ -196,6 +279,9 @@ def test_optuna_real_trials_resume_study_and_save_best_config(tmp_path):
         {"batch_size": -1},
         {"evaluation_games": 1},
         {"learning_rate": float("nan")},
+        {"momentum": -0.1},
+        {"momentum": 1.1},
+        {"momentum": float("inf")},
         {"optimizer": "invalid"},
         {"mcts_iterations": 0},
         {"unknown": True},

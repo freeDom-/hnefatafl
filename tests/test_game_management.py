@@ -155,6 +155,37 @@ def test_legacy_saved_game_preserves_original_constant_seed_semantics(client, mo
     assert restarted.json()["seed"] != 19
 
 
+def test_completed_game_cannot_restart_at_terminal_or_earlier_replay_positions(client, monkeypatch):
+    game = complete(client, create(client, mode="ai-ai", seed=3), monkeypatch)
+    path = f"/api/games/{game['id']}"
+    statistics = client.get("/api/stats").json()
+
+    def denied(current):
+        before = client.get("/api/stats").json()
+        response = client.post(path + "/restart", json={"version": current["version"]})
+        assert response.status_code == 409
+        assert "Completed games cannot be restarted" in response.json()["detail"]
+        assert client.get(path).json() == current
+        assert len(client.get("/api/games").json()) == 1
+        assert client.get("/api/stats").json() == before
+        assert {key: value for key, value in before.items() if key != "recent_games"} == {
+            key: value for key, value in statistics.items() if key != "recent_games"
+        }
+
+    denied(game)
+    replay = client.post(path + "/seek", json={"version": game["version"], "cursor": 0}).json()
+    assert replay["winner"] is None and replay["recorded_winner"]
+    denied(replay)
+
+    # Older records derive their outcome from the final move, independently of
+    # the active replay cursor, and must retain the same protection.
+    store = client.app.state.store
+    legacy = store.get_game(game["id"])
+    legacy.pop("recorded_result")
+    store.update_game(legacy, replay["version"])
+    denied(client.get(path).json())
+
+
 @pytest.mark.parametrize("query", ["", "?version=-1", "?version=true", "?version=1.0", "?version="])
 def test_game_removal_requires_an_unambiguous_version(client, query):
     game = create(client)

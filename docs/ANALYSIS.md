@@ -24,15 +24,26 @@ not establish which agent is correct or stronger.
 | Tactical heuristic | Heuristic value after its best searched one-ply move |
 | Alpha-beta | Minimax value from the deepest fully completed iteration; current-position evaluator if the deadline prevents depth one from finishing |
 | Monte Carlo tree search | Mean backed-up root value from the completed simulations, including heuristic leaf/rollout cutoffs |
-| Neural search / model-backed MCTS | The registered network's current-position value head; tree search still selects the suggested move |
+| Neural search / model-backed MCTS | Mean backed-up neural/terminal leaf value from the completed simulations |
 | Alpha-beta with a model | Minimax value from neural leaf evaluations |
 | Finished position | Exact rules outcome: win 100%, loss 0%, draw 50% |
 
 Reports retain source, effective agent configuration, derived search seed and
 available search diagnostics. Search uses the configured time/iteration budget.
+Alpha-beta reports both the requested depth and the deepest fully completed
+iteration. The configured time limit can stop a search before that depth; the
+interface identifies this limit instead of presenting the reached depth as the
+agent's configured setting. Profile defaults apply when only a profile is
+selected, and explicit settings take precedence in both gameplay and analysis.
+Network-backed search loads the exact residual-block count saved in the model's
+validated architecture. Its search budget is separate from network depth.
 The advisor always suggests the most promising searched option, regardless of
 nonzero play-sampling temperature. Actual play retains its original sampling
 behavior. “Best” means best found within the selected agent's budget.
+
+Older saved `neural_value` reports remain unchanged and retain their original
+current-position value-head label. New `neural_search` reports reflect the same
+configured search used to select a move, including discovered terminal wins.
 
 ## Persistence and replay
 
@@ -64,8 +75,9 @@ creates historical evidence using newer or absent weights.
 
 An advisor model is a live reference just like a playing AI's model. Model
 deletion previews its unfinished games and requires the existing explicit
-discard flow. Completed games preserve their reports; starting a new branch or
-restarting requires that all referenced models remain available.
+discard flow. Completed games preserve their reports and cannot be restarted,
+including from earlier replay positions. Restarting an unfinished game or
+starting a new branch requires that all referenced models remain available.
 
 ## Statistics across seeds
 

@@ -46,6 +46,7 @@ TRAINING_FIELDS = {
     "dirichlet_fraction",
     "replay_buffer_size",
     "weight_decay",
+    "momentum",
     "checkpoint_frequency",
     "evaluation_frequency",
     "evaluation_games",

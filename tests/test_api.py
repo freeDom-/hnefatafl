@@ -250,9 +250,11 @@ def test_training_rejects_arbitrary_filesystem_config(client):
     assert client.get("/api/training/jobs/../secret").status_code == 404
 
 
-def wait_job(client, job, seconds=30):
+def wait_job(client, job, seconds=90):
     import time
 
+    # Include cold PyTorch/Optuna process startup on shared runners. The actual
+    # training/search budgets stay tiny, and health checks still run throughout.
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         job = client.get(f"/api/training/jobs/{job['id']}").json()

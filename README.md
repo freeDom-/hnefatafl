@@ -21,7 +21,7 @@ using real self-play learning.
 - Light/dark/wood/device appearance, independent board themes, Viking figures and carved-wood tokens.
 - Training workshop and CLI: actual PyTorch self-play updates, evaluation, safe model
   import/export, cancellation, exact CPU checkpoint resumption and Optuna studies.
-- Reviewed UI resumption from a job's full checkpoint with an editable total iteration target.
+- Reviewed UI resumption with editable total iterations, learning rate, weight decay and SGD momentum.
 - Board-specific training plans, live learning graphs and optional retention of every new best model.
 - Model renaming, reusable recorded training settings and independent training-data cleanup.
 - Remote API workers with simultaneous training slots, retained progress and automatic model transfer.
@@ -65,7 +65,8 @@ The server validates every move and rejects stale concurrent updates.
 Delete a game after confirmation to remove its moves/result and recalculate statistics.
 The page also contains profiles and replay. Viewing
 an earlier move preserves the recorded result and future moves; making a different
-move branches the local history. Restart creates a new game, preserving the old one.
+move branches the local history. Restart creates a new game from an unfinished
+record, preserving the old one. Completed games cannot restart, even during replay.
 
 Both statistics tables have sortable column headers. Search **Filter players** in
 the performance table or **Filter recorded games** in history independently.

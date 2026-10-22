@@ -111,7 +111,7 @@ replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
 | `ruleset` | `brandubh`, `tablut`, `copenhagen` |
 | `channels`, `blocks` | Residual architecture width (4–128) and depth (0–8) |
 | `games`, `iterations`, `epochs` | Games per iteration, total iterations, optimization epochs |
-| `batch_size`, `learning_rate`, `optimizer` | Optimization settings |
+| `batch_size`, `learning_rate`, `optimizer`, `momentum` | Optimization settings; momentum applies to SGD (0–1, default 0.9) |
 | `mcts_iterations`, `mcts_time_limit`, `exploration` | Search simulation/time budget and PUCT constant |
 | `temperature`, `dirichlet_alpha`, `dirichlet_fraction` | Self-play action and root exploration |
 | `replay_buffer_size`, `weight_decay` | Replay capacity and regularization |
@@ -162,8 +162,10 @@ minibatch, though previous atomic checkpoints remain.
 In the workshop, select a stopped or completed job and choose **Resume from
 checkpoint**. The dialog validates its full `last.pt`, shows the saved completed
 iteration, ruleset, network and optimizer, and lets you choose **Target total
-iterations**. The target must exceed the saved completed iteration. The other
-training settings come from the checkpoint rather than the current form.
+iterations**. The target must exceed the saved completed iteration. Learning rate,
+weight decay and SGD momentum are prefilled from the saved optimizer and can be
+changed before continuing. Momentum does not apply to Adam or AdamW. Other training
+settings come from the checkpoint rather than the current form.
 
 Model cards linked to a retained source job also offer **Resume training**.
 This continues that job's **latest full checkpoint**, which may be later than
@@ -174,6 +176,8 @@ available for play but cannot restore optimizer/replay/random state.
 Resumption starts a new job/output directory and preserves the original run.
 The API uses `GET /api/training/jobs/{id}/resume` for reviewed checkpoint metadata
 and `POST` to the same route with `{ "iterations": <target total> }` to continue.
+Optional `learning_rate` (0.0000001–1), `weight_decay` (0–1) and `momentum` (0–1)
+override those settings for the new job, on both local and remote workers.
 It never accepts an arbitrary client checkpoint path or an architecture override.
 
 To resume, keep the same ruleset, architecture and optimizer and increase
@@ -187,8 +191,10 @@ iteration count, not the number of additional iterations:
 The default tests verify resumed weights exactly match an uninterrupted CPU run
 with the same settings. Hardware-dependent numerical determinism is not
 guaranteed across CUDA versions or different devices. When a config explicitly
-sets a learning rate, it overrides the restored optimizer rate; otherwise the
-restored optimizer state is retained.
+sets `learning_rate`, `weight_decay` or SGD `momentum`, it overrides that setting
+after restoring the optimizer. Accumulated optimizer moments, momentum buffers,
+replay, random state and learning history are retained. Unspecified optimizer
+settings keep their effective checkpoint values.
 
 The full `last.pt` also carries a cloned best-model snapshot and its original
 metadata. Moving that one checkpoint to a new output directory preserves the

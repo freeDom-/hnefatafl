@@ -106,7 +106,7 @@ def test_terminal_analysis_is_exact_and_never_attempts_to_load_a_model(winner, v
     assert result == {"value": value, "source": "terminal", "best_move": None}
 
 
-def test_neural_analysis_uses_actual_root_value_head_from_validated_checkpoint(tmp_path):
+def test_neural_analysis_uses_searched_values_from_validated_checkpoint(tmp_path):
     model = PolicyValueNet("brandubh", channels=4, blocks=0)
     with torch.no_grad():
         for parameter in model.parameters():
@@ -124,10 +124,75 @@ def test_neural_analysis_uses_actual_root_value_head_from_validated_checkpoint(t
             "seed": 17,
         },
     )
-    assert result["source"] == "neural_value"
+    assert result["source"] == "neural_search"
     assert result["value"] == pytest.approx(0.6)
     assert result["simulations"] == 3
     assert Move(**result["best_move"]) in legal_moves(state)
+
+
+def test_profile_depth_defaults_and_explicit_overrides_match_play_and_analysis(monkeypatch):
+    profiles = ai.ai_profiles()
+    profile = next(profile for profile in profiles if profile["id"] == "alpha_beta")
+    profile["parameters"] = {"depth": 1, "time_limit": 15}
+    monkeypatch.setattr(ai, "ai_profiles", lambda: profiles)
+    state = new_game("brandubh")
+    choices = []
+    for explicit, expected_depth in (({}, 1), ({"depth": 2}, 2)):
+        configuration = {"profile_id": "alpha_beta", "seed": 0, **explicit}
+        diagnostics = {}
+        selected = ai.choose_move(state, configuration, diagnostics=diagnostics)
+        report = ai.analyze_position(state, configuration)
+        assert diagnostics["completed_depth"] == report["completed_depth"] == expected_depth
+        assert selected.to_dict() == report["best_move"]
+        assert report["value"] == diagnostics["value"]
+        assert configuration == {"profile_id": "alpha_beta", "seed": 0, **explicit}
+        choices.append(selected)
+    assert choices[0] != choices[1]
+
+
+@pytest.mark.parametrize("blocks", [0, 3])
+def test_neural_search_loads_saved_network_depth_and_reports_discovered_win(tmp_path, blocks):
+    model = PolicyValueNet("brandubh", channels=4, blocks=blocks)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+        model.value_head[-2].bias.fill_(math.atanh(-0.6))
+    path = save_checkpoint(tmp_path / "agent.pt", model, {})
+    board = ["."] * 49
+    board[1], board[24], board[8], board[48] = "K", "D", "A", "A"
+    state = State("brandubh", tuple(board), turn="defenders")
+    config = {"algorithm": "neural", "model_path": str(path), "iterations": 3, "seed": 8}
+    assert ai.policy_value(state, str(path))[1] == pytest.approx(-0.6)
+    assert ai._loaded_model(str(path)).blocks == blocks
+    report = ai.analyze_position(state, config)
+    selected = ai.choose_move(state, config)
+    assert apply_move(state, selected).winner == "defenders"
+    assert selected.to_dict() == report["best_move"]
+    assert report["source"] == "neural_search" and report["value"] == 1
+
+
+def test_neural_analysis_returns_completed_search_average_instead_of_unsearched_root(monkeypatch):
+    state = new_game("brandubh")
+    seen = []
+
+    def policy_value(position, *_args):
+        seen.append(position.ply)
+        moves = legal_moves(position)
+        return {move: 1 / len(moves) for move in moves}, -0.5 if position.ply == 0 else 0.6
+
+    monkeypatch.setattr(ai, "policy_value", policy_value)
+    configuration = {
+        "algorithm": "neural",
+        "_model": object(),
+        "iterations": 7,
+        "time_limit": 15,
+        "seed": 8,
+    }
+    report = ai.analyze_position(state, configuration)
+    assert report["simulations"] == 7
+    assert report["value"] == pytest.approx(0.6)
+    assert report["source"] == "neural_search"
+    assert len([ply for ply in seen if ply > 0]) >= 7
 
 
 def test_search_suggestion_ignores_play_sampling_temperature_without_mutating_it():

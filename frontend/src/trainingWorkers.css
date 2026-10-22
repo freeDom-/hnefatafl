@@ -1,4 +1,5 @@
 .training-workers {
+  padding: 25px;
   margin-bottom: 24px;
 }
 .training-workers .panel-title {
@@ -7,8 +8,11 @@
   align-items: flex-start;
 }
 .training-workers .panel-title p {
-  margin-top: 8px;
+  margin: 8px 0 0;
   line-height: 1.6;
+}
+.training-workers > .subtle {
+  margin: 18px 0 0;
 }
 .workers-list {
   display: grid;
@@ -43,7 +47,7 @@
 .worker-card p,
 .worker-card small {
   display: block;
-  margin-top: 9px;
+  margin: 9px 0 0;
   font-size: 11px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -78,4 +82,9 @@
 }
 .job-status.queued {
   background: var(--ui-tint, #edf3e4);
+}
+@media (max-width: 540px) {
+  .training-workers {
+    padding: 20px 16px;
+  }
 }

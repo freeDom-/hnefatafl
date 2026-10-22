@@ -55,6 +55,11 @@ def test_reviewed_job_resume_retains_full_state_and_separate_outputs(client, tmp
     assert info["can_resume"] is True
     assert info["completed_iteration"] == 1
     assert info["checkpoint"] == f"{first['id']}:last.pt"
+    assert (info["learning_rate"], info["weight_decay"], info["momentum"]) == (
+        0.001,
+        0.0001,
+        0.9,
+    )
     assert (info["ruleset"], info["channels"], info["blocks"], info["optimizer"]) == (
         "brandubh",
         4,
@@ -88,7 +93,71 @@ def test_reviewed_job_resume_retains_full_state_and_separate_outputs(client, tmp
         assert torch.equal(value, full_model.state_dict()[key]), key
 
 
-@pytest.mark.parametrize("checkpoint", ["missing", "corrupt", "inference"])
+def test_reviewed_resume_updates_optimizer_groups_with_validated_hyperparameters(client):
+    first = completed(
+        client,
+        client.post(
+            "/api/training/jobs",
+            json={
+                "preset": "smoke",
+                "device": "cpu",
+                "optimizer": "sgd",
+                "learning_rate": 0.002,
+                "weight_decay": 0.02,
+                "momentum": 0.7,
+                "seed": 29,
+            },
+        ),
+    )
+    route = f"/api/training/jobs/{first['id']}/resume"
+    root = client.app.state.data_dir
+    checkpoint_path = root / "jobs" / first["id"] / "last.pt"
+    _, old_checkpoint = load_checkpoint(checkpoint_path)
+    # Earlier versions had no momentum metadata and could record stale
+    # optimizer values after resuming. Prefill from the effective parameter group.
+    old_checkpoint["metadata"]["training_config"].pop("momentum")
+    old_checkpoint["metadata"]["training_config"]["learning_rate"] = 0.001
+    old_checkpoint["metadata"]["training_config"]["weight_decay"] = 0.0001
+    torch.save(old_checkpoint, checkpoint_path)
+    info = client.get(route).json()
+    assert (info["learning_rate"], info["weight_decay"], info["momentum"]) == (0.002, 0.02, 0.7)
+    for changes in (
+        {"learning_rate": 0},
+        {"learning_rate": True},
+        {"weight_decay": -1},
+        {"weight_decay": "0.1"},
+        {"momentum": 1.01},
+        {"momentum": None},
+        {"optimizer": "adamw"},
+    ):
+        response = client.post(route, json={"iterations": 2, **changes})
+        assert response.status_code == 400, response.text
+    assert len(client.get("/api/training/jobs").json()) == 1
+    changes = {"learning_rate": 0.0004, "weight_decay": 0.005, "momentum": 0.4}
+    resumed = completed(client, client.post(route, json={"iterations": 2, **changes}))
+    assert resumed["config"]["seed"] == 29
+    assert resumed["config"]["optimizer"] == "sgd"
+    assert [point["iteration"] for point in resumed["progress"]["history"]] == [1, 2]
+    _, checkpoint = load_checkpoint(root / "jobs" / resumed["id"] / "last.pt")
+    group = checkpoint["optimizer_state"]["param_groups"][0]
+    assert (group["lr"], group["weight_decay"], group["momentum"]) == (0.0004, 0.005, 0.4)
+    for name, value in changes.items():
+        assert checkpoint["metadata"]["training_config"][name] == value
+    assert checkpoint["extra"]["replay"]
+    assert resumed["progress"]["metrics"]["updates"] > 0
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        "missing",
+        "corrupt",
+        "inference",
+        "malformed_optimizer",
+        "malformed_groups",
+        "malformed_group",
+    ],
+)
 def test_resume_metadata_honestly_rejects_nonresumable_files(client, checkpoint):
     identifier = "a" * 32
     directory = client.app.state.data_dir / "jobs" / identifier
@@ -109,6 +178,20 @@ def test_resume_metadata_honestly_rejects_nonresumable_files(client, checkpoint)
         save_checkpoint(
             directory / "last.pt", PolicyValueNet("brandubh", 4, 0), {"name": "Inference"}
         )
+    elif checkpoint.startswith("malformed_"):
+        path = save_checkpoint(
+            directory / "last.pt",
+            PolicyValueNet("brandubh", 4, 0),
+            {"training_config": {"optimizer": "sgd"}},
+            extra={"iteration": 1, "replay": [], "python_rng": [], "torch_rng": torch.tensor([])},
+        )
+        _, payload = load_checkpoint(path)
+        payload["optimizer_state"] = {
+            "malformed_optimizer": [],
+            "malformed_groups": {"param_groups": "invalid"},
+            "malformed_group": {"param_groups": ["invalid"]},
+        }[checkpoint]
+        torch.save(payload, path)
     route = f"/api/training/jobs/{identifier}/resume"
     response = client.get(route)
     assert response.status_code == 200

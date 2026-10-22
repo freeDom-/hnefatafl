@@ -435,18 +435,20 @@ export default function App() {
                         ? t('A new saga is one move away.')
                         : t('Move in straight lines. Capture by surrounding.')}
                     </span>
-                    <button
-                      className="icon-button"
-                      aria-label={t('Restart game')}
-                      title={t('Restart')}
-                      onClick={() => {
-                        setPaused(true);
-                        void action('restart');
-                      }}
-                      disabled={busy}
-                    >
-                      ⟲
-                    </button>
+                    {!game.winner && !game.recorded_winner && (
+                      <button
+                        className="icon-button"
+                        aria-label={t('Restart game')}
+                        title={t('Restart')}
+                        onClick={() => {
+                          setPaused(true);
+                          void action('restart');
+                        }}
+                        disabled={busy}
+                      >
+                        ⟲
+                      </button>
+                    )}
                   </div>
                   {game.mode !== 'human-human' && (
                     <div className="playback">

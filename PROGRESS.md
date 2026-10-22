@@ -149,3 +149,21 @@ formats. Workers use outbound HTTP(S); private networking or a restricted HTTPS
 proxy remains necessary for the existing administrative APIs. Remote Optuna,
 automatic GPU allocation and cross-machine optimization of a single model are
 outside this milestone. See `docs/REMOTE_TRAINING.md` for setup and lifecycle.
+
+## Adjustable resumption and faithful agent evaluations (`v0.13.0`)
+
+- [x] Prefill optimizer settings from effective checkpoint parameter groups
+- [x] Edit learning rate, weight decay and SGD momentum when resuming locally or remotely
+- [x] Restore accumulated optimizer buffers before applying reviewed overrides
+- [x] Preserve source checkpoints, replay, random state and retained learning history
+- [x] Share profile defaults and explicit agent settings between play and analysis
+- [x] Report searched neural values and distinguish requested/completed alpha-beta depth
+- [x] Verify exact saved model architecture and independent configured agent depths
+- [x] Hide Restart for completed records and reject the API action even during replay
+- [x] Fix remote-worker panel/card spacing on desktop and mobile, including German
+- [x] Verify 369 backend cases, 101 frontend unit tests and 30 real-API browser checks
+
+Schema 6 and checkpoint formats remain unchanged. Momentum applies to SGD;
+Adam/AdamW retain their saved moments. Previous immutable analysis reports retain
+their original values and source labels. Time limits still bound search, and
+agent estimates do not establish calibrated winning probabilities or model strength.

@@ -29,6 +29,13 @@
   color: var(--muted);
   line-height: 1.6;
 }
+.resume-optimizer-settings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 20px 0 24px;
+}
+.resume-optimizer-settings label:last-child {
+  grid-column: 1 / -1;
+}
 .model-card .model-training-seed {
   display: flex;
   flex-wrap: wrap;

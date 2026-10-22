@@ -279,7 +279,10 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
     for kind, path in zip(("checkpoint", "inference"), artifacts):
         assert upload(client, headers, lease, kind, path).status_code == 200
     assert finish(client, headers, lease).status_code == 200
-    next_job = client.post(f"/api/training/jobs/{job['id']}/resume", json={"iterations": 2})
+    next_job = client.post(
+        f"/api/training/jobs/{job['id']}/resume",
+        json={"iterations": 2, "learning_rate": 0.0002, "weight_decay": 0.02},
+    )
     assert next_job.status_code == 201, next_job.text
     assert next_job.json()["execution"] == "remote"
     assert next_job.json()["target_worker_id"] == remote["id"]
@@ -307,6 +310,10 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
     assert client.delete(f"/api/training/jobs/{job['id']}").status_code == 200
     resumed = claim(client, headers, "resume-next")
     assert resumed["resume_available"]
+    assert resumed["config"]["learning_rate"] == 0.0002
+    assert resumed["config"]["weight_decay"] == 0.02
+    assert resumed["config"]["seed"] == job["config"]["seed"]
+    assert resumed["config"]["channels"] == job["config"]["channels"]
     downloaded = client.get(
         f"/api/worker/jobs/{resumed['id']}/resume",
         headers={**headers, "X-Lease-Token": resumed["lease_token"]},

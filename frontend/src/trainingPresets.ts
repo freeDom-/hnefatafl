@@ -17,6 +17,7 @@ const base: TrainingConfig = {
   exploration: 1.4,
   replay_buffer_size: 5000,
   weight_decay: 0.0001,
+  momentum: 0.9,
   checkpoint_frequency: 1,
   evaluation_frequency: 1,
   evaluation_games: 2,

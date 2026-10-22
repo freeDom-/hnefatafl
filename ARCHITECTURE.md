@@ -93,6 +93,8 @@ the base with the ply. Explicit game seeds support reproducible requests. Restar
 always creates a fresh seed, and legacy records retain their original semantics.
 Game deletion uses an expected version and removes the source record; statistics
 are derived from retained records, so all counts/rates update without cached totals.
+Restart is restricted to unfinished records, using the retained final outcome
+independently of the current replay cursor. Both UI and API enforce this rule.
 
 Model deletion previews every unfinished reference on the server rather than only
 the browser's current game. Discarding those games requires an explicit opt-in and
@@ -131,6 +133,9 @@ snapshots identify earlier games whose supplied aliases were stale. Training
 resumption uses an explicit job checkpoint metadata route and server-derived
 configuration, then creates a new worker/output directory for the chosen total
 iteration target. The UI never reconstructs a resume request from arbitrary paths.
+Resume metadata reads effective learning rate, weight decay and SGD momentum from
+saved optimizer parameter groups. Reviewed overrides apply after optimizer-state
+restoration on local and remote workers; accumulated buffers remain intact.
 
 Model renames atomically update registry presentation metadata without touching
 content-addressed checkpoint bytes, IDs, runes or historical name snapshots.

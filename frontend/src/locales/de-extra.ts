@@ -17,10 +17,14 @@ const translations: Record<string, string> = {
   'Heuristic estimate': 'Heuristische Einschätzung',
   'MCTS rollouts': 'MCTS-Simulationen',
   'Neural value head': 'Neuronale Stellungsbewertung',
+  'Neural search estimate': 'Neuronale Sucheinschätzung',
   'Exact outcome': 'Feststehendes Ergebnis',
   Unavailable: 'Nicht verfügbar',
   '{count} simulations': '{count} Simulationen',
   'depth {depth}': 'Tiefe {depth}',
+  'depth {completed} / {requested}': 'Tiefe {completed} / {requested}',
+  'The time limit was reached before the configured depth finished.':
+    'Das Zeitlimit wurde erreicht, bevor die eingestellte Suchtiefe abgeschlossen war.',
   'The model is no longer available. Saved evaluations remain in replay.':
     'Das Modell ist nicht mehr verfügbar. Gespeicherte Bewertungen bleiben in der Wiederholung erhalten.',
   'This agent could not evaluate the position.': 'Dieser Agent konnte die Stellung nicht bewerten.',

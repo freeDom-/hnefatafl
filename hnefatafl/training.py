@@ -52,6 +52,7 @@ DEFAULTS = {
     "dirichlet_fraction": 0.25,
     "replay_buffer_size": 5000,
     "weight_decay": 0.0001,
+    "momentum": 0.9,
     "checkpoint_frequency": 1,
     "evaluation_frequency": 1,
     "evaluation_games": 2,
@@ -138,6 +139,7 @@ def normalize_config(configuration: dict) -> dict:
     for key, minimum, maximum in (
         ("learning_rate", 1e-7, 1.0),
         ("weight_decay", 0.0, 1.0),
+        ("momentum", 0.0, 1.0),
         ("exploration", 0.0, 20.0),
         ("temperature", 0.01, 10.0),
         ("dirichlet_alpha", 0.001, 100.0),
@@ -312,7 +314,7 @@ def evaluate_model(
 def _make_optimizer(model: PolicyValueNet, config: dict):
     arguments = {"lr": config["learning_rate"], "weight_decay": config["weight_decay"]}
     if config["optimizer"] == "sgd":
-        return torch.optim.SGD(model.parameters(), momentum=0.9, **arguments)
+        return torch.optim.SGD(model.parameters(), momentum=config["momentum"], **arguments)
     if config["optimizer"] == "adam":
         return torch.optim.Adam(model.parameters(), **arguments)
     return torch.optim.AdamW(model.parameters(), **arguments)
@@ -365,10 +367,18 @@ def train(
         if payload.get("optimizer_state") is None:
             raise ValueError("This checkpoint has no optimizer state and cannot resume training")
         optimizer.load_state_dict(payload["optimizer_state"])
-        # Explicit requested learning rate wins, otherwise keep the restored one.
-        if "learning_rate" in configuration:
+        # Loading optimizer state restores its parameter groups too. Apply each
+        # explicit override afterwards, while preserving accumulated moments and
+        # momentum buffers. Record the effective values even for older snapshots
+        # whose metadata did not reflect their restored optimizer settings.
+        settings = {"learning_rate": "lr", "weight_decay": "weight_decay"}
+        if config["optimizer"] == "sgd":
+            settings["momentum"] = "momentum"
+        for name, parameter in settings.items():
             for group in optimizer.param_groups:
-                group["lr"] = config["learning_rate"]
+                if name in configuration:
+                    group[parameter] = config[name]
+            config[name] = float(optimizer.param_groups[0][parameter])
         extra = payload.get("extra", {})
         history = extra.get("history", [])
         best_models = extra.get("best_models", [])

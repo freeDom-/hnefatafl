@@ -18,7 +18,13 @@ export interface AgentEvaluation {
   profile_name?: string;
   model_name?: string;
   config: Config;
-  source: 'heuristic' | 'mcts_rollout' | 'neural_value' | 'terminal' | 'unavailable';
+  source:
+    | 'heuristic'
+    | 'mcts_rollout'
+    | 'neural_value'
+    | 'neural_search'
+    | 'terminal'
+    | 'unavailable';
   win_probability: number | null;
   estimated: boolean;
   calibrated: boolean;

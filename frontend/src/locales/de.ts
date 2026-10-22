@@ -11,6 +11,8 @@ const translations: Record<string, string> = {
   "It is the computer's turn.": 'Der Computer ist am Zug.',
   "It is a human player's turn.": 'Ein menschlicher Spieler ist am Zug.',
   'The game is already finished.': 'Diese Partie ist bereits beendet.',
+  'Completed games cannot be restarted. Start a new game instead.':
+    'Abgeschlossene Partien können nicht neu gestartet werden. Beginne eine neue Partie.',
   'This move is outside the recorded game.': 'Dieser Zug liegt außerhalb der gespeicherten Partie.',
   'There is no move to undo.': 'Es gibt keinen Zug zum Zurücknehmen.',
   'There is no move to redo.': 'Es gibt keinen Zug zum Wiederholen.',

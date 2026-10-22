@@ -98,6 +98,46 @@ def test_both_agents_report_actual_sources_and_current_players_perspective(clien
     assert analyze(client, saved) == report
 
 
+def test_saved_agents_keep_their_own_depth_for_both_actual_play_and_estimates(client, monkeypatch):
+    game = create(
+        client,
+        mode="ai-ai",
+        players={
+            side: {
+                "name": f"Jarl {depth}",
+                "profile_id": "alpha_beta",
+                "config": {"depth": depth, "time_limit": 15},
+            }
+            for side, depth in (("attackers", 1), ("defenders", 2))
+        },
+    )
+    path = f"/api/games/{game['id']}"
+    game = client.get(path).json()
+    report = analyze(client, game)
+    assert [entry["config"]["depth"] for entry in report["evaluations"]] == [1, 2]
+    assert [entry["completed_depth"] for entry in report["evaluations"]] == [1, 2]
+    selected_depths = []
+    original = ai.choose_move
+
+    def choose_at_saved_depth(state, config):
+        selected_depths.append((state.turn, config["depth"]))
+        return original(state, config)
+
+    monkeypatch.setattr(ai, "choose_move", choose_at_saved_depth)
+    attacker_move = client.post(path + "/ai-move", json={"version": game["version"]})
+    assert attacker_move.status_code == 200, attacker_move.text
+    game = attacker_move.json()
+    assert game["moves"][0]["source"] == report["evaluations"][0]["best_move"]["source"]
+    assert game["moves"][0]["target"] == report["evaluations"][0]["best_move"]["target"]
+    defender_move = client.post(path + "/ai-move", json={"version": game["version"]})
+    assert defender_move.status_code == 200, defender_move.text
+    assert selected_depths == [("attackers", 1), ("defenders", 2)]
+    assert [
+        defender_move.json()["players"][side]["config"]["depth"]
+        for side in ("attackers", "defenders")
+    ] == [1, 2]
+
+
 def test_advisor_moves_are_legal_and_reports_survive_replay_and_server_restart(client, tmp_path):
     game = create(
         client,
@@ -183,7 +223,7 @@ def test_advisor_model_is_protected_and_discard_removes_its_analysis(client, tmp
         },
     )
     report = analyze(client, game)
-    assert report["evaluations"][0]["source"] == "neural_value"
+    assert report["evaluations"][0]["source"] == "neural_search"
     assert report["evaluations"][0]["model_name"] == "Hugin"
     assert report["hint"]["move"] in game["legal_moves"]
     path = f"/api/models/{registered['id']}"

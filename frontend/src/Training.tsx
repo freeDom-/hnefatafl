@@ -704,6 +704,8 @@ export default function Training({
                   20000,
                 )}
                 {numberField('weight_decay', 'Weight regularization', config, update, 0, 1, 0.0001)}
+                {config.optimizer === 'sgd' &&
+                  numberField('momentum', 'Momentum', config, update, 0, 1, 0.01)}
                 {numberField(
                   'checkpoint_frequency',
                   'Checkpoint every (iterations)',

@@ -344,10 +344,33 @@ def mcts_policy(
     return {move: child.visits / total for move, child in root.children.items()}
 
 
+def _profile_configuration(config: dict | None) -> dict:
+    """Apply a selected profile's defaults without replacing explicit settings.
+
+    HTTP sessions already retain resolved configurations. Direct API, CLI and
+    experiment callers can instead select only a profile; they must search with
+    the same parameters as a game created through the browser.
+    """
+    configuration = dict(config or {})
+    if "algorithm" not in configuration and configuration.get("profile_id"):
+        profile = next(
+            (profile for profile in ai_profiles() if profile["id"] == configuration["profile_id"]),
+            None,
+        )
+        if profile is None:
+            raise ValueError(f"Unknown AI profile: {configuration['profile_id']}")
+        configuration = {
+            **profile["parameters"],
+            **configuration,
+            "algorithm": profile["algorithm"],
+        }
+    return configuration
+
+
 def choose_move(
     state: State, config: dict | None = None, *, diagnostics: dict | None = None
 ) -> Move:
-    config = dict(config or {})
+    config = _profile_configuration(config)
     moves = legal_moves(state)
     if state.winner or not moves:
         raise ValueError("Cannot choose a move in a terminal position")
@@ -397,7 +420,7 @@ def analyze_position(state: State, config: dict | None = None) -> dict:
     win, -1 an attacker win, and a rule draw is zero. A linear conversion to a
     percentage estimates expected score (draws half), not a calibrated frequency
     of wins. Traditional MCTS averages terminal/heuristic rollout leaves; a
-    neural-search agent reports its current-position value head. Alpha-beta
+    neural-search agent averages its backed-up neural/terminal leaf values. Alpha-beta
     reports its last completed minimax depth using its heuristic or neural leaf
     evaluator, falling back to its root evaluator if its deadline expires before
     completing depth one.
@@ -408,7 +431,7 @@ def analyze_position(state: State, config: dict | None = None) -> dict:
     """
     if state.winner:
         return {"value": evaluate(state), "source": "terminal", "best_move": None}
-    configuration = dict(config or {})
+    configuration = _profile_configuration(config)
     configuration["temperature"] = 0
     details: dict = {}
     move = choose_move(state, configuration, diagnostics=details)
@@ -417,9 +440,9 @@ def analyze_position(state: State, config: dict | None = None) -> dict:
         bool(configuration.get("model_path")) or configuration.get("_model") is not None
     )
     source = (
-        "neural_value" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
+        "neural_search" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
     )
-    value = details["root_value"] if model_backed and "root_value" in details else details["value"]
+    value = details["value"]
     if not math.isfinite(value) or not -1 <= value <= 1:
         raise ValueError("Agent evaluation must be finite and between -1 and 1")
     result = {"value": value, "source": source, "best_move": move.to_dict()}

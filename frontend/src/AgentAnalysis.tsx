@@ -72,6 +72,7 @@ export default function AgentAnalysis({
     heuristic: t('Heuristic estimate'),
     mcts_rollout: t('MCTS rollouts'),
     neural_value: t('Neural value head'),
+    neural_search: t('Neural search estimate'),
     terminal: t('Exact outcome'),
     unavailable: t('Unavailable'),
   };
@@ -139,9 +140,23 @@ export default function AgentAnalysis({
                 ? ` · ${t('{count} simulations', { count: agent.simulations })}`
                 : ''}
               {agent.completed_depth !== undefined
-                ? ` · ${t('depth {depth}', { depth: agent.completed_depth })}`
+                ? ` · ${
+                    agent.config.algorithm === 'alpha_beta' && agent.config.depth !== undefined
+                      ? t('depth {completed} / {requested}', {
+                          completed: agent.completed_depth,
+                          requested: Number(agent.config.depth),
+                        })
+                      : t('depth {depth}', { depth: agent.completed_depth })
+                  }`
                 : ''}
             </small>
+            {agent.config.algorithm === 'alpha_beta' &&
+              agent.completed_depth !== undefined &&
+              agent.completed_depth < Number(agent.config.depth) && (
+                <p className="subtle">
+                  {t('The time limit was reached before the configured depth finished.')}
+                </p>
+              )}
             {agent.unavailable_reason && (
               <p className="subtle">
                 {agent.unavailable_reason === 'model_unavailable'
