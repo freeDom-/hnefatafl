@@ -2,10 +2,10 @@
 
 [Validation index](../VALIDATION.md) · [Security architecture](../SECURITY.md) · [Operator guide](../DEPLOYMENT.md)
 
-This records the implementation checks performed before preparing v0.22.0. Historical
+This records the implementation checks performed before preparing 0.22.0. Historical
 release notes retain their original evidence. No target Proxmox installation was
 performed. Publication and version metadata are covered in the
-[v0.22.0 release notes](../releases/v0.22.0.md).
+[0.22.0 release notes](../releases/v0.22.0.md).
 
 ## 1. Completed features
 
@@ -206,7 +206,7 @@ For dedicated Debian 13 amd64/arm64 Linux:
 ```sh
 bash scripts/linux/install.sh
 # Optional selected stable release:
-# bash scripts/linux/install.sh --version vX.Y.Z
+# bash scripts/linux/install.sh --version X.Y.Z
 ```
 
 Production requires a matching published stable asset, HTTPS origin and explicit
@@ -222,7 +222,7 @@ From any directory, as root:
 hnefatafl-update --check
 hnefatafl-update --list
 hnefatafl-update
-hnefatafl-update --version vX.Y.Z
+hnefatafl-update --version X.Y.Z
 hnefatafl-backup
 hnefatafl-update --rollback
 hnefatafl-update --recover
@@ -230,7 +230,7 @@ systemctl status hnefatafl
 journalctl -u hnefatafl -f
 ```
 
-The updater selects published stable vX.Y.Z metadata, verifies GitHub asset SHA-256,
+The updater selects published stable X.Y.Z metadata, verifies GitHub asset SHA-256,
 bounds extraction, builds separately with lockfiles, validates configuration and
 runs security checks before interrupting service. An exclusive operation lock and
 HTTP mutation gate prevent concurrent activation and training-start races. Active

@@ -33,15 +33,15 @@ or claim strength without a documented evaluation budget and results.
 
 ## Production updater assets
 
-Production installs accept published stable **vX.Y.Z** releases, with neither draft
+Production installs accept published stable **X.Y.Z** releases, with neither draft
 nor prerelease flags. The tag must match `pyproject.toml`. Older preview tags and
 GitHub automatic source archives are not production installation inputs.
 After committing, validating and tagging a secure deployment release:
 
 ```sh
 .venv/bin/python scripts/package_release.py
-gh release create vX.Y.Z work/releases/hnefatafl-vX.Y.Z.tar.gz \
-  --verify-tag --title 'vX.Y.Z' --notes-file docs/releases/vX.Y.Z.md
+gh release create X.Y.Z work/releases/hnefatafl-X.Y.Z.tar.gz \
+  --verify-tag --title 'X.Y.Z' --notes-file docs/releases/vX.Y.Z.md
 ```
 
 Replace X.Y.Z consistently. Packaging refuses dirty checkouts and includes only
@@ -50,3 +50,16 @@ asset API must report its SHA-256 digest; the updater verifies it before extract
 The release must include authentication, lockfiles, security tests, frontend and
 systemd template. A tag alone is insufficient. Neither installer nor updater
 publishes a release.
+
+Alternatively, after pushing the annotated tag, publish through the manually
+triggered [release workflow](../.github/workflows/release.yml):
+
+```sh
+gh workflow run release.yml --ref main -f tag=X.Y.Z
+```
+
+The workflow requires a matching project version and successful `Verify` CI on
+`main` for the tagged commit, packages that exact clean source, publishes a stable
+release and verifies GitHub's asset digest. It uses runner credentials, including
+when local credentials cannot upload to `uploads.github.com`. Existing releases
+and assets are not overwritten. Check the workflow result before installation.

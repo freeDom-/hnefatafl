@@ -22,9 +22,9 @@ reload server publicly. `.env` is not loaded automatically.
 
 ## Release prerequisites
 
-Production installations download published stable **vX.Y.Z** GitHub releases,
+Production installations download published stable **X.Y.Z** GitHub releases,
 ignoring drafts/prereleases. A compatible release must publish
-`hnefatafl-vX.Y.Z.tar.gz`, containing the repository files at the archive root.
+`hnefatafl-X.Y.Z.tar.gz`, containing the repository files at the archive root.
 GitHub's release asset API must report its SHA-256 digest. The updater verifies
 this digest, bounds extraction and rejects links, devices, traversal and privileged
 modes. Automatic GitHub source archives and older releases lacking authentication
@@ -77,7 +77,7 @@ Run this on a dedicated Debian 13 amd64/arm64 system as root:
 cd /path/to/reviewed/hnefatafl
 bash scripts/linux/install.sh
 # To select a published stable release:
-# bash scripts/linux/install.sh --version vX.Y.Z
+# bash scripts/linux/install.sh --version X.Y.Z
 ```
 
 It installs Python/venv/compiler/CPU runtime dependencies, pinned uv, and the latest
@@ -97,7 +97,7 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 
 | Location | Contents |
 | --- | --- |
-| `/opt/hnefatafl/releases/vX.Y.Z-<id>` | Replaceable code, frozen venv and frontend build |
+| `/opt/hnefatafl/releases/X.Y.Z-<id>` | Replaceable code, frozen venv and frontend build |
 | `/opt/hnefatafl/current` | Atomically switched active release symlink |
 | `/opt/hnefatafl/tools` | Root-owned uv and Node build tools |
 | `/etc/hnefatafl/application.env` | Root-only production configuration, read by systemd |
@@ -195,7 +195,7 @@ As root, from any working directory:
 hnefatafl-update --check
 hnefatafl-update --list
 hnefatafl-update
-hnefatafl-update --version vX.Y.Z
+hnefatafl-update --version X.Y.Z
 hnefatafl-backup
 ```
 

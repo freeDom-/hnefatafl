@@ -38,20 +38,21 @@ def test_stable_release_selection_pagination_and_versions(monkeypatch):
     values = [
         {"tag_name": tag, "draft": draft, "prerelease": pre, "published_at": published}
         for tag, draft, pre, published in [
-            ("v1.9.0", False, False, "date"),
-            ("v1.10.0", False, False, "date"),
-            ("v2.0.0", True, False, "date"),
-            ("v3.0.0", False, True, "date"),
-            ("v4.0.0", False, False, None),
-            ("v2.0.0-rc1", False, False, "date"),
+            ("1.9.0", False, False, "date"),
+            ("1.10.0", False, False, "date"),
+            ("2.0.0", True, False, "date"),
+            ("3.0.0", False, True, "date"),
+            ("4.0.0", False, False, None),
+            ("2.0.0-rc1", False, False, "date"),
+            ("v9.0.0", False, False, "date"),
         ]
     ]
     monkeypatch.setattr(github, "fetch", lambda *a, **k: json.dumps(values).encode())
-    assert [r["tag_name"] for r in github.releases()] == ["v1.10.0", "v1.9.0"]
-    for invalid in ("main", "../../etc", "v01.0.0", "1.2.3", "v1.2.3-rc1"):
+    assert [r["tag_name"] for r in github.releases()] == ["1.10.0", "1.9.0"]
+    for invalid in ("main", "../../etc", "01.0.0", "v1.2.3", "1.2.3-rc1"):
         with pytest.raises(ValueError):
             version_key(invalid)
-    assert version_key("v1.10.0") > version_key("v1.9.0")
+    assert version_key("1.10.0") > version_key("1.9.0")
     assert repository("https://github.com/owner/repo.git") == "owner/repo"
     with pytest.raises(ValueError):
         repository("https://token@evil.test/repo")
@@ -68,13 +69,13 @@ def test_release_asset_requires_integrity_and_does_not_leak_token(tmp_path, monk
         github.fetch("https://api.github.com/repos/owner/repo/releases")
     assert "secret-fixture-token" not in str(error.value)
     with pytest.raises(ValueError, match="must publish"):
-        github.download({"tag_name": "v1.0.0"}, tmp_path / "archive")
+        github.download({"tag_name": "1.0.0"}, tmp_path / "archive")
     release = {
-        "tag_name": "v1.0.0",
+        "tag_name": "1.0.0",
         "assets": [
             {
                 "id": 1,
-                "name": "hnefatafl-v1.0.0.tar.gz",
+                "name": "hnefatafl-1.0.0.tar.gz",
                 "state": "uploaded",
                 "digest": "sha256:" + "0" * 64,
             }
@@ -137,7 +138,7 @@ class DisposableDeployment(Deployment):
         (self.etc / "application.env").write_text(
             "HNEFATAFL_ENV=production\nHNEFATAFL_PUBLIC_URL=https://example.test\nHNEFATAFL_PORT=8000\nHNEFATAFL_ALLOWED_HOSTS=example.test\nHNEFATAFL_TRUSTED_PROXIES=10.0.0.2\n"
         )
-        self.old = self.release("v1.0.0")
+        self.old = self.release("1.0.0")
         self.activate(self.old)
 
     def release(self, tag):
@@ -176,7 +177,7 @@ def deployment(tmp_path):
 
 @pytest.mark.parametrize("failure", ["migration", "health", "interrupt"])
 def test_failed_or_interrupted_activation_recovers_matching_data_and_release(deployment, failure):
-    target = deployment.release("v2.0.0")
+    target = deployment.release("2.0.0")
     deployment.failure = failure
     with pytest.raises((subprocess.CalledProcessError, ValueError, KeyboardInterrupt)):
         deployment.deploy(target)
@@ -188,10 +189,10 @@ def test_failed_or_interrupted_activation_recovers_matching_data_and_release(dep
 
 
 def test_success_rollback_preserves_new_account_security_state_and_invalidates_sessions(deployment):
-    target = deployment.release("v2.0.0")
+    target = deployment.release("2.0.0")
     deployment.deploy(target)
     assert deployment.current.resolve() == target
-    assert json.loads(deployment.state.read_text())["version"] == "v2.0.0"
+    assert json.loads(deployment.state.read_text())["version"] == "2.0.0"
     original = deployment.auth.account(deployment.admin["id"])["password_hash"]
     deployment.auth.update_account(
         deployment.admin["id"], password="new-deployment-fixture-password"
@@ -225,7 +226,7 @@ def test_active_training_prevents_service_interruption(deployment, status):
     deployment.store.save_job({"id": "active", "created_at": "now", "status": status})
     assert active_jobs(deployment.data)
     with pytest.raises(ValueError, match="Active/queued"):
-        deployment.deploy(deployment.release("v2.0.0"))
+        deployment.deploy(deployment.release("2.0.0"))
     assert deployment.actions == []
     assert deployment.current.resolve() == deployment.old
 
@@ -259,7 +260,7 @@ def test_failed_build_never_changes_running_release_or_data(
 
     monkeypatch.setattr(deployment, "run", fail)
     with pytest.raises((FileNotFoundError, subprocess.CalledProcessError)):
-        deployment.prepare(SimpleNamespace(download=download), {"tag_name": "v2.0.0"})
+        deployment.prepare(SimpleNamespace(download=download), {"tag_name": "2.0.0"})
     assert deployment.current.resolve() == deployment.old
     assert deployment.actions == []
     assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
@@ -287,7 +288,7 @@ def test_shell_syntax_and_deployment_files():
 
 def test_fresh_activation_and_recover_of_committed_release_is_noop(deployment):
     deployment.current.unlink()
-    target = deployment.release("v2.0.0")
+    target = deployment.release("2.0.0")
     deployment.deploy(target, initialize=True)
     assert deployment.current.resolve() == target
     assert any(isinstance(action, list) and "init-admin" in action for action in deployment.actions)
@@ -300,24 +301,24 @@ def test_fresh_activation_and_recover_of_committed_release_is_noop(deployment):
 
 def test_interrupted_recovery_records_restored_version(deployment):
     backup = deployment.snapshot()
-    target = deployment.release("v2.0.0")
+    target = deployment.release("2.0.0")
     deployment.activate(target)
-    atomic_json(deployment.state, {"version": "v2.0.0"})
+    atomic_json(deployment.state, {"version": "2.0.0"})
     atomic_json(
         deployment.journal,
         {"phase": "activated", "previous": str(deployment.old), "backup": str(backup)},
     )
     deployment.recover()
     assert deployment.current.resolve() == deployment.old
-    assert json.loads(deployment.state.read_text())["version"] == "v1.0.0"
+    assert json.loads(deployment.state.read_text())["version"] == "1.0.0"
 
 
 def test_no_release_current_and_explicit_stable_selection():
-    releases = [{"tag_name": "v2.0.0"}, {"tag_name": "v1.10.0"}]
+    releases = [{"tag_name": "2.0.0"}, {"tag_name": "1.10.0"}]
     with pytest.raises(ValueError, match="No published stable"):
         select_release([], None)
-    assert select_release(releases, "v2.0.0")[1] is False
-    assert select_release(releases, "v1.10.0")[1] is True
-    assert select_release(releases, None, "v1.10.0")[0]["tag_name"] == "v1.10.0"
+    assert select_release(releases, "2.0.0")[1] is False
+    assert select_release(releases, "1.10.0")[1] is True
+    assert select_release(releases, None, "1.10.0")[0]["tag_name"] == "1.10.0"
     with pytest.raises(ValueError, match="not a published stable"):
-        select_release(releases, None, "v3.0.0")
+        select_release(releases, None, "3.0.0")

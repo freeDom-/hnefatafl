@@ -29,7 +29,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-VERSION = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 DOWNLOAD_HOSTS = {
     "api.github.com",
@@ -43,7 +43,7 @@ DOWNLOAD_HOSTS = {
 def version_key(tag: str) -> tuple[int, ...]:
     match = VERSION.fullmatch(tag)
     if match is None:
-        raise ValueError("Use a stable version identifier such as v1.2.3")
+        raise ValueError("Use a stable version identifier such as 1.2.3")
     return tuple(int(part) for part in match.groups())
 
 
@@ -478,7 +478,7 @@ class Deployment:
             if not (target / required).is_file():
                 raise ValueError(f"Unsupported release: missing {required}")
         metadata = tomllib.loads((target / "pyproject.toml").read_text())
-        if metadata["project"]["version"] != tag[1:]:
+        if metadata["project"]["version"] != tag:
             raise ValueError("Release tag and package version disagree")
         self.run(["chown", "-R", "hnefatafl:hnefatafl", target])
         self.run(
