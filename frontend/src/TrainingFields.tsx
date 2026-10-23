@@ -49,7 +49,7 @@ export function SelfPlayModeField({
     <label>
       {t('Self-play execution')}
       <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-        <option value="auto">{t('Automatic · batched on CUDA')}</option>
+        <option value="auto">{t('Automatic · batched on CUDA/OpenVINO')}</option>
         <option value="sequential">{t('Sequential')}</option>
         <option value="batched">{t('Batched')}</option>
       </select>

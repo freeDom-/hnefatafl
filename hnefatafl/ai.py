@@ -437,7 +437,17 @@ def mcts_policy(
     try:
         pending = next(context)
         while True:
-            if inference_metrics is not None and (model_path or model is not None):
+            if configuration.get("_inference_backend") is not None:
+                from .inference import policy_value_batch
+
+                assert model is not None
+                result = policy_value_batch(
+                    [pending],
+                    model,
+                    metrics=inference_metrics,
+                    backend=configuration["_inference_backend"],
+                )[0]
+            elif inference_metrics is not None and (model_path or model is not None):
                 device = next(model.parameters()).device if model is not None else "cpu"
                 with inference_metrics.measure(1, device=device):
                     result = policy_value(pending, model_path, model)

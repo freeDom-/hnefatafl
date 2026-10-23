@@ -187,3 +187,70 @@ test('revoking a worker hides it immediately and after reload while authorized m
       await request.delete(`${api}/training/workers/${entry.worker.id}`);
   }
 });
+
+test('OpenVINO is explicit, hardware aware and stays selected across targets and presets', async ({
+  page,
+  request,
+}, info) => {
+  const response = await request.post(`${api}/training/workers`, {
+    data: { name: `Intel ${info.project.name}`, capacity: 1 },
+  });
+  expect(response.ok()).toBe(true);
+  const { worker, token } = await response.json();
+  try {
+    await post(request, '/heartbeat', token, {
+      capabilities: {
+        protocol_version: 1,
+        inference_backends: ['pytorch', 'openvino'],
+        openvino_version: '2026.4.1',
+        openvino_devices: [
+          { id: 'GPU', name: 'Intel Iris Xe (reported test device)', available: true },
+        ],
+      },
+    });
+    await openWorkshop(page);
+    await openCreation(page);
+    await page
+      .getByRole('combobox', { name: 'Run training on', exact: true })
+      .selectOption(`worker:${worker.id}`);
+    await expect(page.getByRole('option', { name: /Intel Iris Xe/ })).toBeEnabled();
+    await expect(
+      page.getByRole('combobox', { name: 'Neural inference backend', exact: true }),
+    ).toHaveValue('pytorch');
+    await page.getByRole('combobox', { name: 'Training device', exact: true }).selectOption('cpu');
+    await page
+      .getByRole('combobox', { name: 'Neural inference backend', exact: true })
+      .selectOption('openvino');
+    await page
+      .getByRole('combobox', { name: 'Training preset', exact: true })
+      .selectOption('smoke');
+    await expect(
+      page.getByRole('combobox', { name: 'Neural inference backend', exact: true }),
+    ).toHaveValue('openvino');
+    await expect(page.getByRole('combobox', { name: 'Training device', exact: true })).toHaveValue(
+      'cpu',
+    );
+    await page
+      .getByRole('combobox', { name: 'Run training on', exact: true })
+      .selectOption('local');
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'no reported OpenVINO GPU' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start training', exact: true })).toBeDisabled();
+    await page
+      .getByRole('combobox', { name: 'Run training on', exact: true })
+      .selectOption(`worker:${worker.id}`);
+    const job = await queue(page, `Intel inference ${info.project.name}`);
+    expect(job.config).toMatchObject({
+      device: 'cpu',
+      inference_backend: 'openvino',
+      inference_device: 'GPU',
+    });
+    await request.post(`${api}/training/jobs/${job.id}/cancel`);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
+  } finally {
+    await request.delete(`${api}/training/workers/${worker.id}`);
+  }
+});

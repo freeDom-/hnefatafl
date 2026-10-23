@@ -217,3 +217,7 @@ It uses no training updates and never substitutes ply caps for rule draws.
 
 The default benchmark optionally imports PyTorch solely to time the existing
 training evaluator; Shield maiden gameplay itself remains tensor independent.
+
+## Optional OpenVINO inference
+
+See [OpenVINO inference and full-training benchmarks](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.

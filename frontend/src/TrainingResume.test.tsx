@@ -234,7 +234,7 @@ it('uses all saved training fields and submits only editable changes without rep
     ['CPU threads', 3],
   ] as const)
     expect(screen.getByLabelText(label)).toHaveValue(value);
-  expect(screen.getByLabelText('Device')).toHaveValue('cpu');
+  expect(screen.getByLabelText('Training device')).toHaveValue('cpu');
   expect(screen.getByLabelText('Mixed precision when supported')).not.toBeChecked();
   expect(screen.getByLabelText('Save every new best model')).toBeChecked();
   expect(screen.getByText('918')).toBeInTheDocument();
@@ -247,7 +247,7 @@ it('uses all saved training fields and submits only editable changes without rep
   fireEvent.change(screen.getByLabelText('Epochs per iteration'), { target: { value: '5' } });
   fireEvent.change(screen.getByLabelText('MCTS exploration'), { target: { value: '3.2' } });
   fireEvent.change(screen.getByLabelText('Evaluation games (even)'), { target: { value: '8' } });
-  fireEvent.change(screen.getByLabelText('Device'), { target: { value: 'auto' } });
+  fireEvent.change(screen.getByLabelText('Training device'), { target: { value: 'auto' } });
   fireEvent.click(screen.getByLabelText('Mixed precision when supported'));
   fireEvent.click(screen.getByLabelText('Save every new best model'));
   fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));

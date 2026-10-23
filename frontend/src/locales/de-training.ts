@@ -199,7 +199,7 @@ const translations: Record<string, string> = {
   evaluation: 'Bewertung',
   iteration_complete: 'Iteration abgeschlossen',
   'Self-play execution': 'Selbstspiel-Ausführung',
-  'Automatic · batched on CUDA': 'Automatisch · gebündelt auf CUDA',
+  'Automatic · batched on CUDA/OpenVINO': 'Automatisch · gebündelt auf CUDA/OpenVINO',
   Sequential: 'Sequenziell',
   Batched: 'Gebündelt',
   'Concurrent self-play games': 'Gleichzeitige Selbstspiele',

@@ -43,6 +43,8 @@ TRAINING_FIELDS = {
     "self_play_mode",
     "self_play_concurrency",
     "inference_batch_size",
+    "inference_backend",
+    "inference_device",
     "exploration",
     "temperature",
     "dirichlet_alpha",
@@ -71,6 +73,56 @@ TRAINING_FIELDS = {
     "resume",
     "model_name",
 }
+
+
+def validate_inference_capabilities(capabilities: dict) -> None:
+    """Validate optional extension fields without rejecting legacy reports."""
+    backends = capabilities.get("inference_backends", ["pytorch"])
+    if (
+        not isinstance(backends, list)
+        or len(backends) > 4
+        or any(item not in ("pytorch", "openvino") for item in backends)
+    ):
+        fail("Invalid worker inference_backends.")
+    devices = capabilities.get("openvino_devices", [])
+    if not isinstance(devices, list) or len(devices) > 32:
+        fail("Invalid worker OpenVINO devices.")
+    for entry in devices:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("id"), str)
+            or not re.fullmatch(r"(?:GPU(?:\.\d+)?|CPU)", entry["id"])
+            or not isinstance(entry.get("name"), str)
+            or len(entry["name"]) > 200
+            or type(entry.get("available")) is not bool
+            or (
+                "error" in entry
+                and (not isinstance(entry["error"], str) or len(entry["error"]) > 500)
+            )
+        ):
+            fail("Invalid worker OpenVINO device entry.")
+    for key, limit in (("openvino_version", 80), ("openvino_error", 1200)):
+        if key in capabilities and (
+            not isinstance(capabilities[key], str) or len(capabilities[key]) > limit
+        ):
+            fail("Invalid worker OpenVINO runtime metadata.")
+
+
+def worker_compatible(config: dict, capabilities: dict) -> bool:
+    device = config.get("device", "auto")
+    if device not in ("auto", "cpu") and capabilities.get(f"{device}_available") is not True:
+        return False
+    if config.get("inference_backend", "pytorch") == "openvino":
+        if device == "auto" and (
+            capabilities.get("default_device", "cpu") != "cpu"
+            or capabilities.get("cuda_available") is True
+            or capabilities.get("mps_available") is True
+        ):
+            return False
+        from .inference_backends import supports_openvino
+
+        return supports_openvino(capabilities, config.get("inference_device", "auto"))
+    return True
 
 
 def timestamp() -> float:
@@ -271,6 +323,10 @@ class RemoteTraining:
                 worker = self.store.get_worker(worker_id)
                 if worker is None or worker.get("revoked_at"):
                     fail("Choose an available remote worker.")
+                if not worker_compatible(config, worker.get("capabilities", {})):
+                    fail(
+                        "Selected worker is incompatible with the training device or neural inference backend. A compatible worker is required."
+                    )
             directory = self.directory(identifier)
             directory.mkdir()
             resume = config.get("resume")
@@ -288,7 +344,7 @@ class RemoteTraining:
                 "status": "queued",
                 "target_worker_id": worker_id,
                 "config": saved,
-                "progress": {},
+                "progress": {"queue_reason": "Waiting for a compatible worker with capacity."},
                 "created_at": iso(),
                 "ended_at": None,
                 "error": None,
@@ -443,6 +499,7 @@ class RemoteTraining:
                     fail("Worker capabilities must contain finite JSON values.")
                 if size > 16000:
                     fail("Worker capabilities are too large.", 413)
+                validate_inference_capabilities(request.capabilities)
                 protocol = request.capabilities.get("protocol_version", PROTOCOL_VERSION)
                 if protocol != PROTOCOL_VERSION:
                     fail("The worker protocol version is incompatible.", 409)
@@ -481,13 +538,7 @@ class RemoteTraining:
                             if job.get("execution") == "remote"
                             and job["status"] == "queued"
                             and job.get("target_worker_id") in (None, worker["id"])
-                            and (
-                                job["config"]["device"] in {"auto", "cpu"}
-                                or worker.get("capabilities", {}).get(
-                                    f"{job['config']['device']}_available"
-                                )
-                                is True
-                            )
+                            and worker_compatible(job["config"], worker.get("capabilities", {}))
                         ),
                         None,
                     )
@@ -515,10 +566,19 @@ class RemoteTraining:
                         )
                     self.renew(available)
                     self.store.save_job(available)
+                    configuration = dict(available["config"])
+                    if (
+                        "inference_backends" not in worker.get("capabilities", {})
+                        and configuration.get("inference_backend", "pytorch") == "pytorch"
+                    ):
+                        # Protocol-1 workers predating this optional extension
+                        # reject unknown configuration keys, even default values.
+                        configuration.pop("inference_backend", None)
+                        configuration.pop("inference_device", None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
-                        "config": available["config"],
+                        "config": configuration,
                         "lease_token": token,
                         "resume_available": bool(available.get("resume_source")),
                     }
@@ -586,6 +646,29 @@ class RemoteTraining:
                 checkpoint = self.directory(job_id) / "resume.pt"
                 if not job.get("resume_source") or not checkpoint.is_file():
                     fail("The saved checkpoint was not found.", 404)
+                if (
+                    "inference_backends" not in worker.get("capabilities", {})
+                    and job["config"].get("inference_backend", "pytorch") == "pytorch"
+                ):
+                    from .models import load_checkpoint
+                    import torch
+
+                    # Keep the owned/source checkpoint byte-for-byte intact.
+                    # Older training binaries merge saved config before validation,
+                    # so their transport copy must omit the new preferences too.
+                    legacy = checkpoint.with_name("legacy-resume.pt")
+                    if not legacy.exists():
+                        _, payload = load_checkpoint(checkpoint)
+                        saved = payload["metadata"].get("training_config", {})
+                        payload["metadata"]["training_config"] = {
+                            key: value
+                            for key, value in saved.items()
+                            if key not in {"inference_backend", "inference_device"}
+                        }
+                        temporary = legacy.with_suffix(".tmp")
+                        torch.save(payload, temporary)
+                        os.replace(temporary, legacy)
+                    checkpoint = legacy
                 return FileResponse(
                     checkpoint, filename="resume.pt", media_type="application/octet-stream"
                 )

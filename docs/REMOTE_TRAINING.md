@@ -204,3 +204,7 @@ Large histories use optional indexed chunks rather than repeatedly exceeding the
 progress request limit. Ordered report sequences make retries idempotent, and
 recovery retains already saved history. Small reports retain the original full
 snapshot contract. Full checkpoints and worker JSON keep all evaluation records.
+
+## Optional OpenVINO inference
+
+See [Intel GPU worker setup](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.

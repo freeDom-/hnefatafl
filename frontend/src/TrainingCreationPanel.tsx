@@ -7,6 +7,7 @@ import { changeTrainingPlan, type TrainingPreset, type TrainingConfig } from './
 import { numberField, SelfPlayModeField } from './TrainingFields';
 import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget from './TrainingTarget';
+import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 
 interface Props {
   config: TrainingConfig;
@@ -98,7 +99,7 @@ export default function TrainingCreationPanel({
               disabled={kind === 'tune'}
               onChange={(value) => {
                 setTarget(value);
-                update('device', 'auto');
+                if (config.inference_backend !== 'openvino') update('device', 'auto');
               }}
             />
             <label>
@@ -174,7 +175,7 @@ export default function TrainingCreationPanel({
               </div>
             </div>
             <label>
-              {t('Device')}
+              {t('Training device')}
               <select
                 value={String(config.device)}
                 onChange={(e) => update('device', e.target.value)}
@@ -205,6 +206,13 @@ export default function TrainingCreationPanel({
                 </option>
               </select>
             </label>
+            <InferenceSettings
+              config={config}
+              update={update}
+              target={isRemote ? target : 'local'}
+              workers={workers}
+              local={device}
+            />
             {numberField('iterations', config, update)}
           </div>
         </fieldset>
@@ -346,7 +354,14 @@ export default function TrainingCreationPanel({
         )}
         <div className="training-start">
           <span>{t('Start small. Measure improvement.')}</span>
-          <button className="button primary" disabled={busy || unavailableTarget}>
+          <button
+            className="button primary"
+            disabled={
+              busy ||
+              unavailableTarget ||
+              Boolean(inferenceTargetError(config, isRemote ? target : 'local', targetDevice))
+            }
+          >
             {busy
               ? t('Starting…')
               : kind === 'train'

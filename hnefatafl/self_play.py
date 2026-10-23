@@ -12,6 +12,7 @@ import torch
 from .ai import mcts_context
 from .engine import Move, State, apply_move, legal_moves, new_game
 from .inference import InferenceMetrics, policy_value_batch
+from .inference_backends import InferenceBackend
 from .models import PolicyValueNet, encode_state
 
 
@@ -28,6 +29,7 @@ class SelfPlayMetrics:
         self.device = next(model.parameters()).device
         self.inference = InferenceMetrics(track_cuda=measure_cuda and self.device.type == "cuda")
         self.started = time.monotonic()
+        self.backend_info: dict = {}
         self.mode = mode
         self.concurrency = concurrency
         self.games = self.positions = self.simulations = 0
@@ -56,6 +58,7 @@ class SelfPlayMetrics:
         inference = self.inference.snapshot(finalize_cuda=finalize_cuda)
         duration = max(time.monotonic() - self.started, 1e-12)
         result = {
+            **self.backend_info,
             "self_play_mode": self.mode,
             "self_play_concurrency": self.concurrency,
             "self_play_wall_seconds": duration,
@@ -167,6 +170,7 @@ def batched_self_play(
     progress: Callable[[dict], None] | None = None,
     on_game: Callable[[int, list[dict], dict], None] | None = None,
     retain_examples: bool = True,
+    backend: InferenceBackend | None = None,
 ) -> list[GameResult]:
     """Interleave independent searches, replacing finished games immediately.
 
@@ -241,6 +245,7 @@ def batched_self_play(
             model,
             mixed_precision=bool(config["mixed_precision"]),
             metrics=metrics.inference,
+            backend=backend,
         )
         for (index, context, _), evaluation in zip(requests, evaluations):
             request = advance(index, context, evaluation)

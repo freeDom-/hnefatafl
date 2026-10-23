@@ -375,3 +375,7 @@ Low decision overhead does not guarantee equal evaluation wall time: safer play
 can extend games. Consult the [measured runtime trade-offs](SHIELD_MAIDEN.md).
 Update remote workers to the same release before selecting the new opponent;
 checkpoint format and portable job archives remain compatible.
+
+## Optional OpenVINO inference
+
+See [Optional Intel GPU self-play inference](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.

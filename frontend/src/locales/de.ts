@@ -1,4 +1,23 @@
 const translations: Record<string, string> = {
+  'Inference initialization (seconds)': 'Inferenzinitialisierung (Sekunden)',
+  'Training device': 'Trainingsgerät',
+  'Neural inference backend': 'Backend für neuronale Inferenz',
+  'Inference device': 'Inferenzgerät',
+  'PyTorch — Default': 'PyTorch — Standard',
+  'OpenVINO — Intel GPU': 'OpenVINO — Intel-GPU',
+  'Evaluation inference': 'Bewertungsinferenz',
+  'Model conversion (seconds)': 'Modellkonvertierung (Sekunden)',
+  'Model compilation and warm-up (seconds)': 'Modellkompilierung und Aufwärmen (Sekunden)',
+  'Total inference refresh (seconds)': 'Gesamte Inferenzaktualisierung (Sekunden)',
+  'OpenVINO accelerates self-play inference. PyTorch performs weight updates and evaluation on the CPU.':
+    'OpenVINO beschleunigt die Inferenz im Selbstspiel. PyTorch aktualisiert die Gewichte und führt die Bewertung auf der CPU aus.',
+  'OpenVINO jobs require a compatible remote worker and remain queued until one has capacity.':
+    'OpenVINO-Aufträge benötigen einen kompatiblen entfernten Worker und warten, bis dieser Kapazität hat.',
+  'OpenVINO inference requires PyTorch CPU optimization. Select CPU.':
+    'OpenVINO-Inferenz erfordert PyTorch-Optimierung auf der CPU. Wähle CPU.',
+  'This target has no reported OpenVINO GPU. Choose a compatible target or PyTorch.':
+    'Für dieses Ziel wurde keine OpenVINO-GPU gemeldet. Wähle ein kompatibles Ziel oder PyTorch.',
+
   Language: 'Sprache',
   attackers: 'Angreifer',
   defenders: 'Verteidiger',

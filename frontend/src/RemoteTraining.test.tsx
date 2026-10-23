@@ -196,7 +196,7 @@ it('queues GPU training on a remote worker even when the server only has a CPU',
   await screen.findByText('Cloud GPU');
   fireEvent.change(screen.getByLabelText('Run training on'), { target: { value: 'worker:cloud' } });
   expect(screen.getByRole('option', { name: 'NVIDIA CUDA' })).not.toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Device'), { target: { value: 'cuda' } });
+  fireEvent.change(screen.getByLabelText('Training device'), { target: { value: 'cuda' } });
   fireEvent.click(screen.getByRole('button', { name: /Queue training/ }));
   await screen.findByText('Training queued. An available remote worker will pick it up.');
   const sent = fetcher.mock.calls.find(([, init]) => init?.method === 'POST')!;

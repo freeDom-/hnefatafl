@@ -310,3 +310,7 @@ pre-upgrade **database and files**, not just an older executable.
   and model references instead of deleting files beneath a live worker.
 - **Checkpoint exceeds 128 MiB:** reduce future replay/network budgets. Do not disable
   safe-load limits or use unrestricted pickle loading to bypass validation.
+
+## Optional OpenVINO inference
+
+See [Inference backend portability](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.

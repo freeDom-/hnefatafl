@@ -848,6 +848,7 @@ export default function Training({
       )}
       {resumeJob && (
         <TrainingResumeDialog
+          localDevice={device}
           job={resumeJob}
           workers={workers}
           onClose={() => setResumeJob(null)}

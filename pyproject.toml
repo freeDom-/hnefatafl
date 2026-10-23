@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hnefatafl"
-version = "0.22.1"
+version = "0.23.0"
 description = "Three tafl rulesets, browser gameplay, search opponents and self-play learning"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+openvino = ["openvino>=2025.4,<2027", "torch>=2.6,<3", "numpy>=1.26,<3"]
 train = ["torch>=2.6,<3", "numpy>=1.26,<3", "optuna>=4,<5"]
 dev = ["pytest>=8,<10", "httpx>=0.27,<1", "ruff>=0.11,<1", "mypy>=1.15,<2"]
 

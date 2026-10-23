@@ -83,7 +83,13 @@ updates; a PostgreSQL adapter can replace storage without changing rules or clie
 Self-play uses sequential execution or cooperatively interleaves independent games
 through one shared model. Each dependent MCTS simulation waits for its own leaf
 inference result; independent pending leaves can share a forward pass. Replay commits
-remain in game-index order. CUDA auto selects batching; CPU/MPS auto stays sequential.
+remain in game-index order. CUDA auto selects batching; PyTorch CPU/MPS auto stays sequential. Explicit
+OpenVINO auto selects batching with CPU optimization. An optional frozen
+TorchScript/OpenVINO FP32 graph is refreshed once before each self-play iteration;
+bounded dynamic batches reuse one compiled graph. Shared encoding/legal-policy
+processing and PyTorch evaluation/checkpoints remain authoritative. Device probing
+is crash-isolated and remote matching requires operational reported devices. See
+[OpenVINO](docs/OPENVINO.md) for lifecycle, setup and hardware limitations.
 This changes scheduling, not engine rules or gameplay/tournament search behavior.
 Optimization batches sample replay separately from inference batches. See
 [Performance](docs/PERFORMANCE.md) for measured work, timing boundaries and the

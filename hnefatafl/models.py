@@ -70,7 +70,11 @@ def device_info() -> dict[str, Any]:
                     "allocated_memory": torch.cuda.memory_allocated(index),
                 }
             )
+    from .inference_backends import openvino_capabilities
+
     return {
+        **openvino_capabilities(),
+        "cpu_available": True,
         "torch_version": str(torch.__version__),
         "cuda_available": torch.cuda.is_available(),
         "cuda_version": torch.version.cuda,
@@ -163,7 +167,9 @@ class PolicyValueNet(nn.Module):
         )
 
     def forward(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        if batch.ndim != 4 or tuple(batch.shape[1:]) != (6, self.size, self.size):
+        if not torch.jit.is_tracing() and (
+            batch.ndim != 4 or tuple(batch.shape[1:]) != (6, self.size, self.size)
+        ):
             raise ValueError(f"Expected inputs with shape [batch,6,{self.size},{self.size}]")
         features = self.trunk(batch)
         query = self.policy_query(features).flatten(2).transpose(1, 2)

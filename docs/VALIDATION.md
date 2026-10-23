@@ -2,6 +2,11 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Optional OpenVINO inference (`0.23.0`)
+
+The [OpenVINO validation record](validation/openvino-2026-10-23.md) records full
+regressions, Python 3.12/3.14 numerical and training checks, CPU operation without OpenVINO installed, portable resume and explicit unavailable-hardware limits.
+
 ## Secure accounts and deployment (`0.22.0`)
 
 The [2026-10-23 implementation and validation record](validation/security-deployment-2026-10-23.md)

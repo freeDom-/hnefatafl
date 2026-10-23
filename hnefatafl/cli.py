@@ -22,7 +22,12 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--config", required=True, help="JSON configuration file")
         if name == "train":
             command.add_argument("--resume", help="Safe checkpoint to resume")
-    sub.add_parser("devices", help="Show CPU/CUDA/MPS availability")
+    sub.add_parser("devices", help="Show PyTorch and optional OpenVINO availability")
+    full_benchmark = sub.add_parser(
+        "benchmark-training", help="Compare complete CPU/OpenVINO training iterations"
+    )
+    full_benchmark.add_argument("--config", required=True, help="Full-training benchmark JSON")
+    full_benchmark.add_argument("--output", help="Save measured JSON evidence")
     benchmark = sub.add_parser("benchmark", help="Compare sequential and batched self-play")
     benchmark.add_argument("--config", help="Optional training JSON with benchmark budgets")
     benchmark.add_argument("--output", help="Also save the JSON comparison to this file")
@@ -53,13 +58,17 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     try:
         result: Any
-        if args.command in ("benchmark", "benchmark-heuristics"):
+        if args.command in ("benchmark", "benchmark-heuristics", "benchmark-training"):
             config = (
                 json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
             )
             if not isinstance(config, dict):
                 raise ValueError("Configuration must be a JSON object")
-            if args.command == "benchmark-heuristics":
+            if args.command == "benchmark-training":
+                from .training_benchmark import run_training_benchmark
+
+                result = run_training_benchmark(config, should_stop=stop.is_set)
+            elif args.command == "benchmark-heuristics":
                 from .heuristic_benchmark import run_heuristic_benchmark
 
                 result = run_heuristic_benchmark(config, should_stop=stop.is_set)

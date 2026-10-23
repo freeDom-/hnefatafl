@@ -347,3 +347,23 @@ for installation and migration requirements. Existing release evidence above rem
 
 See [0.22.1 release notes](docs/releases/v0.22.1.md) for this patch's validation,
 update procedure and remaining limits. No schema or worker-protocol migration is required.
+
+
+## Optional Intel GPU inference (`0.23.0`)
+
+- [x] Add explicit optional OpenVINO self-play inference with unchanged PyTorch defaults and training budgets
+- [x] Keep authoritative weights, gradients, optimizer, evaluation and portable checkpoints in PyTorch
+- [x] Refresh a frozen FP32 TorchScript/OpenVINO graph once per iteration with bounded dynamic batches and runtime parity validation
+- [x] Detect operational devices in a crash-isolated probe and match authenticated remote jobs to compatible workers
+- [x] Preserve legacy worker leases/resume through configuration transport projection without changing source tensors or files
+- [x] Add hardware-aware creation/resume controls, effective backend/device and measured refresh overhead in the Workshop
+- [x] Provide repeated complete-iteration benchmarks with actual work/batch distributions and explicit unavailable-GPU skips
+- [x] Keep OpenVINO outside normal development/production dependencies unless its extra is explicitly requested
+- [x] Pass full `make check` (697 Python passes/five hardware skips; 175 frontend tests; production build) plus final focused regressions
+- [x] Pass 56 distinct browser checks across the full run and corrected-selector rerun; retain four intentional mobile skips
+- [x] Pass 38 portable backend/benchmark tests on Python 3.14.4, with four Intel GPU skips; verify CPU training/resume without OpenVINO installed
+
+See the [validation record](docs/validation/openvino-2026-10-23.md) and
+[0.23.0 release notes](docs/releases/v0.23.0.md). Intel GPU acceleration, CUDA/MPS
+execution and target WSL2/systemd deployment remain unverified on this CPU host.
+No inference-only benchmark is reported as a full-training GPU speedup.

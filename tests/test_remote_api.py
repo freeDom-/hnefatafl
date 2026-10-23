@@ -335,6 +335,11 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
     client, artifacts, monkeypatch
 ):
     remote, headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={"capabilities": {"inference_backends": ["pytorch"]}},
+    )
     job = queue(client, worker_id=remote["id"])
     lease = claim(client, headers)
     for kind, path in zip(("checkpoint", "inference"), artifacts):
@@ -429,3 +434,158 @@ def test_incremental_history_keeps_all_rows_and_duplicate_reports_are_idempotent
         ).status_code
         == 409
     )
+
+
+def test_openvino_scheduling_is_opt_in_and_requires_operational_devices(client):
+    cpu, cpu_auth = worker(client)
+    intel, intel_auth = worker(client)
+    gpu_caps = {
+        "protocol_version": 1,
+        "inference_backends": ["pytorch", "openvino"],
+        "openvino_version": "2026.4.1",
+        "openvino_devices": [{"id": "GPU.0", "name": "Intel Iris Xe", "available": True}],
+    }
+    job = queue(client, inference_backend="openvino", inference_device="GPU")
+    assert claim(client, cpu_auth) is None
+    assert claim(client, intel_auth) is None
+    response = client.post(
+        "/api/worker/heartbeat", headers=intel_auth, json={"capabilities": gpu_caps}
+    )
+    assert response.status_code == 200
+    assigned = claim(client, intel_auth, "intel-gpu")
+    assert assigned["id"] == job["id"]
+    ordinary = queue(client)
+    assert claim(client, cpu_auth, "ordinary")["id"] == ordinary["id"]
+    rejected = client.post(
+        "/api/training/jobs",
+        json={
+            "execution": "remote",
+            "worker_id": cpu["id"],
+            "preset": "smoke",
+            "device": "cpu",
+            "inference_backend": "openvino",
+            "inference_device": "GPU",
+        },
+    )
+    assert rejected.status_code == 400 and "incompatible" in rejected.text
+    incompatible_gpu = client.post(
+        "/api/training/jobs",
+        json={
+            "execution": "remote",
+            "worker_id": intel["id"],
+            "preset": "smoke",
+            "device": "cpu",
+            "inference_backend": "openvino",
+            "inference_device": "GPU.1",
+        },
+    )
+    assert incompatible_gpu.status_code == 400
+    # A retried claim after capability loss must retain explicit backend intent.
+    client.post(
+        "/api/worker/heartbeat", headers=intel_auth, json={"capabilities": {"protocol_version": 1}}
+    )
+    retried = claim(client, intel_auth, "intel-gpu")
+    assert retried["config"]["inference_backend"] == "openvino"
+    assert retried["lease_token"] == assigned["lease_token"]
+    # Remove the browser admin session before checking machine-only scope.
+    client.cookies.clear()
+    # Authenticated machine reports cannot grant browser administrator permissions.
+    assert client.post(
+        "/api/training/workers", headers=intel_auth, json={"name": "escalation"}
+    ).status_code in {401, 403}
+
+
+def test_openvino_cpu_only_report_does_not_claim_gpu_job(client):
+    _, headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={
+            "capabilities": {
+                "inference_backends": ["pytorch", "openvino"],
+                "openvino_devices": [
+                    {"id": "CPU", "name": "CPU", "available": True},
+                    {"id": "GPU", "name": "broken GPU", "available": False},
+                ],
+            }
+        },
+    )
+    queue(client, inference_backend="openvino", inference_device="GPU")
+    assert claim(client, headers) is None
+    assert client.post(
+        "/api/worker/heartbeat", json={"capabilities": {"inference_backends": ["openvino"]}}
+    ).status_code in {401, 403}
+
+
+@pytest.mark.parametrize(
+    "capabilities",
+    [
+        {"inference_backends": "openvino"},
+        {"openvino_devices": [{"id": "AUTO:GPU,CPU", "name": "invalid", "available": True}]},
+        {"openvino_devices": [{"id": "GPU", "name": "invalid", "available": "yes"}]},
+        {"openvino_version": 1},
+    ],
+)
+def test_inference_capability_extension_is_validated(client, capabilities):
+    _, headers = worker(client)
+    response = client.post(
+        "/api/worker/heartbeat", headers=headers, json={"capabilities": capabilities}
+    )
+    assert response.status_code == 400
+
+
+def test_openvino_auto_training_requires_cpu_default():
+    from hnefatafl.remote_training import worker_compatible
+
+    capabilities = {
+        "default_device": "cuda",
+        "cuda_available": True,
+        "inference_backends": ["pytorch", "openvino"],
+        "openvino_devices": [{"id": "GPU", "available": True}],
+    }
+    config = {"device": "auto", "inference_backend": "openvino", "inference_device": "GPU"}
+    assert not worker_compatible(config, capabilities)
+    assert worker_compatible({**config, "device": "cpu"}, capabilities)
+
+
+def test_legacy_worker_transport_omits_new_defaults_and_preserves_resume_tensors(
+    client, artifacts, tmp_path
+):
+    _, headers = worker(client)
+    source = queue(client)
+    leased = claim(client, headers)
+    assert "inference_backend" not in leased["config"]
+    assert "inference_device" not in leased["config"]
+    assert (
+        client.get(f"/api/training/jobs/{source['id']}").json()["config"]["inference_backend"]
+        == "pytorch"
+    )
+    for kind, path in zip(("checkpoint", "inference"), artifacts):
+        assert upload(client, headers, leased, kind, path).status_code == 200
+    assert finish(client, headers, leased).status_code == 200
+    response = client.post(
+        f"/api/training/jobs/{source['id']}/resume", json={"iterations": 2, "execution": "remote"}
+    )
+    assert response.status_code == 201, response.text
+    resumed = claim(client, headers, "legacy-resume")
+    download = client.get(
+        f"/api/worker/jobs/{resumed['id']}/resume",
+        headers={**headers, "X-Lease-Token": resumed["lease_token"]},
+    )
+    assert download.status_code == 200
+    copy = tmp_path / "legacy.pt"
+    copy.write_bytes(download.content)
+    from hnefatafl.models import load_checkpoint
+
+    before_model, before = load_checkpoint(artifacts[0])
+    after_model, after = load_checkpoint(copy)
+    for key, tensor in before_model.state_dict().items():
+        assert torch.equal(tensor, after_model.state_dict()[key])
+    assert after["optimizer_state"]["param_groups"] == before["optimizer_state"]["param_groups"]
+    assert after["extra"]["iteration"] == before["extra"]["iteration"]
+    assert "inference_backend" not in after["metadata"]["training_config"]
+    assert "inference_device" not in after["metadata"]["training_config"]
+    assert "inference_backend" in before["metadata"]["training_config"]
+    assert (
+        client.app.state.data_dir / "jobs" / resumed["id"] / "resume.pt"
+    ).read_bytes() == artifacts[0].read_bytes()

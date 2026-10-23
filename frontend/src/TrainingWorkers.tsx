@@ -77,6 +77,18 @@ export default function TrainingWorkers({
               {!!worker.capabilities.cuda_devices?.length && (
                 <p className="subtle">{worker.capabilities.cuda_devices.join(' · ')}</p>
               )}
+              {worker.capabilities.openvino_version && (
+                <p className="subtle">
+                  OpenVINO {worker.capabilities.openvino_version} ·{' '}
+                  {worker.capabilities.openvino_devices
+                    ?.filter((device) => device.available)
+                    .map((device) => `${device.id}: ${device.name}`)
+                    .join(' · ') || t('unavailable')}
+                </p>
+              )}
+              {worker.capabilities.openvino_error && (
+                <p className="subtle">{worker.capabilities.openvino_error}</p>
+              )}
               <small>
                 {worker.last_seen
                   ? t('Last seen {time}', {

@@ -29,6 +29,8 @@ Commands assume the repository root unless a different directory is shown.
 
 ## GPU optimization, performance and benchmarking
 
+- [Optional OpenVINO Intel GPU inference, setup and complete-iteration benchmarks](OPENVINO.md)
+
 - [Shield maiden strategy, strength and runtime evidence](SHIELD_MAIDEN.md)
 - [CPU/CUDA/MPS setup, concurrent MCTS, batch sizes, metric units and benchmark CLI](PERFORMANCE.md)
 
@@ -66,6 +68,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.23.0](releases/v0.23.0.md) | Optional OpenVINO Intel GPU self-play inference with portable PyTorch learning |
 | [0.22.1](releases/v0.22.1.md) | Hide revoked remote workers and correct worker connection commands |
 | [0.22.0](releases/v0.22.0.md) | Mandatory accounts, scoped permissions and production Linux/LXC deployment |
 | [v0.21.0](releases/v0.21.0.md) | Structured AI workshop training dashboard |

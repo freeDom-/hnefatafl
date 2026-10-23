@@ -82,7 +82,7 @@ bash scripts/linux/install.sh
 
 It installs Python/venv/compiler/CPU runtime dependencies, pinned uv, and the latest
 stable Node 22 patch binary verified against Node's published SHA-256 manifest.
-It creates an unprivileged `hnefatafl` user, builds using `uv sync --frozen --all-extras`
+It creates an unprivileged `hnefatafl` user, builds using `uv sync --frozen --extra train --extra dev`
 and `npm ci`, runs the release's security tests, freezes code ownership, migrates
 SQLite, prompts for Odin's credentials, installs systemd, and probes readiness
 plus authenticated permissions and rejection of anonymous API access.

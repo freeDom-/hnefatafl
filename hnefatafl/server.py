@@ -1703,6 +1703,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         "self_play_mode",
         "self_play_concurrency",
         "inference_batch_size",
+        "inference_backend",
+        "inference_device",
         "exploration",
         "temperature",
         "dirichlet_alpha",
@@ -1966,7 +1968,20 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     if result["device"] not in {"auto", "cpu", "cuda", "mps"}:
                         fail("Training device must be auto, cpu, cuda or mps.")
                     if execution == "local":
-                        resolve_device(result["device"])
+                        resolved = resolve_device(result["device"])
+                        if result["inference_backend"] == "openvino":
+                            from .inference_backends import openvino_capabilities, supports_openvino
+
+                            capabilities = openvino_capabilities()
+                            if resolved.type != "cpu":
+                                fail(
+                                    "OpenVINO inference requires PyTorch CPU optimization; select CPU."
+                                )
+                            if not supports_openvino(capabilities, result["inference_device"]):
+                                fail(
+                                    "Requested OpenVINO device is unavailable. Install the openvino extra and Intel GPU runtime. "
+                                    + capabilities.get("openvino_error", "")
+                                )
                     if result.get("resume"):
                         model, checkpoint_data = load_checkpoint(result["resume"])
                         saved_config = checkpoint_data.get("metadata", {}).get(

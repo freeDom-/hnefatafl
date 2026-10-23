@@ -30,6 +30,7 @@ from .models import (
     resolve_device,
     save_checkpoint,
 )
+from .inference_backends import InferenceBackend, create_inference, normalize_inference
 from .training_presets import RECOMMENDED
 from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
 
@@ -72,6 +73,8 @@ DEFAULTS = {
     "max_game_plies": 150,
     "seed": 0,
     "device": "auto",
+    "inference_backend": "pytorch",
+    "inference_device": "auto",
     "mixed_precision": True,
     "cpu_threads": 2,
     "output_dir": "data/training",
@@ -187,6 +190,7 @@ def normalize_config(configuration: dict) -> dict:
         raise ValueError("output_dir must be a nonempty path")
     if not isinstance(config["model_name"], str) or not 1 <= len(config["model_name"]) <= 100:
         raise ValueError("model_name must contain 1–100 characters")
+    normalize_inference(config)
     return config
 
 
@@ -268,8 +272,23 @@ def self_play(
     seed: int,
     should_stop: Callable[[], bool] | None = None,
     inference_metrics=None,
+    backend: InferenceBackend | None = None,
 ) -> tuple[list[dict], dict]:
     """Generate legal MCTS policy targets and final defender-perspective returns."""
+    if backend is None and config.get("inference_backend") == "openvino":
+        owned = create_inference(model, config)
+        try:
+            owned.refresh()
+            return self_play(
+                model,
+                config,
+                seed=seed,
+                should_stop=should_stop,
+                inference_metrics=inference_metrics,
+                backend=owned,
+            )
+        finally:
+            owned.close()
     rng = random.Random(seed)
     state = new_game(config["ruleset"])
     examples = []
@@ -284,6 +303,9 @@ def self_play(
         moves = legal_moves(state)
         search_config = {
             "_model": model,
+            "_inference_backend": backend
+            if config.get("inference_backend") == "openvino"
+            else None,
             "iterations": config["mcts_iterations"],
             "time_limit": config["mcts_time_limit"],
             "seed": seed + ply,
@@ -323,6 +345,10 @@ def self_play(
     # Truncation is not a rules draw. Bootstrap from the current value network.
     if winner is not None:
         value = {"attackers": -1.0, "defenders": 1.0, "draw": 0.0}[winner]
+    elif backend is not None and config.get("inference_backend") == "openvino":
+        from .inference import policy_value_batch
+
+        value = policy_value_batch([state], model, metrics=inference_metrics, backend=backend)[0][1]
     elif inference_metrics is not None and legal_moves(state):
         with inference_metrics.measure(1, device=next(model.parameters()).device):
             value = policy_value(state, model=model)[1]
@@ -354,6 +380,7 @@ def generate_self_play(
     on_game: Callable[[int, list[dict], dict], None] | None = None,
     measure_cuda: bool = False,
     retain_examples: bool = True,
+    backend: InferenceBackend | None = None,
 ) -> tuple[list[tuple[list[dict], dict]], dict]:
     """Generate an iteration's games, retaining a sequential reference path.
 
@@ -362,14 +389,41 @@ def generate_self_play(
     CUDA activity events are opt-in for benchmarks; ordinary training records
     host inference timing and allocator peaks without per-batch event overhead.
     """
+    # Standalone generation/benchmarks must honor explicit backend selection too.
+    if backend is None and config.get("inference_backend") == "openvino":
+        owned = create_inference(model, config)
+        try:
+            refresh = owned.refresh()
+            games, performance = generate_self_play(
+                model,
+                config,
+                seed=seed,
+                should_stop=should_stop,
+                progress=progress,
+                on_game=on_game,
+                measure_cuda=measure_cuda,
+                retain_examples=retain_examples,
+                backend=owned,
+            )
+            performance.update(refresh)
+            return games, performance
+        finally:
+            owned.close()
+
     from .self_play import SelfPlayMetrics, batched_self_play
 
     device = next(model.parameters()).device
     mode = config["self_play_mode"]
     if mode == "auto":
-        mode = "batched" if device.type == "cuda" else "sequential"
+        mode = (
+            "batched"
+            if device.type == "cuda" or config.get("inference_backend") == "openvino"
+            else "sequential"
+        )
     concurrency = min(config["games"], config["self_play_concurrency"]) if mode == "batched" else 1
     metrics = SelfPlayMetrics(model, mode, concurrency, measure_cuda=measure_cuda)
+    if backend is not None:
+        metrics.backend_info = backend.info
     if mode == "batched":
         if progress:
             progress({"game": 0, "performance": metrics.snapshot()})
@@ -382,6 +436,7 @@ def generate_self_play(
             progress=progress,
             on_game=on_game,
             retain_examples=retain_examples,
+            backend=backend,
         )
     else:
         games = []
@@ -400,6 +455,7 @@ def generate_self_play(
                 seed=seed + index,
                 should_stop=should_stop,
                 inference_metrics=metrics.inference,
+                backend=backend,
             )
             metrics.cpu_search_seconds += max(
                 0.0,
@@ -608,7 +664,13 @@ def train(
         save_checkpoint(path, model, current_metadata(), optimizer, extra)
 
     publish(stage="initializing")
+    backend = None
     try:
+        initialization_started = time.monotonic()
+        backend = create_inference(model, config)
+        initialization_seconds = time.monotonic() - initialization_started
+        first_iteration = completed + 1
+        publish(**backend.info, inference_initialization_seconds=initialization_seconds)
         for iteration in range(completed + 1, config["iterations"] + 1):
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
@@ -620,6 +682,9 @@ def train(
                 replay = replay[-config["replay_buffer_size"] :]
                 games_generated += 1
 
+            refresh = backend.refresh()
+            if should_stop and should_stop():
+                raise InterruptedError("Training was cancelled")
             generated_games, performance = generate_self_play(
                 model,
                 config,
@@ -628,6 +693,12 @@ def train(
                 progress=lambda info: publish(stage="self_play", iteration=iteration, **info),
                 on_game=commit_game,
                 retain_examples=False,
+                backend=backend,
+            )
+            performance.update(backend.info)
+            performance.update(refresh)
+            performance["inference_initialization_seconds"] = (
+                initialization_seconds if iteration == first_iteration else 0.0
             )
             generated = [result for _, result in generated_games]
             if not replay:
@@ -676,6 +747,15 @@ def train(
                 publish(stage="optimization", epoch=epoch + 1)
             model.eval()
             performance["optimization_seconds"] = time.monotonic() - optimization_started
+            try:
+                import resource
+                import sys
+
+                performance["process_peak_rss_bytes"] = resource.getrusage(
+                    resource.RUSAGE_SELF
+                ).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
+            except ImportError:
+                pass
             metrics = {
                 "policy_loss": sum(policy_losses) / len(policy_losses),
                 "value_loss": sum(value_losses) / len(value_losses),
@@ -839,6 +919,9 @@ def train(
             checkpoint=str(checkpoint),
         )
         raise
+    finally:
+        if backend is not None:
+            backend.close()
     if not checkpoint.exists():
         checkpoint_now(checkpoint)
     if not best_checkpoint.exists():

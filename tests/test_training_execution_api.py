@@ -81,7 +81,13 @@ def test_legacy_checkpoint_resume_prefills_defaults_and_accepts_execution_overri
     directory = client.app.state.data_dir / "jobs" / identifier
     directory.mkdir()
     config = normalize_config({"preset": "smoke", "seed": 37, "device": "cpu"})
-    for key in ("self_play_mode", "self_play_concurrency", "inference_batch_size"):
+    for key in (
+        "self_play_mode",
+        "self_play_concurrency",
+        "inference_batch_size",
+        "inference_backend",
+        "inference_device",
+    ):
         config.pop(key, None)
     model = PolicyValueNet("brandubh", 4, 0)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
@@ -116,7 +122,15 @@ def test_legacy_checkpoint_resume_prefills_defaults_and_accepts_execution_overri
         saved["self_play_concurrency"],
         saved["inference_batch_size"],
     ) == ("auto", 16, 32)
-    overrides = {"self_play_mode": "batched", "self_play_concurrency": 3, "inference_batch_size": 6}
+    assert saved["inference_backend"] == "pytorch"
+    assert saved["inference_device"] == "auto"
+    overrides = {
+        "inference_backend": "openvino",
+        "inference_device": "GPU",
+        "self_play_mode": "batched",
+        "self_play_concurrency": 3,
+        "inference_batch_size": 6,
+    }
     response = client.post(route, json={"iterations": 2, "execution": "remote", **overrides})
     assert response.status_code == 201, response.text
     resumed = response.json()["config"]

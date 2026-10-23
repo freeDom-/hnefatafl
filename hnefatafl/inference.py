@@ -11,6 +11,7 @@ import torch
 
 from .engine import Move, State, legal_moves
 from .models import PolicyValueNet, encode_state
+from .inference_backends import InferenceBackend
 
 
 @dataclass
@@ -29,6 +30,7 @@ class InferenceMetrics:
     host_seconds: float = 0.0
     cpu_seconds: float = 0.0
     cuda_seconds: float = 0.0
+    batch_histogram: dict[int, int] = field(default_factory=dict)
     _events: list[tuple] = field(default_factory=list, repr=False)
     _cuda_recorded: bool = field(default=False, repr=False)
 
@@ -44,6 +46,7 @@ class InferenceMetrics:
         finally:
             self.host_seconds += time.perf_counter() - started
             self.cpu_seconds += time.process_time() - cpu_started
+            self.batch_histogram[size] = self.batch_histogram.get(size, 0) + 1
             self.batches += 1
             self.evaluations += size
             self.batch_minimum = min(self.batch_minimum or size, size)
@@ -74,6 +77,9 @@ class InferenceMetrics:
             self.cuda_seconds += sum(start.elapsed_time(end) for start, end in self._events) / 1000
             self._events.clear()
         result = {
+            "inference_batch_distribution": {
+                str(k): v for k, v in sorted(self.batch_histogram.items())
+            },
             "inference_batches": self.batches,
             "neural_evaluations": self.evaluations,
             "inference_batch_size_average": self.evaluations / self.batches
@@ -98,6 +104,7 @@ def policy_value_batch(
     *,
     mixed_precision: bool = False,
     metrics: InferenceMetrics | None = None,
+    backend: InferenceBackend | None = None,
 ) -> list[tuple[dict[Move, float], float]]:
     """Evaluate legal priors and defender-relative values in one shared forward.
 
@@ -119,7 +126,7 @@ def policy_value_batch(
             active.append((index, state, moves))
     if not active:
         return results
-    device = next(model.parameters()).device
+    device = backend.device if backend is not None else next(model.parameters()).device
     measurement = (
         metrics.measure(len(active), device=device) if metrics is not None else nullcontext()
     )
@@ -141,7 +148,7 @@ def policy_value_batch(
                 else nullcontext()
             )
             with autocast:
-                logits, values = model(encoded)
+                logits, values = backend.forward(encoded) if backend is not None else model(encoded)
             legal_logits = logits.float().gather(1, action_ids.clamp_min(0))
             legal_logits.masked_fill_(action_ids < 0, -torch.inf)
             probabilities = torch.softmax(legal_logits, dim=1)

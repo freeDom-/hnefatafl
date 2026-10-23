@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { useI18n } from './i18n';
-import type { Job, TrainingWorker } from './types';
+import type { Job, TrainingWorker, DeviceInfo } from './types';
+import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import TrainingTarget, { jobTarget, targetRequest } from './TrainingTarget';
 import {
   numberField,
@@ -33,11 +34,13 @@ export interface ResumeCheckpoint {
 export default function TrainingResumeDialog({
   job,
   workers = [],
+  localDevice,
   onClose,
   onStarted,
 }: {
   job: Job;
   workers?: TrainingWorker[];
+  localDevice?: DeviceInfo;
   onClose: () => void;
   onStarted: (next: Job, completed: number, target: number) => void;
 }) {
@@ -88,6 +91,8 @@ export default function TrainingResumeDialog({
         saved.weight_decay = info.weight_decay ?? saved.weight_decay ?? 0.0001;
         saved.momentum = info.momentum ?? saved.momentum ?? 0.9;
         saved.model_name = info.model_name;
+        saved.inference_backend ??= 'pytorch';
+        saved.inference_device ??= 'auto';
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
@@ -113,6 +118,13 @@ export default function TrainingResumeDialog({
   }, [job]);
   const valid =
     checkpoint?.can_resume &&
+    !inferenceTargetError(
+      config,
+      executionTarget,
+      executionTarget === 'local'
+        ? localDevice
+        : workers.find((worker) => `worker:${worker.id}` === executionTarget)?.capabilities,
+    ) &&
     Number.isInteger(target) &&
     target > checkpoint.completed_iteration &&
     target <= 100000 &&
@@ -143,6 +155,8 @@ export default function TrainingResumeDialog({
                   'mixed_precision',
                   'save_all_best',
                   'self_play_mode',
+                  'inference_backend',
+                  'inference_device',
                 ].includes(key)) &&
               value !== savedConfig.current[key],
           ),
@@ -229,6 +243,14 @@ export default function TrainingResumeDialog({
                     onChange={setExecutionTarget}
                     disabled={busy}
                   />
+                  <InferenceSettings
+                    config={config}
+                    update={update}
+                    target={executionTarget}
+                    workers={workers}
+                    local={localDevice}
+                    disabled={busy}
+                  />
                   <div className="form-grid resume-optimizer-settings">
                     {numberField('iterations', config, update, {
                       label: 'Target total iterations',
@@ -252,7 +274,7 @@ export default function TrainingResumeDialog({
                     )}
                     {config.device !== undefined && (
                       <label>
-                        {t('Device')}
+                        {t('Training device')}
                         <select
                           value={String(config.device)}
                           disabled={busy}

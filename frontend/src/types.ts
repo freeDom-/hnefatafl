@@ -128,6 +128,10 @@ export interface TrainingWorker {
   active_jobs: number;
 }
 export interface DeviceInfo {
+  inference_backends?: string[];
+  openvino_version?: string;
+  openvino_error?: string;
+  openvino_devices?: { id: string; name: string; available: boolean; error?: string }[];
   device?: string;
   selected?: string;
   cuda_available?: boolean;

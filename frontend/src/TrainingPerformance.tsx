@@ -42,6 +42,19 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
   return (
     <section className="training-performance" aria-label={t('Training performance')}>
       <h4>{t('Training performance')}</h4>
+      {typeof performance.inference_backend === 'string' && (
+        <p>
+          {t('Training device')}: {String(performance.optimization_device ?? state.device ?? '—')} ·{' '}
+          {t('Neural inference backend')}: {performance.inference_backend} ·{' '}
+          {String(performance.inference_device_name ?? performance.inference_device ?? '—')}
+        </p>
+      )}
+      {typeof performance.evaluation_inference_backend === 'string' && (
+        <p>
+          {t('Evaluation inference')}: {String(performance.evaluation_inference_backend)} ·{' '}
+          {String(performance.evaluation_inference_device)}
+        </p>
+      )}
       {typeof performance.self_play_mode === 'string' && (
         <p>
           {t('Self-play execution')}:{' '}
@@ -122,6 +135,10 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
             </div>
             {fields([
               ['inference_batches', 'Inference batches'],
+              ['inference_initialization_seconds', 'Inference initialization (seconds)'],
+              ['inference_conversion_seconds', 'Model conversion (seconds)'],
+              ['inference_compilation_seconds', 'Model compilation and warm-up (seconds)'],
+              ['inference_refresh_seconds', 'Total inference refresh (seconds)'],
               ['inference_batch_latency_seconds', 'Average batch latency (seconds)'],
               ['gpu_peak_allocated_bytes', 'Peak GPU allocated memory (MiB)', 1024 ** 2],
               ['gpu_peak_reserved_bytes', 'Peak GPU reserved memory (MiB)', 1024 ** 2],

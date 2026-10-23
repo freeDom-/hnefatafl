@@ -34,6 +34,8 @@ const base: TrainingConfig = {
   evaluation_iterations: 16,
   seed: 42,
   device: 'auto',
+  inference_backend: 'pytorch',
+  inference_device: 'auto',
   mixed_precision: true,
   max_game_plies: 150,
   evaluation_max_plies: 150,
@@ -150,6 +152,8 @@ export function changeTrainingPlan(
     model_name: previous.model_name,
     seed: previous.seed,
     device: previous.device,
+    inference_backend: previous.inference_backend ?? 'pytorch',
+    inference_device: previous.inference_device ?? 'auto',
     cpu_threads: previous.cpu_threads,
     mixed_precision: previous.mixed_precision,
     save_all_best: previous.save_all_best,
@@ -179,6 +183,7 @@ export function recordedTrainingConfig(
       )
         continue;
       if (key === 'device' && !['auto', 'cpu', 'cuda', 'mps'].includes(String(value))) continue;
+      if (key === 'inference_backend' && !['pytorch', 'openvino'].includes(String(value))) continue;
       if (key === 'optimizer' && !['adamw', 'adam', 'sgd'].includes(String(value))) continue;
       if (key === 'self_play_mode' && !['auto', 'sequential', 'batched'].includes(String(value)))
         continue;
@@ -187,5 +192,12 @@ export function recordedTrainingConfig(
   }
   if (!Object.keys(values).some((key) => !['model_name', 'ruleset', 'preset'].includes(key)))
     return null;
-  return { ...previous, ...values, model_name: model.name, ruleset: model.ruleset };
+  return {
+    ...previous,
+    inference_backend: 'pytorch',
+    inference_device: 'auto',
+    ...values,
+    model_name: model.name,
+    ruleset: model.ruleset,
+  };
 }

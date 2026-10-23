@@ -15,7 +15,9 @@ make foundation
 bash scripts/dev.sh
 ```
 
-`make install` uses `uv sync --frozen --all-extras` and `npm --prefix frontend ci`.
+`make install` uses `uv sync --frozen --extra train --extra dev` and `npm --prefix frontend ci`.
+For OpenVINO parity tests, explicitly add `--extra openvino` to that sync command.
+CI installs all extras to exercise the portable OpenVINO CPU plugin.
 The lock selects CPU PyTorch. The Makefile places uv/npm caches under `.cache`
 and defaults OMP/MKL math threads to two. `foundation` checks real PyTorch autograd
 and FastAPI/Optuna imports. Development starts a reloadable loopback API on 8000
@@ -76,11 +78,12 @@ configuration paths.
 
 | Command | Interface and guide |
 | --- | --- |
-| `devices` | Report actual CPU/CUDA/MPS availability; [hardware](PERFORMANCE.md#installation-and-hardware) |
+| `devices` | Report actual PyTorch and optional OpenVINO availability; [hardware](PERFORMANCE.md#installation-and-hardware) |
 | `train --config FILE [--resume FILE]` | JSON training config; safe full checkpoint resume; [training](TRAINING.md) |
 | `tune --config FILE` | Local Optuna study/trials; [optimization](TRAINING.md#hyperparameter-optimization) |
 | `tournament --config FILE` | JSON round robin, final report to stdout; [tournaments](TOURNAMENTS.md) |
 | `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](SHIELD_MAIDEN.md) |
+| `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](OPENVINO.md#full-training-benchmark) |
 | `benchmark [--config FILE] [--output FILE]` | Self-play comparison without optimizer/model registration; [benchmark protocol](PERFORMANCE.md#benchmark-protocol-and-evidence) |
 | `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](TRAINING_DATA.md#checkpoints-registry-import-and-export) |
 | `worker --server URL [--work-dir DIR] [--concurrency N] [--once] [--max-jobs N]` | Token from `HNEFATAFL_WORKER_TOKEN`, concurrency 1–16; [workers](REMOTE_TRAINING.md) |

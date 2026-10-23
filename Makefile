@@ -6,7 +6,7 @@ export MKL_NUM_THREADS ?= 2
 
 .PHONY: install foundation test lint format typecheck build check serve docs
 install:
-	uv sync --frozen --all-extras
+	uv sync --frozen --extra train --extra dev
 	npm --prefix frontend ci
 
 foundation:
