@@ -51,6 +51,9 @@ test('remote worker setup queues parallel jobs and retains independent reported 
   const token = await credential.inputValue();
   expect(token.length).toBeGreaterThan(20);
   await expect(credential).toHaveAttribute('type', 'password');
+  await expect(connect.locator('.worker-command')).toHaveText(
+    `read -r -s HNEFATAFL_WORKER_TOKEN\nexport HNEFATAFL_WORKER_TOKEN\n.venv/bin/python -m hnefatafl.cli worker --server ${new URL(page.url()).origin} --work-dir ./data/remote-worker --concurrency 2`,
+  );
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(token);
   const workers = await (await request.get(`${api}/training/workers`)).json();
   workerId = workers.find((entry: { name: string }) => entry.name === name).id;
@@ -136,5 +139,51 @@ test('remote worker setup queues parallel jobs and retains independent reported 
     expect(errors).toEqual([]);
   } finally {
     if (workerId) await request.delete(`${api}/training/workers/${workerId}`);
+  }
+});
+
+test('revoking a worker hides it immediately and after reload while authorized machines stay visible', async ({
+  page,
+  request,
+}, info) => {
+  const enrolled: { worker: { id: string; name: string }; token: string }[] = [];
+  try {
+    for (const state of ['Online', 'Disconnected', 'Revoke']) {
+      const response = await request.post(`${api}/training/workers`, {
+        data: { name: `${state} raven ${info.project.name}`, capacity: 1 },
+      });
+      expect(response.ok()).toBe(true);
+      enrolled.push(await response.json());
+    }
+    const [online, offline, revoked] = enrolled;
+    await post(request, '/heartbeat', online.token, { capabilities: { protocol_version: 1 } });
+    await openWorkshop(page);
+    await page.getByRole('button', { name: /Remote workers/ }).click();
+    const card = (id: string) => page.locator(`[data-worker-id="${id}"]`);
+    await expect(card(online.worker.id)).toBeVisible();
+    await expect(card(online.worker.id).locator('.worker-status')).toHaveText('online');
+    await expect(card(offline.worker.id)).toBeVisible();
+    await expect(card(offline.worker.id).locator('.worker-status')).toHaveText('offline');
+    await card(revoked.worker.id)
+      .getByRole('button', { name: /Revoke worker/ })
+      .click();
+    const confirm = page.getByRole('dialog', { name: `Revoke worker ${revoked.worker.name}?` });
+    await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(card(revoked.worker.id)).toHaveCount(0);
+    await expect(card(online.worker.id)).toBeVisible();
+    await expect(card(offline.worker.id)).toBeVisible();
+    await openWorkshop(page);
+    await page.getByRole('button', { name: /Remote workers/ }).click();
+    await expect(card(revoked.worker.id)).toHaveCount(0);
+    await expect(card(online.worker.id)).toBeVisible();
+    await expect(card(offline.worker.id)).toBeVisible();
+    const reconnect = await request.post(`${api}/worker/heartbeat`, {
+      headers: { Authorization: `Bearer ${revoked.token}` },
+      data: { capabilities: { protocol_version: 1 } },
+    });
+    expect(reconnect.status()).toBe(403);
+  } finally {
+    for (const entry of enrolled)
+      await request.delete(`${api}/training/workers/${entry.worker.id}`);
   }
 });

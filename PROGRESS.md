@@ -335,3 +335,15 @@ verified backups and guarded rollback are implemented. See the
 for all changed files, 57 API grants, migration details, exact checks, commands and
 remaining hardware/target-host limits. See [0.22.0 release notes](docs/releases/v0.22.0.md)
 for installation and migration requirements. Existing release evidence above remains historical.
+
+## Remote worker management fixes (`0.22.1`)
+
+- [x] Hide revoked workers in the management API and UI while retaining offline authorized machines
+- [x] Remove revoked cards, counts and training targets immediately after successful revocation
+- [x] Preserve persistent revocation, credential rejection, audit records and training artifacts
+- [x] Use the Python module worker command with the browser server origin and existing token setup
+- [x] `make check`: 652 Python passes, one CUDA skip; 172 frontend passes; docs, lint, types and build
+- [x] Full real-server browser suite: 54 passes, four existing duplicate mobile skips
+
+See [0.22.1 release notes](docs/releases/v0.22.1.md) for this patch's validation,
+update procedure and remaining limits. No schema or worker-protocol migration is required.

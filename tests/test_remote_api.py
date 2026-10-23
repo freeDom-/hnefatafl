@@ -151,6 +151,67 @@ def test_claim_retries_are_idempotent_and_capacity_is_atomic(client):
     assert "lease_token" not in json.dumps(client.get("/api/training/jobs").json())
 
 
+def test_worker_list_hides_revoked_credentials_after_restart_and_preserves_history(
+    client, artifacts
+):
+    online, online_headers = worker(client)
+    offline, _ = worker(client)
+    revoked, headers = worker(client)
+    assert client.post("/api/worker/heartbeat", headers=online_headers, json={}).status_code == 200
+    # A previously connected machine remains listed after its heartbeat becomes stale.
+    stored = client.app.state.store.get_worker(offline["id"])
+    stored.update(last_seen="2026-01-01T00:00:00+00:00", last_seen_epoch=0)
+    client.app.state.store.save_worker(stored)
+    queue(client, worker_id=revoked["id"])
+    completed_lease = claim(client, headers)
+    for kind, path in zip(("checkpoint", "inference"), artifacts):
+        assert upload(client, headers, completed_lease, kind, path).status_code == 200
+    assert finish(client, headers, completed_lease).status_code == 200
+    completed = client.get(f"/api/training/jobs/{completed_lease['id']}").json()
+    models = client.get("/api/models").json()
+    queue(client, worker_id=revoked["id"])
+    lease = claim(client, headers, "active-before-revoke")
+    assert report(client, headers, lease, iteration=1).status_code == 200
+    assert upload(client, headers, lease, "checkpoint", artifacts[0]).status_code == 200
+    before = client.app.state.store.get_job(lease["id"])
+
+    assert client.delete(f"/api/training/workers/{revoked['id']}").status_code == 200
+
+    def verify(session):
+        visible = session.get("/api/training/workers").json()
+        assert {item["id"]: item["status"] for item in visible} == {
+            online["id"]: "online",
+            offline["id"]: "offline",
+        }
+        # Repeat the API read as a fresh browser would, using persisted revocation state.
+        assert session.get("/api/training/workers").json() == visible
+        retained = session.app.state.store.get_worker(revoked["id"])
+        assert retained["revoked_at"]
+        assert session.get(f"/api/training/jobs/{completed_lease['id']}").json() == completed
+        assert session.get("/api/models").json() == models
+        saved = session.app.state.store.get_job(lease["id"])
+        assert saved["status"] == "failed"
+        assert saved["progress"] == before["progress"]
+        assert saved["logs"] == before["logs"]
+        assert saved["checkpoint"] == before["checkpoint"]
+        assert session.post("/api/worker/heartbeat", headers=headers, json={}).status_code == 403
+        assert session.post("/api/worker/claim", headers=headers, json={}).status_code == 403
+        assert report(session, headers, lease, sequence=1).status_code == 403
+        assert finish(session, headers, lease).status_code == 403
+        assert upload(session, headers, lease, "checkpoint", artifacts[0]).status_code == 403
+        assert (
+            session.get(
+                f"/api/worker/jobs/{lease['id']}/resume",
+                headers={**headers, "X-Lease-Token": lease["lease_token"]},
+            ).status_code
+            == 403
+        )
+
+    verify(client)
+    with TestClient(create_app(client.app.state.data_dir)) as restarted:
+        verify(restarted)
+
+
 def test_remote_gpu_jobs_do_not_require_local_gpu_and_skip_cpu_workers(client):
     _, cpu = worker(client)
     _, gpu = worker(client)

@@ -71,6 +71,9 @@ it('shows a new worker credential once without putting its token in commands or 
   expect(credential).toHaveValue(token);
   expect(credential).toHaveAttribute('type', 'password');
   expect(container.querySelector('.worker-command')).toHaveTextContent('--concurrency 2');
+  expect(container.querySelector('.worker-command')?.textContent).toBe(
+    `read -r -s HNEFATAFL_WORKER_TOKEN\nexport HNEFATAFL_WORKER_TOKEN\n.venv/bin/python -m hnefatafl.cli worker --server ${window.location.origin} --work-dir ./data/remote-worker --concurrency 2`,
+  );
   expect(container.querySelector('.worker-command')).not.toHaveTextContent(token);
   expect(JSON.stringify(localStorage)).not.toContain(token);
   expect(changed).toHaveBeenCalledOnce();
@@ -95,12 +98,91 @@ it('requires confirmation before revoking a worker and keeps credentials out of 
   dialog = within(screen.getByRole('dialog', { name: 'Revoke worker Cloud raven?' }));
   fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
   await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(changed).toHaveBeenCalledWith(worker.id);
+  expect(screen.queryByRole('heading', { name: worker.name })).not.toBeInTheDocument();
+  expect(screen.getByText(/No workers connected/)).toBeInTheDocument();
   expect(fetcher).toHaveBeenCalledWith(
     '/api/training/workers/cloud',
     expect.objectContaining({ method: 'DELETE' }),
   );
   expect(screen.queryByLabelText('Worker token')).not.toBeInTheDocument();
 });
+
+it('shows online and disconnected workers while hiding revoked records on mount and refresh', () => {
+  const offline = {
+    ...worker,
+    id: 'offline',
+    name: 'Disconnected raven',
+    status: 'offline' as const,
+  };
+  const revoked = { ...worker, id: 'revoked', name: 'Revoked raven', status: 'revoked' as const };
+  const workers = [worker, offline, revoked];
+  const { rerender } = render(<TrainingWorkers workers={workers} onChanged={vi.fn()} />);
+  expect(screen.getByRole('heading', { name: worker.name })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: offline.name })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: revoked.name })).not.toBeInTheDocument();
+  rerender(<TrainingWorkers workers={[revoked]} onChanged={vi.fn()} />);
+  expect(screen.getByText(/No workers connected/)).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: revoked.name })).not.toBeInTheDocument();
+});
+
+it('keeps a worker visible when revocation fails', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json({ detail: 'Revocation failed' }, false)),
+  );
+  const changed = vi.fn();
+  render(<TrainingWorkers workers={[worker]} onChanged={changed} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke worker Cloud raven' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Revoke worker Cloud raven?' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
+  expect(await dialog.findByText('Revocation failed')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: worker.name })).toBeInTheDocument();
+  expect(changed).not.toHaveBeenCalled();
+});
+
+it('removes a revoked worker from the workshop count and training targets before refresh finishes', async () => {
+  let revoked = false;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        revoked = true;
+        return json({ revoked: true });
+      }
+      if (revoked) return new Promise<Response>(() => {});
+      return json(path.endsWith('/workers') ? [worker] : path.endsWith('/jobs') ? [] : {});
+    }),
+  );
+  render(<Training rulesets={rulesets} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Remote workers (1)' }));
+  fireEvent.change(screen.getByLabelText('Run training on'), { target: { value: 'worker:cloud' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke worker Cloud raven' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Revoke worker Cloud raven?' }));
+  fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
+  expect(await screen.findByRole('button', { name: 'Remote workers (0)' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: worker.name })).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /Cloud raven/ })).not.toBeInTheDocument();
+});
+
+it.each(['http://127.0.0.1:8000', 'https://tafl.example.net:8443'])(
+  'uses the reachable browser server origin %s in the single-slot connection command',
+  async (origin) => {
+    vi.stubGlobal('location', new URL(origin));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json({ worker: { ...worker, capacity: 1 }, token: 'secret' })),
+    );
+    const { container } = render(<TrainingWorkers workers={[]} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect a worker' }));
+    fireEvent.change(screen.getByLabelText('Worker name'), { target: { value: 'Raven' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create worker' }));
+    await screen.findByLabelText('Worker token');
+    expect(container.querySelector('.worker-command')?.textContent).toBe(
+      `read -r -s HNEFATAFL_WORKER_TOKEN\nexport HNEFATAFL_WORKER_TOKEN\n.venv/bin/python -m hnefatafl.cli worker --server ${origin} --work-dir ./data/remote-worker`,
+    );
+  },
+);
 
 it('queues GPU training on a remote worker even when the server only has a CPU', async () => {
   const fetcher = vi.fn((path: string, init?: RequestInit) => {

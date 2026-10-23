@@ -10,21 +10,26 @@ export default function TrainingWorkers({
   onChanged,
 }: {
   workers: TrainingWorker[];
-  onChanged: () => void;
+  onChanged: (revokedId?: string) => void;
 }) {
   const { t, locale } = useI18n();
   const [connect, setConnect] = useState(false);
   const [revoking, setRevoking] = useState<TrainingWorker | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [revokedIds, setRevokedIds] = useState<string[]>([]);
+  const visibleWorkers = workers.filter(
+    (worker) => worker.status !== 'revoked' && !revokedIds.includes(worker.id),
+  );
   const revoke = async () => {
     if (!revoking) return;
     setBusy(true);
     setError('');
     try {
       await api(`/training/workers/${revoking.id}`, undefined, 'DELETE');
+      setRevokedIds((previous) => [...previous, revoking.id]);
       setRevoking(null);
-      onChanged();
+      onChanged(revoking.id);
     } catch (error) {
       setError((error as Error).message);
     } finally {
@@ -46,9 +51,9 @@ export default function TrainingWorkers({
           {t('Connect a worker')}
         </button>
       </div>
-      {workers.length ? (
+      {visibleWorkers.length ? (
         <div className="workers-list">
-          {workers.map((worker) => (
+          {visibleWorkers.map((worker) => (
             <article key={worker.id} className="worker-card" data-worker-id={worker.id}>
               <div className="worker-heading">
                 <h3>{worker.name}</h3>
@@ -79,19 +84,17 @@ export default function TrainingWorkers({
                     })
                   : t('Not connected yet')}
               </small>
-              {worker.status !== 'revoked' && (
-                <button
-                  type="button"
-                  className="text-button danger-text"
-                  aria-label={t('Revoke worker {name}', { name: worker.name })}
-                  onClick={() => {
-                    setError('');
-                    setRevoking(worker);
-                  }}
-                >
-                  {t('Revoke access')}
-                </button>
-              )}
+              <button
+                type="button"
+                className="text-button danger-text"
+                aria-label={t('Revoke worker {name}', { name: worker.name })}
+                onClick={() => {
+                  setError('');
+                  setRevoking(worker);
+                }}
+              >
+                {t('Revoke access')}
+              </button>
             </article>
           ))}
         </div>
@@ -149,7 +152,7 @@ function WorkerSetup({ onClose, onCreated }: { onClose: () => void; onCreated: (
       setBusy(false);
     }
   };
-  const command = `hnefatafl worker --server ${window.location.origin} --work-dir ./data/remote-worker${created && created.worker.capacity > 1 ? ` --concurrency ${created.worker.capacity}` : ''}`;
+  const command = `.venv/bin/python -m hnefatafl.cli worker --server ${window.location.origin} --work-dir ./data/remote-worker${created && created.worker.capacity > 1 ? ` --concurrency ${created.worker.capacity}` : ''}`;
   return (
     <dialog
       ref={dialog}

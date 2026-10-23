@@ -66,6 +66,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.22.1](releases/v0.22.1.md) | Hide revoked remote workers and correct worker connection commands |
 | [0.22.0](releases/v0.22.0.md) | Mandatory accounts, scoped permissions and production Linux/LXC deployment |
 | [v0.21.0](releases/v0.21.0.md) | Structured AI workshop training dashboard |
 | [v0.20.0](releases/v0.20.0.md) | Shield maiden heuristic, integration and measured trade-offs |

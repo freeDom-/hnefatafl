@@ -381,7 +381,11 @@ class RemoteTraining:
         def workers():
             with self.lock:
                 self.reconcile()
-                return [self.public_worker(worker) for worker in self.store.workers()]
+                return [
+                    self.public_worker(worker)
+                    for worker in self.store.workers()
+                    if not worker.get("revoked_at")
+                ]
 
         @app.post("/api/training/workers", status_code=201)
         def create_worker(request: WorkerRequest):

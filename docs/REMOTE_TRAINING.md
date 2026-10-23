@@ -33,8 +33,10 @@ This does not split a single model's optimization across machines.
      --concurrency 2
    ```
 
-   Replace the server URL and concurrency with your setup. No incoming port needs
-   to be opened on the worker. Keep its work directory persistent and private.
+   The UI uses the server address from your browser. Replace it if the worker
+   needs a different reachable address; do not use loopback for a separate machine.
+   Adjust concurrency for your setup. No incoming port needs to be opened on the
+   worker. Keep its work directory persistent and private.
    The token is not accepted as a command-line argument or placed in URLs.
 
 5. The worker appears online with its reported hardware. In the workshop, choose
@@ -106,8 +108,11 @@ expired work is not automatically duplicated on another machine.
 
 **Revoke access** invalidates a worker token, ends its active leases and cancels
 jobs pinned to that worker. Other workers remain available. Create a fresh
-credential to reconnect a revoked machine. Tokens are installation credentials,
-not accounts for other application features.
+credential to reconnect a revoked machine. Revoked machines disappear from the
+management list immediately and stay hidden after browser or server restarts.
+Disconnected machines with valid credentials remain listed. Revocation retains
+worker audit records, training results, uploaded checkpoints and imported models.
+Tokens are installation credentials, not accounts for other application features.
 
 Use HTTPS through your existing reverse proxy (or a private VPN). Browser sessions
 and administrator permissions protect enrollment and training management. Scoped
@@ -134,7 +139,7 @@ The application API documentation at `/docs` describes request fields.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/training/workers` | List worker status, capacity and reported capabilities |
+| `GET /api/training/workers` | List authorized workers (online or offline), capacity and capabilities |
 | `POST /api/training/workers` | Create a named worker and return its one-time token |
 | `DELETE /api/training/workers/{id}` | Revoke that worker |
 | `POST /api/training/jobs` | Use `execution: "remote"` and optional `worker_id` to queue training |

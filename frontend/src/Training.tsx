@@ -173,7 +173,9 @@ export default function Training({
     setModelsOpen((previous) => previous ?? !runs.length);
     setDevice(hardware);
     setJobs(runs);
-    setWorkers(Array.isArray(connected) ? connected : []);
+    setWorkers(
+      Array.isArray(connected) ? connected.filter((worker) => worker.status !== 'revoked') : [],
+    );
     if (selectionRevision.current === selectedRevision) {
       setSelectedJob((previous) =>
         previous
@@ -483,7 +485,11 @@ export default function Training({
       <div id="workshop-workers" hidden={!workersOpen}>
         <TrainingWorkers
           workers={workers}
-          onChanged={() => void refresh().catch((error) => onError(error.message))}
+          onChanged={(revokedId) => {
+            if (revokedId)
+              setWorkers((previous) => previous.filter((worker) => worker.id !== revokedId));
+            void refresh().catch((error) => onError(error.message));
+          }}
         />
       </div>
       <section className="panel training-config workshop-creation" ref={trainingForm}>
