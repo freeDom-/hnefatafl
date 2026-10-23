@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl import job_archives
 from hnefatafl.ai import choose_move

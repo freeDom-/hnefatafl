@@ -323,3 +323,15 @@ See the [dashboard guide](docs/TRAINING_DASHBOARD.md) and
 API/checkpoint/job formats and worker protocols are unchanged. Fixture screenshots
 illustrate the interface; no GPU validation, long campaign or stronger-model claim
 is made. Existing server-bounded log tails remain part of job-list polling.
+
+
+## Secure accounts and production deployment (`v0.22.0`)
+
+Persistent accounts, mandatory browser/API authentication, centralized USER/ADMIN
+permissions, scoped game/player records, local administrator provisioning, schema 8,
+Debian/Proxmox installation, protected systemd deployment, stable-release updates,
+verified backups and guarded rollback are implemented. See the
+[implementation/validation record](docs/validation/security-deployment-2026-10-23.md)
+for all changed files, 57 API grants, migration details, exact checks, commands and
+remaining hardware/target-host limits. See [v0.22.0 release notes](docs/releases/v0.22.0.md)
+for installation and migration requirements. Existing release evidence above remains historical.

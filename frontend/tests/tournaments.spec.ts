@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './auth-fixture';
 import type { Tournament } from '../src/tournamentTypes';
 
 const tournamentApi = 'http://127.0.0.1:8001/api/tournaments';

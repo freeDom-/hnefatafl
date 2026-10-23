@@ -4,7 +4,7 @@ import random
 
 import pytest
 import torch
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.models import PolicyValueNet, save_checkpoint
 from hnefatafl.server import create_app

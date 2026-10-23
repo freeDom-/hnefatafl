@@ -77,6 +77,7 @@ class AnalyticsRequest(BaseModel):
 
 
 class GameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
     mode: Literal["human-human", "human-ai", "ai-ai"] = "human-human"
     human_side: Literal["attackers", "defenders"] = "defenders"
@@ -119,7 +120,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         package_version = version("hnefatafl")
     except PackageNotFoundError:
         package_version = "0+local"
-    app = FastAPI(title="Hnefatafl", version=package_version)
+    app = FastAPI(
+        title="Hnefatafl", version=package_version, docs_url=None, redoc_url=None, openapi_url=None
+    )
     from .job_archives import JobUploadLimit
 
     app.add_middleware(JobUploadLimit)
@@ -133,6 +136,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     tournaments = TournamentManager(store, root)
     app.state.store = store
     app.state.data_dir = root
+    from .auth import attach_auth
+
+    auth = attach_auth(app, store)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
     # Catalog changes and new references must be atomic with respect to each
@@ -141,10 +147,21 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     from .remote_training import RemoteTraining
 
     remote_training = RemoteTraining(store, root, job_lock, catalog_lock)
+    auth.worker_auth = remote_training.authenticate
     remote_training.attach_routes(app)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if auth.settings.production:
+            if not (PROJECT_ROOT / "frontend/dist/index.html").is_file():
+                raise RuntimeError("Build the production frontend before startup")
+            with store.connection() as connection:
+                if not connection.execute(
+                    "SELECT 1 FROM accounts WHERE role='ADMIN' AND active=1"
+                ).fetchone():
+                    raise RuntimeError(
+                        "Provision the initial administrator using the local CLI before startup"
+                    )
         yield
         await asyncio.to_thread(tournaments.shutdown)
         await asyncio.to_thread(analyses.shutdown)
@@ -553,7 +570,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "database": "sqlite", "schema_version": 7}
+        with store.connection() as connection:
+            connection.execute("SELECT 1 FROM accounts LIMIT 1")
+        return {"status": "ok"}
 
     @app.get("/api/rulesets")
     def rulesets():
@@ -1429,7 +1448,16 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/models")
     def models():
-        return models_list()
+        from .security_context import allowed, principal
+
+        entries = models_list()
+        if allowed(principal.get(), "models"):
+            return entries
+        # Gameplay needs an inference catalog, never training metadata or paths.
+        return [
+            {key: entry[key] for key in ("id", "name", "ruleset", "rune") if key in entry}
+            for entry in entries
+        ]
 
     @app.patch("/api/models/{model_id}")
     def rename_model(model_id: str, request: ModelNameRequest):

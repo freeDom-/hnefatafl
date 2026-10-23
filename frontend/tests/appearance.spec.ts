@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './auth-fixture';
 
 test('appearance changes real artwork and colors, persists, and preserves touch gameplay', async ({
   page,

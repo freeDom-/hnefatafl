@@ -22,8 +22,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command:
-        '../.venv/bin/python -m uvicorn hnefatafl.server:app --host 127.0.0.1 --port 8001 --app-dir ..',
+      command: '../.venv/bin/python tests/start_backend.py',
       url: 'http://127.0.0.1:8001/api/health',
       env: { HNEFATAFL_DATA_DIR: dataDir },
       reuseExistingServer: false,

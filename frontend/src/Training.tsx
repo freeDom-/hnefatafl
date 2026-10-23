@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, apiFetch } from './api';
 import type { DeviceInfo, Job, Model, Ruleset, TrainingWorker } from './types';
 import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
@@ -307,7 +307,7 @@ export default function Training({
   const exportTrainingJob = async (job: Job) => {
     setExportingJob(true);
     try {
-      const response = await fetch(`/api/training/jobs/${job.id}/export`);
+      const response = await apiFetch(`/training/jobs/${job.id}/export`);
       if (!response.ok) {
         const error = await response.json();
         throw new Error(typeof error.detail === 'string' ? error.detail : t('Job export failed.'));

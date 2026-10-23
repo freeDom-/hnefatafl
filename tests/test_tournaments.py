@@ -7,7 +7,7 @@ import sqlite3
 import time
 
 import pytest
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.server import create_app
@@ -379,7 +379,7 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     assert upgraded.players(include_deleted=True)[0]["deleted_at"] == "2026-01-02"
     assert upgraded.historical_models() == [{"id": "old-model", "name": "Eir"}]
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 def test_interrupted_worker_is_reported_without_losing_retained_data(tmp_path):

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 import threading
 
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 import pytest
 
 from hnefatafl import ai
@@ -401,7 +401,7 @@ def test_schema_three_migration_preserves_games_and_analysis_deletion_rolls_back
     upgraded.delete_game("old", 0)
     assert upgraded.game_analysis("old", "abc") is None
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client, tmp_path):

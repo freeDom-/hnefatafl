@@ -1,5 +1,5 @@
 import { openCreation, openCollection } from './workshop-helpers';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './auth-fixture';
 
 test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
   await page.goto('/');

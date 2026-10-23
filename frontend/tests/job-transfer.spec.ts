@@ -1,6 +1,6 @@
 import { selectWorkshopJob } from './workshop-helpers';
 import { readFile } from 'node:fs/promises';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './auth-fixture';
 
 const api = 'http://127.0.0.1:8001/api';
 

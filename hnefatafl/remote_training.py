@@ -234,6 +234,14 @@ class RemoteTraining:
         worker = self.store.worker_for_token(digest(authorization[7:]))
         if worker is None or worker.get("revoked_at"):
             fail("The worker token is invalid or revoked.", 403)
+        from .security_context import allowed
+
+        with self.store.connection() as connection:
+            owner = connection.execute(
+                "SELECT * FROM accounts WHERE id=?", (worker.get("owner_account_id"),)
+            ).fetchone()
+        if owner is None or not allowed(dict(owner), "training"):
+            fail("The enrolling administrator is no longer authorized. Re-enroll this worker.", 403)
         return worker
 
     def lease(self, worker: dict, job_id: str, token: str, *, terminal: bool = False) -> dict:
@@ -377,11 +385,16 @@ class RemoteTraining:
 
         @app.post("/api/training/workers", status_code=201)
         def create_worker(request: WorkerRequest):
+            from .security_context import principal
+
+            account = principal.get()
+            assert account is not None
             if not request.name.strip():
                 fail("Worker names must contain 1–80 characters.")
             with self.lock:
                 token = secrets.token_urlsafe(40)
                 worker = {
+                    "owner_account_id": account["id"],
                     "id": uuid4().hex,
                     "name": request.name.strip(),
                     "capacity": request.capacity,

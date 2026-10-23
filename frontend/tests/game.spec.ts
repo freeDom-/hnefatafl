@@ -1,5 +1,5 @@
 import { openCreation, openCollection } from './workshop-helpers';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './auth-fixture';
 
 test('real gameplay, undo, redo, rules, records and mobile layout', async ({ page }, testInfo) => {
   const playerName = `Browser Astrid ${testInfo.project.name}`;

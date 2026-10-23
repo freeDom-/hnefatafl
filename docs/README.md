@@ -43,6 +43,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Installation, deployment, security and backups
 
+- [Accounts, sessions, CSRF and API permissions](SECURITY.md)
 - [Local production/development, Linux/LXC, systemd, reverse proxy, upgrades and rollback](DEPLOYMENT.md)
 - [Backup and relocation safeguards](TRAINING_DATA.md#consistent-backup-and-restoration)
 
@@ -65,6 +66,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [v0.22.0](releases/v0.22.0.md) | Mandatory accounts, scoped permissions and production Linux/LXC deployment |
 | [v0.21.0](releases/v0.21.0.md) | Structured AI workshop training dashboard |
 | [v0.20.0](releases/v0.20.0.md) | Shield maiden heuristic, integration and measured trade-offs |
 | [v0.19.0](releases/v0.19.0.md) | Single evaluation opponent, portable champion selection and compact worker logs |

@@ -13,7 +13,7 @@ import time
 from uuid import uuid4
 
 import httpx
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.models import load_checkpoint
 from hnefatafl.server import create_app
@@ -150,6 +150,12 @@ def test_expired_worker_cannot_rewrite_retained_progress_or_complete_a_stale_job
 
 @contextmanager
 def live_server(directory):
+    from auth_support import PASSWORD
+    from hnefatafl.auth import Auth, SecuritySettings
+    from hnefatafl.storage import Store
+
+    auth = Auth(Store(directory / "hnefatafl.sqlite3"), SecuritySettings())
+    auth.create_account("Odin", "odin@example.test", PASSWORD, "ADMIN", bootstrap=True)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -190,7 +196,17 @@ def live_server(directory):
                     assert process.poll() is None, log.read_text()
                     assert time.monotonic() < deadline, log.read_text()
                     time.sleep(0.05)
-                yield client, f"http://127.0.0.1:{port}"
+                origin = f"http://127.0.0.1:{port}"
+                logged_in = client.post(
+                    "/api/auth/login",
+                    json={"identity": "Odin", "password": PASSWORD},
+                    headers={"Origin": origin},
+                )
+                assert logged_in.status_code == 200, logged_in.text
+                client.headers.update(
+                    {"Origin": origin, "X-CSRF-Token": logged_in.json()["csrf_token"]}
+                )
+                yield client, origin
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -220,6 +236,10 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
     worker_data = tmp_path / "cloud"
     logfile = tmp_path / "worker.log"
     with live_server(server_data) as (client, url):
+        from hnefatafl.deployment import Deployment
+        from urllib.parse import urlparse
+
+        Deployment({"port": urlparse(url).port, "public_url": url}, data=server_data).probe()
         remote, headers = worker(client, "Two-slot CPU cloud", capacity=2)
         first = queued(
             client, "Cloud Ulf", seed=17, worker_id=remote["id"], optimizer="sgd", momentum=0.7

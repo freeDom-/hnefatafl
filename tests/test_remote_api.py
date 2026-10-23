@@ -5,7 +5,7 @@ import hashlib
 import json
 import random
 
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 import pytest
 import torch
 

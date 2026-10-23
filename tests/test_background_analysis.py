@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 import pytest
 
 from hnefatafl import ai

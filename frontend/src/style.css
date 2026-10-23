@@ -2748,3 +2748,45 @@ tbody th small {
     max-width: 92px;
   }
 }
+.auth-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+.auth-card {
+  width: min(100%, 26rem);
+  padding: 2rem;
+  border: 1px solid var(--ui-border, var(--line));
+  border-radius: 1rem;
+  background: var(--surface);
+  color: var(--ui-heading, #26352e);
+  box-shadow: 0 12px 40px #00000018;
+}
+.auth-card form,
+.auth-card label {
+  display: grid;
+  gap: 0.65rem;
+}
+.auth-card form {
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.auth-card input {
+  width: 100%;
+  min-height: 2.75rem;
+}
+.auth-card h1 {
+  letter-spacing: 0.15em;
+}
+.auth-card > p {
+  margin: 0.5rem 0 1.5rem;
+  color: var(--muted);
+}
+.auth-card h2 {
+  margin-bottom: 1rem;
+}
+.auth-card .button {
+  width: 100%;
+  min-height: 2.75rem;
+}

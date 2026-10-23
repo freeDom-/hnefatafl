@@ -5,7 +5,7 @@ import json
 import sqlite3
 import time
 
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.identities import RUNES, effective_ai_config, rune_for_ordinal
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
@@ -66,7 +66,7 @@ def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path)
     assert Store(path).players(include_deleted=True)[0]["rune"] == fresh["rune"]
     assert migrated.rune("player:retired") == retired["rune"]
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert connection.execute("SELECT data FROM games WHERE id='old'").fetchone()[0] == old_json
 
 

@@ -1,6 +1,6 @@
 import { t, useI18n, getLocale } from './i18n';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, apiFetch } from './api';
 import type { Game, Player, Ruleset, Stats, StatRow } from './types';
 import { sortRulesets } from './sortRulesets';
 import RecordsParameters, { ParameterValues } from './RecordsParameters';
@@ -141,9 +141,11 @@ export default function Archive({
     setDeleteError('');
     generation.current++;
     try {
-      const result = await fetch(`/api/games/${game.id}?version=${game.version}`, {
-        method: 'DELETE',
-      });
+      const result = await apiFetch(
+        `/games/${game.id}?version=${game.version}`,
+        undefined,
+        'DELETE',
+      );
       if (result.ok || result.status === 404) {
         removed(game.id);
         return;

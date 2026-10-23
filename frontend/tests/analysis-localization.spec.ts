@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './auth-fixture';
 
 test('a searching advisor publishes partial results while the human can move and can be changed immediately', async ({
   page,
@@ -8,6 +8,9 @@ test('a searching advisor publishes partial results while the human can move and
   await page.getByRole('button', { name: 'To the table' }).click();
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
+  // Leave time for real touch scrolling between the advisor and the board while
+  // asserting that input remains available during unfinished analysis.
+  await analytics.getByRole('spinbutton', { name: 'Maximum search time (seconds)' }).fill('15');
   await advisor.selectOption('custom');
   await expect(
     analytics.getByRole('spinbutton', { name: 'Search depth', exact: true }),

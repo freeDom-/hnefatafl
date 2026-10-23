@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './auth-fixture';
 import { workshopFixtures } from './workshop-fixtures';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
 async function open(page: Page) {

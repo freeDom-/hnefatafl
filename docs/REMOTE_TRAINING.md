@@ -109,11 +109,11 @@ jobs pinned to that worker. Other workers remain available. Create a fresh
 credential to reconnect a revoked machine. Tokens are installation credentials,
 not accounts for other application features.
 
-Use a private network/VPN, or HTTPS with a reverse proxy that permits remote
-access only to `/api/worker/` routes. Keep the browser, enrollment routes
-(`/api/training/workers`) and other administrative APIs private or protected by
-your proxy's authentication. Worker bearer authentication does **not** add account
-authentication to the rest of the application. TLS verification remains enabled;
+Use HTTPS through your existing reverse proxy (or a private VPN). Browser sessions
+and administrator permissions protect enrollment and training management. Scoped
+worker bearer tokens authenticate only exact worker routes and require an active
+enrolling administrator. Legacy workers without that association must be re-enrolled
+after upgrading; retained jobs and checkpoints remain intact. TLS verification remains enabled;
 the client does not offer an insecure certificate bypass. Give a token only to
 machines you trust with the assigned model/configuration and checkpoints.
 

@@ -1,5 +1,5 @@
 import { openCreation, openCollection } from './workshop-helpers';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './auth-fixture';
 
 async function finishVariant(
   request: import('@playwright/test').APIRequestContext,

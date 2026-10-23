@@ -30,3 +30,23 @@ Omit `--prerelease` for stable versions. Do not move published tags. Include dat
 migration requirements whenever storage changes. GitHub automatically includes
 source archives. Large trained models are separate artifacts; do not commit them
 or claim strength without a documented evaluation budget and results.
+
+## Production updater assets
+
+Production installs accept published stable **vX.Y.Z** releases, with neither draft
+nor prerelease flags. The tag must match `pyproject.toml`. Older preview tags and
+GitHub automatic source archives are not production installation inputs.
+After committing, validating and tagging a secure deployment release:
+
+```sh
+.venv/bin/python scripts/package_release.py
+gh release create vX.Y.Z work/releases/hnefatafl-vX.Y.Z.tar.gz \
+  --verify-tag --title 'vX.Y.Z' --notes-file docs/releases/vX.Y.Z.md
+```
+
+Replace X.Y.Z consistently. Packaging refuses dirty checkouts and includes only
+clean committed source, excluding runtime data, dependencies and secrets. GitHub's
+asset API must report its SHA-256 digest; the updater verifies it before extraction.
+The release must include authentication, lockfiles, security tests, frontend and
+systemd template. A tag alone is insufficient. Neither installer nor updater
+publishes a release.

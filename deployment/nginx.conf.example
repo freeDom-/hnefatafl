@@ -1,13 +1,11 @@
-# Add TLS and your authentication configuration before exposing this publicly.
-server {
-    listen 80;
-    server_name tafl.example.org;
-    client_max_body_size 128m;
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 310s;
-    }
+# Merge this location into your EXISTING HTTPS virtual host. TLS terminates there.
+# Restrict LXC ingress to your proxy; set its IP in HNEFATAFL_TRUSTED_PROXIES.
+location / {
+    proxy_pass http://LXC_IP:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 310s;
+    client_max_body_size 132m;
+    # No WebSocket/SSE routes currently exist.
 }

@@ -2,6 +2,13 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Secure accounts and deployment (`v0.22.0`)
+
+The [2026-10-23 implementation and validation record](validation/security-deployment-2026-10-23.md)
+describes accounts/RBAC, schema 8, installers/updater, complete API coverage, exact
+checks and remaining target-host validation. The [v0.22.0 release notes](releases/v0.22.0.md)
+record the release scope; older release evidence remains historical.
+
 ## Latest release evidence at a glance
 
 Evidence below belongs to the specified release and scope, not to every platform

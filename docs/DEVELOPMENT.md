@@ -11,6 +11,7 @@ Node 22+ is required (CI uses 24), and CI pins uv 0.12.23. From the root:
 ```sh
 make install
 make foundation
+.venv/bin/python -m hnefatafl.accounts init-admin
 bash scripts/dev.sh
 ```
 
@@ -116,3 +117,9 @@ run `python3 scripts/check_docs.py` directly. Validate the checker itself with
 
 Release tags and GitHub Releases require explicit authorization; a documentation
 commit alone is not a milestone release. See [Releasing](RELEASING.md).
+
+## Authentication regression fixtures
+
+Backend regression clients and browser tests log in through the real API with
+ordinary disposable accounts and send CSRF tokens. No runtime authentication
+bypass exists. The security matrix derives from every registered API route.

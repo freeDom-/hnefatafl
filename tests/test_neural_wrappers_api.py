@@ -3,7 +3,7 @@
 import time
 
 import pytest
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint

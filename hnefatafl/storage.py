@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from .identities import rune_for_ordinal
+from .security_context import owner_scope, principal
 
 
 class ConflictError(ValueError):
@@ -52,7 +53,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 7:
+            if schema > 8:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -101,7 +102,27 @@ class Store:
                     PRIMARY KEY (game_id, position_key, revision)
                 )
             """)
-            connection.execute("PRAGMA user_version=7")
+            # Schema 8 separates login accounts from local/historical players.
+            # NULL ownership intentionally leaves historical records admin-only.
+            for statement in (
+                "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL, last_login REAL, display_name TEXT)",
+                "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), expires REAL NOT NULL, csrf_hash TEXT NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS session_account ON sessions(account_id)",
+                "CREATE TABLE IF NOT EXISTS auth_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, started REAL NOT NULL, attempts INTEGER NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS game_participants (game_id TEXT NOT NULL REFERENCES games(id), side TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id), PRIMARY KEY(game_id,side))",
+            ):
+                connection.execute(statement)
+            for table in ("games", "players"):
+                columns = {r["name"] for r in connection.execute(f"PRAGMA table_info({table})")}
+                if "owner_account_id" not in columns:
+                    connection.execute(
+                        f"ALTER TABLE {table} ADD COLUMN owner_account_id TEXT REFERENCES accounts(id)"
+                    )
+                connection.execute(
+                    f"CREATE INDEX IF NOT EXISTS {table}_owner ON {table}(owner_account_id)"
+                )
+            connection.execute("PRAGMA user_version=8")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.
         with self.connection() as connection:
@@ -126,10 +147,12 @@ class Store:
             connection.close()
 
     def create_game(self, game: dict) -> None:
+        account = principal.get()
+        owner = account["id"] if account else None
         with self.connection() as connection:
             connection.execute(
-                "INSERT INTO games(id,version,created_at,data) VALUES(?,?,?,?)",
-                (game["id"], game["version"], game["created_at"], json.dumps(game)),
+                "INSERT INTO games(id,version,created_at,data,owner_account_id) VALUES(?,?,?,?,?)",
+                (game["id"], game["version"], game["created_at"], json.dumps(game), owner),
             )
 
     def runes(self, entity_keys: Iterable[str]) -> dict[str, str]:
@@ -163,14 +186,22 @@ class Store:
         return self.runes([entity_key])[entity_key]
 
     def get_game(self, game_id: str) -> dict | None:
+        owner = owner_scope()
         with self.connection() as connection:
-            row = connection.execute("SELECT data FROM games WHERE id=?", (game_id,)).fetchone()
+            row = connection.execute(
+                "SELECT data FROM games WHERE id=?" + (" AND owner_account_id=?" if owner else ""),
+                (game_id, owner) if owner else (game_id,),
+            ).fetchone()
         return json.loads(row["data"]) if row else None
 
     def list_games(self) -> list[dict]:
+        owner = owner_scope()
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT data FROM games ORDER BY created_at DESC,id"
+                "SELECT data FROM games "
+                + ("WHERE owner_account_id=? " if owner else "")
+                + "ORDER BY created_at DESC,id",
+                (owner,) if owner else (),
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
@@ -367,13 +398,17 @@ class Store:
             pass
 
     def players(self, *, include_deleted: bool = False) -> list[dict]:
+        owner = owner_scope()
         with self.connection() as connection:
             result = [
                 dict(row)
                 for row in connection.execute(
                     "SELECT * FROM players "
-                    + ("" if include_deleted else "WHERE deleted_at IS NULL ")
-                    + "ORDER BY name,id"
+                    + "WHERE 1=1 "
+                    + ("" if include_deleted else "AND deleted_at IS NULL ")
+                    + ("AND owner_account_id=? " if owner else "")
+                    + "ORDER BY name,id",
+                    (owner,) if owner else (),
                 )
             ]
         runes = self.runes(f"player:{player['id']}" for player in result)
@@ -383,16 +418,25 @@ class Store:
         """Hide a profile from selection while retaining its historical identity."""
         with self.connection() as connection:
             cursor = connection.execute(
-                "UPDATE players SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
-                (deleted_at, player_id),
+                "UPDATE players SET deleted_at=? WHERE id=? AND deleted_at IS NULL"
+                + (" AND owner_account_id=?" if owner_scope() else ""),
+                (deleted_at, player_id, owner_scope())
+                if owner_scope()
+                else (deleted_at, player_id),
             )
         return cursor.rowcount == 1
 
     def create_player(self, player: dict) -> dict:
+        account = principal.get()
         with self.connection() as connection:
             connection.execute(
-                "INSERT INTO players(id,name,created_at) VALUES(?,?,?)",
-                (player["id"], player["name"], player["created_at"]),
+                "INSERT INTO players(id,name,created_at,owner_account_id) VALUES(?,?,?,?)",
+                (
+                    player["id"],
+                    player["name"],
+                    player["created_at"],
+                    account["id"] if account else None,
+                ),
             )
         return {**player, "rune": self.rune(f"player:{player['id']}")}
 

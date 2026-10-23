@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 
 import pytest
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.engine import legal_moves
 from hnefatafl.server import create_app

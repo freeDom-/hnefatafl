@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Archive from './Archive';
+import { setCSRF } from './api';
 import type { Game, Ruleset, StatRow } from './types';
 
 const rulesets: Ruleset[] = [
@@ -45,6 +46,7 @@ const json = (value: unknown, status = 200) =>
 const noError = vi.fn();
 
 beforeEach(() => {
+  setCSRF('fixture-csrf');
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
     this.setAttribute('open', '');
   });
@@ -53,6 +55,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  setCSRF('');
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -120,7 +123,14 @@ describe('statistics and saved game management', () => {
     );
     expect(screen.queryByRole('button', { name: 'Delete game saved-one' })).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(fetcher).toHaveBeenCalledWith('/api/games/saved-one?version=1', { method: 'DELETE' });
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/games/saved-one?version=1',
+      expect.objectContaining({
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'fixture-csrf' }),
+      }),
+    );
     expect(screen.getByRole('status')).toHaveTextContent('Game removed');
     expect(noError).not.toHaveBeenCalled();
   });
@@ -154,7 +164,14 @@ describe('statistics and saved game management', () => {
     expect(deletedGame).not.toHaveBeenCalled();
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(deletedGame).toHaveBeenCalledOnce());
-    expect(fetcher).toHaveBeenCalledWith('/api/games/saved-one?version=2', { method: 'DELETE' });
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/games/saved-one?version=2',
+      expect.objectContaining({
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'fixture-csrf' }),
+      }),
+    );
   });
 
   it('clears a stale current-game pointer when the record was already deleted elsewhere', async () => {

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './auth-fixture';
 
 const api = 'http://127.0.0.1:8001/api';
 

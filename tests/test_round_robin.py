@@ -5,7 +5,7 @@ from copy import deepcopy
 import time
 
 import pytest
-from fastapi.testclient import TestClient
+from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.ai import tournament
 from hnefatafl.engine import Move, apply_move, new_game

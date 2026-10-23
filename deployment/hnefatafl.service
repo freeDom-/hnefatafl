@@ -1,15 +1,20 @@
 [Unit]
-Description=Hnefatafl game and training management
-After=network.target
+Description=Hnefatafl authenticated game and training service
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
 User=hnefatafl
 Group=hnefatafl
-WorkingDirectory=/opt/hnefatafl
+WorkingDirectory=/opt/hnefatafl/current
+EnvironmentFile=/etc/hnefatafl/application.env
+Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=HNEFATAFL_DATA_DIR=/var/lib/hnefatafl
 Environment=OMP_NUM_THREADS=2
-ExecStart=/opt/hnefatafl/.venv/bin/python -m uvicorn hnefatafl.server:app --host 127.0.0.1 --port 8000 --workers 1
+Environment=MKL_NUM_THREADS=2
+Environment=XDG_CACHE_HOME=/var/lib/hnefatafl/cache
+ExecStart=/opt/hnefatafl/current/.venv/bin/python -m uvicorn hnefatafl.server:app --host ${HNEFATAFL_HOST} --port ${HNEFATAFL_PORT} --workers 1 --proxy-headers --forwarded-allow-ips ${HNEFATAFL_TRUSTED_PROXIES}
 Restart=on-failure
 RestartSec=5
 StateDirectory=hnefatafl
@@ -19,8 +24,16 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/hnefatafl
-TimeoutStopSec=30
+TimeoutStopSec=90
 KillMode=control-group
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+TasksMax=512
+CPUWeight=50
+MemoryHigh=75%
+MemoryMax=90%
 
 [Install]
 WantedBy=multi-user.target

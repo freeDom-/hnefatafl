@@ -73,9 +73,9 @@ reconstructions. Dedicated rule documents record interpretation and source acces
 ## Future multiplayer
 
 Game IDs, stable player identities, persisted ordered moves and versioned move
-requests permit future authenticated accounts and WebSocket broadcasts. Authentication,
-authorization and lobby matchmaking must be added before exposing competitive online
-play. The engine does not need to change. SQLite transactions currently serialize
+requests permit future online participation and WebSocket broadcasts. Persistent
+accounts, database sessions and centralized permissions now protect the API;
+lobby matchmaking remains future work. The engine does not need to change. SQLite transactions currently serialize
 updates; a PostgreSQL adapter can replace storage without changing rules or clients.
 
 ## Training execution and inference
@@ -218,9 +218,10 @@ Expired leases retain uploaded state and require explicit resumption; they are
 not automatically dispatched again. Queued cancellation, graceful active-job
 cancellation and credential revocation remain distinct from deleting retained
 training data. The browser polls the same persisted progress and charts for both
-execution targets. Remote worker credentials do not authenticate the rest of the
-existing trusted-local application; use private networking or a suitably scoped
-authenticated HTTPS proxy. See [Remote training](docs/REMOTE_TRAINING.md).
+execution targets. Worker tokens authenticate only scoped machine routes and are
+bound to an active enrolling administrator. Browser sessions protect the rest of
+the application. See [Remote training](docs/REMOTE_TRAINING.md) and
+[Authentication and RBAC](docs/SECURITY.md).
 
 ## Training workshop presentation
 

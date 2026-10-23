@@ -41,18 +41,26 @@ From the repository root:
 ```sh
 make install
 make build
+.venv/bin/python -m hnefatafl.accounts init-admin
 bash scripts/start.sh
 ```
 
 Open port 8000 on the local machine. The server binds `127.0.0.1` and serves both
 the built browser client and API. Check readiness with
-`curl --fail http://127.0.0.1:8000/api/health`, then create a game and make a move.
+`curl --fail http://127.0.0.1:8000/api/health`, then log in and create a game.
+Administrator setup asks for username (default **Odin**), email and a password;
+there is no default password or public registration. Ordinary accounts can play;
+training, tournaments and model management require administrator permissions.
+See [Authentication and RBAC](docs/SECURITY.md).
 Set `HNEFATAFL_DATA_DIR` to choose persistent storage (default `./data`).
 `.env.example` documents variables; it is not automatically loaded.
 
 For live development use `bash scripts/dev.sh` after installation. See
 [Deployment](docs/DEPLOYMENT.md) for trusted-LAN access, Linux/LXC, systemd,
-authenticated reverse proxies, updates and backups. No Docker is required.
+an external HTTPS reverse proxy, stable-release updates and backups. For a dedicated
+Debian 13 container, run `bash scripts/proxmox/ct/hnefatafl.sh` from a reviewed
+checkout on Proxmox. [Installation and recovery instructions](docs/DEPLOYMENT.md)
+describe release assets and private repository credentials. No Docker is required.
 The locked environment installs CPU PyTorch; [GPU setup](docs/PERFORMANCE.md#installation-and-hardware)
 requires a matching official build and suitable hardware.
 
@@ -97,10 +105,10 @@ See [Development](docs/DEVELOPMENT.md), [Architecture](ARCHITECTURE.md) and
 
 ## Current limitations
 
-A server connection is required. Local profiles are not authenticated accounts;
-keep administrative gameplay/training routes on a trusted network or behind an
-authenticated TLS proxy. Offline play, internet accounts/lobbies, distributed
-self-play and PostgreSQL migration tools are not implemented.
+A server connection is required. Local participants remain separate from login accounts.
+Use the production HTTPS/proxy configuration before public exposure. Offline play,
+online matchmaking/lobbies, distributed self-play and PostgreSQL migration tools
+are not implemented. Installation requires a published stable release with a verified asset.
 
 CPU workflows are verified. CUDA/MPS execution, GPU throughput and target-host
 systemd/proxy operation require separate validation. Tiny v0.17.0 CPU benchmarks

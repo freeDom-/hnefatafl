@@ -23,6 +23,7 @@ import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
 import { modelLabel } from './modelLabel';
 import SearchWrapper from './SearchWrapper';
+import { useAuth } from './Auth';
 
 type Tab = 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -32,7 +33,18 @@ const sideGlyph = (side: Side) => (
 
 export default function App() {
   useI18n();
-  const [tab, setTab] = useState<Tab>('play');
+  const { account, logout } = useAuth();
+  const permissions = account?.permissions ?? [];
+  const [tab, setTab] = useState<Tab>(() =>
+    location.pathname === '/training' && permissions.includes('training')
+      ? 'training'
+      : location.pathname === '/tournaments' && permissions.includes('tournaments')
+        ? 'tournaments'
+        : 'play',
+  );
+  useEffect(() => {
+    if ((tab === 'training' || tab === 'tournaments') && !permissions.includes(tab)) setTab('play');
+  }, [tab, account?.permissions]);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -189,28 +201,38 @@ export default function App() {
           </span>
         </a>
         <nav aria-label={t('Main navigation')}>
-          {(['play', 'archive', 'training', 'tournaments'] as Tab[]).map((item) => (
-            <button
-              type="button"
-              key={item}
-              onClick={() => {
-                setTab(item);
-                if (item === 'tournaments') void refreshOptions().catch((e) => setError(e.message));
-              }}
-              className={tab === item ? 'active' : ''}
-              aria-current={tab === item ? 'page' : undefined}
-            >
-              {item === 'play'
-                ? t('Play')
-                : item === 'archive'
-                  ? t('Hall of records')
-                  : item === 'training'
-                    ? t('AI workshop')
-                    : t('Tournaments')}
-            </button>
-          ))}
+          {(['play', 'archive', 'training', 'tournaments'] as Tab[])
+            .filter(
+              (item) =>
+                (item !== 'training' && item !== 'tournaments') || permissions.includes(item),
+            )
+            .map((item) => (
+              <button
+                type="button"
+                key={item}
+                onClick={() => {
+                  setTab(item);
+                  if (item === 'tournaments')
+                    void refreshOptions().catch((e) => setError(e.message));
+                }}
+                className={tab === item ? 'active' : ''}
+                aria-current={tab === item ? 'page' : undefined}
+              >
+                {item === 'play'
+                  ? t('Play')
+                  : item === 'archive'
+                    ? t('Hall of records')
+                    : item === 'training'
+                      ? t('AI workshop')
+                      : t('Tournaments')}
+              </button>
+            ))}
         </nav>
         <div className="header-controls">
+          <span>{account?.username}</span>
+          <button type="button" onClick={() => void logout()}>
+            Log out
+          </button>
           <LanguageSelect />
           <AppearanceSettings />
         </div>
@@ -577,10 +599,10 @@ export default function App() {
             onGameDeleted={(id) => removeGames([id])}
           />
         )}
-        {tab === 'tournaments' && (
+        {tab === 'tournaments' && permissions.includes('tournaments') && (
           <Tournaments rulesets={rulesets} profiles={profiles} models={models} onError={setError} />
         )}
-        {tab === 'training' && (
+        {tab === 'training' && permissions.includes('training') && (
           <Training
             rulesets={rulesets}
             models={models}
