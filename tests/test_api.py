@@ -238,16 +238,29 @@ def test_health_rules_and_device_metadata(client):
     assert isinstance(devices["cuda_available"], bool)
 
 
-def test_training_rejects_arbitrary_filesystem_config(client):
-    for configuration in [
-        {"output_dir": "/etc"},
-        {"registry_dir": "/tmp"},
-        {"kind": "shell"},
-        {"resume": "../../etc/passwd"},
-    ]:
-        response = client.post("/api/training/jobs", json=configuration)
-        assert response.status_code == 400, response.text
-    assert client.get("/api/training/jobs/../secret").status_code == 404
+@pytest.mark.parametrize("frontend_built", [False, True])
+def test_training_rejects_arbitrary_filesystem_config(tmp_path, monkeypatch, frontend_built):
+    source = tmp_path / "source"
+    if frontend_built:
+        build = source / "frontend" / "dist"
+        build.mkdir(parents=True)
+        (build / "index.html").write_text("<!doctype html><title>Test frontend</title>")
+    monkeypatch.setattr("hnefatafl.server.PROJECT_ROOT", source)
+    with TestClient(create_app(tmp_path / "data")) as client:
+        for configuration in [
+            {"output_dir": "/etc"},
+            {"registry_dir": "/tmp"},
+            {"kind": "shell"},
+            {"resume": "../../etc/passwd"},
+        ]:
+            response = client.post("/api/training/jobs", json=configuration)
+            assert response.status_code == 400, response.text
+        response = client.get("/api/training/jobs/../secret")
+        # The optional frontend catch-all returns an API 404. Without that route,
+        # default-deny rejects the unmatched path with 403 before routing.
+        assert response.status_code == (404 if frontend_built else 403)
+        assert response.json() == {"detail": "Access denied"}
+        assert client.get("/api/training/jobs").json() == []
 
 
 def wait_job(client, job, seconds=90):
