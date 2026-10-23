@@ -69,6 +69,7 @@ export function sortStatRows(
 
 const profileNames: Record<string, string> = {
   baseline: 'Shield bearer',
+  shield_maiden: 'Shield maiden',
   alpha_beta: 'Jarl',
   mcts: 'Seer',
   neural: 'Trained model',

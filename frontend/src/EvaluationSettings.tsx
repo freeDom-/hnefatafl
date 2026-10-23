@@ -19,6 +19,7 @@ export const evaluationDefaults: TrainingConfig = {
 export const opponentName = (opponent: string) =>
   ({
     shield_bearer: 'Shield bearer',
+    shield_maiden: 'Shield maiden',
     baseline: 'Shield bearer',
     jarl: 'Jarl',
     champion: 'Champion',
@@ -55,6 +56,7 @@ export default function EvaluationSettings({
             onChange={(event) => update('evaluation_opponent', event.target.value)}
           >
             <option value="shield_bearer">{t('Shield bearer')}</option>
+            <option value="shield_maiden">{t('Shield maiden')}</option>
             <option value="jarl">{t('Jarl')}</option>
             <option value="champion">{t('Champion')}</option>
           </select>
@@ -81,9 +83,11 @@ export default function EvaluationSettings({
             ? 'Optuna uses the fixed Shield bearer objective for comparable trials.'
             : values.evaluation_opponent === 'champion'
               ? 'Champion promotion requires complete side-swapped pairs and a confidence bound above 50% plus the required improvement. Small leads may be inconclusive.'
-              : values.evaluation_opponent === 'jarl'
-                ? 'Jarl uses alpha-beta search. Depth and deadlines can make evaluation expensive.'
-                : 'Shield bearer is a heuristic benchmark for early training. Tied scores keep the earlier best checkpoint.',
+              : values.evaluation_opponent === 'shield_maiden'
+                ? 'Shield maiden uses a stronger tactical heuristic, designed for low evaluation overhead.'
+                : values.evaluation_opponent === 'jarl'
+                  ? 'Jarl uses alpha-beta search. Depth and deadlines can make evaluation expensive.'
+                  : 'Shield bearer is a heuristic benchmark for early training. Tied scores keep the earlier best checkpoint.',
         )}
       </p>
       {values.evaluation_opponent === 'champion' &&

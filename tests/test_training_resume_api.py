@@ -331,3 +331,43 @@ def test_resume_route_changes_only_evaluation_context(client):
     assert len(payload["extra"]["evaluation_state"]["benchmarks"]) == 2
     assert payload["extra"]["best_snapshot"]["metadata"]["version"] == 1
     assert first["model_id"] in {model["id"] for model in client.get("/api/models").json()}
+
+
+def test_resume_switches_to_maiden_without_resetting_learning_state(client):
+    first = completed(
+        client,
+        client.post(
+            "/api/training/jobs",
+            json={
+                "preset": "smoke",
+                "device": "cpu",
+                "cpu_threads": 1,
+                "max_game_plies": 2,
+                "evaluation_max_plies": 2,
+            },
+        ),
+    )
+    second = completed(
+        client,
+        client.post(
+            f"/api/training/jobs/{first['id']}/resume",
+            json={"iterations": 2, "evaluation_opponent": "shield_maiden"},
+        ),
+    )
+    result = second["progress"]
+    assert result["metrics"]["updates"] > 0
+    assert result["metrics"]["evaluation"]["opponent"] == "shield_maiden"
+    assert result["metrics"]["evaluation"]["opponent_config"]["heuristic_version"] == 1
+    assert [row["evaluation_opponent"] for row in result["history"]] == [
+        "shield_bearer",
+        "shield_maiden",
+    ]
+    assert len(result["evaluation_selection"]["benchmarks"]) == 2
+    root = client.app.state.data_dir
+    _, before = load_checkpoint(root / "jobs" / first["id"] / "last.pt")
+    _, after = load_checkpoint(root / "jobs" / second["id"] / "last.pt")
+    assert after["extra"]["iteration"] == 2
+    assert len(after["extra"]["replay"]) > len(before["extra"]["replay"])
+    for parameter, values in before["optimizer_state"]["state"].items():
+        assert after["optimizer_state"]["state"][parameter]["step"] > values["step"]
+    assert after["extra"]["best_snapshot"]["metadata"]["version"] == 1

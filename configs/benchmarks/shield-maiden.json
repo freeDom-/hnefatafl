@@ -1,0 +1,16 @@
+{
+  "seed": 70000,
+  "games": {"brandubh": 128, "tablut": 64, "copenhagen": 64},
+  "max_plies": 300,
+  "time_limit": 1.0,
+  "latency_repeats": 7,
+  "self_games": 8,
+  "jarl_games": 8,
+  "jarl_depth": 2,
+  "jarl_time_limit": 0.05,
+  "training_evaluation": true,
+  "evaluation_games": 8,
+  "evaluation_repeats": 3,
+  "evaluation_iterations": 4,
+  "evaluation_max_plies": 200
+}

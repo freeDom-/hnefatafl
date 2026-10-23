@@ -17,7 +17,7 @@ the background, including during a human turn. Two AI opponents can therefore
 retain different opinions about the same position without searching twice for
 the moving agent.
 
-Shield bearer is a fixed opponent preset with a maximum 1-second search.
+Shield bearer and Shield maiden are fixed opponent presets with a maximum 1-second search.
 Jarl uses depth 5, maximum 2 seconds. Seer uses 5,000
 iterations, temperature 0, exploration 1.4 and maximum 2 seconds. Custom opponents
 retain editable search budgets. These presets do not rewrite saved
@@ -26,7 +26,7 @@ agent configurations or historical reports.
 ## Move advisor
 
 Every live or saved game has an **Analytics** section below its move history.
-Choose None (the default), Custom move advisor, Shield bearer, Seer, Jarl or a
+Choose None (the default), Custom move advisor, Shield bearer, Shield maiden, Seer, Jarl or a
 compatible registered model. The maximum search time defaults to 5 seconds and
 is independent of the playing agents' time limits. Custom advisors expose the
 same algorithm, depth, iterations, exploration, temperature and model choices as

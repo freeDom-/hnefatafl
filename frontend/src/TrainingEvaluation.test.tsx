@@ -210,3 +210,27 @@ it('shows accepted champion, latest update and benchmark saturation independentl
   expect(screen.getByText(/80/)).toHaveTextContent('Provisional incumbent');
   expect(screen.getByRole('status')).toHaveTextContent('near saturation');
 });
+
+it('selects the localized Shield maiden evaluation benchmark', async () => {
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' ? { id: 'maiden', status: 'running' } : []),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Training rulesets={rules} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('Evaluation opponent'), {
+    target: { value: 'shield_maiden' },
+  });
+  expect(
+    screen.getByText(
+      'Shield maiden uses a stronger tactical heuristic, designed for low evaluation overhead.',
+    ),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  expect(
+    JSON.parse(String(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1]?.body))
+      .evaluation_opponent,
+  ).toBe('shield_maiden');
+});

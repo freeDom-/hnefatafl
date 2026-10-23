@@ -32,6 +32,8 @@ export function withoutSeed(config: Config): Config {
 
 /** Named opponents have stable presets; custom opponents keep their own budgets. */
 export function profileConfiguration(profile: AIProfile): Config {
+  if (profile.id === 'shield_maiden')
+    return { algorithm: 'shield_maiden', time_limit: 1, heuristic_version: 1 };
   if (profile.id === 'baseline') return { algorithm: 'baseline', time_limit: 1 };
   if (profile.id === 'alpha_beta') return { algorithm: 'alpha_beta', depth: 5, time_limit: 2 };
   if (profile.id === 'mcts')
@@ -75,7 +77,7 @@ function restoredComputer(
   if (
     saved?.kind !== 'ai' ||
     !raw ||
-    !['baseline', 'alpha_beta', 'mcts', 'neural'].includes(String(raw.algorithm))
+    !['baseline', 'shield_maiden', 'alpha_beta', 'mcts', 'neural'].includes(String(raw.algorithm))
   )
     return null;
   const config: Config = { algorithm: String(raw.algorithm) };
@@ -123,7 +125,7 @@ function restoredComputer(
     kind: 'ai',
     profile_id: profile?.id,
     config:
-      profile && ['baseline', 'alpha_beta', 'mcts'].includes(profile.id)
+      profile && ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(profile.id)
         ? profileConfiguration(profile)
         : config,
   };

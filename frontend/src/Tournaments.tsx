@@ -829,7 +829,9 @@ function TournamentSetup({
       profile_id: id,
       config: {
         ...profileConfiguration(profile),
-        ...(!['baseline', 'alpha_beta', 'mcts'].includes(id) ? { time_limit: 0.1 } : {}),
+        ...(!['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(id)
+          ? { time_limit: 0.1 }
+          : {}),
         ...(profile.algorithm === 'neural' && config.rulesets.length === 1
           ? { model_id: selectStrongestModel(models, config.rulesets[0])?.model.id ?? '' }
           : {}),
@@ -839,6 +841,7 @@ function TournamentSetup({
   const changeAlgorithm = (index: number, algorithm: string) => {
     manualOpponents.current[index] = true;
     const next: Config = { ...config.players[index].config, algorithm };
+    delete next.heuristic_version;
     delete next.model_id;
     delete next.evaluation;
     delete next.search_wrapper;
@@ -967,11 +970,14 @@ function TournamentSetup({
         <div className="tournament-setup-opponents">
           {config.players.map((player, index) => {
             const prefix = t('Opponent {number}', { number: index + 1 });
+            const description = profiles.find(
+              (profile) => profile.id === player.profile_id,
+            )?.description;
             const algorithm = player.config.algorithm;
             const neural = algorithm === 'neural';
             const wrapper = String(player.config.search_wrapper ?? 'mcts');
             const search = neural ? wrapper : String(algorithm);
-            const fixedPreset = ['baseline', 'alpha_beta', 'mcts'].includes(
+            const fixedPreset = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(
               player.profile_id ?? '',
             );
             const selectedModel = models.find((model) => model.id === player.config.model_id);
@@ -1035,6 +1041,7 @@ function TournamentSetup({
                       onChange={(event) => changeAlgorithm(index, event.target.value)}
                     >
                       <option value="baseline">{t('Tactical heuristic')}</option>
+                      <option value="shield_maiden">{t('Shield maiden heuristic')}</option>
                       <option value="alpha_beta">{t('Alpha-beta search')}</option>
                       <option value="mcts">{t('Monte Carlo tree search')}</option>
                       <option value="neural">{t('Neural network')}</option>
@@ -1094,6 +1101,7 @@ function TournamentSetup({
                     onChange={(next) => parameter(index, 'search_wrapper', next)}
                   />
                 )}
+                {description && <p className="subtle">{t(description)}</p>}
                 {fixedPreset ? (
                   <p className="subtle">{parameterSummary(player.config)}</p>
                 ) : (

@@ -91,6 +91,7 @@ describe('model recommendations', () => {
       measured('wrong-board', 10, 0, { ruleset: 'brandubh' }),
       measured('steady', 3, 1),
       model('unfinished', { evaluation: { opponent: 'baseline', wins: 4, truncated: 20 } }),
+      model('maiden-benchmark', { evaluation: { opponent: 'shield_maiden', wins: 10, losses: 0 } }),
     ];
     expect(selectStrongestModel(candidates, 'tablut')).toMatchObject({
       model: { id: 'steady' },
@@ -102,6 +103,7 @@ describe('model recommendations', () => {
       'wrong-board',
       'steady',
       'unfinished',
+      'maiden-benchmark',
     ]);
     expect(selectStrongestModel(candidates, 'copenhagen')).toBeNull();
   });

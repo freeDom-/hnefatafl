@@ -224,7 +224,13 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
         first = queued(
             client, "Cloud Ulf", seed=17, worker_id=remote["id"], optimizer="sgd", momentum=0.7
         )
-        second = queued(client, "Cloud Freydis", seed=23, worker_id=remote["id"])
+        second = queued(
+            client,
+            "Cloud Freydis",
+            seed=23,
+            worker_id=remote["id"],
+            evaluation_opponent="shield_maiden",
+        )
         environment = {
             **os.environ,
             "HNEFATAFL_WORKER_TOKEN": headers["Authorization"][7:],
@@ -271,6 +277,10 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 first_done = wait_completed(client, first["id"], process, logfile)
                 second_done = wait_completed(client, second["id"], process, logfile)
                 assert first_done["progress"]["history"] and second_done["progress"]["history"]
+                maiden_evaluation = second_done["progress"]["metrics"]["evaluation"]
+                assert maiden_evaluation["opponent"] == "shield_maiden"
+                assert maiden_evaluation["opponent_config"]["algorithm"] == "shield_maiden"
+                assert maiden_evaluation["opponent_config"]["heuristic_version"] == 1
                 models = client.get("/api/models").json()
                 selected = next(model for model in models if model["name"] == "Cloud Ulf")
                 assert {model["name"] for model in models} == {"Cloud Ulf", "Cloud Freydis"}

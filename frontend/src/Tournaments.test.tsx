@@ -11,6 +11,14 @@ const rulesets: Ruleset[] = [
 ];
 const profiles: AIProfile[] = [
   {
+    id: 'shield_maiden',
+    name: 'Shield maiden',
+    algorithm: 'shield_maiden',
+    difficulty: 'Intermediate',
+    parameters: { time_limit: 1, heuristic_version: 1 },
+    supported_rulesets: ['tablut', 'brandubh'],
+  },
+  {
     id: 'baseline',
     name: 'Shield bearer',
     algorithm: 'baseline',
@@ -580,4 +588,32 @@ it('lets custom tournament opponents select algorithms and edit search settings'
   ).players;
   expect(players[1].profile_id).toBeUndefined();
   expect(players[1].config).toMatchObject({ algorithm: 'mcts', iterations: 17, time_limit: 0.15 });
+});
+
+it('snapshots Shield maiden as a fixed tournament preset', async () => {
+  const fetcher = vi.fn((path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' || path !== '/api/tournaments' ? saved('maiden') : []),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const newButton = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(newButton).toBeEnabled());
+  fireEvent.click(newButton);
+  const setup = within(screen.getByRole('dialog'));
+  fireEvent.change(setup.getByLabelText('Opponent 1 profile'), {
+    target: { value: 'shield_maiden' },
+  });
+  fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: 'baseline' } });
+  expect(setup.queryByLabelText('Opponent 1 algorithm')).not.toBeInTheDocument();
+  fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const sent = JSON.parse(
+    String(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1]?.body),
+  );
+  expect(sent.players[0]).toMatchObject({
+    profile_id: 'shield_maiden',
+    config: { algorithm: 'shield_maiden', time_limit: 1, heuristic_version: 1 },
+  });
 });

@@ -10,6 +10,14 @@ const rulesets: Ruleset[] = [
 ];
 const profiles: AIProfile[] = [
   {
+    id: 'shield_maiden',
+    name: 'Shield maiden',
+    algorithm: 'shield_maiden',
+    difficulty: 'Intermediate',
+    parameters: { time_limit: 1, heuristic_version: 1 },
+    supported_rulesets: ['tablut', 'brandubh'],
+  },
+  {
     id: 'baseline',
     name: 'Shield bearer',
     algorithm: 'baseline',
@@ -279,4 +287,32 @@ it('keeps Shield bearer at one second and exposes search time only for Custom op
   const custom = JSON.parse(String(fetcher.mock.calls[1][1]?.body)).players.attackers;
   expect(custom.profile_id).toBeUndefined();
   expect(custom.config).toMatchObject({ algorithm: 'baseline', time_limit: 0.25 });
+});
+
+it('selects and restores Shield maiden as a fixed intermediate opponent and custom algorithm', async () => {
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json({ id: 'created', ...JSON.parse(String(init?.body)) }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
+  change(screen.getByLabelText('Attackers AI profile'), 'shield_maiden');
+  expect(screen.queryByLabelText('Attackers algorithm')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalled());
+  const sent = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+  expect(sent.players.attackers.config).toEqual({
+    algorithm: 'shield_maiden',
+    time_limit: 1,
+    heuristic_version: 1,
+  });
+  expect(restoreGameSetup(options).computers.attackers.profile_id).toBe('shield_maiden');
+  change(screen.getByLabelText('Attackers AI profile'), '');
+  expect(screen.getByLabelText('Attackers algorithm')).toHaveValue('shield_maiden');
+  change(screen.getByLabelText('Attackers algorithm'), 'baseline');
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(
+    JSON.parse(String(fetcher.mock.calls[1][1]?.body)).players.attackers.config,
+  ).not.toHaveProperty('heuristic_version');
 });

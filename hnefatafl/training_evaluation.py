@@ -38,7 +38,12 @@ def evaluation_context(config: dict) -> dict:
         dict(neural)
         if opponent == "champion"
         else {
-            "algorithm": "alpha_beta" if opponent == "jarl" else "baseline",
+            "algorithm": "alpha_beta"
+            if opponent == "jarl"
+            else "shield_maiden"
+            if opponent == "shield_maiden"
+            else "baseline",
+            **({"heuristic_version": 1} if opponent == "shield_maiden" else {}),
             "time_limit": config.get("evaluation_jarl_time_limit", 2.0)
             if opponent == "jarl"
             else seconds,

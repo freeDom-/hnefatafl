@@ -153,8 +153,10 @@ def normalize_config(configuration: dict) -> dict:
             raise ValueError(f"{key} must be an integer between {low} and {high}")
     if config["self_play_mode"] not in ("auto", "sequential", "batched"):
         raise ValueError("self_play_mode must be auto, sequential or batched")
-    if config["evaluation_opponent"] not in ("shield_bearer", "jarl", "champion"):
-        raise ValueError("evaluation_opponent must be shield_bearer, jarl or champion")
+    if config["evaluation_opponent"] not in ("shield_bearer", "shield_maiden", "jarl", "champion"):
+        raise ValueError(
+            "evaluation_opponent must be shield_bearer, shield_maiden, jarl or champion"
+        )
     if config["evaluation_games"] % 2:
         raise ValueError("evaluation_games must be even so the model plays both sides")
     for key, minimum, maximum in (

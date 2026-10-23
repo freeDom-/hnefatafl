@@ -202,3 +202,18 @@ complete history. This removes repeated history/game serialization from worker
 logs; it does not remove history from checkpoint or progress APIs. Wall-clock
 phase times remain distinct from overlapping activity counters, with no extra
 CUDA synchronization added to ordinary inference.
+
+## Shield maiden benchmark
+
+The independent [Shield maiden protocol and measured results](SHIELD_MAIDEN.md)
+compare matched-position decision latency, evaluated moves per second, balanced
+playing strength, whole-game throughput and actual single-opponent neural evaluation.
+It uses no training updates and never substitutes ply caps for rule draws.
+
+```sh
+.venv/bin/python -m hnefatafl.cli benchmark-heuristics \
+  --config configs/benchmarks/shield-maiden.json --output work/shield-maiden.json
+```
+
+The default benchmark optionally imports PyTorch solely to time the existing
+training evaluator; Shield maiden gameplay itself remains tensor independent.

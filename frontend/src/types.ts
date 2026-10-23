@@ -58,6 +58,7 @@ export interface Ruleset {
   rules_markdown: string;
 }
 export interface AIProfile {
+  description?: string;
   rune?: string;
   id: string;
   name: string;

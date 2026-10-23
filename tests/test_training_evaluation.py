@@ -57,7 +57,12 @@ def match(scores, *, truncated=False):
 
 @pytest.mark.parametrize(
     "opponent,algorithm",
-    [("shield_bearer", "baseline"), ("jarl", "alpha_beta"), ("champion", "neural")],
+    [
+        ("shield_bearer", "baseline"),
+        ("shield_maiden", "shield_maiden"),
+        ("jarl", "alpha_beta"),
+        ("champion", "neural"),
+    ],
 )
 def test_only_selected_effective_opponent_and_paired_seeds(
     tmp_path, monkeypatch, opponent, algorithm

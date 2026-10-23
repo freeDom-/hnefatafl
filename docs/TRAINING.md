@@ -91,9 +91,9 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `temperature`, `dirichlet_alpha`, `dirichlet_fraction` | Self-play action and root exploration |
 | `replay_buffer_size`, `weight_decay` | Replay capacity and regularization |
 | `checkpoint_frequency`, `evaluation_frequency` | Cadence measured in training iterations |
-| `evaluation_opponent` | Exactly one of `shield_bearer` (default), `jarl`, `champion` |
+| `evaluation_opponent` | Exactly one of `shield_bearer` (default), `shield_maiden`, `jarl`, `champion` |
 | `evaluation_games`, `evaluation_iterations`, `evaluation_max_plies` | Balanced evaluation budget; games must be even |
-| `evaluation_time_limit` | Neural move deadline; also Shield bearer deadline; defaults to saved/self-play deadline if omitted |
+| `evaluation_time_limit` | Neural move deadline; also Shield bearer/Shield maiden deadline; defaults to saved/self-play deadline if omitted |
 | `evaluation_jarl_depth`, `evaluation_jarl_time_limit` | Actual alpha-beta depth (default 5) and deadline (default 2 seconds) |
 | `champion_confidence`, `champion_min_pairs`, `champion_min_improvement` | Conservative promotion evidence: default 0.95, 12 pairs, 0 margin above 50% |
 | `max_game_plies` | Explicit self-play truncation limit |
@@ -128,7 +128,7 @@ Gameplay search has [different defaults and limits](AI.md#configuration).
 | `max_game_plies`; `evaluation_max_plies` | Integers 2–5,000, counting individual moves |
 | `checkpoint_frequency`; `evaluation_frequency` | Integers 1–10,000 iterations |
 | `evaluation_games` | Even integer 2–10,000, alternating sides |
-| `evaluation_opponent` | `shield_bearer`, `jarl`, `champion` |
+| `evaluation_opponent` | `shield_bearer`, `shield_maiden`, `jarl`, `champion` |
 | `evaluation_time_limit`; `evaluation_jarl_time_limit`; `evaluation_jarl_depth` | 0.001–300 seconds; 0.001–300 seconds; integer 1–8 |
 | `champion_confidence`; `champion_min_pairs`; `champion_min_improvement` | 0.8–0.9999; integer 2–5,000; 0–0.49 |
 | `cpu_threads`; `self_play_concurrency`; `inference_batch_size` | Integers 1–64; 1–1,024; 1–4,096 |
@@ -195,6 +195,7 @@ selector. New jobs still support presets.
 | Opponent | Useful stage | Selection rule |
 | --- | --- | --- |
 | Shield bearer | Early training; existing inexpensive heuristic | Strictly higher score in the same benchmark configuration |
+| Shield maiden | Stronger rules-aware heuristic; low per-move overhead | Strictly higher score in its own versioned benchmark configuration |
 | Jarl | Intermediate/advanced; existing alpha-beta search | Strictly higher score with the same depth/deadline and benchmark protocol |
 | Champion | Advanced; saved compatible neural incumbent | Balanced paired head-to-head evidence, described below |
 
@@ -219,6 +220,7 @@ less frequent starting experiments, adjusting completion rates and cost:
 | Opponent | Evaluate every | Games |
 | --- | --- | --- |
 | Shield bearer | 5 iterations | 12 |
+| Shield maiden | 5 iterations | 12–24 |
 | Jarl | 5–10 iterations | 12–24 |
 | Champion | 10 iterations | 48–64 |
 
@@ -354,3 +356,19 @@ inspect `devices`, install the matching official GPU build and driver, or choose
 CPU. An incompatible model error means the selected game's ruleset and model
 must match. A job with many truncated outcomes needs a larger game-ply budget;
 never reinterpret truncation as a rules draw or evidence of strength.
+
+### Shield maiden evaluation
+
+Use `"evaluation_opponent": "shield_maiden"` for new or resumed jobs. It runs
+exactly one evaluation using the ordinary standalone algorithm. The shared
+`evaluation_time_limit` bounds its decisions. Effective results retain the
+algorithm, heuristic version, deadline, candidate budget, side scores and context
+identity. Fixed-benchmark best checkpoints and chart series stay separate from
+Shield bearer, Jarl and Champion; switching preserves weights, optimizer and replay.
+Existing baseline-only model recommendations do not compare maiden scores with
+baseline scores. Optuna retains its fixed Shield bearer objective.
+
+Low decision overhead does not guarantee equal evaluation wall time: safer play
+can extend games. Consult the [measured runtime trade-offs](SHIELD_MAIDEN.md).
+Update remote workers to the same release before selecting the new opponent;
+checkpoint format and portable job archives remain compatible.

@@ -3,6 +3,7 @@ import type { Config } from './types';
 
 const labels: Record<string, string> = {
   algorithm: 'Algorithm',
+  heuristic_version: 'Heuristic version',
   search_wrapper: 'Search wrapper',
   depth: 'Search depth',
   iterations: 'Search iterations',
@@ -16,6 +17,7 @@ const labels: Record<string, string> = {
 };
 const algorithms: Record<string, string> = {
   baseline: 'Tactical heuristic',
+  shield_maiden: 'Shield maiden heuristic',
   alpha_beta: 'Alpha-beta',
   mcts: 'Monte Carlo tree search',
   neural: 'Neural search',

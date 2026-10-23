@@ -39,6 +39,10 @@ def effective_ai_config(configuration: dict, profile_id: str | None = None) -> d
         "time_limit": float(raw.get("time_limit", 2.0)),
         "evaluation": "heuristic",
     }
+    if algorithm == "shield_maiden":
+        from .shield_maiden import VERSION
+
+        result["heuristic_version"] = raw.get("heuristic_version", VERSION)
     wrapper = raw.get("search_wrapper", "mcts") if algorithm == "neural" else None
     if wrapper not in (None, "mcts", "alpha_beta", "none"):
         raise ValueError("Unknown neural search wrapper")

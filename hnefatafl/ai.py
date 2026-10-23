@@ -29,6 +29,15 @@ def ai_profiles() -> list[dict[str, Any]]:
             "supported_rulesets": common,
         },
         {
+            "id": "shield_maiden",
+            "name": "Shield maiden",
+            "description": "Shield maiden uses a stronger tactical heuristic, designed for low evaluation overhead.",
+            "algorithm": "shield_maiden",
+            "difficulty": "Intermediate",
+            "parameters": {"time_limit": 1.0, "heuristic_version": 1},
+            "supported_rulesets": common,
+        },
+        {
             "id": "alpha_beta",
             "name": "Jarl",
             "algorithm": "alpha_beta",
@@ -514,6 +523,15 @@ def choose_move(
             notify(analysis_from_search(state, config, move, diagnostics))
         return move
 
+    if algorithm == "shield_maiden":
+        from .shield_maiden import VERSION, choose
+
+        version = config.get("heuristic_version", VERSION)
+        if type(version) is not int or version != VERSION:
+            raise ValueError("Unsupported Shield maiden heuristic version")
+        return finished(
+            choose(state, moves, rng, deadline, diagnostics=diagnostics, should_stop=should_stop)
+        )
     if algorithm == "baseline":
         sign = 1 if state.turn == "defenders" else -1
         rng.shuffle(moves)

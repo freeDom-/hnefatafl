@@ -7,7 +7,7 @@ from hnefatafl.engine import Move, State, apply_move, legal_moves, new_game, rep
 
 
 @pytest.mark.parametrize("ruleset", ["brandubh", "tablut", "copenhagen"])
-@pytest.mark.parametrize("algorithm", ["baseline", "alpha_beta", "mcts"])
+@pytest.mark.parametrize("algorithm", ["baseline", "shield_maiden", "alpha_beta", "mcts"])
 def test_every_algorithm_plays_legal_move_for_every_ruleset(ruleset, algorithm):
     state = new_game(ruleset)
     original = state.to_dict()
@@ -36,7 +36,7 @@ def escaping_state():
     return State("brandubh", tuple(board), turn="defenders")
 
 
-@pytest.mark.parametrize("algorithm", ["baseline", "alpha_beta", "mcts"])
+@pytest.mark.parametrize("algorithm", ["baseline", "shield_maiden", "alpha_beta", "mcts"])
 def test_search_takes_immediate_king_escape(algorithm):
     state = escaping_state()
     move = choose_move(state, {"algorithm": algorithm, "depth": 2, "iterations": 2, "seed": 4})
@@ -146,7 +146,13 @@ def test_invalid_search_parameters_fail(config):
 
 def test_profiles_cover_all_variants():
     profiles = ai_profiles()
-    assert {p["algorithm"] for p in profiles} == {"baseline", "alpha_beta", "mcts", "neural"}
+    assert {p["algorithm"] for p in profiles} == {
+        "baseline",
+        "shield_maiden",
+        "alpha_beta",
+        "mcts",
+        "neural",
+    }
     assert all(
         set(p["supported_rulesets"]) == {"brandubh", "tablut", "copenhagen"} for p in profiles
     )

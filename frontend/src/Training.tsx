@@ -18,7 +18,7 @@ import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingResumeDialog from './TrainingResumeDialog';
 import { numberField, SelfPlayModeField } from './TrainingFields';
 import TrainingPerformance from './TrainingPerformance';
-import EvaluationSettings from './EvaluationSettings';
+import EvaluationSettings, { opponentName } from './EvaluationSettings';
 import TrainingEvaluationStatus from './TrainingEvaluationStatus';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
@@ -1077,7 +1077,7 @@ export default function Training({
                   {model.evaluation && (
                     <div className="model-evaluation">
                       <span className="eyebrow">
-                        {t('AGAINST')} {t(model.evaluation.opponent ?? 'BASELINE')}
+                        {t('AGAINST')} {t(opponentName(model.evaluation.opponent ?? 'BASELINE'))}
                       </span>
                       <div>
                         <span>

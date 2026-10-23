@@ -28,6 +28,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## GPU optimization, performance and benchmarking
 
+- [Shield maiden strategy, strength and runtime evidence](SHIELD_MAIDEN.md)
 - [CPU/CUDA/MPS setup, concurrent MCTS, batch sizes, metric units and benchmark CLI](PERFORMANCE.md)
 
 ## Training checkpoints, job storage, model management and migration
@@ -63,6 +64,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [v0.20.0](releases/v0.20.0.md) | Shield maiden heuristic, integration and measured trade-offs |
 | [v0.19.0](releases/v0.19.0.md) | Single evaluation opponent, portable champion selection and compact worker logs |
 | [v0.18.0](releases/v0.18.0.md) | Portable training jobs, contained Optuna studies and faithful checkpoint resumption |
 | [v0.17.0](releases/v0.17.0.md) | Concurrent self-play, batched inference and qualified CPU benchmarks |

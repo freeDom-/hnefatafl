@@ -12,8 +12,8 @@ export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: 
     )
     .sort(
       (a, b) =>
-        ['baseline', 'mcts', 'alpha_beta'].indexOf(a.algorithm) -
-        ['baseline', 'mcts', 'alpha_beta'].indexOf(b.algorithm),
+        ['baseline', 'shield_maiden', 'mcts', 'alpha_beta'].indexOf(a.algorithm) -
+        ['baseline', 'shield_maiden', 'mcts', 'alpha_beta'].indexOf(b.algorithm),
     )
     .map((profile) => ({
       id: `profile:${profile.id}`,
@@ -114,6 +114,7 @@ export function AnalyticsSettingsPanel({
     const config = { ...advisor.config, [key]: input };
     if (key === 'algorithm') {
       if (input === 'neural' && !compatibleModels.length) return;
+      delete config.heuristic_version;
       delete config.model_id;
       if (input === 'neural')
         config.model_id = selectStrongestModel(models, game.ruleset)?.model.id ?? '';
@@ -181,6 +182,7 @@ export function AnalyticsSettingsPanel({
               onChange={(event) => updateConfig('algorithm', event.target.value)}
             >
               <option value="baseline">{t('Tactical heuristic')}</option>
+              <option value="shield_maiden">{t('Shield maiden heuristic')}</option>
               <option value="alpha_beta">{t('Alpha-beta search')}</option>
               <option value="mcts">{t('Monte Carlo tree search')}</option>
               <option value="neural" disabled={!compatibleModels.length}>

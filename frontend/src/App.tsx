@@ -699,6 +699,7 @@ function AIFields({
   const update = (key: string, input: string | number) => {
     const config = withoutSeed({ ...value.config, [key]: input });
     if (key === 'algorithm') {
+      delete config.heuristic_version;
       delete config.model_id;
       delete config.evaluation;
       delete config.search_wrapper;
@@ -734,6 +735,7 @@ function AIFields({
       }),
     });
   };
+  const description = profiles.find((profile) => profile.id === value.profile_id)?.description;
   return (
     <div className="ai-fields">
       <label>
@@ -754,9 +756,10 @@ function AIFields({
             ))}
         </select>
       </label>
-      {['baseline', 'alpha_beta', 'mcts'].includes(value.profile_id ?? '') ? (
+      {description && <p className="subtle">{t(description)}</p>}
+      {['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(value.profile_id ?? '') ? (
         <p className="subtle">
-          {value.profile_id === 'baseline'
+          {['baseline', 'shield_maiden'].includes(value.profile_id ?? '')
             ? `${t('Time limit (seconds)')}: 1`
             : value.profile_id === 'alpha_beta'
               ? `${t('Search depth')}: 5 · ${t('Time limit (seconds)')}: 2`
@@ -772,6 +775,7 @@ function AIFields({
               onChange={(e) => update('algorithm', e.target.value)}
             >
               <option value="baseline">{t('Tactical heuristic')}</option>
+              <option value="shield_maiden">{t('Shield maiden heuristic')}</option>
               <option value="alpha_beta">{t('Alpha-beta search')}</option>
               <option value="mcts">{t('Monte Carlo tree search')}</option>
               <option value="neural">{t('Neural network')}</option>

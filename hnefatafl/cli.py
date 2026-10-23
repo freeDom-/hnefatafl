@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     benchmark = sub.add_parser("benchmark", help="Compare sequential and batched self-play")
     benchmark.add_argument("--config", help="Optional training JSON with benchmark budgets")
     benchmark.add_argument("--output", help="Also save the JSON comparison to this file")
+    heuristics = sub.add_parser(
+        "benchmark-heuristics", help="Compare Shield maiden strength and speed"
+    )
+    heuristics.add_argument("--config", help="Optional heuristic benchmark JSON")
+    heuristics.add_argument("--output", help="Save measured JSON evidence")
     worker = sub.add_parser("worker", help="Run leased training jobs from a remote server")
     worker.add_argument("--server", required=True, help="Server HTTP(S) URL")
     worker.add_argument(
@@ -48,15 +53,20 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     try:
         result: Any
-        if args.command == "benchmark":
-            from .benchmark import run_benchmark
-
+        if args.command in ("benchmark", "benchmark-heuristics"):
             config = (
                 json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
             )
             if not isinstance(config, dict):
                 raise ValueError("Configuration must be a JSON object")
-            result = run_benchmark(config, should_stop=stop.is_set)
+            if args.command == "benchmark-heuristics":
+                from .heuristic_benchmark import run_heuristic_benchmark
+
+                result = run_heuristic_benchmark(config, should_stop=stop.is_set)
+            else:
+                from .benchmark import run_benchmark
+
+                result = run_benchmark(config, should_stop=stop.is_set)
             if args.output:
                 target = Path(args.output)
                 target.parent.mkdir(parents=True, exist_ok=True)

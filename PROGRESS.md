@@ -283,3 +283,23 @@ See [release evidence](docs/releases/v0.19.0.md) for exact budgets and measured
 log/evaluation sizes. Evaluation remains sequential; no GPU speedup or stronger
 model is claimed. The production RTX 3060 checkpoint and CUDA/MPS hardware were
 unavailable; representative iteration-100 migration and subsequent learning pass.
+
+## Shield maiden (`v0.20.0`)
+
+- [x] Distinct Intermediate `shield_maiden` one-ply profile, with no model or tensor dependency
+- [x] Rules-aware royal capture/escape geometry, clear/contested routes, mobility, material and piece safety
+- [x] Fixed/custom games, tournaments, advisors, records and English/German presentation
+- [x] One selected training evaluator, versioned effective context, separate fixed benchmarks and preserved resume state
+- [x] Held-out 128/64/64-game balanced comparison: 86.7% Brandubh, 87.5% Tablut, 54.7% Copenhagen
+- [x] Comparable matched decision latency: mean 0.958× baseline, p95 0.974×
+- [ ] Universal evaluation-throughput target: Brandubh neural evaluation was 3.79× slower; Tablut/Copenhagen were 0.91×/0.89×
+- [ ] Established Copenhagen strength improvement: paired interval 48.4–62.5% includes 50%; attacking play remains weak
+
+See [strategy and raw benchmark evidence](docs/SHIELD_MAIDEN.md) and
+[release notes](docs/releases/v0.20.0.md) for exact validation and limitations.
+
+Validation: `make check` passed (611 Python tests, one CUDA-only skip; 151 frontend
+unit tests, formatting/lint, types, build and docs). Full real-server browser
+suite: 44 passed, four deliberate mobile skips covered on desktop. Actual CPU
+remote-worker maiden evaluation, optimizer/replay-preserving resume and separate
+benchmark histories passed; no GPU validation was performed.

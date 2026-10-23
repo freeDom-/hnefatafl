@@ -10,13 +10,14 @@ in-progress expansion or inference is not a hard real-time operation.
 
 ## Available opponents
 
-Named Shield bearer/Jarl/Seer presets are fixed in New game and Tournament
+Named Shield bearer/Shield maiden/Jarl/Seer presets are fixed in New game and Tournament
 setup. Choose **Custom opponent** to edit their budgets. Selecting **Trained model**
 requires a registered model compatible with the selected battlefield.
 
 | UI profile | Algorithm | Preset settings |
 | --- | --- | --- |
 | Shield bearer | One-ply tactical heuristic | Maximum 1 second |
+| Shield maiden | Rules-aware one-ply tactical heuristic (Intermediate) | Maximum 1 second; heuristic version 1 |
 | Jarl | Iterative-deepening alpha-beta | Depth 5, maximum 2 seconds |
 | Seer | Monte Carlo tree search | 5,000 simulations, exploration 1.4, rollout depth 8, temperature 0, maximum 2 seconds |
 | Trained model | Selected neural wrapper | MCTS by default; profile supplies 40 simulations and maximum 2 seconds; controls remain configurable |
@@ -181,3 +182,26 @@ play in every supported ruleset, bounded execution and tactical/terminal
 behavior. Keep any model format versioned and compatible with safe checkpoint
 loading. Training quality must be measured with balanced tournaments; a passing
 software smoke test does not demonstrate stronger play.
+
+## Shield maiden
+
+`shield_maiden` is a separate CPU-only algorithm between Shield bearer and Jarl.
+It needs no model or PyTorch. Select the named profile in games, AI versus AI,
+tournaments or advisors, or use the algorithm with a custom deadline.
+Its effective configuration includes `heuristic_version: 1`; seeds break ties
+reproducibly when the same candidates finish within the deadline.
+The `baseline` algorithm and existing identities are unchanged.
+
+The evaluator combines legal king capture geometry, independent clear escape
+approaches, contested entry squares, mobility, material, exposed pieces, credible
+capture opportunities and attacker corner guards. Immediate engine wins dominate
+ordinary scores; permitting an immediate royal escape/capture is strongly penalized.
+Brandubh and market Tablut use weak kings, Copenhagen uses four-sided capture and
+edge immunity; Tablut escapes to any edge, the others to corners. All children use
+the engine, including Copenhagen shieldwalls, encirclement, forts and repetition.
+Opponent geometry covers royal capture/escape, not every possible fort, encirclement
+or shieldwall reply. This remains a shallow heuristic with limited siege planning.
+
+See [strategy, measured strength and timing](SHIELD_MAIDEN.md). No selective reply
+search is enabled: ray geometry supplies tactical safety without expanding a
+second ply. Evaluation estimates are heuristic scores, not calibrated win rates.

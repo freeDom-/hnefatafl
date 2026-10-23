@@ -79,6 +79,7 @@ configuration paths.
 | `train --config FILE [--resume FILE]` | JSON training config; safe full checkpoint resume; [training](TRAINING.md) |
 | `tune --config FILE` | Local Optuna study/trials; [optimization](TRAINING.md#hyperparameter-optimization) |
 | `tournament --config FILE` | JSON round robin, final report to stdout; [tournaments](TOURNAMENTS.md) |
+| `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](SHIELD_MAIDEN.md) |
 | `benchmark [--config FILE] [--output FILE]` | Self-play comparison without optimizer/model registration; [benchmark protocol](PERFORMANCE.md#benchmark-protocol-and-evidence) |
 | `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](TRAINING_DATA.md#checkpoints-registry-import-and-export) |
 | `worker --server URL [--work-dir DIR] [--concurrency N] [--once] [--max-jobs N]` | Token from `HNEFATAFL_WORKER_TOKEN`, concurrency 1–16; [workers](REMOTE_TRAINING.md) |

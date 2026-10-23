@@ -333,6 +333,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "model_id",
             "rollout_depth",
             "search_wrapper",
+            "heuristic_version",
         }
         if set(config) - supported:
             fail("Unsupported AI configuration field.")
@@ -348,11 +349,18 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             algorithm = config["algorithm"] = "alpha_beta"
         if not isinstance(algorithm, str) or algorithm not in {
             "baseline",
+            "shield_maiden",
             "alpha_beta",
             "mcts",
             "neural",
         }:
             fail("Unknown AI algorithm.")
+        if "heuristic_version" in config and (
+            algorithm != "shield_maiden"
+            or type(config["heuristic_version"]) is not int
+            or config["heuristic_version"] != 1
+        ):
+            fail("Unsupported Shield maiden heuristic version.")
         numeric_ranges = {
             "depth": (1, 5),
             "rollout_depth": (0, 50),
@@ -402,7 +410,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             provided_config = provided.get("config")
             # A named preset is fixed for new games. Custom opponents omit a
             # profile ID and retain explicit budgets; saved games are unchanged.
-            if is_ai and provided.get("profile_id") in {"baseline", "alpha_beta", "mcts"}:
+            if is_ai and provided.get("profile_id") in {
+                "baseline",
+                "shield_maiden",
+                "alpha_beta",
+                "mcts",
+            }:
                 from .ai import ai_profiles
 
                 preset = next(p for p in ai_profiles() if p["id"] == provided["profile_id"])
@@ -1274,7 +1287,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             players = []
             for provided in request.players:
                 provided_config = provided.config
-                if provided.profile_id in {"baseline", "alpha_beta", "mcts"}:
+                if provided.profile_id in {"baseline", "shield_maiden", "alpha_beta", "mcts"}:
                     preset = profiles[provided.profile_id]
                     provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
                 config = clean_ai_config(provided_config, provided.profile_id)

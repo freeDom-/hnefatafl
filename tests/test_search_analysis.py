@@ -12,7 +12,7 @@ from hnefatafl.models import PolicyValueNet, save_checkpoint
 
 
 @pytest.mark.parametrize("ruleset", ["brandubh", "tablut", "copenhagen"])
-@pytest.mark.parametrize("algorithm", ["baseline", "alpha_beta", "mcts"])
+@pytest.mark.parametrize("algorithm", ["baseline", "shield_maiden", "alpha_beta", "mcts"])
 def test_analysis_is_bounded_legal_and_does_not_mutate_position_or_configuration(
     ruleset, algorithm
 ):
@@ -85,7 +85,7 @@ def test_alpha_beta_reports_root_evaluator_if_no_depth_can_finish(monkeypatch):
     assert Move(**result["best_move"]) in legal_moves(state)
 
 
-@pytest.mark.parametrize("algorithm", ["baseline", "alpha_beta", "mcts"])
+@pytest.mark.parametrize("algorithm", ["baseline", "shield_maiden", "alpha_beta", "mcts"])
 def test_known_escape_is_recognized_by_each_agents_analysis(algorithm):
     board = ["."] * 49
     board[1], board[24], board[8], board[48] = "K", "D", "A", "A"
@@ -246,7 +246,7 @@ def test_alpha_beta_publishes_completed_depths_without_restarting_search(monkeyp
     assert final["best_move"]["source"] >= 0
 
 
-@pytest.mark.parametrize("algorithm", ["baseline", "alpha_beta", "mcts"])
+@pytest.mark.parametrize("algorithm", ["baseline", "shield_maiden", "alpha_beta", "mcts"])
 def test_actual_move_diagnostics_are_reusable_without_any_second_search(algorithm, monkeypatch):
     state = new_game("brandubh")
     config = {

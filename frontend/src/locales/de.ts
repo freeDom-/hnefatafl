@@ -297,6 +297,12 @@ const translations: Record<string, string> = {
     'Zuerst nach Siegquote, dann Unentschieden- und Niederlagenquote sortieren',
   'Unknown player': 'Unbekannter Spieler',
   'Shield bearer': 'Schildträger',
+  'Shield maiden': 'Schildmaid',
+  'Shield maiden heuristic': 'Schildmaid-Heuristik',
+  'Heuristic version': 'Heuristikversion',
+  Intermediate: 'Mittel',
+  'Shield maiden uses a stronger tactical heuristic, designed for low evaluation overhead.':
+    'Die Schildmaid nutzt eine stärkere taktische Heuristik und ist auf geringen Auswertungsaufwand ausgelegt.',
   Seer: 'Seher',
   Beginner: 'Einsteiger',
   Configurable: 'Konfigurierbar',
