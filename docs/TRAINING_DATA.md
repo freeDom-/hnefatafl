@@ -58,8 +58,9 @@ In the workshop, select a stopped or completed job and choose **Resume from
 checkpoint**. The dialog validates its full `last.pt`, shows the saved completed
 iteration, ruleset, network, seed and optimizer, and lets you choose **Target total
 iterations**. The target must exceed the saved completed iteration. All new-job
-settings except ruleset, channels, blocks, seed and optimizer type are editable,
+settings except the historical preset, ruleset, channels, blocks, seed and optimizer type are editable,
 initialized from the effective saved configuration rather than the current form.
+The preset selector is available only for new jobs; resumption never reapplies a preset.
 Learning rate, weight decay and SGD momentum reflect saved optimizer groups;
 momentum does not apply to Adam or AdamW. Execution mode/concurrency/inference
 batch size can change without replacing the retained learning state.
@@ -164,28 +165,76 @@ The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
 
 ## Moving data between installations
 
+In **AI Workshop → At the forge**, select an inactive job and choose **Export job**.
+Transfer the ZIP to another computer, open its workshop and choose **Import job**.
+The imported job opens with its configuration, learning graphs, evaluation and
+performance history. Its inference models join the normal model collection for
+games and tournaments. Existing jobs and models are kept; repeated imports create
+new job IDs and deduplicate model content, preserving existing catalog names.
+
+The versioned archive contains `manifest.json`, a sanitized SQLite job-record
+snapshot in `job.json`, and available configuration, progress, results, worker logs,
+full/best/inference checkpoints and retained `best/` snapshots. `models/` contains
+associated registered inference copies. The manifest records the format and source
+application versions, original job ID, file sizes and SHA-256 checksums. Unknown
+adjacent files are excluded. Runtime ownership, worker credentials, leases and
+server paths are stripped; logs redact recognized credential assignments and paths.
+Treat archives as private training data and review custom diagnostic log text before sharing.
+
+Import validates inventory, checksums, bounded JSON and tensor-only checkpoint
+compatibility in staging, then registers models, publishes a fresh job directory
+and inserts its SQLite row. Controlled failures roll back new files/catalog entries.
+It never starts training or restores a foreign PID, worker lease or queue assignment.
+The job stays completed/cancelled/failed and defaults to local execution; original
+job identity, timestamps and local/remote execution remain historical provenance.
+Original resume dependencies are detached: the full checkpoint carries its own
+optimizer, replay, RNG and portable best-model state.
+
+**Resume from checkpoint** uses the same checkpoint-review API as ordinary jobs.
+Only a full compatible `last.pt` is resumable; `best.pt` and inference-only imports
+remain playable without being advertised as full training state. Resumption creates
+a new job and leaves the imported source unchanged. CUDA-trained checkpoints load
+on CPU; select **CPU** or **Automatic** in the resume dialog on a CPU-only machine.
+The original device setting remains visible. Cross-device bitwise reproducibility
+and model strength are not implied by a successful migration.
+
+### Optimization studies and archive limits
+
+A tuning archive additionally includes its single owned `study.sqlite3`, trial
+folders and `best-config.json`. SQLite backup creates the snapshot; import validates
+the current Optuna schema, preserves trial results/history and rewrites study URLs
+and trial checkpoint attributes to the new destination. **Resume study** uses that
+restored database. Studies with active trials, multiple studies in one database,
+shared/external storage, missing trial checkpoints or unsupported schemas are
+rejected with an explanation. Export the original owning job if it still contains
+all trial outputs; otherwise use a consistent full-instance backup. A resumed
+study that writes trials into other job folders is not self-contained.
+
+Only inactive jobs can be transferred. Remote jobs include artifacts already
+uploaded to the server, not unuploaded worker-private files; their original worker
+need not exist on the destination. Limits are 512 MiB per ZIP, 1 GiB extracted,
+2,048 files, 128 MiB per artifact, 16 MiB per JSON document and a 200:1 decompression
+ratio. Exports use stored ZIP entries so repetitive tensor buffers stay within that
+ratio. Unsafe paths, symlinks, duplicate/conflicting entries and unknown artifact
+types are rejected. Missing optional files are allowed; unsafe/incompatible files
+that are present are rejected rather than silently discarded.
+
+Format **1** is independent of application version, but the destination must support
+its checkpoint architecture, training settings and (for tuning) Optuna schema 12.
+Future unsupported formats/configurations are rejected; do not bypass safe loading
+or rename an arbitrary ZIP to import it. No database-schema migration is needed.
+
 | Goal | Supported approach | What it preserves |
 | --- | --- | --- |
-| Play an existing model elsewhere | Export/import a compact model through UI or CLI | Weights and embedded provenance; no source job, optimizer, replay or local runes |
-| Continue training headlessly elsewhere | Copy a validated full `last.pt`; resume with a matching JSON config in a new CLI output directory | Learning state and portable best snapshot; no automatic web-job registration |
-| Relocate an entire installation | Consistently back up/restore the whole data root with compatible application code | SQLite job registry, histories, local identities and owned model/job files |
-| Merge one job into an existing web installation | No supported job-import or merge API/UI | Requires application-aware migration tooling that is not implemented |
+| Play an existing model elsewhere | Export/import a compact model through UI or CLI | Weights and embedded provenance; no job or optimizer/replay state |
+| Move a web training job to another installation | Export/import its job ZIP in the workshop | Registered job, available history/checkpoints/models, full-state resumption when available |
+| Continue training headlessly elsewhere | Copy a validated full `last.pt`; resume with a matching JSON config in a new CLI directory | Learning state; no automatic web-job registration |
+| Relocate an entire installation | Consistently back up/restore the whole data root with compatible code | All SQLite records, identities and owned model/job files |
 
-For a portable CLI resume, transfer `last.pt` securely, keep a verified backup,
-copy the effective training configuration, preserve ruleset/channels/blocks/seed/
-optimizer, set a new `output_dir` and appropriate `registry_dir`, and increase the
-**total** `iterations`. Then use `train --config ... --resume ...` as above.
-Review any saved paths; the CLI uses the supplied paths on the destination.
-The new CLI run remains outside the web job list. Import its compact inference
-output if only gameplay is needed on the server.
-
-Do not paste a source job's row into a destination database or edit IDs/paths as
-an ordinary workflow. Job records can reference other checkpoints or shared Optuna
-studies; games, tournaments and analytics reference models; rune assignments and
-worker leases are installation-specific. A manual database-level merge needs
-separate migration tooling, full backups, reference/path validation and isolated
-restore tests. This release provides no such tool. Importing a model does not
-restore job state, and `best.pt` cannot replace `last.pt` for full resumption.
+Manual copying into `data/jobs/` does **not** insert the required SQLite job row.
+Use the archive importer for individual web jobs; importing a model alone does not
+restore its training job. Full-instance backups remain separate from merging jobs
+into an existing installation.
 
 ## Consistent backup and restoration
 
@@ -222,7 +271,7 @@ pre-upgrade **database and files**, not just an older executable.
 ## Troubleshooting retained data
 
 - **Directory exists, job missing:** the SQLite jobs registry was not moved, or the
-  run was CLI-only. Use model import or CLI resume; there is no folder-scanning import.
+  run was CLI-only. Use a job ZIP exported from the original installation, model import or CLI resume; folders are not scanned automatically.
 - **Model plays but Resume is unavailable:** an inference export has no full state,
   the source job was deleted, its `last.pt` is missing/unsafe, or the job is active.
 - **Resume starts later than a selected model:** model-card Resume uses the source

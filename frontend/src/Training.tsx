@@ -88,6 +88,8 @@ export default function Training({
   );
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importingJob, setImportingJob] = useState(false);
+  const [exportingJob, setExportingJob] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [notice, setNotice] = useState('');
   const [deleteModel, setDeleteModel] = useState<Model | null>(null);
@@ -271,6 +273,46 @@ export default function Training({
       return;
     }
     setResumeJob(job);
+  };
+  const importTrainingJob = async (file?: File) => {
+    if (!file) return;
+    setImportingJob(true);
+    setNotice('');
+    const body = new FormData();
+    body.append('file', file);
+    try {
+      const imported = await api<Job>('/training/jobs/import', body);
+      refreshRevision.current++;
+      selectJob(imported);
+      setJobs((previous) => [imported, ...previous]);
+      onModelsChanged();
+      setNotice(t('Job imported. Review its history or resume from its full checkpoint.'));
+      await refresh();
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setImportingJob(false);
+    }
+  };
+  const exportTrainingJob = async (job: Job) => {
+    setExportingJob(true);
+    try {
+      const response = await fetch(`/api/training/jobs/${job.id}/export`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(typeof error.detail === 'string' ? error.detail : t('Job export failed.'));
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `hnefatafl-job-${job.id}.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setExportingJob(false);
+    }
   };
   const importModel = async (file?: File) => {
     if (!file) return;
@@ -733,6 +775,21 @@ export default function Training({
         <section className="panel jobs-panel">
           <div className="panel-title">
             <h2>{t('At the forge')}</h2>
+            <label
+              className={`button secondary small file-button ${importingJob ? 'disabled' : ''}`}
+            >
+              {importingJob ? t('Importing job…') : t('Import job')}
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                aria-label={t('Import job')}
+                disabled={importingJob}
+                onChange={(event) => {
+                  void importTrainingJob(event.target.files?.[0]);
+                  event.target.value = '';
+                }}
+              />
+            </label>
             <button
               className="text-button"
               onClick={() => {
@@ -799,6 +856,10 @@ export default function Training({
                   ? ` · ${t('Last update {time}', { time: new Date(selectedJob.last_reported_at).toLocaleString(locale) })}`
                   : ''}
               </p>
+              <details>
+                <summary>{t('Training configuration')}</summary>
+                <pre className="log-view">{JSON.stringify(selectedJob.config, null, 2)}</pre>
+              </details>
               <TrainingHistoryChart history={metrics.history} />
               <TrainingPerformance progress={metrics} />
               {Array.isArray(metrics.best_models) && metrics.best_models.length > 0 && (
@@ -844,9 +905,23 @@ export default function Training({
                   <button
                     className="button secondary small"
                     onClick={() => void resume(selectedJob)}
-                    disabled={busy || (selectedJob.kind !== 'tune' && !selectedJob.checkpoint)}
+                    disabled={
+                      busy ||
+                      (selectedJob.kind !== 'tune' &&
+                        (!selectedJob.checkpoint || selectedJob.resumable === false))
+                    }
                   >
                     {selectedJob.kind === 'tune' ? t('Resume study') : t('Resume from checkpoint')}
+                  </button>
+                )}
+                {['completed', 'cancelled', 'failed'].includes(selectedJob.status) && (
+                  <button
+                    type="button"
+                    className="button secondary small"
+                    disabled={exportingJob}
+                    onClick={() => void exportTrainingJob(selectedJob)}
+                  >
+                    {exportingJob ? t('Exporting job…') : t('Export job')}
                   </button>
                 )}
                 {!['running', 'pending', 'queued', 'cancelling'].includes(selectedJob.status) && (
@@ -905,6 +980,7 @@ export default function Training({
                 (job) =>
                   job.kind !== 'tune' &&
                   !!job.checkpoint &&
+                  job.resumable !== false &&
                   (job.model_id === model.id ||
                     (job.result?.model &&
                       typeof job.result.model === 'object' &&

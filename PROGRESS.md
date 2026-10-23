@@ -246,3 +246,20 @@ remain unverified. Passing short training and throughput checks does not establi
 stronger play. The small CPU comparisons did not show a speed improvement; CPU
 automatic execution stays sequential. See `docs/releases/v0.17.0.md` for measured
 work, scope, update commands and limits.
+
+## Portable training jobs (`v0.18.0`)
+
+- [x] Remove resume-only preset selection while preserving effective editable settings
+- [x] Export inactive jobs with versioned/checksummed metadata, checkpoints, history, metrics, logs and models
+- [x] Validate archives in staging and restore fresh inactive job IDs with local paths and model associations
+- [x] Deduplicate inference models and roll back newly published state on controlled failures
+- [x] Migrate single contained Optuna studies and rebase trial checkpoints for Resume study
+- [x] Reject unsafe archives, active jobs/trials and shared/external/incomplete study dependencies
+- [x] Keep English/German workshop loading, errors, history selection and model refresh
+- [x] Pass 527 backend tests (one CUDA skip), 143 frontend tests, static checks and build
+- [x] Pass 49 final migration tests and two desktop/mobile browser export/import/resume cases
+
+Exact validation and migration limits are recorded in `docs/releases/v0.18.0.md`.
+Schema 7 and tensor checkpoint formats remain unchanged. Archives contain only
+server-retained remote artifacts and never restore execution ownership. Functional
+CPU migration/resumption establishes further optimizer updates, not model strength.

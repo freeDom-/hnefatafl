@@ -9,7 +9,7 @@ import {
   trainingNumberFields,
   validTrainingNumbers,
 } from './TrainingFields';
-import { changeTrainingPlan, type TrainingConfig, type TrainingPreset } from './trainingPresets';
+import type { TrainingConfig } from './trainingPresets';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -134,7 +134,6 @@ export default function TrainingResumeDialog({
               (key in trainingNumberFields ||
                 [
                   'model_name',
-                  'preset',
                   'device',
                   'mixed_precision',
                   'save_all_best',
@@ -244,43 +243,6 @@ export default function TrainingResumeDialog({
                           disabled={busy}
                           onChange={(event) => update('model_name', event.target.value)}
                         />
-                      </label>
-                    )}
-                    {config.preset !== undefined && (
-                      <label>
-                        {t('Training preset')}
-                        <select
-                          value={String(config.preset)}
-                          disabled={busy}
-                          onChange={(event) => {
-                            const preset = event.target.value as TrainingPreset;
-                            setConfig((previous) => {
-                              const next = changeTrainingPlan(previous, checkpoint.ruleset, preset);
-                              for (const key of [
-                                'ruleset',
-                                'channels',
-                                'blocks',
-                                'seed',
-                                'optimizer',
-                              ])
-                                next[key] = savedConfig.current[key];
-                              next.iterations = Math.max(
-                                checkpoint.completed_iteration + 1,
-                                Number(next.iterations),
-                              );
-                              return next;
-                            });
-                          }}
-                        >
-                          <option value="recommended">
-                            {t('Recommended · tailored to this battlefield')}
-                          </option>
-                          <option value="smoke">
-                            {t('Quick check · a tiny real training run')}
-                          </option>
-                          <option value="beginner">{t('Beginner · a starting point')}</option>
-                          <option value="balanced">{t('Balanced · a longer experiment')}</option>
-                        </select>
                       </label>
                     )}
                     {config.device !== undefined && (

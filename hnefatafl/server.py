@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
@@ -118,6 +120,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     except PackageNotFoundError:
         package_version = "0+local"
     app = FastAPI(title="Hnefatafl", version=package_version)
+    from .job_archives import JobUploadLimit
+
+    app.add_middleware(JobUploadLimit)
     root = Path(data_dir or os.environ.get("HNEFATAFL_DATA_DIR", "data")).resolve()
     root.mkdir(parents=True, exist_ok=True)
     (root / "jobs").mkdir(exist_ok=True)
@@ -1629,7 +1634,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         if process is not None and process.poll() is not None:
             processes.pop(identifier, None)
         checkpoint = directory / "last.pt"
-        if checkpoint.is_file():
+        if checkpoint.is_file() and job.get("resumable", True):
             job["checkpoint"] = f"{identifier}:last.pt"
         registered = job.get("result", {}).get("model")
         if registered:
@@ -1684,6 +1689,82 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         with job_lock:
             remote_training.reconcile()
             return [read_job_locked(j["id"], reconcile=False) for j in store.jobs()]
+
+    @app.get("/api/training/jobs/{job_id}/export")
+    def export_training_job(job_id: str):
+        from .job_archives import export_job, TERMINAL
+
+        descriptor, filename = tempfile.mkstemp(suffix=".zip", prefix="hnefatafl-job-")
+        os.close(descriptor)
+        archive = Path(filename)
+        try:
+            with job_lock, catalog_lock:
+                # Export reads retained state without reconciling or modifying the row.
+                directory = job_path(job_id)
+                job = store.get_job(job_id)
+                if job is None:
+                    fail("Training job not found.", 404)
+                if job.get("status") not in TERMINAL or job_worker_alive(job):
+                    fail("Stop this training job before exporting its data.", 409)
+                export_job(job, directory, registry(), archive, package_version)
+            return FileResponse(
+                archive,
+                filename=f"hnefatafl-job-{job_id}.zip",
+                media_type="application/zip",
+                background=BackgroundTask(archive.unlink, missing_ok=True),
+            )
+        except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+            archive.unlink(missing_ok=True)
+            fail(f"Cannot export training job: {exc}")
+        except OSError:
+            archive.unlink(missing_ok=True)
+            fail("The saved job artifacts could not be read. Try again.", 500)
+        except BaseException:
+            archive.unlink(missing_ok=True)
+            raise
+
+    @app.post("/api/training/jobs/import", status_code=201)
+    def import_training_job(file: UploadFile = File(...)):
+        import zipfile
+        import sqlite3
+        import zlib
+        from .job_archives import import_job, MAX_ARCHIVE_BYTES
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="hnefatafl-upload-") as temporary:
+                archive = Path(temporary) / "job.zip"
+                count = 0
+                with archive.open("wb") as output:
+                    while chunk := file.file.read(1024 * 1024):
+                        count += len(chunk)
+                        if count > MAX_ARCHIVE_BYTES:
+                            fail("Job archives are limited to 512 MiB.", 413)
+                        output.write(chunk)
+                with job_lock, catalog_lock:
+                    result = import_job(
+                        archive,
+                        root,
+                        store,
+                        resume_info=lambda job, directory: resume_checkpoint(
+                            job["id"], job=job, directory=directory
+                        )[0],
+                    )
+                    return result
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+            EOFError,
+            zipfile.BadZipFile,
+            zlib.error,
+            NotImplementedError,
+        ) as exc:
+            fail(f"Invalid training-job archive: {exc}")
+        except (OSError, sqlite3.Error):
+            fail("The training job could not be restored. No new job was retained.", 500)
+        finally:
+            file.file.close()
 
     @app.get("/api/training/jobs/{job_id}")
     def training_job(job_id: str):
@@ -2005,9 +2086,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             store.save_job(job)
             return read_job(identifier)
 
-    def resume_checkpoint(job_id: str) -> tuple[dict, dict | None]:
+    def resume_checkpoint(
+        job_id: str, *, job: dict | None = None, directory: Path | None = None
+    ) -> tuple[dict, dict | None]:
         """Read one explicitly selected full checkpoint, never a client-supplied path."""
-        job = read_job(job_id)
+        job = job if job is not None else read_job(job_id)
         values = job.get("config", {})
         info = {
             "job_id": job_id,
@@ -2025,7 +2108,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         if job["status"] in {"running", "cancelling", "pending", "queued"}:
             info["reason"] = "Stop this training job before resuming its checkpoint."
             return info, None
-        checkpoint = job_path(job_id) / "last.pt"
+        checkpoint = (directory or job_path(job_id)) / "last.pt"
         if not checkpoint.is_file():
             info["reason"] = "The saved checkpoint was not found."
             return info, None

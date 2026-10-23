@@ -105,6 +105,7 @@ export interface Job {
   error?: string;
   model_id?: string;
   checkpoint?: string;
+  resumable?: boolean;
   checkpoint_path?: string;
   created_at?: string;
   result?: Record<string, unknown>;

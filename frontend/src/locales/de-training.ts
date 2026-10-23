@@ -1,4 +1,12 @@
 const translations: Record<string, string> = {
+  'Import job': 'Auftrag importieren',
+  'Export job': 'Auftrag exportieren',
+  'Importing job…': 'Auftrag wird importiert…',
+  'Exporting job…': 'Auftrag wird exportiert…',
+  'Job export failed.': 'Auftrag konnte nicht exportiert werden.',
+  'Job imported. Review its history or resume from its full checkpoint.':
+    'Auftrag importiert. Prüfe den Verlauf oder setze das Training vom vollständigen Kontrollpunkt fort.',
+  'Training configuration': 'Trainingskonfiguration',
   'CRAFT A WORTHY OPPONENT': 'ERSCHAFFE EINEN WÜRDIGEN GEGNER',
   'The AI workshop.': 'Die KI-Werkstatt.',
   'From first principles to your own strategist. Train, evaluate, and bring it to the table.':

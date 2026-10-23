@@ -32,6 +32,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
+| [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, localization and appearance |
 

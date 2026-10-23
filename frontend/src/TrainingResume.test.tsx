@@ -278,27 +278,23 @@ it('validates the same integer bounds and even evaluation budget as new training
   expect(screen.getByRole('button', { name: 'Continue training' })).toBeDisabled();
 });
 
-it('applies a selected preset while preserving all five checkpoint settings', async () => {
+it('keeps the historical preset without exposing a selector or resetting effective values', async () => {
   const config = {
     ...trainingConfig('brandubh', 'smoke'),
-    channels: 12,
-    blocks: 3,
-    seed: 918,
-    optimizer: 'sgd',
+    games: 7,
+    batch_size: 19,
+    iterations: 9,
   };
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => json({ ...info, channels: 12, blocks: 3, optimizer: 'sgd', seed: 918, config })),
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' ? job : { ...info, config }),
   );
+  vi.stubGlobal('fetch', fetcher);
   render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
-  const preset = await screen.findByLabelText('Training preset');
-  fireEvent.change(preset, { target: { value: 'balanced' } });
-  expect(screen.getByLabelText('Target total iterations')).toHaveValue(20);
-  expect(screen.getByLabelText('Self-play games per iteration')).toHaveValue(16);
-  expect(screen.getByLabelText('Batch size')).toHaveValue(64);
-  expect(screen.getByText('12 channels · 3 blocks')).toBeInTheDocument();
-  expect(screen.getByText('918')).toBeInTheDocument();
-  expect(screen.getByText('SGD')).toBeInTheDocument();
-  fireEvent.change(preset, { target: { value: 'smoke' } });
-  expect(screen.getByLabelText('Target total iterations')).toHaveValue(6);
+  expect(await screen.findByLabelText('Target total iterations')).toHaveValue(9);
+  expect(screen.queryByLabelText('Training preset')).toBeNull();
+  expect(screen.getByLabelText('Self-play games per iteration')).toHaveValue(7);
+  expect(screen.getByLabelText('Batch size')).toHaveValue(19);
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ iterations: 9 });
 });

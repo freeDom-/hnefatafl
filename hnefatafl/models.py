@@ -415,6 +415,37 @@ class ModelRegistry:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.index_path = self.root / "index.json"
+        self._in_transaction = False
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        if self._in_transaction:
+            yield
+        else:
+            with _registry_lock(self.root / ".registry.lock"):
+                yield
+
+    @contextmanager
+    def import_transaction(self) -> Iterator[None]:
+        """Hold the catalog lock and roll back new imports if a job restore fails.
+
+        Use a dedicated registry instance. Existing entries/copies are never
+        repaired or replaced inside this transaction.
+        """
+        with _registry_lock(self.root / ".registry.lock"):
+            entries = self._read_index()
+            files = set(self.root.glob("*.pt"))
+            self._in_transaction = True
+            try:
+                yield
+            except BaseException:
+                if self._read_index() != entries:
+                    self._write_index(entries)
+                for path in set(self.root.glob("*.pt")) - files:
+                    path.unlink(missing_ok=True)
+                raise
+            finally:
+                self._in_transaction = False
 
     def _read_index(self) -> list[dict[str, Any]]:
         if not self.index_path.exists():
@@ -444,7 +475,7 @@ class ModelRegistry:
             Path(temporary).unlink(missing_ok=True)
 
     def list(self) -> list[dict[str, Any]]:
-        with _registry_lock(self.root / ".registry.lock"):
+        with self._locked():
             entries = self._read_index()
         return [{**entry, "path": str(self.root / f"{entry['id']}.pt")} for entry in entries]
 
@@ -467,7 +498,7 @@ class ModelRegistry:
             raise ValueError("Invalid model ID")
         if not isinstance(name, str) or not name.strip() or len(name) > 100:
             raise ValueError("Model name must contain 1 to 100 characters")
-        with _registry_lock(self.root / ".registry.lock"):
+        with self._locked():
             entries = self._read_index()
             entry = next((value for value in entries if value["id"] == model_id), None)
             if entry is None:
@@ -485,7 +516,7 @@ class ModelRegistry:
         """
         if not isinstance(model_id, str) or not _MODEL_ID.fullmatch(model_id):
             raise ValueError("Invalid model ID")
-        with _registry_lock(self.root / ".registry.lock"):
+        with self._locked():
             entries = self._read_index()
             removed = next((entry for entry in entries if entry["id"] == model_id), None)
             if removed is None:
@@ -513,7 +544,8 @@ class ModelRegistry:
         try:
             shutil.copyfile(source, temporary)
             model, payload = load_checkpoint(temporary)
-            identifier = hashlib.sha256(temporary.read_bytes()).hexdigest()[:24]
+            with temporary.open("rb") as handle:
+                identifier = hashlib.file_digest(handle, "sha256").hexdigest()[:24]
             metadata = payload["metadata"]
             # Keep registry metadata JSON-serializable even when checkpoint extras
             # contain optimizer tensors or training RNG state.
@@ -549,13 +581,16 @@ class ModelRegistry:
                 **json_metadata,
             }
             destination = self.root / f"{identifier}.pt"
-            with _registry_lock(self.root / ".registry.lock"):
+            with self._locked():
                 entries = self._read_index()
                 existing = next((value for value in entries if value["id"] == identifier), None)
                 if existing is not None:
                     # Re-import also repairs a missing or accidentally damaged copy.
-                    os.replace(temporary, destination)
+                    if not self._in_transaction:
+                        os.replace(temporary, destination)
                     return {**existing, "path": str(destination)}
+                if self._in_transaction and destination.exists():
+                    raise ValueError("An unregistered model file already occupies this model ID")
                 os.replace(temporary, destination)
                 entries.append(entry)
                 self._write_index(entries)
