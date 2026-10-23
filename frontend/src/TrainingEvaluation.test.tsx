@@ -144,7 +144,7 @@ it('localizes conditional evaluation and promotion settings in German', async ()
   expect(screen.getByRole('status')).toHaveTextContent('Dieses Partienbudget');
 });
 
-it('keeps benchmark curves separate, shows side bias and promotion events, and leaves gaps missing', () => {
+it('keeps benchmark curves separate, shows side bias and promotion events, and leaves gaps missing', async () => {
   const point = (iteration: number, opponent: string, identity: string, promoted?: boolean) => ({
     iteration,
     policy_loss: 1,
@@ -178,7 +178,8 @@ it('keeps benchmark curves separate, shows side bias and promotion events, and l
     for (const line of chart.querySelectorAll('polyline'))
       expect(line.getAttribute('points')!.split(' ')).toHaveLength(1);
   }
-  expect(screen.getByText('Promoted')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('View graph data'));
+  expect(await screen.findByText('Promoted')).toBeInTheDocument();
   expect(screen.getAllByText('Attacker-side score').length).toBeGreaterThan(1);
   expect(
     screen.getByText(

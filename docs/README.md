@@ -23,6 +23,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Training, evaluation and hyperparameter optimization
 
+- [Training dashboard, analysis views, navigation and chart interpretation](TRAINING_DASHBOARD.md)
 - [First training run, learning targets, configuration bounds, evaluation and Optuna](TRAINING.md)
 - [Recommended board-specific plans and retained learning graphs](TRAINING_PLAN.md)
 
@@ -64,6 +65,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [v0.21.0](releases/v0.21.0.md) | Structured AI workshop training dashboard |
 | [v0.20.0](releases/v0.20.0.md) | Shield maiden heuristic, integration and measured trade-offs |
 | [v0.19.0](releases/v0.19.0.md) | Single evaluation opponent, portable champion selection and compact worker logs |
 | [v0.18.0](releases/v0.18.0.md) | Portable training jobs, contained Optuna studies and faithful checkpoint resumption |

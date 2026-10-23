@@ -10,6 +10,8 @@ export interface EvaluationRecord {
   score?: number;
   candidate_as_attacker?: { score: number };
   candidate_as_defender?: { score: number };
+  wins?: number;
+  losses?: number;
   draws?: number;
   truncated?: number;
   duration?: number;
@@ -19,7 +21,7 @@ export interface EvaluationRecord {
   score_lower_bound?: number;
   required_score?: number;
 }
-interface Selection {
+export interface Selection {
   opponent: string;
   champion_iteration?: number;
   champion_provisional?: boolean;
@@ -84,6 +86,14 @@ export default function TrainingEvaluationStatus({ progress }: { progress: unkno
             <div>
               <dt>{t('Defender-side score')}</dt>
               <dd>{last.candidate_as_defender ? format(last.candidate_as_defender.score) : '—'}</dd>
+            </div>
+            <div>
+              <dt>{t('Wins')}</dt>
+              <dd>{last.wins ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>{t('Losses')}</dt>
+              <dd>{last.losses ?? '—'}</dd>
             </div>
             <div>
               <dt>{t('Rules draws')}</dt>

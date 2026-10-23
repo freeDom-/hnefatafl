@@ -1,3 +1,4 @@
+import { openCreation, selectWorkshopJob } from './workshop-helpers';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -10,6 +11,7 @@ async function openWorkshop(page: Page) {
 }
 
 async function queue(page: Page, name: string) {
+  await openCreation(page);
   await page.getByRole('textbox', { name: 'Model name', exact: true }).fill(name);
   const response = page.waitForResponse(
     (entry) => entry.url().endsWith('/api/training/jobs') && entry.request().method() === 'POST',
@@ -38,6 +40,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
   const name = `Cloud raven ${info.project.name}`;
   let workerId: string | undefined;
   await openWorkshop(page);
+  await page.getByRole('button', { name: /Remote workers/ }).click();
   await page.getByRole('button', { name: 'Connect a worker', exact: true }).click();
   const connect = page.getByRole('dialog', { name: 'Connect a remote worker', exact: true });
   await connect.getByRole('textbox', { name: 'Worker name', exact: true }).fill(name);
@@ -54,6 +57,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
   expect(JSON.stringify(workers)).not.toContain(token);
   try {
     await connect.getByRole('button', { name: 'Close worker setup', exact: true }).click();
+    await openCreation(page);
     await post(request, '/heartbeat', token, {
       capabilities: {
         protocol_version: 1,
@@ -100,18 +104,12 @@ test('remote worker setup queues parallel jobs and retains independent reported 
         ],
       },
     });
-    await page
-      .locator('.job-row')
-      .filter({ hasText: `Cloud Ulf ${info.project.name}` })
-      .click();
+    await selectWorkshopJob(page, first.id, `Cloud Ulf ${info.project.name}`);
     await expect(page.locator('.job-detail .job-status')).toHaveText('running');
     await expect(
       page.getByRole('img', { name: 'Loss by iteration', exact: true }).locator('circle'),
     ).toHaveCount(2);
-    await page
-      .locator('.job-row')
-      .filter({ hasText: `Cloud Freydis ${info.project.name}` })
-      .click();
+    await selectWorkshopJob(page, second.id, `Cloud Freydis ${info.project.name}`);
     await expect(
       page.getByRole('img', { name: 'Loss by iteration', exact: true }).locator('circle'),
     ).toHaveCount(4);
@@ -128,10 +126,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
     await expect(page.getByLabel('Worker token', { exact: true })).toHaveCount(0);
-    await page
-      .locator('.job-row')
-      .filter({ hasText: `Cloud Freydis ${info.project.name}` })
-      .click();
+    await selectWorkshopJob(page, second.id, `Cloud Freydis ${info.project.name}`);
     await expect(
       page.getByRole('img', { name: 'Loss by iteration', exact: true }).locator('circle'),
     ).toHaveCount(4);

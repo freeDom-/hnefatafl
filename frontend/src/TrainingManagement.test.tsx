@@ -81,7 +81,9 @@ describe('workshop model provenance and deletion', () => {
     expect(seeds[0]).toHaveTextContent('Training seed 17');
     expect(seeds[0]).not.toHaveTextContent('1000017');
     expect(seeds[1]).toHaveTextContent('Training seed Not recorded');
-    await waitFor(() => expect(screen.getByText('Model collection')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Model collection/ })).toBeInTheDocument(),
+    );
   });
 
   it('checks usage before enabling deletion and requires explicit discard consent for saved games', async () => {

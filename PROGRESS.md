@@ -303,3 +303,23 @@ unit tests, formatting/lint, types, build and docs). Full real-server browser
 suite: 44 passed, four deliberate mobile skips covered on desktop. Actual CPU
 remote-worker maiden evaluation, optimizer/replay-preserving resume and separate
 benchmark histories passed; no GPU validation was performed.
+
+## Structured training dashboard (`v0.21.0`)
+
+- [x] Compact workshop header and full-width collapsible creation with retained form state
+- [x] Active/recent initial selection, searchable/filterable job rail and mobile selector
+- [x] Persistent status/actions and Overview, Learning, Evaluation, Performance and Details tabs
+- [x] Shared iteration ranges, keyboard/pointer SVG values and lazy accessible history tables
+- [x] Separate effective evaluation contexts/incumbents, sparse observations and promotion events
+- [x] Group throughput/MCTS/inference metrics and distinguish sequential phases from overlapping activity
+- [x] Preserve tuning/current-trial evidence, model/job management, remote workers and revision guards
+- [x] English/German controls, theme contrast and responsive desktop/tablet/mobile layouts
+- [x] `make check`: 611 Python passes, one CUDA skip; 164 frontend passes; static checks, docs and build
+- [x] Full real-server browser suite: 50 passes, four existing desktop-covered mobile skips
+- [x] Visual inspection of all analysis views, legacy/error/empty states and wood/light/dark themes
+
+See the [dashboard guide](docs/TRAINING_DASHBOARD.md) and
+[release evidence and screenshots](docs/releases/v0.21.0.md). Training algorithms,
+API/checkpoint/job formats and worker protocols are unchanged. Fixture screenshots
+illustrate the interface; no GPU validation, long campaign or stronger-model claim
+is made. Existing server-bounded log tails remain part of job-list polling.

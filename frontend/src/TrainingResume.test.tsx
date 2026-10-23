@@ -165,6 +165,8 @@ it('opens checkpoint resumption from the linked model card and keeps an imported
     { id: 'imported-model', name: 'Imported learner', ruleset: 'brandubh' },
   ];
   render(<Training rulesets={[]} models={models} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+  await screen.findByRole('tab', { name: 'Overview' });
+  fireEvent.click(screen.getByRole('button', { name: /Model collection/ }));
   const button = await screen.findByRole('button', { name: 'Resume training for Freydis' });
   expect(screen.queryByRole('button', { name: 'Resume training for Imported learner' })).toBeNull();
   fireEvent.click(button);

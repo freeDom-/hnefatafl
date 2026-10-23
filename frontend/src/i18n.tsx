@@ -8,6 +8,7 @@ import resume from './locales/de-resume';
 import modelManagement from './locales/de-model-management';
 import workers from './locales/de-workers';
 import evaluation from './locales/de-evaluation';
+import dashboard from './locales/de-dashboard';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
@@ -23,6 +24,7 @@ const dictionary = {
   ...modelManagement,
   ...workers,
   ...evaluation,
+  ...dashboard,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();

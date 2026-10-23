@@ -94,7 +94,7 @@ describe('model and training collection controls', () => {
     expect(screen.getByLabelText('Random seed', { exact: true })).toHaveValue(69);
     expect(screen.getByRole('checkbox', { name: 'Save every new best model' })).toBeChecked();
     expect(screen.queryByRole('spinbutton', { name: 'Trial budget' })).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(document.querySelector('.notice')).toHaveTextContent(
       'Training parameters loaded from Renamed Freydis',
     );
     const loaded = recordedTrainingConfig(trainingConfig('tablut', 'recommended'), model)!;
@@ -136,7 +136,7 @@ describe('model and training collection controls', () => {
     expect(
       screen.getByRole('button', { name: 'Load training parameters for Renamed Freydis' }),
     ).toBeDisabled();
-    await screen.findByText('Model collection');
+    await screen.findByRole('button', { name: /Model collection/ });
   });
 
   it('confirms training-data deletion, retains models and exposes failed deletions for retry', async () => {
@@ -160,7 +160,9 @@ describe('model and training collection controls', () => {
     vi.stubGlobal('fetch', fetcher);
     const callbacks = show([job]);
     fireEvent.click(
-      await screen.findByText('Original name').then((label) => label.closest('button')!),
+      await screen
+        .findByText('Original name', { selector: 'strong' })
+        .then((label) => label.closest('button')!),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete training data' }));
     let dialog = within(screen.getByRole('dialog', { name: 'Delete training data?' }));
@@ -174,6 +176,7 @@ describe('model and training collection controls', () => {
     expect(screen.getByRole('button', { name: 'Resume from checkpoint' })).toBeEnabled();
     fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Model collection/ }));
     expect(screen.getByRole('heading', { name: model.name })).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Resume from checkpoint' }),
@@ -181,7 +184,7 @@ describe('model and training collection controls', () => {
     expect(
       screen.queryByRole('button', { name: `Resume training for ${model.name}` }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(document.querySelector('.notice')).toHaveTextContent(
       'Registered models and saved game history have been kept',
     );
     expect(callbacks.onModelsChanged).not.toHaveBeenCalled();
@@ -203,7 +206,9 @@ describe('model and training collection controls', () => {
     );
     show([active]);
     fireEvent.click(
-      await screen.findByText('Original name').then((label) => label.closest('button')!),
+      await screen
+        .findByText('Original name', { selector: 'strong' })
+        .then((label) => label.closest('button')!),
     );
     await screen.findByRole('button', { name: 'Stop training' });
     expect(screen.queryByRole('button', { name: 'Delete training data' })).not.toBeInTheDocument();

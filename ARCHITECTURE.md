@@ -221,3 +221,17 @@ training data. The browser polls the same persisted progress and charts for both
 execution targets. Remote worker credentials do not authenticate the rest of the
 existing trusted-local application; use private networking or a suitably scoped
 authenticated HTTPS proxy. See [Remote training](docs/REMOTE_TRAINING.md).
+
+## Training workshop presentation
+
+`Training.tsx` owns asynchronous mutations, shared form state and revision guards.
+`TrainingCreationPanel` reuses the existing fields/target/evaluation controls.
+`TrainingJobNavigator` owns local search, filtering and sorting;
+`TrainingJobDashboard` owns tabs and iteration range without resetting on polling.
+`TrainingAnalysisViews` composes Overview, Learning, Evaluation and Details;
+`TrainingPerformance` groups computational metrics. `TrainingMetricChart` is a
+small dependency-free responsive SVG renderer used by `TrainingHistoryChart`
+and the performance view. `trainingDashboardData` normalizes optional legacy
+metrics and separates effective evaluation contexts/incumbents. Large tables
+and raw diagnostics mount on disclosure. No backend response or training format
+changes are needed. See the [dashboard guide](docs/TRAINING_DASHBOARD.md).

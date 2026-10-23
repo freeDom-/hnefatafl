@@ -49,6 +49,7 @@ it('uploads a job with a loading state, refreshes models and selects its history
     await screen.findByText('Job imported. Review its history or resume from its full checkpoint.'),
   ).toBeInTheDocument();
   expect(screen.getByText('Training progress')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'Details' }));
   expect(screen.getByText('Training configuration')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Resume from checkpoint' })).toBeEnabled();
   expect(changed).toHaveBeenCalled();

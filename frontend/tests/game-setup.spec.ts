@@ -1,3 +1,4 @@
+import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 const api = 'http://127.0.0.1:8001/api';
@@ -203,6 +204,7 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
   ).toContainText(ulf.rune);
   await setup.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openCollection(page);
   const ulfCard = page
     .getByRole('article')
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });

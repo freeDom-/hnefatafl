@@ -123,6 +123,7 @@ it('queues GPU training on a remote worker even when the server only has a CPU',
     worker_id: 'cloud',
     device: 'cuda',
   });
+  fireEvent.click(screen.getByRole('button', { name: /New training/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Tune parameters' }));
   expect(screen.getByLabelText('Run training on')).toBeDisabled();
   expect(screen.getByLabelText('Run training on')).toHaveValue('local');
@@ -143,7 +144,9 @@ it('refreshes completed models from another job without changing the selected pr
   );
   const changed = vi.fn();
   render(<Training rulesets={rulesets} models={[]} onModelsChanged={changed} onError={vi.fn()} />);
-  fireEvent.click((await screen.findByText('Cloud Ulf')).closest('button')!);
+  fireEvent.click(
+    (await screen.findByText('Cloud Ulf', { selector: 'strong' })).closest('button')!,
+  );
   await waitFor(() =>
     expect(
       screen.getByRole('img', { name: 'Loss by iteration' }).querySelectorAll('circle'),
@@ -155,7 +158,7 @@ it('refreshes completed models from another job without changing the selected pr
   expect(
     screen.getByRole('img', { name: 'Loss by iteration' }).querySelectorAll('circle'),
   ).toHaveLength(2);
-  fireEvent.click(screen.getByText('Cloud Freydis').closest('button')!);
+  fireEvent.click(screen.getByRole('button', { name: /Cloud Freydis/ }));
   await waitFor(() =>
     expect(
       screen.getByRole('img', { name: 'Loss by iteration' }).querySelectorAll('circle'),
@@ -175,8 +178,10 @@ it('does not replace a newly selected job with an earlier refresh response', asy
     }),
   );
   render(<Training rulesets={rulesets} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
-  fireEvent.click((await screen.findByText('Cloud Ulf')).closest('button')!);
-  fireEvent.click(screen.getByText('Cloud Freydis').closest('button')!);
+  fireEvent.click(
+    (await screen.findByText('Cloud Ulf', { selector: 'strong' })).closest('button')!,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Cloud Freydis/ }));
   await act(async () => pending[1](await json([first, second])));
   await act(async () => pending[0](await json([first])));
   expect(

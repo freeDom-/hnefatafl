@@ -1,0 +1,218 @@
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useI18n } from './i18n';
+import type { Job } from './types';
+import {
+  activeJob,
+  finite,
+  jobName,
+  jobProgress,
+  jobRuleset,
+  trainingHistory,
+  object,
+  recentHistory,
+} from './trainingDashboardData';
+import {
+  TrainingJobOverview,
+  TrainingLearningView,
+  TrainingEvaluationView,
+  TrainingPerformance,
+  TrainingJobDetails,
+} from './TrainingAnalysisViews';
+
+const tabs = ['Overview', 'Learning', 'Evaluation', 'Performance', 'Details'] as const;
+type Tab = (typeof tabs)[number];
+interface Props {
+  job: Job;
+  revision: number;
+  busy: boolean;
+  exporting: boolean;
+  onCancel: () => void;
+  onResume: () => void;
+  onExport: () => void;
+  onRefresh: () => void;
+  onDelete: () => void;
+}
+export default function TrainingJobDashboard({
+  job,
+  revision,
+  busy,
+  exporting,
+  onCancel,
+  onResume,
+  onExport,
+  onRefresh,
+  onDelete,
+}: Props) {
+  const { t, locale } = useI18n();
+  const id = useId();
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const [tab, setTab] = useState<Tab>('Overview');
+  const [range, setRange] = useState(0);
+  useEffect(() => {
+    setTab('Overview');
+    setRange(0);
+  }, [job.id, revision]);
+  const progress = jobProgress(job);
+  const history = useMemo(() => trainingHistory(progress.history), [progress.history]);
+  const rangedHistory = useMemo(() => recentHistory(history, range), [history, range]);
+  const config = object(job.config?.training) ?? job.config;
+  const iteration = finite(progress.iteration) ? progress.iteration : history.at(-1)?.iteration;
+  const total = progress.total_iterations ?? config?.iterations;
+  const ratio =
+    finite(iteration) && finite(total) && total > 0
+      ? Math.max(0, Math.min(1, iteration / total))
+      : undefined;
+  const elapsed = progress.duration;
+  const duration = finite(elapsed)
+    ? `${Math.floor(elapsed / 3600) ? `${Math.floor(elapsed / 3600)}h ` : ''}${Math.floor((elapsed % 3600) / 60)}m ${Math.floor(elapsed % 60)}s`
+    : undefined;
+  return (
+    <article className="job-detail training-job-dashboard" aria-label={t('Selected training job')}>
+      <header className="selected-job-summary">
+        <div className="dashboard-job-heading">
+          <div>
+            <span className="eyebrow">{t('Training progress')}</span>
+            <h3>{jobName(job)}</h3>
+          </div>
+          <span className={`job-status ${job.status}`} role="status">
+            {t(job.status)}
+          </span>
+        </div>
+        <p className="job-worker">
+          {jobRuleset(job)} ·{' '}
+          {job.execution === 'remote'
+            ? (job.worker_name ?? t('Waiting for an available worker'))
+            : t('This server')}
+          {duration && ` · ${t('Elapsed')} ${duration}`}
+          {job.last_reported_at &&
+            ` · ${t('Last update {time}', { time: new Date(job.last_reported_at).toLocaleString(locale) })}`}
+        </p>
+        <div className="dashboard-progress">
+          <strong>
+            {t('Iteration')} {iteration ?? '—'} / {finite(total) ? total : '—'}
+          </strong>
+          {ratio !== undefined && (
+            <progress value={ratio} max={1} aria-label={t('Training progress')} />
+          )}
+          <span>
+            {typeof progress.stage === 'string'
+              ? t(progress.stage.replaceAll('_', ' '))
+              : t(job.status)}
+          </span>
+        </div>
+        <div className="job-actions">
+          {activeJob(job) ? (
+            <button
+              className="button secondary small"
+              disabled={job.status === 'cancelling'}
+              onClick={onCancel}
+            >
+              {t(job.status === 'cancelling' ? 'Stopping…' : 'Stop training')}
+            </button>
+          ) : (
+            <button
+              className="button primary small"
+              disabled={
+                busy || (job.kind !== 'tune' && (!job.checkpoint || job.resumable === false))
+              }
+              onClick={onResume}
+            >
+              {t(job.kind === 'tune' ? 'Resume study' : 'Resume from checkpoint')}
+            </button>
+          )}
+          {['completed', 'cancelled', 'failed'].includes(job.status) && (
+            <button className="button secondary small" disabled={exporting} onClick={onExport}>
+              {t(exporting ? 'Exporting job…' : 'Export job')}
+            </button>
+          )}
+          {!activeJob(job) && (
+            <button className="button secondary small danger-text" onClick={onDelete}>
+              {t('Delete training data')}
+            </button>
+          )}
+          <button className="text-button" onClick={onRefresh}>
+            {t('Refresh job')}
+          </button>
+        </div>
+        {job.error && (
+          <p className="form-error" role="alert">
+            {t(job.error)}
+          </p>
+        )}
+      </header>
+      <div className="training-tabs" role="tablist" aria-label={t('Training analysis')}>
+        {tabs.map((name, index) => (
+          <button
+            key={name}
+            ref={(element) => {
+              buttons.current[index] = element;
+            }}
+            id={`${id}-tab-${name}`}
+            role="tab"
+            aria-selected={tab === name}
+            aria-controls={`${id}-panel`}
+            tabIndex={tab === name ? 0 : -1}
+            onClick={() => setTab(name)}
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+              setTab(tabs[next]);
+              buttons.current[next]?.focus();
+            }}
+          >
+            {t(name)}
+          </button>
+        ))}
+      </div>
+      <section
+        role="tabpanel"
+        id={`${id}-panel`}
+        aria-labelledby={`${id}-tab-${tab}`}
+        tabIndex={0}
+        className="training-analysis-panel"
+      >
+        {!['Overview', 'Details'].includes(tab) && (
+          <label className="training-range">
+            {t('Iteration range')}
+            <select
+              aria-label={t('Iteration range')}
+              value={range}
+              onChange={(event) => setRange(Number(event.target.value))}
+            >
+              <option value={0}>{t('All iterations')}</option>
+              {[10, 25, 50].map((value) => (
+                <option key={value} value={value}>
+                  {t('Recent {count} iterations', { count: value })}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {tab === 'Overview' && (
+          <TrainingJobOverview job={job} progress={progress} history={history} />
+        )}
+        {tab === 'Learning' && (
+          <TrainingLearningView
+            progress={progress}
+            history={rangedHistory}
+            config={config}
+            range={0}
+          />
+        )}
+        {tab === 'Evaluation' && (
+          <TrainingEvaluationView progress={progress} history={rangedHistory} range={0} />
+        )}
+        {tab === 'Performance' && (
+          <TrainingPerformance progress={{ ...progress, history: rangedHistory }} />
+        )}
+        {tab === 'Details' && <TrainingJobDetails job={job} progress={progress} />}
+      </section>
+    </article>
+  );
+}

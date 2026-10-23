@@ -1,3 +1,4 @@
+import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const api = 'http://127.0.0.1:8001/api';
@@ -218,6 +219,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   await page.goto('/');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openCollection(page);
   const card = page
     .locator('.model-card')
     .filter({ has: page.getByRole('heading', { name: modelName }) });
@@ -263,6 +265,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect((await request.delete(`${api}/models/${model.id}`)).status()).toBe(409);
   const before = await statistics(request);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openCollection(page);
   await page.getByRole('button', { name: `Delete model ${modelName}`, exact: true }).click();
   const confirmation = page.getByRole('dialog', {
     name: `Delete model ${modelName}?`,

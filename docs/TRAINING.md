@@ -298,6 +298,9 @@ incumbent. Accepted weights are cloned and never share candidate storage.
 
 ### Reading workshop evaluation history
 
+See the [training dashboard guide](TRAINING_DASHBOARD.md) for creation, job selection,
+analysis tabs, responsive charts and model-collection management.
+
 The workshop shows the active settings, latest training iteration, incumbent
 iteration, last measured result, side scores, rules draws, truncated games,
 duration and best fixed benchmark iterations. Curves are separate for each

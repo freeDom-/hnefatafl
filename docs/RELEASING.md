@@ -1,6 +1,7 @@
 # Milestone releases
 
-Milestone `v0.x.0` releases are previews with an explicit scope. `v1.0.0` requires
+Milestone `0.x.0` Git tags are previews with an explicit scope. Their notes use
+`docs/releases/vX.Y.Z.md` paths. `1.0.0` requires
 the initial acceptance checklist, working production startup and complete CPU
 training smoke tests. A GPU check is reported as unverified if hardware is absent.
 Patch releases correct defects; minor releases add compatible features; breaking
@@ -19,9 +20,9 @@ For each reached milestone:
 6. Publish the GitHub release using the checked-in notes file:
 
 ```sh
-git tag -a vX.Y.Z -m 'Concrete milestone description'
-git push origin main vX.Y.Z
-gh release create vX.Y.Z --verify-tag --title 'vX.Y.Z — Concrete milestone' \
+git tag -a X.Y.Z -m 'Concrete milestone description'
+git push origin main X.Y.Z
+gh release create X.Y.Z --verify-tag --title 'X.Y.Z — Concrete milestone' \
   --notes-file docs/releases/vX.Y.Z.md --prerelease
 ```
 

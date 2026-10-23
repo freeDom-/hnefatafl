@@ -1,3 +1,4 @@
+import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from '@playwright/test';
 
 test('real gameplay, undo, redo, rules, records and mobile layout', async ({ page }, testInfo) => {
@@ -125,6 +126,8 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await page.goto('/');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openCreation(page);
+  await openCollection(page);
   await page.getByLabel('Model name', { exact: true }).fill('Browser smoke strategist');
   await page.getByRole('combobox', { name: 'Training preset', exact: true }).selectOption('smoke');
   await page.getByRole('button', { name: /Advanced configuration/ }).click();
@@ -138,7 +141,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   );
   await page.getByRole('button', { name: 'Start training', exact: false }).click();
   const firstJob = await (await firstTraining).json();
-  await expect(page.getByRole('status')).toContainText('training job has started');
+  await expect(page.locator('.notice[role=status]')).toContainText('training job has started');
   await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 90000 });
   await expect(page.getByRole('img', { name: 'Loss by iteration', exact: true })).toBeVisible();
   await expect(
@@ -173,7 +176,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
     optimizer: 'sgd',
   });
   await expect(resume).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText(
+  await expect(page.locator('.notice[role=status]')).toContainText(
     'Training resumed from iteration 1 toward 2.',
   );
   await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 90000 });
@@ -182,7 +185,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toHaveCount(4);
   await expect(
     page.getByRole('img', { name: 'Evaluation by iteration', exact: true }).locator('circle'),
-  ).toHaveCount(6);
+  ).toHaveCount(2);
   const api = 'http://127.0.0.1:8001/api';
   const savedJob = await (await request.get(`${api}/training/jobs/${continuedJob.id}`)).json();
   const retainedSettings = await (
@@ -240,6 +243,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   });
   expect(await (await request.get(`${api}/games/${history.id}`)).json()).toEqual(history);
 
+  await openCreation(page);
   await page
     .getByRole('combobox', { name: 'Training preset', exact: true })
     .selectOption('recommended');
@@ -247,7 +251,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await card
     .getByRole('button', { name: `Load training parameters for ${renamedName}`, exact: true })
     .click();
-  await expect(page.getByRole('status')).toContainText(
+  await expect(page.locator('.notice[role=status]')).toContainText(
     `Training parameters loaded from ${renamedName}.`,
   );
   await expect(page.getByRole('combobox', { name: 'Battlefield', exact: true })).toHaveValue(

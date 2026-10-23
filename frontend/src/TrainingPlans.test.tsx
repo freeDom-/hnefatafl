@@ -51,7 +51,7 @@ it('selects board-specific real training plans and preserves identity/retention 
   expect(screen.getByRole('textbox', { name: 'Modellname' })).toHaveValue('Eir of the Fjord');
 });
 
-it('adds real completed points to loss/evaluation graphs and leaves missing evaluation explicit', () => {
+it('adds real completed points to loss/evaluation graphs and leaves missing evaluation explicit', async () => {
   const view = render(<TrainingHistoryChart history={[]} />);
   expect(
     screen.getByText('Graphs appear after the first completed training iteration.'),
@@ -76,17 +76,21 @@ it('adds real completed points to loss/evaluation graphs and leaves missing eval
   );
   expect(document.querySelectorAll('svg circle')).toHaveLength(5);
   fireEvent.click(screen.getByText('View graph data'));
-  const table = screen.getByRole('table', { name: 'Training history data' });
+  const table = await screen.findByRole('table', { name: 'Training history data' });
   const rows = within(table).getAllByRole('row');
   expect(rows).toHaveLength(3);
-  expect(
-    within(rows[1])
-      .getAllByRole('cell')
-      .map((cell) => cell.textContent),
-  ).toEqual(['1', '1.2', '0.4', '—', '—']);
-  expect(
-    within(rows[2])
-      .getAllByRole('cell')
-      .map((cell) => cell.textContent),
-  ).toEqual(['2', '0.8', '0.2', '0.5', '1']);
+  expect([...rows[1].children].map((cell) => cell.textContent)).toEqual([
+    '1',
+    '1.2',
+    '0.4',
+    '—',
+    '—',
+  ]);
+  expect([...rows[2].children].map((cell) => cell.textContent)).toEqual([
+    '2',
+    '0.8',
+    '0.2',
+    '0.5',
+    '1',
+  ]);
 });

@@ -1,3 +1,4 @@
+import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from '@playwright/test';
 
 async function finishVariant(
@@ -122,6 +123,8 @@ test('workshop suggests Viking names and deletes a model only after confirmation
   await page.goto('/');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openCreation(page);
+  await openCollection(page);
   await expect(
     page.getByRole('combobox', { name: 'Battlefield', exact: true }).locator('option'),
   ).toHaveText(['Brandubh', 'Tablut (market rules)', 'Copenhagen Hnefatafl']);
@@ -145,7 +148,7 @@ test('workshop suggests Viking names and deletes a model only after confirmation
   await page.getByRole('button', { name: `Delete model ${name}` }).click();
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.locator('.model-card').getByRole('heading', { name })).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText(
+  await expect(page.locator('.notice[role=status]')).toContainText(
     'Saved game history and training checkpoints have been kept',
   );
   const jobs = await (await request.get('http://127.0.0.1:8001/api/training/jobs')).json();

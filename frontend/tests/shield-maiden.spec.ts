@@ -1,3 +1,4 @@
+import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from '@playwright/test';
 
 test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
@@ -29,6 +30,8 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await page.goto('/');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openCreation(page);
+  await openCollection(page);
   const opponent = page.getByRole('combobox', { name: 'Evaluation opponent', exact: true });
   await opponent.selectOption('shield_maiden');
   await expect(

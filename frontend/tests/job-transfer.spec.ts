@@ -1,3 +1,4 @@
+import { selectWorkshopJob } from './workshop-helpers';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 
@@ -29,7 +30,7 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   await page.goto('/');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
-  await page.locator('.job-row').filter({ hasText: name }).click();
+  await selectWorkshopJob(page, source.id, name);
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export job', exact: true }).click();
   const download = await downloading;

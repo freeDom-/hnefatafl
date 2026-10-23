@@ -178,12 +178,13 @@ it('displays persisted performance when inspecting a completed training job', as
   );
   render(<Training rulesets={rulesets} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: /Batch Eir/ }));
-  expect(await screen.findByLabelText('Training performance')).toBeInTheDocument();
   expect(screen.getByRole('img', { name: 'Loss by iteration' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
+  expect(await screen.findByLabelText('Training performance')).toBeInTheDocument();
   expect(screen.getByText('Throughput history')).toBeInTheDocument();
 });
 
-it('shows aggregate performance and persisted completed-iteration throughput history without changing loss graphs', () => {
+it('shows aggregate performance and persisted completed-iteration throughput history without changing loss graphs', async () => {
   const view = render(<TrainingPerformance progress={{}} />);
   expect(screen.queryByLabelText('Training performance')).not.toBeInTheDocument();
   view.rerender(
@@ -199,9 +200,12 @@ it('shows aggregate performance and persisted completed-iteration throughput his
   );
   expect(screen.getByText('2.5 / 1 / 3')).toBeInTheDocument();
   expect(screen.getByText('CPU search activity (seconds)')).toBeInTheDocument();
-  expect(screen.getByText('Iteration wall time (seconds)')).toBeInTheDocument();
-  expect(screen.queryByText('Peak GPU allocated memory (MiB)')).not.toBeInTheDocument();
-  const table = screen.getByRole('table', { name: 'Throughput history', hidden: true });
+  expect(screen.getAllByText('Iteration wall time (seconds)').length).toBeGreaterThan(0);
+  expect(screen.getByText('Peak GPU allocated memory (MiB)').nextElementSibling).toHaveTextContent(
+    '—',
+  );
+  fireEvent.click(screen.getByText('Throughput history'));
+  const table = await screen.findByRole('table', { name: 'Throughput history' });
   expect(within(table).getAllByRole('row', { hidden: true })).toHaveLength(3);
   expect(within(table).getByText('720')).toBeInTheDocument();
   view.rerender(

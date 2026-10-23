@@ -1,31 +1,25 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
-import { Metric } from './Archive';
 import type { DeviceInfo, Job, Model, Ruleset, TrainingWorker } from './types';
-import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
-import {
-  trainingConfig,
-  changeTrainingPlan,
-  recordedTrainingConfig,
-  type TrainingPreset,
-} from './trainingPresets';
-import TrainingHistoryChart from './TrainingHistoryChart';
+import { trainingConfig, recordedTrainingConfig } from './trainingPresets';
 import TrainingResumeDialog from './TrainingResumeDialog';
-import { numberField, SelfPlayModeField } from './TrainingFields';
-import TrainingPerformance from './TrainingPerformance';
-import EvaluationSettings, { opponentName } from './EvaluationSettings';
-import TrainingEvaluationStatus from './TrainingEvaluationStatus';
+import { opponentName } from './EvaluationSettings';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { modelIteration } from './modelLabel';
 import TrainingWorkers from './TrainingWorkers';
-import TrainingTarget, { targetRequest } from './TrainingTarget';
+import { targetRequest } from './TrainingTarget';
+import TrainingCreationPanel from './TrainingCreationPanel';
+import TrainingJobNavigator from './TrainingJobNavigator';
+import TrainingJobDashboard from './TrainingJobDashboard';
+import { activeJob, sortJobs } from './trainingDashboardData';
+import './trainingDashboard.css';
 
 interface ModelUsage {
   model_id: string;
@@ -42,16 +36,10 @@ interface ModelUsage {
 }
 
 const defaults = trainingConfig('tablut', 'recommended');
-
 const metricText = (value: unknown) =>
   typeof value === 'number'
-    ? new Intl.NumberFormat(getLocale(), {
-        minimumFractionDigits: Number.isInteger(value) ? 0 : 4,
-        maximumFractionDigits: Number.isInteger(value) ? 0 : 4,
-      }).format(value)
-    : typeof value === 'string'
-      ? value
-      : '—';
+    ? new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 4 }).format(value)
+    : String(value ?? '—');
 
 export default function Training({
   rulesets,
@@ -67,6 +55,14 @@ export default function Training({
   onGamesDeleted?: (ids: string[]) => void;
 }) {
   const { locale } = useI18n();
+  const [creationOpen, setCreationOpen] = useState<boolean | null>(null);
+  const [modelsOpen, setModelsOpen] = useState<boolean | null>(null);
+  const [workersOpen, setWorkersOpen] = useState(false);
+  const [navigatorOpen, setNavigatorOpen] = useState(true);
+  const [dashboardRevision, setDashboardRevision] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const monitoring = useRef<HTMLElement>(null);
   const [device, setDevice] = useState<DeviceInfo>({});
   const [workers, setWorkers] = useState<TrainingWorker[]>([]);
   const [target, setTarget] = useState('local');
@@ -171,17 +167,26 @@ export default function Training({
     if (!observedJobs.current) {
       observedJobs.current = new Map(runs.map((job) => [job.id, job.status]));
     }
+    setLoaded(true);
+    setLoadFailed(false);
+    setCreationOpen((previous) => previous ?? !runs.length);
+    setModelsOpen((previous) => previous ?? !runs.length);
     setDevice(hardware);
     setJobs(runs);
     setWorkers(Array.isArray(connected) ? connected : []);
     if (selectionRevision.current === selectedRevision) {
       setSelectedJob((previous) =>
-        previous ? (runs.find((job) => job.id === previous.id) ?? null) : null,
+        previous
+          ? (runs.find((job) => job.id === previous.id) ?? null)
+          : (sortJobs(runs)[0] ?? null),
       );
     }
   }, []);
   useEffect(() => {
-    void refresh().catch((e) => onError(e.message));
+    void refresh().catch((e) => {
+      setLoadFailed(true);
+      onError(e.message);
+    });
     return () => {
       refreshRevision.current++;
     };
@@ -218,6 +223,7 @@ export default function Training({
       observedJobs.current.set(job.id, job.status);
       setJobs((previous) => [job, ...previous]);
       selectJob(job);
+      showMonitoring();
       setNotice(
         t(
           job.execution === 'remote'
@@ -266,6 +272,7 @@ export default function Training({
         });
         refreshRevision.current++;
         selectJob(next);
+        showMonitoring();
         await refresh();
       } catch (e) {
         onError((e as Error).message);
@@ -286,6 +293,7 @@ export default function Training({
       const imported = await api<Job>('/training/jobs/import', body);
       refreshRevision.current++;
       selectJob(imported);
+      showMonitoring();
       setJobs((previous) => [imported, ...previous]);
       onModelsChanged();
       setNotice(t('Job imported. Review its history or resume from its full checkpoint.'));
@@ -365,12 +373,13 @@ export default function Training({
     setConfig(loaded);
     setKind('train');
     setAdvanced(true);
+    setCreationOpen(true);
     setNotice(
       t('Training parameters loaded from {name}. Unrecorded inputs keep their current values.', {
         name: model.name,
       }),
     );
-    trainingForm.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
   };
   const removeModel = async () => {
     if (
@@ -416,35 +425,52 @@ export default function Training({
       setDeleting(false);
     }
   };
-  const running = jobs.filter((job) =>
-    ['running', 'pending', 'queued', 'cancelling'].includes(job.status),
-  ).length;
-  const metrics = selectedJob?.progress ?? selectedJob?.metrics ?? {};
-  const isRemote = kind === 'train' && target !== 'local';
-  const selectedWorker = workers.find((worker) => `worker:${worker.id}` === target);
-  const unavailableTarget =
-    isRemote &&
-    target.startsWith('worker:') &&
-    (!selectedWorker || selectedWorker.status === 'revoked');
-  const targetDevice = isRemote ? selectedWorker?.capabilities : device;
-  const hardwareName = isRemote
-    ? (selectedWorker?.name ?? t('Remote workers'))
-    : (device.default_device ?? device.selected ?? device.device ?? 'CPU');
+  const showMonitoring = () => {
+    setCreationOpen(false);
+    setDashboardRevision((value) => value + 1);
+    requestAnimationFrame(() => {
+      monitoring.current?.focus({ preventScroll: true });
+      monitoring.current?.scrollIntoView?.({ block: 'start' });
+    });
+  };
+  const running = jobs.filter(activeJob).length;
+  const hardwareName = device.default_device ?? device.selected ?? device.device ?? 'CPU';
   return (
-    <>
-      <section className="page-intro">
-        <div>
-          <h1>{t('The AI workshop.')}</h1>
-          <p>
-            {t(
-              'From first principles to your own strategist. Train, evaluate, and bring it to the table.',
-            )}
-          </p>
+    <div className="training-workshop">
+      <section className="page-intro workshop-intro">
+        <h1>{t('The AI workshop.')}</h1>
+        <div className="workshop-global" aria-label={t('Workshop summary')}>
+          <span>
+            <strong>{hardwareName.toUpperCase()}</strong> {device.cuda_devices?.join(' · ')}
+          </span>
+          <span>
+            <strong>{running}</strong> {t('active jobs')}
+          </span>
+          <span>
+            <strong>{models.length}</strong> {t('registered models')}
+          </span>
+          <button
+            className="button secondary small"
+            aria-expanded={workersOpen}
+            aria-controls="workshop-workers"
+            onClick={() => setWorkersOpen((value) => !value)}
+          >
+            {t('Remote workers')} ({workers.length})
+          </button>
+          <button
+            className="button primary small"
+            aria-expanded={creationOpen ?? true}
+            aria-controls="training-creation"
+            onClick={() => {
+              setCreationOpen(true);
+              requestAnimationFrame(() =>
+                trainingForm.current?.scrollIntoView?.({ block: 'start' }),
+              );
+            }}
+          >
+            {t('New training')} ＋
+          </button>
         </div>
-        <span className="device-tag">
-          <span className="status-dot" />
-          {device.cuda_available ? t('CUDA available') : t('CPU training available')}
-        </span>
       </section>
       {notice && (
         <div className="notice" role="status">
@@ -454,508 +480,159 @@ export default function Training({
           </button>
         </div>
       )}
-      <div className="metric-grid three">
-        <Metric
-          label={t('TRAINING DEVICE')}
-          value={hardwareName.toUpperCase()}
-          detail={
-            isRemote
-              ? t('Training runs on the selected worker')
-              : device.cuda_available
-                ? t('NVIDIA acceleration is available')
-                : t('Automatic CPU fallback · CUDA supported')
-          }
-        />
-        <Metric
-          label={t('ACTIVE JOBS')}
-          value={running}
-          detail={t('Training runs independently of your games')}
-        />
-        <Metric
-          label={t('TRAINED MODELS')}
-          value={models.length}
-          detail={t('Ready to join a compatible battlefield')}
+      <div id="workshop-workers" hidden={!workersOpen}>
+        <TrainingWorkers
+          workers={workers}
+          onChanged={() => void refresh().catch((error) => onError(error.message))}
         />
       </div>
-      <TrainingWorkers
-        workers={workers}
-        onChanged={() => void refresh().catch((error) => onError(error.message))}
-      />
-      <div className="training-layout">
-        <section className="panel training-config" ref={trainingForm}>
-          <div className="panel-title">
-            <h2>{t('Forge a new strategist')}</h2>
-            <span className="badge">{t('SELF-PLAY')}</span>
-          </div>
-          <p className="subtle">
-            {t(
-              'A policy and value network learns from its own games. Small runs verify the workflow; strength takes time and evaluation.',
-            )}
-          </p>
-          <form onSubmit={start}>
-            <div className="segmented">
-              <button
-                type="button"
-                className={kind === 'train' ? 'active' : ''}
-                onClick={() => setKind('train')}
-              >
-                {t('Train a model')}
-              </button>
-              <button
-                type="button"
-                className={kind === 'tune' ? 'active' : ''}
-                onClick={() => {
-                  setKind('tune');
-                  update('evaluation_opponent', 'shield_bearer');
-                }}
-              >
-                {t('Tune parameters')}
-              </button>
-            </div>
-            <div className="form-grid">
-              <TrainingTarget
-                value={kind === 'tune' ? 'local' : target}
-                workers={workers}
-                disabled={kind === 'tune'}
-                onChange={(value) => {
-                  setTarget(value);
-                  update('device', 'auto');
-                }}
-              />
-              <label>
-                {t('Battlefield')}
-                <select
-                  value={String(config.ruleset)}
-                  onChange={(e) =>
-                    setConfig((previous) =>
-                      changeTrainingPlan(
-                        previous,
-                        e.target.value,
-                        String(previous.preset) as TrainingPreset,
-                      ),
-                    )
-                  }
-                >
-                  {sortRulesets(rulesets).map((rule) => (
-                    <option value={rule.id} key={rule.id}>
-                      {rule.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Training preset')}
-                <select
-                  value={String(config.preset)}
-                  onChange={(e) =>
-                    setConfig((previous) =>
-                      changeTrainingPlan(
-                        previous,
-                        String(previous.ruleset),
-                        e.target.value as TrainingPreset,
-                      ),
-                    )
-                  }
-                >
-                  <option value="recommended">
-                    {t('Recommended · tailored to this battlefield')}
-                  </option>
-                  <option value="smoke">{t('Quick check · a tiny real training run')}</option>
-                  <option value="beginner">{t('Beginner · a starting point')}</option>
-                  <option value="balanced">{t('Balanced · a longer experiment')}</option>
-                </select>
-              </label>
-              <div className="name-suggestion-field">
-                <label htmlFor="training-model-name">{t('Model name')}</label>
-                <div className="name-input-group">
-                  <input
-                    id="training-model-name"
-                    required
-                    maxLength={100}
-                    value={String(config.model_name)}
-                    onChange={(e) => update('model_name', e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={t('Suggest Viking name')}
-                    title={t('Suggest a Viking name')}
-                    onClick={() =>
-                      update(
-                        'model_name',
-                        suggestVikingName([
-                          ...models.map((model) => model.name),
-                          String(config.model_name),
-                        ]),
-                      )
-                    }
-                  >
-                    ⚄
-                  </button>
-                </div>
-              </div>
-              <label>
-                {t('Device')}
-                <select
-                  value={String(config.device)}
-                  onChange={(e) => update('device', e.target.value)}
-                >
-                  <option value="auto">{t('Automatic')}</option>
-                  <option value="cpu">{t('CPU')}</option>
-                  <option
-                    value="cuda"
-                    disabled={
-                      targetDevice?.cuda_available === false ||
-                      (!isRemote && !device.cuda_available)
-                    }
-                  >
-                    {t('NVIDIA CUDA')}
-                    {targetDevice?.cuda_available === false || (!isRemote && !device.cuda_available)
-                      ? ` (${t('unavailable')})`
-                      : ''}
-                  </option>
-                  <option
-                    value="mps"
-                    disabled={
-                      targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
-                    }
-                  >
-                    {t('Apple Metal')}
-                    {targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
-                      ? ` (${t('unavailable')})`
-                      : ''}
-                  </option>
-                </select>
-              </label>
-              {numberField('iterations', config, update)}
-              {numberField('games', config, update)}
-              {numberField('batch_size', config, update)}
-              {numberField('mcts_iterations', config, update)}
-              <SelfPlayModeField
-                value={String(config.self_play_mode)}
-                onChange={(value) => update('self_play_mode', value)}
-              />
-              {numberField('self_play_concurrency', config, update)}
-              {numberField('inference_batch_size', config, update)}
-            </div>
-            {kind === 'tune' && (
-              <p className="subtle">
-                {t('Parameter tuning runs on this server. Remote workers support model training.')}
-              </p>
-            )}
-            {isRemote && (
-              <p className="subtle">
-                {t(
-                  'Jobs wait in the queue until a compatible worker has capacity. You can queue several runs with different settings.',
-                )}
-              </p>
-            )}
-            {config.preset === 'recommended' && (
-              <p className="training-plan-note subtle">
-                {Number(config.channels)} {t('channels ·')} {Number(config.blocks)}{' '}
-                {t('residual blocks ·')} {Number(config.games) * Number(config.iterations)}{' '}
-                {t('self-play games.')}{' '}
-                {t(
-                  'A board-specific starting budget, not a proven strongest configuration. Full runs can take hours or days; choose Quick check to verify your setup.',
-                )}
-              </p>
-            )}
-            <EvaluationSettings config={config} update={update} tuning={kind === 'tune'} />
-            <label className="checkbox-label training-retain-best">
-              <input
-                type="checkbox"
-                checked={Boolean(config.save_all_best)}
-                onChange={(event) => update('save_all_best', event.target.checked)}
-              />
-              {t('Save every new best model')}
-            </label>
-            <p className="subtle">
+      <section className="panel training-config workshop-creation" ref={trainingForm}>
+        <div className="panel-title">
+          <h2>
+            <button
+              className="disclosure-heading"
+              aria-expanded={creationOpen ?? true}
+              aria-controls="training-creation"
+              onClick={() => setCreationOpen((value) => !(value ?? true))}
+            >
+              <span aria-hidden="true">{(creationOpen ?? true) ? '−' : '＋'}</span>{' '}
+              {t('Forge a new strategist')}
+            </button>
+          </h2>
+          <span className="subtle">
+            {t('Train a model')} · {t('Tune parameters')}
+          </span>
+        </div>
+        <div id="training-creation" hidden={creationOpen === false}>
+          <TrainingCreationPanel
+            {...{
+              config,
+              setConfig,
+              update,
+              kind,
+              setKind,
+              target,
+              setTarget,
+              trials,
+              setTrials,
+              studyName,
+              setStudyName,
+              space,
+              setSpace,
+              advanced,
+              setAdvanced,
+              busy,
+              models,
+              rulesets,
+              workers,
+              device,
+              start,
+            }}
+          />
+        </div>
+      </section>
+      <section
+        className="panel jobs-panel workshop-jobs"
+        ref={monitoring}
+        tabIndex={-1}
+        aria-label={t('At the forge')}
+      >
+        <div className="panel-title">
+          <h2>{t('At the forge')}</h2>
+          {!!jobs.length && (
+            <button
+              className="button secondary small"
+              aria-expanded={navigatorOpen}
+              aria-controls="job-navigation"
+              onClick={() => setNavigatorOpen((value) => !value)}
+            >
+              {t(navigatorOpen ? 'Hide job list' : 'Show job list')}
+            </button>
+          )}
+          <label className={`button secondary small file-button ${importingJob ? 'disabled' : ''}`}>
+            {importingJob ? t('Importing job…') : t('Import job')}
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              aria-label={t('Import job')}
+              disabled={importingJob}
+              onChange={(event) => {
+                void importTrainingJob(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+          </label>
+          <button
+            className="text-button"
+            onClick={() => {
+              void refresh().catch((e) => onError(e.message));
+              onModelsChanged();
+            }}
+          >
+            {t('Refresh')}
+          </button>
+        </div>
+        {!loaded && !loadFailed && <p role="status">{t('Loading training jobs…')}</p>}
+        {!loaded && loadFailed && (
+          <p role="alert">{t('Could not load training jobs. Use Refresh to try again.')}</p>
+        )}
+        {loaded && !jobs.length ? (
+          <div className="empty-state compact">
+            <span className="empty-rune">ᛏ</span>
+            <h3>{t('Your next opponent starts here.')}</h3>
+            <p>
               {t(
-                'Retain and register each strict evaluation improvement. Tied scores do not create extra models. Uses additional disk space.',
+                'Start a quick check to run real self-play, training, evaluation, and checkpoint creation.',
               )}
             </p>
-            <button
-              type="button"
-              className="text-button advanced-toggle"
-              onClick={() => setAdvanced((value) => !value)}
-              aria-expanded={advanced}
-            >
-              {advanced ? '−' : '＋'} {t('Advanced configuration')}
-            </button>
-            {advanced && (
-              <div className="advanced-config form-grid">
-                {numberField('channels', config, update)}
-                {numberField('blocks', config, update)}
-                <label>
-                  {t('Optimizer')}
-                  <select
-                    value={String(config.optimizer)}
-                    onChange={(e) => update('optimizer', e.target.value)}
-                  >
-                    <option value="adamw">{t('AdamW')}</option>
-                    <option value="adam">{t('Adam')}</option>
-                    <option value="sgd">{t('SGD')}</option>
-                  </select>
-                </label>
-                {numberField('epochs', config, update)}
-                {numberField('learning_rate', config, update)}
-                {numberField('mcts_time_limit', config, update)}
-                {numberField('exploration', config, update)}
-                {numberField('temperature', config, update)}
-                {numberField('dirichlet_alpha', config, update)}
-                {numberField('dirichlet_fraction', config, update)}
-                {numberField('replay_buffer_size', config, update)}
-                {numberField('weight_decay', config, update)}
-                {config.optimizer === 'sgd' && numberField('momentum', config, update)}
-                {numberField('checkpoint_frequency', config, update)}
-                {numberField('max_game_plies', config, update)}
-                {numberField('cpu_threads', config, update)}
-                {numberField('seed', config, update)}
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(config.mixed_precision)}
-                    onChange={(e) => update('mixed_precision', e.target.checked)}
-                  />
-                  {t('Mixed precision when supported')}
-                </label>
-              </div>
-            )}
-            {kind === 'tune' && (
-              <div className="tuning-config">
-                <p className="subtle">
-                  {t(
-                    'Trials optimize game results against a baseline. Tuning can take much longer than a single run. Resume a saved study from its job below.',
-                  )}
-                </p>
-                <div className="form-grid">
-                  <label>
-                    {t('Trial budget')}
-                    <input
-                      type="number"
-                      min="1"
-                      max="1000"
-                      value={trials}
-                      onChange={(e) => setTrials(Number(e.target.value))}
-                    />
-                  </label>
-                  <label>
-                    {t('Study name')}
-                    <input
-                      required
-                      value={studyName}
-                      onChange={(e) => setStudyName(e.target.value)}
-                    />
-                  </label>
-                </div>
-                <label>
-                  {t('Parameter search space (JSON)')}
-                  <textarea
-                    value={space}
-                    onChange={(e) => setSpace(e.target.value)}
-                    rows={7}
-                    spellCheck={false}
-                  />
-                </label>
-              </div>
-            )}
-            <div className="training-start">
-              <span>{t('Start small. Measure improvement.')}</span>
-              <button className="button primary" disabled={busy || unavailableTarget}>
-                {busy
-                  ? t('Starting…')
-                  : kind === 'train'
-                    ? isRemote
-                      ? t('Queue training')
-                      : t('Start training')
-                    : t('Start tuning')}{' '}
-                <span aria-hidden="true">↗</span>
-              </button>
-            </div>
-          </form>
-        </section>
-        <section className="panel jobs-panel">
-          <div className="panel-title">
-            <h2>{t('At the forge')}</h2>
-            <label
-              className={`button secondary small file-button ${importingJob ? 'disabled' : ''}`}
-            >
-              {importingJob ? t('Importing job…') : t('Import job')}
-              <input
-                type="file"
-                accept=".zip,application/zip"
-                aria-label={t('Import job')}
-                disabled={importingJob}
-                onChange={(event) => {
-                  void importTrainingJob(event.target.files?.[0]);
-                  event.target.value = '';
-                }}
-              />
-            </label>
-            <button
-              className="text-button"
-              onClick={() => {
-                void refresh().catch((e) => onError(e.message));
-                onModelsChanged();
-              }}
-            >
-              {t('Refresh')}
-            </button>
           </div>
-          {!jobs.length ? (
-            <div className="empty-state compact">
-              <span className="empty-rune">ᛏ</span>
-              <h3>{t('Your next opponent starts here.')}</h3>
-              <p>
-                {t(
-                  'Start a quick check to run real self-play, training, evaluation, and checkpoint creation.',
-                )}
-              </p>
-            </div>
-          ) : (
-            <div className="jobs-list">
-              {jobs.map((job) => (
-                <button
-                  key={job.id}
-                  className={`job-row ${selectedJob?.id === job.id ? 'selected' : ''}`}
-                  onClick={() => void inspect(job)}
-                >
-                  <span className={`job-status ${job.status}`}>{t(job.status)}</span>
-                  <strong>
-                    {String(
-                      job.config?.model_name ??
-                        job.config?.ruleset ??
-                        job.ruleset ??
-                        t('Training job'),
-                    )}
-                  </strong>
-                  <small>
-                    {job.created_at
-                      ? new Date(job.created_at).toLocaleString(locale)
-                      : job.id.slice(0, 8)}
-                    {job.execution === 'remote' && (
-                      <span className="job-location">
-                        {' '}
-                        · {job.worker_name ?? t('Remote queue')}
-                      </span>
-                    )}
-                  </small>
-                </button>
-              ))}
-            </div>
-          )}
-          {selectedJob && (
-            <div className="job-detail">
-              <div className="panel-title">
-                <h3>{t('Training progress')}</h3>
-                <span className={`job-status ${selectedJob.status}`}>{t(selectedJob.status)}</span>
+        ) : (
+          !!jobs.length && (
+            <div className={`workshop-workspace ${navigatorOpen ? '' : 'navigator-hidden'}`}>
+              <div id="job-navigation" hidden={!navigatorOpen}>
+                <TrainingJobNavigator
+                  jobs={jobs}
+                  selected={selectedJob?.id}
+                  models={models}
+                  onSelect={(job) => void inspect(job)}
+                />
               </div>
-              <p className="job-worker">
-                {selectedJob.execution === 'remote'
-                  ? (selectedJob.worker_name ?? t('Waiting for an available worker'))
-                  : t('This server')}
-                {selectedJob.last_reported_at
-                  ? ` · ${t('Last update {time}', { time: new Date(selectedJob.last_reported_at).toLocaleString(locale) })}`
-                  : ''}
-              </p>
-              <details>
-                <summary>{t('Training configuration')}</summary>
-                <pre className="log-view">{JSON.stringify(selectedJob.config, null, 2)}</pre>
-              </details>
-              <TrainingEvaluationStatus progress={metrics} />
-              <TrainingHistoryChart history={metrics.history} />
-              <TrainingPerformance progress={metrics} />
-              {Array.isArray(metrics.best_models) && metrics.best_models.length > 0 && (
-                <p className="subtle">
-                  {metrics.best_models.length} {t('best models retained during this run.')}
-                </p>
+              {selectedJob ? (
+                <TrainingJobDashboard
+                  job={selectedJob}
+                  revision={dashboardRevision}
+                  busy={busy}
+                  exporting={exportingJob}
+                  onCancel={() => void cancel(selectedJob.id)}
+                  onResume={() => void resume(selectedJob)}
+                  onExport={() => void exportTrainingJob(selectedJob)}
+                  onRefresh={() => void refresh().catch((error) => onError(error.message))}
+                  onDelete={() => {
+                    setDeleteJob(selectedJob);
+                    setDeleteJobError('');
+                  }}
+                />
+              ) : (
+                <p className="subtle">{t('Select a training job to inspect its history.')}</p>
               )}
-              <div className="job-metrics">
-                {Object.entries(metrics)
-                  .filter(
-                    ([key, value]) =>
-                      !['checkpoint', 'best_checkpoint', 'inference_checkpoint'].includes(key) &&
-                      ['number', 'string'].includes(typeof value),
-                  )
-                  .map(([key, value]) => (
-                    <div key={key}>
-                      <span>{t(key.replaceAll('_', ' '))}</span>
-                      <strong>{t(metricText(value))}</strong>
-                    </div>
-                  ))}
-              </div>
-              {metrics.metrics != null && typeof metrics.metrics === 'object' && (
-                <details>
-                  <summary>{t('Evaluation metrics')}</summary>
-                  <pre className="log-view">{JSON.stringify(metrics.metrics, null, 2)}</pre>
-                </details>
-              )}
-              {selectedJob.error && (
-                <p className="form-error" role="alert">
-                  {t(selectedJob.error)}
-                </p>
-              )}
-              <div className="job-actions">
-                {['running', 'pending', 'queued', 'cancelling'].includes(selectedJob.status) ? (
-                  <button
-                    className="button secondary small"
-                    onClick={() => void cancel(selectedJob.id)}
-                    disabled={selectedJob.status === 'cancelling'}
-                  >
-                    {selectedJob.status === 'cancelling' ? t('Stopping…') : t('Stop training')}
-                  </button>
-                ) : (
-                  <button
-                    className="button secondary small"
-                    onClick={() => void resume(selectedJob)}
-                    disabled={
-                      busy ||
-                      (selectedJob.kind !== 'tune' &&
-                        (!selectedJob.checkpoint || selectedJob.resumable === false))
-                    }
-                  >
-                    {selectedJob.kind === 'tune' ? t('Resume study') : t('Resume from checkpoint')}
-                  </button>
-                )}
-                {['completed', 'cancelled', 'failed'].includes(selectedJob.status) && (
-                  <button
-                    type="button"
-                    className="button secondary small"
-                    disabled={exportingJob}
-                    onClick={() => void exportTrainingJob(selectedJob)}
-                  >
-                    {exportingJob ? t('Exporting job…') : t('Export job')}
-                  </button>
-                )}
-                {!['running', 'pending', 'queued', 'cancelling'].includes(selectedJob.status) && (
-                  <button
-                    type="button"
-                    className="button secondary small danger-text"
-                    onClick={() => {
-                      setDeleteJob(selectedJob);
-                      setDeleteJobError('');
-                    }}
-                  >
-                    {t('Delete training data')}
-                  </button>
-                )}
-              </div>
-              <details>
-                <summary>{t('Training log')}</summary>
-                <pre className="log-view">
-                  {Array.isArray(selectedJob.logs)
-                    ? selectedJob.logs.join('\n')
-                    : selectedJob.logs || t('No log output yet.')}
-                </pre>
-              </details>
             </div>
-          )}
-        </section>
-      </div>
+          )
+        )}
+      </section>
       <section className="panel model-registry">
         <div className="panel-title">
           <div>
-            <h2>{t('Model collection')}</h2>
+            <h2>
+              <button
+                className="disclosure-heading"
+                aria-expanded={modelsOpen ?? true}
+                aria-controls="model-collection"
+                onClick={() => setModelsOpen((value) => !(value ?? true))}
+              >
+                <span aria-hidden="true">{(modelsOpen ?? true) ? '−' : '＋'}</span>{' '}
+                {t('Model collection')} ({models.length})
+              </button>
+            </h2>
           </div>
           <label className="button secondary file-button">
             {importing ? t('Importing…') : t('↑ Import model')}
@@ -970,151 +647,153 @@ export default function Training({
             />
           </label>
         </div>
-        <p className="subtle">
-          {t(
-            'Compatible checkpoints are validated before registration. Select a trained model under “Neural network” when starting a game.',
-          )}
-        </p>
-        {models.length ? (
-          <div className="models-grid">
-            {models.map((model) => {
-              const iteration = modelIteration(model);
-              const sourceJob = jobs.find(
-                (job) =>
-                  job.kind !== 'tune' &&
-                  !!job.checkpoint &&
-                  job.resumable !== false &&
-                  (job.model_id === model.id ||
-                    (job.result?.model &&
-                      typeof job.result.model === 'object' &&
-                      'id' in job.result.model &&
-                      job.result.model.id === model.id) ||
-                    (Array.isArray(job.progress?.best_models) &&
-                      job.progress.best_models.some((best) => best?.model_id === model.id))),
-              );
-              return (
-                <article key={model.id} className="model-card" data-model-id={model.id}>
-                  <div className="model-symbol">
-                    <Rune rune={model.rune} />
-                  </div>
-                  <div>
-                    <h3>{model.name}</h3>
-                    <p>
-                      {model.ruleset} ·{' '}
-                      {iteration === undefined
-                        ? t('Policy / value')
-                        : t('Iteration {iteration}', { iteration })}
-                    </p>
-                    <small>
-                      {model.created_at
-                        ? new Date(model.created_at).toLocaleDateString(locale)
-                        : model.id}
-                    </small>
-                  </div>
-                  <div className="model-actions">
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={t('Rename model {name}', { name: model.name })}
-                      title={t('Rename model')}
-                      onClick={() => setRenameModel(model)}
-                    >
-                      ✎
-                    </button>
-                    {sourceJob && (
+        <div id="model-collection" hidden={modelsOpen === false}>
+          <p className="subtle">
+            {t(
+              'Compatible checkpoints are validated before registration. Select a trained model under “Neural network” when starting a game.',
+            )}
+          </p>
+          {models.length ? (
+            <div className="models-grid">
+              {models.map((model) => {
+                const iteration = modelIteration(model);
+                const sourceJob = jobs.find(
+                  (job) =>
+                    job.kind !== 'tune' &&
+                    !!job.checkpoint &&
+                    job.resumable !== false &&
+                    (job.model_id === model.id ||
+                      (job.result?.model &&
+                        typeof job.result.model === 'object' &&
+                        'id' in job.result.model &&
+                        job.result.model.id === model.id) ||
+                      (Array.isArray(job.progress?.best_models) &&
+                        job.progress.best_models.some((best) => best?.model_id === model.id))),
+                );
+                return (
+                  <article key={model.id} className="model-card" data-model-id={model.id}>
+                    <div className="model-symbol">
+                      <Rune rune={model.rune} />
+                    </div>
+                    <div>
+                      <h3>{model.name}</h3>
+                      <p>
+                        {model.ruleset} ·{' '}
+                        {iteration === undefined
+                          ? t('Policy / value')
+                          : t('Iteration {iteration}', { iteration })}
+                      </p>
+                      <small>
+                        {model.created_at
+                          ? new Date(model.created_at).toLocaleDateString(locale)
+                          : model.id}
+                      </small>
+                    </div>
+                    <div className="model-actions">
                       <button
                         type="button"
                         className="icon-button"
-                        aria-label={t('Resume training for {name}', { name: model.name })}
-                        title={t('Resume training')}
-                        disabled={['running', 'pending', 'queued', 'cancelling'].includes(
-                          sourceJob.status,
-                        )}
-                        onClick={() => setResumeJob(sourceJob)}
+                        aria-label={t('Rename model {name}', { name: model.name })}
+                        title={t('Rename model')}
+                        onClick={() => setRenameModel(model)}
                       >
-                        ↻
+                        ✎
                       </button>
-                    )}
-                    <a
-                      className="icon-button"
-                      href={`/api/models/${model.id}/export`}
-                      download
-                      aria-label={t('Export {name}', { name: model.name })}
-                    >
-                      ↓
-                    </a>
+                      {sourceJob && (
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={t('Resume training for {name}', { name: model.name })}
+                          title={t('Resume training')}
+                          disabled={['running', 'pending', 'queued', 'cancelling'].includes(
+                            sourceJob.status,
+                          )}
+                          onClick={() => setResumeJob(sourceJob)}
+                        >
+                          ↻
+                        </button>
+                      )}
+                      <a
+                        className="icon-button"
+                        href={`/api/models/${model.id}/export`}
+                        download
+                        aria-label={t('Export {name}', { name: model.name })}
+                      >
+                        ↓
+                      </a>
+                      <button
+                        type="button"
+                        className="icon-button danger-text"
+                        aria-label={t('Delete model {name}', { name: model.name })}
+                        title={t('Delete model')}
+                        onClick={() => {
+                          setDeleteModel(model);
+                          setDeleteError('');
+                          setModelUsage(null);
+                          setUsageLoading(true);
+                          setDiscardUnfinished(false);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <ModelTrainingSummary model={model} />
                     <button
                       type="button"
-                      className="icon-button danger-text"
-                      aria-label={t('Delete model {name}', { name: model.name })}
-                      title={t('Delete model')}
-                      onClick={() => {
-                        setDeleteModel(model);
-                        setDeleteError('');
-                        setModelUsage(null);
-                        setUsageLoading(true);
-                        setDiscardUnfinished(false);
-                      }}
+                      className="button secondary small model-load-parameters"
+                      aria-label={t('Load training parameters for {name}', { name: model.name })}
+                      disabled={!recordedTrainingConfig(config, model)}
+                      title={
+                        !recordedTrainingConfig(config, model)
+                          ? t('No recorded training parameters are available for this model.')
+                          : undefined
+                      }
+                      onClick={() => loadParameters(model)}
                     >
-                      ×
+                      {t('Load training parameters')}
                     </button>
-                  </div>
-                  <ModelTrainingSummary model={model} />
-                  <button
-                    type="button"
-                    className="button secondary small model-load-parameters"
-                    aria-label={t('Load training parameters for {name}', { name: model.name })}
-                    disabled={!recordedTrainingConfig(config, model)}
-                    title={
-                      !recordedTrainingConfig(config, model)
-                        ? t('No recorded training parameters are available for this model.')
-                        : undefined
-                    }
-                    onClick={() => loadParameters(model)}
-                  >
-                    {t('Load training parameters')}
-                  </button>
-                  {model.evaluation && (
-                    <div className="model-evaluation">
-                      <span className="eyebrow">
-                        {t('AGAINST')} {t(opponentName(model.evaluation.opponent ?? 'BASELINE'))}
-                      </span>
-                      <div>
-                        <span>
-                          <strong>{model.evaluation.wins ?? 0}</strong> {t('wins')}
+                    {model.evaluation && (
+                      <div className="model-evaluation">
+                        <span className="eyebrow">
+                          {t('AGAINST')} {t(opponentName(model.evaluation.opponent ?? 'BASELINE'))}
                         </span>
-                        <span>
-                          <strong>{model.evaluation.draws ?? 0}</strong> {t('draws')}
-                        </span>
-                        <span>
-                          <strong>{model.evaluation.losses ?? 0}</strong> {t('losses')}
-                        </span>
-                      </div>
-                      <small>
-                        {model.evaluation.truncated ?? 0}{' '}
-                        {t('unfinished games · limited evaluation')}
-                      </small>
-                    </div>
-                  )}
-                  {model.metrics && (
-                    <div className="model-metrics">
-                      {Object.entries(model.metrics)
-                        .filter(([, value]) => typeof value === 'number')
-                        .slice(0, 3)
-                        .map(([key, value]) => (
-                          <span key={key}>
-                            {t(key.replaceAll('_', ' '))} <strong>{t(metricText(value))}</strong>
+                        <div>
+                          <span>
+                            <strong>{model.evaluation.wins ?? 0}</strong> {t('wins')}
                           </span>
-                        ))}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="empty-copy">{t('Your trained and imported models will live here.')}</p>
-        )}
+                          <span>
+                            <strong>{model.evaluation.draws ?? 0}</strong> {t('draws')}
+                          </span>
+                          <span>
+                            <strong>{model.evaluation.losses ?? 0}</strong> {t('losses')}
+                          </span>
+                        </div>
+                        <small>
+                          {model.evaluation.truncated ?? 0}{' '}
+                          {t('unfinished games · limited evaluation')}
+                        </small>
+                      </div>
+                    )}
+                    {model.metrics && (
+                      <div className="model-metrics">
+                        {Object.entries(model.metrics)
+                          .filter(([, value]) => typeof value === 'number')
+                          .slice(0, 3)
+                          .map(([key, value]) => (
+                            <span key={key}>
+                              {t(key.replaceAll('_', ' '))} <strong>{t(metricText(value))}</strong>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="empty-copy">{t('Your trained and imported models will live here.')}</p>
+          )}
+        </div>
       </section>
       {renameModel && (
         <ModelRenameDialog
@@ -1172,6 +851,7 @@ export default function Training({
             if (!observedJobs.current) observedJobs.current = new Map();
             observedJobs.current.set(next.id, next.status);
             selectJob(next);
+            showMonitoring();
             setJobs((previous) => [next, ...previous]);
             setNotice(
               t('Training resumed from iteration {completed} toward {target}.', {
@@ -1286,6 +966,6 @@ export default function Training({
           )}
         </RecordsConfirm>
       )}
-    </>
+    </div>
   );
 }

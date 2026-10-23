@@ -1,270 +1,287 @@
+import { useMemo, useState } from 'react';
 import { useI18n } from './i18n';
-import './trainingHistory.css';
 import { opponentName } from './EvaluationSettings';
-import type { EvaluationRecord } from './TrainingEvaluationStatus';
+import TrainingMetricChart, { policySeries, type ChartSeries } from './TrainingMetricChart';
+import {
+  trainingHistory,
+  evaluationGroups,
+  evaluationIdentity,
+  finite,
+  recentHistory,
+} from './trainingDashboardData';
+import TrainingDataDisclosure from './TrainingDataDisclosure';
+import './trainingHistory.css';
+export { trainingHistory } from './trainingDashboardData';
 
-interface Point {
-  iteration: number;
-  policy_loss: number;
-  value_loss: number;
-  evaluation_score?: number;
-  evaluation_truncated?: number;
-  evaluation_draws?: number;
-  evaluation_opponent?: string;
-  opponent_identity?: string;
-  evaluation?: EvaluationRecord;
-  attacker_score?: number;
-  defender_score?: number;
-}
-const finite = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value);
-
-export function trainingHistory(value: unknown): Point[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(
-      (row): row is Point =>
-        row &&
-        typeof row === 'object' &&
-        finite(row.iteration) &&
-        finite(row.policy_loss) &&
-        finite(row.value_loss),
-    )
-    .map((row) => ({
-      ...row,
-      attacker_score: row.evaluation?.candidate_as_attacker?.score,
-      defender_score: row.evaluation?.candidate_as_defender?.score,
-    }));
-}
-
-export default function TrainingHistoryChart({ history }: { history: unknown }) {
+const scoreSeries: ChartSeries[] = [
+  { key: 'evaluation_score', name: 'Completion-aware score', color: 'var(--chart-evaluation)' },
+];
+const sideSeries: ChartSeries[] = [
+  ...scoreSeries,
+  { key: 'attacker_score', name: 'Attacker-side score', color: 'var(--chart-policy)' },
+  { key: 'defender_score', name: 'Defender-side score', color: 'var(--chart-value)' },
+];
+export default function TrainingHistoryChart({
+  history,
+  view = 'all',
+  range = 0,
+  compact = false,
+  selectable = false,
+}: {
+  history: unknown;
+  view?: 'all' | 'learning' | 'evaluation';
+  range?: number;
+  compact?: boolean;
+  selectable?: boolean;
+}) {
   const { t, locale } = useI18n();
-  const rows = trainingHistory(history);
+  const [selectedSeries, setSelectedSeries] = useState('latest');
+  const rows = useMemo(() => recentHistory(trainingHistory(history), range), [history, range]);
+  const groups = useMemo(() => evaluationGroups(rows), [rows]);
   if (!rows.length)
     return (
       <p className="training-chart-empty subtle">
         {t('Graphs appear after the first completed training iteration.')}
       </p>
     );
-  const width = 500,
-    height = 180,
-    left = 46,
-    right = 16,
-    top = 16,
-    bottom = 32;
-  const minIteration = rows[0].iteration,
-    maxIteration = Math.max(minIteration + 1, rows.at(-1)!.iteration);
-  const x = (iteration: number) =>
-    left + ((iteration - minIteration) / (maxIteration - minIteration)) * (width - left - right);
-  const format = (value: number) =>
-    new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value);
-  const identities = [
-    ...new Set(
-      rows
-        .filter((row) => finite(row.evaluation_score))
-        .map((row) => row.opponent_identity ?? 'legacy'),
-    ),
-  ];
-  if (!identities.length) identities.push('legacy');
-  const charts = [
-    {
-      title: 'Loss by iteration',
-      max: Math.max(0.01, ...rows.flatMap((row) => [row.policy_loss, row.value_loss])) * 1.1,
-      identity: undefined as string | undefined,
-      series: [
-        { key: 'policy_loss' as const, name: 'Policy loss', color: 'var(--chart-policy)' },
-        { key: 'value_loss' as const, name: 'Value loss', color: 'var(--chart-value)' },
-      ],
-    },
-    ...identities.map((identity) => ({
-      title: 'Evaluation by iteration',
-      max: 1,
-      identity,
-      series: [
-        {
-          key: 'evaluation_score' as const,
-          name: 'Completion-aware score',
-          color: 'var(--chart-evaluation)',
-        },
-        ...(rows.some((row) => row.evaluation)
-          ? [
-              {
-                key: 'attacker_score' as const,
-                name: 'Attacker-side score',
-                color: 'var(--chart-policy)',
-              },
-              {
-                key: 'defender_score' as const,
-                name: 'Defender-side score',
-                color: 'var(--chart-value)',
-              },
-            ]
-          : []),
-      ],
-    })),
+  const format = (value: unknown) =>
+    finite(value)
+      ? new Intl.NumberFormat(locale, { maximumSignificantDigits: 10 }).format(value)
+      : '—';
+  const detailedEvaluation = rows.some((row) => row.evaluation);
+  const selection =
+    selectedSeries === 'all' ? groups : groups.filter((group) => group.identity === selectedSeries);
+  const displayedGroups = compact
+    ? groups.slice(-1)
+    : selectable && selectedSeries !== 'all'
+      ? selection.length
+        ? selection
+        : groups.slice(-1)
+      : groups;
+  const headers = [
+    'Iteration',
+    'Policy loss',
+    'Value loss',
+    'Evaluation score',
+    'Unfinished games',
+    ...(detailedEvaluation
+      ? [
+          'Evaluation opponent',
+          'Attacker-side score',
+          'Defender-side score',
+          'Rules draws',
+          'Evaluation duration (seconds)',
+          'Champion promotion',
+        ]
+      : []),
+    ...(view === 'learning' ? ['Replay buffer positions', 'Optimizer updates'] : []),
+    ...(view === 'evaluation'
+      ? [
+          'Wins',
+          'Losses',
+          'Opponent identity',
+          'Effective evaluation settings',
+          'Accepted champion iteration',
+        ]
+      : []),
   ];
   return (
-    <section className="training-history" aria-label={t('Training history graphs')}>
-      {charts.map((chart, index) => {
-        const record = rows.find((row) => row.opponent_identity === chart.identity)?.evaluation;
-        const y = (value: number) =>
-          height - bottom - (value / chart.max) * (height - top - bottom);
-        return (
-          <figure key={`${chart.title}-${chart.identity}`} className="training-chart">
-            <figcaption title={chart.identity}>
-              {t(chart.title)}
-              {chart.identity &&
-                ` · ${chart.identity === 'legacy' ? t('Shield bearer · historical settings') : `${t(opponentName(chart.identity.split(':')[0]))} · ${t('Series {number}', { number: index })}`}`}
-              {record?.champion_iteration !== undefined &&
-                ` · ${t('Accepted champion iteration')} ${record.champion_iteration}`}
-            </figcaption>
-            <svg role="img" aria-label={t(chart.title)} viewBox={`0 0 ${width} ${height}`}>
-              <title>{t(chart.title)}</title>
-              {[0, 0.5, 1].map((fraction) => (
-                <g key={fraction}>
-                  <line
-                    x1={left}
-                    x2={width - right}
-                    y1={y(chart.max * fraction)}
-                    y2={y(chart.max * fraction)}
-                    className="chart-gridline"
+    <section
+      className={`training-history ${compact ? 'history-compact' : ''}`}
+      aria-label={t('Training history graphs')}
+    >
+      {selectable && groups.length > 1 && (
+        <label className="evaluation-series-control">
+          {t('Evaluation series')}
+          <select
+            aria-label={t('Evaluation series')}
+            value={
+              selectedSeries === 'all' || groups.some((group) => group.identity === selectedSeries)
+                ? selectedSeries
+                : 'latest'
+            }
+            onChange={(event) => setSelectedSeries(event.target.value)}
+          >
+            <option value="latest">{t('Latest series')}</option>
+            <option value="all">{t('All evaluation series')}</option>
+            {groups.map((group, index) => (
+              <option key={group.identity} value={group.identity}>
+                {t(
+                  opponentName(
+                    group.points[0].evaluation?.opponent ??
+                      group.points[0].evaluation_opponent ??
+                      'shield_bearer',
+                  ),
+                )}{' '}
+                · {t('Series {number}', { number: index + 1 })} · {t('Iteration')}{' '}
+                {group.points[0].iteration}–{group.points.at(-1)!.iteration}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {view !== 'evaluation' && (
+        <TrainingMetricChart title="Loss by iteration" rows={rows} series={policySeries} />
+      )}
+      {view !== 'learning' &&
+        (displayedGroups.length ? displayedGroups : [{ identity: 'empty', points: [] }]).map(
+          (group) => {
+            const record = group.points.at(-1);
+            if (!record)
+              return (
+                <div key={group.identity} className="evaluation-series">
+                  <p className="series-context">{t('No evaluation recorded yet.')}</p>
+                  <TrainingMetricChart
+                    title="Evaluation by iteration"
+                    rows={rows}
+                    series={scoreSeries}
+                    score
+                    gaps
                   />
-                  <text x={left - 8} y={y(chart.max * fraction) + 4} textAnchor="end">
-                    {format(chart.max * fraction)}
-                  </text>
-                </g>
-              ))}
-              <text x={left} y={height - 8}>
-                {minIteration}
-              </text>
-              <text x={width - right} y={height - 8} textAnchor="end">
-                {maxIteration}
-              </text>
-              {chart.series.map((series) => {
-                const points = rows.filter(
-                  (row) =>
-                    finite(row[series.key]) &&
-                    (!chart.identity || (row.opponent_identity ?? 'legacy') === chart.identity),
-                );
-                return (
-                  <g key={series.key}>
-                    <polyline
-                      points={points
-                        .map((row) => `${x(row.iteration)},${y(row[series.key]!)}`)
-                        .join(' ')}
-                      fill="none"
-                      stroke={series.color}
-                      strokeWidth="2.5"
-                    />
-                    {points.map((row) => (
-                      <circle
-                        key={row.iteration}
-                        cx={x(row.iteration)}
-                        cy={y(row[series.key]!)}
-                        r="3.5"
-                        fill={series.color}
-                      >
-                        <title>
-                          {t('Iteration {iteration}: {value}', {
-                            iteration: row.iteration,
-                            value: format(row[series.key]!),
-                          })}
-                        </title>
-                      </circle>
-                    ))}
-                  </g>
-                );
-              })}
-            </svg>
-            <div className="training-chart-legend">
-              {chart.series.map((series) => (
-                <span key={series.key}>
-                  <i style={{ background: series.color }} />
-                  {t(series.name)}
-                </span>
-              ))}
-            </div>
-            {record?.context && (
-              <details>
-                <summary>{t('Effective evaluation settings')}</summary>
-                <pre className="log-view">{JSON.stringify(record.context, null, 2)}</pre>
-              </details>
+                </div>
+              );
+            const opponent =
+              record?.evaluation?.opponent ??
+              record?.evaluation_opponent ??
+              record?.opponent_identity?.split(':')[0] ??
+              'shield_bearer';
+            const series = !compact && detailedEvaluation ? sideSeries : scoreSeries;
+            const chartRows = rows.map((row) =>
+              evaluationIdentity(row) === group.identity
+                ? row
+                : {
+                    ...row,
+                    evaluation_score: undefined,
+                    attacker_score: undefined,
+                    defender_score: undefined,
+                    evaluation: undefined,
+                  },
+            );
+            return (
+              <div key={group.identity} className="evaluation-series">
+                <p className="series-context" title={record?.opponent_identity}>
+                  {t(opponentName(opponent))} ·{' '}
+                  {t('Series {number}', {
+                    number: groups.findIndex((item) => item.identity === group.identity) + 1,
+                  })}
+                  {record?.evaluation?.champion_iteration !== undefined &&
+                    ` · ${t('Accepted champion iteration')} ${record.evaluation.champion_iteration}`}
+                  {!record?.opponent_identity &&
+                    !record?.evaluation?.context &&
+                    ` · ${t('Historical settings')}`}
+                </p>
+                <TrainingMetricChart
+                  title="Evaluation by iteration"
+                  rows={chartRows}
+                  series={series}
+                  score
+                  gaps
+                />
+                {!compact && record?.evaluation?.context && (
+                  <details>
+                    <summary>{t('Effective evaluation settings')}</summary>
+                    <pre className="log-view">
+                      {JSON.stringify(record.evaluation.context, null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            );
+          },
+        )}
+      {!compact && (
+        <>
+          <p className="subtle">
+            {t(
+              'Lower loss means better fit to self-play targets, not necessarily stronger play. Evaluation gives unfinished games zero points.',
             )}
-          </figure>
-        );
-      })}
-      <p className="subtle">
-        {t(
-          'Lower loss means better fit to self-play targets, not necessarily stronger play. Evaluation gives unfinished games zero points.',
-        )}
-      </p>
-      <p className="subtle">
-        {t(
-          'Evaluation series use separate opponent configurations and champion incumbents. Missing observations are not zero scores.',
-        )}
-      </p>
-      <details>
-        <summary>{t('View graph data')}</summary>
-        <div className="table-scroll">
-          <table aria-label={t('Training history data')}>
-            <thead>
-              <tr>
-                {[
-                  'Iteration',
-                  'Policy loss',
-                  'Value loss',
-                  'Evaluation score',
-                  'Unfinished games',
-                ].map((label) => (
-                  <th key={label}>{t(label)}</th>
-                ))}
-                {rows.some((row) => row.evaluation) &&
-                  [
-                    'Evaluation opponent',
-                    'Attacker-side score',
-                    'Defender-side score',
-                    'Rules draws',
-                    'Evaluation duration (seconds)',
-                    'Champion promotion',
-                  ].map((label) => <th key={label}>{t(label)}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.iteration}>
-                  <td>{row.iteration}</td>
-                  <td>{format(row.policy_loss)}</td>
-                  <td>{format(row.value_loss)}</td>
-                  <td>{finite(row.evaluation_score) ? format(row.evaluation_score) : '—'}</td>
-                  <td>{row.evaluation_truncated ?? '—'}</td>
-                  {rows.some((point) => point.evaluation) && (
-                    <>
-                      <td title={row.opponent_identity}>
-                        {row.evaluation
-                          ? t(opponentName(row.evaluation.opponent ?? 'shield_bearer'))
-                          : finite(row.evaluation_score)
-                            ? t('Shield bearer · historical settings')
-                            : '—'}
-                      </td>
-                      <td>{finite(row.attacker_score) ? format(row.attacker_score) : '—'}</td>
-                      <td>{finite(row.defender_score) ? format(row.defender_score) : '—'}</td>
-                      <td>{row.evaluation_draws ?? '—'}</td>
-                      <td>
-                        {finite(row.evaluation?.duration) ? format(row.evaluation.duration) : '—'}
-                      </td>
-                      <td>
-                        {row.evaluation?.promoted === undefined
-                          ? '—'
-                          : t(row.evaluation.promoted ? 'Promoted' : 'Retained')}
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
+          </p>
+          {view !== 'learning' && (
+            <p className="subtle">
+              {t(
+                'Evaluation series use separate opponent configurations and champion incumbents. Missing observations are not zero scores.',
+              )}
+            </p>
+          )}
+          <TrainingDataDisclosure title="View graph data">
+            {() => (
+              <div className="table-scroll bounded-table">
+                <table aria-label={t('Training history data')}>
+                  <thead>
+                    <tr>
+                      {headers.map((label) => (
+                        <th scope="col" key={label}>
+                          {t(label)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.iteration}>
+                        <th scope="row">{row.iteration}</th>
+                        <td>{format(row.policy_loss)}</td>
+                        <td>{format(row.value_loss)}</td>
+                        <td>{format(row.evaluation_score)}</td>
+                        <td>{format(row.evaluation_truncated ?? row.evaluation?.truncated)}</td>
+                        {detailedEvaluation && (
+                          <>
+                            <td>
+                              {finite(row.evaluation_score)
+                                ? t(
+                                    opponentName(
+                                      row.evaluation?.opponent ??
+                                        row.evaluation_opponent ??
+                                        'shield_bearer',
+                                    ),
+                                  )
+                                : '—'}
+                            </td>
+                            <td>{format(row.attacker_score)}</td>
+                            <td>{format(row.defender_score)}</td>
+                            <td>{format(row.evaluation_draws ?? row.evaluation?.draws)}</td>
+                            <td>{format(row.evaluation?.duration)}</td>
+                            <td>
+                              {row.evaluation?.promoted === undefined
+                                ? '—'
+                                : t(row.evaluation.promoted ? 'Promoted' : 'Retained')}
+                            </td>
+                          </>
+                        )}
+                        {view === 'learning' && (
+                          <>
+                            <td>{format(row.replay_positions)}</td>
+                            <td>{format(row.optimizer_updates ?? row.updates)}</td>
+                          </>
+                        )}
+                        {view === 'evaluation' && (
+                          <>
+                            <td>{format(row.evaluation_wins ?? row.evaluation?.wins)}</td>
+                            <td>{format(row.evaluation_losses ?? row.evaluation?.losses)}</td>
+                            <td>
+                              {finite(row.evaluation_score)
+                                ? (row.opponent_identity ?? t('Historical settings'))
+                                : '—'}
+                            </td>
+                            <td>
+                              {row.evaluation?.context ? (
+                                <code>{JSON.stringify(row.evaluation.context)}</code>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td>{format(row.evaluation?.champion_iteration)}</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </TrainingDataDisclosure>
+        </>
+      )}
     </section>
   );
 }

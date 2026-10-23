@@ -84,3 +84,48 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+/* Shared charts preserve readable type as their container changes width. */
+.training-history,
+.training-job-dashboard {
+  --chart-policy: #9c5919;
+  --chart-value: #217894;
+  --chart-evaluation: #37763e;
+}
+:root[data-color-mode='wood'] .training-job-dashboard,
+:root[data-color-mode='dark'] .training-job-dashboard,
+:root[data-color-mode='wood'] .training-history,
+:root[data-color-mode='dark'] .training-history {
+  --chart-policy: #efb16b;
+  --chart-value: #81c7e5;
+  --chart-evaluation: #a2ce8a;
+}
+.training-chart figcaption {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.training-chart svg {
+  display: block;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.training-chart svg text {
+  fill: var(--ui-copy, #56604d);
+  font-size: 12px;
+}
+.training-chart-legend {
+  font-size: 12px;
+  gap: 10px 16px;
+}
+.chart-tooltip {
+  display: block;
+  min-height: 36px;
+  padding-top: 8px;
+  color: var(--ui-copy);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.chart-crosshair {
+  stroke: var(--ui-copy);
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
