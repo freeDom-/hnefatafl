@@ -20,7 +20,8 @@ from scratch with real self-play learning.
 - Run saved two-to-four-player round robins with balanced sides, per-battlefield
   win matrices and explicit unfinished outcomes. Browse sortable player/AI records.
 - Train on CPU or supported CUDA/MPS devices; monitor retained learning charts,
-  evaluate against baseline/previous best and run persistent Optuna studies.
+  evaluate against one selected Shield bearer, Jarl or Champion opponent and run
+  persistent Optuna studies.
 - Resume a full checkpoint with reviewed changes to training budgets, optimizer
   settings and execution mode while retaining learning state. Use sequential or
   concurrent self-play with batched neural inference and inspect actual throughput.

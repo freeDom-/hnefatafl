@@ -28,5 +28,6 @@
   "cpu_threads": 2,
   "output_dir": "data/training-brandubh",
   "registry_dir": "data/models",
-  "model_name": "Brandubh self-play learner"
+  "model_name": "Brandubh self-play learner",
+  "evaluation_opponent": "shield_bearer"
 }

@@ -1,0 +1,13 @@
+{
+  "preset": "recommended",
+  "ruleset": "brandubh",
+  "evaluation_opponent": "jarl",
+  "evaluation_frequency": 5,
+  "evaluation_games": 12,
+  "evaluation_iterations": 64,
+  "evaluation_time_limit": 2.0,
+  "evaluation_jarl_depth": 3,
+  "evaluation_jarl_time_limit": 0.5,
+  "output_dir": "data/training-jarl",
+  "model_name": "Brandubh Jarl benchmark"
+}

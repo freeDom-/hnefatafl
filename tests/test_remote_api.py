@@ -321,3 +321,50 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
     assert downloaded.status_code == 200
     assert downloaded.content == artifacts[0].read_bytes()
     assert "resume" not in resumed["config"]
+
+
+def test_incremental_history_keeps_all_rows_and_duplicate_reports_are_idempotent(client):
+    _, headers = worker(client)
+    queue(client, iterations=3000)
+    lease = claim(client, headers)
+    route = f"/api/worker/jobs/{lease['id']}/progress"
+    rows = [{"iteration": index, "policy_loss": 1.2} for index in range(3000)]
+    for sequence, offset in enumerate(range(0, len(rows), 500)):
+        payload = {
+            "lease_token": lease["lease_token"],
+            "sequence": sequence,
+            "history_offset": offset,
+            "progress": {"history": rows[offset : offset + 500]},
+        }
+        assert client.post(route, headers=headers, json=payload).status_code == 200
+        assert client.post(route, headers=headers, json=payload).status_code == 200
+    saved = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert saved["progress"]["history"] == rows
+    # Recovery from an earlier supervisor cursor must not erase retained suffixes.
+    assert (
+        client.post(
+            route,
+            headers=headers,
+            json={
+                "lease_token": lease["lease_token"],
+                "sequence": 10,
+                "history_offset": 0,
+                "progress": {"history": rows[:10]},
+            },
+        ).status_code
+        == 200
+    )
+    assert client.get(f"/api/training/jobs/{lease['id']}").json()["progress"]["history"] == rows
+    assert (
+        client.post(
+            route,
+            headers=headers,
+            json={
+                "lease_token": lease["lease_token"],
+                "sequence": 11,
+                "history_offset": 3001,
+                "progress": {"history": []},
+            },
+        ).status_code
+        == 409
+    )

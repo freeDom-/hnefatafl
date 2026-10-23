@@ -151,6 +151,7 @@ def _alpha_beta(
     *,
     diagnostics: dict | None = None,
     progress: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> Move:
     depth = int(config.get("depth", 2))
     if not 1 <= depth <= 8:
@@ -172,6 +173,8 @@ def _alpha_beta(
         )
 
     def search(position: State, remaining: int, alpha: float, beta: float) -> float:
+        if should_stop and should_stop():
+            raise InterruptedError("Search cancelled")
         if time.monotonic() >= deadline:
             raise _Deadline
         if position.winner:
@@ -293,6 +296,7 @@ def mcts_context(
                 diagnostics.update(
                     value=1.0 if state.turn == "defenders" else -1.0,
                     best_move=move.to_dict(),
+                    immediate_win_shortcuts=1,
                 )
                 if progress is not None:
                     progress(analysis_from_search(state, config, move, diagnostics))
@@ -318,6 +322,8 @@ def mcts_context(
     for _ in range(budget):
         check_cancelled()
         if time.monotonic() >= deadline and root.visits:
+            if diagnostics is not None:
+                diagnostics["deadline_cutoffs"] = 1
             break
         node = root
         path = [node]
@@ -464,6 +470,7 @@ def choose_move(
     *,
     diagnostics: dict | None = None,
     progress: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> Move:
     """Search once, optionally exposing completed results to an observer.
 
@@ -471,6 +478,8 @@ def choose_move(
     permitting callers to cancel a superseded background search cleanly.
     """
     config = _profile_configuration(config)
+    if should_stop and should_stop():
+        raise InterruptedError("Search cancelled")
     moves = legal_moves(state)
     if state.winner or not moves:
         raise ValueError("Cannot choose a move in a terminal position")
@@ -511,6 +520,8 @@ def choose_move(
         best, score = moves[0], -math.inf
         searched = 0
         for move in moves:
+            if should_stop and should_stop():
+                raise InterruptedError("Search cancelled")
             if time.monotonic() >= deadline and score > -math.inf:
                 break
             child = apply_move(state, move)
@@ -532,6 +543,7 @@ def choose_move(
                 deadline,
                 diagnostics=diagnostics if diagnostics is not None or algorithm != "neural" else {},
                 progress=observer,
+                should_stop=should_stop,
             )
         )
     if algorithm in ("mcts", "neural"):
@@ -542,7 +554,9 @@ def choose_move(
             if diagnostics is not None:
                 diagnostics["value"] = value
         else:
-            probabilities = mcts_policy(state, config, diagnostics=diagnostics, progress=observer)
+            probabilities = mcts_policy(
+                state, config, diagnostics=diagnostics, progress=observer, should_stop=should_stop
+            )
         temperature = float(config.get("temperature", 0.0))
         if not math.isfinite(temperature) or not 0 <= temperature <= 10:
             raise ValueError("Temperature must be between 0 and 10")

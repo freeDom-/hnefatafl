@@ -91,7 +91,11 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `temperature`, `dirichlet_alpha`, `dirichlet_fraction` | Self-play action and root exploration |
 | `replay_buffer_size`, `weight_decay` | Replay capacity and regularization |
 | `checkpoint_frequency`, `evaluation_frequency` | Cadence measured in training iterations |
+| `evaluation_opponent` | Exactly one of `shield_bearer` (default), `jarl`, `champion` |
 | `evaluation_games`, `evaluation_iterations`, `evaluation_max_plies` | Balanced evaluation budget; games must be even |
+| `evaluation_time_limit` | Neural move deadline; also Shield bearer deadline; defaults to saved/self-play deadline if omitted |
+| `evaluation_jarl_depth`, `evaluation_jarl_time_limit` | Actual alpha-beta depth (default 5) and deadline (default 2 seconds) |
+| `champion_confidence`, `champion_min_pairs`, `champion_min_improvement` | Conservative promotion evidence: default 0.95, 12 pairs, 0 margin above 50% |
 | `max_game_plies` | Explicit self-play truncation limit |
 | `seed`, `device`, `mixed_precision`, `cpu_threads` | Reproducibility and compute selection |
 | `output_dir`, `registry_dir`, `model_name` | Persistent outputs and human-readable model name |
@@ -124,6 +128,9 @@ Gameplay search has [different defaults and limits](AI.md#configuration).
 | `max_game_plies`; `evaluation_max_plies` | Integers 2–5,000, counting individual moves |
 | `checkpoint_frequency`; `evaluation_frequency` | Integers 1–10,000 iterations |
 | `evaluation_games` | Even integer 2–10,000, alternating sides |
+| `evaluation_opponent` | `shield_bearer`, `jarl`, `champion` |
+| `evaluation_time_limit`; `evaluation_jarl_time_limit`; `evaluation_jarl_depth` | 0.001–300 seconds; 0.001–300 seconds; integer 1–8 |
+| `champion_confidence`; `champion_min_pairs`; `champion_min_improvement` | 0.8–0.9999; integer 2–5,000; 0–0.49 |
 | `cpu_threads`; `self_play_concurrency`; `inference_batch_size` | Integers 1–64; 1–1,024; 1–4,096 |
 | `learning_rate`; `mcts_time_limit` | 0.0000001–1; 0.001–300 seconds |
 | `weight_decay`; `momentum`; `dirichlet_fraction` | 0–1 |
@@ -150,12 +157,15 @@ and the same saved progress/charts. See [REMOTE_TRAINING.md](REMOTE_TRAINING.md)
 for the API, worker CLI, network setup and checkpoint/model transfers. Local
 training keeps its original one-job limit and can run alongside remote jobs.
 
-Workers emit JSON-line progress and atomically update `progress.json`. It reports
+Workers emit compact incremental JSON-line logs and atomically update full `progress.json`. The file reports
 stage, device, iteration, games generated, policy/value loss, update count,
-replay positions, self-play outcomes, baseline/previous-model evaluation,
+replay positions, self-play outcomes, the selected opponent evaluation,
 durations, and CUDA memory where available. Final `result.json` includes model
 registry data and checkpoint locations. Inspect these files directly for a
-headless run. The web UI polls the same persisted worker results.
+headless run. The web UI polls the same persisted worker results. CLI stdout is
+an event summary, including the final event; complete history stays in the JSON
+files and checkpoint. Logs omit accumulated history, detailed game arrays and
+model metadata. Remote workers use the same CLI and retain full polling data.
 
 The progress panel plots policy/value losses and completion-aware evaluation
 score against completed iterations, including while a worker is running. An
@@ -176,14 +186,123 @@ blocks, seed and optimizer type are editable; iterations is a target total.
 
 ## Evaluation and model selection
 
-Evaluation alternates candidate attacker/defender sides against the heuristic
-baseline and, after a previous best exists, against that previous model.
-Reports separate wins, losses, rules draws and unfinished cap runs. For tuning,
-the conservative score is `(wins + 0.5 * rules_draws) / scheduled_games`.
-Truncation earns no credit and does not count as a loss or draw. Increasing
-evaluation limits and game counts is essential before interpreting strength.
-Small smoke runs can legitimately have zero wins; loss reduction alone does not
-demonstrate improved gameplay. No pretrained strong model is bundled.
+Choose one opponent in the **Evaluation** section of Start Training or Resume
+Training. Resume starts from the latest full learning state; changing the
+opponent does not reconstruct a model from inference weights or reset learning.
+The Resume dialog preserves recorded preset metadata but offers no preset
+selector. New jobs still support presets.
+
+| Opponent | Useful stage | Selection rule |
+| --- | --- | --- |
+| Shield bearer | Early training; existing inexpensive heuristic | Strictly higher score in the same benchmark configuration |
+| Jarl | Intermediate/advanced; existing alpha-beta search | Strictly higher score with the same depth/deadline and benchmark protocol |
+| Champion | Advanced; saved compatible neural incumbent | Balanced paired head-to-head evidence, described below |
+
+Jarl can be expensive: measure its evaluation duration on your hardware. Evaluation
+never automatically adds a second baseline or previous-model match. Independent
+benchmarks/tournaments remain available outside training.
+
+Evaluation runs at `evaluation_frequency` iteration multiples and at the final
+optimized iteration, independent of checkpoint writes. Skipped iterations have no
+evaluation point. The last result remains available with its original iteration,
+opponent and settings; it cannot trigger promotion again. A cancelled evaluation
+preserves the incumbent and completed optimizer updates, so resumption continues
+from those updates rather than evaluating unchanged weights redundantly.
+
+Defaults preserve the existing cadence (every iteration), even game budget
+(2 for base/smoke; recommended Brandubh/Tablut/Copenhagen: 12/16/20), neural
+simulation budget (16 base, 2 smoke, 64/96/128 recommended) and move limits
+(150 base, 12 smoke, 300/500/800 recommended). The neural deadline inherits
+`mcts_time_limit` when omitted; the UI exposes it independently. Consider these
+less frequent starting experiments, adjusting completion rates and cost:
+
+| Opponent | Evaluate every | Games |
+| --- | --- | --- |
+| Shield bearer | 5 iterations | 12 |
+| Jarl | 5–10 iterations | 12–24 |
+| Champion | 10 iterations | 48–64 |
+
+Example overrides for an existing Brandubh job, in addition to its saved settings:
+
+```json
+{
+  "iterations": 200,
+  "evaluation_opponent": "champion",
+  "evaluation_frequency": 10,
+  "evaluation_games": 48,
+  "evaluation_iterations": 64,
+  "evaluation_time_limit": 2.0,
+  "evaluation_max_plies": 300,
+  "champion_confidence": 0.95,
+  "champion_min_pairs": 12,
+  "champion_min_improvement": 0.0
+}
+```
+
+See the [new Jarl job example](../configs/train-evaluation-jarl.json) and
+[Champion resume example](../configs/train-evaluation-champion.json). The resume
+example requires an existing full checkpoint at its configured path.
+
+### Fixed benchmarks and distinct model states
+
+The candidate is the network being optimized. `last.pt` is its full resumable
+state. Each fixed benchmark has its own immutable best snapshot; equal scores
+retain the earlier snapshot. The champion is a separate accepted incumbent.
+`best.pt`/the final registered inference model contain the selected benchmark's
+best snapshot, or the accepted/provisional champion in Champion mode.
+
+Benchmark identity includes ruleset/version, opponent algorithm and effective
+search settings, candidate budget, move/game limits, scoring and seeded pairing
+protocol. Different identities never compete for a single best score. Changing
+only evaluation/checkpoint frequency does not change comparison identity.
+A first result in a new fixed benchmark establishes that benchmark's record;
+it does not promote or replace an existing champion. Returning to a previous
+configuration restores its record. Saturation (score at least 0.95) is flagged;
+small samples remain noisy, and strict score improvements alone do not establish
+statistical superiority over other neural checkpoints. Reported lower bounds
+help expose uncertainty; confirm strength in held-out tournaments.
+
+### Champion evidence and side advantage
+
+The first Champion evaluation uses the previous context's saved best snapshot
+(or historical baseline best) as provisional incumbent. A fresh Champion-only
+job uses its initial weights provisionally. Initialization is not a promotion
+and invents no historical matches. Existing champions survive switching away
+and back. Candidate optimization continues whether promotion succeeds or fails.
+
+Both models use equal neural budgets, no exploration noise and alternating
+attacker/defender seats. Adjacent games share the same seed sequence and initial
+position with swapped model assignments; different pairs use distinct seeds.
+Fixed benchmarks reuse the seeded suite between candidates; Champion rounds use
+fresh iteration-derived paired seeds. Full search completion is reproducible on
+the same device; wall-clock cutoffs can change completed search work and results.
+
+Promotion requires all games to finish, at least `champion_min_pairs` complete
+pairs, and a one-sided Hoeffding lower bound strictly above
+`0.5 + champion_min_improvement`. For pair scores in [0,1], the lower bound is
+`mean_pair_score - sqrt(log(1 / (1 - confidence)) / (2 * pairs))`, clipped at zero.
+Treating the pair as the observation accounts for paired side assignments rather
+than pretending the individual games are independent evidence. At 95% confidence
+and 48 games (24 pairs), the uncertainty subtraction is about 0.25: a 55% score
+is inconclusive. This conservative per-comparison rule assumes independently
+seeded pairs; it is not a multiple-testing or general-strength guarantee.
+
+Wins earn 1, rules draws 0.5, and unfinished games 0 in the displayed
+completion-aware score. Truncations are neither losses nor draws and block
+champion promotion. Strong defender advantage can produce a 50% aggregate
+without evidence of improvement; attacker/defender scores are shown separately.
+Ties, losses, insufficient samples, failed and cancelled evaluations retain the
+incumbent. Accepted weights are cloned and never share candidate storage.
+
+### Reading workshop evaluation history
+
+The workshop shows the active settings, latest training iteration, incumbent
+iteration, last measured result, side scores, rules draws, truncated games,
+duration and best fixed benchmark iterations. Curves are separate for each
+benchmark identity and each Champion incumbent. Promotion events are shown in
+the accessible graph table. Missing evaluations remain absent; old baseline
+history stays readable in a separate historical series. Loss is fit to self-play
+targets, not proof of improved play. No pretrained strong model is bundled.
 
 ## Checkpoints, registry, import and export
 
@@ -207,7 +326,7 @@ copying a job folder does not register it in the destination SQLite jobs table.
 Optuna uses a persisted SQLite study, seeded TPE proposals and a median pruner.
 Each trial runs real self-play/optimization and balanced baseline evaluation;
 the objective is the completion-aware playing score above, never training loss.
-Intermediate evaluated iteration scores support pruning. `trials` is the number
+Intermediate evaluated iteration scores support pruning. Champion/Jarl objectives and evaluation settings in the search space are rejected; the fixed Shield bearer objective and its deadline remain comparable across trials. `trials` is the number
 of **additional** trials in the invocation; rerunning the same study resumes it.
 `study_name` and storage must remain stable for resumption. Default storage is
 `study.sqlite3` within the output directory.

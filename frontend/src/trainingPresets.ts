@@ -23,6 +23,13 @@ const base: TrainingConfig = {
   momentum: 0.9,
   checkpoint_frequency: 1,
   evaluation_frequency: 1,
+  evaluation_opponent: 'shield_bearer',
+  evaluation_time_limit: 2,
+  evaluation_jarl_depth: 5,
+  evaluation_jarl_time_limit: 2,
+  champion_confidence: 0.95,
+  champion_min_pairs: 12,
+  champion_min_improvement: 0,
   evaluation_games: 2,
   evaluation_iterations: 16,
   seed: 42,
@@ -105,6 +112,7 @@ export function trainingConfig(ruleset: string, preset: TrainingPreset): Trainin
             batch_size: 8,
             mcts_iterations: 2,
             mcts_time_limit: 0.1,
+            evaluation_time_limit: 0.1,
             evaluation_iterations: 2,
             max_game_plies: 12,
             evaluation_max_plies: 12,
@@ -123,7 +131,13 @@ export function trainingConfig(ruleset: string, preset: TrainingPreset): Trainin
               max_game_plies: 300,
             }
           : {};
-  return { ...base, ...options, ruleset, preset };
+  return {
+    ...base,
+    ...options,
+    ruleset,
+    preset,
+    evaluation_time_limit: options.mcts_time_limit ?? base.mcts_time_limit,
+  };
 }
 
 export function changeTrainingPlan(

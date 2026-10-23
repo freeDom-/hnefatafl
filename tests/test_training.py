@@ -229,7 +229,7 @@ def test_resume_preserves_portable_best_when_later_iterations_are_weaker(tmp_pat
     restored_best, best_payload = load_checkpoint(resumed["best_checkpoint"])
     registered_best, registered_payload = load_checkpoint(resumed["model"]["path"])
     assert best_payload["metadata"]["version"] == registered_payload["metadata"]["version"] == 1
-    assert "previous_evaluation" in resumed["metrics"]
+    assert "previous_evaluation" not in resumed["metrics"]
     for key, value in original_best.state_dict().items():
         torch.testing.assert_close(restored_best.state_dict()[key], value, rtol=0, atol=0)
         torch.testing.assert_close(registered_best.state_dict()[key], value, rtol=0, atol=0)
@@ -320,6 +320,8 @@ def test_cli_real_training_smoke(tmp_path):
         timeout=30,
     )
     assert process.returncode == 0, process.stderr
+    assert '"history"' not in process.stdout
+    assert len(process.stdout.encode()) < 100_000
     result = json.loads((tmp_path / "training" / "result.json").read_text())
     assert result["status"] == "completed"
     assert result["metrics"]["updates"] > 0

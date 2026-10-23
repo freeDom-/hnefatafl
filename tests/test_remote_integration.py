@@ -286,6 +286,8 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                         "learning_rate": 0.0002,
                         "weight_decay": 0.02,
                         "momentum": 0.4,
+                        "evaluation_opponent": "champion",
+                        "evaluation_frequency": 10,
                     },
                 )
                 assert resumed_response.status_code == 201, resumed_response.text
@@ -303,6 +305,13 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 assert resumed_checkpoint["metadata"]["training_config"]["seed"] == 17
                 assert resumed_checkpoint["extra"]["replay"]
                 assert resumed["progress"]["metrics"]["updates"] > 0
+                assert resumed["progress"]["metrics"]["evaluation"]["opponent"] == "champion"
+                assert resumed_checkpoint["extra"]["evaluation_state"]["champion"]["iteration"] == 1
+                assert "previous_evaluation" not in resumed["progress"]["metrics"]
+                for worker_log in worker_data.rglob("worker.log"):
+                    assert worker_log.stat().st_size < 100_000
+                    assert '"history"' not in worker_log.read_text()
+
                 process.wait(timeout=30)
                 assert process.returncode == 0, logfile.read_text()
                 # The server owns imported copies; inference needs no cloud filesystem.

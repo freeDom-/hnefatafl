@@ -110,10 +110,10 @@ def main(argv: list[str] | None = None) -> int:
 
                 result = tournament(config, should_stop=stop.is_set)
             else:
-                from .training import train, tune
+                from .training import compact_progress, train, tune
 
                 def report(progress):
-                    print(json.dumps(progress, allow_nan=False), flush=True)
+                    print(json.dumps(compact_progress(progress), allow_nan=False), flush=True)
 
                 if args.command == "train":
                     if args.resume:
@@ -121,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
                     result = train(config, report, stop.is_set)
                 else:
                     result = tune(config, report, stop.is_set)
+        if args.command in ("train", "tune"):
+            result = compact_progress(result)
         print(json.dumps(result, indent=2, allow_nan=False), flush=True)
         return 0
     except Exception as error:

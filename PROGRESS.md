@@ -263,3 +263,23 @@ Exact validation and migration limits are recorded in `docs/releases/v0.18.0.md`
 Schema 7 and tensor checkpoint formats remain unchanged. Archives contain only
 server-retained remote artifacts and never restore execution ownership. Functional
 CPU migration/resumption establishes further optimizer updates, not model strength.
+
+
+## Configurable evaluation and model selection (`v0.19.0`)
+
+- [x] Select one Shield bearer, Jarl or Champion evaluator with independent cadence/budgets
+- [x] Edit evaluation strategy on full-state resumption with English/German conditional controls
+- [x] Keep strict fixed-benchmark records separate by effective protocol; retain ties and flag saturation
+- [x] Promote immutable champions only with complete side-balanced pairs and a conservative confidence bound
+- [x] Preserve legacy baseline metadata, optimizer/replay/RNG/history and champion state in tensor-only checkpoints
+- [x] Separate graph series/side scores and show promotion, incumbent, fixed records and evaluation durations
+- [x] Bound CLI log events and stream large remote histories without dropping records
+- [x] Report actual requested/completed search work, shortcuts, cutoffs and self-play side outcomes
+- [x] Pass `make check`: 562 backend tests, one CUDA skip, 148 frontend tests, static checks and production build
+- [x] Pass 40 real-API desktop/mobile browser tests (four existing skips)
+- [x] Verify actual CPU optimizer updates while switching Shield bearer → Jarl → Champion
+
+See [release evidence](docs/releases/v0.19.0.md) for exact budgets and measured
+log/evaluation sizes. Evaluation remains sequential; no GPU speedup or stronger
+model is claimed. The production RTX 3060 checkpoint and CUDA/MPS hardware were
+unavailable; representative iteration-100 migration and subsequent learning pass.

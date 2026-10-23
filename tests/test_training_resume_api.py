@@ -277,3 +277,57 @@ def test_resume_rejects_running_source_without_spawning_a_second_worker(client):
     assert "Stop this training job" in info["reason"]
     assert client.post(route, json={"iterations": 1001}).status_code == 409
     assert len(client.get("/api/training/jobs").json()) == 1
+
+
+def test_resume_route_changes_only_evaluation_context(client):
+    first = completed(
+        client,
+        client.post(
+            "/api/training/jobs",
+            json={
+                "preset": "smoke",
+                "device": "cpu",
+                "cpu_threads": 1,
+                "max_game_plies": 2,
+                "evaluation_max_plies": 2,
+            },
+        ),
+    )
+    route = f"/api/training/jobs/{first['id']}/resume"
+    second = completed(
+        client,
+        client.post(
+            route,
+            json={
+                "iterations": 2,
+                "evaluation_opponent": "jarl",
+                "evaluation_jarl_depth": 1,
+                "evaluation_jarl_time_limit": 0.01,
+                "evaluation_frequency": 5,
+            },
+        ),
+    )
+    assert second["progress"]["metrics"]["evaluation"]["opponent"] == "jarl"
+    assert len(second["progress"]["evaluation_selection"]["benchmarks"]) == 2
+    assert [row["evaluation_opponent"] for row in second["progress"]["history"]] == [
+        "shield_bearer",
+        "jarl",
+    ]
+    third = completed(
+        client,
+        client.post(
+            f"/api/training/jobs/{second['id']}/resume",
+            json={
+                "iterations": 3,
+                "evaluation_opponent": "champion",
+            },
+        ),
+    )
+    assert third["progress"]["evaluation_selection"]["champion_iteration"] == 2
+    assert third["progress"]["metrics"]["evaluation"]["opponent"] == "champion"
+    root = client.app.state.data_dir
+    _, payload = load_checkpoint(root / "jobs" / third["id"] / "last.pt")
+    assert payload["extra"]["iteration"] == 3
+    assert len(payload["extra"]["evaluation_state"]["benchmarks"]) == 2
+    assert payload["extra"]["best_snapshot"]["metadata"]["version"] == 1
+    assert first["model_id"] in {model["id"] for model in client.get("/api/models").json()}

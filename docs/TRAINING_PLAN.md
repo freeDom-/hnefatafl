@@ -50,8 +50,9 @@ or hand-labelled tactical curriculum is introduced in this release.
 Start with the corresponding plan, inspect completed-game fraction and learning
 curves, then vary one capacity/search/learning-rate choice or use Optuna. Keep
 evaluation opponents, move budgets, hardware, seeds and side balance comparable.
-Evaluate against both the fixed baseline and previous best, then confirm promising
-models in larger independent tournaments with held-out seeds. A lower loss only
+Choose one evaluation opponent per training job, then confirm promising models
+in separate larger tournaments with held-out seeds. See
+[evaluation selection](TRAINING.md#evaluation-and-model-selection). A lower loss only
 means a better fit to current self-play targets; a high small-sample win fraction
 is not reliable evidence of general strength. Persistent truncation calls for a
 longer game/evaluation budget and investigation before interpreting a score.
@@ -76,10 +77,12 @@ is saved in progress and in the resumable `last.pt`, so reopening a job or resum
 training keeps its earlier curve.
 
 **Save every new best model** is optional and off by default. A strictly higher
-baseline evaluation score writes `best/iteration-NNNNNN.pt` and registers that
+score within the same fixed benchmark, or an accepted champion promotion, writes
+`best/iteration-NNNNNN.pt` and registers that
 inference snapshot immediately. Ties do not create extra retained models. The
-usual final best model and resumable `last.pt` still exist; their legacy latest-tie
-selection is preserved. Retained snapshots include their actual iteration and
+usual selected best model and resumable `last.pt` still exist; ties retain the
+earlier incumbent. Different benchmark configurations remain separate. Retained
+snapshots include their actual iteration and
 evaluation metadata and can be selected, exported or deleted separately. Earlier
 job checkpoints remain on disk when a model registry entry is deleted. Resumption
 retains the history and prior best-model references; moving only `last.pt` carries

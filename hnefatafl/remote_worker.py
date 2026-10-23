@@ -296,6 +296,7 @@ class JobRunner:
         self.process: subprocess.Popen | None = None
         self.last_ack = time.monotonic()
         self.sequence = int(self.job.get("sequence", 0))
+        self.history_sent = 0
         self.uploaded: dict[str, tuple[int, int]] = {}
         self.manifest_lock = threading.Lock()
         self.manifest: dict[str, Any] = {
@@ -327,18 +328,13 @@ class JobRunner:
                 self.cancel.set()
                 self._signal_child()
             if pending is None:
-                progress = _read_json(self.directory / "progress.json")
-                pending = {
-                    "lease_token": self.token,
-                    "sequence": self.sequence,
-                    "progress": safe_progress(progress or {"stage": "starting"}),
-                    "logs": self._log(),
-                }
+                pending, history_end, _ = self._progress_report()
             try:
                 response = self.api.request(f"/api/worker/jobs/{self.job_id}/progress", pending)
                 self.last_ack = time.monotonic()
                 self.lease_seconds = float(response.get("lease_seconds", self.lease_seconds))
                 self.sequence += 1
+                self.history_sent = history_end
                 self._save(sequence=self.sequence)
                 pending = None
                 if response.get("cancel_requested"):
@@ -359,24 +355,51 @@ class JobRunner:
                 return
             self.report_stop.wait(self.interval if pending is None else min(2, self.interval))
 
+    def _progress_report(self) -> tuple[dict, int, bool]:
+        """Keep the original small-report contract; stream large history in chunks."""
+        progress = safe_progress(
+            _read_json(self.directory / "progress.json") or {"stage": "starting"}
+        )
+        history = progress.get("history", [])
+        offset = None
+        end = len(history)
+        if (len(json.dumps(progress)) > 400_000 or len(history) > 2000) and history:
+            offset = min(self.history_sent, len(history))
+            chunk: list[dict] = []
+            size = 0
+            for point in history[offset : offset + 1000]:
+                point_size = len(json.dumps(point))
+                if chunk and size + point_size > 128_000:
+                    break
+                chunk.append(point)
+                size += point_size
+            progress["history"] = chunk
+            end = offset + len(chunk)
+        payload = {
+            "lease_token": self.token,
+            "sequence": self.sequence,
+            "progress": progress,
+            "logs": self._log(),
+        }
+        if offset is not None:
+            payload["history_offset"] = offset
+        return payload, end, end < len(history)
+
     def _final_report(self) -> None:
         """Flush a short run's final metrics after the periodic reporter has stopped."""
-        response = self._retry(
-            lambda: self.api.request(
-                f"/api/worker/jobs/{self.job_id}/progress",
-                {
-                    "lease_token": self.token,
-                    "sequence": self.sequence,
-                    "progress": safe_progress(_read_json(self.directory / "progress.json")),
-                    "logs": self._log(),
-                },
+        while True:
+            payload, history_end, more = self._progress_report()
+            response = self._retry(
+                lambda: self.api.request(f"/api/worker/jobs/{self.job_id}/progress", payload)
             )
-        )
-        self.last_ack = time.monotonic()
-        self.sequence += 1
-        self._save(sequence=self.sequence)
-        if response.get("cancel_requested"):
-            self.cancel.set()
+            self.last_ack = time.monotonic()
+            self.sequence += 1
+            self.history_sent = history_end
+            self._save(sequence=self.sequence)
+            if response.get("cancel_requested"):
+                self.cancel.set()
+            if not more:
+                break
 
     def _retry(self, operation: Callable[[], Any]) -> Any:
         delay = 0.5

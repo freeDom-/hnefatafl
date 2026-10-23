@@ -116,6 +116,9 @@ to games/hour and positions/s.
 | `self_play_wall_seconds` | Elapsed seconds for generation, including search and inference |
 | `games`, `completed_games`, `drawn_games`, `truncated_games` | Generated games; completed includes rules draws, so drawn is a subset |
 | `self_play_positions`, `mcts_simulations` | Generated positions and actually completed search simulations |
+| `requested_mcts_simulations` | Requested self-play visits across actually played moves, including shortcut moves |
+| `attacker_wins`, `defender_wins` | Completed self-play wins by side |
+| `immediate_win_shortcuts`, `search_deadline_cutoffs` | Searches that used a direct winning move or stopped before their visit budget |
 | `games_per_hour`, `positions_per_second`, `simulations_per_second` | Work divided by self-play wall time; not requested budgets |
 | `neural_evaluations`, `neural_evaluations_per_second` | Positions evaluated by the network, including search leaves/bootstrap evaluations |
 | `inference_batches` | Forward-pass batches, distinct from position evaluations |
@@ -180,3 +183,22 @@ numbers are evidence for those exact runs, not hardware-independent expectations
   sizes or independent worker slots. A slot count is not automatic GPU allocation.
 - Keep default math threads at two initially. More CPU threads or worker slots can
   oversubscribe the host. Measure a small representative budget before scaling.
+
+
+## Training evaluation cost
+
+Training runs one selected evaluator, rather than baseline plus previous-best.
+Use `evaluation_frequency` independently of checkpoint cadence and inspect
+`evaluation_seconds` and each evaluation record's `duration`. Jarl uses the real
+alpha-beta search and its own depth/deadline; it may cost more than neural play.
+Champion uses equal neural budgets on both models, but remains sequential.
+The self-play scheduler assumes one model: reusing it unchanged for two opponents
+would mix model inference. Cross-model batching is deferred pending a separate
+correctness and measured performance comparison. No evaluation batching speedup
+or RTX 3060 throughput gain is claimed by this release.
+
+CLI logs project bounded incremental summaries while persistent JSON retains
+complete history. This removes repeated history/game serialization from worker
+logs; it does not remove history from checkpoint or progress APIs. Wall-clock
+phase times remain distinct from overlapping activity counters, with no extra
+CUDA synchronization added to ordinary inference.

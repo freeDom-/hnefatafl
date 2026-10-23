@@ -438,3 +438,32 @@ def test_worker_cli_missing_credential_has_an_actionable_error(monkeypatch, caps
     monkeypatch.setattr(cli.signal, "signal", lambda *args: None)
     assert cli.main(["worker", "--server", "https://example.invalid", "--once"]) == 1
     assert "HNEFATAFL_WORKER_TOKEN" in capsys.readouterr().err
+
+
+def test_large_progress_flushes_incremental_history_without_losing_rows(tmp_path):
+    history = [
+        {
+            "iteration": index,
+            "policy_loss": 1.2,
+            "evaluation": {"score": 0.5, "games": [{"reason": "x" * 200}]},
+        }
+        for index in range(3000)
+    ]
+    (tmp_path / "progress.json").write_text(json.dumps({"iteration": 3000, "history": history}))
+    received = []
+    sizes = []
+
+    class API(ReplyAPI):
+        def request(self, route, payload=None, **kwargs):
+            assert route.endswith("/progress")
+            assert payload["history_offset"] == len(received)
+            sizes.append(len(json.dumps(payload)))
+            received.extend(payload["progress"]["history"])
+            return {"lease_seconds": 120}
+
+    runner = remote.JobRunner(API(), remote.Lease(job(), 30, 120), tmp_path, threading.Event())
+    runner._final_report()
+    assert received == history
+    assert len(sizes) > 1 and max(sizes) < 200_000
+    assert runner.history_sent == 3000
+    assert json.loads((tmp_path / "progress.json").read_text())["history"] == history

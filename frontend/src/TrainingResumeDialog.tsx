@@ -10,6 +10,7 @@ import {
   validTrainingNumbers,
 } from './TrainingFields';
 import type { TrainingConfig } from './trainingPresets';
+import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -87,6 +88,9 @@ export default function TrainingResumeDialog({
         saved.weight_decay = info.weight_decay ?? saved.weight_decay ?? 0.0001;
         saved.momentum = info.momentum ?? saved.momentum ?? 0.9;
         saved.model_name = info.model_name;
+        for (const [key, value] of Object.entries(evaluationDefaults)) {
+          saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
+        }
         savedConfig.current = saved;
         const priorTarget = Number(saved.iterations);
         setConfig({
@@ -134,6 +138,7 @@ export default function TrainingResumeDialog({
               (key in trainingNumberFields ||
                 [
                   'model_name',
+                  'evaluation_opponent',
                   'device',
                   'mixed_precision',
                   'save_all_best',
@@ -271,6 +276,8 @@ export default function TrainingResumeDialog({
                       .filter(
                         (key) =>
                           !['iterations', 'channels', 'blocks', 'seed'].includes(key) &&
+                          !key.startsWith('evaluation_') &&
+                          !key.startsWith('champion_') &&
                           config[key] !== undefined,
                       )
                       .map((key) =>
@@ -305,6 +312,7 @@ export default function TrainingResumeDialog({
                       </label>
                     )}
                   </div>
+                  <EvaluationSettings config={config} update={update} disabled={busy} />
                 </>
               ) : (
                 <p className="form-error" role="alert">

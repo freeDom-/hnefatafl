@@ -87,6 +87,16 @@ Optimization batches sample replay separately from inference batches. See
 [Performance](docs/PERFORMANCE.md) for measured work, timing boundaries and the
 CPU evidence that fewer forward passes did not imply a speedup.
 
+Training schedules exactly one selected evaluator (Shield bearer, Jarl or Champion)
+at interval multiples and the final optimized iteration, independently of checkpoint
+writes. `training_evaluation.py` owns effective protocol identities, immutable
+benchmark snapshots and paired conservative champion promotion. Full tensor-format-1
+checkpoints add a versioned training selection state while preserving legacy baseline
+fields. Candidate, resumable latest state, fixed benchmark records and champion are
+distinct. Evaluation remains sequential with separate frozen models; self-play's
+single-model batching is not reused across model identities. Compact stdout events
+exclude history; atomic JSON/checkpoints retain it for local and remote polling.
+
 ## Model scope and trust
 
 Models are ruleset-specific, allowing small networks and straightforward compatibility

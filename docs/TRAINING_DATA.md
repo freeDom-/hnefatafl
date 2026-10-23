@@ -97,9 +97,39 @@ settings keep their effective checkpoint values.
 
 The full `last.pt` also carries a cloned best-model snapshot and its original
 metadata. Moving that one checkpoint to a new output directory preserves the
-true best model and previous-model comparisons, even when later iterations are
-weaker. `best.pt` and registry inference exports intentionally have no optimizer
-state and cannot be used for exact training resumption.
+saved benchmark records and champion, even when later candidates are weaker.
+`best.pt` and registry inference exports intentionally have no optimizer state and cannot be used for exact training resumption.
+
+### Evaluation strategy changes and checkpoint migration
+
+Choose Shield bearer, Jarl or Champion and the evaluation budgets when resuming,
+for example from iteration 100 toward 200. Only these reviewed settings change;
+weights, optimizer buffers, replay, RNG/scaler state, completed iteration, history
+and model associations survive. CLI resumes also inherit saved inputs before
+applying explicit overrides. Resume requires an explicit output directory whose
+`last.pt` cannot overwrite the source checkpoint; it never inherits an old worker path.
+Source checkpoints are read without modification.
+
+New full checkpoints retain tensor format 1, add `extra.training_state_version: 2`
+and a versioned `extra.evaluation_state`. It contains benchmark snapshots indexed
+by protocol identity, a separate champion snapshot/provisional flag, promotion
+records and the last evaluation. The existing tensor-only loader remains in use.
+The historical `best_score`/`best_snapshot` fields retain baseline meaning and
+cannot be overwritten by Jarl or Champion scores.
+
+Legacy iteration-100-style checkpoints migrate in memory: the saved baseline
+best becomes a historical benchmark, and can initialize the first provisional
+Champion incumbent. Legacy independent-game/iteration-derived seed results
+have their own protocol identity rather than fabricated paired-match evidence.
+Existing history is kept. No on-disk source rewrite or inference-only conversion
+is required. New workers understand both checkpoint generations; update local
+and remote installations together before sending new evaluation settings.
+Portable job archives retain this state as part of the full checkpoint.
+
+A cancelled evaluation records the already optimized iteration without a score
+and saves its full state. Resume to a higher total target to continue training;
+an unchanged candidate is not automatically reevaluated. Graceful cancellation
+saves state; abrupt process termination still relies on the last atomic checkpoint.
 
 ## Checkpoints, registry, import and export
 
@@ -108,8 +138,8 @@ uploaded full checkpoints and imported model copies, with reports stored in job
 JSON; they need not mirror every local file. Tuning has its own study/trial tree.
 
 - `last.pt`: full resumable state from the last checkpoint iteration.
-- `best.pt`: compact model snapshot at the highest balanced baseline score
-  (later ties win); it has no optimizer/replay state.
+- `best.pt`: compact selected fixed-benchmark best or accepted/provisional champion;
+  ties keep the incumbent. It has no optimizer/replay state.
 - `inference.pt`: compact weights plus model/training/evaluation metadata,
   without optimizer, replay or RNG state.
 - `config.json`, `progress.json`, `result.json`: human-readable provenance.

@@ -182,7 +182,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toHaveCount(4);
   await expect(
     page.getByRole('img', { name: 'Evaluation by iteration', exact: true }).locator('circle'),
-  ).toHaveCount(2);
+  ).toHaveCount(6);
   const api = 'http://127.0.0.1:8001/api';
   const savedJob = await (await request.get(`${api}/training/jobs/${continuedJob.id}`)).json();
   const retainedSettings = await (

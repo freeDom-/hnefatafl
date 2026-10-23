@@ -651,3 +651,53 @@ def test_deleted_optional_model_associations_remain_inactive_and_reexportable(cl
     assert imported["result"]["model"] is None
     assert client.get(f"/api/training/jobs/{imported['id']}").status_code == 200
     assert export(client, imported)
+
+
+def test_archive_preserves_champion_and_benchmark_state(client, tmp_path):
+    with TestClient(create_app(tmp_path / "champion-source")) as source:
+        job, directory = job_record(source)
+        first = train(
+            {
+                "preset": "smoke",
+                "device": "cpu",
+                "cpu_threads": 1,
+                "max_game_plies": 2,
+                "evaluation_max_plies": 2,
+                "output_dir": str(directory),
+                "registry_dir": str(source.app.state.data_dir / "models"),
+            }
+        )
+        second_dir = directory.parent / ("b" * 32)
+        result = train(
+            {
+                "resume": first["checkpoint"],
+                "iterations": 2,
+                "evaluation_opponent": "champion",
+                "output_dir": str(second_dir),
+            }
+        )
+        _, saved = load_checkpoint(second_dir / "last.pt")
+        job.update(
+            id="b" * 32,
+            config=saved["metadata"]["training_config"],
+            progress=result,
+            result=result,
+            model_id=result["model"]["id"],
+        )
+        source.app.state.store.save_job(job)
+        content = export(source, job)
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    imported = response.json()
+    path = client.app.state.data_dir / "jobs" / imported["id"] / "last.pt"
+    _, payload = load_checkpoint(path)
+    actual = payload["extra"]["evaluation_state"]
+    expected = saved["extra"]["evaluation_state"]
+    assert actual["active_identity"] == expected["active_identity"]
+    assert actual["champion"]["iteration"] == 1
+    assert actual["promotions"] == expected["promotions"] == []
+    assert set(actual["benchmarks"]) == set(expected["benchmarks"])
+    for key, tensor in expected["champion"]["snapshot"]["state_dict"].items():
+        assert torch.equal(actual["champion"]["snapshot"]["state_dict"][key], tensor)
+    info = client.get(f"/api/training/jobs/{imported['id']}/resume").json()
+    assert info["can_resume"] and info["config"]["evaluation_opponent"] == "champion"

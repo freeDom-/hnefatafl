@@ -18,7 +18,7 @@ from typing import Callable
 import torch
 from torch.nn import functional as F
 
-from .ai import choose_move, mcts_policy, policy_value
+from .ai import mcts_policy, policy_value
 from .engine import apply_move, legal_moves, new_game
 from .models import (
     ModelRegistry,
@@ -31,6 +31,7 @@ from .models import (
     save_checkpoint,
 )
 from .training_presets import RECOMMENDED
+from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
 
 
 DEFAULTS = {
@@ -57,7 +58,14 @@ DEFAULTS = {
     "weight_decay": 0.0001,
     "momentum": 0.9,
     "checkpoint_frequency": 1,
+    "evaluation_opponent": "shield_bearer",
     "evaluation_frequency": 1,
+    "evaluation_time_limit": 2.0,
+    "evaluation_jarl_depth": 5,
+    "evaluation_jarl_time_limit": 2.0,
+    "champion_confidence": 0.95,
+    "champion_min_pairs": 12,
+    "champion_min_improvement": 0.0,
     "evaluation_games": 2,
     "evaluation_iterations": 16,
     "evaluation_max_plies": 150,
@@ -115,6 +123,8 @@ def normalize_config(configuration: dict) -> dict:
     plan = RECOMMENDED[ruleset] if preset == "recommended" else {}
     config = {**DEFAULTS, **PRESETS[preset], **plan, **configuration}
     config["preset"] = preset
+    if "evaluation_time_limit" not in configuration:
+        config["evaluation_time_limit"] = config["mcts_time_limit"]
     if config["ruleset"] not in ("brandubh", "tablut", "copenhagen"):
         raise ValueError("Unknown training ruleset")
     integer_bounds = {
@@ -131,6 +141,8 @@ def normalize_config(configuration: dict) -> dict:
         "replay_buffer_size": (1, 20000),
         "checkpoint_frequency": (1, 10000),
         "evaluation_frequency": (1, 10000),
+        "evaluation_jarl_depth": (1, 8),
+        "champion_min_pairs": (2, 5000),
         "evaluation_games": (2, 10000),
         "cpu_threads": (1, 64),
         "self_play_concurrency": (1, 1024),
@@ -141,6 +153,8 @@ def normalize_config(configuration: dict) -> dict:
             raise ValueError(f"{key} must be an integer between {low} and {high}")
     if config["self_play_mode"] not in ("auto", "sequential", "batched"):
         raise ValueError("self_play_mode must be auto, sequential or batched")
+    if config["evaluation_opponent"] not in ("shield_bearer", "jarl", "champion"):
+        raise ValueError("evaluation_opponent must be shield_bearer, jarl or champion")
     if config["evaluation_games"] % 2:
         raise ValueError("evaluation_games must be even so the model plays both sides")
     for key, minimum, maximum in (
@@ -152,6 +166,10 @@ def normalize_config(configuration: dict) -> dict:
         ("dirichlet_alpha", 0.001, 100.0),
         ("dirichlet_fraction", 0.0, 1.0),
         ("mcts_time_limit", 0.001, 300.0),
+        ("evaluation_time_limit", 0.001, 300.0),
+        ("evaluation_jarl_time_limit", 0.001, 300.0),
+        ("champion_confidence", 0.8, 0.9999),
+        ("champion_min_improvement", 0.0, 0.49),
     ):
         value = float(config[key])
         if not math.isfinite(value) or not minimum <= value <= maximum:
@@ -177,6 +195,70 @@ def _write_json(path: Path, payload: dict) -> None:
     temporary.replace(path)
 
 
+def compact_progress(state: dict) -> dict:
+    """Bound each stdout event independently of history, games, models and replay.
+
+    Full callbacks and atomic progress/result JSON remain the polling contract.
+    Local and remote subprocess logs use this projection only.
+    """
+    if isinstance(state.get("trial_progress"), dict):
+        return {"trial": state.get("trial"), **compact_progress(state["trial_progress"])}
+    result = {
+        key: state[key]
+        for key in (
+            "status",
+            "stage",
+            "iteration",
+            "total_iterations",
+            "games_generated",
+            "game",
+            "epoch",
+            "policy_loss",
+            "value_loss",
+            "duration",
+            "error",
+            "checkpoint",
+            "completed_trials",
+            "trials_requested",
+            "best_score",
+        )
+        if key in state
+    }
+    metrics = state.get("metrics", {})
+    for key in ("policy_loss", "value_loss", "updates", "replay_positions"):
+        if key in metrics:
+            result[key] = metrics[key]
+    evaluation = metrics.get("evaluation")
+    if evaluation:
+        result["evaluation"] = {
+            key: evaluation[key]
+            for key in (
+                "iteration",
+                "opponent",
+                "opponent_identity",
+                "score",
+                "wins",
+                "losses",
+                "draws",
+                "truncated",
+                "duration",
+                "promoted",
+                "reason",
+                "score_lower_bound",
+                "champion_iteration",
+            )
+            if key in evaluation
+        }
+    performance = state.get("performance", metrics.get("performance"))
+    if performance:
+        result["performance"] = {
+            key: value
+            for key, value in performance.items()
+            if type(value) in (int, float, str, bool)
+        }
+    return result
+
+
 def self_play(
     model: PolicyValueNet,
     config: dict,
@@ -191,7 +273,7 @@ def self_play(
     examples = []
     model.eval()
     started = time.monotonic()
-    simulations = 0
+    simulations = shortcuts = cutoffs = 0
     for ply in range(config["max_game_plies"]):
         if should_stop and should_stop():
             raise InterruptedError("Training was cancelled")
@@ -217,6 +299,8 @@ def self_play(
             inference_metrics=inference_metrics,
         )
         simulations += details.get("simulations", 0)
+        shortcuts += details.get("immediate_win_shortcuts", 0)
+        cutoffs += details.get("deadline_cutoffs", 0)
         area = state.size**2
         examples.append(
             {
@@ -251,6 +335,9 @@ def self_play(
         "bootstrap_value": value if winner is None else None,
         "plies": len(examples),
         "simulations": simulations,
+        "requested_simulations": len(examples) * config["mcts_iterations"],
+        "immediate_win_shortcuts": shortcuts,
+        "search_deadline_cutoffs": cutoffs,
         "duration": time.monotonic() - started,
     }
 
@@ -329,86 +416,6 @@ def generate_self_play(
     return games, metrics.snapshot(finalize_cuda=measure_cuda)
 
 
-def evaluate_model(
-    model: PolicyValueNet,
-    config: dict,
-    *,
-    previous: PolicyValueNet | None = None,
-    seed: int | None = None,
-    should_stop: Callable[[], bool] | None = None,
-) -> dict:
-    """Balanced model-vs-baseline evaluation with explicit unfinished outcomes.
-
-    The tuning score counts wins + half of *rule* draws divided by all scheduled
-    games. An unfinished game earns zero; it is reported as truncated, never as
-    a defeat or draw. This conservative completion-aware score cannot reward
-    short budgets that merely avoid losing.
-    """
-    seed = config["seed"] if seed is None else seed
-    outcomes = []
-    model.eval()
-    if previous is not None:
-        previous.eval()
-    started = time.monotonic()
-    for game in range(config["evaluation_games"]):
-        state = new_game(config["ruleset"])
-        candidate_side = "attackers" if game % 2 == 0 else "defenders"
-        moves = []
-        for ply in range(config["evaluation_max_plies"]):
-            if should_stop and should_stop():
-                raise InterruptedError("Evaluation was cancelled")
-            if state.winner:
-                break
-            candidate = state.turn == candidate_side
-            opponent_model = model if candidate else previous
-            ai_config = (
-                {
-                    "algorithm": "neural",
-                    "_model": opponent_model,
-                    "iterations": config["evaluation_iterations"],
-                    "rollout_depth": 0,
-                    "time_limit": config["mcts_time_limit"],
-                    "seed": seed + 1000 * game + ply,
-                }
-                if opponent_model is not None
-                else {
-                    "algorithm": "baseline",
-                    "time_limit": config["mcts_time_limit"],
-                    "seed": seed + 1000 * game + ply,
-                }
-            )
-            move = choose_move(state, ai_config)
-            moves.append({"source": move.source, "target": move.target})
-            state = apply_move(state, move)
-        winner = state.winner
-        score = 0.5 if winner == "draw" else float(winner == candidate_side)
-        outcomes.append(
-            {
-                "candidate_side": candidate_side,
-                "winner": winner,
-                "outcome": "completed" if winner else "truncated",
-                "score": score,
-                "plies": len(moves),
-                "reason": state.reason or "evaluation_ply_limit",
-            }
-        )
-    wins = sum(game["score"] == 1 for game in outcomes)
-    losses = sum(game["score"] == 0 and game["winner"] is not None for game in outcomes)
-    draws = sum(game["winner"] == "draw" for game in outcomes)
-    truncated = sum(game["winner"] is None for game in outcomes)
-    return {
-        "opponent": "previous_model" if previous is not None else "baseline",
-        "wins": wins,
-        "losses": losses,
-        "draws": draws,
-        "truncated": truncated,
-        "score": (wins + draws / 2) / len(outcomes),
-        "games": outcomes,
-        "duration": time.monotonic() - started,
-        "seed": seed,
-    }
-
-
 def _make_optimizer(model: PolicyValueNet, config: dict):
     arguments = {"lr": config["learning_rate"], "weight_decay": config["weight_decay"]}
     if config["optimizer"] == "sgd":
@@ -429,8 +436,21 @@ def train(
     state and iteration are restored; ruleset and network architecture cannot
     change. A callback can monitor progress or raise Optuna TrialPruned.
     """
-    config = normalize_config(configuration)
+    # CLI resumes inherit saved settings too; only explicitly supplied inputs override them.
+    saved_inputs = {}
+    resume_model = None
+    source: dict = {}
+    if configuration.get("resume"):
+        if "output_dir" not in configuration:
+            raise ValueError(
+                "Resume requires a new output_dir to preserve the source training files"
+            )
+        resume_model, source = load_checkpoint(configuration["resume"])
+        saved_inputs = source["metadata"].get("training_config", {})
+    config = normalize_config({**saved_inputs, **configuration})
     output = Path(config["output_dir"]).resolve()
+    if config.get("resume") and output / "last.pt" == Path(config["resume"]).resolve():
+        raise ValueError("Resume output_dir must preserve the source checkpoint path")
     output.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(config["cpu_threads"])
     device = resolve_device(config["device"])
@@ -438,19 +458,24 @@ def train(
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(config["seed"])
     rng = random.Random(config["seed"])
-    model = PolicyValueNet(config["ruleset"], config["channels"], config["blocks"]).to(device)
+    model = (
+        resume_model
+        if resume_model is not None
+        else PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
+    ).to(device)
     optimizer = _make_optimizer(model, config)
     replay: list[dict] = []
     completed = games_generated = 0
     best_score = -1.0
     best_snapshot: dict | None = None
-    previous = None
     metrics: dict = {}
     history: list[dict] = []
     best_models: list[dict] = []
     resume_payload = None
+    saved_config: dict = {}
+    extra: dict = {}
     if config.get("resume"):
-        model, payload = load_checkpoint(config["resume"], device=str(device))
+        payload = source
         resume_payload = payload
         if model.config != {
             "ruleset": config["ruleset"],
@@ -480,6 +505,8 @@ def train(
                     group[parameter] = config[name]
             config[name] = float(optimizer.param_groups[0][parameter])
         extra = payload.get("extra", {})
+        if extra.get("training_state_version", 1) not in (1, 2):
+            raise ValueError("Unsupported training checkpoint state version")
         history = extra.get("history", [])
         best_models = extra.get("best_models", [])
         completed = int(extra.get("iteration", 0))
@@ -500,10 +527,28 @@ def train(
             raise ValueError("Resume iterations must exceed the saved completed iteration")
     checkpoint = output / "last.pt"
     best_checkpoint = output / "best.pt"
-    if best_snapshot:
-        previous = deepcopy(model).eval()
-        previous.load_state_dict(best_snapshot["state_dict"], strict=True)
-        save_checkpoint(best_checkpoint, previous, best_snapshot["metadata"])
+    selection = EvaluationSelection(extra, saved_config, config, metrics.get("evaluation"))
+    # Keep legacy baseline fields in their original scale. Other benchmarks and
+    # champion promotion never overwrite these portable historical values.
+    legacy_identity = selection.data.get("legacy_identity")
+    if legacy_identity is None and config["evaluation_opponent"] == "shield_bearer":
+        legacy_identity = selection.identity
+        selection.data["legacy_identity"] = legacy_identity
+    if config["evaluation_opponent"] == "champion":
+        selection.initialize_champion(
+            model,
+            {
+                "name": config["model_name"],
+                "version": completed,
+                "training_config": config,
+                "metrics": {},
+                "evaluation": {},
+            },
+            best_snapshot,
+        )
+    selected = selection.selected_snapshot() or best_snapshot
+    if selected:
+        save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
     mixed = bool(config["mixed_precision"] and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=mixed)
     if resume_payload and resume_payload["extra"].get("grad_scaler"):
@@ -520,6 +565,7 @@ def train(
         "metrics": metrics,
         "history": history,
         "best_models": best_models,
+        "evaluation_selection": selection.summary(),
     }
     _write_json(output / "config.json", config)
 
@@ -548,6 +594,8 @@ def train(
             "replay": replay,
             "best_score": best_score,
             "best_snapshot": best_snapshot,
+            "training_state_version": 2,
+            "evaluation_state": selection.data,
             "history": history,
             "best_models": best_models,
             "python_rng": rng.getstate(),
@@ -575,7 +623,7 @@ def train(
                 config,
                 seed=config["seed"] + iteration * 100000,
                 should_stop=should_stop,
-                progress=lambda info: publish(stage="self_play", **info),
+                progress=lambda info: publish(stage="self_play", iteration=iteration, **info),
                 on_game=commit_game,
                 retain_examples=False,
             )
@@ -634,23 +682,27 @@ def train(
                 "replay_positions": len(replay),
                 "performance": performance,
             }
+            # Optimization is complete even if the following evaluation is cancelled.
+            # Resume must not repeat these updates merely to retry a comparison.
+            completed = iteration
             evaluation_started = time.monotonic()
             if iteration % config["evaluation_frequency"] == 0 or iteration == config["iterations"]:
-                publish(stage="evaluation")
+                publish(stage="evaluation", metrics=metrics)
+                incumbent = (
+                    frozen_model(model, selection.data["champion"]["snapshot"])
+                    if config["evaluation_opponent"] == "champion"
+                    else None
+                )
                 metrics["evaluation"] = evaluate_model(
                     model,
                     config,
-                    seed=config["seed"] + iteration * 1000000,
+                    previous=incumbent,
+                    # Fixed suite seeds ensure like-for-like benchmark comparisons.
+                    # Champion rounds use fresh paired seeds for each candidate.
+                    seed=selection.context["seed"]
+                    + (iteration * 1000000 if incumbent is not None else 0),
                     should_stop=should_stop,
                 )
-                if previous is not None:
-                    metrics["previous_evaluation"] = evaluate_model(
-                        model,
-                        config,
-                        previous=previous,
-                        seed=config["seed"] + iteration * 1000000 + 100,
-                        should_stop=should_stop,
-                    )
             performance["evaluation_seconds"] = time.monotonic() - evaluation_started
             if device.type == "cuda":
                 performance.update(
@@ -661,7 +713,16 @@ def train(
             metrics["iteration_duration"] = time.monotonic() - iteration_start
             performance["iteration_compute_seconds"] = metrics["iteration_duration"]
             performance["iteration_wall_seconds"] = metrics["iteration_duration"]
-            score = metrics.get("evaluation", {}).get("score", -1)
+            evaluation = metrics.get("evaluation")
+            record_improvement = False
+            if evaluation is not None and updates > 0:
+                if should_stop and should_stop():
+                    raise InterruptedError("Evaluation was cancelled")
+                record_improvement = selection.accept(model, current_metadata(), evaluation, config)
+                if selection.identity == legacy_identity and record_improvement:
+                    best_score = evaluation["score"]
+                    best_snapshot = selection.selected_snapshot()
+            state["evaluation_selection"] = selection.summary()
             point = {
                 "iteration": iteration,
                 "policy_loss": metrics["policy_loss"],
@@ -673,6 +734,9 @@ def train(
             if "evaluation" in metrics:
                 evaluation = metrics["evaluation"]
                 point.update(
+                    evaluation=deepcopy(evaluation),
+                    evaluation_opponent=evaluation["opponent"],
+                    opponent_identity=evaluation["opponent_identity"],
                     evaluation_score=evaluation["score"],
                     **{
                         f"evaluation_{key}": evaluation[key]
@@ -681,29 +745,23 @@ def train(
                 )
             history.append(point)
             artifact_started = time.monotonic()
-            record_improvement = score >= 0 and score > best_score
-            if score >= best_score:
-                best_score = score
-                # Clone: CPU detach alone would still share storage with the
-                # parameters that the next optimization iteration mutates.
-                best_snapshot = {
-                    "state_dict": {
-                        key: value.detach().cpu().clone()
-                        for key, value in model.state_dict().items()
-                    },
-                    "metadata": deepcopy(current_metadata()),
-                }
-                save_checkpoint(best_checkpoint, model, best_snapshot["metadata"])
-                previous = deepcopy(model).eval()
-                if config["save_all_best"] and record_improvement:
+            if record_improvement:
+                assert evaluation is not None
+                selected = selection.selected_snapshot()
+                assert selected is not None
+                save_checkpoint(
+                    best_checkpoint, frozen_model(model, selected), selected["metadata"]
+                )
+                if config["save_all_best"]:
                     retained = output / "best" / f"iteration-{iteration:06d}.pt"
-                    save_checkpoint(retained, model, best_snapshot["metadata"])
+                    save_checkpoint(retained, frozen_model(model, selected), selected["metadata"])
                     registry = ModelRegistry(config.get("registry_dir", output.parent / "models"))
                     registered_best = registry.register(retained, name=config["model_name"])
                     best_models.append(
                         {
                             "iteration": iteration,
-                            "score": score,
+                            "score": evaluation["score"],
+                            "opponent_identity": evaluation["opponent_identity"],
                             "checkpoint": str(retained),
                             "model_id": registered_best["id"],
                         }
@@ -730,8 +788,24 @@ def train(
                 performance=performance,
             )
     except InterruptedError:
+        if completed and (not history or history[-1]["iteration"] < completed):
+            history.append(
+                {
+                    "iteration": completed,
+                    "policy_loss": metrics["policy_loss"],
+                    "value_loss": metrics["value_loss"],
+                    "performance": metrics["performance"],
+                    "evaluation_status": "cancelled",
+                }
+            )
         checkpoint_now(checkpoint)
-        publish(status="cancelled", stage="cancelled", checkpoint=str(checkpoint))
+        publish(
+            status="cancelled",
+            stage="cancelled",
+            iteration=completed,
+            games_generated=games_generated,
+            checkpoint=str(checkpoint),
+        )
         result = {
             **state,
             "output_dir": str(output),
@@ -743,7 +817,25 @@ def train(
     except Exception as error:
         # TrialPruned also preserves the most recent completed checkpoint.
         status = "pruned" if type(error).__name__ == "TrialPruned" else "failed"
-        publish(status=status, stage=status, error=str(error))
+        if completed and (not history or history[-1]["iteration"] < completed):
+            history.append(
+                {
+                    "iteration": completed,
+                    "policy_loss": metrics["policy_loss"],
+                    "value_loss": metrics["value_loss"],
+                    "performance": metrics["performance"],
+                    "evaluation_status": status,
+                }
+            )
+        checkpoint_now(checkpoint)
+        publish(
+            status=status,
+            stage=status,
+            error=str(error),
+            iteration=completed,
+            games_generated=games_generated,
+            checkpoint=str(checkpoint),
+        )
         raise
     if not checkpoint.exists():
         checkpoint_now(checkpoint)
@@ -801,6 +893,17 @@ def tune(
     base = configuration.get(
         "training", {"preset": "smoke", "ruleset": configuration.get("ruleset", "brandubh")}
     )
+    if base.get("evaluation_opponent", "shield_bearer") != "shield_bearer":
+        raise ValueError("Optuna requires the comparable fixed Shield bearer objective")
+    if any(name.startswith("evaluation_") or name.startswith("champion_") for name in search_space):
+        raise ValueError("Optuna cannot tune evaluation protocol settings")
+    # Self-play time may be tuned independently, but evaluation uses a fixed deadline.
+    base = {
+        **base,
+        "evaluation_time_limit": base.get(
+            "evaluation_time_limit", base.get("mcts_time_limit", 2.0)
+        ),
+    }
     latest = {
         "status": "running",
         "completed_trials": len(study.trials),

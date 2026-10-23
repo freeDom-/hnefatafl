@@ -182,3 +182,20 @@ as the server. Keep token values out of logs and URLs in custom clients as well.
 
 Service templates are examples. Verify real HTTP training, upload and server-side
 model play on the target machine; heartbeat success alone does not validate it.
+
+
+## Evaluation settings and compact logs
+
+Updated workers accept the same Shield bearer/Jarl/Champion selection and resume
+changes as local training. Full checkpoint uploads preserve versioned benchmark
+and champion state, optimizer/replay/RNG state and history. Update the server and
+workers to the same release before using these settings; older worker versions
+reject unknown configuration fields. Progress polling still carries full history.
+Worker subprocess stdout uses compact incremental events, omitting accumulated
+history and detailed game lists while retaining failures and phase/result summaries.
+See [evaluation and promotion](TRAINING.md#evaluation-and-model-selection).
+
+Large histories use optional indexed chunks rather than repeatedly exceeding the
+progress request limit. Ordered report sequences make retries idempotent, and
+recovery retains already saved history. Small reports retain the original full
+snapshot contract. Full checkpoints and worker JSON keep all evaluation records.

@@ -1,0 +1,14 @@
+{
+  "resume": "data/training-brandubh/last.pt",
+  "iterations": 200,
+  "evaluation_opponent": "champion",
+  "evaluation_frequency": 10,
+  "evaluation_games": 48,
+  "evaluation_iterations": 64,
+  "evaluation_time_limit": 2.0,
+  "evaluation_max_plies": 300,
+  "champion_confidence": 0.95,
+  "champion_min_pairs": 12,
+  "champion_min_improvement": 0.0,
+  "output_dir": "data/training-champion"
+}

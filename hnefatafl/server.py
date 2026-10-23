@@ -1671,6 +1671,13 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         "momentum",
         "checkpoint_frequency",
         "evaluation_frequency",
+        "evaluation_opponent",
+        "evaluation_time_limit",
+        "evaluation_jarl_depth",
+        "evaluation_jarl_time_limit",
+        "champion_confidence",
+        "champion_min_pairs",
+        "champion_min_improvement",
         "evaluation_games",
         "evaluation_iterations",
         "max_game_plies",
@@ -1951,6 +1958,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 training = validate_training(
                     config.get("training", {"preset": "smoke", "ruleset": "brandubh"})
                 )
+                if training["evaluation_opponent"] != "shield_bearer":
+                    fail("Optuna requires the comparable fixed Shield bearer objective")
                 trials = config.get("trials", 4)
                 study_name = config.get("study_name", "hnefatafl")
                 if not isinstance(study_name, str) or not 1 <= len(study_name) <= 100:

@@ -52,6 +52,13 @@ TRAINING_FIELDS = {
     "momentum",
     "checkpoint_frequency",
     "evaluation_frequency",
+    "evaluation_opponent",
+    "evaluation_time_limit",
+    "evaluation_jarl_depth",
+    "evaluation_jarl_time_limit",
+    "champion_confidence",
+    "champion_min_pairs",
+    "champion_min_improvement",
     "evaluation_games",
     "evaluation_iterations",
     "max_game_plies",
@@ -137,6 +144,7 @@ class ClaimRequest(BaseModel):
 class ProgressRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lease_token: str = Field(min_length=1, max_length=200)
+    history_offset: StrictInt | None = Field(default=None, ge=0)
     sequence: StrictInt = Field(ge=0)
     progress: dict[str, Any] = Field(default_factory=dict)
     logs: str = Field(default="", max_length=16000)
@@ -517,6 +525,17 @@ class RemoteTraining:
                     fail("A newer training report has already been saved.", 409)
                 if request.sequence > previous:
                     report = clean(request.progress)
+                    if request.history_offset is not None:
+                        retained = job.get("progress", {}).get("history", [])
+                        chunk = report.get("history", [])
+                        offset = request.history_offset
+                        if not isinstance(chunk, list) or offset > len(retained):
+                            fail("Training history offset does not match retained progress.", 409)
+                        # Idempotent sequence handling above also covers ambiguous retries.
+                        # Keep any already retained suffix during supervisor recovery.
+                        report["history"] = (
+                            retained[:offset] + chunk + retained[offset + len(chunk) :]
+                        )
                     report["status"] = job["status"]
                     models = job.get("uploaded_models", {})
                     report["best_models"] = [

@@ -50,7 +50,13 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
           ['neural_evaluations_per_second', 'Neural evaluations / second'],
           ['average_game_length', 'Average game length'],
           ['completed_games', 'Completed games (including draws)'],
+          ['attacker_wins', 'Attacker wins'],
+          ['defender_wins', 'Defender wins'],
           ['drawn_games', 'Drawn games'],
+          ['requested_mcts_simulations', 'Requested MCTS simulations'],
+          ['mcts_simulations', 'Completed MCTS simulations'],
+          ['immediate_win_shortcuts', 'Immediate-win shortcuts'],
+          ['search_deadline_cutoffs', 'Search deadline cutoffs'],
           ['truncated_games', 'Truncated games'],
         ])}
       </div>

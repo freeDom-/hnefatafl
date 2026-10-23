@@ -18,6 +18,8 @@ import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingResumeDialog from './TrainingResumeDialog';
 import { numberField, SelfPlayModeField } from './TrainingFields';
 import TrainingPerformance from './TrainingPerformance';
+import EvaluationSettings from './EvaluationSettings';
+import TrainingEvaluationStatus from './TrainingEvaluationStatus';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
@@ -502,7 +504,10 @@ export default function Training({
               <button
                 type="button"
                 className={kind === 'tune' ? 'active' : ''}
-                onClick={() => setKind('tune')}
+                onClick={() => {
+                  setKind('tune');
+                  update('evaluation_opponent', 'shield_bearer');
+                }}
               >
                 {t('Tune parameters')}
               </button>
@@ -655,6 +660,7 @@ export default function Training({
                 )}
               </p>
             )}
+            <EvaluationSettings config={config} update={update} tuning={kind === 'tune'} />
             <label className="checkbox-label training-retain-best">
               <input
                 type="checkbox"
@@ -702,11 +708,7 @@ export default function Training({
                 {numberField('weight_decay', config, update)}
                 {config.optimizer === 'sgd' && numberField('momentum', config, update)}
                 {numberField('checkpoint_frequency', config, update)}
-                {numberField('evaluation_frequency', config, update)}
-                {numberField('evaluation_games', config, update)}
-                {numberField('evaluation_iterations', config, update)}
                 {numberField('max_game_plies', config, update)}
-                {numberField('evaluation_max_plies', config, update)}
                 {numberField('cpu_threads', config, update)}
                 {numberField('seed', config, update)}
                 <label className="checkbox-label">
@@ -860,6 +862,7 @@ export default function Training({
                 <summary>{t('Training configuration')}</summary>
                 <pre className="log-view">{JSON.stringify(selectedJob.config, null, 2)}</pre>
               </details>
+              <TrainingEvaluationStatus progress={metrics} />
               <TrainingHistoryChart history={metrics.history} />
               <TrainingPerformance progress={metrics} />
               {Array.isArray(metrics.best_models) && metrics.best_models.length > 0 && (

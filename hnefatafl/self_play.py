@@ -32,6 +32,8 @@ class SelfPlayMetrics:
         self.concurrency = concurrency
         self.games = self.positions = self.simulations = 0
         self.completed = self.drawn = self.truncated = 0
+        self.attacker_wins = self.defender_wins = 0
+        self.requested_simulations = self.shortcuts = self.cutoffs = 0
         self.cpu_search_seconds = 0.0
         self.search_traversal_wall_seconds = 0.0
         if self.device.type == "cuda":
@@ -41,6 +43,11 @@ class SelfPlayMetrics:
         self.games += 1
         self.positions += result["plies"]
         self.simulations += result.get("simulations", 0)
+        self.requested_simulations += result.get("requested_simulations", 0)
+        self.shortcuts += result.get("immediate_win_shortcuts", 0)
+        self.cutoffs += result.get("search_deadline_cutoffs", 0)
+        self.attacker_wins += int(result["winner"] == "attackers")
+        self.defender_wins += int(result["winner"] == "defenders")
         self.completed += int(result["winner"] is not None)
         self.drawn += int(result["winner"] == "draw")
         self.truncated += int(result["winner"] is None)
@@ -55,6 +62,11 @@ class SelfPlayMetrics:
             "games": self.games,
             "self_play_positions": self.positions,
             "mcts_simulations": self.simulations,
+            "requested_mcts_simulations": self.requested_simulations,
+            "immediate_win_shortcuts": self.shortcuts,
+            "search_deadline_cutoffs": self.cutoffs,
+            "attacker_wins": self.attacker_wins,
+            "defender_wins": self.defender_wins,
             "games_per_hour": self.games * 3600 / duration,
             "positions_per_second": self.positions / duration,
             "simulations_per_second": self.simulations / duration,
@@ -84,7 +96,7 @@ def _game_context(
     rng = random.Random(seed)
     state = new_game(config["ruleset"])
     examples: list[dict] = []
-    simulations = 0
+    simulations = shortcuts = cutoffs = 0
     started = time.monotonic()
     for ply in range(config["max_game_plies"]):
         if should_stop and should_stop():
@@ -107,6 +119,8 @@ def _game_context(
             state, search_config, diagnostics=details, should_stop=should_stop
         )
         simulations += details.get("simulations", 0)
+        shortcuts += details.get("immediate_win_shortcuts", 0)
+        cutoffs += details.get("deadline_cutoffs", 0)
         area = state.size**2
         examples.append(
             {
@@ -136,6 +150,9 @@ def _game_context(
         "bootstrap_value": value if winner is None else None,
         "plies": len(examples),
         "simulations": simulations,
+        "requested_simulations": len(examples) * config["mcts_iterations"],
+        "immediate_win_shortcuts": shortcuts,
+        "search_deadline_cutoffs": cutoffs,
         "duration": time.monotonic() - started,
     }
 

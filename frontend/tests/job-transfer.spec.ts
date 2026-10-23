@@ -65,6 +65,13 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   await expect(
     dialog.getByRole('spinbutton', { name: 'Self-play games per iteration' }),
   ).toHaveValue('1');
+  await dialog
+    .getByRole('combobox', { name: 'Evaluation opponent', exact: true })
+    .selectOption('champion');
+  await expect(dialog.getByRole('spinbutton', { name: 'Champion confidence level' })).toHaveValue(
+    '0.95',
+  );
+  await expect(dialog.getByRole('spinbutton', { name: 'Jarl evaluation depth' })).toHaveCount(0);
   const resuming = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/training/jobs/${imported.id}/resume`) &&
@@ -80,6 +87,9 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
       { timeout: 30000 },
     )
     .toBe('completed');
+  const continued = await (await request.get(`${api}/training/jobs/${resumed.id}`)).json();
+  expect(continued.progress.metrics.evaluation.opponent).toBe('champion');
+  expect(continued.progress.evaluation_selection.champion_iteration).toBe(1);
   const retained = await (await request.get(`${api}/training/jobs/${imported.id}`)).json();
   expect(retained.progress.iteration).toBe(1);
 });

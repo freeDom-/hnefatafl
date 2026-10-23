@@ -11,6 +11,7 @@
   min-width: 0;
 }
 .training-chart figcaption {
+  overflow-wrap: anywhere;
   font-weight: 600;
   font-size: 13px;
   margin-bottom: 6px;
@@ -55,4 +56,31 @@
 }
 .training-retain-best {
   margin-top: 16px;
+}
+.training-evaluation {
+  margin-block: 16px;
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid var(--line, #d9dacd);
+  border-radius: 8px;
+}
+.training-evaluation legend {
+  font-weight: 600;
+}
+.training-resume-dialog .training-evaluation .form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+.training-history code,
+.training-evaluation-status code {
+  overflow-wrap: anywhere;
+}
+.training-evaluation-status dt {
+  color: var(--ui-subtle);
+  font-size: 11px;
+}
+.training-evaluation-status dd {
+  margin: 6px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
