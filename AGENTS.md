@@ -4,6 +4,10 @@ Each cloud task already has an isolated workspace. Use the existing checkout;
 do not create Git worktrees unless the user explicitly requests one.
 
 Read `ARCHITECTURE.md` and the relevant rules document before changing behavior.
+Use `docs/README.md` to navigate current guides. `make docs` checks local Markdown
+links/anchors/images without extra dependencies; run it for documentation changes.
+Historical releases retain their original evidence and must not be recast as new
+validation. Rules Markdown paths are runtime assets and must not be moved.
 The user's initial implementation requirements are preserved in
 `docs/REQUIREMENTS.md`. `PROGRESS.md` and GitHub release notes distinguish verified
 features from source, hardware and deployment limitations.

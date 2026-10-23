@@ -1,18 +1,25 @@
 # Computer opponents and reproducible evaluation
 
+[Documentation index](README.md) · [Gameplay](GAMEPLAY.md) · [Analysis](ANALYSIS.md)
+
 Computer players consume immutable `engine.State` values and return a legal
 `engine.Move`. They have no database or HTTP dependency. Every algorithm supports
-Brandubh, Tablut market rules and Copenhagen. Search results are bounded by a
-monotonic wall-clock deadline, with a legal fallback if the deadline expires.
+Brandubh, Tablut market rules and Copenhagen. Search loops use a monotonic
+wall-clock deadline and retain a legal fallback when the budget expires; an
+in-progress expansion or inference is not a hard real-time operation.
 
 ## Available opponents
 
-| UI profile | Algorithm | Main parameters |
+Named Shield bearer/Jarl/Seer presets are fixed in New game and Tournament
+setup. Choose **Custom opponent** to edit their budgets. Selecting **Trained model**
+requires a registered model compatible with the selected battlefield.
+
+| UI profile | Algorithm | Preset settings |
 | --- | --- | --- |
-| Shield bearer | One-ply tactical heuristic | `time_limit`, `seed` |
-| Jarl | Iterative-deepening alpha-beta | `depth` (1–8), `time_limit`, `seed` |
-| Seer | Monte Carlo tree search | `iterations`, `exploration`, `rollout_depth`, `time_limit`, `seed` |
-| Trained model | Neural PUCT search | compatible registered model, `iterations`, `exploration`, `temperature`, `time_limit`, `seed` |
+| Shield bearer | One-ply tactical heuristic | Maximum 1 second |
+| Jarl | Iterative-deepening alpha-beta | Depth 5, maximum 2 seconds |
+| Seer | Monte Carlo tree search | 5,000 simulations, exploration 1.4, rollout depth 8, temperature 0, maximum 2 seconds |
+| Trained model | Selected neural wrapper | MCTS by default; profile supplies 40 simulations and maximum 2 seconds; controls remain configurable |
 
 The static heuristic uses defender-relative material, the king's escape distance,
 open escape rays and adjacent attackers. It uses edge escape for Tablut and corner
@@ -36,6 +43,54 @@ Neural search uses a masked policy prior and the model value instead of rollouts
 An immediate one-move win is always taken even with a tiny simulation budget.
 Training additionally applies configurable Dirichlet noise at the root.
 
+## Neural search wrappers
+
+The network supplies a legal policy and defender-relative value; the wrapper
+chooses how to use them. Select **Search wrapper** for a neural opponent in New
+game or Tournament setup. Analysis honors the saved agent wrapper; advisor API
+configurations also accept it. The current advisor UI does not expose a wrapper
+selector and defaults neural advisors to MCTS.
+
+| UI choice / `search_wrapper` | Move selection | Relevant controls |
+| --- | --- | --- |
+| MCTS / `mcts` | PUCT uses masked policy priors and backed-up network/terminal values | `iterations`, `exploration`, `temperature`, `time_limit` |
+| Alpha-beta / `alpha_beta` | Minimax evaluates nonterminal leaves with the model value head | `depth`, `time_limit`; no policy sampling |
+| None (policy only) / `none` | Direct masked network policy; no tree or rollouts | `temperature`: 0 chooses highest probability; positive values sample with the seed |
+
+Missing `search_wrapper` means MCTS for compatibility with older games/models.
+Switching wrappers retains hidden form values, but irrelevant settings do not
+change the selected algorithm's behavior or split equivalent record identities.
+All three modes use the same ruleset/shape checks and legal-action filtering;
+changing the wrapper does not retrain the network. Policy-only position analysis
+reports the raw current-position value head, unlike searched leaf/root estimates.
+Opponent setup hides the time field for policy-only inference: one forward pass is not a
+timed tree search that can return a last completed depth.
+
+For the game API, put a neural configuration under a side's `players` entry:
+
+```json
+{
+  "ruleset": "brandubh",
+  "mode": "human-ai",
+  "human_side": "defenders",
+  "players": {
+    "attackers": {
+      "config": {
+        "algorithm": "neural",
+        "model_id": "REPLACE_WITH_COMPATIBLE_MODEL_ID",
+        "search_wrapper": "alpha_beta",
+        "depth": 3,
+        "time_limit": 2
+      }
+    }
+  }
+}
+```
+
+Submit to `POST /api/games` after replacing the placeholder using `/api/models`.
+The server resolves model IDs to owned files. Headless Python/CLI AI configurations
+instead use a local `model_path`; do not send that path to the browser API.
+
 ## Configuration
 
 ```python
@@ -48,12 +103,31 @@ move = choose_move(state, {
 })
 ```
 
-MCTS budgets range from 1 to 100,000 iterations, exploration from 0 to 20,
-rollout depth from 0 to 128, and wall-clock time from greater than zero to 300
-seconds. A zero temperature selects the most visited root action; positive
-temperatures sample visit counts. No algorithm returns an illegal or
-out-of-turn move. Supplying an unknown algorithm, invalid budget, terminal state,
-missing model or incompatible model raises an explanatory error.
+Defaults and limits depend on the interface. Named presets above are not the
+raw engine defaults and training has [its own bounds](TRAINING.md#configuration-bounds).
+
+| Search field | Core Python/headless limit | Game/tournament API limit | Game UI control |
+| --- | --- | --- | --- |
+| `depth` | 1–8 | 1–5 | 1–5 |
+| `iterations` | 1–100,000 | 1–5,000 | 1–5,000 |
+| `rollout_depth` | 0–128 | 0–50 | Not exposed |
+| `time_limit` | >0–300 seconds | 0.01–15 seconds | 0.05–15 seconds for search |
+| `exploration` | 0–20 | 0–10 | 0–10 |
+| `temperature` | 0–10 | 0–5 | 0–2 |
+
+A direct configuration without `profile_id` uses core defaults: alpha-beta depth 2,
+MCTS 80 simulations, rollout depth 8, exploration 1.4, temperature 0 and a 2-second
+ceiling. Profile selection supplies the named preset's parameters before explicit
+headless overrides. New browser games fix named preset budgets instead; use Custom
+for overrides. Advisors have a separate maximum time setting (default 5, 0.01–15
+seconds through API; see [Analysis](ANALYSIS.md)).
+
+Zero temperature chooses the most visited MCTS root action or highest policy-only
+probability; positive temperature samples. No algorithm intentionally returns an
+illegal or out-of-turn move. Unknown algorithms, invalid budgets, terminal states,
+missing or incompatible models raise errors. A time limit bounds the search loop,
+not hard real-time request latency: a move expansion or network call already in
+progress may overrun its deadline.
 
 For reproducible algorithm comparisons, use fixed seeds and sufficient time that
 the requested simulation/depth budget completes. A tight wall-clock budget can
@@ -74,25 +148,12 @@ shows the training seed separately from evaluation/game seeds. See
 
 ## Tournaments
 
-```sh
-.venv/bin/python -m hnefatafl.cli tournament --config configs/tournament.json > tournament-results.json
-```
-
-The configuration compares two to four independently configured profiles in a
-round robin. Every pair alternates sides and runs the configured even number of
-games for each requested ruleset. Four profiles with two games on one ruleset
-schedule 12 matches. The report
-contains individual move records, outcome/reason, side assignment, per-player
-scores, average game length and average decision time. Wins score one and actual
-rules draws score half. A game reaching `max_plies` with no engine outcome is
-reported as `winner: null`, `outcome: "truncated"`, receives no score, and appears
-in the separate `truncated` count. It is never silently recorded as a draw.
-Moves can be replayed using the deterministic engine to validate each result.
-
-Neural checkpoints require matching rulesets. Use the registry import and export
-commands documented in [TRAINING.md](TRAINING.md). Selecting a trained opponent
-in Human vs AI or AI vs AI uses the same engine and legal-action filtering as the
-traditional opponents.
+See [Tournaments](TOURNAMENTS.md) for browser and CLI round robins, balanced side
+assignments, budgets, scoring and legal replay. Wins score one; rules draws half;
+unfinished move-cap games score zero and remain separate from draws/losses.
+CLI reports go to stdout; browser reports form a persisted, separate collection.
+Use [model import/export](TRAINING_DATA.md#checkpoints-registry-import-and-export)
+for compatible trained opponents.
 
 ## Recorded configurations
 

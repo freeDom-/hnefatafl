@@ -1,11 +1,14 @@
 # Installation and deployment
 
+[Documentation index](README.md) · [Development](DEVELOPMENT.md) · [Data and backup](TRAINING_DATA.md)
+
 ## Requirements
 
-Linux (including Proxmox LXC), Python 3.11+, Node 22+ for building the browser client,
-and `uv` for the locked CPU environment. Node is unnecessary while serving a built
+Linux (including Proxmox LXC), Python 3.12 recommended (3.11+ supported), Node 22+
+for building the browser client, and `uv` for the locked CPU environment. Node is unnecessary while serving a built
 client. Training can run on CPU; useful longer experiments benefit from NVIDIA CUDA.
-See [TRAINING.md](TRAINING.md) for device installation and cost. Docker is optional.
+CI uses Node 24 and uv 0.12.23. See [Performance](PERFORMANCE.md) for device
+installation and cost. Docker is optional.
 
 ## Local production build
 
@@ -51,26 +54,55 @@ stable player IDs, move versions and model/training files are preserved. Startup
 repeat the migration safely. Deleted players stay hidden under the new application;
 rolling back to old code does not understand those tombstones, so restore a consistent
 pre-upgrade data backup when rolling back.
-Before updates, stop the service and archive the entire data directory. SQLite WAL
-files must not be copied independently while writes continue. A consistent backup
-can also be made with SQLite's backup API. Test restoration on an isolated directory.
-Migrating to PostgreSQL is a future storage-adapter task; no automatic migration is
-claimed by this release.
+For the complete storage tree, SQLite jobs registration, migration limitations and
+consistent backups, use [Training data](TRAINING_DATA.md). Database backup alone is
+not a coordinated snapshot of checkpoints/models. PostgreSQL migration tooling is
+not implemented.
+
+| Variable | Default / scope |
+| --- | --- |
+| `HNEFATAFL_DATA_DIR` | `./data` resolved relative to server working directory; writable persistent root |
+| `HNEFATAFL_HOST` | `127.0.0.1`; read by `scripts/start.sh` |
+| `HNEFATAFL_PORT` | `8000`; read by `scripts/start.sh` |
+| `OMP_NUM_THREADS`, `MKL_NUM_THREADS` | Startup/development scripts default to 2 and respect explicit overrides |
+| `VITE_API_TARGET` | Frontend dev proxy target, default `http://127.0.0.1:8000` |
+
+The systemd unit calls uvicorn directly, so change its `ExecStart` for host/port or
+CUDA Python; script-only host/port variables do not alter that command.
+
+## Linux and Proxmox LXC preparation
+
+Install Git, Python with venv support, Node and uv through trusted platform sources.
+Use a writable build checkout and a dedicated unprivileged runtime account. Mount
+persistent storage with ownership/permissions for that account, sufficient disk for
+replay/checkpoints and a backup destination outside the data root. Check actual CPU,
+RAM and disk budgets before long plans or several remote slots. Docker is unnecessary.
+
+Inside LXC, normal CPU deployment uses the same commands. NVIDIA acceleration
+additionally needs host devices and compatible driver libraries passed into the
+container, plus service-user permission to access them. Verify `nvidia-smi` and the
+chosen environment's `devices` output. A CUDA wheel does not configure host drivers
+or LXC passthrough. Follow [separate CUDA setup](PERFORMANCE.md#separate-cuda-environment);
+privileged container settings and hardware-specific passthrough require host-admin
+review and are not validated by this CPU environment.
 
 ## systemd
 
 Create a dedicated `hnefatafl` system user and install the checkout at
 `/opt/hnefatafl`. Install dependencies and build the frontend there. Copy
-`deployment/hnefatafl.service` to `/etc/systemd/system/`, then run:
+[deployment/hnefatafl.service](../deployment/hnefatafl.service) to `/etc/systemd/system/`, then run:
 
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now hnefatafl
 sudo systemctl status hnefatafl
+sudo journalctl -u hnefatafl -n 100 --no-pager
 ```
 
-The service stores data in `/var/lib/hnefatafl` and binds loopback. Run one API
-worker: training process ownership and cancellation belong to that server process.
+The service stores data in `/var/lib/hnefatafl` and binds loopback. `StateDirectory`
+creates the data directory; the checkout and built assets must be readable by the service user. Its filesystem
+hardening permits writes only to the state directory; keep runtime outputs there
+and build/install dependencies before starting the unit. Run one API worker: training process ownership and cancellation belong to that server process.
 On host restart, files remain; interrupted training jobs need checkpoint resumption.
 Stopped tournament workers retain their completed matches and show a terminal
 status rather than being assumed to have continued. The systemd template is supplied for deployment;
@@ -85,18 +117,49 @@ routes private: worker bearer tokens protect only `/api/worker/` routes.
 
 ## Reverse proxy and access
 
-Use `deployment/nginx.conf.example` as a proxy layout. Add your TLS certificate and
+Use [deployment/nginx.conf.example](../deployment/nginx.conf.example) as a proxy layout. Add your TLS certificate and
 authentication before public exposure. This release supports trusted local profiles,
 not authenticated online accounts: game and training management endpoints are
 administrative capabilities. Put the entire application behind a trusted network or
 an authenticated reverse proxy. Configure upload limits and rate/resource limits
-appropriate to your machine. API version checks protect concurrent writes; they do
+appropriate to your machine. The nginx example is HTTP-only and has no configured
+authentication; it is a layout, not a secure deployment by itself. Its 128 MiB body
+limit can be smaller than a multipart request carrying a maximum-sized artifact,
+so account for transport overhead while retaining server-side artifact limits.
+Worker routing guidance is in [Remote training](REMOTE_TRAINING.md#disconnects-and-access).
+API version checks protect concurrent writes; they do
 not authenticate players. Model compatibility validation and tensor-only loading do
 not replace resource limits for untrusted uploads.
 
 ## Updating
 
-Stop the service, back up data, check out a published release, run the locked
-installation/build commands and restart. Read that release's notes for incompatibilities
-and migrations. Validate `/api/health`, a legal game move and model listing after
-the update. Keep the previous checkout and data backup for rollback.
+1. Read the target [release notes](README.md#rulesets-release-history-and-historical-requirements).
+   Quiesce local jobs, tournaments and remote workers, then stop the service.
+2. Make and verify a [consistent full backup](TRAINING_DATA.md#consistent-backup-and-restoration).
+   Record the source code version, storage path and any separate CUDA/CLI environments.
+3. Select the intended published release, run `make install` and `make build` in
+   the checkout. Update remote-worker code to the same release. The CPU lock can
+   replace ad-hoc GPU wheels; use the separate CUDA environment when appropriate.
+4. Restart the service, inspect logs and `/api/health`, create a legal game move,
+   load a model and inspect retained jobs/history. Test restoration/resumption on
+   isolated data before relying on the backup.
+5. If rollback is needed, stop writers and restore the matching prior code,
+   dependencies, built frontend **and complete pre-upgrade data backup**. Do not
+   point old code at a newer schema or overlay unrelated live model/job catalogs.
+
+v0.16.0/v0.17.0 keep schema 7 and the checkpoint format; update workers for new
+training parameters. This is compatibility guidance, not evidence of GPU or
+service-manager execution on your machine.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Startup says browser build missing | Run `make build` in the checkout before `scripts/start.sh` |
+| Health works but browser is stale | Rebuild frontend and confirm proxy/browser cache points at this checkout |
+| Phone cannot connect | Default bind is loopback; use the trusted-LAN host setting and firewall rule |
+| Data vanishes or wrong jobs appear | Confirm effective absolute data root and service working directory; `.env` is not auto-loaded |
+| Permission denied under systemd | State directory ownership, readable checkout/venv and hardening write paths |
+| GPU not detected | Correct server/worker Python, official GPU wheel, host driver and device permissions |
+| Job interrupted by server restart | Local processes do not survive; resume retained full checkpoint into a new job |
+| Restore lists models but jobs cannot resume | Verify full data root, jobs registry and saved absolute paths; see [migration](TRAINING_DATA.md#moving-data-between-installations) |

@@ -58,6 +58,11 @@ longer game/evaluation budget and investigation before interpreting a score.
 
 ## Live history and best models
 
+For checkpoint formats, model registration, resumption and cleanup, use the
+[training data guide](TRAINING_DATA.md). For execution/batch settings and throughput
+interpretation, see [Performance](PERFORMANCE.md). These do not change the plans'
+learning targets below.
+
 ![Retained loss and evaluation history from actual CPU training](screenshots/training-progress.png)
 
 The [running-worker view](screenshots/training-running.png) shows the graphs

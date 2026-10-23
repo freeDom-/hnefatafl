@@ -1,5 +1,7 @@
 # Agent evaluation and move advice
 
+[Documentation index](README.md) · [AI settings and wrappers](AI.md)
+
 Winning chances are independent agent estimates for the **current side to move**.
 The **Show winning chances** checkbox hides or reveals them. Estimates use the
 agent's configured search and are saved for replay; background work never locks
@@ -28,7 +30,10 @@ Choose None (the default), Custom move advisor, Shield bearer, Seer, Jarl or a
 compatible registered model. The maximum search time defaults to 5 seconds and
 is independent of the playing agents' time limits. Custom advisors expose the
 same algorithm, depth, iterations, exploration, temperature and model choices as
-custom opponents. New-game setup no longer contains advisor settings.
+custom opponents. The advisor UI currently has no neural-wrapper selector; neural
+advisors use MCTS by default. API clients can set `search_wrapper` in the advisor
+configuration, and playing-agent reports honor the wrapper selected for that agent.
+New-game setup no longer contains advisor settings.
 
 Advisor search runs on a bounded background executor, separate from gameplay
 requests. Completed alpha-beta depths and MCTS checkpoints update the suggested
@@ -57,6 +62,7 @@ judgment, but does not establish which agent is stronger.
 | Monte Carlo tree search | Mean backed-up root value from completed simulations, including heuristic leaf/rollout cutoffs |
 | Neural search / model-backed MCTS | Mean backed-up neural/terminal leaf value from completed simulations |
 | Alpha-beta with a model | Minimax value from neural leaf evaluations |
+| Neural policy only | Current-position network value head; suggested move comes from the masked policy |
 | Finished position | Exact rules outcome: win 100%, loss 0%, draw 50% |
 
 Search time is a maximum, not a guarantee that all requested depths or
@@ -64,7 +70,8 @@ simulations finish. The display distinguishes configured and completed depth.
 Network depth is taken from the validated model architecture and is independent
 of search depth. Advisors recommend the best searched move regardless of play
 sampling temperature; actual players keep their configured sampling behavior.
-Older `neural_value` reports retain their original value-head source label.
+Policy-only analysis uses `neural_value`. Older reports also retain their original
+value-head source label rather than being retroactively rewritten as search results.
 
 ## API and persistence
 

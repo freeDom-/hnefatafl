@@ -1,5 +1,10 @@
 # Project: Hnefatafl — Cross-Platform Viking Board Game with AI and Machine Learning
 
+> Historical record: the original specification is preserved below, including
+> requested or optional features that may remain unimplemented. It is not a
+> current capability or validation checklist. Use the [documentation index](README.md),
+> [delivery history](../PROGRESS.md) and [validation evidence](VALIDATION.md) for status.
+
 ## 1. Mission and Autonomy
 
 Develop a complete, playable, extensible, and well-tested implementation of **Hnefatafl**, the historical Viking board game, including multiple rulesets, computer opponents, game statistics, and a comprehensive AI training framework.

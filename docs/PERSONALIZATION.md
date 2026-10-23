@@ -1,5 +1,7 @@
 # Records, collections and appearance
 
+[Documentation index](README.md) · [Gameplay](GAMEPLAY.md) · [Model and job data](TRAINING_DATA.md)
+
 ## Human profiles and history
 
 Each human side in **New game** has a player selector. Choose an existing profile
@@ -75,7 +77,7 @@ Completed game histories and historical model labels remain.
 
 Training data has a separate delete action on inactive jobs. It removes that
 job's checkpoints and logs, preserving registered model copies and saved games.
-See [training management](TRAINING.md#managing-models-and-retained-training-data)
+See [training management](TRAINING_DATA.md#managing-models-and-retained-training-data)
 for resumption consequences and shared-study protections.
 
 The delete dialog checks the server's saved records, including unfinished games
@@ -140,10 +142,12 @@ Human profiles retain theirs after deletion. Assignments are never recycled;
 after the 24 single Elder Futhark runes, unique combinations extend the catalog.
 See [IDENTITIES.md](IDENTITIES.md) for identity and migration details.
 
-Tournament participants start with distinct, editable Viking names. The same
-**⚄** dice control rerolls model, tournament and participant suggestions. Names
-stay independent of model/profile choices. Each saved tournament seat has a unique
-participant rune, plus the underlying model/agent rune shown with its details.
+Tournament participants use their selected model or AI profile names; there is
+no separate editable participant alias. Tournament titles remain editable northern
+mythology suggestions. The same **⚄** dice control rerolls model and tournament
+name suggestions. Seats show the underlying model/agent rune; repeated models are
+distinguished by seat number and settings. Older seat-rune reservations remain
+stored but are not a second current participant identity.
 
 The header groups language and appearance at the top right. Decorative overlines
 above page and panel headings have been removed; statistics retain their labels.
