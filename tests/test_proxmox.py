@@ -124,6 +124,7 @@ def host(tmp_path):
         "sort",
         "tail",
         "cat",
+        "chmod",
         "tee",
     ):
         source = sys.executable if command == "python3" else shutil.which(command)
@@ -657,6 +658,7 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
         capture_output=True,
     )
     assert retained.read_text() == '{"repository":"retained/repository","port":8123}'
+    assert Path(host.env["DELEGATE"]).exists(), (result.returncode, result.stderr)
     assert Path(host.env["DELEGATE"]).read_text().splitlines() == (
         [""] if installed else ["--initialize"]
     )
