@@ -361,6 +361,21 @@ namei -l /var/lib/lxc/185/rootfs
 findmnt -T /var/lib/lxc
 ```
 
+Older installer revisions passed their private `umask 077` into `pct create`.
+Proxmox's directory creation inherited it, producing a root-owned mode-0700
+`/var/lib/lxc/<ID>` that mapped container root (typically host UID 100000) could
+not traverse. The installer now runs only `pct create` and `pct start` with the
+normal host `umask 022`; bootstrap files and credentials keep their private mask.
+This prevents that cause for new directories without changing existing permissions.
+
+After an earlier failed attempt, a restrictive staging directory may remain even
+if `pct config <ID>` reports no container. Inspect the path permissions first, or
+retry the updated installer with a fresh, unused ID. Changing the caller's umask
+alone does not fix an old installer that resets it internally, nor does it repair
+existing directories. Proxmox itself may remove its newly allocated disk/config
+when creation fails; a disk-removal message from `pct create` is that internal
+rollback, not an installer request to destroy another container.
+
 The installer does not repair unknown host permission problems, recursively change
 host ownership, disable AppArmor or switch to privileged containers. Resolve the
 host/storage cause before deciding how to handle the retained partial CT.

@@ -28,9 +28,13 @@ REQUIRED = (
 # Every Proxmox command, including all mutations, is a fixture executable. The
 # restricted PATH also prevents accidental fallback to an actual host command.
 DISPATCH = r"""
-import json, os, pathlib, shutil, sys
+import json, os, pathlib, shutil, stat, sys
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
+mask = os.umask(0)
+os.umask(mask)
+with open(os.environ['MASKS'], 'a') as log:
+    log.write(json.dumps([name, args, mask]) + '\n')
 with open(os.environ['CALLS'], 'a') as log:
     log.write(json.dumps([name, args, os.getcwd()]) + '\n')
 case = os.environ.get('CASE', '')
@@ -55,6 +59,14 @@ if name == 'pveam':
     if args[0] == 'list' and case == 'cached':
         print('local:vztmpl/debian-13-standard_13.0-1_amd64.tar.zst 123')
 if name == 'pct':
+    if args[0] == 'create' and case == 'umask':
+        # Like PVE::LXC::mount_all / File::Path::make_path, use the
+        # inherited umask. Model traversal by mapped root (host UID 100000).
+        staging = pathlib.Path(os.environ['PROVISIONING']) / args[1]
+        (staging / 'rootfs').mkdir(parents=True)
+        if not staging.stat().st_mode & stat.S_IXOTH:
+            print('tar: /var/lib/lxc/' + args[1] + '/rootfs: Cannot open: Permission denied')
+            sys.exit(17)
     if args[0] == 'config' and case == 'missing': sys.exit(3)
     if args[0] == 'status':
         if case == 'status-error': sys.exit(7)
@@ -123,6 +135,8 @@ def host(tmp_path):
         **os.environ,
         "PATH": str(bin_dir),
         "CALLS": str(tmp_path / "calls.jsonl"),
+        "MASKS": str(tmp_path / "masks.jsonl"),
+        "PROVISIONING": str(tmp_path / "provisioning"),
         "ARCHIVE": str(tmp_path / "source.tar.gz"),
         "DELEGATE": str(tmp_path / "delegate"),
         "TRANSFERRED": str(tmp_path / "transferred.tar.gz"),
@@ -133,7 +147,9 @@ def host(tmp_path):
         env.pop(key, None)
 
     class Host:
-        def run(self, script, *args, input="\n", process_substitution=False, **changes):
+        def run(
+            self, script, *args, input="\n", process_substitution=False, caller_umask=-1, **changes
+        ):
             command = [str(bin_dir / "bash"), str(checkout / "scripts/proxmox/ct" / script), *args]
             if process_substitution:
                 command = [command[0], "-c", 'bash <(cat "$1") "${@:2}"', "bootstrap", *command[1:]]
@@ -144,6 +160,7 @@ def host(tmp_path):
                 capture_output=True,
                 env={**env, **changes},
                 cwd=tmp_path,
+                umask=caller_umask,
             )
 
         def calls(self, name=None):
@@ -371,6 +388,33 @@ def test_native_default_success_and_verified_summary(host):
     assert "192.0.2.185" in result.stdout
     assert "virtual disk allocations" in result.stdout
     assert not list(host.directory.glob("hnefatafl-pve-install.*"))
+    assert_no_destructive_commands(host)
+
+
+@pytest.mark.parametrize("bootstrap", [False, True])
+@pytest.mark.parametrize("caller_umask", [0o000, 0o022, 0o077])
+def test_provisioning_umask_allows_mapped_root_without_exposing_bootstrap(
+    host, bootstrap, caller_umask
+):
+    script = "hnefatafl.sh"
+    if bootstrap:
+        host.archive(script=(host.checkout / REQUIRED[0]).read_bytes())
+        script = "hnefatafl-pve-install.sh"
+    result = host.run(
+        script, CASE="umask", caller_umask=caller_umask, process_substitution=bootstrap
+    )
+    assert result.returncode == 0, result.stderr
+    staging = Path(host.env["PROVISIONING"]) / "185"
+    assert staging.stat().st_mode & 0o777 == 0o755
+    records = [json.loads(line) for line in Path(host.env["MASKS"]).read_text().splitlines()]
+    for name, args, mask in records:
+        if name == "pct" and args[0] in {"create", "start"}:
+            assert mask == 0o022
+        else:
+            assert mask == 0o077
+    assert Path(host.env["TRANSFERRED"]).stat().st_mode & 0o777 == 0o600
+    assert not list(host.directory.glob("hnefatafl-pve-install.*"))
+    assert not list(host.directory.glob("hnefatafl-pve-bootstrap.*"))
     assert_no_destructive_commands(host)
 
 

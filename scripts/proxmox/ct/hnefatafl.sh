@@ -106,14 +106,17 @@ fi
 net="name=eth0,bridge=$bridge,ip=$network"
 [[ -z $gateway ]] || net+=",gw=$gateway"
 stage='Creating LXC'
-if pct create "$ct_id" "$template_storage:vztmpl/$template" --hostname hnefatafl --unprivileged 1 --cores "$cpu" --memory "$ram" --swap 1024 --rootfs "$storage:$disk" --net0 "$net" --onboot 1 --features nesting=0 2>&1 | tee "$temporary/create.log"; then
+# Proxmox creates staging directories with the inherited umask. Its mapped
+# container root must traverse them; keep 077 for our private files, but use the
+# normal host mask for provisioning. This never changes existing permissions.
+if (umask 022; exec pct create "$ct_id" "$template_storage:vztmpl/$template" --hostname hnefatafl --unprivileged 1 --cores "$cpu" --memory "$ram" --swap 1024 --rootfs "$storage:$disk" --net0 "$net" --onboot 1 --features nesting=0) 2>&1 | tee "$temporary/create.log"; then
   created=1
 else
   status=$?
   failure "$status"
 fi
 stage='Starting LXC'
-pct start "$ct_id"
+(umask 022; exec pct start "$ct_id")
 stage='Transferring bootstrap'
 # Credentials are entered directly on the container console, never stored on PVE.
 tar -czf "$temporary/bootstrap.tar.gz" -C "$script_root" scripts/linux scripts/proxmox/install hnefatafl/deployment.py
