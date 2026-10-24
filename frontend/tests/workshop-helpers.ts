@@ -15,5 +15,5 @@ export async function selectWorkshopJob(page: Page, id: string, name: string) {
   await expect(page.getByRole('navigation', { name: 'Training jobs', exact: true })).toBeVisible();
   const select = page.getByLabel('Selected job', { exact: true });
   if (await select.isVisible()) await select.selectOption(id);
-  else await page.locator('.job-row').filter({ hasText: name }).click();
+  else await page.locator(`.job-row[data-job-id="${id}"]`).filter({ hasText: name }).click();
 }

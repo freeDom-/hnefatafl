@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useI18n } from './i18n';
 import type { Job } from './types';
+import { jobGameCounts } from './trainingGameCounts';
 import {
   activeJob,
   finite,
@@ -31,6 +32,8 @@ interface Props {
   onExport: () => void;
   onRefresh: () => void;
   onDelete: () => void;
+  onUseParameters: () => void;
+  canUseParameters: boolean;
 }
 export default function TrainingJobDashboard({
   job,
@@ -42,6 +45,8 @@ export default function TrainingJobDashboard({
   onExport,
   onRefresh,
   onDelete,
+  onUseParameters,
+  canUseParameters,
 }: Props) {
   const { t, locale } = useI18n();
   const id = useId();
@@ -53,6 +58,9 @@ export default function TrainingJobDashboard({
     setRange(0);
   }, [job.id, revision]);
   const progress = jobProgress(job);
+  const games = jobGameCounts(job);
+  const formatCount = (value: number | undefined) =>
+    value === undefined ? t('Not recorded') : value.toLocaleString(locale);
   const history = useMemo(() => trainingHistory(progress.history), [progress.history]);
   const rangedHistory = useMemo(() => recentHistory(history, range), [history, range]);
   const config = object(job.config?.training) ?? job.config;
@@ -100,7 +108,29 @@ export default function TrainingJobDashboard({
               : t(job.status)}
           </span>
         </div>
+        <dl className="dashboard-game-counts" aria-label={t('Self-play games generated')}>
+          <div>
+            <dt>{t('Job games')}</dt>
+            <dd>{formatCount(games.job)}</dd>
+          </div>
+          <div>
+            <dt>{t('Cumulative training games')}</dt>
+            <dd>{formatCount(games.cumulative)}</dd>
+          </div>
+        </dl>
         <div className="job-actions">
+          <button
+            className="button secondary small"
+            disabled={!canUseParameters}
+            title={
+              !canUseParameters
+                ? t('No valid recorded training parameters are available for this job.')
+                : undefined
+            }
+            onClick={onUseParameters}
+          >
+            {t('Use parameters')}
+          </button>
           {activeJob(job) ? (
             <button
               className="button secondary small"

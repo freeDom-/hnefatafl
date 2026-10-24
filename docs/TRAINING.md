@@ -9,6 +9,13 @@ block the gameplay server. The browser Training page starts, monitors, cancels
 and resumes jobs and lists models. The CLI provides the same compute workflow
 without writing Python code or running a browser.
 
+Use **Use parameters** on any recorded training job to prepare an editable new
+run. Model cards retain **Load training parameters**. Neither action starts work
+or resumes checkpoints/studies. See [configuration reuse and actual self-play
+totals](TRAINING_DASHBOARD.md#recorded-self-play-totals) and
+[counter metadata](TRAINING_DATA.md#recorded-self-play-provenance) for the difference
+between a job's contribution and its model checkpoint's cumulative lineage.
+
 <a id="separate-cuda-environment"></a>
 
 ## Installation and hardware

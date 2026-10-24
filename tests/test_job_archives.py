@@ -144,6 +144,8 @@ def test_real_cpu_roundtrip_resumes_optimizer_and_plays(client, trained_archive)
     assert not {"pid", "worker_id", "lease_token"} & job.keys()
     assert job["progress"]["history"] == result["history"]
     assert job["progress"]["metrics"] == result["metrics"]
+    assert job["progress"]["self_play_games"] == result["self_play_games"]
+    assert job["result"]["model"]["self_play_games"] == result["model"]["self_play_games"]
     assert job["resumable"] is True
     assert client.app.state.store.get_job(existing["id"]) == existing
     discovered = client.get("/api/training/jobs").json()
@@ -174,6 +176,12 @@ def test_real_cpu_roundtrip_resumes_optimizer_and_plays(client, trained_archive)
     assert resumed["status"] == "completed", resumed
     model, next_payload = load_checkpoint(root / "jobs" / next_id / "last.pt")
     assert next_payload["extra"]["iteration"] == 2
+    assert next_payload["metadata"]["self_play_games"] == {
+        "version": 1,
+        "job": 1,
+        "baseline": 1,
+        "cumulative": 2,
+    }
     assert [point["iteration"] for point in next_payload["extra"]["history"]] == [1, 2]
     assert max(v["step"].item() for v in next_payload["optimizer_state"]["state"].values()) > max(
         v["step"].item() for v in payload["optimizer_state"]["state"].values()

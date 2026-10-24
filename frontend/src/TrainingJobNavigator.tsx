@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useI18n } from './i18n';
 import type { Job, Model } from './types';
+import { jobGameCounts } from './trainingGameCounts';
 import { filterJobs, jobName, jobRuleset, jobProgress, finite } from './trainingDashboardData';
 
 export default function TrainingJobNavigator({
@@ -25,6 +26,10 @@ export default function TrainingJobNavigator({
     () => filterJobs(jobs, query, status, sort, models),
     [jobs, query, status, sort, models],
   );
+  const formatGames = (games: number | undefined) =>
+    games === undefined
+      ? t('Not recorded')
+      : t(games === 1 ? '{count} game' : '{count} games', { count: games.toLocaleString(locale) });
   return (
     <nav className="training-job-navigator" aria-label={t('Training jobs')}>
       <label className="mobile-job-selector">
@@ -45,7 +50,7 @@ export default function TrainingJobNavigator({
           )}
           {visible.map((job) => (
             <option key={job.id} value={job.id}>
-              {jobName(job)} · {t(job.status)}
+              {jobName(job)} · {t(job.status)} · {formatGames(jobGameCounts(job).job)}
             </option>
           ))}
         </select>
@@ -113,9 +118,11 @@ export default function TrainingJobNavigator({
         <div className="jobs-list">
           {visible.map((job) => {
             const progress = jobProgress(job);
+            const games = jobGameCounts(job).job;
             return (
               <button
                 key={job.id}
+                data-job-id={job.id}
                 className={`job-row ${selected === job.id ? 'selected' : ''}`}
                 aria-current={selected === job.id ? 'true' : undefined}
                 onClick={() => onSelect(job)}
@@ -125,6 +132,10 @@ export default function TrainingJobNavigator({
                 <span>
                   {jobRuleset(job)} · {t('Iteration')}{' '}
                   {finite(progress.iteration) ? progress.iteration : '—'}
+                  {' · '}
+                  <span aria-label={`${t('Job games')}: ${formatGames(games)}`}>
+                    {formatGames(games)}
+                  </span>
                 </span>
                 <small>
                   {job.created_at

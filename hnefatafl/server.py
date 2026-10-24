@@ -1343,6 +1343,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                             "iteration",
                             "created_at",
                             "architecture",
+                            "self_play_games",
                             "metrics",
                             "evaluation",
                         }

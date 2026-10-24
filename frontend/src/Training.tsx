@@ -6,7 +6,13 @@ import RecordsConfirm from './RecordsConfirm';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
-import { trainingConfig, recordedTrainingConfig } from './trainingPresets';
+import {
+  trainingConfig,
+  recordedTrainingConfig,
+  recordedTrainingParameters,
+} from './trainingPresets';
+import { recordedJobParameters } from './trainingReuse';
+import { trainingNumberFields } from './TrainingFields';
 import TrainingResumeDialog from './TrainingResumeDialog';
 import { opponentName } from './EvaluationSettings';
 import Rune from './Rune';
@@ -18,7 +24,7 @@ import { targetRequest } from './TrainingTarget';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
-import { activeJob, sortJobs } from './trainingDashboardData';
+import { activeJob, sortJobs, jobName } from './trainingDashboardData';
 import './trainingDashboard.css';
 
 interface ModelUsage {
@@ -36,6 +42,22 @@ interface ModelUsage {
 }
 
 const defaults = trainingConfig('tablut', 'recommended');
+const parameterLabels: Record<string, string> = {
+  device: 'Training device',
+  inference_backend: 'Neural inference backend',
+  inference_device: 'Inference device',
+  preset: 'Training preset',
+  optimizer: 'Optimizer',
+  self_play_mode: 'Self-play execution',
+  evaluation_opponent: 'Evaluation opponent',
+  model_name: 'Model name',
+  ruleset: 'Battlefield',
+  search_space: 'Parameter search space (JSON)',
+  trials: 'Trial budget',
+  study_name: 'Study name',
+  study_seed: 'Study random seed',
+  inference_cache_mode: 'Inference cache',
+};
 const metricText = (value: unknown) =>
   typeof value === 'number'
     ? new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 4 }).format(value)
@@ -80,6 +102,7 @@ export default function Training({
   }));
   const [kind, setKind] = useState<'train' | 'tune'>('train');
   const [trials, setTrials] = useState(3);
+  const [studySeed, setStudySeed] = useState(0);
   const [studyName, setStudyName] = useState('hnefatafl-search');
   const [space, setSpace] = useState(
     '{\n  "learning_rate": {"type": "float", "low": 0.0001, "high": 0.003, "log": true},\n  "mcts_iterations": {"type": "int", "low": 4, "high": 16}\n}',
@@ -215,6 +238,7 @@ export default function Training({
               kind,
               trials,
               study_name: studyName,
+              seed: studySeed,
               search_space: JSON.parse(space),
               training: config,
             }
@@ -370,16 +394,48 @@ export default function Training({
     }
   };
   const loadParameters = (model: Model) => {
-    const loaded = recordedTrainingConfig(config, model);
+    const loaded = recordedTrainingParameters(config, model, device);
     if (!loaded) return;
-    setConfig(loaded);
+    setConfig(loaded.config);
     setKind('train');
+    setTarget('local');
     setAdvanced(true);
     setCreationOpen(true);
     setNotice(
       t('Training parameters loaded from {name}. Unrecorded inputs keep their current values.', {
         name: model.name,
-      }),
+      }) + parameterWarnings(loaded.warnings),
+    );
+    requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
+  };
+  const parameterWarnings = (warnings: string[]) =>
+    warnings.length
+      ? ' ' +
+        t('Invalid or unavailable settings kept safe values: {fields}. Review before starting.', {
+          fields: warnings
+            .map((key) => t(trainingNumberFields[key]?.[0] ?? parameterLabels[key] ?? key))
+            .join(', '),
+        })
+      : '';
+  const loadJobParameters = (job: Job) => {
+    const loaded = recordedJobParameters(config, job, device);
+    if (!loaded) return;
+    setConfig(loaded.config);
+    setKind(loaded.kind);
+    setTarget('local');
+    if (loaded.kind === 'tune') {
+      setTrials(loaded.trials);
+      setStudySeed(loaded.seed);
+      setStudyName(loaded.studyName);
+      if (loaded.search) setSpace(JSON.stringify(loaded.search, null, 2));
+    }
+    setAdvanced(true);
+    setCreationOpen(true);
+    setNotice(
+      t(
+        'Parameters copied from job {name}. Unrecorded inputs keep their current values. Starting creates a new job.',
+        { name: `${jobName(job)} (${job.id.slice(0, 8)})` },
+      ) + parameterWarnings(loaded.warnings),
     );
     requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
   };
@@ -521,6 +577,8 @@ export default function Training({
               setTarget,
               trials,
               setTrials,
+              studySeed,
+              setStudySeed,
               studyName,
               setStudyName,
               space,
@@ -609,6 +667,8 @@ export default function Training({
                   revision={dashboardRevision}
                   busy={busy}
                   exporting={exportingJob}
+                  canUseParameters={Boolean(recordedJobParameters(config, selectedJob))}
+                  onUseParameters={() => loadJobParameters(selectedJob)}
                   onCancel={() => void cancel(selectedJob.id)}
                   onResume={() => void resume(selectedJob)}
                   onExport={() => void exportTrainingJob(selectedJob)}

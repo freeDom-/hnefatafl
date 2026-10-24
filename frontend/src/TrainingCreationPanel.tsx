@@ -19,6 +19,8 @@ interface Props {
   setTarget: Dispatch<SetStateAction<string>>;
   trials: number;
   setTrials: Dispatch<SetStateAction<number>>;
+  studySeed: number;
+  setStudySeed: Dispatch<SetStateAction<number>>;
   studyName: string;
   setStudyName: Dispatch<SetStateAction<string>>;
   space: string;
@@ -43,6 +45,8 @@ export default function TrainingCreationPanel({
   setTarget,
   trials,
   setTrials,
+  studySeed,
+  setStudySeed,
   studyName,
   setStudyName,
   space,
@@ -331,14 +335,31 @@ export default function TrainingCreationPanel({
                 <input
                   type="number"
                   min="1"
-                  max="1000"
+                  max="10000"
+                  required
                   value={trials}
                   onChange={(e) => setTrials(Number(e.target.value))}
                 />
               </label>
               <label>
                 {t('Study name')}
-                <input required value={studyName} onChange={(e) => setStudyName(e.target.value)} />
+                <input
+                  required
+                  maxLength={100}
+                  value={studyName}
+                  onChange={(e) => setStudyName(e.target.value)}
+                />
+              </label>
+              <label>
+                {t('Study random seed')}
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  max="4294967295"
+                  value={studySeed}
+                  onChange={(event) => setStudySeed(event.currentTarget.valueAsNumber)}
+                />
               </label>
             </div>
             <label>

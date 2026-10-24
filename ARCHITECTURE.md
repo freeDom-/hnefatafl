@@ -259,5 +259,9 @@ the application. See [Remote training](docs/REMOTE_TRAINING.md) and
 small dependency-free responsive SVG renderer used by `TrainingHistoryChart`
 and the performance view. `trainingDashboardData` normalizes optional legacy
 metrics and separates effective evaluation contexts/incumbents. Large tables
-and raw diagnostics mount on disclosure. No backend response or training format
-changes are needed. See the [dashboard guide](docs/TRAINING_DASHBOARD.md).
+and raw diagnostics mount on disclosure. Shared allowlisted configuration reuse
+opens an editable fresh-job form for models and jobs. `game_statistics.py` records
+versioned job-local/baseline/cumulative self-play counters in existing JSON and
+checkpoint metadata; immutable selection snapshots retain their own totals.
+Tensor format and database schema remain unchanged. See the
+[dashboard guide](docs/TRAINING_DASHBOARD.md).

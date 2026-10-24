@@ -12,6 +12,7 @@ import torch
 from hnefatafl.models import PolicyValueNet, export_checkpoint, save_checkpoint
 from hnefatafl.server import create_app
 from hnefatafl.training import normalize_config
+from hnefatafl.game_statistics import self_play_statistics
 
 
 @pytest.fixture
@@ -74,7 +75,12 @@ def artifacts(tmp_path):
     checkpoint = save_checkpoint(
         tmp_path / "full.pt",
         model,
-        {"name": "Cloud raven", "version": 1, "training_config": config},
+        {
+            "name": "Cloud raven",
+            "version": 1,
+            "training_config": config,
+            "self_play_games": self_play_statistics(2, 4),
+        },
         optimizer,
         {
             "iteration": 1,
@@ -246,10 +252,21 @@ def test_progress_sequences_keep_latest_snapshot_and_do_not_duplicate_log_tails(
     )
     assert report(client, headers, lease, sequence=2, iteration=999).status_code == 200
     assert report(client, headers, lease, sequence=1).status_code == 409
-    assert report(client, headers, lease, sequence=3).status_code == 200
+    assert (
+        report(
+            client,
+            headers,
+            lease,
+            sequence=3,
+            self_play_games=self_play_statistics(2, 4),
+            games_generated=6,
+        ).status_code
+        == 200
+    )
     saved = client.get(f"/api/training/jobs/{lease['id']}").json()
     assert saved["logs"] == "latest tail"
     assert saved["progress"]["iteration"] == 3
+    assert saved["progress"]["self_play_games"] == self_play_statistics(2, 4)
     assert "checkpoint" not in saved["progress"] and "token" not in saved["progress"]
     assert (
         client.post(
@@ -303,6 +320,7 @@ def test_artifacts_are_validated_and_completion_requires_owned_full_state(
     assert done.json()["progress"]["status"] == "completed"
     assert finish(client, headers, lease).json() == done.json()
     assert len(client.get("/api/models").json()) == 1
+    assert client.get("/api/models").json()[0]["self_play_games"] == self_play_statistics(2, 4)
     assert report(client, headers, lease, sequence=99).status_code == 409
     # Cancellation wins even if the worker has already decided to report success.
     queue(client)

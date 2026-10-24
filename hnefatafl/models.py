@@ -233,6 +233,10 @@ def _validate_metadata(metadata: dict[str, Any], ruleset: str) -> None:
     """Validate public JSON fields before they can reach a registry or browser."""
     if not isinstance(metadata, dict):
         raise ValueError("Checkpoint metadata must be an object")
+    if "self_play_games" in metadata:
+        from .game_statistics import validate_statistics
+
+        validate_statistics(metadata["self_play_games"])
     if "version" in metadata:
         version = metadata["version"]
         valid_number = type(version) is int and 0 <= version <= 2**53 - 1
@@ -385,6 +389,11 @@ def export_checkpoint(source: str | Path, target: str | Path) -> Path:
     if source.resolve() == target.resolve():
         raise ValueError("Inference export must use a different path from its training checkpoint")
     model, payload = load_checkpoint(source, device="cpu")
+    from .game_statistics import checkpoint_statistics
+
+    statistics = checkpoint_statistics(payload)
+    if statistics is not None:
+        payload["metadata"]["self_play_games"] = statistics
     return save_checkpoint(target, model, payload["metadata"])
 
 
@@ -554,6 +563,11 @@ class ModelRegistry:
             with temporary.open("rb") as handle:
                 identifier = hashlib.file_digest(handle, "sha256").hexdigest()[:24]
             metadata = payload["metadata"]
+            from .game_statistics import checkpoint_statistics
+
+            statistics = checkpoint_statistics(payload)
+            if statistics is not None:
+                metadata = {**metadata, "self_play_games": statistics}
             # Keep registry metadata JSON-serializable even when checkpoint extras
             # contain optimizer tensors or training RNG state.
             json_metadata = {}
@@ -564,6 +578,7 @@ class ModelRegistry:
                 "created_at",
                 "iteration",
                 "version",
+                "self_play_games",
             ):
                 value = metadata.get(key)
                 if value is not None:

@@ -2,6 +2,14 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Training reuse and self-play totals (`0.25.0`)
+
+The [0.25.0 validation record](releases/v0.25.0.md#validation) reports the complete
+local checks, optional OpenVINO CPU coverage, real remote-worker training/resume,
+58 desktop/mobile browser passes, actual counter persistence and hardware limits.
+Job-local and model-lineage totals are described in the
+[dashboard guide](TRAINING_DASHBOARD.md#recorded-self-play-totals).
+
 ## Optional OpenVINO inference (`0.23.0`)
 
 The [OpenVINO validation record](validation/openvino-2026-10-23.md) records full

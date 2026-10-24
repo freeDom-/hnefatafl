@@ -73,6 +73,12 @@ export interface Player {
   name: string;
 }
 export interface Model {
+  self_play_games?: {
+    version: number;
+    job: number | null;
+    cumulative: number | null;
+    baseline: number | null;
+  };
   rune?: string;
   id: string;
   name: string;

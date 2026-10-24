@@ -33,6 +33,7 @@ from .models import (
 )
 from .inference_backends import InferenceBackend, create_inference, normalize_inference
 from .training_presets import RECOMMENDED
+from .game_statistics import checkpoint_cumulative, self_play_statistics
 from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
 
 
@@ -223,6 +224,7 @@ def compact_progress(state: dict) -> dict:
             "iteration",
             "total_iterations",
             "games_generated",
+            "self_play_games",
             "game",
             "epoch",
             "policy_loss",
@@ -548,7 +550,8 @@ def train(
     ).to(device)
     optimizer = _make_optimizer(model, config)
     replay: list[dict] = []
-    completed = games_generated = 0
+    completed = job_games = 0
+    baseline: int | None = 0
     best_score = -1.0
     best_snapshot: dict | None = None
     metrics: dict = {}
@@ -593,7 +596,7 @@ def train(
         history = extra.get("history", [])
         best_models = extra.get("best_models", [])
         completed = int(extra.get("iteration", 0))
-        games_generated = int(extra.get("games_generated", 0))
+        baseline = checkpoint_cumulative(payload)
         replay = extra.get("replay", [])[-config["replay_buffer_size"] :]
         best_score = float(extra.get("best_score", -1))
         best_snapshot = extra.get("best_snapshot")
@@ -626,6 +629,7 @@ def train(
                 "training_config": config,
                 "metrics": {},
                 "evaluation": {},
+                "self_play_games": self_play_statistics(job_games, baseline),
             },
             best_snapshot,
         )
@@ -641,7 +645,8 @@ def train(
         "status": "running",
         "iteration": completed,
         "total_iterations": config["iterations"],
-        "games_generated": games_generated,
+        "games_generated": baseline,
+        "self_play_games": self_play_statistics(job_games, baseline),
         "device": str(device),
         "mixed_precision": mixed,
         "checkpoint": None,
@@ -654,6 +659,8 @@ def train(
 
     def publish(**changes):
         state.update(changes)
+        state["self_play_games"] = self_play_statistics(job_games, baseline)
+        state["games_generated"] = state["self_play_games"]["cumulative"]
         state["duration"] = time.monotonic() - started
         if device.type == "cuda":
             state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
@@ -668,12 +675,13 @@ def train(
             "training_config": config,
             "metrics": metrics,
             "evaluation": metrics.get("evaluation", {}),
+            "self_play_games": self_play_statistics(job_games, baseline),
         }
 
     def checkpoint_now(path: Path):
         extra = {
             "iteration": completed,
-            "games_generated": games_generated,
+            "games_generated": self_play_statistics(job_games, baseline)["cumulative"],
             "replay": replay,
             "best_score": best_score,
             "best_snapshot": best_snapshot,
@@ -702,10 +710,10 @@ def train(
             iteration_start = time.monotonic()
 
             def commit_game(index: int, examples: list[dict], result: dict) -> None:
-                nonlocal replay, games_generated
+                nonlocal replay, job_games
                 replay.extend(examples)
                 replay = replay[-config["replay_buffer_size"] :]
-                games_generated += 1
+                job_games += 1
 
             refresh = backend.refresh()
             if should_stop and should_stop():
@@ -887,7 +895,6 @@ def train(
             publish(
                 stage="iteration_complete",
                 iteration=iteration,
-                games_generated=games_generated,
                 policy_loss=metrics["policy_loss"],
                 value_loss=metrics["value_loss"],
                 checkpoint=str(checkpoint) if checkpoint.exists() else None,
@@ -910,7 +917,6 @@ def train(
             status="cancelled",
             stage="cancelled",
             iteration=completed,
-            games_generated=games_generated,
             checkpoint=str(checkpoint),
         )
         result = {
@@ -940,7 +946,6 @@ def train(
             stage=status,
             error=str(error),
             iteration=completed,
-            games_generated=games_generated,
             checkpoint=str(checkpoint),
         )
         raise

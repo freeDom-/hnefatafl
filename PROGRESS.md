@@ -389,3 +389,20 @@ and unique workloads, raw counters and pre-change baseline are in
 integration passed; CUDA, MPS and Intel GPU throughput remain unmeasured. No game,
 checkpoint or storage migration is required. Symmetry augmentation, canonical
 neural inference, search pruning/transposition changes and tree sharing are deferred.
+
+## Training parameter reuse and actual game statistics (`0.25.0`)
+
+- [x] Reuse supported parameters from active/inactive jobs through the shared model loader, with editable expanded creation and source confirmation
+- [x] Validate legacy/partial configuration, explicit zero/false, inference compatibility and nested tuning without copying execution references
+- [x] Show compact job games, separate cumulative lineage and exact selected-model checkpoint totals in English/German
+- [x] Persist versioned optional counter metadata through checkpoint/resume, cancellation/failure, local/remote progress and job/model transfers
+- [x] Preserve real zero and unknown history; exclude evaluation and study-wide estimates
+- [x] Pass `make check`: 950 backend passes/35 skips, 186 frontend tests, lint/types/docs/production build
+- [x] Install optional OpenVINO and pass 70 focused cases/five hardware skips, exercising all 29 earlier missing-package skips
+- [x] Verify 979 distinct backend cases across both runs, with six unavailable CUDA/Intel GPU cases remaining
+- [x] Pass the complete browser suite: 58 passes/four intentional mobile duplicate skips, including real CPU editable reuse/start/resume counts
+
+Final full-suite validation and publication are recorded in the
+[0.25.0 release notes](docs/releases/v0.25.0.md). No database migration or tensor
+format change is required. Tuning study totals and missing historical lineage
+remain explicitly unavailable; GPU execution and target deployment are unverified.

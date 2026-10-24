@@ -1,3 +1,6 @@
+import { trainingNumberFields } from './TrainingFields';
+import type { DeviceInfo } from './types';
+
 export type TrainingPreset = 'recommended' | 'smoke' | 'beginner' | 'balanced';
 export type TrainingConfig = Record<string, string | number | boolean>;
 
@@ -167,44 +170,107 @@ export function changeTrainingPlan(
   };
 }
 
-/** Copy recorded input values only; checkpoint paths and worker metadata are never inputs. */
-export function recordedTrainingConfig(
+export interface RecordedParameters {
+  config: TrainingConfig;
+  warnings: string[];
+}
+
+/** One allowlist/validator for model and job reuse. Execution metadata never becomes input. */
+export function recordedTrainingParameters(
   previous: TrainingConfig,
   model: { name: string; ruleset: string; training_config?: Record<string, unknown> },
-): TrainingConfig | null {
+  capabilities?: DeviceInfo,
+): RecordedParameters | null {
   const recorded = model.training_config;
-  if (!recorded || typeof recorded !== 'object') return null;
+  if (!recorded || typeof recorded !== 'object' || Array.isArray(recorded)) return null;
   const values: TrainingConfig = {};
+  const warnings: string[] = [];
+  const choices: Record<string, string[]> = {
+    preset: ['recommended', 'smoke', 'beginner', 'balanced'],
+    ruleset: ['brandubh', 'tablut', 'copenhagen'],
+    device: ['auto', 'cpu', 'cuda', 'mps'],
+    inference_cache_mode: ['off', 'exact'],
+    inference_backend: ['pytorch', 'openvino'],
+    optimizer: ['adamw', 'adam', 'sgd'],
+    self_play_mode: ['auto', 'sequential', 'batched'],
+    evaluation_opponent: ['shield_bearer', 'shield_maiden', 'jarl', 'champion'],
+  };
+  const validInput = (key: string, value: unknown) => {
+    const bounds = trainingNumberFields[key];
+    return (
+      typeof value === typeof base[key] &&
+      (typeof value !== 'number' || Number.isFinite(value)) &&
+      (!choices[key] || choices[key].includes(String(value))) &&
+      (!bounds ||
+        (typeof value === 'number' &&
+          value >= bounds[1] &&
+          value <= bounds[2] &&
+          (!Number.isInteger(bounds[3] ?? 1) ||
+            (Number.isInteger(value) && (value - bounds[1]) % (bounds[3] ?? 1) === 0)))) &&
+      (key !== 'model_name' || (String(value).trim().length > 0 && String(value).length <= 100)) &&
+      (key !== 'inference_device' || /^(auto|cpu|cuda|mps|GPU(?:\.\d+)?)$/.test(String(value)))
+    );
+  };
   for (const key of Object.keys(base)) {
     const value = recorded[key];
-    if (
-      typeof value === typeof base[key] &&
-      (typeof value !== 'number' || Number.isFinite(value))
-    ) {
-      if (
-        key === 'preset' &&
-        !['recommended', 'smoke', 'beginner', 'balanced'].includes(String(value))
-      )
-        continue;
-      if (key === 'device' && !['auto', 'cpu', 'cuda', 'mps'].includes(String(value))) continue;
-      if (key === 'inference_cache_mode' && !['off', 'exact'].includes(String(value))) continue;
-      if (key === 'inference_backend' && !['pytorch', 'openvino'].includes(String(value))) continue;
-      if (key === 'optimizer' && !['adamw', 'adam', 'sgd'].includes(String(value))) continue;
-      if (key === 'self_play_mode' && !['auto', 'sequential', 'batched'].includes(String(value)))
-        continue;
-      values[key] = value as string | number | boolean;
-    }
+    if (value === undefined) continue;
+    if (validInput(key, value)) values[key] = value as string | number | boolean;
+    else warnings.push(key);
   }
   if (!Object.keys(values).some((key) => !['model_name', 'ruleset', 'preset'].includes(key)))
     return null;
-  return {
-    ...previous,
+  const config: TrainingConfig = {
+    ...base,
+    ...Object.fromEntries(Object.entries(previous).filter(([key]) => Object.hasOwn(base, key))),
+    ...Object.fromEntries(
+      warnings.filter((key) => !validInput(key, previous[key])).map((key) => [key, base[key]]),
+    ),
     inference_backend: 'pytorch',
     inference_device: 'auto',
     inference_cache_mode: 'off',
     inference_cache_capacity: 4096,
     ...values,
-    model_name: model.name,
-    ruleset: model.ruleset,
+    model_name: model.name.trim() && model.name.length <= 100 ? model.name : previous.model_name,
+    ruleset: choices.ruleset.includes(model.ruleset) ? model.ruleset : previous.ruleset,
   };
+  if (!choices.ruleset.includes(model.ruleset)) warnings.push('ruleset');
+  if (capabilities) {
+    if (
+      (config.device === 'cuda' && !capabilities.cuda_available) ||
+      (config.device === 'mps' && !capabilities.mps_available)
+    ) {
+      config.device = 'cpu';
+      warnings.push('device');
+    }
+    if (config.inference_backend === 'openvino') {
+      const requested = String(config.inference_device);
+      const available =
+        capabilities.inference_backends?.includes('openvino') &&
+        capabilities.openvino_devices?.some(
+          (device) =>
+            device.available &&
+            /^GPU(?:\.\d+)?$/.test(device.id) &&
+            (device.id === requested || ['auto', 'GPU'].includes(requested)),
+        );
+      if (available) {
+        if (!['cpu', 'auto'].includes(String(config.device))) warnings.push('device');
+        config.device = 'cpu';
+      } else {
+        config.inference_backend = 'pytorch';
+        config.inference_device = 'auto';
+        warnings.push('inference_backend', 'inference_device');
+      }
+    } else if (config.inference_device !== 'auto' && config.inference_device !== config.device) {
+      config.inference_device = 'auto';
+      warnings.push('inference_device');
+    }
+  }
+  return { config, warnings: [...new Set(warnings)] };
+}
+
+export function recordedTrainingConfig(
+  previous: TrainingConfig,
+  model: { name: string; ruleset: string; training_config?: Record<string, unknown> },
+): TrainingConfig | null {
+  return recordedTrainingParameters(previous, model)?.config ?? null;
 }

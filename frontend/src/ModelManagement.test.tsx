@@ -11,6 +11,7 @@ const rules: Ruleset[] = [
   { id: 'tablut', name: 'Tablut', size: 9, description: '', rules_markdown: '' },
 ];
 const model: Model = {
+  self_play_games: { version: 1, job: 2000, baseline: 4000, cumulative: 6000 },
   id: 'stable-id',
   name: 'Renamed Freydis',
   rune: 'ᚠ',
@@ -33,6 +34,30 @@ const model: Model = {
   },
   evaluation: { seed: 1000069 },
 };
+
+it('shows the checkpoint cumulative count separately from configured games in both languages', () => {
+  const view = render(<ModelTrainingSummary model={model} />);
+  expect(screen.getByText('Total self-play games').nextElementSibling).toHaveTextContent('6,000');
+  expect(screen.getByText('Self-play').nextElementSibling).toHaveTextContent(
+    '13 games / iteration',
+  );
+  act(() => setLanguage('de', false));
+  expect(screen.getByText('Selbstspielpartien insgesamt').nextElementSibling).toHaveTextContent(
+    '6.000',
+  );
+  view.rerender(<ModelTrainingSummary model={{ ...model, self_play_games: undefined }} />);
+  expect(screen.getByText('Selbstspielpartien insgesamt').nextElementSibling).toHaveTextContent(
+    'Nicht aufgezeichnet',
+  );
+  view.rerender(
+    <ModelTrainingSummary
+      model={{ ...model, self_play_games: { version: 1, job: 0, baseline: 0, cumulative: 0 } }}
+    />,
+  );
+  expect(screen.getByText('Selbstspielpartien insgesamt').nextElementSibling).toHaveTextContent(
+    /^0$/,
+  );
+});
 const job: Job = {
   id: 'saved-job',
   status: 'completed',

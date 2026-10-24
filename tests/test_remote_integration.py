@@ -297,6 +297,12 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 first_done = wait_completed(client, first["id"], process, logfile)
                 second_done = wait_completed(client, second["id"], process, logfile)
                 assert first_done["progress"]["history"] and second_done["progress"]["history"]
+                assert first_done["progress"]["self_play_games"] == {
+                    "version": 1,
+                    "job": 1,
+                    "baseline": 0,
+                    "cumulative": 1,
+                }
                 maiden_evaluation = second_done["progress"]["metrics"]["evaluation"]
                 assert maiden_evaluation["opponent"] == "shield_maiden"
                 assert maiden_evaluation["opponent_config"]["algorithm"] == "shield_maiden"
@@ -323,6 +329,12 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 assert resumed_response.status_code == 201, resumed_response.text
                 resumed = wait_completed(client, resumed_response.json()["id"], process, logfile)
                 assert [point["iteration"] for point in resumed["progress"]["history"]] == [1, 2]
+                assert resumed["progress"]["self_play_games"] == {
+                    "version": 1,
+                    "job": 1,
+                    "baseline": 1,
+                    "cumulative": 2,
+                }
                 _, resumed_checkpoint = load_checkpoint(
                     server_data / "jobs" / resumed["id"] / "last.pt"
                 )

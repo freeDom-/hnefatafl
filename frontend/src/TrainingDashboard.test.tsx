@@ -12,6 +12,9 @@ import {
 import { workshopFixtures } from '../tests/workshop-fixtures';
 import { setLanguage } from './i18n';
 import type { Job } from './types';
+import { recordedJobParameters } from './trainingReuse';
+import { trainingConfig } from './trainingPresets';
+import { jobGameCounts } from './trainingGameCounts';
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value } as Response);
 let jobs: Job[];
 let fetcher: ReturnType<typeof vi.fn>;
@@ -38,8 +41,278 @@ afterEach(() => {
   setLanguage('en', false);
 });
 function show() {
-  render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+  render(
+    <Training
+      rulesets={[
+        { id: 'brandubh', name: 'Brandubh', size: 7, description: '', rules_markdown: '' },
+        { id: 'tablut', name: 'Tablut', size: 9, description: '', rules_markdown: '' },
+      ]}
+      models={[]}
+      onError={vi.fn()}
+      onModelsChanged={vi.fn()}
+    />,
+  );
 }
+
+it.each(['completed', 'running', 'queued', 'cancelled', 'failed'])(
+  'copies %s job settings, opens the form and starts only after explicit edits',
+  async (status) => {
+    jobs = [
+      {
+        id: 'original-job',
+        kind: 'train',
+        status,
+        execution: 'remote',
+        target_worker_id: 'unavailable',
+        config: {
+          ...trainingConfig('brandubh', 'smoke'),
+          model_name: 'Recorded Freydis',
+          seed: 0,
+          blocks: 0,
+          mixed_precision: false,
+          weight_decay: 0,
+          evaluation_games: 12,
+          evaluation_opponent: 'jarl',
+          evaluation_jarl_depth: 4,
+          checkpoint_frequency: 3,
+          inference_cache_mode: 'exact',
+          inference_cache_capacity: 512,
+          device: 'cuda',
+          inference_backend: 'openvino',
+          inference_device: 'GPU.9',
+          resume: '/private/last.pt',
+          output_dir: '/private',
+          token: 'secret',
+          internal_id: 'original',
+        },
+      },
+    ];
+    const original = structuredClone(jobs[0]);
+    const scroll = vi.fn();
+    const oldScroll = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      show();
+      await loaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Use parameters' }));
+      expect(screen.getByRole('button', { name: 'Forge a new strategist' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      expect(screen.getByRole('button', { name: /Advanced configuration/ })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      expect(screen.getByLabelText('Model name')).toHaveValue('Recorded Freydis');
+      expect(screen.getByLabelText('Random seed')).toHaveValue(0);
+      expect(screen.getByLabelText('Residual blocks')).toHaveValue(0);
+      expect(screen.getByLabelText('Weight regularization')).toHaveValue(0);
+      expect(screen.getByLabelText('Mixed precision when supported')).not.toBeChecked();
+      expect(screen.getByLabelText('Evaluation games (even)')).toHaveValue(12);
+      expect(screen.getByLabelText('Jarl evaluation depth')).toHaveValue(4);
+      expect(screen.getByLabelText('Checkpoint every (iterations)')).toHaveValue(3);
+      expect(screen.getByLabelText('Training device')).toHaveValue('cpu');
+      expect(screen.getByLabelText('Neural inference backend')).toHaveValue('pytorch');
+      expect(screen.getByLabelText('Inference cache capacity')).toHaveValue(512);
+      expect(screen.getByLabelText('Run training on')).toHaveValue('local');
+      expect(screen.getByText(/Parameters copied from job Recorded Freydis/)).toHaveTextContent(
+        'Invalid or unavailable',
+      );
+      expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+      expect(jobs[0]).toEqual(original);
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      fireEvent.change(screen.getByLabelText('Model name'), { target: { value: 'Editable copy' } });
+      fireEvent.change(screen.getByLabelText('Random seed'), { target: { value: '23' } });
+      fireEvent.submit(screen.getByRole('button', { name: /Start training/ }).closest('form')!);
+      await waitFor(() =>
+        expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+      );
+      const posted = JSON.parse(
+        String(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1]!.body),
+      );
+      expect(posted).toMatchObject({ model_name: 'Editable copy', seed: 23, kind: 'train' });
+      for (const key of ['resume', 'output_dir', 'token', 'internal_id', 'worker_id'])
+        expect(posted).not.toHaveProperty(key);
+      expect(jobs[0]).toEqual(original);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = oldScroll;
+    }
+  },
+);
+
+it('restores nested tuning inputs and study seed into a fresh independent study', async () => {
+  const search = { learning_rate: { type: 'float', low: 0.0001, high: 0.003, log: true } };
+  jobs = [
+    {
+      id: 'original-study',
+      status: 'completed',
+      kind: 'tune',
+      config: {
+        training: {
+          ...trainingConfig('brandubh', 'smoke'),
+          model_name: 'Tuned Freydis',
+          seed: 123,
+        },
+        trials: 7,
+        study_name: 'northern-study',
+        seed: 0,
+        search_space: search,
+        storage: 'sqlite:////private/study.sqlite3',
+        resume_study: 'previous',
+      },
+    },
+  ];
+  show();
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: 'Use parameters' }));
+  expect(screen.getByLabelText('Model name')).toHaveValue('Tuned Freydis');
+  expect(screen.getByLabelText('Random seed')).toHaveValue(123);
+  expect(screen.getByLabelText('Study random seed')).toHaveValue(0);
+  expect(screen.getByLabelText('Trial budget')).toHaveValue(7);
+  expect(screen.getByLabelText('Study name')).toHaveValue('northern-study');
+  expect(
+    JSON.parse(
+      (screen.getByLabelText('Parameter search space (JSON)') as HTMLTextAreaElement).value,
+    ),
+  ).toEqual(search);
+  fireEvent.submit(screen.getByRole('button', { name: /Start tuning/ }).closest('form')!);
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const posted = JSON.parse(
+    String(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1]!.body),
+  );
+  expect(posted).toMatchObject({
+    seed: 0,
+    trials: 7,
+    study_name: 'northern-study',
+    search_space: search,
+    training: { seed: 123 },
+  });
+  expect(posted).not.toHaveProperty('resume_study');
+  expect(posted).not.toHaveProperty('storage');
+});
+
+it('validates partial legacy settings, unsupported values and malformed tuning search spaces', () => {
+  const previous = trainingConfig('brandubh', 'smoke');
+  const copy = recordedJobParameters(previous, {
+    id: 'legacy',
+    status: 'failed',
+    config: {
+      ruleset: 'brandubh',
+      seed: 0,
+      mixed_precision: false,
+      blocks: -1,
+      games: 0,
+      evaluation_games: 3,
+      learning_rate: Infinity,
+      optimizer: 'unsafe',
+      preset: 'missing',
+    },
+  })!;
+  expect(copy.config).toMatchObject({
+    seed: 0,
+    mixed_precision: false,
+    blocks: 0,
+    games: 1,
+    evaluation_games: 2,
+  });
+  expect(copy.warnings).toEqual(
+    expect.arrayContaining([
+      'blocks',
+      'games',
+      'evaluation_games',
+      'learning_rate',
+      'optimizer',
+      'preset',
+    ]),
+  );
+  const tune = recordedJobParameters(previous, {
+    id: 'tune',
+    status: 'failed',
+    kind: 'tune',
+    config: {
+      training: { seed: 0 },
+      trials: -1,
+      seed: -1,
+      search_space: { output_dir: { type: 'categorical', choices: ['/private'] } },
+    },
+  })!;
+  expect(tune.search).toBeUndefined();
+  expect(tune.warnings).toEqual(expect.arrayContaining(['search_space', 'trials', 'study_seed']));
+  expect(
+    recordedJobParameters(previous, { id: 'empty', status: 'completed', config: {} }),
+  ).toBeNull();
+});
+
+it('keeps supported inference settings while excluding all execution references', () => {
+  const previous = trainingConfig('brandubh', 'smoke');
+  const loaded = recordedJobParameters(
+    previous,
+    {
+      id: 'gpu',
+      status: 'running',
+      config: {
+        ...previous,
+        inference_backend: 'openvino',
+        inference_device: 'GPU.0',
+        device: 'cpu',
+        lease_token: 'secret',
+        checkpoint: 'token',
+      },
+    },
+    {
+      inference_backends: ['openvino'],
+      openvino_devices: [{ id: 'GPU.0', name: 'Intel', available: true }],
+    },
+  )!;
+  expect(loaded.config).toMatchObject({ inference_backend: 'openvino', inference_device: 'GPU.0' });
+  expect(loaded.warnings).toEqual([]);
+  expect(loaded.config).not.toHaveProperty('lease_token');
+  expect(loaded.config).not.toHaveProperty('checkpoint');
+});
+
+it('renders locale-aware job-local and cumulative totals and keeps zero distinct from unknown', async () => {
+  setLanguage('de', false);
+  jobs = [
+    {
+      id: 'counts',
+      status: 'running',
+      config: { model_name: 'Counts', iterations: 200 },
+      progress: {
+        iteration: 125,
+        games_generated: 6000,
+        self_play_games: { version: 1, job: 2000, baseline: 4000, cumulative: 6000 },
+      },
+    },
+  ];
+  show();
+  await screen.findByRole('tab', { name: 'Übersicht' });
+  const counts = screen.getByLabelText('Erzeugte Selbstspielpartien');
+  expect(counts).toHaveTextContent('Selbstspielpartien dieses Auftrags2.000');
+  expect(counts).toHaveTextContent('Kumulative Trainingspartien6.000');
+  expect(screen.getByRole('navigation', { name: 'Trainingsaufträge' })).toHaveTextContent(
+    '2.000 Partien',
+  );
+  const base = { id: 'legacy', status: 'cancelled', config: { iterations: 200, games: 40 } };
+  expect(jobGameCounts(base)).toEqual({ job: undefined, cumulative: undefined });
+  expect(jobGameCounts({ ...base, progress: { games_generated: 0 } })).toEqual({
+    job: 0,
+    cumulative: 0,
+  });
+  expect(
+    jobGameCounts({ ...base, config: { resume: 'opaque' }, progress: { games_generated: 6000 } }),
+  ).toEqual({ job: undefined, cumulative: 6000 });
+  expect(
+    jobGameCounts({ ...base, kind: 'tune', progress: { trial_progress: jobs[0].progress } }),
+  ).toEqual({});
+  expect(
+    jobGameCounts({
+      ...base,
+      result: { self_play_games: { version: 1, job: 2, baseline: null, cumulative: null } },
+    }),
+  ).toEqual({ job: 2, cumulative: undefined });
+});
 async function loaded() {
   return screen.findByRole('tab', { name: 'Overview' });
 }

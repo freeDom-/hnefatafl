@@ -311,6 +311,33 @@ pre-upgrade **database and files**, not just an older executable.
 - **Checkpoint exceeds 128 MiB:** reduce future replay/network budgets. Do not disable
   safe-load limits or use unrestricted pickle loading to bypass validation.
 
+## Recorded self-play provenance
+
+Progress JSON and model/checkpoint metadata may contain `self_play_games`:
+
+```json
+{"version": 1, "job": 2000, "baseline": 4000, "cumulative": 6000}
+```
+
+`job` counts committed generated self-play games in this execution; `baseline`
+is the actual cumulative counter loaded from its input checkpoint (zero for a
+new run). `cumulative` is their sum. Unknown counters are `null`, distinct from
+zero. The legacy `games_generated` field retains its cumulative meaning and is
+`null` when the lineage baseline is unknown. Old full checkpoints with a valid
+`extra.games_generated` supply a reliable baseline; budgets never supply one.
+Old inference-only exports without counters remain unknown. There is no automatic
+scan of old training folders or alteration of registered checkpoint bytes.
+
+Counters publish during self-play and persist in normal, cancelled and failed
+full checkpoints. A resumed execution starts a new job counter from zero; it
+does not add the source job's local contribution again. Model-selection snapshots
+capture counters alongside their weights. Best-model exports keep that snapshot's
+count rather than the final job total. Job ZIP migration and inference exports
+preserve recorded metadata; an old full checkpoint's actual cumulative counter is
+also retained when exported as an inference model. Remote progress and validated
+artifacts carry the same optional fields. Tensor format and database schema remain
+unchanged. See [dashboard count semantics](TRAINING_DASHBOARD.md#recorded-self-play-totals).
+
 ## Optional OpenVINO inference
 
 See [Inference backend portability](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.

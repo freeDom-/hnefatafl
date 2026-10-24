@@ -1,4 +1,18 @@
 const translations: Record<string, string> = {
+  'Use parameters': 'Parameter übernehmen',
+  'Parameters copied from job {name}. Unrecorded inputs keep their current values. Starting creates a new job.':
+    'Parameter aus Auftrag {name} übernommen. Nicht aufgezeichnete Eingaben behalten ihre aktuellen Werte. Beim Start entsteht ein neuer Auftrag.',
+  'Invalid or unavailable settings kept safe values: {fields}. Review before starting.':
+    'Ungültige oder nicht verfügbare Einstellungen behalten sichere Werte: {fields}. Vor dem Start prüfen.',
+  'Study random seed': 'Zufallsstartwert der Studie',
+  'Self-play games generated': 'Erzeugte Selbstspielpartien',
+  'Job games': 'Selbstspielpartien dieses Auftrags',
+  'Cumulative training games': 'Kumulative Trainingspartien',
+  'Total self-play games': 'Selbstspielpartien insgesamt',
+  '{count} games': '{count} Partien',
+  '{count} game': '{count} Partie',
+  'No valid recorded training parameters are available for this job.':
+    'Für diesen Auftrag sind keine gültigen aufgezeichneten Trainingsparameter verfügbar.',
   'Study progress': 'Studienfortschritt',
   'Completed trials': 'Abgeschlossene Versuche',
   'Additional trial budget': 'Budget zusätzlicher Versuche',

@@ -1,6 +1,7 @@
 import { useI18n } from './i18n';
 import type { Model } from './types';
 import { modelIteration } from './modelLabel';
+import { modelGameCount } from './trainingGameCounts';
 import './modelSummary.css';
 
 /** These are saved training budgets, rather than the search settings used for a tournament. */
@@ -13,6 +14,7 @@ export default function ModelTrainingSummary({
 }) {
   const { t, locale } = useI18n();
   const config = model.training_config ?? {};
+  const cumulative = modelGameCount(model);
   const number = (value: unknown) =>
     typeof value === 'number' && Number.isFinite(value) ? value : undefined;
   const channels = number(model.architecture?.channels) ?? number(config.channels);
@@ -76,6 +78,10 @@ export default function ModelTrainingSummary({
             .filter(Boolean)
             .join(' · ') || t('Not recorded')}
         </dd>
+      </div>
+      <div>
+        <dt>{t('Total self-play games')}</dt>
+        <dd>{cumulative === undefined ? t('Not recorded') : cumulative.toLocaleString(locale)}</dd>
       </div>
       <div>
         <dt>{t('Learning')}</dt>
