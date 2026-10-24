@@ -55,7 +55,10 @@ jobs:
                            and r["conclusion"] == "success"), None)
           if verified is None:
               raise SystemExit("Tagged commit must have successful Verify CI on main")
-          notes = Path(f"docs/releases/v{tag}.md").read_text()
+          notes_path = Path(f"docs/releases/{tag}.md")
+          if not notes_path.is_file():
+              notes_path = Path(f"docs/releases/v{tag}.md")  # Historical notes only.
+          notes = notes_path.read_text()
           evidence = f"[Verified CI for this tag](https://github.com/{repo}/actions/runs/{int(verified['id'])}).\n\n"
           notes = notes.replace("## Validation\n\n", "## Validation\n\n" + evidence, 1)
           def absolute_link(match):

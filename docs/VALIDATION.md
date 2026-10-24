@@ -2,6 +2,15 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Remote worker application compatibility (`0.26.0`)
+
+The [0.26.0 validation record](releases/0.26.0.md#validation) records exact-version
+and optional commit matching, administrator/CSRF boundaries, persisted overrides,
+claim/heartbeat serialization, multi-job lease continuity, portable provenance,
+real worker training/resume and English/German desktop/mobile controls.
+See [remote worker upgrades](REMOTE_TRAINING.md#application-compatibility-and-upgrades)
+for the distinction between ordinary server restarts and production updater preflight.
+
 ## Training reuse and self-play totals (`0.25.0`)
 
 The [0.25.0 validation record](releases/v0.25.0.md#validation) reports the complete

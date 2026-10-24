@@ -97,7 +97,14 @@ def trained_archive(tmp_path_factory):
 
 
 def test_export_inactive_metadata_optional_files_and_no_mutation(client):
-    job, directory = job_record(client, pid=12345, lease_token="must-not-leak", execution="remote")
+    software = {
+        "worker": {"package_version": "0.25.0", "git_revision": None},
+        "server": {"package_version": "0.26.0", "git_revision": "a" * 40},
+        "version_override_active": True,
+    }
+    job, directory = job_record(
+        client, pid=12345, lease_token="must-not-leak", execution="remote", software=software
+    )
     before = client.app.state.store.get_job(job["id"])
     (directory / "credentials.json").write_text('{"token":"must-not-leak"}')
     data = export(client, job)
@@ -116,6 +123,7 @@ def test_export_inactive_metadata_optional_files_and_no_mutation(client):
             assert info["sha256"] == hashlib.sha256(archive.read(name)).hexdigest()
         record = json.loads(archive.read("job.json"))
         assert record["provenance"]["original_execution"] == "remote"
+        assert record["software"] == software
         assert b"must-not-leak" not in archive.read("job.json")
         assert "pid" not in record and "worker_id" not in record
     assert client.app.state.store.get_job(job["id"]) == before

@@ -408,6 +408,14 @@
     "user_specific": false
   },
   {
+    "method": "PATCH",
+    "route": "/api/training/workers/{worker_id}/version-override",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
     "method": "POST",
     "route": "/api/worker/claim",
     "authentication": "worker bearer + lease",

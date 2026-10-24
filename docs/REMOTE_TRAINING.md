@@ -208,3 +208,108 @@ snapshot contract. Full checkpoints and worker JSON keep all evaluation records.
 ## Optional OpenVINO inference
 
 See [Intel GPU worker setup](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.
+
+## Application compatibility and upgrades
+
+Server and workers must run **the exact same Hnefatafl release**. Starting with
+0.26.0, matching major/minor versions are insufficient: 0.25.0 and 0.26.0, or
+0.26.0 and 0.26.1, cannot start new work together by default. Both processes use
+Python's installed `importlib.metadata.version("hnefatafl")`, the same authority
+as the server's application version. Reinstall/synchronize dependencies after
+changing a checkout; a Git branch name does not change installed metadata.
+Unknown, missing or malformed versions, including the uninstalled `0+local`
+fallback, cannot establish eligibility. Heartbeat capabilities are full snapshots;
+a report omitting `package_version` clears the preceding version report.
+
+Optional `git_revision` comes only from immutable PEP 610 VCS installation
+metadata (`direct_url.json`, complete 40/64-digit commit ID). Editable checkouts
+and source/wheel installs without reliable VCS metadata report no revision.
+Neither server nor worker invokes Git in normal operation. If both revisions are
+known, they must match too. Missing optional revisions do not reject otherwise
+matching releases. Version reporting is authenticated worker self-reporting; it
+is not remote code attestation and does not detect unreported local modifications.
+
+The **Remote workers** cards distinguish connectivity (online/offline) from
+compatibility, show both installed versions, optional revisions, hardware and
+any override. An outdated worker stays enrolled, keeps its token and reports
+heartbeats normally. Explicitly selecting an incompatible worker fails with a
+clear error; automatic selection skips it. The job dashboard distinguishes waits
+for capacity, hardware/inference capabilities, application version and protocol.
+Updating a worker's reported version automatically restores eligibility without
+re-enrollment. A protocol mismatch remains rejected with HTTP 409, but its last
+heartbeat and incompatibility remain visible to administrators.
+
+A server restart/version change does not cancel claimed remote jobs. Valid
+leases can still renew through progress, upload checkpoints/models, and complete;
+idempotent retries of the original claim remain valid. Every additional claim is
+checked against the running server, protocol, hardware, inference backend/cache
+and current override under the same job lock. Lease expiry, ownership, enrolling
+account authorization and revocation continue to apply. Keep downtime shorter
+than the 120-second lease, or jobs may expire normally. This applies independently
+to multiple simultaneous jobs. The production updater currently refuses active
+jobs: finish/cancel them before using that updater. Lease continuity describes
+an ordinary server restart/replacement, not a bypass of the updater's preflight.
+
+To update a worker from 0.25.0 to 0.26.0:
+
+1. Let existing training finish. Pause its claim loop during maintenance.
+2. Update the installed source to the server's release (`git fetch --tags`, then
+   `git checkout 0.26.0` for a checkout installation).
+3. Run `uv sync --frozen --extra train` (add `--extra openvino` if needed).
+4. Restart the worker command with the same token and private work directory.
+5. Confirm that the next heartbeat shows matching versions and **Compatible**.
+
+### Temporary administrator override
+
+Only a logged-in administrator can enable **Version override** on an individual
+worker after acknowledging the warning. It defaults off, persists in the worker's
+existing SQLite JSON record, and records every change with account ID and UTC
+timestamp in `version_override_history`; the latest actor/time are also exposed.
+No schema migration or credential rotation is needed for existing registrations.
+The yellow indicator identifies an active unsupported version combination.
+Different versions can alter learning, checkpoint semantics or evaluation
+behavior, making training inconsistent or benchmark comparisons invalid.
+
+Overrides permit known application-version/commit mismatches only. They cannot
+supply missing/invalid version metadata, bypass protocol/hardware/inference
+checks, authorize revoked credentials or change existing leases. Disable the
+exception after maintenance; incompatible workers immediately lose eligibility
+for new claims while existing leases remain valid. There is no global bypass.
+
+### API and retained software identity
+
+- `GET /api/training/workers` and successful heartbeat responses add
+  `compatibility`: `eligible`, `code`, localized-by-client `reason`, `mismatches`,
+  `protocol_compatible`, `override_enabled`, `override_active`, `worker_version`,
+  `server_version`, `worker_git_revision`, `server_git_revision`.
+- Codes are `compatible`, `application_version_mismatch`,
+  `unknown_application_version`, `git_revision_mismatch`, `incompatible_protocol`
+  and `override_active`. Connectivity remains the separate `status` field.
+  Eligibility covers application/protocol; per-job hardware checks also apply.
+- `PATCH /api/training/workers/{worker_id}/version-override` accepts exactly
+  `{"enabled": true}` or `{"enabled": false}` and returns the refreshed worker.
+  An active administrator session, CSRF and same-origin protections are required;
+  worker bearer credentials do not grant access. Revoked/missing workers return 404.
+- Claims add the same `compatibility` object. An application-incompatible worker
+  receives HTTP 200 with `job: null`; protocol incompatibility returns HTTP 409.
+  Explicit incompatible targets return HTTP 409. Queued job progress adds
+  `queue_reason_code` (`capacity`, `hardware`, `application_version`, `protocol`)
+  alongside the human-readable `queue_reason`.
+- At claim time, `job.software` freezes `worker` and `server` objects containing
+  `package_version`/`git_revision`, plus `version_override_active`. Later heartbeats,
+  server updates or claim retries do not rewrite this evidence. It appears in
+  job Details and portable job ZIPs. Legacy jobs have no invented software identity;
+  checkpoint tensor format and model metadata are unchanged.
+
+### Troubleshooting incompatible workers
+
+Compare both versions in the card, then run
+`.venv/bin/python -c 'from importlib.metadata import version; print(version("hnefatafl"))'`
+using the interpreter that actually starts the worker. Check for an old virtual
+environment, a checkout changed without `uv sync`, or a worker supervisor that
+was not restarted. Wait for its next heartbeat and refresh the workshop. An old
+worker omitting `package_version` must be updated; re-enrolling alone will not fix
+it. If known commits differ, install the same source revision on both sides.
+Hardware/backend/cache incompatibilities require the corresponding runtime and
+operational device, even when version overrides are enabled. Offline status
+requires checking reachability and worker supervision separately from versions.

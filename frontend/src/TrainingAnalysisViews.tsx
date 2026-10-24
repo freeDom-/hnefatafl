@@ -435,6 +435,7 @@ export function TrainingJobDetails({ job, progress }: { job: Job; progress: Valu
           worker_id: job.worker_id,
           target_worker_id: job.target_worker_id,
           worker_name: job.worker_name,
+          software: job.software,
           last_reported_at: job.last_reported_at,
           lease_expires_at: job.lease_expires_at,
           created_at: job.created_at,

@@ -6,7 +6,7 @@ import { suggestVikingName } from './vikingNames';
 import { changeTrainingPlan, type TrainingPreset, type TrainingConfig } from './trainingPresets';
 import { numberField, SelfPlayModeField } from './TrainingFields';
 import EvaluationSettings from './EvaluationSettings';
-import TrainingTarget from './TrainingTarget';
+import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 
 interface Props {
@@ -65,7 +65,7 @@ export default function TrainingCreationPanel({
   const unavailableTarget =
     isRemote &&
     target.startsWith('worker:') &&
-    (!selectedWorker || selectedWorker.status === 'revoked');
+    (!selectedWorker || !workerEligible(selectedWorker));
   const targetDevice = isRemote ? selectedWorker?.capabilities : device;
   return (
     <>

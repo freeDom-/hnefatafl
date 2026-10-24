@@ -26,7 +26,17 @@ def worker(client, name, capacity=1):
     response = client.post("/api/training/workers", json={"name": name, "capacity": capacity})
     assert response.status_code == 201, response.text
     created = response.json()
-    return created["worker"], {"Authorization": "Bearer " + created["token"]}
+    headers = {"Authorization": "Bearer " + created["token"]}
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={
+            "capabilities": {
+                "package_version": created["worker"]["compatibility"]["server_version"]
+            }
+        },
+    )
+    return created["worker"], headers
 
 
 def queued(client, name, **changes):

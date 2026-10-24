@@ -9,6 +9,9 @@ export default function RecordsConfirm({
   busy,
   error,
   confirmDisabled = false,
+  confirmLabel = 'Delete',
+  busyLabel = 'Deleting…',
+  cancelLabel = 'Keep it',
 }: {
   title: string;
   children: React.ReactNode;
@@ -17,6 +20,9 @@ export default function RecordsConfirm({
   busy: boolean;
   error?: string;
   confirmDisabled?: boolean;
+  confirmLabel?: string;
+  busyLabel?: string;
+  cancelLabel?: string;
 }) {
   useI18n();
   const ref = useRef<HTMLDialogElement>(null);
@@ -55,7 +61,7 @@ export default function RecordsConfirm({
       )}
       <div className="modal-actions">
         <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
-          {t('Keep it')}
+          {t(cancelLabel)}
         </button>
         <button
           type="button"
@@ -63,7 +69,7 @@ export default function RecordsConfirm({
           disabled={busy || confirmDisabled}
           onClick={onConfirm}
         >
-          {busy ? t('Deleting…') : t('Delete')}
+          {busy ? t(busyLabel) : t(confirmLabel)}
         </button>
       </div>
     </dialog>

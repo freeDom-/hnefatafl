@@ -95,6 +95,11 @@ export default function TrainingJobDashboard({
           {job.last_reported_at &&
             ` · ${t('Last update {time}', { time: new Date(job.last_reported_at).toLocaleString(locale) })}`}
         </p>
+        {job.status === 'queued' && typeof progress.queue_reason === 'string' && (
+          <p className="job-worker" role="status">
+            {t(progress.queue_reason)}
+          </p>
+        )}
         <div className="dashboard-progress">
           <strong>
             {t('Iteration')} {iteration ?? '—'} / {finite(total) ? total : '—'}

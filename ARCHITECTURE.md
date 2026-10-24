@@ -234,6 +234,16 @@ the database stores its hash. Worker APIs require that token and job-specific
 leases. Public responses strip lease secrets and structured worker file references;
 diagnostic log text is retained as a bounded tail.
 Claims are idempotent, progress is ordered and stale leases cannot publish results.
+New assignments require exact installed application versions and matching known
+immutable VCS revisions, independently of protocol and per-job hardware/inference
+checks. Compatibility is derived from the current process identity and latest
+heartbeat, never persisted as a boolean. One job lock serializes reports,
+administrator overrides and claims. Per-worker overrides and actor/time history
+live in existing worker JSON; only authenticated administrator sessions with CSRF
+can change them. Missing application identity remains ineligible. Job `software`
+snapshots preserve actual claim-time identities and override use, including in
+portable job archives. Existing leases remain independent of application checks
+across server version changes; ownership, expiry and revocation still apply.
 The server validates and imports tensor-only artifacts into owned storage rather
 than trusting remote model IDs or paths. Remote resume jobs copy their input
 checkpoint before entering the queue, so source cleanup cannot break them.

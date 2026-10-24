@@ -85,6 +85,7 @@ JOB_FIELDS = {
     "checkpoint",
     "model_id",
     "provenance",
+    "software",
 }
 
 
@@ -270,7 +271,7 @@ def validate_job(job: dict) -> None:
         if not isinstance(stamp, str) or len(stamp) > 64:
             raise ArchiveError(f"Invalid job {key} timestamp.")
         datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    for key in ("progress", "result", "metrics", "provenance"):
+    for key in ("progress", "result", "metrics", "provenance", "software"):
         if key in job and not isinstance(job[key], dict):
             raise ArchiveError(f"Job {key} must be an object.")
     for key in ("error", "checkpoint"):

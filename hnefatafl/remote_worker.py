@@ -10,7 +10,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
-from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 from pathlib import Path
@@ -671,13 +670,11 @@ def run_worker(
     emit = emit or (lambda event: print(json.dumps(event, allow_nan=False), flush=True))
     from .models import device_info
 
-    try:
-        package = version("hnefatafl")
-    except PackageNotFoundError:
-        package = "0+local"
+    from .versioning import application_metadata
+
     capabilities = {
         "protocol_version": PROTOCOL_VERSION,
-        "package_version": package,
+        **application_metadata(),
         **device_info(),
     }
     results: list[dict] = []

@@ -21,9 +21,10 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from .storage import Store
+from .versioning import known_revision, known_version
 
 PROTOCOL_VERSION = 1
 ACTIVE = {"queued", "pending", "running", "cancelling"}
@@ -196,6 +197,11 @@ class HeartbeatRequest(BaseModel):
     capabilities: dict[str, Any] = Field(default_factory=dict)
 
 
+class VersionOverrideRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+
+
 class ClaimRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str = Field(
@@ -223,13 +229,91 @@ class FinishRequest(BaseModel):
 
 
 class RemoteTraining:
-    def __init__(self, store: Store, root: Path, lock, catalog_lock):
+    def __init__(self, store: Store, root: Path, lock, catalog_lock, *, server_build: dict):
         self.store = store
         self.root = root
         self.lock = lock
         self.catalog_lock = catalog_lock
+        self.server_build = dict(server_build)
         self.lease_seconds = 120
         self.heartbeat_interval = 10
+
+    def compatibility(self, worker: dict) -> dict:
+        capabilities = worker.get("capabilities", {})
+        protocol = capabilities.get("protocol_version", PROTOCOL_VERSION)
+        protocol_ok = type(protocol) is int and protocol == PROTOCOL_VERSION
+        worker_version = known_version(capabilities.get("package_version"))
+        server_version = known_version(self.server_build.get("package_version"))
+        worker_revision = known_revision(capabilities.get("git_revision"))
+        server_revision = known_revision(self.server_build.get("git_revision"))
+        mismatches = []
+        if worker_version is None or server_version is None:
+            mismatches.append("unknown_application_version")
+        elif worker_version != server_version:
+            mismatches.append("application_version_mismatch")
+        if worker_revision and server_revision and worker_revision != server_revision:
+            mismatches.append("git_revision_mismatch")
+        override_enabled = worker.get("version_override_enabled", False) is True
+        override_active = (
+            override_enabled
+            and bool(mismatches)
+            and "unknown_application_version" not in mismatches
+            and protocol_ok
+        )
+        code = (
+            "incompatible_protocol"
+            if not protocol_ok
+            else "override_active"
+            if override_active
+            else mismatches[0]
+            if mismatches
+            else "compatible"
+        )
+        messages = {
+            "compatible": "Compatible",
+            "application_version_mismatch": "Application version mismatch",
+            "unknown_application_version": "Missing or unknown application version",
+            "git_revision_mismatch": "Git commit mismatch",
+            "incompatible_protocol": "Incompatible worker protocol",
+            "override_active": "Administrator override active",
+        }
+        return {
+            "eligible": protocol_ok and (not mismatches or override_active),
+            "code": code,
+            "reason": messages[code],
+            "mismatches": mismatches,
+            "protocol_compatible": protocol_ok,
+            "override_enabled": override_enabled,
+            "override_active": override_active,
+            "worker_version": worker_version,
+            "server_version": self.server_build.get("package_version"),
+            "worker_git_revision": worker_revision,
+            "server_git_revision": server_revision,
+        }
+
+    def queue_status(self, job: dict) -> dict:
+        workers = [
+            worker
+            for worker in self.store.workers()
+            if not worker.get("revoked_at")
+            and job.get("target_worker_id") in (None, worker["id"])
+            and self.public_worker(worker)["status"] == "online"
+        ]
+        hardware = [
+            worker
+            for worker in workers
+            if worker_compatible(job["config"], worker.get("capabilities", {}))
+        ]
+        eligible = [worker for worker in hardware if self.compatibility(worker)["eligible"]]
+        if not workers or eligible:
+            code, reason = "capacity", "Waiting for worker capacity."
+        elif not hardware:
+            code, reason = "hardware", "Waiting for compatible hardware or inference capabilities."
+        elif any(self.compatibility(worker)["protocol_compatible"] for worker in hardware):
+            code, reason = "application_version", "Waiting for a compatible application version."
+        else:
+            code, reason = "protocol", "Waiting for a compatible worker protocol."
+        return {"queue_reason_code": code, "queue_reason": reason}
 
     def directory(self, job_id: str) -> Path:
         if not re.fullmatch(r"[0-9a-f]{32}", job_id):
@@ -259,6 +343,8 @@ class RemoteTraining:
         if visible.get("progress"):
             # The last worker snapshot precedes the authoritative finish/expiry.
             visible["progress"] = {**visible["progress"], "status": job["status"]}
+        if job["status"] == "queued":
+            visible["progress"] = {**visible.get("progress", {}), **self.queue_status(job)}
         return visible
 
     def reconcile(self) -> None:
@@ -289,6 +375,8 @@ class RemoteTraining:
                 if last is not None and timestamp() - last < self.lease_seconds
                 else "offline",
                 "active_jobs": active,
+                "version_override_enabled": worker.get("version_override_enabled", False),
+                "compatibility": self.compatibility(worker),
             }.items()
             if key != "last_seen_epoch"
         }
@@ -336,6 +424,14 @@ class RemoteTraining:
                 worker = self.store.get_worker(worker_id)
                 if worker is None or worker.get("revoked_at"):
                     fail("Choose an available remote worker.")
+                compatibility = self.compatibility(worker)
+                if not compatibility["eligible"]:
+                    fail(
+                        f"Selected worker is incompatible: {compatibility['reason']} "
+                        f"(worker {compatibility['worker_version'] or 'unknown'}, "
+                        f"server {compatibility['server_version']}).",
+                        409,
+                    )
                 if not worker_compatible(config, worker.get("capabilities", {})):
                     fail(
                         "Selected worker is incompatible with the training device or neural inference backend. A compatible worker is required."
@@ -357,7 +453,7 @@ class RemoteTraining:
                 "status": "queued",
                 "target_worker_id": worker_id,
                 "config": saved,
-                "progress": {"queue_reason": "Waiting for a compatible worker with capacity."},
+                "progress": {},
                 "created_at": iso(),
                 "ended_at": None,
                 "error": None,
@@ -475,9 +571,31 @@ class RemoteTraining:
                     "last_seen": None,
                     "capabilities": {},
                     "revoked_at": None,
+                    "version_override_enabled": False,
                 }
                 self.store.create_worker(worker, digest(token))
                 return {"worker": self.public_worker(worker), "token": token}
+
+        @app.patch("/api/training/workers/{worker_id}/version-override")
+        def version_override(worker_id: str, request: VersionOverrideRequest):
+            from .security_context import allowed, principal
+
+            account = principal.get()
+            if not allowed(account, "accounts"):
+                fail("Only authenticated administrators may change version overrides.", 403)
+            assert account is not None
+            with self.lock:
+                worker = self.store.get_worker(worker_id)
+                if worker is None or worker.get("revoked_at"):
+                    fail("Remote worker not found.", 404)
+                if worker.get("version_override_enabled", False) != request.enabled:
+                    event = {"enabled": request.enabled, "at": iso(), "account_id": account["id"]}
+                    worker["version_override_enabled"] = request.enabled
+                    worker["version_override_changed_at"] = event["at"]
+                    worker["version_override_changed_by"] = account["id"]
+                    worker.setdefault("version_override_history", []).append(event)
+                    self.store.save_worker(worker)
+                return self.public_worker(worker)
 
         @app.delete("/api/training/workers/{worker_id}")
         def revoke_worker(worker_id: str):
@@ -513,13 +631,14 @@ class RemoteTraining:
                 if size > 16000:
                     fail("Worker capabilities are too large.", 413)
                 validate_inference_capabilities(request.capabilities)
-                protocol = request.capabilities.get("protocol_version", PROTOCOL_VERSION)
-                if protocol != PROTOCOL_VERSION:
-                    fail("The worker protocol version is incompatible.", 409)
-                if request.capabilities:
-                    worker["capabilities"] = clean(request.capabilities)
+                # A heartbeat is a full snapshot. Missing version fields must not
+                # inherit an earlier report's proof of compatibility.
+                worker["capabilities"] = clean(request.capabilities)
                 self.touch(worker)
                 self.reconcile()
+                if not self.compatibility(worker)["protocol_compatible"]:
+                    # Retain connectivity and diagnostics even for old protocols.
+                    fail("The worker protocol version is incompatible.", 409)
                 return {
                     "worker": self.public_worker(worker),
                     "heartbeat_interval": self.heartbeat_interval,
@@ -531,6 +650,9 @@ class RemoteTraining:
                 worker = self.authenticate(authorization)
                 self.reconcile()
                 self.touch(worker)
+                compatibility = self.compatibility(worker)
+                if not compatibility["protocol_compatible"]:
+                    fail("The worker protocol version is incompatible.", 409)
                 available = next(
                     (
                         job
@@ -543,7 +665,7 @@ class RemoteTraining:
                 if available is not None and available["status"] not in {"running", "cancelling"}:
                     fail("This claim has already ended. Use a new claim request.", 409)
                 active = self.public_worker(worker)["active_jobs"]
-                if available is None and active < worker["capacity"]:
+                if available is None and compatibility["eligible"] and active < worker["capacity"]:
                     available = next(
                         (
                             job
@@ -559,6 +681,7 @@ class RemoteTraining:
                     "job": None,
                     "heartbeat_interval": self.heartbeat_interval,
                     "lease_seconds": self.lease_seconds,
+                    "compatibility": compatibility,
                 }
                 if available is not None:
                     assert authorization is not None
@@ -576,6 +699,14 @@ class RemoteTraining:
                             lease_sequence=-1,
                             started_at=iso(),
                             claim_request_id=request.request_id,
+                            software={
+                                "worker": {
+                                    "package_version": compatibility["worker_version"],
+                                    "git_revision": compatibility["worker_git_revision"],
+                                },
+                                "server": dict(self.server_build),
+                                "version_override_active": compatibility["override_active"],
+                            },
                         )
                     self.renew(available)
                     self.store.save_job(available)

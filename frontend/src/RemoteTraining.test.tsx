@@ -14,6 +14,19 @@ const worker: TrainingWorker = {
   last_seen: '2026-10-22T08:00:00Z',
   active_jobs: 0,
   capabilities: { cuda_available: true, cuda_devices: ['Cloud GPU'] },
+  compatibility: {
+    eligible: true,
+    code: 'compatible',
+    reason: 'Compatible',
+    mismatches: [],
+    protocol_compatible: true,
+    override_enabled: false,
+    override_active: false,
+    worker_version: '0.26.0',
+    server_version: '0.26.0',
+    worker_git_revision: null,
+    server_git_revision: null,
+  },
 };
 const json = (value: unknown, ok = true) =>
   Promise.resolve({ ok, json: async () => value } as Response);

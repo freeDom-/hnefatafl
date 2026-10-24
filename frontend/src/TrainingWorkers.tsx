@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
+import { useAuth } from './Auth';
 import RecordsConfirm from './RecordsConfirm';
 import { useI18n } from './i18n';
 import type { TrainingWorker } from './types';
@@ -13,11 +14,33 @@ export default function TrainingWorkers({
   onChanged: (revokedId?: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const { account } = useAuth();
   const [connect, setConnect] = useState(false);
   const [revoking, setRevoking] = useState<TrainingWorker | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [revokedIds, setRevokedIds] = useState<string[]>([]);
+  const [overriding, setOverriding] = useState<TrainingWorker | null>(null);
+  const changeOverride = async () => {
+    if (!overriding) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(
+        `/training/workers/${overriding.id}/version-override`,
+        {
+          enabled: !overriding.version_override_enabled,
+        },
+        'PATCH',
+      );
+      setOverriding(null);
+      onChanged();
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const visibleWorkers = workers.filter(
     (worker) => worker.status !== 'revoked' && !revokedIds.includes(worker.id),
   );
@@ -59,6 +82,56 @@ export default function TrainingWorkers({
                 <h3>{worker.name}</h3>
                 <span className={`worker-status ${worker.status}`}>{t(worker.status)}</span>
               </div>
+              <p
+                className={`worker-compatibility ${worker.compatibility?.code ?? 'unknown_application_version'}`}
+              >
+                {t(worker.compatibility?.reason ?? 'Missing or unknown application version')}
+              </p>
+              <p>
+                {t('Worker version')}: {worker.compatibility?.worker_version ?? t('Unknown')}
+                {' · '}
+                {t('Server version')}: {worker.compatibility?.server_version ?? t('Unknown')}
+              </p>
+              {(worker.compatibility?.worker_git_revision ||
+                worker.compatibility?.server_git_revision) && (
+                <p className="subtle">
+                  {t('Worker commit')}: {worker.compatibility?.worker_git_revision ?? t('Unknown')}
+                  {' · '}
+                  {t('Server commit')}: {worker.compatibility?.server_git_revision ?? t('Unknown')}
+                </p>
+              )}
+              <p className={worker.version_override_enabled ? 'worker-override-warning' : 'subtle'}>
+                {t(
+                  worker.version_override_enabled
+                    ? 'Version override enabled'
+                    : 'Version override disabled',
+                )}
+                {worker.compatibility?.override_active &&
+                  ` · ${t('Unsupported version combination')}`}
+              </p>
+              {account?.role === 'ADMIN' && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  aria-label={t(
+                    worker.version_override_enabled
+                      ? 'Disable version override for {name}'
+                      : 'Enable version override for {name}',
+                    { name: worker.name },
+                  )}
+                  onClick={() => {
+                    setError('');
+                    setOverriding(worker);
+                  }}
+                >
+                  {t(
+                    worker.version_override_enabled
+                      ? 'Disable version override'
+                      : 'Enable version override',
+                  )}
+                </button>
+              )}
               <p>
                 {t('{active} / {capacity} jobs running', {
                   active: worker.active_jobs,
@@ -118,6 +191,28 @@ export default function TrainingWorkers({
         </p>
       )}
       {connect && <WorkerSetup onClose={() => setConnect(false)} onCreated={onChanged} />}
+      {overriding && (
+        <RecordsConfirm
+          title={t(
+            overriding.version_override_enabled
+              ? 'Disable version override'
+              : 'Enable version override',
+          )}
+          busy={busy}
+          error={error}
+          confirmLabel={t('Apply')}
+          busyLabel="Working…"
+          cancelLabel="Cancel"
+          onCancel={() => setOverriding(null)}
+          onConfirm={() => void changeOverride()}
+        >
+          <p>
+            {t(
+              'Different software versions may produce inconsistent training behavior or invalid benchmark comparisons. Protocol and hardware checks still apply. Existing running jobs keep their leases.',
+            )}
+          </p>
+        </RecordsConfirm>
+      )}
       {revoking && (
         <RecordsConfirm
           title={t('Revoke worker {name}?', { name: revoking.name })}

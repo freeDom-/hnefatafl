@@ -245,7 +245,13 @@ model transfers and worker enrollment. Regular users retain gameplay against
 existing AI, without training/tournament access. Remote workers connect outbound
 through HTTPS, with scoped credentials and job leases. Old worker tokens lacking
 an enrolling account require re-enrollment. See [Remote training](REMOTE_TRAINING.md).
-Stop/cancel local/remote jobs and tournaments and pause remote claim loops before
+Server and workers must run the same exact application release. During an ordinary
+server restart, valid remote leases continue across version changes, but outdated
+workers cannot claim additional work until updated or given an explicit per-worker
+administrator override. No re-enrollment is needed. Keep restart downtime within
+the lease timeout. See [compatibility and worker updates](REMOTE_TRAINING.md#application-compatibility-and-upgrades).
+The production updater's activity preflight remains unchanged:
+stop/cancel local/remote jobs and tournaments and pause remote claim loops before
 updates. Resume from retained checkpoints explicitly afterward; updates never
 silently terminate active training. Future GPU use needs a separate validated
 host/device/runtime plan; CPU-only installation does not configure passthrough.

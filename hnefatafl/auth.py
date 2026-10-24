@@ -342,6 +342,7 @@ grant(
     "/api/training/workers",
 )
 grant("training", "DELETE", "/api/training/jobs/{job_id}", "/api/training/workers/{worker_id}")
+grant("accounts", "PATCH", "/api/training/workers/{worker_id}/version-override")
 grant(
     "worker",
     "POST",

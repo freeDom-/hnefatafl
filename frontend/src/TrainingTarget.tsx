@@ -1,5 +1,10 @@
+import { useId } from 'react';
 import { useI18n } from './i18n';
 import type { Job, TrainingWorker } from './types';
+
+export function workerEligible(worker: TrainingWorker) {
+  return worker.status !== 'revoked' && worker.compatibility?.eligible === true;
+}
 
 export function jobTarget(job: Job) {
   return job.execution === 'remote'
@@ -30,18 +35,29 @@ export default function TrainingTarget({
   disabled?: boolean;
 }) {
   const { t } = useI18n();
+  const warningId = useId();
   const available = workers.filter((worker) => worker.status !== 'revoked');
   const unavailable =
     value.startsWith('worker:') && !available.some((worker) => `worker:${worker.id}` === value);
+  const selected = available.find((worker) => `worker:${worker.id}` === value);
+  const showWarning = selected && (!workerEligible(selected) || selected.version_override_enabled);
   return (
     <label>
       {t('Run training on')}
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+      <select
+        aria-label={t('Run training on')}
+        aria-describedby={showWarning ? warningId : undefined}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      >
         <option value="local">{t('This server')}</option>
         <option value="remote">{t('Any remote worker')}</option>
         {available.map((worker) => (
-          <option key={worker.id} value={`worker:${worker.id}`}>
+          <option key={worker.id} value={`worker:${worker.id}`} disabled={!workerEligible(worker)}>
             {worker.name} · {t(worker.status)} · {worker.active_jobs}/{worker.capacity}
+            {' · '}
+            {t(worker.compatibility?.reason ?? 'Missing or unknown application version')}
           </option>
         ))}
         {unavailable && (
@@ -50,6 +66,12 @@ export default function TrainingTarget({
           </option>
         )}
       </select>
+      {selected && showWarning && (
+        <small role="status" id={warningId}>
+          {t(selected.compatibility?.reason ?? 'Missing or unknown application version')}
+          {selected.version_override_enabled && ` · ${t('Unsupported version combination')}`}
+        </small>
+      )}
     </label>
   );
 }

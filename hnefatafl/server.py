@@ -15,7 +15,6 @@ import tempfile
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal, NoReturn
 from uuid import uuid4
@@ -29,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .identities import agent_identity, effective_ai_config
 from .storage import ConflictError, Store
+from .versioning import application_metadata
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -116,10 +116,8 @@ class TournamentRequest(BaseModel):
 
 
 def create_app(data_dir: str | Path | None = None) -> FastAPI:
-    try:
-        package_version = version("hnefatafl")
-    except PackageNotFoundError:
-        package_version = "0+local"
+    server_build = application_metadata()
+    package_version = server_build["package_version"]
     app = FastAPI(
         title="Hnefatafl", version=package_version, docs_url=None, redoc_url=None, openapi_url=None
     )
@@ -146,7 +144,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     catalog_lock = threading.RLock()
     from .remote_training import RemoteTraining
 
-    remote_training = RemoteTraining(store, root, job_lock, catalog_lock)
+    remote_training = RemoteTraining(store, root, job_lock, catalog_lock, server_build=server_build)
     auth.worker_auth = remote_training.authenticate
     remote_training.attach_routes(app)
 

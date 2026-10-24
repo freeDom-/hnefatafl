@@ -64,6 +64,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
     await post(request, '/heartbeat', token, {
       capabilities: {
         protocol_version: 1,
+        package_version: '0.26.0',
         cuda_available: true,
         cuda_devices: ['Test cloud accelerator'],
         device: 'cuda',
@@ -201,6 +202,7 @@ test('OpenVINO is explicit, hardware aware and stays selected across targets and
     await post(request, '/heartbeat', token, {
       capabilities: {
         protocol_version: 1,
+        package_version: '0.26.0',
         inference_backends: ['pytorch', 'openvino'],
         openvino_version: '2026.4.1',
         openvino_devices: [
@@ -247,6 +249,67 @@ test('OpenVINO is explicit, hardware aware and stays selected across targets and
       inference_device: 'GPU',
     });
     await request.post(`${api}/training/jobs/${job.id}/cancel`);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
+  } finally {
+    await request.delete(`${api}/training/workers/${worker.id}`);
+  }
+});
+
+test('version mismatch stays online and requires an explicit administrator override', async ({
+  page,
+  request,
+}, info) => {
+  const created = await request.post(`${api}/training/workers`, {
+    data: { name: `Version raven ${info.project.name}`, capacity: 1 },
+  });
+  expect(created.ok()).toBe(true);
+  const { worker, token } = await created.json();
+  try {
+    const reported = await post(request, '/heartbeat', token, {
+      capabilities: { protocol_version: 1, package_version: '0.25.0' },
+    });
+    const currentVersion = reported.worker.compatibility.server_version;
+    await openWorkshop(page);
+    await page.getByRole('button', { name: /Remote workers/ }).click();
+    const card = page.locator(`[data-worker-id="${worker.id}"]`);
+    await expect(card.locator('.worker-status')).toHaveText('online');
+    await expect(card.locator('.worker-compatibility')).toHaveText('Application version mismatch');
+    await expect(card).toContainText(`Worker version: 0.25.0 · Server version: ${currentVersion}`);
+    await openCreation(page);
+    await expect(page.getByRole('option', { name: new RegExp(worker.name) })).toHaveJSProperty(
+      'disabled',
+      true,
+    );
+    await card.getByRole('button', { name: /Enable version override for/ }).click();
+    const warning = page.getByRole('dialog', { name: 'Enable version override', exact: true });
+    await expect(warning).toContainText('invalid benchmark comparisons');
+    await warning.getByRole('button', { name: 'Apply', exact: true }).click();
+    await expect(card.locator('.worker-compatibility')).toHaveText('Administrator override active');
+    await expect(card).toContainText('Unsupported version combination');
+    await expect(page.getByRole('option', { name: new RegExp(worker.name) })).toHaveJSProperty(
+      'disabled',
+      false,
+    );
+    await page
+      .getByRole('combobox', { name: 'Run training on', exact: true })
+      .selectOption(`worker:${worker.id}`);
+    await card.getByRole('button', { name: /Disable version override for/ }).click();
+    await page
+      .getByRole('dialog', { name: 'Disable version override', exact: true })
+      .getByRole('button', { name: 'Apply', exact: true })
+      .click();
+    await expect(card.locator('.worker-compatibility')).toHaveText('Application version mismatch');
+    await expect(page.getByRole('button', { name: 'Queue training', exact: true })).toBeDisabled();
+    await post(request, '/heartbeat', token, {
+      capabilities: { protocol_version: 1, package_version: currentVersion },
+    });
+    await expect(card.locator('.worker-compatibility')).toHaveText('Compatible');
+    await expect(page.getByRole('button', { name: 'Queue training', exact: true })).toBeEnabled();
+    await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
+    await expect(card).toContainText('Kompatibel');
+    await expect(card).toContainText('Versionsausnahme deaktiviert');
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
       .toBe(true);

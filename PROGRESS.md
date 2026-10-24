@@ -406,3 +406,20 @@ Final full-suite validation and publication are recorded in the
 [0.25.0 release notes](docs/releases/v0.25.0.md). No database migration or tensor
 format change is required. Tuning study totals and missing historical lineage
 remain explicitly unavailable; GPU execution and target deployment are unverified.
+
+## Remote worker application compatibility (`0.26.0`)
+
+- [x] Exact installed server/worker application identities and optional immutable Git revisions govern new claims independently of protocol and hardware/inference compatibility.
+- [x] Outdated workers remain enrolled and visible; structured API states and queue reasons explain compatibility separately from connectivity.
+- [x] Per-worker administrator exceptions persist with actor/time audit history, session/CSRF enforcement and immediate effect on new assignments.
+- [x] New assignments serialize with heartbeat/override changes; existing valid leases continue progress, checkpoints and completion across server version changes.
+- [x] Frozen claim-time software identity and override use appear in job Details and portable job ZIPs; legacy records require no migration or fabricated metadata.
+- [x] English/German worker cards, compatibility indicators, administrator warnings and guarded creation/resume selectors agree with backend eligibility.
+
+- [x] `make check` passed with 1,012 backend passes / 6 hardware skips and 191 frontend passes; the full Chromium desktop/mobile suite passed 60 checks / 4 intentional duplicate skips. Documentation, Ruff, mypy, frontend formatting/types, foundation/autograd and production build passed.
+
+See the [0.26.0 release record](docs/releases/0.26.0.md) for final validation,
+upgrade instructions and hardware/deployment limits. Version self-reporting is not
+code attestation; unknown versions cannot use overrides and missing optional commit
+metadata does not block matching releases. The production updater still refuses
+active jobs; ordinary restart continuity remains bounded by lease expiry.

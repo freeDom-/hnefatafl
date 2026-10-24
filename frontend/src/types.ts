@@ -122,6 +122,24 @@ export interface Job {
   worker_name?: string | null;
   lease_expires_at?: string | null;
   last_reported_at?: string | null;
+  software?: {
+    worker: { package_version: string | null; git_revision: string | null };
+    server: { package_version: string; git_revision: string | null };
+    version_override_active: boolean;
+  };
+}
+export interface WorkerCompatibility {
+  eligible: boolean;
+  code: string;
+  reason: string;
+  mismatches: string[];
+  protocol_compatible: boolean;
+  override_enabled: boolean;
+  override_active: boolean;
+  worker_version: string | null;
+  server_version: string;
+  worker_git_revision: string | null;
+  server_git_revision: string | null;
 }
 export interface TrainingWorker {
   id: string;
@@ -132,8 +150,13 @@ export interface TrainingWorker {
   created_at?: string;
   capabilities: DeviceInfo;
   active_jobs: number;
+  compatibility?: WorkerCompatibility;
+  version_override_enabled?: boolean;
 }
 export interface DeviceInfo {
+  package_version?: string;
+  git_revision?: string | null;
+  protocol_version?: number;
   inference_backends?: string[];
   inference_cache_modes?: string[];
   openvino_version?: string;

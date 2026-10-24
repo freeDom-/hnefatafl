@@ -16,18 +16,29 @@ from hnefatafl.game_statistics import self_play_statistics
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "hnefatafl.server.application_metadata",
+        lambda: {"package_version": "0.26.0", "git_revision": None},
+    )
     with TestClient(create_app(tmp_path / "server")) as session:
         yield session
 
 
-def worker(client, capacity=1):
+def worker(client, capacity=1, *, connected=True):
     response = client.post(
         "/api/training/workers", json={"name": "Cloud raven", "capacity": capacity}
     )
     assert response.status_code == 201, response.text
     value = response.json()
-    return value["worker"], {"Authorization": "Bearer " + value["token"]}
+    headers = {"Authorization": "Bearer " + value["token"]}
+    if connected:
+        client.post(
+            "/api/worker/heartbeat",
+            headers=headers,
+            json={"capabilities": {"package_version": client.app.version}},
+        )
+    return value["worker"], headers
 
 
 def queue(client, **changes):
@@ -110,7 +121,7 @@ def finish(client, headers, lease, status="completed"):
 
 
 def test_worker_credentials_are_hashed_scoped_and_shown_only_once(client):
-    remote, headers = worker(client)
+    remote, headers = worker(client, connected=False)
     token = headers["Authorization"][7:]
     public = client.get("/api/training/workers").json()
     assert public[0]["status"] == "offline"
@@ -130,14 +141,20 @@ def test_worker_credentials_are_hashed_scoped_and_shown_only_once(client):
         client.post(
             "/api/worker/heartbeat",
             headers=headers,
-            json={"capabilities": {"protocol_version": 99}},
+            json={"capabilities": {"package_version": client.app.version, "protocol_version": 99}},
         ).status_code
         == 409
     )
     response = client.post(
         "/api/worker/heartbeat",
         headers=headers,
-        json={"capabilities": {"protocol_version": 1, "cuda_available": True}},
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "protocol_version": 1,
+                "cuda_available": True,
+            }
+        },
     )
     assert response.json()["worker"]["id"] == remote["id"]
     assert response.json()["worker"]["status"] == "online"
@@ -161,7 +178,7 @@ def test_worker_list_hides_revoked_credentials_after_restart_and_preserves_histo
     client, artifacts
 ):
     online, online_headers = worker(client)
-    offline, _ = worker(client)
+    offline, _ = worker(client, connected=False)
     revoked, headers = worker(client)
     assert client.post("/api/worker/heartbeat", headers=online_headers, json={}).status_code == 200
     # A previously connected machine remains listed after its heartbeat becomes stale.
@@ -225,7 +242,9 @@ def test_remote_gpu_jobs_do_not_require_local_gpu_and_skip_cpu_workers(client):
     cpu_job = queue(client)
     assert claim(client, cpu)["id"] == cpu_job["id"]
     client.post(
-        "/api/worker/heartbeat", headers=gpu, json={"capabilities": {"cuda_available": True}}
+        "/api/worker/heartbeat",
+        headers=gpu,
+        json={"capabilities": {"package_version": client.app.version, "cuda_available": True}},
     )
     assert claim(client, gpu)["id"] == gpu_job["id"]
     assert (
@@ -358,6 +377,7 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
         headers=headers,
         json={
             "capabilities": {
+                "package_version": client.app.version,
                 "inference_backends": ["pytorch"],
                 "inference_cache_modes": ["off", "exact"],
             }
@@ -463,6 +483,7 @@ def test_openvino_scheduling_is_opt_in_and_requires_operational_devices(client):
     cpu, cpu_auth = worker(client)
     intel, intel_auth = worker(client)
     gpu_caps = {
+        "package_version": client.app.version,
         "protocol_version": 1,
         "inference_backends": ["pytorch", "openvino"],
         "openvino_version": "2026.4.1",
@@ -505,7 +526,9 @@ def test_openvino_scheduling_is_opt_in_and_requires_operational_devices(client):
     assert incompatible_gpu.status_code == 400
     # A retried claim after capability loss must retain explicit backend intent.
     client.post(
-        "/api/worker/heartbeat", headers=intel_auth, json={"capabilities": {"protocol_version": 1}}
+        "/api/worker/heartbeat",
+        headers=intel_auth,
+        json={"capabilities": {"package_version": client.app.version, "protocol_version": 1}},
     )
     retried = claim(client, intel_auth, "intel-gpu")
     assert retried["config"]["inference_backend"] == "openvino"
@@ -525,6 +548,7 @@ def test_openvino_cpu_only_report_does_not_claim_gpu_job(client):
         headers=headers,
         json={
             "capabilities": {
+                "package_version": client.app.version,
                 "inference_backends": ["pytorch", "openvino"],
                 "openvino_devices": [
                     {"id": "CPU", "name": "CPU", "available": True},
@@ -536,7 +560,13 @@ def test_openvino_cpu_only_report_does_not_claim_gpu_job(client):
     queue(client, inference_backend="openvino", inference_device="GPU")
     assert claim(client, headers) is None
     assert client.post(
-        "/api/worker/heartbeat", json={"capabilities": {"inference_backends": ["openvino"]}}
+        "/api/worker/heartbeat",
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "inference_backends": ["openvino"],
+            }
+        },
     ).status_code in {401, 403}
 
 

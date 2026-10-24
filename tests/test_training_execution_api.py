@@ -12,7 +12,11 @@ from hnefatafl.training import normalize_config
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "hnefatafl.server.application_metadata",
+        lambda: {"package_version": "0.26.0", "git_revision": None},
+    )
     with TestClient(create_app(tmp_path / "server")) as session:
         yield session
 
@@ -53,7 +57,12 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         client.post(
             "/api/worker/heartbeat",
             headers=headers,
-            json={"capabilities": {"inference_cache_modes": ["off", "exact"]}},
+            json={
+                "capabilities": {
+                    "package_version": client.app.version,
+                    "inference_cache_modes": ["off", "exact"],
+                }
+            },
         ).status_code
         == 200
     )
@@ -165,9 +174,14 @@ def test_legacy_checkpoint_resume_prefills_defaults_and_accepts_execution_overri
         assert resumed[key] == config[key]
 
 
-def test_old_workers_keep_default_jobs_and_cannot_claim_exact_jobs(client):
+def test_workers_without_cache_extension_keep_default_jobs_and_cannot_claim_exact_jobs(client):
     worker = client.post("/api/training/workers", json={"name": "Legacy", "capacity": 1}).json()
     headers = {"Authorization": "Bearer " + worker["token"]}
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={"capabilities": {"package_version": client.app.version}},
+    )
     exact = client.post(
         "/api/training/jobs",
         json={"execution": "remote", "preset": "smoke", "inference_cache_mode": "exact"},

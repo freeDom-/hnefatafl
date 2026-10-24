@@ -44,6 +44,21 @@
 .worker-status.online {
   color: var(--ui-copy, #437347);
 }
+.worker-compatibility.compatible {
+  color: var(--ui-copy, #437347);
+}
+.worker-compatibility.application_version_mismatch,
+.worker-compatibility.git_revision_mismatch,
+.worker-compatibility.incompatible_protocol {
+  color: var(--danger, #b53f3f);
+}
+.worker-compatibility.unknown_application_version {
+  color: var(--muted);
+}
+.worker-compatibility.override_active,
+.worker-override-warning {
+  color: var(--warning, #a76a16);
+}
 .worker-card p,
 .worker-card small {
   display: block;

@@ -3,7 +3,7 @@ import { api } from './api';
 import { useI18n } from './i18n';
 import type { Job, TrainingWorker, DeviceInfo } from './types';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
-import TrainingTarget, { jobTarget, targetRequest } from './TrainingTarget';
+import TrainingTarget, { jobTarget, targetRequest, workerEligible } from './TrainingTarget';
 import {
   numberField,
   SelfPlayModeField,
@@ -135,7 +135,7 @@ export default function TrainingResumeDialog({
       (String(config.model_name).length >= 1 && String(config.model_name).length <= 100)) &&
     (!executionTarget.startsWith('worker:') ||
       workers.some(
-        (worker) => `worker:${worker.id}` === executionTarget && worker.status !== 'revoked',
+        (worker) => `worker:${worker.id}` === executionTarget && workerEligible(worker),
       ));
   const submit = async (event: FormEvent) => {
     event.preventDefault();

@@ -68,6 +68,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.26.0](releases/0.26.0.md) | Exact remote worker version matching, administrator overrides and active-lease continuity |
 | [0.25.0](releases/v0.25.0.md) | Editable job parameter reuse and recorded job/model self-play totals |
 | [0.24.0](releases/v0.24.0.md) | D4 symmetry foundations, optional exact-input cache and measured inference deduplication |
 | [0.23.0](releases/v0.23.0.md) | Optional OpenVINO Intel GPU self-play inference with portable PyTorch learning |
