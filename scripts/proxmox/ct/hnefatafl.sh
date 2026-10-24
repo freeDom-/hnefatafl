@@ -29,7 +29,7 @@ failure() {
     fi
   elif [[ $created == 1 ]]; then
     echo "Container $ct_id is retained. Inspect: pct status $ct_id; pct config $ct_id" >&2
-    if [[ $stage == 'Installing Hnefatafl' || $stage == 'Verifying application service' ]]; then
+    if [[ $stage == 'Installing Hnefatafl' || $stage == 'Verifying application service' || $stage == 'Verifying maintenance commands' ]]; then
       echo "Inspect: pct exec $ct_id -- systemctl status hnefatafl --no-pager" >&2
       echo "Logs: pct exec $ct_id -- journalctl -u hnefatafl -n 100 --no-pager" >&2
       echo "Bootstrap retained at /root/hnefatafl-bootstrap when installation fails. Enter with pct enter $ct_id; inspect /etc/hnefatafl/transaction.json before retrying or using hnefatafl-update --recover." >&2
@@ -132,6 +132,14 @@ pct exec "$ct_id" -- systemctl is-enabled hnefatafl
 pct exec "$ct_id" -- systemctl is-active hnefatafl
 pct exec "$ct_id" -- python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, "/usr/local/lib/hnefatafl"); from deployment import Deployment, protected_json; Deployment(protected_json(Path("/etc/hnefatafl/deployment.json"))).probe()'
 pct exec "$ct_id" -- python3 -c 'import json; from pathlib import Path; print("Installed release: " + json.loads(Path("/etc/hnefatafl/installed.json").read_text())["version"]); print("Application port: " + str(json.loads(Path("/etc/hnefatafl/deployment.json").read_text())["port"]))'
+stage='Verifying maintenance commands'
+for name in hnefatafl-update hnefatafl-backup; do
+  pct exec "$ct_id" -- test -x "/usr/local/bin/$name"
+done
+pct exec "$ct_id" -- bash -lc 'for name in hnefatafl-update hnefatafl-backup; do
+  resolved=$(command -v "$name") || exit 1
+  [[ $resolved == "/usr/local/bin/$name" && -x $resolved ]] || exit 1
+done'
 stage='Cleaning container bootstrap'
 pct exec "$ct_id" -- rm -rf /root/hnefatafl-bootstrap
 echo 'Hnefatafl installation verified: release readiness and authentication probes passed; service enabled and active.'
@@ -139,6 +147,6 @@ echo "LXC container ID: $ct_id | Hostname: hnefatafl | Unprivileged: yes | Autos
 pct exec "$ct_id" -- hostname -I
 echo "Service: hnefatafl.service | Enter: pct enter $ct_id"
 echo 'Configuration: /etc/hnefatafl | Persistent data: /var/lib/hnefatafl'
-echo "Update: pct exec $ct_id -- hnefatafl-update | Backup: pct exec $ct_id -- hnefatafl-backup"
+echo "Update: pct exec $ct_id -- /usr/local/bin/hnefatafl-update | Backup: pct exec $ct_id -- /usr/local/bin/hnefatafl-backup"
 echo "Logs: pct exec $ct_id -- journalctl -u hnefatafl -f"
 echo 'Use the internal container IP above with the configured application port. Public HTTPS access requires your existing reverse proxy, DNS and firewall configuration.'

@@ -89,7 +89,7 @@ Configure your existing reverse proxy, DNS, firewall and TLS separately.
 Update from the host (185 is an example container ID):
 
 ```bash
-pct exec 185 -- hnefatafl-update
+pct exec 185 -- /usr/local/bin/hnefatafl-update
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185
 ```
 

@@ -27,7 +27,52 @@ verify_service() {
   systemctl is-enabled hnefatafl
   systemctl is-active hnefatafl
 }
+configure_root_cli_path() {
+  stage='Configuring root shell PATH'
+  # Login shells read /etc/profile.d; pct enter / interactive non-login
+  # Bash shells read /root/.bashrc. Keep existing PATH entries.
+  install -d -m 755 /etc/profile.d
+  cat > /etc/profile.d/hnefatafl-path.sh <<'EOF'
+# Hnefatafl maintenance commands live in /usr/local/bin.
+case ":${PATH:-}:" in
+  *:/usr/local/bin:*) ;;
+  *) PATH="/usr/local/bin${PATH:+:$PATH}" ;;
+esac
+export PATH
+EOF
+  chmod 644 /etc/profile.d/hnefatafl-path.sh
+  if [[ ! -f /root/.bashrc ]]; then
+    install -m 600 /dev/null /root/.bashrc
+  fi
+  if ! grep -Fxq '. /etc/profile.d/hnefatafl-path.sh' /root/.bashrc; then
+    printf '\n# Hnefatafl maintenance commands in interactive root shells.\n. /etc/profile.d/hnefatafl-path.sh\n' >> /root/.bashrc
+  fi
+}
+verify_cli_commands() {
+  stage='Verifying maintenance commands and root shell PATH'
+  local name mode
+  for name in hnefatafl-update hnefatafl-backup; do
+    [[ -f /usr/local/bin/$name && -x /usr/local/bin/$name ]] || {
+      echo "Missing or non-executable maintenance command: /usr/local/bin/$name" >&2
+      return 1
+    }
+  done
+  # Start fresh root shells with PATH deliberately excluding /usr/local/bin.
+  local probe='for name in hnefatafl-update hnefatafl-backup; do
+    resolved=$(command -v "$name") || exit 1
+    [[ $resolved == "/usr/local/bin/$name" && -x $resolved ]] || exit 1
+  done'
+  for mode in -lc -ic; do
+    if ! env -i HOME=/root USER=root LOGNAME=root TERM=dumb PATH=/usr/bin:/bin \
+        /bin/bash "$mode" "$probe" </dev/null 2>/dev/null; then
+      echo "Maintenance commands are not discoverable/executable in root Bash $mode" >&2
+      return 1
+    fi
+  done
+}
+
 install -d -m 700 /etc/hnefatafl
+configure_root_cli_path
 if [[ -f /etc/hnefatafl/deployment.json ]]; then
   echo 'Existing configuration and accounts retained. Running the stable-release updater.'
   install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
@@ -40,6 +85,7 @@ if [[ -f /etc/hnefatafl/deployment.json ]]; then
     /usr/local/bin/hnefatafl-update --initialize "$@"
   fi
   verify_service
+  verify_cli_commands
   exit 0
 fi
 read -r -p 'GitHub repository [freeDom-/hnefatafl]: ' repository
@@ -112,6 +158,7 @@ install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-b
 stage='Installing stable release, initializing administrator and verifying application readiness'
 /usr/local/bin/hnefatafl-update --initialize "$@"
 verify_service
+verify_cli_commands
 echo "Application: $public_url (port $app_port)"
 python3 - <<'PY'
 import json, sqlite3
