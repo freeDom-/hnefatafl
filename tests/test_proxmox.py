@@ -699,7 +699,8 @@ def test_debian_installer_configures_idempotent_root_shell_path(tmp_path):
     )
     result = subprocess.run(
         ["bash", "-c", command + "\nconfigure_root_cli_path\nconfigure_root_cli_path\n"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stderr
     assert bashrc.read_text().count(f". {profile}") == 1
@@ -709,7 +710,9 @@ def test_debian_installer_configures_idempotent_root_shell_path(tmp_path):
     for initial in ("/usr/bin:/bin", f"{local_bin}:/usr/bin:/bin"):
         result = subprocess.run(
             ["bash", "-c", f'. "{profile}"; printf "%s" "$PATH"'],
-            env={"PATH": initial}, text=True, capture_output=True,
+            env={"PATH": initial},
+            text=True,
+            capture_output=True,
         )
         assert result.returncode == 0, result.stderr
         assert result.stdout.split(":").count(str(local_bin)) == 1
