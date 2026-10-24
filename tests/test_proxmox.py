@@ -641,6 +641,7 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
         '#!/bin/bash\nprintf "%s\\n" "$@" > "$DELEGATE"\nexit "${UPDATE_STATUS:-0}"\n'
     )
     (host.bin / "install").symlink_to(shutil.which("install"))
+    (host.bin / "grep").symlink_to(shutil.which("grep"))
     dpkg = host.bin / "dpkg"
     dpkg.write_text("#!/bin/bash\necho amd64\n")
     dpkg.chmod(0o755)
