@@ -82,7 +82,8 @@ if name == 'pct':
         if cmd[:2] == ['test', '-f']:
             if case == 'no-config' and cmd[-1].endswith('deployment.json'): sys.exit(1)
             if case == 'no-module' and cmd[-1].endswith('deployment.py'): sys.exit(1)
-        if cmd[:2] == ['test', '-x'] and case == 'no-updater': sys.exit(1)
+        if cmd[:2] == ['test', '-x'] and case in {'no-updater', 'no-backup'} and (case == 'no-updater' or cmd[-1].endswith('hnefatafl-backup')): sys.exit(1)
+        if cmd[:2] == ['bash', '-lc'] and case == 'no-cli-path': sys.exit(24)
         if cmd[0] == '/usr/local/bin/hnefatafl-update': sys.exit(int(os.environ.get('UPDATE_STATUS', '0')))
         if cmd[0] == 'bash' and case == 'install': sys.exit(20)
         if cmd[0] == 'systemctl':
@@ -382,6 +383,9 @@ def test_native_default_success_and_verified_summary(host):
     assert any(c[-3:] == ["systemctl", "is-enabled", "hnefatafl"] for c in pct)
     assert any(c[-3:] == ["systemctl", "is-active", "hnefatafl"] for c in pct)
     assert any(".probe()" in c[-1] for c in pct)
+    for name in ("hnefatafl-update", "hnefatafl-backup"):
+        assert any(c[-3:] == ["test", "-x", f"/usr/local/bin/{name}"] for c in pct)
+    assert any(c[-2] == "-lc" and "command -v" in c[-1] for c in pct if len(c) >= 2)
     assert "installation verified" in result.stdout
     assert "Installed release: 0.22.1" in result.stdout
     assert "Application port: 8000" in result.stdout
@@ -495,6 +499,8 @@ def test_native_rejects_input_before_mutation(host, changes):
         ("is-enabled", "Verifying application service", 21),
         ("is-active", "Verifying application service", 21),
         ("probe", "Verifying application service", 23),
+        ("no-backup", "Verifying maintenance commands", 1),
+        ("no-cli-path", "Verifying maintenance commands", 24),
     ],
 )
 def test_native_stage_failures_retain_state_without_false_success(host, case, stage, code):
@@ -512,7 +518,7 @@ def test_native_stage_failures_retain_state_without_false_success(host, case, st
         assert "findmnt -T /var/lib/lxc" in result.stderr
     if case == "create":
         assert "namei" not in result.stderr
-    if case in {"install", "is-enabled", "is-active", "probe"}:
+    if case in {"install", "is-enabled", "is-active", "probe", "no-backup", "no-cli-path"}:
         assert "journalctl -u hnefatafl" in result.stderr
         assert not any(c[-2:] == ["-rf", "/root/hnefatafl-bootstrap"] for c in pct)
     assert not list(host.directory.glob("hnefatafl-pve-install.*"))
@@ -610,7 +616,7 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
     retained.write_text('{"repository":"retained/repository","port":8123}')
     if installed:
         (config / "installed.json").write_text('{"version":"0.22.1"}')
-    for name in ("usr/local/bin", "usr/local/lib/hnefatafl"):
+    for name in ("usr/local/bin", "usr/local/lib/hnefatafl", "root"):
         (container / name).mkdir(parents=True)
     os_release = container / "os-release"
     os_release.write_text("ID=debian\nVERSION_ID=13\n")
@@ -619,6 +625,11 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
     source = source.replace("/etc/hnefatafl", str(config)).replace(
         "/usr/local/", str(container / "usr/local") + "/"
     )
+    source = source.replace("/etc/profile.d", str(container / "etc/profile.d"))
+    source = source.replace("/root/.bashrc", str(container / "root/.bashrc"))
+    # The isolated fixture cannot run a real root login shell against its rootfs.
+    source = source.replace("  verify_cli_commands\n", "  : # probe covered separately\n")
+    source = source.replace("\nverify_cli_commands\n", "\n: # probe covered separately\n")
     # Preserve the fixture PATH rather than the production path normalization.
     source = (
         "\n".join(line for line in source.splitlines() if not line.startswith("export PATH="))
@@ -662,3 +673,40 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
             ["is-enabled", "hnefatafl"],
             ["is-active", "hnefatafl"],
         ]
+
+
+def test_debian_installer_configures_idempotent_root_shell_path(tmp_path):
+    """The installer must keep root configuration and avoid duplicate PATH hooks."""
+    import re
+
+    source = (ROOT / "scripts/linux/install.sh").read_text()
+    function = re.search(r"(?ms)^configure_root_cli_path\(\) \{\n.*?^\}\n", source)
+    assert function
+    profile = tmp_path / "etc/profile.d/hnefatafl-path.sh"
+    bashrc = tmp_path / "root/.bashrc"
+    bashrc.parent.mkdir()
+    bashrc.write_text("# existing root preferences\n")
+    local_bin = tmp_path / "usr/local/bin"
+    local_bin.mkdir(parents=True)
+    command = (
+        function.group()
+        .replace("/etc/profile.d", str(profile.parent))
+        .replace("/root/.bashrc", str(bashrc))
+        .replace("/usr/local/bin", str(local_bin))
+    )
+    result = subprocess.run(
+        ["bash", "-c", command + "\nconfigure_root_cli_path\nconfigure_root_cli_path\n"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert bashrc.read_text().count(f". {profile}") == 1
+    assert "# existing root preferences" in bashrc.read_text()
+    assert profile.stat().st_mode & 0o777 == 0o644
+
+    for initial in ("/usr/bin:/bin", f"{local_bin}:/usr/bin:/bin"):
+        result = subprocess.run(
+            ["bash", "-c", f'. "{profile}"; printf "%s" "$PATH"'],
+            env={"PATH": initial}, text=True, capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split(":").count(str(local_bin)) == 1
