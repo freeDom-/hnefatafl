@@ -70,11 +70,13 @@ def test_exact_versions_connect_but_only_matching_workers_claim(client, version,
     assert bool(lease) is eligible
     if eligible:
         saved = client.get(f"/api/training/jobs/{job['id']}").json()
+        assert saved["progress"]["status"] == "running"
         assert saved["software"]["worker"] == {"package_version": version, "git_revision": None}
         assert saved["software"]["server"] == BUILD
     else:
         pending = client.get(f"/api/training/jobs/{job['id']}").json()
         assert pending["status"] == "queued"
+        assert pending["progress"]["status"] == "queued"
         assert pending["progress"]["queue_reason_code"] == "application_version"
         explicit = client.post(
             "/api/training/jobs",

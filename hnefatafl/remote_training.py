@@ -340,11 +340,15 @@ class RemoteTraining:
                 "checkpoint_iteration",
             }
         }
-        if visible.get("progress"):
+        if isinstance(visible.get("progress"), dict):
             # The last worker snapshot precedes the authoritative finish/expiry.
             visible["progress"] = {**visible["progress"], "status": job["status"]}
         if job["status"] == "queued":
-            visible["progress"] = {**visible.get("progress", {}), **self.queue_status(job)}
+            visible["progress"] = {
+                **visible.get("progress", {}),
+                "status": job["status"],
+                **self.queue_status(job),
+            }
         return visible
 
     def reconcile(self) -> None:
