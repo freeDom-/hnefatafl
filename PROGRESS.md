@@ -439,7 +439,9 @@ CPU throughput, memory tradeoffs and unverified GPU hardware.
 
 Validation: `make check` passed 1,058 backend tests (six physical-hardware skips),
 191 frontend unit tests, formatting/types/docs and the production build. Relevant
-Chromium checks passed 11 tests with one intentional mobile duplicate skip.
+Chromium checks passed 19 tests with one intentional mobile duplicate skip.
+Compatible worker fixtures now use the running server version; deliberate
+mismatch/override tests retain their fixed incompatible identities.
 Three repetitions of all six CPU workload pairs preserve work and trajectory
 hashes. Eleven cache/mode comparisons improve; sequential/exact is effectively
 flat. Packed tree storage adds 6.8–8.1% traced memory in the measured probe;

@@ -56,20 +56,23 @@ test('remote worker setup queues parallel jobs and retains independent reported 
   );
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(token);
   const workers = await (await request.get(`${api}/training/workers`)).json();
-  workerId = workers.find((entry: { name: string }) => entry.name === name).id;
+  const worker = workers.find((entry: { name: string }) => entry.name === name);
+  workerId = worker.id;
+  const currentVersion = worker.compatibility.server_version;
   expect(JSON.stringify(workers)).not.toContain(token);
   try {
     await connect.getByRole('button', { name: 'Close worker setup', exact: true }).click();
     await openCreation(page);
-    await post(request, '/heartbeat', token, {
+    const reported = await post(request, '/heartbeat', token, {
       capabilities: {
         protocol_version: 1,
-        package_version: '0.26.0',
+        package_version: currentVersion,
         cuda_available: true,
         cuda_devices: ['Test cloud accelerator'],
         device: 'cuda',
       },
     });
+    expect(reported.worker.compatibility.eligible).toBe(true);
     await page
       .getByRole('combobox', { name: 'Run training on', exact: true })
       .selectOption(`worker:${workerId}`);
@@ -199,10 +202,10 @@ test('OpenVINO is explicit, hardware aware and stays selected across targets and
   expect(response.ok()).toBe(true);
   const { worker, token } = await response.json();
   try {
-    await post(request, '/heartbeat', token, {
+    const reported = await post(request, '/heartbeat', token, {
       capabilities: {
         protocol_version: 1,
-        package_version: '0.26.0',
+        package_version: worker.compatibility.server_version,
         inference_backends: ['pytorch', 'openvino'],
         openvino_version: '2026.4.1',
         openvino_devices: [
@@ -210,6 +213,7 @@ test('OpenVINO is explicit, hardware aware and stays selected across targets and
         ],
       },
     });
+    expect(reported.worker.compatibility.eligible).toBe(true);
     await openWorkshop(page);
     await openCreation(page);
     await page
