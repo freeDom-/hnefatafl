@@ -112,11 +112,11 @@ Host administration examples (replace **185** with your container ID):
 pct enter 185
 pct exec 185 -- systemctl status hnefatafl
 pct exec 185 -- journalctl -u hnefatafl -f
-pct exec 185 -- hnefatafl-update --check
-pct exec 185 -- hnefatafl-backup
+pct exec 185 -- /usr/local/bin/hnefatafl-update --check
+pct exec 185 -- /usr/local/bin/hnefatafl-backup
 ```
 
-`hnefatafl.service` runs as the dedicated unprivileged `hnefatafl` user, restarts
+The installer configures `/usr/local/bin` in root's login and interactive Bash PATH and verifies both maintenance commands. Proxmox `pct exec` does not necessarily read shell startup files, so host examples use absolute paths. Open a new shell to pick up PATH changes after a repair.\n\n`hnefatafl.service` runs as the dedicated unprivileged `hnefatafl` user, restarts
 on unexpected failure and starts at boot. `/etc/hnefatafl` holds protected
 configuration, `/var/lib/hnefatafl` holds persistent data and backups, and
 `/opt/hnefatafl` holds replaceable release code and tools.
@@ -253,7 +253,7 @@ host/device/runtime plan; CPU-only installation does not configure passthrough.
 From the Proxmox host, use the installed updater directly or the standalone wrapper:
 
 ```bash
-pct exec 185 -- hnefatafl-update
+pct exec 185 -- /usr/local/bin/hnefatafl-update
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --check
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --list
