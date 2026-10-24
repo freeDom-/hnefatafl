@@ -64,6 +64,40 @@ describe release assets and private repository credentials. No Docker is require
 The locked environment installs CPU PyTorch; [GPU setup](docs/PERFORMANCE.md#installation-and-hardware)
 requires a matching official build and suitable hardware.
 
+## Proxmox one-line installation
+
+Run as **root on the Proxmox VE host**; no Git checkout is needed:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-install.sh)
+```
+
+Choose **default** for an unprivileged Debian 13 LXC with 4 cores, 4096 MiB RAM,
+20 GiB on `local-lvm`, template storage `local`, DHCP on `vmbr0`, autostart enabled
+and nesting disabled. Choose **advanced** to customize ID, resources, storage and
+IPv4/gateway. Setup requests the repository (default `freeDom-/hnefatafl`), an
+optional read-only GitHub token, port (8000), public HTTPS origin, trusted proxy
+IPs/CIDRs and administrator username/email/password. Passwords have no default.
+
+Review the scripts before running them as root: this bootstrap trusts code from
+`freeDom-/hnefatafl` **main** over HTTPS. The application itself comes from a
+compatible published stable **X.Y.Z** release with a verified archive digest;
+files on main alone are insufficient. The host needs `curl`, Python 3, native
+Proxmox tools, suitable active storage, a bridge and outbound HTTPS access.
+Configure your existing reverse proxy, DNS, firewall and TLS separately.
+
+Update from the host (185 is an example container ID):
+
+```bash
+pct exec 185 -- hnefatafl-update
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185
+```
+
+The host updater also forwards `--check`, `--list`, `--version X.Y.Z`, `--backup`,
+`--rollback` and `--recover` to the existing safe updater. See
+[deployment and troubleshooting](docs/DEPLOYMENT.md#proxmox-one-line-installation)
+for administration, prerequisites and retained-container recovery.
+
 <a id="play-and-replay"></a>
 <a id="run-an-ai-tournament"></a>
 <a id="train-and-use-a-model"></a>

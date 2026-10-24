@@ -29,12 +29,42 @@ GitHub's release asset API must report its SHA-256 digest. The updater verifies
 this digest, bounds extraction and rejects links, devices, traversal and privileged
 modes. Automatic GitHub source archives and older releases lacking authentication
 are refused. See [release packaging](RELEASING.md#production-updater-assets).
-The implementation itself does not publish a release; a compatible stable release
-must be created after these changes are committed and validated.
+Neither installer publishes a release. Installation requires an already available
+compatible published stable release; files on `main` alone are insufficient.
+
+## Proxmox one-line installation
+
+As **root on a Proxmox VE host**, from any working directory:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-install.sh)
+```
+
+No local checkout or Git executable is needed. The host requires `curl`, Python 3,
+standard Debian shell/archive tools and working native `pct`, `pveam`, `pvesh`,
+`pvesm`, `pveversion` and `ip` commands. It needs an active container storage pool,
+template storage supporting `vztmpl`, an existing network bridge, a Debian 13
+amd64 standard template in the Proxmox catalog, and outbound HTTPS/DNS access.
+The container also needs access to Debian package mirrors, GitHub release APIs/assets,
+Node.js, PyPI/locked Python indexes and npm. Reserve actual disk capacity for
+the template, two application releases, frontend builds, training data and backups.
+
+**Trust boundary:** the one-liner executes this project's `main` branch as root.
+Review the downloaded launcher and the installer components before executing them.
+The launcher uses a fixed HTTPS codeload URL for `freeDom-/hnefatafl`, with certificate
+verification, time/size limits and no redirects. It validates the complete archive
+layout, entry paths/types, size limits and required components, rejects links and
+special files, and checks shell syntax before delegation. These checks protect
+extraction; they do not authenticate main independently of HTTPS or make unreviewed
+main code safe. No third-party shell code is executed.
+
+The temporary complete checkout is removed on success, failure and handled signals.
+It only bootstraps the existing native LXC installer, Debian installer and verified
+stable-release deployment system. The application is never installed from main.
 
 ## Proxmox LXC installation
 
-On the Proxmox VE host, obtain and review an authenticated local checkout of your
+Alternatively, obtain and review an authenticated local checkout of your
 repository. Keep GitHub tokens out of clone URLs and command arguments; use your
 usual credential helper or securely transfer a reviewed checkout. Then run:
 
@@ -44,7 +74,8 @@ bash scripts/proxmox/ct/hnefatafl.sh
 ```
 
 The default path creates an unprivileged Debian 13 amd64 container, hostname
-`hnefatafl`, four CPU cores, 4096 MiB RAM, 20 GiB disk, DHCP on vmbr0, and autostart.
+`hnefatafl`, four CPU cores, 4096 MiB RAM, 20 GiB disk on `local-lvm`, template
+storage `local`, DHCP on vmbr0, autostart enabled and nesting disabled.
 Choose advanced setup for container ID, CPU/RAM/disk, root/template storage, bridge,
 static IPv4 CIDR and gateway. At least 2 GiB RAM and 12 GiB disk are required;
 8 GiB RAM and more disk are advisable for substantial training/backups. No GPU,
@@ -52,13 +83,43 @@ privileged container, nesting or Docker is required.
 
 The host transfers only bootstrap code. Repository, optional GitHub token, port,
 public HTTPS origin, explicit trusted proxy addresses and administrator credentials
-are requested inside the attached container console. Secrets never pass through
+are requested inside the attached container console, including a hidden password
+and confirmation. Port defaults to 8000; supply a public HTTPS origin such as
+`https://tafl.example.org` and the explicit proxy IP/CIDR list (never `*`).
+Prompts retain the host terminal when launched with Bash process substitution.
+Secrets never pass through
 Proxmox command arguments, logs or persistent container configuration. The temporary
 bootstrap archive is removed; no credential-bearing temporary archive exists.
-For a private repository, start from that authenticated checkout instead of a
-public curl-to-shell launcher. An interrupted installation retains the container
+The prompted repository/token select application releases, including private
+releases. For private custom bootstrap code, use an authenticated reviewed checkout;
+the public launcher always obtains bootstrap code from `freeDom-/hnefatafl`.
+An interrupted installation retains the container
 for inspection; it never destroys a failed container automatically. Re-enter it
-with `pct enter <ID>` and rerun the retained bootstrap script to continue.
+with `pct enter <ID>`, inspect the journal and logs, and rerun
+`bash /root/hnefatafl-bootstrap/scripts/proxmox/install/hnefatafl-install.sh`
+when safe to continue. Do not rerun LXC creation with an occupied ID.
+
+Success is printed only after the installed release's host-header-aware health,
+authenticated permission/catalog and anonymous rejection probes pass, and systemd
+is both enabled and active. The summary reports release, CT ID, internal IP and
+configured port. The public HTTPS URL requires your existing reverse proxy, DNS
+and firewall configuration; the installer changes none of these, your Fritzbox
+or your TLS certificates.
+
+Host administration examples (replace **185** with your container ID):
+
+```sh
+pct enter 185
+pct exec 185 -- systemctl status hnefatafl
+pct exec 185 -- journalctl -u hnefatafl -f
+pct exec 185 -- hnefatafl-update --check
+pct exec 185 -- hnefatafl-backup
+```
+
+`hnefatafl.service` runs as the dedicated unprivileged `hnefatafl` user, restarts
+on unexpected failure and starts at boot. `/etc/hnefatafl` holds protected
+configuration, `/var/lib/hnefatafl` holds persistent data and backups, and
+`/opt/hnefatafl` holds replaceable release code and tools.
 
 This is an independent Community Scripts-style launcher with separate host and
 container layers. Its defaults, advanced resource flow and update separation were
@@ -189,6 +250,28 @@ host/device/runtime plan; CPU-only installation does not configure passthrough.
 
 ## Updating
 
+From the Proxmox host, use the installed updater directly or the standalone wrapper:
+
+```bash
+pct exec 185 -- hnefatafl-update
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --check
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --list
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --version 0.22.1
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --backup
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --rollback
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --recover
+```
+
+CT 185 and version 0.22.1 are examples. The wrapper requires an explicit CT ID
+(or exported `HNEFATAFL_CTID`); it never discovers/selects a container automatically
+and does not start stopped containers. It checks installation/updater availability,
+forwards arguments without shell evaluation and returns the updater's exit status.
+It executes project main-branch launcher code as root under the same trust boundary
+as installation, but downloads no application code itself. Updates retain the
+existing published stable release selection, digest checks, activity gates,
+snapshots, migrations, readiness checks, rollback and recovery behavior.
+
 As root, from any working directory:
 
 ```sh
@@ -263,6 +346,45 @@ test these procedures on production data.
 | Interrupted transaction | Inspect transaction.json, retained releases/backups, then use --recover |
 | Resource/OOM failure | Increase LXC RAM/disk or adjust service limits; keep API workers at one |
 | Browser build missing | Rebuild the release; do not substitute a dev server |
+
+If **Creating LXC** fails, this is a Proxmox host provisioning failure before
+application setup. No start or application installation is attempted. For example,
+`tar: /var/lib/lxc/<ID>/rootfs: Cannot open: Permission denied` concerns host-side
+template extraction, not Python/application permissions. Inspect the reported CT
+and storage without deleting partial state:
+
+```sh
+pct config 185
+pvesm status
+# When extraction reports permission denied:
+namei -l /var/lib/lxc/185/rootfs
+findmnt -T /var/lib/lxc
+```
+
+The installer does not repair unknown host permission problems, recursively change
+host ownership, disable AppArmor or switch to privileged containers. Resolve the
+host/storage cause before deciding how to handle the retained partial CT.
+
+Storage status shows **actual usage**, not the sum of thin virtual disk sizes.
+An LVM-thin overprovisioning warning does not mean all allocated space is already
+used, but the pool can still fill. Inspect data and metadata usage with
+`lvs -a -o vg_name,lv_name,lv_size,data_percent,metadata_percent` where applicable.
+Monitor capacity; no pool resizing or changes to unrelated guests are performed.
+
+If **Installing Hnefatafl** or **Verifying application service** fails, the LXC
+and bootstrap remain for diagnosis; success is not reported. Inspect:
+
+```sh
+pct exec 185 -- systemctl status hnefatafl --no-pager
+pct exec 185 -- journalctl -u hnefatafl -n 100 --no-pager
+pct enter 185
+# Inside the container, inspect /etc/hnefatafl/transaction.json before recovery.
+```
+
+Host bootstrap temporary files are cleaned even on failure. The transferred
+container bootstrap remains until installation and verification succeed. After
+an interruption during transfer, inspect its contents before trying to resume;
+an incomplete bootstrap is not a valid recovery input.
 
 Before internet exposure on the target Proxmox host, verify reboot/autostart,
 proxy TLS/Host/client-IP behavior, Secure cookies, login/logout, USER denial of

@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Native Debian installer. Run a reviewed authenticated checkout for private repos.
-set -euo pipefail
+set -Eeuo pipefail
 set +x
 umask 077
+stage='Checking Debian installation prerequisites'
+failure() {
+  local status=$1
+  echo "$stage failed (exit $status). Inspect /etc/hnefatafl/transaction.json and journalctl -u hnefatafl -n 100 --no-pager; configuration and application data are retained." >&2
+  exit "$status"
+}
+trap 'failure $?' ERR
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 # shellcheck disable=SC1091
@@ -14,15 +21,26 @@ case $(dpkg --print-architecture) in
   *) echo 'Supported architectures: amd64 and arm64.' >&2; exit 1 ;;
 esac
 script_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+verify_service() {
+  stage='Enabling and verifying systemd service'
+  systemctl enable hnefatafl.service
+  systemctl is-enabled hnefatafl
+  systemctl is-active hnefatafl
+}
 install -d -m 700 /etc/hnefatafl
 if [[ -f /etc/hnefatafl/deployment.json ]]; then
   echo 'Existing configuration and accounts retained. Running the stable-release updater.'
   install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
   install -m 755 "$script_root/scripts/linux/update.sh" /usr/local/bin/hnefatafl-update
+  install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-backup
+  stage='Resuming stable-release installation/update'
   if [[ -f /etc/hnefatafl/installed.json ]]; then
-    exec /usr/local/bin/hnefatafl-update "$@"
+    /usr/local/bin/hnefatafl-update "$@"
+  else
+    /usr/local/bin/hnefatafl-update --initialize "$@"
   fi
-  exec /usr/local/bin/hnefatafl-update --initialize "$@"
+  verify_service
+  exit 0
 fi
 read -r -p 'GitHub repository [freeDom-/hnefatafl]: ' repository
 repository=${repository:-freeDom-/hnefatafl}
@@ -33,6 +51,7 @@ app_port=${app_port:-8000}
 read -r -p 'Public HTTPS origin (e.g. https://tafl.example.org): ' public_url
 read -r -p 'Trusted reverse proxy IPs/CIDRs, comma-separated: ' trusted_proxies
 [[ $app_port =~ ^[0-9]+$ && $app_port -ge 1024 && $app_port -le 65535 ]] || { echo 'Port must be 1024–65535.' >&2; exit 1; }
+stage='Installing runtime dependencies'
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl python3 python3-venv build-essential libgomp1 xz-utils
 id hnefatafl >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/hnefatafl --shell /usr/sbin/nologin hnefatafl
@@ -44,6 +63,7 @@ python3 -m venv /opt/hnefatafl/tools
 /opt/hnefatafl/tools/bin/pip install 'uv==0.12.23'
 temporary=$(mktemp -d)
 trap 'rm -rf -- "$temporary"; unset github_token' EXIT
+stage='Installing verified Node.js runtime'
 curl --fail --silent --show-error --proto '=https' --tlsv1.2 'https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt' -o "$temporary/SHASUMS256.txt"
 node_file=$(python3 - "$temporary/SHASUMS256.txt" "$node_arch" <<'PY'
 import pathlib, re, sys
@@ -67,6 +87,7 @@ PY
 mkdir -p /opt/hnefatafl/tools/node
 tar -xJf "$temporary/$node_file" --strip-components=1 -C /opt/hnefatafl/tools/node --no-same-owner
 chmod -R a+rX /opt/hnefatafl/tools
+stage='Writing production configuration'
 # Credentials travel only through a pipe into a root-only JSON file.
 printf '%s' "$github_token" | python3 -c 'import json,sys; from pathlib import Path; Path("/etc/hnefatafl/github.json").write_text(json.dumps({"token":sys.stdin.read()}))'
 unset github_token
@@ -88,8 +109,9 @@ chmod 600 /etc/hnefatafl/*.json /etc/hnefatafl/application.env
 install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
 install -m 755 "$script_root/scripts/linux/update.sh" /usr/local/bin/hnefatafl-update
 install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-backup
+stage='Installing stable release, initializing administrator and verifying application readiness'
 /usr/local/bin/hnefatafl-update --initialize "$@"
-systemctl enable hnefatafl.service
+verify_service
 echo "Application: $public_url (port $app_port)"
 python3 - <<'PY'
 import json, sqlite3
