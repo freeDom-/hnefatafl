@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import random
 import time
+from array import array
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import combinations
@@ -243,13 +244,37 @@ def _alpha_beta(
     return best_move
 
 
-@dataclass
+@dataclass(slots=True)
 class _Node:
     state: State
     prior: float = 1.0
     visits: int = 0
     total: float = 0.0
     children: dict[Move, "_Node"] = field(default_factory=dict)
+    # Owned legal priors only, consumed as edges are created. No logits/tensors.
+    remaining: dict[Move, float] | None = None
+    value: float | None = None
+    # Leaves usually have no children yet. Pack deferred policies to avoid
+    # retaining a dictionary, Move objects and boxed floats for every leaf.
+    pending_policy: tuple[array, array] | None = None
+
+
+def _select_child(node: _Node, exploration: float) -> _Node:
+    """PUCT in insertion order, retaining the reference arithmetic and first tie."""
+    sign = 1 if node.state.turn == "defenders" else -1
+    parent_scale = math.sqrt(node.visits + 1)
+    best = None
+    best_score = -math.inf
+    for child in node.children.values():
+        # Every selectable edge has completed at least one backup. A pending
+        # child cannot be selected while its generator is waiting for inference.
+        score = sign * child.total / child.visits + exploration * child.prior * parent_scale / (
+            1 + child.visits
+        )
+        if best is None or score > best_score:
+            best, best_score = child, score
+    assert best is not None
+    return best
 
 
 def mcts_context(
@@ -282,6 +307,7 @@ def mcts_context(
     rng = random.Random(config.get("seed", 0))
     model_path = config.get("model_path")
     model = config.get("_model")
+    neural = bool(model_path) or model is not None
     deadline = time.monotonic() + seconds
     root = _Node(state)
 
@@ -294,12 +320,21 @@ def mcts_context(
         raise ValueError("No legal moves in terminal position")
     root_priors, root_value = yield state
     check_cancelled()
+    requests = int(neural)
+    prediction_reuses = 0
     if diagnostics is None and progress is not None:
         diagnostics = {}
     if diagnostics is not None:
-        diagnostics.update(value=root_value, root_value=root_value, simulations=0)
+        diagnostics.update(
+            value=root_value,
+            root_value=root_value,
+            simulations=0,
+            mcts_neural_requests=requests,
+            mcts_node_prediction_reuses=0,
+        )
     # Never overlook a one-move win even with a tiny simulation budget.
     for move in root_priors:
+        check_cancelled()
         if apply_move(state, move).winner == state.turn:
             if diagnostics is not None:
                 diagnostics.update(
@@ -326,7 +361,8 @@ def mcts_context(
     if not root_priors:
         raise ValueError("No legal moves in terminal position")
     # Lazily create states. Expanding hundreds of moves is otherwise expensive.
-    unexpanded: dict[int, dict[Move, float]] = {id(root): root_priors.copy()}
+    root.remaining = root_priors.copy()
+    root.value = root_value
     next_report = 0.0
     for _ in range(budget):
         check_cancelled()
@@ -338,15 +374,29 @@ def mcts_context(
         path = [node]
         while not node.state.winner:
             check_cancelled()
-            remaining = unexpanded.get(id(node))
+            remaining = node.remaining
             if remaining is None:
-                priors, _ = yield node.state
-                check_cancelled()
-                remaining = dict(priors)
-                unexpanded[id(node)] = remaining
+                if node.pending_policy is not None:
+                    actions, probabilities = node.pending_policy
+                    area = node.state.size**2
+                    remaining = {
+                        Move(action // area, action % area): probability
+                        for action, probability in zip(actions, probabilities)
+                    }
+                    node.pending_policy = None
+                    del actions, probabilities
+                    prediction_reuses += 1
+                else:
+                    priors, predicted_value = yield node.state
+                    check_cancelled()
+                    remaining = dict(priors)
+                    del priors
+                    node.value = predicted_value
+                node.remaining = remaining
             # Progressive widening explores deeply even on an opening board
             # with hundreds of legal moves and a modest simulation budget.
-            if remaining and len(node.children) < math.ceil(math.sqrt(node.visits + 1)):
+            # For integer visits/edge count, k < ceil(sqrt(v + 1)) iff k*k <= v.
+            if remaining and len(node.children) ** 2 <= node.visits:
                 choices = list(remaining)
                 # Sample priors, giving every legal move an opportunity.
                 weights = [remaining[m] for m in choices]
@@ -359,20 +409,28 @@ def mcts_context(
                 break
             if not node.children:
                 break
-            sign = 1 if node.state.turn == "defenders" else -1
-            node = max(
-                node.children.values(),
-                key=lambda child: (
-                    sign * child.total / max(1, child.visits)
-                    + exploration * child.prior * math.sqrt(node.visits + 1) / (1 + child.visits)
-                ),
-            )
+            node = _select_child(node, exploration)
             path.append(node)
         if node.state.winner:
             value = evaluate(node.state)
-        elif model_path or model is not None:
-            _, value = yield node.state
-            check_cancelled()
+        elif neural:
+            if node.value is None:
+                requests += 1
+                priors, value = yield node.state
+                check_cancelled()
+                area = node.state.size**2
+                # uint16 covers all current boards (largest action is 14640).
+                # Doubles retain the original Python float exactly; sampling
+                # order and RNG consumption are identical after unpacking.
+                node.pending_policy = (
+                    array("H", (move.source * area + move.target for move in priors)),
+                    array("d", priors.values()),
+                )
+                del priors
+                node.value = value
+            else:
+                prediction_reuses += 1
+                value = node.value
         else:
             rollout = node.state
             for _ in range(rollout_depth):
@@ -387,7 +445,11 @@ def mcts_context(
             ancestor.visits += 1
             ancestor.total += value
         if diagnostics is not None:
-            diagnostics["simulations"] = root.visits
+            diagnostics.update(
+                simulations=root.visits,
+                mcts_neural_requests=requests,
+                mcts_node_prediction_reuses=prediction_reuses,
+            )
         # Bound observer overhead while making long-running searches useful live.
         if progress is not None and time.monotonic() >= next_report:
             assert diagnostics is not None
@@ -440,6 +502,7 @@ def mcts_policy(
             if (
                 configuration.get("_inference_backend") is not None
                 or configuration.get("_inference_cache") is not None
+                or configuration.get("_mixed_precision", False)
             ):
                 from .inference import policy_value_batch
 
@@ -447,6 +510,7 @@ def mcts_policy(
                 result = policy_value_batch(
                     [pending],
                     model,
+                    mixed_precision=bool(configuration.get("_mixed_precision", False)),
                     metrics=inference_metrics,
                     backend=configuration.get("_inference_backend"),
                     cache=configuration.get("_inference_cache"),

@@ -1,10 +1,16 @@
-"""Small, reproducible self-play comparisons without optimizer or registry writes."""
+"""Reproducible fixed-model self-play without optimizer or registry writes."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import random
+import os
+import platform
+from pathlib import Path
+import resource
+import subprocess
+import sys
 import statistics
 import time
 from typing import Callable
@@ -12,7 +18,7 @@ from typing import Callable
 import torch
 
 from .engine import State, apply_move, legal_moves, new_game
-from .models import PolicyValueNet
+from .models import PolicyValueNet, load_checkpoint
 
 
 def run_benchmark(
@@ -21,10 +27,11 @@ def run_benchmark(
     """Compare identical seeded weights and budgets on each available device.
 
     Timings include complete game generation and a CUDA completion boundary,
-    excluding model creation/warm-up. Both inference modes use float32 so the
-    comparison measures batching rather than a change in precision.
+    excluding model creation/warm-up. Both execution modes use the same explicit
+    precision setting (float32 by default), independent of training defaults.
     """
     from .inference import policy_value_batch
+    from .inference_backends import create_inference
     from .training import generate_self_play, normalize_config
 
     supplied = dict(configuration or {})
@@ -33,10 +40,47 @@ def run_benchmark(
     repetitions = supplied.pop("repetitions", 3)
     cache_modes = supplied.pop("cache_modes", ["off", "exact"])
     workload_batches = supplied.pop("inference_workload_batches", 16)
+    devices = supplied.pop("devices", ["cpu", "cuda"])
+    modes = supplied.pop("self_play_modes", ["sequential", "batched"])
+    checkpoint = supplied.pop("checkpoint", None)
+    mixed_precision = supplied.pop("benchmark_mixed_precision", False)
+    include_workloads = supplied.pop("include_inference_workloads", True)
+    for name, values, allowed in (
+        ("devices", devices, {"cpu", "cuda"}),
+        ("self_play_modes", modes, {"sequential", "batched"}),
+    ):
+        if (
+            not isinstance(values, list)
+            or not values
+            or any(not isinstance(item, str) or item not in allowed for item in values)
+            or len(set(values)) != len(values)
+        ):
+            raise ValueError(f"Invalid {name}")
+    if type(mixed_precision) is not bool or type(include_workloads) is not bool:
+        raise ValueError("Benchmark precision/workload flags must be booleans")
+    loaded = None
+    checkpoint_sha = None
+    if checkpoint is not None:
+        if not isinstance(checkpoint, str):
+            raise ValueError("checkpoint must be a path")
+        # Validated tensor-only loader; never restore optimizer/replay or write it.
+        with torch.random.fork_rng(devices=[]):
+            loaded, payload = load_checkpoint(checkpoint, device="cpu")
+        del payload
+        checkpoint_sha = hashlib.sha256(Path(checkpoint).read_bytes()).hexdigest()
+        for key, value in loaded.config.items():
+            if key in supplied and supplied[key] != value:
+                raise ValueError(f"Checkpoint {key} conflicts with benchmark configuration")
+            supplied[key] = value
     if type(repetitions) is not int or not 1 <= repetitions <= 20:
         raise ValueError("repetitions must be an integer between 1 and 20")
-    if not isinstance(cache_modes, list) or cache_modes not in (["off"], ["off", "exact"]):
-        raise ValueError("cache_modes must be [off] or [off, exact]")
+    if not isinstance(cache_modes, list) or cache_modes not in (
+        ["off"],
+        ["exact"],
+        ["off", "exact"],
+        ["exact", "off"],
+    ):
+        raise ValueError("cache_modes must select off and/or exact without duplicates")
     if type(workload_batches) is not int or not 1 <= workload_batches <= 256:
         raise ValueError("inference_workload_batches must be between 1 and 256")
     config = normalize_config(
@@ -50,7 +94,7 @@ def run_benchmark(
             **supplied,
             # Search work, not a short wall deadline, should determine the result.
             "mcts_time_limit": 300.0,
-            "mixed_precision": False,
+            "mixed_precision": mixed_precision,
         }
     )
     if should_stop and should_stop():
@@ -60,17 +104,26 @@ def run_benchmark(
     scenarios: list[dict] = []
     workloads: list[dict] = []
     cpu_weights: dict[str, torch.Tensor]
+    backend = None
     try:
         torch.set_num_threads(config["cpu_threads"])
         # Creating a benchmark must not consume a caller's random-generator state.
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(config["seed"])
-            initial = PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
+            initial = (
+                loaded
+                if loaded is not None
+                else PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
+            )
             cpu_weights = {
                 key: value.detach().clone() for key, value in initial.state_dict().items()
             }
-        del initial
-        for device in ("cpu", "cuda"):
+        del initial, loaded
+        weights_digest = hashlib.sha256()
+        for key, value in cpu_weights.items():
+            weights_digest.update(key.encode())
+            weights_digest.update(value.numpy().tobytes())
+        for device in devices:
             if device == "cuda" and not cuda_available:
                 scenarios.extend(
                     {
@@ -79,7 +132,7 @@ def run_benchmark(
                         "status": "skipped",
                         "reason": "CUDA unavailable",
                     }
-                    for mode in ("sequential", "batched")
+                    for mode in modes
                 )
                 continue
             if should_stop and should_stop():
@@ -88,20 +141,25 @@ def run_benchmark(
                 model = PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
             model.load_state_dict(cpu_weights)
             model = model.to(device).eval()
+            if config.get("inference_backend") == "openvino":
+                backend = create_inference(model, {**config, "device": device})
+                backend.refresh()
             # Warm both relevant shapes, without including setup in either mode.
             position = new_game(config["ruleset"])
             batch = min(
                 config["games"], config["self_play_concurrency"], config["inference_batch_size"]
             )
             for size in sorted({1, batch}):
-                policy_value_batch([position] * size, model, mixed_precision=False)
+                policy_value_batch(
+                    [position] * size, model, mixed_precision=mixed_precision, backend=backend
+                )
             if device == "cuda":
                 torch.cuda.synchronize()
             for repetition in range(repetitions):
                 rows = {}
                 order = cache_modes if repetition % 2 == 0 else list(reversed(cache_modes))
                 for cache_mode in order:
-                    for mode in ("sequential", "batched"):
+                    for mode in modes if repetition % 2 == 0 else list(reversed(modes)):
                         if should_stop and should_stop():
                             raise InterruptedError("Benchmark was cancelled")
                         selected = {
@@ -121,12 +179,16 @@ def run_benchmark(
                             seed=config["seed"],
                             should_stop=should_stop,
                             measure_cuda=device == "cuda",
+                            backend=backend,
                         )
                         if device == "cuda":
                             torch.cuda.synchronize()
                         elapsed = time.perf_counter() - started
                         cpu_elapsed = time.process_time() - cpu_started
                         positions = sum(len(examples) for examples, _ in games)
+                        # Process lifetime high-water mark, not a resettable scenario peak.
+                        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                        peak_rss_bytes = int(peak_rss * (1 if sys.platform == "darwin" else 1024))
                         # Compare actual seeded trajectories/search targets. Bootstrap
                         # float values may differ by FP32 kernel rounding with batch shape.
                         trajectory = hashlib.sha256()
@@ -159,6 +221,7 @@ def run_benchmark(
                             / elapsed,
                             "requested_simulations": positions * config["mcts_iterations"],
                             "trajectory_sha256": trajectory.hexdigest(),
+                            "process_peak_rss_bytes": peak_rss_bytes,
                             "network_evaluations_eliminated": performance["inference_requests"]
                             - performance["neural_evaluations"],
                         }
@@ -168,14 +231,18 @@ def run_benchmark(
                                 gpu_peak_reserved_bytes=torch.cuda.max_memory_reserved(),
                             )
                         rows[(mode, cache_mode)] = row
-                baseline = rows[("sequential", "off")]
+                baseline = rows.get(("sequential", "off"))
                 for (mode, cache_mode), row in rows.items():
-                    off = rows[(mode, "off")]
+                    off = rows.get((mode, "off"))
                     row.update(
                         speedup_vs_sequential=baseline["total_runtime_seconds"]
-                        / row["total_runtime_seconds"],
+                        / row["total_runtime_seconds"]
+                        if baseline is not None
+                        else None,
                         speedup_vs_cache_off=off["total_runtime_seconds"]
-                        / row["total_runtime_seconds"],
+                        / row["total_runtime_seconds"]
+                        if off is not None
+                        else None,
                         work_matches_sequential=all(
                             row[key] == baseline[key]
                             for key in (
@@ -183,22 +250,37 @@ def run_benchmark(
                                 "mcts_simulations",
                                 "inference_requests",
                             )
-                        ),
+                        )
+                        if baseline is not None
+                        else None,
                         seeded_behavior_matches_cache_off=row["trajectory_sha256"]
-                        == off["trajectory_sha256"],
+                        == off["trajectory_sha256"]
+                        if off is not None
+                        else None,
                     )
                 scenarios.extend(
-                    rows[(mode, cache_mode)]
-                    for cache_mode in cache_modes
-                    for mode in ("sequential", "batched")
+                    rows[(mode, cache_mode)] for cache_mode in cache_modes for mode in modes
                 )
-                workloads.extend(
-                    _inference_workloads(
-                        model, config, order, workload_batches, batch, repetition, should_stop
+                if include_workloads:
+                    workloads.extend(
+                        _inference_workloads(
+                            model,
+                            config,
+                            order,
+                            workload_batches,
+                            batch,
+                            repetition,
+                            should_stop,
+                            backend=backend,
+                        )
                     )
-                )
+            if backend is not None:
+                backend.close()
+                backend = None
             del model
     finally:
+        if backend is not None:
+            backend.close()
         torch.set_num_threads(previous_threads)
     return {
         "configuration": {
@@ -221,9 +303,28 @@ def run_benchmark(
                 "inference_batch_size",
                 "inference_cache_capacity",
                 "mixed_precision",
+                "inference_backend",
+                "inference_device",
             )
         },
-        "inference_precision": "float32",
+        "inference_precision": "mixed on CUDA; float32 on CPU" if mixed_precision else "float32",
+        "model_identity": {
+            "source": "checkpoint" if checkpoint is not None else "seeded weights",
+            "checkpoint_sha256": checkpoint_sha,
+            "weights_sha256": weights_digest.hexdigest(),
+        },
+        "hardware": {
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "cpu": _cpu_name(),
+            "logical_cpus": os.cpu_count(),
+            "cuda_devices": [
+                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+            ]
+            if cuda_available
+            else [],
+        },
+        "source_revision": _source_revision(),
         "torch_version": str(torch.__version__),
         "cuda_version": torch.version.cuda,
         "timing": "Synchronized wall time, excluding model initialization and warm-up",
@@ -233,6 +334,8 @@ def run_benchmark(
         "repetitions": repetitions,
         "inference_workload_batches": workload_batches,
         "cache_modes": cache_modes,
+        "devices": devices,
+        "self_play_modes": modes,
         "summary": [
             {
                 "device": device,
@@ -251,22 +354,27 @@ def run_benchmark(
                     if row["status"] == "completed"
                     and (row["device"], row["mode"], row["cache_mode"])
                     == (device, mode, cache_mode)
-                ),
+                )
+                if "off" in cache_modes
+                else None,
             }
-            for device in ("cpu", "cuda")
+            for device in devices
             if device == "cpu" or cuda_available
-            for mode in ("sequential", "batched")
+            for mode in modes
             for cache_mode in cache_modes
         ],
         "notes": [
             "Rates use the measured scenario wall time; speedup compares modes on the same device.",
             "Compare actual work too: terminal root wins can use fewer than the requested simulations.",
             "Different trajectories or deadline cutoffs can change completed work; a single small run is not a general performance claim.",
+            "Process peak RSS is a process-lifetime high-water mark; use fresh processes for memory comparisons.",
         ],
     }
 
 
-def _inference_workloads(model, config, cache_modes, batches, batch_size, repetition, should_stop):
+def _inference_workloads(
+    model, config, cache_modes, batches, batch_size, repetition, should_stop, *, backend=None
+):
     """Controlled duplicate-heavy and unique exact-input workloads; no MCTS."""
     from .inference import ExactInferenceCache, InferenceMetrics, policy_value_batch
 
@@ -305,7 +413,14 @@ def _inference_workloads(model, config, cache_modes, batches, batch_size, repeti
                     if workload == "duplicate-heavy"
                     else pool[index * batch_size : (index + 1) * batch_size]
                 )
-                policy_value_batch(states, model, metrics=metrics, cache=cache)
+                policy_value_batch(
+                    states,
+                    model,
+                    metrics=metrics,
+                    cache=cache,
+                    backend=backend,
+                    mixed_precision=bool(config["mixed_precision"]),
+                )
             measured = metrics.snapshot(finalize_cuda=True)
             row = {
                 **measured,
@@ -323,3 +438,25 @@ def _inference_workloads(model, config, cache_modes, batches, batch_size, repeti
                 )
             rows.append(row)
     return rows
+
+
+def _cpu_name() -> str:
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor()
+
+
+def _source_revision() -> str | None:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None

@@ -84,7 +84,7 @@ configuration paths.
 | `tournament --config FILE` | JSON round robin, final report to stdout; [tournaments](TOURNAMENTS.md) |
 | `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](SHIELD_MAIDEN.md) |
 | `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](OPENVINO.md#full-training-benchmark) |
-| `benchmark [--config FILE] [--output FILE]` | Self-play comparison without optimizer/model registration; [benchmark protocol](PERFORMANCE.md#benchmark-protocol-and-evidence) |
+| `benchmark [--config FILE] [--output FILE]` | Fixed-model self-play, optional checkpoint/device/mode selection, no optimizer/model registration; [benchmark protocol](PERFORMANCE.md#benchmark-protocol-and-evidence) |
 | `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](TRAINING_DATA.md#checkpoints-registry-import-and-export) |
 | `worker --server URL [--work-dir DIR] [--concurrency N] [--once] [--max-jobs N]` | Token from `HNEFATAFL_WORKER_TOKEN`, concurrency 1–16; [workers](REMOTE_TRAINING.md) |
 

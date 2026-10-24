@@ -176,3 +176,129 @@ def test_cache_comparison_repeats_matched_work_and_controlled_inputs():
 def test_invalid_comparison_budget(changes):
     with pytest.raises(ValueError):
         run_benchmark(changes)
+
+
+def test_fixed_checkpoint_selection_is_read_only_and_rng_neutral(tmp_path):
+    from hnefatafl.models import PolicyValueNet, save_checkpoint
+    import hashlib
+
+    source = save_checkpoint(tmp_path / "last.pt", PolicyValueNet("tablut", 4, 0), {})
+    before = source.read_bytes()
+    rng = torch.get_rng_state().clone()
+    result = run_benchmark(
+        dict(
+            checkpoint=str(source),
+            devices=["cpu"],
+            self_play_modes=["batched"],
+            repetitions=1,
+            games=2,
+            max_game_plies=2,
+            mcts_iterations=3,
+            include_inference_workloads=False,
+        )
+    )
+    assert source.read_bytes() == before
+    assert torch.equal(rng, torch.get_rng_state())
+    assert result["model_identity"]["checkpoint_sha256"] == hashlib.sha256(before).hexdigest()
+    assert result["model_identity"]["source"] == "checkpoint"
+    assert result["configuration"]["ruleset"] == "tablut"
+    assert result["inference_workloads"] == []
+    assert len(result["scenarios"]) == 2
+    for row in result["scenarios"]:
+        assert row["mode"] == "batched" and row["device"] == "cpu"
+        assert row["process_peak_rss_bytes"] > 0
+        assert row["mcts_neural_requests"] > 0 and row["mcts_node_prediction_reuses"] > 0
+        assert row["inference_requests"] == row["mcts_neural_requests"] + 2
+    with pytest.raises(ValueError, match="conflicts"):
+        run_benchmark(dict(checkpoint=str(source), ruleset="brandubh"))
+
+
+@pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])
+def test_benchmark_cli_cannot_overwrite_checkpoint(tmp_path, capsys, alias):
+    source = tmp_path / "last.pt"
+    source.write_bytes(b"untouched checkpoint")
+    output = tmp_path / "output.json"
+    if alias == "symlink":
+        output.symlink_to(source)
+    elif alias == "hardlink":
+        output.hardlink_to(source)
+    else:
+        output = source
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(dict(checkpoint=str(source))))
+    assert cli.main(["benchmark", "--config", str(config), "--output", str(output)]) == 1
+    assert "overwrite" in json.loads(capsys.readouterr().err)["error"]
+    assert source.read_bytes() == b"untouched checkpoint"
+    config.write_text(json.dumps(dict(checkpoint=42)))
+    assert cli.main(["benchmark", "--config", str(config), "--output", str(output)]) == 1
+    assert "path" in json.loads(capsys.readouterr().err)["error"]
+    assert source.read_bytes() == b"untouched checkpoint"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        dict(devices=[]),
+        dict(devices=["mps"]),
+        dict(self_play_modes=["auto"]),
+        dict(self_play_modes=["batched", "batched"]),
+        dict(benchmark_mixed_precision="yes"),
+        dict(include_inference_workloads=1),
+    ],
+)
+def test_fixed_model_options_are_validated(changes):
+    with pytest.raises(ValueError):
+        run_benchmark(changes)
+
+
+def test_exact_only_comparison_has_no_invented_off_reference():
+    result = run_benchmark(
+        dict(
+            devices=["cpu"],
+            self_play_modes=["batched"],
+            cache_modes=["exact"],
+            repetitions=1,
+            games=1,
+            max_game_plies=2,
+            mcts_iterations=2,
+            include_inference_workloads=False,
+        )
+    )
+    (row,) = result["scenarios"]
+    assert row["speedup_vs_cache_off"] is None
+    assert row["speedup_vs_sequential"] is None
+    assert row["work_matches_sequential"] is None
+    assert row["seeded_behavior_matches_cache_off"] is None
+    assert result["summary"][0]["median_speedup_vs_cache_off"] is None
+
+
+def test_openvino_benchmark_warms_one_frozen_backend_and_closes_it(monkeypatch):
+    pytest.importorskip("openvino")
+    from hnefatafl import inference_backends
+
+    factory = inference_backends.create_inference
+    backends = []
+
+    def create(model, config):
+        backend = factory(model, config)
+        backends.append(backend)
+        return backend
+
+    monkeypatch.setattr(inference_backends, "create_inference", create)
+    result = run_benchmark(
+        dict(
+            devices=["cpu"],
+            inference_backend="openvino",
+            inference_device="CPU",
+            self_play_modes=["batched"],
+            repetitions=1,
+            games=2,
+            max_game_plies=2,
+            mcts_iterations=3,
+            include_inference_workloads=False,
+        )
+    )
+    assert len(backends) == 1 and backends[0].refresh_count == 1
+    assert backends[0].compiled is None
+    assert all(row["inference_backend"] == "openvino" for row in result["scenarios"])
+    assert all(row["seeded_behavior_matches_cache_off"] for row in result["scenarios"])

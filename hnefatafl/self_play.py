@@ -36,6 +36,7 @@ class SelfPlayMetrics:
         self.completed = self.drawn = self.truncated = 0
         self.attacker_wins = self.defender_wins = 0
         self.requested_simulations = self.shortcuts = self.cutoffs = 0
+        self.neural_requests = self.prediction_reuses = 0
         self.cpu_search_seconds = 0.0
         self.search_traversal_wall_seconds = 0.0
         if self.device.type == "cuda":
@@ -48,6 +49,8 @@ class SelfPlayMetrics:
         self.requested_simulations += result.get("requested_simulations", 0)
         self.shortcuts += result.get("immediate_win_shortcuts", 0)
         self.cutoffs += result.get("search_deadline_cutoffs", 0)
+        self.neural_requests += result.get("mcts_neural_requests", 0)
+        self.prediction_reuses += result.get("mcts_node_prediction_reuses", 0)
         self.attacker_wins += int(result["winner"] == "attackers")
         self.defender_wins += int(result["winner"] == "defenders")
         self.completed += int(result["winner"] is not None)
@@ -68,6 +71,8 @@ class SelfPlayMetrics:
             "requested_mcts_simulations": self.requested_simulations,
             "immediate_win_shortcuts": self.shortcuts,
             "search_deadline_cutoffs": self.cutoffs,
+            "mcts_neural_requests": self.neural_requests,
+            "mcts_node_prediction_reuses": self.prediction_reuses,
             "attacker_wins": self.attacker_wins,
             "defender_wins": self.defender_wins,
             "games_per_hour": self.games * 3600 / duration,
@@ -100,6 +105,7 @@ def _game_context(
     state = new_game(config["ruleset"])
     examples: list[dict] = []
     simulations = shortcuts = cutoffs = 0
+    neural_requests = prediction_reuses = 0
     started = time.monotonic()
     for ply in range(config["max_game_plies"]):
         if should_stop and should_stop():
@@ -124,6 +130,8 @@ def _game_context(
         simulations += details.get("simulations", 0)
         shortcuts += details.get("immediate_win_shortcuts", 0)
         cutoffs += details.get("deadline_cutoffs", 0)
+        neural_requests += details.get("mcts_neural_requests", 0)
+        prediction_reuses += details.get("mcts_node_prediction_reuses", 0)
         area = state.size**2
         examples.append(
             {
@@ -156,6 +164,8 @@ def _game_context(
         "requested_simulations": len(examples) * config["mcts_iterations"],
         "immediate_win_shortcuts": shortcuts,
         "search_deadline_cutoffs": cutoffs,
+        "mcts_neural_requests": neural_requests,
+        "mcts_node_prediction_reuses": prediction_reuses,
         "duration": time.monotonic() - started,
     }
 

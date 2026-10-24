@@ -6,6 +6,8 @@ const translations: Record<string, string> = {
   'Reuses identical positions during self-play. Measure throughput before enabling for longer runs.':
     'Verwendet Ergebnisse für identische Stellungen im Selbstspiel erneut. Miss den Durchsatz vor längeren Läufen.',
   'Inference requests': 'Inferenzanfragen',
+  'MCTS neural requests': 'Neuronale MCTS-Anfragen',
+  'MCTS node predictions reused': 'Wiederverwendete MCTS-Knotenvorhersagen',
   'Inference cache hits': 'Inferenzcache-Treffer',
   'Inference cache misses': 'Inferenzcache-Fehlversuche',
   'Batch duplicates eliminated': 'Entfernte Stapelduplikate',

@@ -227,9 +227,9 @@ See [OpenVINO inference and full-training benchmarks](OPENVINO.md) for opt-in se
 ## Exact-input cache and symmetry foundation
 
 `inference_cache_mode` accepts `off` (default) or `exact`. Capacity defaults to
-4096 entries with a validated range of 1–65536. Off preserves existing inference
-invocations; exact enables both LRU reuse and within-batch deduplication through
-the shared inference pipeline. Cache lookup applies to nonterminal neural inputs
+4096 entries with a validated range of 1–65536. Off forwards each active neural
+request to inference; exact enables both LRU reuse and within-batch deduplication
+through the shared inference pipeline. Cache lookup applies to nonterminal neural inputs
 only: ruleset, board contents **in the original orientation**, and side to move.
 The current encoder has no history plane, so different nonterminal histories can
 share a pure evaluation; each engine/search state keeps its own repetition history
@@ -362,3 +362,77 @@ runs as a regression check with timing variation, not a universal speed estimate
 No CUDA, MPS or Intel GPU timing/memory claim is possible on this host. OpenVINO
 CPU cache/snapshot correctness passed real inference and full training/resume
 tests; its CPU validation does not establish an Intel GPU speedup.
+
+## Phase 2: retaining MCTS predictions
+
+Previously a newly created neural child yielded for its value, discarded the
+policy and yielded again when a later simulation first expanded it. Nodes now
+own the legal priors and value from that first prediction. Subsequent traversal
+uses those priors while visit counts and backed-up values continue to change on
+every completed simulation. A smaller request count does not reduce the configured
+simulation budget. No final move, cross-game tree, transposition or symmetry
+prediction is reused.
+
+The existing PUCT formula, first-tie order, weighted widening sampler and root
+noise remain intact. The parent's square root is calculated once per selection;
+`children**2 <= visits` replaces an equivalent square-root widening comparison.
+Root tactical checks remain rules-aware and now check cancellation between moves.
+Inference, terminal adjudication and repetition histories remain independent per
+search. Production counters add no per-simulation logging or CUDA synchronization.
+
+| Field | Meaning |
+| --- | --- |
+| `mcts_neural_requests` | Neural requests actually yielded by MCTS, including roots; excludes unfinished-game bootstrap |
+| `mcts_node_prediction_reuses` | Requests avoided by using a node's saved prediction: delayed policy expansion or a revisited nonterminal leaf |
+
+These fields appear in self-play result/performance JSON and the workshop MCTS
+group; older workers display missing values as a dash. `inference_requests` counts
+requests arriving at the inference pipeline, including bootstrap. Cache hits,
+within-batch duplicates and actual `neural_evaluations` retain their existing
+meanings. Do not add node reuse to cache hits: reuse never reaches the cache.
+
+Trees own legal dictionaries at expanded nodes and packed host arrays at deferred
+leaves, with uint16 action IDs and exact double probabilities. They remain bounded
+by the search budget. Leaf policies trade host memory for avoided legal
+masking/encoding/inference work. A tree is released at move completion or context
+closure. Models and backends must remain frozen during a pending search; managed
+training finishes all searches before refreshing weights and uses a new cache
+generation afterward. Existing checkpoints, optimizer/replay formats and remote
+worker protocol are unchanged.
+
+### Fixed-model benchmark options
+
+The existing `benchmark --config FILE --output FILE` command additionally accepts:
+
+| Benchmark-only option | Default and purpose |
+| --- | --- |
+| `checkpoint` | Omitted: deterministic seeded weights; otherwise validated `last.pt` or inference export, loaded without restoring training |
+| `devices` | `["cpu", "cuda"]`; choose either/both; unavailable CUDA is reported as skipped |
+| `self_play_modes` | `["sequential", "batched"]`; choose either/both |
+| `cache_modes` | `["off", "exact"]`; choose either/both, in either order |
+| `benchmark_mixed_precision` | `false`; enable CUDA autocast in both self-play modes; CPU stays float32 |
+| `include_inference_workloads` | `true`; set false to time only actual MCTS self-play |
+
+Architecture is inferred from a checkpoint; explicit conflicting architecture
+settings are rejected. The source checkpoint is never saved or registered, and
+CLI output may not overwrite it (including aliases). Each report records a
+checkpoint SHA-256 when supplied and a tensor-weight fingerprint in all cases.
+Device/backend, CPU/Python/PyTorch metadata, trajectory hashes and raw per-run
+counters accompany median summaries. Without a sequential/off reference, its
+comparison fields are null. Execution and cache order alternate across repetitions.
+The old command/defaults remain valid; ordinary training's `mixed_precision`
+setting does not override the benchmark's explicit precision control.
+
+`process_peak_rss_bytes` is the process-lifetime high-water mark, including the
+model/runtime, warm-up and retained examples. It cannot be reset between scenarios:
+use fresh processes and alternate scenario order for memory comparisons. It is
+not the incremental size of a search tree. CUDA allocator metrics remain separate.
+See the [Phase 2 evidence](benchmarks/mcts-phase2.md) for measured workloads,
+profiling boundaries, limitations and reproducible configurations.
+
+For OpenVINO fixed-model measurements, set `devices: ["cpu"]`,
+`inference_backend: "openvino"` and an explicit `inference_device` such as `"CPU"`.
+The graph is compiled/refreshed once per device and warmed before timing; all
+scenarios use that frozen snapshot. Conversion time is excluded from this
+self-play benchmark. Use `benchmark-training` to measure full refresh/optimizer
+iteration costs instead.

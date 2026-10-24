@@ -1,0 +1,26 @@
+{
+  "preset": "smoke",
+  "ruleset": "brandubh",
+  "channels": 32,
+  "blocks": 2,
+  "games": 32,
+  "max_game_plies": 16,
+  "mcts_iterations": 128,
+  "seed": 42,
+  "cpu_threads": 2,
+  "self_play_concurrency": 32,
+  "inference_batch_size": 32,
+  "inference_cache_capacity": 8192,
+  "repetitions": 3,
+  "devices": [
+    "cpu"
+  ],
+  "self_play_modes": [
+    "batched"
+  ],
+  "cache_modes": [
+    "off",
+    "exact"
+  ],
+  "include_inference_workloads": false
+}

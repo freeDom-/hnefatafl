@@ -307,6 +307,7 @@ def self_play(
     model.eval()
     started = time.monotonic()
     simulations = shortcuts = cutoffs = 0
+    neural_requests = prediction_reuses = 0
     for ply in range(config["max_game_plies"]):
         if should_stop and should_stop():
             raise InterruptedError("Training was cancelled")
@@ -316,6 +317,8 @@ def self_play(
         search_config = {
             "_model": model,
             "_inference_cache": cache,
+            "_mixed_precision": bool(config["mixed_precision"])
+            and next(model.parameters()).device.type == "cuda",
             "_inference_backend": backend
             if config.get("inference_backend") == "openvino"
             else None,
@@ -338,6 +341,8 @@ def self_play(
         simulations += details.get("simulations", 0)
         shortcuts += details.get("immediate_win_shortcuts", 0)
         cutoffs += details.get("deadline_cutoffs", 0)
+        neural_requests += details.get("mcts_neural_requests", 0)
+        prediction_reuses += details.get("mcts_node_prediction_reuses", 0)
         area = state.size**2
         examples.append(
             {
@@ -358,13 +363,20 @@ def self_play(
     # Truncation is not a rules draw. Bootstrap from the current value network.
     if winner is not None:
         value = {"attackers": -1.0, "defenders": 1.0, "draw": 0.0}[winner]
-    elif cache is not None or (
-        backend is not None and config.get("inference_backend") == "openvino"
+    elif (
+        cache is not None
+        or (config["mixed_precision"] and next(model.parameters()).is_cuda)
+        or (backend is not None and config.get("inference_backend") == "openvino")
     ):
         from .inference import policy_value_batch
 
         value = policy_value_batch(
-            [state], model, metrics=inference_metrics, backend=backend, cache=cache
+            [state],
+            model,
+            mixed_precision=bool(config["mixed_precision"]),
+            metrics=inference_metrics,
+            backend=backend,
+            cache=cache,
         )[0][1]
     elif inference_metrics is not None and legal_moves(state):
         inference_metrics.requests += 1
@@ -385,6 +397,8 @@ def self_play(
         "requested_simulations": len(examples) * config["mcts_iterations"],
         "immediate_win_shortcuts": shortcuts,
         "search_deadline_cutoffs": cutoffs,
+        "mcts_neural_requests": neural_requests,
+        "mcts_node_prediction_reuses": prediction_reuses,
         "duration": time.monotonic() - started,
     }
 

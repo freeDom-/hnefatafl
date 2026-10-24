@@ -149,6 +149,10 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await expect(page.locator('.notice[role=status]')).toContainText('training job has started');
   await expect(page.locator('.job-detail .job-status')).toHaveText('completed', { timeout: 90000 });
   await expect(page.getByRole('img', { name: 'Loss by iteration', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Performance', exact: true }).click();
+  await expect(page.getByText('MCTS neural requests', { exact: true })).toBeVisible();
+  await expect(page.getByText('MCTS node predictions reused', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   await expect(
     page.getByRole('img', { name: 'Evaluation by iteration', exact: true }),
   ).toBeVisible();

@@ -134,6 +134,8 @@ const performance = {
   games_per_hour: 360,
   positions_per_second: 12.5,
   simulations_per_second: 30,
+  mcts_neural_requests: 100,
+  mcts_node_prediction_reuses: 40,
   neural_evaluations_per_second: 25,
   average_game_length: 8,
   completed_games: 1,
@@ -200,6 +202,10 @@ it('shows aggregate performance and persisted completed-iteration throughput his
   );
   expect(screen.getByText('2.5 / 1 / 3')).toBeInTheDocument();
   expect(screen.getByText('CPU search activity (seconds)')).toBeInTheDocument();
+  expect(screen.getByText('MCTS neural requests').nextElementSibling).toHaveTextContent('100');
+  expect(screen.getByText('MCTS node predictions reused').nextElementSibling).toHaveTextContent(
+    '40',
+  );
   expect(screen.getAllByText('Iteration wall time (seconds)').length).toBeGreaterThan(0);
   expect(screen.getByText('Peak GPU allocated memory (MiB)').nextElementSibling).toHaveTextContent(
     '—',

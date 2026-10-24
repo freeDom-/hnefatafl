@@ -75,6 +75,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 from .benchmark import run_benchmark
 
+                if args.output and isinstance(config.get("checkpoint"), str):
+                    source, target = Path(config["checkpoint"]), Path(args.output)
+                    if source.resolve() == target.resolve() or (
+                        source.exists() and target.exists() and source.samefile(target)
+                    ):
+                        raise ValueError("Benchmark output must not overwrite its checkpoint")
                 result = run_benchmark(config, should_stop=stop.is_set)
             if args.output:
                 target = Path(args.output)

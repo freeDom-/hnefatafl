@@ -423,3 +423,25 @@ upgrade instructions and hardware/deployment limits. Version self-reporting is n
 code attestation; unknown versions cannot use overrides and missing optional commit
 metadata does not block matching releases. The production updater still refuses
 active jobs; ordinary restart continuity remains bounded by lease expiry.
+
+## MCTS search optimization (`0.27.0`)
+
+Phase 2 removes delayed-expansion re-evaluation using search-owned legal policies
+and defender-relative values. Slotted nodes pack deferred policies, preserve
+per-simulation backups and release trees at move completion. PUCT/widening retain
+reference arithmetic, stable ties, weighted sampling and seeded trajectories.
+The existing scheduler and Phase 1 cache remain independent. Request/reuse metrics
+and fixed-model benchmark controls extend existing JSON/UI and CLI interfaces.
+
+See the [0.27.0 release record](docs/releases/0.27.0.md) and
+[measurement evidence](docs/benchmarks/mcts-phase2.md) for final validation,
+CPU throughput, memory tradeoffs and unverified GPU hardware.
+
+Validation: `make check` passed 1,058 backend tests (six physical-hardware skips),
+191 frontend unit tests, formatting/types/docs and the production build. Relevant
+Chromium checks passed 11 tests with one intentional mobile duplicate skip.
+Three repetitions of all six CPU workload pairs preserve work and trajectory
+hashes. Eleven cache/mode comparisons improve; sequential/exact is effectively
+flat. Packed tree storage adds 6.8–8.1% traced memory in the measured probe;
+maximum median process RSS increase is 15.6 MiB/5.7%. No GPU or strength gain is
+claimed. Version 0.26.0 was already published at the verified baseline commit.

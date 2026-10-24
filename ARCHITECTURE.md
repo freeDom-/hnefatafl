@@ -275,3 +275,31 @@ versioned job-local/baseline/cumulative self-play counters in existing JSON and
 checkpoint metadata; immutable selection snapshots retain their own totals.
 Tensor format and database schema remain unchanged. See the
 [dashboard guide](docs/TRAINING_DASHBOARD.md).
+
+## MCTS node lifecycle
+
+A cooperative search owns its tree for one move and one frozen model generation.
+Each nonterminal neural node receives one prediction: its defender-relative value
+and safely owned legal priors. Deferred leaf policies pack action IDs in host
+uint16 arrays and probabilities in double arrays; expansion materializes the
+remaining-move dictionary once. The first visit backs up the value;
+a later visit consumes the saved priors to widen the node without yielding a
+second request. Edge visits and totals always belong to that search. Terminal
+children use engine outcomes before inference, including history-dependent
+repetition outcomes. Heuristic rollouts remain fresh on each simulation.
+
+Slotted nodes retain no dense logits, device tensors, parents or global tree
+references. Expanded-node priors shrink as child states are created lazily. Keeping
+leaf priors uses additional host memory; trees disappear when their context ends
+or closes. Root noise changes only the root's owned policy. No prediction,
+statistics, noisy policy or selected move survives into another move/generation.
+The caller must keep its model/backend frozen while a search is pending, as with
+the cooperative inference contract before this change.
+
+PUCT computes the parent's square root once per selection, scans children in
+insertion order and keeps the first maximum using the original floating-point
+operation order. Integer progressive widening is exactly equivalent to the prior
+square-root threshold; weighted sampling and RNG consumption are unchanged.
+The scheduler still batches one dependent request per independent game. Node
+reuse reduces generator transitions before the Phase 1 cache; cache hits and
+batch deduplication remain separate from node reuse and completed simulations.

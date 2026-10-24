@@ -95,6 +95,8 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
             {fields([
               ['requested_mcts_simulations', 'Requested MCTS simulations'],
               ['mcts_simulations', 'Completed MCTS simulations'],
+              ['mcts_neural_requests', 'MCTS neural requests'],
+              ['mcts_node_prediction_reuses', 'MCTS node predictions reused'],
               ['immediate_win_shortcuts', 'Immediate-win shortcuts'],
               ['search_deadline_cutoffs', 'Search deadline cutoffs'],
               ['completed_games', 'Completed games (including draws)'],
