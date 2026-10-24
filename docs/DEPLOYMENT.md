@@ -116,7 +116,9 @@ pct exec 185 -- /usr/local/bin/hnefatafl-update --check
 pct exec 185 -- /usr/local/bin/hnefatafl-backup
 ```
 
-The installer configures `/usr/local/bin` in root's login and interactive Bash PATH and verifies both maintenance commands. Proxmox `pct exec` does not necessarily read shell startup files, so host examples use absolute paths. Open a new shell to pick up PATH changes after a repair.\n\n`hnefatafl.service` runs as the dedicated unprivileged `hnefatafl` user, restarts
+The installer configures `/usr/local/bin` in root's login and interactive Bash PATH and verifies both maintenance commands. Proxmox `pct exec` does not necessarily read shell startup files, so host examples use absolute paths. Open a new shell to pick up PATH changes after a repair.
+
+`hnefatafl.service` runs as the dedicated unprivileged `hnefatafl` user, restarts
 on unexpected failure and starts at boot. `/etc/hnefatafl` holds protected
 configuration, `/var/lib/hnefatafl` holds persistent data and backups, and
 `/opt/hnefatafl` holds replaceable release code and tools.
