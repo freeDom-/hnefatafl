@@ -95,3 +95,22 @@ it('preserves explicit choices across presets, enforces independent optimization
     })?.inference_backend,
   ).toBe('pytorch');
 });
+
+it('defaults cache off, validates capacity and preserves exact settings across plans', () => {
+  render(<Form />);
+  expect(screen.getByLabelText('Inference cache')).toHaveValue('off');
+  expect(screen.queryByLabelText('Inference cache capacity')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Inference cache'), { target: { value: 'exact' } });
+  expect(screen.getByLabelText('Inference cache capacity')).toHaveValue(4096);
+  fireEvent.change(screen.getByLabelText('Inference cache capacity'), { target: { value: '256' } });
+  expect(screen.getByRole('status')).toHaveTextContent('"inference_cache_capacity":256');
+  const selected = {
+    ...trainingConfig('brandubh', 'smoke'),
+    inference_cache_mode: 'exact',
+    inference_cache_capacity: 256,
+  };
+  expect(changeTrainingPlan(selected, 'copenhagen', 'recommended')).toMatchObject({
+    inference_cache_mode: 'exact',
+    inference_cache_capacity: 256,
+  });
+});

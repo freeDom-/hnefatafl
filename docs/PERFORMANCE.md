@@ -149,7 +149,8 @@ also saves the JSON report; `--config` selects an explicit training-style budget
 .venv/bin/python -m hnefatafl.cli benchmark --config configs/train-smoke.json
 ```
 
-With no config it uses Brandubh, a 4-channel/0-block network, four eight-ply games,
+With no config it performs three repetitions of cache off/exact in both sequential
+and batched modes. Cache-mode order alternates between repetitions. It uses Brandubh, a 4-channel/0-block network, four eight-ply games,
 four simulations per move, seed 17 and two CPU threads. It always compares CPU and,
 if available, CUDA; the supplied training `device` is not a device filter. MPS is
 supported by training but is not a benchmark scenario. The benchmark forces float32
@@ -221,3 +222,143 @@ training evaluator; Shield maiden gameplay itself remains tensor independent.
 ## Optional OpenVINO inference
 
 See [OpenVINO inference and full-training benchmarks](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.
+
+
+## Exact-input cache and symmetry foundation
+
+`inference_cache_mode` accepts `off` (default) or `exact`. Capacity defaults to
+4096 entries with a validated range of 1–65536. Off preserves existing inference
+invocations; exact enables both LRU reuse and within-batch deduplication through
+the shared inference pipeline. Cache lookup applies to nonterminal neural inputs
+only: ruleset, board contents **in the original orientation**, and side to move.
+The current encoder has no history plane, so different nonterminal histories can
+share a pure evaluation; each engine/search state keeps its own repetition history
+and terminal handling. Legal move support depends only on that board/turn/ruleset
+after terminal handling. Policies are normalized over that legal support.
+
+Each self-play generation owns a cache. Training discards it before optimization;
+backend refresh has an explicit generation, including PyTorch's in-place weight
+updates. Reusing the public cache also checks tensor version counters, parameter
+identities, device, dtype and precision settings. External writes bypassing tensor
+version counters (for example `.data`) require an explicit `cache.clear()`; managed
+training does not use such writes between cached requests. Cache only evaluation
+mode models. Compact immutable legal probabilities/value live on the host, never
+full action logits, GPU tensors, terminal adjudications or search noise. Every
+consumer receives its own mutable dictionary. Memory depends on legal-policy size;
+capacity is an entry bound, not a byte guarantee. No per-request logging or new
+CUDA synchronization is used.
+
+The independent pure-Python `symmetry.py` supports identity, clockwise 90/180/270°
+rotations and left/right reflection followed by each rotation. Cached coordinate
+permutations transform indices, moves, boards and complete ordered repetition
+histories; inverse transforms preserve side identities and terminal metadata.
+Canonical board ties use enum order; full state ties use globally transformed
+history before enum order. `BoardKey` is geometry only; `StateKey` retains ruleset,
+board, turn, ply, winner, reason and full ordered history. Neither is used by search
+or the inference cache in this phase. Neural predictions need not be invariant
+under D4, so symmetry-equivalent inputs are deliberately never merged.
+
+### Cache metrics
+
+All new fields are additive in existing performance JSON and the workshop's
+Performance view. Terminal requests are excluded from neural request counts.
+
+| Field | Meaning |
+| --- | --- |
+| `inference_requests` | Logical active neural requests, before deduplication |
+| `neural_evaluations` | Actual positions evaluated by the network, preserving historical meaning |
+| `inference_cache_hits`, `inference_cache_misses` | One lookup per distinct exact input per batch; off counts every active request as a miss |
+| `inference_batch_duplicates` | Additional requests for the same exact input within a batch, including duplicates of hits |
+| `inference_cache_hit_rate` | hits / (hits + misses), zero when no lookups |
+| `inference_cache_entries`, `inference_cache_peak_entries` | Current and peak resident entry counts |
+| `inference_cache_lookup_seconds` | Host time for generation validation, input keys, LRU lookups and duplicate grouping |
+
+For completed requests, `requests = hits + misses + duplicates`; misses equal
+actual model evaluations. Duplicate requests count once as a lookup, avoiding
+inflated hit rates. `inference_batches` and observed batch sizes describe actual
+forwards after deduplication. An all-hit batch adds no forward/timing batch.
+Existing inference host/CPU timers measure encoding, forward and policy decoding;
+lookup time is separately exposed and remains part of total self-play wall/CPU
+time. CUDA activity remains benchmark-only. Search traversal's residual timing
+includes cache work on the sequential reference path; use total wall time for
+end-to-end comparisons and do not add overlapping timers.
+
+### Reproducible comparisons
+
+The existing `benchmark` command accepts benchmark-only `repetitions` (default 3,
+1–20), `cache_modes` (`["off", "exact"]`, or `["off"]` for the old comparison) and
+`inference_workload_batches` (default 16, 1–256). These are not training settings.
+Self-play rows retain mode/device and add cache mode, repetition, total process CPU
+time, evaluations eliminated, speedup against the same mode with cache off, and a
+seeded trajectory/search-target digest comparison. Compare actual simulation
+counts and deadline cutoffs. Float32 legal probabilities/value parity tolerances
+are 1e-6 absolute / 1e-5 relative for PyTorch cache tests and 3e-5 / 1e-4 for
+OpenVINO; changing batch shape can change kernel rounding.
+
+`inference_workloads` isolates repeated identical boards (duplicate-heavy) and
+unique exact inputs (unique), including lookup overhead. Generation of the unique
+pool is excluded. Identical seeded weights, rulesets, seeds, budgets and precision
+are reused. Warm-up/model initialization is excluded; CUDA, when available, is
+synchronized at scenario boundaries with activity and allocator peaks recorded.
+CPU-only runs cannot establish CUDA speedup; smaller deduplicated batches may
+reduce GPU efficiency. These are self-play and inference comparisons, not evidence
+of faster complete training or stronger models.
+
+Runnable five-repetition budgets live in
+[exact-small.json](../configs/benchmarks/exact-small.json) and
+[exact-network.json](../configs/benchmarks/exact-network.json). Change only `ruleset`
+to repeat the small budget on Tablut/Copenhagen. Run in isolation from tests or
+other training jobs, then compare medians and variation. The 0.24.0 measured
+results and raw-report provenance are recorded below and in the release notes.
+### Measured CPU results (2026-10-24)
+
+AMD EPYC 9V74, Python 3.12.14, PyTorch 2.14.1+cpu, two math threads,
+seed 17. Five repetitions per off/exact/mode/budget combination, alternating cache
+order, run after test services stopped. Raw wall/CPU timing, games/hour, simulations/s,
+batch distributions, lookup time, occupancy and work counters are retained in the
+[complete JSON report](benchmarks/exact-input-cpu-2026-10-24.json).
+
+| Budget | Schedule | Median off → exact (s) | Exact speedup (ratio of medians) | Evaluations off → exact | Completed simulations |
+| --- | --- | --- | --- | --- | --- |
+| brandubh-32x2 | sequential | 2.470 → 2.109 | 1.171× | 2890 → 1835 | 1936 |
+| brandubh-32x2 | batched | 1.075 → 1.118 | 0.962× | 2890 → 1835 | 1936 |
+| brandubh-small | sequential | 0.491 → 0.533 | 0.921× | 1061 → 666 | 688 |
+| brandubh-small | batched | 0.349 → 0.343 | 1.018× | 1061 → 666 | 688 |
+| copenhagen-small | sequential | 2.348 → 2.398 | 0.979× | 1166 → 758 | 768 |
+| copenhagen-small | batched | 2.100 → 2.174 | 0.966× | 1166 → 758 | 768 |
+| tablut-small | sequential | 0.978 → 0.998 | 0.980× | 1180 → 751 | 768 |
+| tablut-small | batched | 0.803 → 0.848 | 0.947× | 1180 → 751 | 768 |
+
+Small budgets: 4 channels/0 blocks, 8 games × at most 12 plies, 8 visits per move.
+The Brandubh 32×2 budget: 32 channels/2 blocks, 8 games × at most 16 plies,
+16 visits per move. Concurrency and inference limit are eight, FP32, capacity 4096.
+Actual simulation counts match with caching off/exact, including existing winning-root
+shortcuts. All 80 self-play runs preserved the seeded trajectory/policy-target digest
+within their execution mode, and none hit a search deadline. Counts and timing
+ranges are in the raw report; ratios of medians here differ from median paired
+speedups in the JSON summary.
+
+Evaluations fell about 35–37%, but wall time did not improve consistently.
+Keep caching off by default; select exact only after measuring a representative
+network/budget. These short, truncated-game comparisons are not complete training
+throughput or model-strength evidence.
+
+| Controlled inference workload (256 requests, batches of eight) | Budget | Median off → exact (ms) | Evaluations off → exact | Median exact lookup (ms) |
+| --- | --- | --- | --- | --- |
+| duplicate-heavy | brandubh-small | 41.85 → 8.74 | 256 → 1 | 1.58 |
+| unique | brandubh-small | 40.11 → 45.06 | 256 → 256 | 2.08 |
+| duplicate-heavy | brandubh-32x2 | 64.35 → 10.22 | 256 → 1 | 2.55 |
+| unique | brandubh-32x2 | 61.99 → 67.89 | 256 → 256 | 3.34 |
+
+The duplicate-heavy test intentionally repeats one board throughout and is an
+artificial upper-benefit workload. The unique pool has no exact reuse, exposing
+cache/key/copy overhead. Smaller effective batches and Python search processing
+explain why an inference-only gain need not carry through to self-play.
+
+The pre-change 0.23.0 sequential baseline (three repetitions) was 0.501 s; final cache-off median was 0.491 s (-2.0% runtime).
+The pre-change 0.23.0 batched baseline (three repetitions) was 0.351 s; final cache-off median was 0.349 s (-0.5% runtime).
+Both used 1,061 evaluations and 688 actual simulations. Treat these separate short
+runs as a regression check with timing variation, not a universal speed estimate.
+No CUDA, MPS or Intel GPU timing/memory claim is possible on this host. OpenVINO
+CPU cache/snapshot correctness passed real inference and full training/resume
+tests; its CPU validation does not establish an Intel GPU speedup.

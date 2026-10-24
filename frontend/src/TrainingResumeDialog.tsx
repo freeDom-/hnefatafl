@@ -93,6 +93,8 @@ export default function TrainingResumeDialog({
         saved.model_name = info.model_name;
         saved.inference_backend ??= 'pytorch';
         saved.inference_device ??= 'auto';
+        saved.inference_cache_mode ??= 'off';
+        saved.inference_cache_capacity ??= 4096;
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
@@ -156,6 +158,7 @@ export default function TrainingResumeDialog({
                   'save_all_best',
                   'self_play_mode',
                   'inference_backend',
+                  'inference_cache_mode',
                   'inference_device',
                 ].includes(key)) &&
               value !== savedConfig.current[key],
@@ -297,7 +300,13 @@ export default function TrainingResumeDialog({
                     {Object.keys(trainingNumberFields)
                       .filter(
                         (key) =>
-                          !['iterations', 'channels', 'blocks', 'seed'].includes(key) &&
+                          ![
+                            'iterations',
+                            'channels',
+                            'blocks',
+                            'seed',
+                            'inference_cache_capacity',
+                          ].includes(key) &&
                           !key.startsWith('evaluation_') &&
                           !key.startsWith('champion_') &&
                           config[key] !== undefined,

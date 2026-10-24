@@ -131,6 +131,11 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await page.getByLabel('Model name', { exact: true }).fill('Browser smoke strategist');
   await page.getByRole('combobox', { name: 'Training preset', exact: true }).selectOption('smoke');
   await page.getByRole('button', { name: /Advanced configuration/ }).click();
+  await expect(page.getByRole('combobox', { name: 'Inference cache', exact: true })).toHaveValue(
+    'off',
+  );
+  await page.getByRole('combobox', { name: 'Inference cache', exact: true }).selectOption('exact');
+  await page.getByLabel('Inference cache capacity', { exact: true }).fill('128');
   await page.getByRole('combobox', { name: 'Optimizer', exact: true }).selectOption('sgd');
   await page.getByRole('spinbutton', { name: 'Learning rate', exact: true }).fill('0.002');
   await page.getByRole('spinbutton', { name: 'Weight regularization', exact: true }).fill('0.003');
@@ -159,6 +164,11 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await expect(resume.getByLabel('Learning rate', { exact: true })).toHaveValue('0.002');
   await expect(resume.getByLabel('Weight decay', { exact: true })).toHaveValue('0.003');
   await expect(resume.getByLabel('Momentum', { exact: true })).toHaveValue('0.8');
+  await expect(resume.getByRole('combobox', { name: 'Inference cache', exact: true })).toHaveValue(
+    'exact',
+  );
+  await expect(resume.getByLabel('Inference cache capacity', { exact: true })).toHaveValue('128');
+  await resume.getByLabel('Inference cache capacity', { exact: true }).fill('256');
   await resume.getByLabel('Learning rate', { exact: true }).fill('0.0007');
   await resume.getByLabel('Weight decay', { exact: true }).fill('0.004');
   await resume.getByLabel('Momentum', { exact: true }).fill('0.65');
@@ -174,6 +184,8 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
     weight_decay: 0.004,
     momentum: 0.65,
     optimizer: 'sgd',
+    inference_cache_mode: 'exact',
+    inference_cache_capacity: 256,
   });
   await expect(resume).toHaveCount(0);
   await expect(page.locator('.notice[role=status]')).toContainText(

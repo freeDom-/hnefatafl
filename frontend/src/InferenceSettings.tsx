@@ -1,4 +1,5 @@
 import { useI18n } from './i18n';
+import { numberField } from './TrainingFields';
 import type { DeviceInfo, TrainingWorker } from './types';
 import type { TrainingConfig } from './trainingPresets';
 
@@ -77,6 +78,32 @@ export default function InferenceSettings({
           </option>
         </select>
       </label>
+      <label>
+        {t('Inference cache')}
+        <select
+          value={String(config.inference_cache_mode ?? 'off')}
+          disabled={disabled}
+          onChange={(event) => update('inference_cache_mode', event.target.value)}
+        >
+          <option value="off">{t('Off · default')}</option>
+          <option value="exact">{t('Exact positions')}</option>
+        </select>
+      </label>
+      {config.inference_cache_mode === 'exact' && (
+        <>
+          {numberField(
+            'inference_cache_capacity',
+            { ...config, inference_cache_capacity: config.inference_cache_capacity ?? 4096 },
+            update,
+            { disabled },
+          )}
+          <p className="subtle">
+            {t(
+              'Reuses identical positions during self-play. Measure throughput before enabling for longer runs.',
+            )}
+          </p>
+        </>
+      )}
       {config.inference_backend === 'openvino' && (
         <>
           <p className="subtle">

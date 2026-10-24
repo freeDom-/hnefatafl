@@ -17,6 +17,8 @@ const base: TrainingConfig = {
   self_play_mode: 'auto',
   self_play_concurrency: 16,
   inference_batch_size: 32,
+  inference_cache_mode: 'off',
+  inference_cache_capacity: 4096,
   exploration: 1.4,
   replay_buffer_size: 5000,
   weight_decay: 0.0001,
@@ -160,6 +162,8 @@ export function changeTrainingPlan(
     self_play_mode: previous.self_play_mode ?? 'auto',
     self_play_concurrency: previous.self_play_concurrency ?? 16,
     inference_batch_size: previous.inference_batch_size ?? 32,
+    inference_cache_mode: previous.inference_cache_mode ?? 'off',
+    inference_cache_capacity: previous.inference_cache_capacity ?? 4096,
   };
 }
 
@@ -183,6 +187,7 @@ export function recordedTrainingConfig(
       )
         continue;
       if (key === 'device' && !['auto', 'cpu', 'cuda', 'mps'].includes(String(value))) continue;
+      if (key === 'inference_cache_mode' && !['off', 'exact'].includes(String(value))) continue;
       if (key === 'inference_backend' && !['pytorch', 'openvino'].includes(String(value))) continue;
       if (key === 'optimizer' && !['adamw', 'adam', 'sgd'].includes(String(value))) continue;
       if (key === 'self_play_mode' && !['auto', 'sequential', 'batched'].includes(String(value)))
@@ -196,6 +201,8 @@ export function recordedTrainingConfig(
     ...previous,
     inference_backend: 'pytorch',
     inference_device: 'auto',
+    inference_cache_mode: 'off',
+    inference_cache_capacity: 4096,
     ...values,
     model_name: model.name,
     ruleset: model.ruleset,

@@ -8,6 +8,7 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   mcts_iterations: ['MCTS iterations per move', 1, 100000],
   self_play_concurrency: ['Concurrent self-play games', 1, 1024],
   inference_batch_size: ['Inference batch size', 1, 4096],
+  inference_cache_capacity: ['Inference cache capacity', 1, 65536],
   channels: ['Network channels', 4, 128],
   blocks: ['Residual blocks', 0, 8],
   epochs: ['Epochs per iteration', 1, 100],

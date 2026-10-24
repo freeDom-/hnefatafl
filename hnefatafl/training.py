@@ -19,6 +19,7 @@ import torch
 from torch.nn import functional as F
 
 from .ai import mcts_policy, policy_value
+from .inference import ExactInferenceCache
 from .engine import apply_move, legal_moves, new_game
 from .models import (
     ModelRegistry,
@@ -51,6 +52,8 @@ DEFAULTS = {
     "self_play_mode": "auto",
     "self_play_concurrency": 16,
     "inference_batch_size": 32,
+    "inference_cache_mode": "off",
+    "inference_cache_capacity": 4096,
     "exploration": 1.4,
     "temperature": 1.0,
     "dirichlet_alpha": 0.3,
@@ -150,6 +153,7 @@ def normalize_config(configuration: dict) -> dict:
         "cpu_threads": (1, 64),
         "self_play_concurrency": (1, 1024),
         "inference_batch_size": (1, 4096),
+        "inference_cache_capacity": (1, 65536),
     }
     for key, (low, high) in integer_bounds.items():
         if type(config[key]) is not int or not low <= config[key] <= high:
@@ -190,6 +194,8 @@ def normalize_config(configuration: dict) -> dict:
         raise ValueError("output_dir must be a nonempty path")
     if not isinstance(config["model_name"], str) or not 1 <= len(config["model_name"]) <= 100:
         raise ValueError("model_name must contain 1–100 characters")
+    if config["inference_cache_mode"] not in ("off", "exact"):
+        raise ValueError("inference_cache_mode must be off or exact")
     normalize_inference(config)
     return config
 
@@ -273,6 +279,7 @@ def self_play(
     should_stop: Callable[[], bool] | None = None,
     inference_metrics=None,
     backend: InferenceBackend | None = None,
+    cache: ExactInferenceCache | None = None,
 ) -> tuple[list[dict], dict]:
     """Generate legal MCTS policy targets and final defender-perspective returns."""
     if backend is None and config.get("inference_backend") == "openvino":
@@ -286,9 +293,12 @@ def self_play(
                 should_stop=should_stop,
                 inference_metrics=inference_metrics,
                 backend=owned,
+                cache=cache,
             )
         finally:
             owned.close()
+    if cache is None and config.get("inference_cache_mode") == "exact":
+        cache = ExactInferenceCache(config["inference_cache_capacity"])
     rng = random.Random(seed)
     state = new_game(config["ruleset"])
     examples = []
@@ -303,6 +313,7 @@ def self_play(
         moves = legal_moves(state)
         search_config = {
             "_model": model,
+            "_inference_cache": cache,
             "_inference_backend": backend
             if config.get("inference_backend") == "openvino"
             else None,
@@ -345,11 +356,17 @@ def self_play(
     # Truncation is not a rules draw. Bootstrap from the current value network.
     if winner is not None:
         value = {"attackers": -1.0, "defenders": 1.0, "draw": 0.0}[winner]
-    elif backend is not None and config.get("inference_backend") == "openvino":
+    elif cache is not None or (
+        backend is not None and config.get("inference_backend") == "openvino"
+    ):
         from .inference import policy_value_batch
 
-        value = policy_value_batch([state], model, metrics=inference_metrics, backend=backend)[0][1]
+        value = policy_value_batch(
+            [state], model, metrics=inference_metrics, backend=backend, cache=cache
+        )[0][1]
     elif inference_metrics is not None and legal_moves(state):
+        inference_metrics.requests += 1
+        inference_metrics.cache_misses += 1
         with inference_metrics.measure(1, device=next(model.parameters()).device):
             value = policy_value(state, model=model)[1]
     else:
@@ -421,9 +438,15 @@ def generate_self_play(
             else "sequential"
         )
     concurrency = min(config["games"], config["self_play_concurrency"]) if mode == "batched" else 1
+    cache = (
+        ExactInferenceCache(config["inference_cache_capacity"])
+        if config.get("inference_cache_mode") == "exact"
+        else None
+    )
     metrics = SelfPlayMetrics(model, mode, concurrency, measure_cuda=measure_cuda)
+    metrics.backend_info["inference_cache_mode"] = config.get("inference_cache_mode", "off")
     if backend is not None:
-        metrics.backend_info = backend.info
+        metrics.backend_info.update(backend.info)
     if mode == "batched":
         if progress:
             progress({"game": 0, "performance": metrics.snapshot()})
@@ -437,6 +460,7 @@ def generate_self_play(
             on_game=on_game,
             retain_examples=retain_examples,
             backend=backend,
+            cache=cache,
         )
     else:
         games = []
@@ -456,6 +480,7 @@ def generate_self_play(
                 should_stop=should_stop,
                 inference_metrics=metrics.inference,
                 backend=backend,
+                cache=cache,
             )
             metrics.cpu_search_seconds += max(
                 0.0,

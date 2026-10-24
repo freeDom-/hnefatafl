@@ -11,7 +11,7 @@ import torch
 
 from .ai import mcts_context
 from .engine import Move, State, apply_move, legal_moves, new_game
-from .inference import InferenceMetrics, policy_value_batch
+from .inference import ExactInferenceCache, InferenceMetrics, policy_value_batch
 from .inference_backends import InferenceBackend
 from .models import PolicyValueNet, encode_state
 
@@ -171,6 +171,7 @@ def batched_self_play(
     on_game: Callable[[int, list[dict], dict], None] | None = None,
     retain_examples: bool = True,
     backend: InferenceBackend | None = None,
+    cache: ExactInferenceCache | None = None,
 ) -> list[GameResult]:
     """Interleave independent searches, replacing finished games immediately.
 
@@ -246,6 +247,7 @@ def batched_self_play(
             mixed_precision=bool(config["mixed_precision"]),
             metrics=metrics.inference,
             backend=backend,
+            cache=cache,
         )
         for (index, context, _), evaluation in zip(requests, evaluations):
             request = advance(index, context, evaluation)

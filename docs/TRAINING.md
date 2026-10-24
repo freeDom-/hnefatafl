@@ -379,3 +379,26 @@ checkpoint format and portable job archives remain compatible.
 ## Optional OpenVINO inference
 
 See [Optional Intel GPU self-play inference](OPENVINO.md) for opt-in setup, defaults, checkpoint portability and measured limitations.
+
+
+## Optional exact-input inference reuse
+
+Start Training and Resume Training expose **Inference cache**, default **Off**.
+CLI JSON and local/remote jobs use `inference_cache_mode: "off" | "exact"` and
+`inference_cache_capacity` (default 4096, integer 1–65536). Capacity counts positions,
+not bytes; large boards and large capacities need more host memory. Exact mode
+shares neural results for identical ruleset/board/turn inputs within an iteration
+and removes identical requests from each pending batch. Each search keeps its own
+tree, history, RNG, root noise and budgets. Rotated/reflected inputs remain distinct.
+
+Caches are discarded before weight updates; backend refresh and parameter version
+checks prevent reuse across generations. Terminal results bypass the cache.
+This changes neither learning targets nor checkpoint format. Legacy configs and
+resumes default off. Update remote workers to 0.24.0 to enable exact mode; older
+workers can still claim off jobs (their transport omits unsupported preferences).
+An exact job waits for a worker reporting `inference_cache_modes: ["off", "exact"]`.
+
+Use the [performance protocol](PERFORMANCE.md#exact-input-cache-and-symmetry-foundation)
+to compare throughput. Lower neural evaluation counts alone do not establish
+faster training. New performance fields distinguish requests, distinct cache
+lookups, eliminated batch duplicates and actual evaluated positions.

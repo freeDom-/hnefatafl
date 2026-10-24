@@ -338,7 +338,12 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
     client.post(
         "/api/worker/heartbeat",
         headers=headers,
-        json={"capabilities": {"inference_backends": ["pytorch"]}},
+        json={
+            "capabilities": {
+                "inference_backends": ["pytorch"],
+                "inference_cache_modes": ["off", "exact"],
+            }
+        },
     )
     job = queue(client, worker_id=remote["id"])
     lease = claim(client, headers)
@@ -556,6 +561,7 @@ def test_legacy_worker_transport_omits_new_defaults_and_preserves_resume_tensors
     leased = claim(client, headers)
     assert "inference_backend" not in leased["config"]
     assert "inference_device" not in leased["config"]
+    assert "inference_cache_mode" not in leased["config"]
     assert (
         client.get(f"/api/training/jobs/{source['id']}").json()["config"]["inference_backend"]
         == "pytorch"
@@ -585,6 +591,7 @@ def test_legacy_worker_transport_omits_new_defaults_and_preserves_resume_tensors
     assert after["extra"]["iteration"] == before["extra"]["iteration"]
     assert "inference_backend" not in after["metadata"]["training_config"]
     assert "inference_device" not in after["metadata"]["training_config"]
+    assert "inference_cache_mode" not in after["metadata"]["training_config"]
     assert "inference_backend" in before["metadata"]["training_config"]
     assert (
         client.app.state.data_dir / "jobs" / resumed["id"] / "resume.pt"

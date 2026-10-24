@@ -32,7 +32,13 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         defaults["self_play_concurrency"],
         defaults["inference_batch_size"],
     ) == ("auto", 16, 32)
-    settings = {"self_play_mode": "batched", "self_play_concurrency": 7, "inference_batch_size": 12}
+    settings = {
+        "self_play_mode": "batched",
+        "self_play_concurrency": 7,
+        "inference_batch_size": 12,
+        "inference_cache_mode": "exact",
+        "inference_cache_capacity": 128,
+    }
     response = client.post(
         "/api/training/jobs",
         json={"execution": "remote", "preset": "smoke", "device": "cpu", **settings},
@@ -43,6 +49,14 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
     for key, value in settings.items():
         assert queued["config"][key] == value
     headers = {"Authorization": "Bearer " + worker["token"]}
+    assert (
+        client.post(
+            "/api/worker/heartbeat",
+            headers=headers,
+            json={"capabilities": {"inference_cache_modes": ["off", "exact"]}},
+        ).status_code
+        == 200
+    )
     claimed = client.post(
         "/api/worker/claim", headers=headers, json={"request_id": "batch-claim"}
     ).json()["job"]
@@ -58,6 +72,11 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
 @pytest.mark.parametrize(
     "changes",
     [
+        {"inference_cache_mode": "symmetry"},
+        {"inference_cache_mode": True},
+        {"inference_cache_capacity": 0},
+        {"inference_cache_capacity": 65537},
+        {"inference_cache_capacity": False},
         {"self_play_mode": "invalid"},
         {"self_play_mode": True},
         {"self_play_concurrency": 0},
@@ -85,6 +104,8 @@ def test_legacy_checkpoint_resume_prefills_defaults_and_accepts_execution_overri
         "self_play_mode",
         "self_play_concurrency",
         "inference_batch_size",
+        "inference_cache_mode",
+        "inference_cache_capacity",
         "inference_backend",
         "inference_device",
     ):
@@ -122,9 +143,13 @@ def test_legacy_checkpoint_resume_prefills_defaults_and_accepts_execution_overri
         saved["self_play_concurrency"],
         saved["inference_batch_size"],
     ) == ("auto", 16, 32)
+    assert saved["inference_cache_mode"] == "off"
+    assert saved["inference_cache_capacity"] == 4096
     assert saved["inference_backend"] == "pytorch"
     assert saved["inference_device"] == "auto"
     overrides = {
+        "inference_cache_mode": "exact",
+        "inference_cache_capacity": 512,
         "inference_backend": "openvino",
         "inference_device": "GPU",
         "self_play_mode": "batched",
@@ -138,3 +163,22 @@ def test_legacy_checkpoint_resume_prefills_defaults_and_accepts_execution_overri
         assert resumed[key] == value
     for key in ("ruleset", "channels", "blocks", "seed", "optimizer"):
         assert resumed[key] == config[key]
+
+
+def test_old_workers_keep_default_jobs_and_cannot_claim_exact_jobs(client):
+    worker = client.post("/api/training/workers", json={"name": "Legacy", "capacity": 1}).json()
+    headers = {"Authorization": "Bearer " + worker["token"]}
+    exact = client.post(
+        "/api/training/jobs",
+        json={"execution": "remote", "preset": "smoke", "inference_cache_mode": "exact"},
+    ).json()
+    default = client.post(
+        "/api/training/jobs", json={"execution": "remote", "preset": "smoke"}
+    ).json()
+    claimed = client.post(
+        "/api/worker/claim", headers=headers, json={"request_id": "legacy"}
+    ).json()["job"]
+    assert claimed["id"] == default["id"]
+    assert "inference_cache_mode" not in claimed["config"]
+    assert "inference_cache_capacity" not in claimed["config"]
+    assert client.get(f"/api/training/jobs/{exact['id']}").json()["status"] == "queued"

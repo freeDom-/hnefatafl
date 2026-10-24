@@ -43,6 +43,8 @@ TRAINING_FIELDS = {
     "self_play_mode",
     "self_play_concurrency",
     "inference_batch_size",
+    "inference_cache_mode",
+    "inference_cache_capacity",
     "inference_backend",
     "inference_device",
     "exploration",
@@ -77,6 +79,13 @@ TRAINING_FIELDS = {
 
 def validate_inference_capabilities(capabilities: dict) -> None:
     """Validate optional extension fields without rejecting legacy reports."""
+    cache_modes = capabilities.get("inference_cache_modes", ["off"])
+    if (
+        not isinstance(cache_modes, list)
+        or len(cache_modes) > 2
+        or any(mode not in ("off", "exact") for mode in cache_modes)
+    ):
+        fail("Invalid worker inference_cache_modes.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -109,6 +118,10 @@ def validate_inference_capabilities(capabilities: dict) -> None:
 
 
 def worker_compatible(config: dict, capabilities: dict) -> bool:
+    if config.get("inference_cache_mode", "off") not in capabilities.get(
+        "inference_cache_modes", ["off"]
+    ):
+        return False
     device = config.get("device", "auto")
     if device not in ("auto", "cpu") and capabilities.get(f"{device}_available") is not True:
         return False
@@ -575,6 +588,9 @@ class RemoteTraining:
                         # reject unknown configuration keys, even default values.
                         configuration.pop("inference_backend", None)
                         configuration.pop("inference_device", None)
+                    if "inference_cache_modes" not in worker.get("capabilities", {}):
+                        configuration.pop("inference_cache_mode", None)
+                        configuration.pop("inference_cache_capacity", None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
@@ -646,29 +662,31 @@ class RemoteTraining:
                 checkpoint = self.directory(job_id) / "resume.pt"
                 if not job.get("resume_source") or not checkpoint.is_file():
                     fail("The saved checkpoint was not found.", 404)
-                if (
-                    "inference_backends" not in worker.get("capabilities", {})
-                    and job["config"].get("inference_backend", "pytorch") == "pytorch"
-                ):
+                omitted = set()
+                if "inference_cache_modes" not in worker.get("capabilities", {}):
+                    omitted.update({"inference_cache_mode", "inference_cache_capacity"})
+                if "inference_backends" not in worker.get("capabilities", {}):
+                    omitted.update({"inference_backend", "inference_device"})
+                if omitted:
                     from .models import load_checkpoint
                     import torch
 
                     # Keep the owned/source checkpoint byte-for-byte intact.
                     # Older training binaries merge saved config before validation,
                     # so their transport copy must omit the new preferences too.
-                    legacy = checkpoint.with_name("legacy-resume.pt")
-                    if not legacy.exists():
-                        _, payload = load_checkpoint(checkpoint)
-                        saved = payload["metadata"].get("training_config", {})
-                        payload["metadata"]["training_config"] = {
-                            key: value
-                            for key, value in saved.items()
-                            if key not in {"inference_backend", "inference_device"}
-                        }
-                        temporary = legacy.with_suffix(".tmp")
-                        torch.save(payload, temporary)
-                        os.replace(temporary, legacy)
-                    checkpoint = legacy
+                    _, payload = load_checkpoint(checkpoint)
+                    saved = payload["metadata"].get("training_config", {})
+                    if omitted.intersection(saved):
+                        suffix = "-".join(sorted(omitted))
+                        legacy = checkpoint.with_name(f"legacy-{suffix}.pt")
+                        if not legacy.exists():
+                            payload["metadata"]["training_config"] = {
+                                key: value for key, value in saved.items() if key not in omitted
+                            }
+                            temporary = legacy.with_suffix(".tmp")
+                            torch.save(payload, temporary)
+                            os.replace(temporary, legacy)
+                        checkpoint = legacy
                 return FileResponse(
                     checkpoint, filename="resume.pt", media_type="application/octet-stream"
                 )

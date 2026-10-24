@@ -1703,6 +1703,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         "self_play_mode",
         "self_play_concurrency",
         "inference_batch_size",
+        "inference_cache_mode",
+        "inference_cache_capacity",
         "inference_backend",
         "inference_device",
         "exploration",

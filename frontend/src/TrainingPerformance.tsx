@@ -135,6 +135,15 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
             </div>
             {fields([
               ['inference_batches', 'Inference batches'],
+              ['inference_requests', 'Inference requests'],
+              ['neural_evaluations', 'Neural evaluations'],
+              ['inference_cache_hits', 'Inference cache hits'],
+              ['inference_cache_misses', 'Inference cache misses'],
+              ['inference_batch_duplicates', 'Batch duplicates eliminated'],
+              ['inference_cache_hit_rate', 'Inference cache hit rate'],
+              ['inference_cache_entries', 'Inference cache entries'],
+              ['inference_cache_peak_entries', 'Peak inference cache entries'],
+              ['inference_cache_lookup_seconds', 'Cache lookup (seconds)'],
               ['inference_initialization_seconds', 'Inference initialization (seconds)'],
               ['inference_conversion_seconds', 'Model conversion (seconds)'],
               ['inference_compilation_seconds', 'Model compilation and warm-up (seconds)'],

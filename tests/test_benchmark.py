@@ -18,6 +18,9 @@ def test_cpu_comparison_uses_common_budgets_and_actual_work_without_training_wri
     unused_output = tmp_path / "not-created"
     result = run_benchmark(
         {
+            "cache_modes": ["off"],
+            "repetitions": 1,
+            "inference_workload_batches": 2,
             "games": 3,
             "mcts_iterations": 2,
             "max_game_plies": 4,
@@ -121,3 +124,55 @@ def test_benchmark_cli_rejects_non_object_configuration(tmp_path, monkeypatch, c
     config.write_text("[]")
     assert cli.main(["benchmark", "--config", str(config)]) == 1
     assert json.loads(capsys.readouterr().err)["error"] == "Configuration must be a JSON object"
+
+
+def test_cache_comparison_repeats_matched_work_and_controlled_inputs():
+    result = run_benchmark(
+        {
+            "games": 2,
+            "max_game_plies": 4,
+            "mcts_iterations": 3,
+            "repetitions": 2,
+            "inference_workload_batches": 2,
+        }
+    )
+    rows = [
+        row
+        for row in result["scenarios"]
+        if row["status"] == "completed" and row["device"] == "cpu"
+    ]
+    assert len(rows) == 8
+    assert all(
+        row["seeded_behavior_matches_cache_off"] and row["work_matches_sequential"] for row in rows
+    )
+    for row in rows:
+        assert (
+            row["inference_requests"]
+            == row["neural_evaluations"] + row["network_evaluations_eliminated"]
+        )
+        assert row["total_cpu_seconds"] > 0
+        if row["cache_mode"] == "exact":
+            assert row["network_evaluations_eliminated"] > 0
+            assert row["inference_cache_lookup_seconds"] > 0
+    workloads = [
+        row
+        for row in result["inference_workloads"]
+        if row["device"] == "cpu" and row["cache_mode"] == "exact"
+    ]
+    assert len(workloads) == 4
+    for row in workloads:
+        assert row["neural_evaluations"] == (1 if row["workload"] == "duplicate-heavy" else 4)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"repetitions": 0},
+        {"repetitions": True},
+        {"cache_modes": ["symmetry"]},
+        {"inference_workload_batches": 0},
+    ],
+)
+def test_invalid_comparison_budget(changes):
+    with pytest.raises(ValueError):
+        run_benchmark(changes)

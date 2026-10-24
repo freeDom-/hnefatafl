@@ -1,0 +1,15 @@
+{
+  "preset": "smoke",
+  "ruleset": "brandubh",
+  "channels": 32,
+  "blocks": 2,
+  "games": 8,
+  "mcts_iterations": 16,
+  "max_game_plies": 16,
+  "seed": 17,
+  "cpu_threads": 2,
+  "self_play_concurrency": 8,
+  "inference_batch_size": 8,
+  "repetitions": 5,
+  "inference_workload_batches": 32
+}

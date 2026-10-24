@@ -129,6 +129,7 @@ export interface TrainingWorker {
 }
 export interface DeviceInfo {
   inference_backends?: string[];
+  inference_cache_modes?: string[];
   openvino_version?: string;
   openvino_error?: string;
   openvino_devices?: { id: string; name: string; available: boolean; error?: string }[];

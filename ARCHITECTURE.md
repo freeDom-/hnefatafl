@@ -24,6 +24,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | Module | Responsibility and boundary |
 | --- | --- |
 | [engine.py](hnefatafl/engine.py) | Immutable state, legal moves, captures, terminal rules; no HTTP/database/tensor dependency |
+| [symmetry.py](hnefatafl/symmetry.py) | Pure D4 geometry, full-history transforms and typed canonical keys; no search or neural canonicalization |
 | [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
 | [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; separate from generic search evaluation |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
@@ -104,6 +105,24 @@ fields. Candidate, resumable latest state, fixed benchmark records and champion 
 distinct. Evaluation remains sequential with separate frozen models; self-play's
 single-model batching is not reused across model identities. Compact stdout events
 exclude history; atomic JSON/checkpoints retain it for local and remote polling.
+
+Exact-input inference reuse is opt-in (`inference_cache_mode: "exact"`, default
+`"off"`). One bounded LRU belongs to one self-play generation and is discarded
+before optimization; sequential and cooperative search share its legal-policy
+implementation. Keys retain ruleset, exact board orientation and turn. Terminal
+adjudication precedes lookup, histories remain in independent search states, and
+only compact immutable legal probabilities/value are retained. Returned policies
+are independent dictionaries. Weight version counters, parameter replacement,
+precision/device changes and explicit backend generation tokens additionally
+invalidate a reused cache. Backend refresh increments its generation after success.
+No global cache, stochastic root noise or dense/GPU logits are retained.
+
+`Symmetry` utilities act on coordinates and the entire repetition history in one
+common orientation. Board-only `BoardKey` and full `StateKey` are different types;
+full keys retain all metadata and ordered history, using history to resolve
+symmetric-board ties. Saved states and move formats are unchanged. Existing models
+need not be rotation invariant: none of these canonical keys is used for neural
+inference, pruning, transpositions, replay or training augmentation.
 
 ## Model scope and trust
 

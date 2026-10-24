@@ -1,4 +1,19 @@
 const translations: Record<string, string> = {
+  'Inference cache': 'Inferenzcache',
+  'Off · default': 'Aus · Standard',
+  'Exact positions': 'Identische Stellungen',
+  'Inference cache capacity': 'Inferenzcache-Kapazität',
+  'Reuses identical positions during self-play. Measure throughput before enabling for longer runs.':
+    'Verwendet Ergebnisse für identische Stellungen im Selbstspiel erneut. Miss den Durchsatz vor längeren Läufen.',
+  'Inference requests': 'Inferenzanfragen',
+  'Inference cache hits': 'Inferenzcache-Treffer',
+  'Inference cache misses': 'Inferenzcache-Fehlversuche',
+  'Batch duplicates eliminated': 'Entfernte Stapelduplikate',
+  'Inference cache hit rate': 'Inferenzcache-Trefferquote',
+  'Inference cache entries': 'Inferenzcache-Einträge',
+  'Peak inference cache entries': 'Maximale Inferenzcache-Einträge',
+  'Cache lookup (seconds)': 'Cache-Abfrage (Sekunden)',
+
   'Import job': 'Auftrag importieren',
   'Export job': 'Auftrag exportieren',
   'Importing job…': 'Auftrag wird importiert…',

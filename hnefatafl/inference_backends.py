@@ -96,6 +96,7 @@ def openvino_capabilities() -> dict[str, Any]:
 
 class TorchInference:
     def __init__(self, model: PolicyValueNet, config: dict):
+        self.generation = 0
         self.model = model
         self.device = next(model.parameters()).device
         self.info = {
@@ -109,10 +110,11 @@ class TorchInference:
         return self.model(batch.to(self.device))
 
     def refresh(self) -> dict:
+        self.generation += 1
         return {}
 
     def close(self) -> None:
-        pass
+        self.generation += 1
 
 
 class OpenVINOInference:
@@ -133,6 +135,7 @@ class OpenVINOInference:
                 f"({error})"
             ) from error
         self.ov = ov
+        self.generation = 0
         self.model = model
         self.device = torch.device("cpu")  # Shared legal-policy postprocessing.
         self.target = selected_openvino_device(config.get("inference_device", "auto"))
@@ -195,6 +198,7 @@ class OpenVINOInference:
         finished = time.perf_counter()
         self.compiled, self.request = compiled, request
         self.refresh_count += 1
+        self.generation += 1
         return {
             "inference_conversion_seconds": converted - started,
             "inference_compilation_seconds": finished - converted,
@@ -220,6 +224,7 @@ class OpenVINOInference:
         return logits, values
 
     def close(self) -> None:
+        self.generation += 1
         self.request = None
         self.compiled = None
 

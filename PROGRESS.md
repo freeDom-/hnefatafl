@@ -367,3 +367,25 @@ See the [validation record](docs/validation/openvino-2026-10-23.md) and
 [0.23.0 release notes](docs/releases/v0.23.0.md). Intel GPU acceleration, CUDA/MPS
 execution and target WSL2/systemd deployment remain unverified on this CPU host.
 No inference-only benchmark is reported as a full-training GPU speedup.
+
+
+## Symmetry foundation and exact inference reuse (`0.24.0`)
+
+- [x] Pure D4 index/move/board/state/history transforms, inverses and deterministic typed canonical keys
+- [x] Verify all rulesets, random and recorded histories, captures, escape, Copenhagen special rules and repetition
+- [x] Default-off bounded exact-input LRU and pending-batch deduplication shared by both self-play schedules
+- [x] Preserve independent trees/RNG/noise, terminal handling, legal policies, budgets, checkpoints and saved games
+- [x] Scope cache lifetime to self-play generations; guard weight versions and explicit backend refresh generations
+- [x] Add validated CLI/job/creation/resume controls, worker compatibility and request/hit/miss/duplicate/occupancy metrics
+- [x] Pass `make check`: 963 Python tests, six unavailable-hardware skips, 176 frontend tests, lint/types/build/docs
+- [x] Pass 56 distinct real-server browser checks including the focused cache resume rerun; four intentional mobile skips
+- [x] Run isolated five-repetition CPU comparisons for four budgets: 80 self-play runs with matching seeded targets and actual work
+
+Evaluations fall about 35–37%, while measured runtime varies by network/schedule;
+several CPU cases regress. Keep the default off. Actual medians, controlled duplicate
+and unique workloads, raw counters and pre-change baseline are in
+[Performance](docs/PERFORMANCE.md#measured-cpu-results-2026-10-24) and
+[release notes](docs/releases/v0.24.0.md). Real OpenVINO CPU cache/refresh and training
+integration passed; CUDA, MPS and Intel GPU throughput remain unmeasured. No game,
+checkpoint or storage migration is required. Symmetry augmentation, canonical
+neural inference, search pruning/transposition changes and tree sharing are deferred.
