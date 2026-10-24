@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Auth, { useAuth } from './Auth';
 import { useState } from 'react';
@@ -36,14 +36,20 @@ describe('authenticated application boundary', () => {
         }),
       ),
     );
-    render(
-      <Auth>
-        <RememberedProfile />
-      </Auth>,
-    );
+    // Finish the restored session's passive effects before firing focus. Seeing
+    // the profile in the DOM alone does not guarantee the listener is attached.
+    await act(async () => {
+      render(
+        <Auth>
+          <RememberedProfile />
+        </Auth>,
+      );
+    });
     expect(await screen.findByText('Cached profile First')).toBeVisible();
     name = 'Second';
-    fireEvent(window, new Event('focus'));
+    await act(async () => {
+      fireEvent(window, new Event('focus'));
+    });
     expect(await screen.findByText('Cached profile Second')).toBeVisible();
     expect(screen.queryByText('Cached profile First')).toBeNull();
   });
