@@ -63,12 +63,11 @@ parity or CUDA/OpenVINO validation is claimed. Development tools were preinstall
 host Python 3.12.14, pytest 9.1.1, Ruff 0.17.1, mypy 1.20.2, Node 24.19.0 and
 Playwright 1.64.1; no dependency or lockfile changes were made.
 
-Delivery is prepared on `feat/phase0-online-offline-foundations`. Automatic approval
-review rejected the combined `git commit ... && git push -u origin HEAD` action
-before execution because explicit authorization to publish to the remote was
-missing. No push, pull request or CI run is claimed; publication requires that
-approval. No attempt was made to bypass that rejection through another publishing
-tool. Local validation and review were completed independently.
+Changes are prepared on `feat/phase0-online-offline-foundations`. An initial
+publication attempt was rejected before execution by automatic approval review.
+The owner subsequently authorized pushing the feature branch and opening a pull
+request. The evidence above records local validation; remote CI status is reported
+separately on the pull request.
 
 ## Delivered boundaries and remaining decisions
 
