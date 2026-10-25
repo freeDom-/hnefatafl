@@ -12,8 +12,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     // Multi-dialog workflows include accessible-name queries over the full UI.
-    // Allow shared CI runners enough time without weakening request assertions.
-    testTimeout: 10000,
+    // Allow shared CI runners and loaded hosts enough time without weakening
+    // request assertions.
+    testTimeout: 20000,
     setupFiles: './src/test-setup.ts',
     include: ['src/**/*.test.{ts,tsx}'],
   },

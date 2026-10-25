@@ -466,3 +466,30 @@ policy consistency under D4 improved by 4.6–6.5× and held-out policy loss fel
 all nine replicates, while paired smoke games established no strength difference.
 See the [0.28.0 release record](docs/releases/0.28.0.md) and
 [benchmark evidence](docs/benchmarks/symmetry-phase3.md).
+
+## Portable config import and merged evaluation series (`0.29.0`)
+
+The new-job and resume forms accept a local `config.json` exported from a job. One
+shared parser maps only the explicit training-parameter schema, reports paths,
+identifiers, status and metadata as ignored, preserves omitted fields and explicit
+`false`/`0`, and switches to tuning for an optimization configuration. Importing
+fills the form without starting or resuming a job; malformed or invalid input
+leaves the previous state untouched. Resume keeps checkpoint identity (ruleset,
+channels, blocks, seed, optimizer) and the iteration target, reporting conflicts
+as kept checkpoint settings. An imported target device or backend is preserved
+even when unavailable: both forms share device availability, disabling what the
+local server or a chosen worker lacks while **Any remote worker** keeps every
+option so the queue selects compatible hardware. Starting reports the platform
+error for manual adjustment.
+
+The job overview and the Evaluation tab's **All evaluation series** now draw one
+merged evaluation curve over every recorded series, keeping each iteration's own
+score and listing the merged contexts; latest-series and per-series views are
+unchanged. This is presentation only.
+
+Validation: `make check` passed 1,150 backend tests (36 hardware skips), 226
+frontend unit tests, formatting/types/docs and the production build. The full
+browser suite passed 66 desktop/mobile checks with four intentional mobile
+duplicates skipped, including the new config-import flow. No storage, checkpoint
+or protocol migration is required; CUDA, MPS and OpenVINO GPU were not exercised.
+See the [0.29.0 release record](docs/releases/0.29.0.md).

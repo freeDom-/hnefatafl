@@ -68,6 +68,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.29.0](releases/0.29.0.md) | Portable config.json import for new and resumed jobs plus one merged evaluation series in the workshop |
 | [0.28.0](releases/0.28.0.md) | Optional D4 training-sample augmentation with resumable randomness, workshop controls and measured evidence |
 | [0.27.0](releases/0.27.0.md) | Node-local MCTS prediction reuse, PUCT traversal and reproducible fixed-model measurements |
 | [0.26.0](releases/0.26.0.md) | Exact remote worker version matching, administrator overrides and active-lease continuity |
