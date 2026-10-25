@@ -61,6 +61,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
                 "capabilities": {
                     "package_version": client.app.version,
                     "inference_cache_modes": ["off", "exact"],
+                    "training_symmetry_modes": ["off", "random_d4"],
                 }
             },
         ).status_code
@@ -180,7 +181,12 @@ def test_workers_without_cache_extension_keep_default_jobs_and_cannot_claim_exac
     client.post(
         "/api/worker/heartbeat",
         headers=headers,
-        json={"capabilities": {"package_version": client.app.version}},
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+            }
+        },
     )
     exact = client.post(
         "/api/training/jobs",

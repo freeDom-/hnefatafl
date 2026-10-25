@@ -215,11 +215,11 @@ def test_named_search_profiles_have_fixed_play_budgets():
     profiles = {profile["id"]: profile["parameters"] for profile in ai.ai_profiles()}
     assert profiles["alpha_beta"] == {"depth": 5, "time_limit": 2.0}
     assert profiles["mcts"] == {
-        "iterations": 5000,
+        "iterations": 24,
         "temperature": 0.0,
         "exploration": 1.4,
         "rollout_depth": 8,
-        "time_limit": 2.0,
+        "time_limit": 10.0,
     }
 
 

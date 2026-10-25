@@ -13,9 +13,14 @@ afterEach(() => {
   setLanguage('en', false);
 });
 
-it('defaults to disabled, explains the sample-only scope and reports the chosen mode', () => {
+it('reflects the configured mode, explains the sample-only scope and reports the chosen mode', () => {
   const update = vi.fn();
-  render(<SymmetrySettings config={trainingConfig('brandubh', 'smoke')} update={update} />);
+  render(
+    <SymmetrySettings
+      config={{ ...trainingConfig('brandubh', 'smoke'), training_symmetry_mode: 'off' }}
+      update={update}
+    />,
+  );
   const select = screen.getByLabelText(/Training symmetry augmentation/);
   expect(select).toHaveValue('off');
   expect(screen.getByRole('option', { name: 'Disabled' })).toBeInTheDocument();
@@ -39,7 +44,14 @@ it('flags only workers that cannot run augmentation', () => {
   expect(symmetryTargetError(on, { training_symmetry_modes: ['off', 'random_d4'] })).toBe('');
   expect(symmetryTargetError(on, {})).not.toBe('');
   expect(symmetryTargetError(on)).toBe('');
-  expect(symmetryTargetError(trainingConfig('brandubh', 'smoke'), {})).toBe('');
+  expect(
+    symmetryTargetError(
+      { ...trainingConfig('brandubh', 'smoke'), training_symmetry_mode: 'off' },
+      {},
+    ),
+  ).toBe('');
+  // New jobs default to random D4, so an older worker without augmentation is flagged.
+  expect(symmetryTargetError(trainingConfig('brandubh', 'smoke'), {})).not.toBe('');
   render(<SymmetrySettings config={on} update={vi.fn()} capabilities={{}} />);
   expect(screen.getByRole('alert')).toHaveTextContent(/does not support/);
 });

@@ -33,6 +33,7 @@ interface Props {
   onExport: () => void;
   onRefresh: () => void;
   onDelete: () => void;
+  onRename: () => void;
   onUseParameters: () => void;
   canUseParameters: boolean;
 }
@@ -48,6 +49,7 @@ export default function TrainingJobDashboard({
   onExport,
   onRefresh,
   onDelete,
+  onRename,
   onUseParameters,
   canUseParameters,
 }: Props) {
@@ -128,6 +130,9 @@ export default function TrainingJobDashboard({
           </div>
         </dl>
         <div className="job-actions">
+          <button className="button secondary small" onClick={onRename}>
+            {t('Rename job')}
+          </button>
           <button
             className="button secondary small"
             disabled={!canUseParameters}

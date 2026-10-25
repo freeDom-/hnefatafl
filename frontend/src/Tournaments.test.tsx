@@ -4,6 +4,7 @@ import Tournaments from './Tournaments';
 import type { AIProfile, Model, Ruleset } from './types';
 import type { Tournament } from './tournamentTypes';
 import { setLanguage } from './i18n';
+import { notify } from './notifications';
 
 const rulesets: Ruleset[] = [
   { id: 'tablut', name: 'Tablut', size: 9, description: '', rules_markdown: '' },
@@ -545,10 +546,10 @@ it('keeps Shield bearer, Jarl and Seer presets fixed while exposing independent 
         profile_id: 'mcts',
         config: {
           algorithm: 'mcts',
-          iterations: 5000,
+          iterations: 24,
           temperature: 0,
           exploration: 1.4,
-          time_limit: 2,
+          time_limit: 10,
         },
       },
       { profile_id: 'baseline', config: { algorithm: 'baseline', time_limit: 1 } },
@@ -616,4 +617,133 @@ it('snapshots Shield maiden as a fixed tournament preset', async () => {
     profile_id: 'shield_maiden',
     config: { algorithm: 'shield_maiden', time_limit: 1, heuristic_version: 1 },
   });
+});
+
+const importedDocument = {
+  name: 'Imported saga',
+  rulesets: ['brandubh'],
+  players: [
+    { profile_id: 'baseline', config: { algorithm: 'baseline', time_limit: 1 } },
+    { config: { algorithm: 'mcts', iterations: 33, time_limit: 7.5 } },
+  ],
+  games: 4,
+  max_plies: 123,
+  seed: 9,
+};
+const importedFile = (value: unknown) =>
+  new File([typeof value === 'string' ? value : JSON.stringify(value)], 'tournament.json', {
+    type: 'application/json',
+  });
+
+it('imports a tournament configuration and prefills an editable form without creating', async () => {
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(path === '/api/tournaments' ? [] : saved('imported')),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: { files: [importedFile(importedDocument)] },
+  });
+  await waitFor(() => expect(setup.getByDisplayValue('Imported saga')).toBeInTheDocument());
+  expect(setup.getByLabelText('Games per battlefield')).toHaveValue(4);
+  expect(setup.getByLabelText('Move limit per game')).toHaveValue(123);
+  expect(setup.getByLabelText('Tournament seed')).toHaveValue(9);
+  // The custom opponent is kept and remains editable before starting.
+  expect(setup.getByLabelText('Opponent 2 search iterations')).toHaveValue(33);
+  // Import only fills the form; nothing is created until the user submits.
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+it('reports malformed imports and leaves the form unchanged', async () => {
+  const error = vi.spyOn(notify, 'error');
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(path === '/api/tournaments' ? [] : saved('unchanged')),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  const nameInput = setup.getByLabelText('Tournament name') as HTMLInputElement;
+  const originalName = nameInput.value;
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: { files: [importedFile('{not json')] },
+  });
+  await waitFor(() => expect(error).toHaveBeenCalled());
+  expect(nameInput.value).toBe(originalName);
+  expect(setup.getByLabelText('Games per battlefield')).toHaveValue(2);
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+it('reports unresolved model references and keeps the current participants', async () => {
+  const error = vi.spyOn(notify, 'error');
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(path === '/api/tournaments' ? [] : saved('unchanged')),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: {
+      files: [
+        importedFile({
+          ...importedDocument,
+          players: [
+            { profile_id: 'baseline', config: { algorithm: 'baseline', time_limit: 1 } },
+            { config: { algorithm: 'neural', model_id: 'missing-model' } },
+          ],
+        }),
+      ],
+    },
+  });
+  await waitFor(() => expect(error).toHaveBeenCalled());
+  expect(setup.queryByDisplayValue('Imported saga')).not.toBeInTheDocument();
+  expect(setup.getByLabelText('Games per battlefield')).toHaveValue(2);
+});
+
+it('downloads an exported tournament result document', async () => {
+  const createObjectURL = vi.fn(() => 'blob:tournament');
+  const revokeObjectURL = vi.fn();
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const fetcher = vi.fn((path: string) => {
+    if (path === '/api/tournaments/export/export')
+      return Promise.resolve({ ok: true, blob: async () => new Blob(['{}']) } as Response);
+    return json(path === '/api/tournaments' ? [saved('export')] : saved('export'));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Export results' }));
+  await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+  expect(click).toHaveBeenCalled();
+  expect(fetcher.mock.calls.some(([path]) => path === '/api/tournaments/export/export')).toBe(true);
+});
+
+it('reports tournament export failures through the shared error handler', async () => {
+  const error = vi.fn();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) =>
+      path === '/api/tournaments/export/export'
+        ? Promise.resolve({
+            ok: false,
+            json: async () => ({ detail: 'The saved tournament results could not be exported.' }),
+          } as Response)
+        : json(path === '/api/tournaments' ? [saved('export')] : saved('export')),
+    ),
+  );
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Export results' }));
+  await waitFor(() =>
+    expect(error).toHaveBeenCalledWith('The saved tournament results could not be exported.'),
+  );
 });

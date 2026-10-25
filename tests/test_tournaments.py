@@ -435,10 +435,10 @@ def test_tournament_names_come_from_profiles_without_client_aliases(client):
             "mcts",
             {
                 "algorithm": "mcts",
-                "iterations": 5000,
+                "iterations": 24,
                 "temperature": 0.0,
                 "exploration": 1.4,
-                "time_limit": 2.0,
+                "time_limit": 10.0,
             },
         ),
     ],
@@ -478,3 +478,64 @@ def test_tournament_named_presets_have_fixed_budgets(client, monkeypatch, profil
     assert players[1]["config"]["time_limit"] == 0.2
     assert players[2]["config"]["algorithm"] == "baseline"
     assert players[2]["config"]["time_limit"] == 0.03
+
+
+def test_tournament_export_contains_configuration_and_results_without_server_metadata(
+    client, monkeypatch
+):
+    from hnefatafl.tournaments import TournamentManager
+
+    record = launch(client, configuration())
+    record = wait_for(client, record["id"], lambda row: row["status"] == "completed")
+    response = client.get(f"/api/tournaments/{record['id']}/export")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/json")
+    assert "attachment" in response.headers["content-disposition"]
+    document = response.json()
+    assert document["format"] == "hnefatafl-tournament-configuration"
+    assert document["format_version"] == 1
+    assert document["name"] == record["name"]
+    assert document["rulesets"] == record["config"]["rulesets"]
+    assert document["games"] == record["config"]["games"]
+    assert document["max_plies"] == record["config"]["max_plies"]
+    assert document["seed"] == record["config"]["seed"]
+    for player in document["players"]:
+        assert set(player) <= {"profile_id", "config"}
+        assert player["config"]["algorithm"]
+    assert document["results"]["status"] == "completed"
+    assert document["results"]["result"]["games"]
+    # Server-managed identifiers, worker PID and runes never leak into the export.
+    serialized = json.dumps(document)
+    assert record["id"] not in serialized
+    assert '"pid"' not in serialized and "agent_rune" not in serialized
+    # The exported configuration round-trips as a fresh, valid request.
+    body = {
+        key: document[key] for key in ("name", "rulesets", "players", "games", "max_plies", "seed")
+    }
+    monkeypatch.setattr(
+        TournamentManager, "launch", lambda _manager, name, config: {"name": name, "config": config}
+    )
+    recreated = client.post("/api/tournaments", json=body)
+    assert recreated.status_code == 201, recreated.text
+
+
+def test_custom_tournament_mcts_keeps_explicit_budget(client, monkeypatch):
+    from hnefatafl.tournaments import TournamentManager
+
+    monkeypatch.setattr(
+        TournamentManager, "launch", lambda _manager, _name, config: {"config": config}
+    )
+    response = client.post(
+        "/api/tournaments",
+        json=configuration(
+            players=[
+                {"config": {"algorithm": "mcts", "iterations": 33, "time_limit": 7.5}},
+                {"config": {"algorithm": "baseline", "time_limit": 0.03}},
+            ]
+        ),
+    )
+    assert response.status_code == 201, response.text
+    players = response.json()["config"]["players"]
+    assert players[0]["config"]["algorithm"] == "mcts"
+    assert players[0]["config"]["iterations"] == 33
+    assert players[0]["config"]["time_limit"] == 7.5

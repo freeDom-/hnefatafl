@@ -48,6 +48,59 @@ from 1–1,000 and a seed from 0–4,294,967,295. Defaults are 2 games, 300 plie
 seed 0. The headless tournament accepts even game counts 2–10,000 and move caps
 1–5,000; do not assume its wider limits are accepted by the browser API.
 
+## Import and export configurations
+
+**Import configuration** in the setup dialog reads a portable JSON document and
+fills the editable form. Import never starts a tournament and never restores
+server-managed values: IDs, status, ownership, progress, results, timestamps,
+worker paths and runes are ignored. Review and edit the populated form, then
+start the tournament explicitly. A failed import leaves the current form
+unchanged and reports the offending fields.
+
+The document mirrors the `POST /api/tournaments` request body:
+
+```json
+{
+  "name": "Spring round robin",
+  "rulesets": ["brandubh"],
+  "players": [
+    { "profile_id": "baseline", "config": { "algorithm": "baseline", "time_limit": 1 } },
+    {
+      "profile_id": "neural",
+      "config": {
+        "algorithm": "neural",
+        "model_id": "<registered model id>",
+        "search_wrapper": "mcts",
+        "time_limit": 10
+      }
+    }
+  ],
+  "games": 2,
+  "max_plies": 150,
+  "seed": 42
+}
+```
+
+`name` is optional. `rulesets` must list one to three supported, distinct
+battlefields. `players` must list two to four opponents; a named fixed profile
+(`baseline`, `shield_maiden`, `alpha_beta`, `mcts`) is snapshotted from the
+catalog exactly as the API does, while a custom opponent keeps its validated
+search settings. A neural opponent must reference a registered model whose
+ruleset matches every selected battlefield, so a model-based tournament uses one
+battlefield. `games` must be even and 2–100, `max_plies` 1–1,000 and `seed`
+0–4,294,967,295. Unknown fields, malformed JSON, unsupported values and missing
+model references are rejected as a whole; the form is never partially
+overwritten.
+
+**Export results** downloads the saved tournament as JSON. The top level uses the
+same importable configuration schema, and a nested `results` object carries the
+status, timestamps, progress, standings, per-battlefield summary and match
+records for review. Because the configuration fields are at the top level, an
+exported file can be imported again as a fresh tournament; the `results` object is
+ignored by the importer. Server-managed identifiers, worker PIDs and runes are
+never included. Exported configs written before `training_symmetry_mode` existed
+are unaffected; the field belongs to training jobs, not tournaments.
+
 ## Read the results
 
 Standings show each opponent's wins, losses, draws, unfinished games and score.
@@ -101,7 +154,8 @@ from deletion until the worker has stopped.
 ## API and deployment
 
 The API exposes collection/detail routes under `/api/tournaments`, creation via
-`POST`, cancellation via `POST /{id}/cancel`, and deletion via `DELETE /{id}`.
+`POST`, cancellation via `POST /{id}/cancel`, deletion via `DELETE /{id}`, and a
+downloadable `GET /{id}/export` result document.
 `GET /{id}/games/{index}/replay` validates and reconstructs a zero-indexed match.
 Request schemas are available at `/docs`; clients provide model IDs, never paths.
 

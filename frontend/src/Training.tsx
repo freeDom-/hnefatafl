@@ -18,6 +18,7 @@ import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
 import { opponentName } from './EvaluationSettings';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
+import JobRenameDialog from './JobRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { modelIteration } from './modelLabel';
 import TrainingWorkers from './TrainingWorkers';
@@ -71,7 +72,12 @@ export default function Training({
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const monitoring = useRef<HTMLElement>(null);
-  const [device, setDevice] = useState<DeviceInfo>({});
+  // Local training runs on the same server, which always supports random D4.
+  // Seed the capability before the first device response so a new job is not
+  // transiently blocked while the request is in flight.
+  const [device, setDevice] = useState<DeviceInfo>({
+    training_symmetry_modes: ['off', 'random_d4'],
+  });
   const [workers, setWorkers] = useState<TrainingWorker[]>([]);
   const [target, setTarget] = useState('local');
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -79,6 +85,7 @@ export default function Training({
   const [jobTab, setJobTab] = useState<JobTab>(defaultJobTab);
   const [resumeJob, setResumeJob] = useState<Job | null>(null);
   const [renameModel, setRenameModel] = useState<Model | null>(null);
+  const [renameJob, setRenameJob] = useState<Job | null>(null);
   const [deleteJob, setDeleteJob] = useState<Job | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
   const [deleteJobError, setDeleteJobError] = useState('');
@@ -188,7 +195,13 @@ export default function Training({
     setLoadFailed(false);
     setCreationOpen((previous) => previous ?? !runs.length);
     setModelsOpen((previous) => previous ?? !runs.length);
-    setDevice(hardware);
+    // The server serving this client always runs local training with the same
+    // augmentation support. Older device payloads may omit the capability list,
+    // so default it for the local target instead of blocking a new job.
+    setDevice({
+      ...hardware,
+      training_symmetry_modes: hardware.training_symmetry_modes ?? ['off', 'random_d4'],
+    });
     setJobs(runs);
     setWorkers(
       Array.isArray(connected) ? connected.filter((worker) => worker.status !== 'revoked') : [],
@@ -718,6 +731,7 @@ export default function Training({
                     setDeleteJob(selectedJob);
                     setDeleteJobError('');
                   }}
+                  onRename={() => setRenameJob(selectedJob)}
                 />
               ) : (
                 <p className="subtle">{t('Select a training job to inspect its history.')}</p>
@@ -902,6 +916,24 @@ export default function Training({
           )}
         </div>
       </section>
+      {renameJob && (
+        <JobRenameDialog
+          key={renameJob.id}
+          job={renameJob}
+          onClose={() => setRenameJob(null)}
+          onRenamed={(updated) => {
+            setRenameJob(null);
+            setJobs((previous) => previous.map((job) => (job.id === updated.id ? updated : job)));
+            setSelectedJob((previous) => (previous?.id === updated.id ? updated : previous));
+            setNotice(
+              t(
+                'Training job renamed. Its identity, checkpoint, parameters and execution are unchanged.',
+              ),
+            );
+            void refresh().catch((error) => onError(error.message));
+          }}
+        />
+      )}
       {renameModel && (
         <ModelRenameDialog
           key={renameModel.id}

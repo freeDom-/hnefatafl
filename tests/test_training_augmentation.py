@@ -301,8 +301,8 @@ def smoke(tmp_path, **changes):
 
 
 def test_configuration_default_validation_and_backend_enforcement():
-    assert DEFAULTS["training_symmetry_mode"] == "off"
-    assert normalize_config({"preset": "smoke"})["training_symmetry_mode"] == "off"
+    assert DEFAULTS["training_symmetry_mode"] == "random_d4"
+    assert normalize_config({"preset": "smoke"})["training_symmetry_mode"] == "random_d4"
     assert normalize_config({"training_symmetry_mode": "random_d4"})["training_symmetry_mode"] == (
         "random_d4"
     )
@@ -312,6 +312,20 @@ def test_configuration_default_validation_and_backend_enforcement():
     from hnefatafl.training_presets import training_presets
 
     assert all("training_symmetry_mode" not in p["config"] for p in training_presets())
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("preset", ["recommended", "smoke", "beginner", "balanced"])
+def test_random_d4_is_the_default_for_every_new_job_mode(ruleset, preset):
+    config = normalize_config({"ruleset": ruleset, "preset": preset})
+    assert config["training_symmetry_mode"] == "random_d4"
+    # Explicit choices, including disabling augmentation, always win.
+    assert (
+        normalize_config({"ruleset": ruleset, "preset": preset, "training_symmetry_mode": "off"})[
+            "training_symmetry_mode"
+        ]
+        == "off"
+    )
 
 
 def test_legacy_collation_matches_previous_inline_construction():
@@ -354,8 +368,8 @@ def test_real_training_with_random_d4_updates_weights_and_reports_exposures(tmp_
 
 
 def test_off_mode_never_touches_augmentation_state_and_is_deterministic(tmp_path):
-    first = train(smoke(tmp_path / "a", epochs=2))
-    second = train(smoke(tmp_path / "b", epochs=2))
+    first = train(smoke(tmp_path / "a", epochs=2, training_symmetry_mode="off"))
+    second = train(smoke(tmp_path / "b", epochs=2, training_symmetry_mode="off"))
     assert first["metrics"]["augmentation"]["exposures"] == 0
     assert first["metrics"]["augmentation"]["mode"] == "off"
     _, one = load_checkpoint(first["checkpoint"])
@@ -370,7 +384,7 @@ def test_same_seed_reproduces_and_different_seed_changes_augmented_training(tmp_
     a = train(smoke(tmp_path / "a", **options))
     b = train(smoke(tmp_path / "b", **options))
     c = train(smoke(tmp_path / "c", seed=1, **options))
-    off = train(smoke(tmp_path / "off", epochs=2))
+    off = train(smoke(tmp_path / "off", epochs=2, training_symmetry_mode="off"))
     states = [load_checkpoint(r["checkpoint"])[1] for r in (a, b, c, off)]
     assert states[0]["extra"]["augmentation_rng"] == states[1]["extra"]["augmentation_rng"]
     assert states[0]["extra"]["augmentation_rng"] != states[2]["extra"]["augmentation_rng"]
@@ -456,7 +470,7 @@ def test_legacy_checkpoint_resumes_off_and_can_explicitly_enable_augmentation(tm
 
 
 def test_explicit_off_to_random_resume_records_effective_configuration(tmp_path):
-    first = train(smoke(tmp_path / "off"))
+    first = train(smoke(tmp_path / "off", training_symmetry_mode="off"))
     resumed = train(
         smoke(
             tmp_path / "on",

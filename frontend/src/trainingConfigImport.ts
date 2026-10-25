@@ -94,6 +94,11 @@ export function parseImportedConfig(
   if (invalid.length) {
     throw new ConfigImportError('Invalid configuration values.', invalid);
   }
+  // Exported configs written before D4 augmentation existed omit this setting.
+  // Keep their historical OFF behavior rather than silently enabling random D4.
+  if (!('training_symmetry_mode' in source)) {
+    config.training_symmetry_mode = 'off';
+  }
   const result: ImportedConfig = {
     config,
     kind: tuning ? 'tune' : 'train',

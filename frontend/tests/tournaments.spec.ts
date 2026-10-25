@@ -101,10 +101,10 @@ test('tournament named opponents use fixed presets while a custom opponent keeps
   });
   expect(tournament.config.players[1].config).toMatchObject({
     algorithm: 'mcts',
-    iterations: 5000,
+    iterations: 24,
     temperature: 0,
     exploration: 1.4,
-    time_limit: 2,
+    time_limit: 10,
   });
   expect(tournament.config.players[2].config).toMatchObject({
     algorithm: 'baseline',

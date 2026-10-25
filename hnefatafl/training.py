@@ -56,7 +56,7 @@ DEFAULTS = {
     "learning_rate": 0.001,
     "optimizer": "adamw",
     "mcts_iterations": 24,
-    "mcts_time_limit": 2.0,
+    "mcts_time_limit": 10.0,
     "self_play_mode": "auto",
     "self_play_concurrency": 16,
     "inference_batch_size": 32,
@@ -69,11 +69,11 @@ DEFAULTS = {
     "replay_buffer_size": 5000,
     "weight_decay": 0.0001,
     "momentum": 0.9,
-    "training_symmetry_mode": "off",
+    "training_symmetry_mode": "random_d4",
     "checkpoint_frequency": 1,
     "evaluation_opponent": "shield_bearer",
     "evaluation_frequency": 1,
-    "evaluation_time_limit": 2.0,
+    "evaluation_time_limit": 10.0,
     "evaluation_jarl_depth": 5,
     "evaluation_jarl_time_limit": 2.0,
     "champion_confidence": 0.95,
@@ -621,6 +621,11 @@ def train(
             )
         resume_model, source = load_checkpoint(configuration["resume"])
         saved_inputs = source["metadata"].get("training_config", {})
+        if "training_symmetry_mode" not in saved_inputs:
+            # Checkpoints written before D4 augmentation existed omitted this
+            # setting. Keep their historical OFF behavior even though new jobs
+            # now default to random D4; an explicit override still wins below.
+            saved_inputs = {**saved_inputs, "training_symmetry_mode": "off"}
     config = normalize_config({**saved_inputs, **configuration})
     output = Path(config["output_dir"]).resolve()
     if config.get("resume") and output / "last.pt" == Path(config["resume"]).resolve():
@@ -1103,7 +1108,7 @@ def tune(
     base = {
         **base,
         "evaluation_time_limit": base.get(
-            "evaluation_time_limit", base.get("mcts_time_limit", 2.0)
+            "evaluation_time_limit", base.get("mcts_time_limit", 10.0)
         ),
     }
     latest = {

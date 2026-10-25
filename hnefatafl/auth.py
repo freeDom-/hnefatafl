@@ -313,6 +313,7 @@ grant(
     "GET",
     "/api/tournaments",
     "/api/tournaments/{tournament_id}",
+    "/api/tournaments/{tournament_id}/export",
     "/api/tournaments/{tournament_id}/games/{game_index}/replay",
 )
 grant("tournaments", "POST", "/api/tournaments", "/api/tournaments/{tournament_id}/cancel")
@@ -341,6 +342,7 @@ grant(
     "/api/training/jobs/{job_id}/cancel",
     "/api/training/workers",
 )
+grant("training", "PATCH", "/api/training/jobs/{job_id}")
 grant("training", "DELETE", "/api/training/jobs/{job_id}", "/api/training/workers/{worker_id}")
 grant("accounts", "PATCH", "/api/training/workers/{worker_id}/version-override")
 grant(

@@ -116,6 +116,48 @@ class TournamentManager:
                 if (record := self.read(item["id"])) is not None
             ]
 
+    def export(self, identifier: str) -> dict | None:
+        """Portable configuration plus saved results; never server-managed paths/IDs.
+
+        The top level matches the importable configuration schema so an export
+        can be re-imported as a fresh tournament. The nested ``results`` object
+        is informational and is ignored by the configuration importer.
+        """
+        with self.lock:
+            tournament = self.read(identifier)
+            if tournament is None:
+                return None
+            public = self.public(tournament)
+            config = public["config"]
+            return {
+                "format": "hnefatafl-tournament-configuration",
+                "format_version": 1,
+                "name": public["name"],
+                "rulesets": config["rulesets"],
+                "players": [
+                    {
+                        key: value
+                        for key, value in {
+                            "profile_id": player.get("profile_id"),
+                            "config": player["config"],
+                        }.items()
+                        if value is not None
+                    }
+                    for player in config["players"]
+                ],
+                "games": config["games"],
+                "max_plies": config["max_plies"],
+                "seed": config["seed"],
+                "results": {
+                    "status": public["status"],
+                    "created_at": public["created_at"],
+                    "ended_at": public.get("ended_at"),
+                    "progress": public["progress"],
+                    "result": public.get("result"),
+                    "error": public.get("error"),
+                },
+            }
+
     def launch(self, name: str, config: dict) -> dict:
         """Caller holds the catalog lock, keeping model references valid."""
         with self.lock:

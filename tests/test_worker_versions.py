@@ -29,7 +29,14 @@ def heartbeat(client, headers, version="0.26.0", **capabilities):
     return client.post(
         "/api/worker/heartbeat",
         headers=headers,
-        json={"capabilities": {"package_version": version, **capabilities}},
+        json={
+            "capabilities": {
+                "package_version": version,
+                # Current workers support the new random D4 default.
+                "training_symmetry_modes": ["off", "random_d4"],
+                **capabilities,
+            }
+        },
     )
 
 

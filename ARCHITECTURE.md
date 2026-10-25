@@ -125,7 +125,8 @@ symmetric-board ties. Saved states and move formats are unchanged. Existing mode
 need not be rotation invariant: none of these canonical keys is used for neural
 inference, pruning, transpositions or replay.
 
-Training augmentation is a separate, optional (`training_symmetry_mode`, default
+Training augmentation is a separate (`training_symmetry_mode`, default `random_d4`
+for new jobs; jobs and checkpoints that predate the setting keep their historical
 `off`) optimization-stage transform. `training_augmentation.py` reuses
 `coordinate_map` to build `[8, n²]` square and `[8, n⁴]` action permutations. For
 each minibatch row it permutes all six planes, maps every policy/legal action id,

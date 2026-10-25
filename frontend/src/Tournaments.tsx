@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, errorMessage } from './api';
+import { api, apiFetch, errorMessage } from './api';
 import { notify } from './notifications';
 import Board, { coordinate, Crown } from './Board';
 import RecordsConfirm from './RecordsConfirm';
@@ -11,6 +11,11 @@ import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { profileConfiguration } from './gameSetupPreference';
+import ConfigImportButton from './ConfigImportButton';
+import {
+  readImportedTournamentConfig,
+  TournamentConfigImportError,
+} from './tournamentConfigImport';
 import SearchWrapper from './SearchWrapper';
 import { getLocale, t, useI18n } from './i18n';
 import type { AIProfile, Config, Game, Model, Ruleset } from './types';
@@ -93,6 +98,7 @@ export default function Tournaments({
   const [deleting, setDeleting] = useState<Tournament | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState('');
   const [replay, setReplay] = useState<{ index: number; data: TournamentReplay } | null>(null);
   const [replaying, setReplaying] = useState<number | null>(null);
@@ -217,6 +223,28 @@ export default function Tournaments({
     } finally {
       mutating.current = false;
       setBusy(false);
+    }
+  };
+  const exportTournament = async (tournament: Tournament) => {
+    setExporting(true);
+    try {
+      const response = await apiFetch(`/tournaments/${tournament.id}/export`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(
+          typeof error?.detail === 'string' ? error.detail : t('Tournament export failed.'),
+        );
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `hnefatafl-tournament-${tournament.id}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setExporting(false);
     }
   };
   const openReplay = async (index: number) => {
@@ -358,6 +386,14 @@ export default function Tournaments({
                   </p>
                 </div>
                 <div className="tournament-actions">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || detailLoading || exporting}
+                    onClick={() => void exportTournament(selected)}
+                  >
+                    {t(exporting ? 'Exporting results…' : 'Export results')}
+                  </button>
                   {active(selected) ? (
                     <button
                       className="button secondary"
@@ -713,7 +749,7 @@ function recommendedPlayer(
       ...profile?.parameters,
       algorithm: 'neural',
       model_id: best.id,
-      time_limit: 0.1,
+      time_limit: 10,
     },
   };
 }
@@ -752,6 +788,7 @@ function TournamentSetup({
     seed: 42,
   }));
   const [busy, setBusy] = useState(false);
+  const [importingConfig, setImportingConfig] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
@@ -830,7 +867,7 @@ function TournamentSetup({
       config: {
         ...profileConfiguration(profile),
         ...(!['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(id)
-          ? { time_limit: 0.1 }
+          ? { time_limit: 10 }
           : {}),
         ...(profile.algorithm === 'neural' && config.rulesets.length === 1
           ? { model_id: selectStrongestModel(models, config.rulesets[0])?.model.id ?? '' }
@@ -859,6 +896,28 @@ function TournamentSetup({
       player.config.algorithm === 'neural' &&
       !compatible.some((model) => model.id === player.config.model_id),
   );
+  const importConfig = async (file: File) => {
+    setImportingConfig(true);
+    try {
+      const imported = await readImportedTournamentConfig(file, profiles, models);
+      // Keep every imported opponent until the user edits it; the battlefield
+      // recommendation effect must not silently replace participants.
+      manualOpponents.current = imported.config.players.map(() => true);
+      setConfig(imported.config);
+      if (imported.name) setName(imported.name);
+      notify.success(t('Tournament configuration imported. Review the values before starting.'));
+    } catch (error) {
+      if (error instanceof TournamentConfigImportError && error.fields.length)
+        notify.error(
+          t('Invalid tournament configuration fields: {fields}.', {
+            fields: error.fields.join(', '),
+          }),
+        );
+      else notify.error(errorMessage(error));
+    } finally {
+      setImportingConfig(false);
+    }
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -909,6 +968,19 @@ function TournamentSetup({
             'Compare two to four opponents in a round-robin series. Every pair plays an equal number of games as attackers and defenders.',
           )}
         </p>
+        <div className="tournament-import">
+          <ConfigImportButton
+            onImport={(file) => void importConfig(file)}
+            busy={importingConfig}
+            disabled={busy}
+            label="Import configuration"
+          />
+          <span className="subtle">
+            {t(
+              'Import a portable JSON tournament configuration, then review and edit it before starting.',
+            )}
+          </span>
+        </div>
         <div className="name-suggestion-field">
           <label htmlFor="tournament-name">{t('Tournament name')}</label>
           <div className="name-input-group">

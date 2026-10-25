@@ -348,6 +348,36 @@ def test_recommended_defaults_cover_board_and_keep_explicit_overrides(tmp_path, 
     )
 
 
+def test_mcts_defaults_are_ten_seconds_and_match_training_budget():
+    from hnefatafl.ai import ai_profiles
+    from hnefatafl.training import DEFAULTS
+    from hnefatafl.training_evaluation import evaluation_context
+
+    assert DEFAULTS["mcts_time_limit"] == 10.0
+    assert DEFAULTS["evaluation_time_limit"] == 10.0
+    # Jarl uses alpha-beta; its own deadline is not an MCTS default.
+    assert DEFAULTS["evaluation_jarl_time_limit"] == 2.0
+    for ruleset in ("brandubh", "tablut", "copenhagen"):
+        config = normalize_config({"ruleset": ruleset})
+        assert config["mcts_time_limit"] == 10.0
+        assert config["evaluation_time_limit"] == 10.0
+        assert config["training_symmetry_mode"] == "random_d4"
+        context = evaluation_context(config)
+        assert context["candidate_config"]["time_limit"] == 10.0
+    profile = next(item for item in ai_profiles() if item["id"] == "mcts")["parameters"]
+    assert profile["time_limit"] == 10.0
+    # The ruleset-independent tournament/play preset matches the base self-play budget.
+    assert profile["iterations"] == DEFAULTS["mcts_iterations"]
+    # Explicit budgets and non-MCTS strategies are preserved unchanged.
+    explicit = normalize_config(
+        {"mcts_time_limit": 3.0, "evaluation_time_limit": 4.0, "evaluation_jarl_time_limit": 1.5}
+    )
+    assert (explicit["mcts_time_limit"], explicit["evaluation_time_limit"]) == (3.0, 4.0)
+    assert explicit["evaluation_jarl_time_limit"] == 1.5
+    alpha = next(item for item in ai_profiles() if item["id"] == "alpha_beta")["parameters"]
+    assert alpha["time_limit"] == 2.0
+
+
 def test_best_model_retention_and_history_survive_resume(tmp_path, monkeypatch):
     scores = iter([0.25, 0.5, 0.5, 0.75])
 
