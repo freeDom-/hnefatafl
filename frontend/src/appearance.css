@@ -44,9 +44,23 @@
 }
 :root[data-color-mode='dark'] .error-banner,
 :root[data-color-mode='dark'] .form-error,
+:root[data-color-mode='dark'] .notification-error,
 :root[data-color-mode='dark'] .job-status.failed {
   color: #f0bca8;
   border-color: #835846;
+}
+:root[data-color-mode='dark'] .notification-error {
+  background: #2c211d;
+}
+:root[data-color-mode='dark'] .notification-success {
+  background: #22301f;
+  color: #cfe4bc;
+  border-color: #4f6b3f;
+}
+:root[data-color-mode='dark'] .notification-info {
+  background: #1f2830;
+  color: #c6d6e6;
+  border-color: #44586b;
 }
 :root[data-color-mode='dark'] .turn-banner.finished {
   border-color: #847344;
@@ -123,9 +137,24 @@
 }
 :root[data-color-mode='wood'] .error-banner,
 :root[data-color-mode='wood'] .form-error,
+:root[data-color-mode='wood'] .notification-error,
 :root[data-color-mode='wood'] .job-status.failed,
 :root[data-color-mode='wood'] .danger-text {
   color: #ffc1a6;
+}
+:root[data-color-mode='wood'] .notification-error {
+  background: #3a2a1d;
+  border-color: #7a5236;
+}
+:root[data-color-mode='wood'] .notification-success {
+  background: #2f3620;
+  color: #dce7bd;
+  border-color: #5f7040;
+}
+:root[data-color-mode='wood'] .notification-info {
+  background: #2b2f38;
+  color: #d3ddec;
+  border-color: #4d596b;
 }
 :root[data-color-mode='wood'] .turn-banner.finished {
   border-color: #ba8c48;

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NewGame } from './App';
+import { NotificationProvider } from './notifications';
 import { GAME_SETUP_KEY, restoreGameSetup } from './gameSetupPreference';
 import type { AIProfile, Model, Ruleset } from './types';
 
@@ -254,12 +255,45 @@ it('keeps the complete previous setup when another creation fails', async () => 
     'fetch',
     vi.fn(() => json({ detail: 'Creation failed.' }, false)),
   );
-  render(<NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />);
+  render(
+    <NotificationProvider>
+      <NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />
+    </NotificationProvider>,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
   fireEvent.click(screen.getByLabelText('Use a fixed seed'));
   fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
   await screen.findByText('Creation failed.');
   expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(previous);
+});
+
+it('reports one snackbar per creation failure while keeping selections for retry', async () => {
+  let attempts = 0;
+  const fetcher = vi.fn((_path: string, init?: RequestInit) => {
+    attempts += 1;
+    return attempts === 1
+      ? json({ detail: 'The table is full.' }, false)
+      : json({ id: 'created', ...JSON.parse(String(init?.body)) });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const onCreated = vi.fn();
+  render(
+    <NotificationProvider>
+      <NewGame {...options} onClose={vi.fn()} onCreated={onCreated} />
+    </NotificationProvider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
+  fireEvent.click(screen.getByLabelText('Use a fixed seed'));
+  fireEvent.change(screen.getByLabelText('Game seed'), { target: { value: '123' } });
+  fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The table is full.');
+  expect(screen.getAllByRole('alert')).toHaveLength(1);
+  expect(onCreated).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'AI vs AI' })).toHaveClass('active');
+  expect(screen.getByLabelText('Game seed')).toHaveValue(123);
+  fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+  await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).seed).toBe(123);
 });
 
 it('keeps Shield bearer at one second and exposes search time only for Custom opponent', async () => {

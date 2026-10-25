@@ -38,7 +38,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
-| [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, localization and appearance |
+| [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
 
 Long-running training runs in separate worker processes, never in the API request
 loop. Retained files (SQLite, checkpoints, model metadata and worker logs) are

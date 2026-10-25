@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Training from './Training';
 import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDialog';
+import { NotificationProvider } from './notifications';
 import { setLanguage } from './i18n';
 import { trainingConfig } from './trainingPresets';
 import type { Job, Ruleset } from './types';
@@ -304,20 +305,20 @@ it('keeps resume form state when an imported config is malformed or invalid', as
     'fetch',
     vi.fn(() => json(resumeInfo)),
   );
-  render(<TrainingResumeDialog job={sourceJob} onClose={vi.fn()} onStarted={vi.fn()} />);
+  render(
+    <NotificationProvider>
+      <TrainingResumeDialog job={sourceJob} onClose={vi.fn()} onStarted={vi.fn()} />
+    </NotificationProvider>,
+  );
   await screen.findByLabelText('Batch size');
   fireEvent.change(screen.getByLabelText('Batch size'), { target: { value: '21' } });
   fireEvent.change(input(), {
     target: { files: [new File(['nope'], 'config.json', { type: 'application/json' })] },
   });
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'The configuration is not valid JSON.',
-  );
+  expect(await screen.findByText('The configuration is not valid JSON.')).toBeInTheDocument();
   expect(screen.getByLabelText('Batch size')).toHaveValue(21);
   fireEvent.change(input(), { target: { files: [file({ ruleset: 'atlantis' })] } });
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Invalid configuration values: Battlefield.',
-  );
+  expect(await screen.findByText('Invalid configuration values: Battlefield.')).toBeInTheDocument();
   expect(screen.getByLabelText('Batch size')).toHaveValue(21);
 });
 

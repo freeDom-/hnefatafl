@@ -6,7 +6,8 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { api, setCSRF } from './api';
+import { api, errorMessage, setCSRF } from './api';
+import { notify } from './notifications';
 
 export type Account = {
   id: string;
@@ -24,7 +25,6 @@ export default function Auth({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   function accept(session: Session) {
     try {
@@ -61,7 +61,7 @@ export default function Auth({ children }: { children: ReactNode }) {
       });
     const expired = () => {
       clear();
-      setError('Your session ended. Please log in again.');
+      notify.error('Your session ended. Please log in again.');
     };
     window.addEventListener('authentication-required', expired);
     return () => {
@@ -74,7 +74,6 @@ export default function Auth({ children }: { children: ReactNode }) {
     const form = event.currentTarget;
     const values = new FormData(form);
     setBusy(true);
-    setError('');
     setNotice('');
     try {
       accept(
@@ -93,7 +92,7 @@ export default function Auth({ children }: { children: ReactNode }) {
         );
       }
     } catch (e) {
-      setError((e as Error).message);
+      notify.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -103,7 +102,7 @@ export default function Auth({ children }: { children: ReactNode }) {
       await api('/auth/logout', {});
       clear();
     } catch (e) {
-      setError((e as Error).message);
+      notify.error(errorMessage(e));
     }
   }
   useEffect(() => {
@@ -152,11 +151,6 @@ export default function Auth({ children }: { children: ReactNode }) {
                 maxLength={256}
               />
             </label>
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
             <button className="button primary" type="submit" disabled={busy}>
               {busy ? 'Logging in…' : 'Log in'}
             </button>
@@ -191,7 +185,6 @@ export default function Auth({ children }: { children: ReactNode }) {
       ) : (
         children
       )}
-      {error && <p role="alert">{error}</p>}
     </Context.Provider>
   );
 }
