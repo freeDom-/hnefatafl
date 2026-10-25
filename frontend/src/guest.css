@@ -26,6 +26,9 @@
   gap: 1.5rem;
   align-items: start;
 }
+.guest-page .board-with-labels {
+  margin-left: 0;
+}
 .guest-settings {
   padding: 1.25rem;
 }
