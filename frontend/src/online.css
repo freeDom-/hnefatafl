@@ -1,0 +1,113 @@
+.online-root:focus {
+  outline: none;
+}
+.online-page {
+  max-width: 1440px;
+  margin: auto;
+  padding: 1rem 0;
+}
+.online-lobby-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  gap: 1.5rem;
+  margin-top: 1rem;
+  align-items: start;
+}
+.online-create,
+.online-details {
+  padding: 1.25rem;
+}
+.online-create fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.online-create label {
+  display: grid;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+.online-create input,
+.online-create select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.65rem;
+}
+.online-toolbar,
+.online-health {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 1rem 0;
+}
+.online-toolbar button,
+.online-health button,
+.online-create button,
+.online-details button {
+  min-height: 44px;
+  padding: 0.55rem 0.8rem;
+}
+.online-toolbar [aria-current],
+.online-toolbar [aria-pressed='true'] {
+  outline: 2px solid var(--accent, #a5703c);
+  outline-offset: 2px;
+}
+.online-health > .online-notice {
+  flex-basis: 100%;
+}
+.online-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 1rem;
+}
+.online-card {
+  padding: 1rem;
+  border: 1px solid var(--border, #d7c9ae);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.online-card h3 {
+  margin-top: 0;
+}
+.online-game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 800px) minmax(240px, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.online-game-layout .battlefield {
+  min-width: 0;
+}
+.online-notice {
+  padding: 0.8rem;
+  border-inline-start: 3px solid var(--accent, #a5703c);
+  background: var(--surface, #f5ede0);
+  overflow-wrap: anywhere;
+}
+.online-deadline {
+  border-block: 1px solid var(--border, #d7c9ae);
+  padding-block: 0.5rem;
+  margin-block: 1rem;
+}
+.online-result {
+  font-size: 1.1rem;
+}
+.online-details ol {
+  max-height: 18rem;
+  overflow: auto;
+}
+@media (max-width: 800px) {
+  .online-game-layout,
+  .online-lobby-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .online-page {
+    padding-inline: 0.25rem;
+  }
+}
+
+.online-page .button {
+  white-space: normal;
+}
