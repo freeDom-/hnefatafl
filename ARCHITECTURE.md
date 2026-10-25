@@ -34,6 +34,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
 | [benchmark.py](hnefatafl/benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons and headless command dispatch |
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
+| [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
@@ -72,27 +73,45 @@ are explicit hooks, including Copenhagen shield walls, encirclement and edge for
 The exact linked market Tablut rules take precedence over other historical Tablut
 reconstructions. Dedicated rule documents record interpretation and source access.
 
-## Future multiplayer
+## Online game core
 
 Phase 1 extends existing auth with [registration and recovery](docs/REGISTRATION.md).
 `account_policy.py` shares validation, `account_migrations.py` owns schema-9
 preflight/token/mail state, `account_api.py` declares the public account flows and
 `registration.py` coordinates transactional tokens, durable limits and leased SMTP
 delivery through `account_mail.py`. Lifespan supervises delivery independently of
-request lifetime. This adds a reusable verified-account gate, not multiplayer routes.
+request lifetime. Phase 2 reuses its verified-account admission gate.
 
 [Phase 0](docs/designs/online-phase0.md) records the proposed online lifecycle,
 deadline, result and permission boundaries, backed by a
 [source assessment](docs/designs/online-phase0-assessment.md). The pure
-`lifecycle.py` contract is intentionally unintegrated with production gameplay.
+`lifecycle.py` contract is integrated by `online_core.py` for dedicated online records.
 The [browser-offline spike](spikes/browser_offline/README.md) stages an isolated
 runtime, not a production anonymous mode or authentication exception.
 
-Game IDs, stable player identities, persisted ordered moves and versioned move
-requests permit future online participation and WebSocket broadcasts. Persistent
-accounts, database sessions and centralized permissions now protect the API;
-lobby matchmaking remains future work. The engine does not need to change. SQLite transactions currently serialize
-updates; a PostgreSQL adapter can replace storage without changing rules or clients.
+Schema 10 separates online matches/games from mutable local histories. SQLite
+`BEGIN IMMEDIATE` serializes session/account rechecks, time sampled after locking,
+seat assignment, legal engine actions, expected versions, deadlines and append-only
+result revisions. Private administrative notes never enter game projections.
+Effective eligible results derive online counts; void revisions withdraw prior
+contributions. Random sides resolve once at join. Simultaneous two-game matches
+activate both legs atomically; sequential matches activate the side-swapped return
+in the first game's completion transaction. Each game retains its own version/result.
+
+Lifespan reconciles one bounded expiry batch and supervises periodic passes. Requests
+and sweeps share the same expiry transaction/gate, including deployment freeze.
+Persistent timeout finalization starts paused and has a separate unapproved outage
+policy prerequisite; overdue play stays rejected without deadline extension. Current
+sessions are reloaded under the write lock through trusted session context, closing
+the gap after middleware authentication. Admission requires active/verified accounts;
+existing admitted seats retain play after verification changes while active/session-valid.
+
+The [operations guide](docs/ONLINE.md) documents policy approval, schema/restore
+boundaries and safe projections. [Phase 3](docs/designs/online-phase3-handoff.md)
+owns lobby frontend/reconnect presentation and remaining public/rated policies.
+All online endpoints are authenticated, with CSRF/Origin/JSON/body protections.
+Legacy analysis/AI/shared-cursor/export adapters reject online IDs, including admins;
+no online assistance or WebSocket endpoint is provided. The engine remains shared.
 
 ## Training execution and inference
 

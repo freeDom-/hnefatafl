@@ -101,6 +101,20 @@ Schema 9 adds unknown/unverified legacy email state, version/address-bound token
 digests, leased mail intents and limiter state. IDs, ownership and existing sessions
 survive forward migration; safe rollback has an explicit account-schema boundary.
 
+Schema 10 adds independent [online match/game/result/gate records](ONLINE.md).
+Create/join require active, verified accounts, including administrators; an admitted
+seat retains play after verification changes with an active account/current session.
+Online mutations reload the session, role/status and participants inside their
+SQLite write transaction, after middleware checks. Admin privilege cannot take a
+turn or obtain running-game assistance. All online mutations also require matching
+Origin, JSON, CSRF, strict bodies and bounded size. Dedicated projections omit
+account/security metadata and private administrative notes; local-game analysis,
+AI and shared-cursor/export adapters reject online IDs for all roles.
+Timeout controls are persisted, administrator-restricted and audited, with production
+finalization disabled until an approved outage procedure and explicit gate resume.
+Compatible recovery retains live online authority and pauses the gate; incompatible
+online schema rollback is refused before root replacement.
+
 ## Coverage and explicit exceptions
 
 The complete [JSON inventory](API_PERMISSIONS.json) records every API method/path,

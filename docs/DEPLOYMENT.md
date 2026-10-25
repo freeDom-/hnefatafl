@@ -188,6 +188,12 @@ verification/token/mail/limiter state without reassigning owners; run the
 before a separately authorized upgrade. No production migration is implied by
 development validation.
 
+Schema 10 adds the [durable online core](ONLINE.md) without reinterpreting local
+histories. Admission defaults off and timeout finalization starts paused, with a
+separate unapproved production outage-policy prerequisite. Review the
+[schema-10 recovery boundary](ONLINE.md#migration-backup-and-recovery) before an
+upgrade or rollback, and pause the timeout gate before maintenance.
+
 Registration remains off unless explicitly enabled with valid mail configuration.
 See [SMTP setup and account operations](REGISTRATION.md#enable-and-configure-mail).
 
@@ -333,9 +339,17 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
+With matching online schema 10, recovery retains current live authoritative online
+matches, games, moves/results and audit history, then pauses the timeout gate with
+an audit entry. It does not rewind accepted online play to the snapshot. A changed
+online schema/column set refuses automatic root replacement, even when account
+columns match. Snapshot-only recovery without live authority cannot recover newer
+progress, but still revokes saved capabilities and pauses timeouts. See
+[online recovery](ONLINE.md#migration-backup-and-recovery) before resuming.
+
 Data created after the snapshot is kept in a sibling
 `/var/lib/hnefatafl.retained-<id>` directory for inspection and manual reconciliation.
-It is not silently merged into restored games/models. Application configuration
+Other local game/model data is not silently merged. Application configuration
 is preserved; each snapshot also contains its prior protected configuration.
 Failed migration/readiness normally restores the previous code/data and starts it.
 If recovery itself fails, the command exits nonzero, preserves artifacts and prints

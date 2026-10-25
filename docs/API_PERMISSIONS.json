@@ -249,6 +249,102 @@
   },
   {
     "method": "GET",
+    "route": "/api/online/games",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/online/games",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/online/games/{game_id}",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/online/games/{game_id}/cancel",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/online/games/{game_id}/concede",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/online/games/{game_id}/join",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/online/games/{game_id}/moves",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/online/games/{game_id}/replay",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/online/games/{game_id}/void",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/online/stats",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/online/timeout-gate",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "PATCH",
+    "route": "/api/online/timeout-gate",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
     "route": "/api/players",
     "authentication": "session",
     "permission": "play",
