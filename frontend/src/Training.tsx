@@ -25,6 +25,7 @@ import { targetRequest } from './TrainingTarget';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
+import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
 import { activeJob, sortJobs, jobName } from './trainingDashboardData';
 import './trainingDashboard.css';
 
@@ -75,6 +76,7 @@ export default function Training({
   const [target, setTarget] = useState('local');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [jobTab, setJobTab] = useState<JobTab>(defaultJobTab);
   const [resumeJob, setResumeJob] = useState<Job | null>(null);
   const [renameModel, setRenameModel] = useState<Model | null>(null);
   const [deleteJob, setDeleteJob] = useState<Job | null>(null);
@@ -115,6 +117,12 @@ export default function Training({
     selectionRevision.current++;
     setSelectedJob(job);
   };
+  // Switching jobs preserves the active analysis tab. If that tab is not
+  // available for the new job, persist the deterministic default fallback so a
+  // later switch cannot resurrect an unavailable view.
+  useEffect(() => {
+    if (selectedJob) setJobTab((current) => resolveJobTab(current, availableJobTabs(selectedJob)));
+  }, [selectedJob?.id]);
   useEffect(() => {
     if (!observedJobs.current) return;
     let changed = false;
@@ -509,6 +517,7 @@ export default function Training({
   };
   const showMonitoring = () => {
     setCreationOpen(false);
+    setJobTab(defaultJobTab);
     setDashboardRevision((value) => value + 1);
     requestAnimationFrame(() => {
       monitoring.current?.focus({ preventScroll: true });
@@ -517,6 +526,9 @@ export default function Training({
   };
   const running = jobs.filter(activeJob).length;
   const hardwareName = device.default_device ?? device.selected ?? device.device ?? 'CPU';
+  const activeJobTab = selectedJob
+    ? resolveJobTab(jobTab, availableJobTabs(selectedJob))
+    : defaultJobTab;
   return (
     <div className="training-workshop">
       <section className="page-intro workshop-intro">
@@ -689,7 +701,10 @@ export default function Training({
               </div>
               {selectedJob ? (
                 <TrainingJobDashboard
+                  key={selectedJob.id}
                   job={selectedJob}
+                  tab={activeJobTab}
+                  onTabChange={setJobTab}
                   revision={dashboardRevision}
                   busy={busy}
                   exporting={exportingJob}
