@@ -175,7 +175,7 @@ device and repeat runs with recorded hardware, driver, PyTorch version, seeds an
 budgets. Reproducibility within a mode does not imply bitwise equality across modes
 or hardware.
 
-The [v0.17.0 measurements](releases/v0.17.0.md#performance-evidence) completed all
+The [0.17.0 measurements](releases/0.17.0.md#performance-evidence) completed all
 128 simulations/32 positions in each tiny CPU scenario. Sequential/batched speedups
 were **0.98×** (4 channels/0 blocks) and **0.65×** (32 channels/2 blocks). Batching
 reduced forward-pass counts but did **not** demonstrate a CPU speedup. CUDA was

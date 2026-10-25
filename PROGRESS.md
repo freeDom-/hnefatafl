@@ -223,7 +223,7 @@ scores. See `docs/ANALYSIS.md` for persistence, sources and API details.
 Schema 7 and checkpoint/model formats remain unchanged; no migration is required.
 Validation covers CPU execution and short real training/resumption checks. The full
 browser end-to-end suite was not rerun locally for this milestone. GPU execution,
-long training and model-strength comparisons were not performed. See `docs/releases/v0.16.0.md` for scope, compatibility and update commands.
+long training and model-strength comparisons were not performed. See `docs/releases/0.16.0.md` for scope, compatibility and update commands.
 
 ## Concurrent self-play and batched inference (`v0.17.0`)
 
@@ -244,7 +244,7 @@ execution fields retain compatible defaults; updated remote-worker code is neede
 to execute new settings. Validation is CPU-only; CUDA/MPS behavior and GPU speedups
 remain unverified. Passing short training and throughput checks does not establish
 stronger play. The small CPU comparisons did not show a speed improvement; CPU
-automatic execution stays sequential. See `docs/releases/v0.17.0.md` for measured
+automatic execution stays sequential. See `docs/releases/0.17.0.md` for measured
 work, scope, update commands and limits.
 
 ## Portable training jobs (`v0.18.0`)
@@ -259,7 +259,7 @@ work, scope, update commands and limits.
 - [x] Pass 527 backend tests (one CUDA skip), 143 frontend tests, static checks and build
 - [x] Pass 49 final migration tests and two desktop/mobile browser export/import/resume cases
 
-Exact validation and migration limits are recorded in `docs/releases/v0.18.0.md`.
+Exact validation and migration limits are recorded in `docs/releases/0.18.0.md`.
 Schema 7 and tensor checkpoint formats remain unchanged. Archives contain only
 server-retained remote artifacts and never restore execution ownership. Functional
 CPU migration/resumption establishes further optimizer updates, not model strength.
@@ -279,7 +279,7 @@ CPU migration/resumption establishes further optimizer updates, not model streng
 - [x] Pass 40 real-API desktop/mobile browser tests (four existing skips)
 - [x] Verify actual CPU optimizer updates while switching Shield bearer → Jarl → Champion
 
-See [release evidence](docs/releases/v0.19.0.md) for exact budgets and measured
+See [release evidence](docs/releases/0.19.0.md) for exact budgets and measured
 log/evaluation sizes. Evaluation remains sequential; no GPU speedup or stronger
 model is claimed. The production RTX 3060 checkpoint and CUDA/MPS hardware were
 unavailable; representative iteration-100 migration and subsequent learning pass.
@@ -296,7 +296,7 @@ unavailable; representative iteration-100 migration and subsequent learning pass
 - [ ] Established Copenhagen strength improvement: paired interval 48.4–62.5% includes 50%; attacking play remains weak
 
 See [strategy and raw benchmark evidence](docs/SHIELD_MAIDEN.md) and
-[release notes](docs/releases/v0.20.0.md) for exact validation and limitations.
+[release notes](docs/releases/0.20.0.md) for exact validation and limitations.
 
 Validation: `make check` passed (611 Python tests, one CUDA-only skip; 151 frontend
 unit tests, formatting/lint, types, build and docs). Full real-server browser
@@ -319,7 +319,7 @@ benchmark histories passed; no GPU validation was performed.
 - [x] Visual inspection of all analysis views, legacy/error/empty states and wood/light/dark themes
 
 See the [dashboard guide](docs/TRAINING_DASHBOARD.md) and
-[release evidence and screenshots](docs/releases/v0.21.0.md). Training algorithms,
+[release evidence and screenshots](docs/releases/0.21.0.md). Training algorithms,
 API/checkpoint/job formats and worker protocols are unchanged. Fixture screenshots
 illustrate the interface; no GPU validation, long campaign or stronger-model claim
 is made. Existing server-bounded log tails remain part of job-list polling.
@@ -333,7 +333,7 @@ Debian/Proxmox installation, protected systemd deployment, stable-release update
 verified backups and guarded rollback are implemented. See the
 [implementation/validation record](docs/validation/security-deployment-2026-10-23.md)
 for all changed files, 57 API grants, migration details, exact checks, commands and
-remaining hardware/target-host limits. See [0.22.0 release notes](docs/releases/v0.22.0.md)
+remaining hardware/target-host limits. See [0.22.0 release notes](docs/releases/0.22.0.md)
 for installation and migration requirements. Existing release evidence above remains historical.
 
 ## Remote worker management fixes (`0.22.1`)
@@ -345,7 +345,7 @@ for installation and migration requirements. Existing release evidence above rem
 - [x] `make check`: 652 Python passes, one CUDA skip; 172 frontend passes; docs, lint, types and build
 - [x] Full real-server browser suite: 54 passes, four existing duplicate mobile skips
 
-See [0.22.1 release notes](docs/releases/v0.22.1.md) for this patch's validation,
+See [0.22.1 release notes](docs/releases/0.22.1.md) for this patch's validation,
 update procedure and remaining limits. No schema or worker-protocol migration is required.
 
 
@@ -364,7 +364,7 @@ update procedure and remaining limits. No schema or worker-protocol migration is
 - [x] Pass 38 portable backend/benchmark tests on Python 3.14.4, with four Intel GPU skips; verify CPU training/resume without OpenVINO installed
 
 See the [validation record](docs/validation/openvino-2026-10-23.md) and
-[0.23.0 release notes](docs/releases/v0.23.0.md). Intel GPU acceleration, CUDA/MPS
+[0.23.0 release notes](docs/releases/0.23.0.md). Intel GPU acceleration, CUDA/MPS
 execution and target WSL2/systemd deployment remain unverified on this CPU host.
 No inference-only benchmark is reported as a full-training GPU speedup.
 
@@ -385,7 +385,7 @@ Evaluations fall about 35–37%, while measured runtime varies by network/schedu
 several CPU cases regress. Keep the default off. Actual medians, controlled duplicate
 and unique workloads, raw counters and pre-change baseline are in
 [Performance](docs/PERFORMANCE.md#measured-cpu-results-2026-10-24) and
-[release notes](docs/releases/v0.24.0.md). Real OpenVINO CPU cache/refresh and training
+[release notes](docs/releases/0.24.0.md). Real OpenVINO CPU cache/refresh and training
 integration passed; CUDA, MPS and Intel GPU throughput remain unmeasured. No game,
 checkpoint or storage migration is required. Symmetry augmentation, canonical
 neural inference, search pruning/transposition changes and tree sharing are deferred.
@@ -403,7 +403,7 @@ neural inference, search pruning/transposition changes and tree sharing are defe
 - [x] Pass the complete browser suite: 58 passes/four intentional mobile duplicate skips, including real CPU editable reuse/start/resume counts
 
 Final full-suite validation and publication are recorded in the
-[0.25.0 release notes](docs/releases/v0.25.0.md). No database migration or tensor
+[0.25.0 release notes](docs/releases/0.25.0.md). No database migration or tensor
 format change is required. Tuning study totals and missing historical lineage
 remain explicitly unavailable; GPU execution and target deployment are unverified.
 

@@ -57,7 +57,9 @@ jobs:
               raise SystemExit("Tagged commit must have successful Verify CI on main")
           notes_path = Path(f"docs/releases/{tag}.md")
           if not notes_path.is_file():
-              notes_path = Path(f"docs/releases/v{tag}.md")  # Historical notes only.
+              # Tags up to 0.25.0 keep the pre-rename vX.Y.Z.md name in their own
+              # trees; notes for those tags were later renamed to X.Y.Z.md on main.
+              notes_path = Path(f"docs/releases/v{tag}.md")
           notes = notes_path.read_text()
           evidence = f"[Verified CI for this tag](https://github.com/{repo}/actions/runs/{int(verified['id'])}).\n\n"
           notes = notes.replace("## Validation\n\n", "## Validation\n\n" + evidence, 1)

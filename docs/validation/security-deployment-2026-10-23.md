@@ -5,7 +5,7 @@
 This records the implementation checks performed before preparing 0.22.0. Historical
 release notes retain their original evidence. No target Proxmox installation was
 performed. Publication and version metadata are covered in the
-[0.22.0 release notes](../releases/v0.22.0.md).
+[0.22.0 release notes](../releases/0.22.0.md).
 
 ## 1. Completed features
 

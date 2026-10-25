@@ -4,7 +4,11 @@ Milestone `0.x.0` Git tags are previews with an explicit scope. Their notes use
 `docs/releases/X.Y.Z.md` paths. `1.0.0` requires
 the initial acceptance checklist, working production startup and complete CPU
 training smoke tests. A GPU check is reported as unverified if hardware is absent.
-New release-note filenames match the unprefixed tag; historical note paths stay unchanged.
+Release-note filenames are the unprefixed `X.Y.Z` tag in every case. The historical
+`vX.Y.Z.md` names were renamed to `X.Y.Z.md` for consistency; their contents are
+unchanged, and the already-published releases keep their original notes because
+those bodies point into the tagged trees. The publish workflow therefore still
+falls back to `vX.Y.Z.md` for tags whose trees predate the rename.
 Patch releases correct defects; minor releases add compatible features; breaking
 changes after 1.0 require a new major version.
 

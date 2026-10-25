@@ -136,7 +136,7 @@ The release's desktop and mobile screenshots use representative persisted-API
 fixtures, including a 60-iteration running job, a 120-iteration completed job,
 legacy records and several evaluation contexts. These are interface fixtures,
 not evidence of trained-model strength or GPU throughput. See the
-[v0.21.0 release notes](releases/v0.21.0.md) for executed validation and images.
+[0.21.0 release notes](releases/0.21.0.md) for executed validation and images.
 
 ## Optional OpenVINO inference
 

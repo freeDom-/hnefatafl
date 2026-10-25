@@ -13,7 +13,7 @@ for the distinction between ordinary server restarts and production updater pref
 
 ## Training reuse and self-play totals (`0.25.0`)
 
-The [0.25.0 validation record](releases/v0.25.0.md#validation) reports the complete
+The [0.25.0 validation record](releases/0.25.0.md#validation) reports the complete
 local checks, optional OpenVINO CPU coverage, real remote-worker training/resume,
 58 desktop/mobile browser passes, actual counter persistence and hardware limits.
 Job-local and model-lineage totals are described in the
@@ -28,7 +28,7 @@ regressions, Python 3.12/3.14 numerical and training checks, CPU operation witho
 
 The [2026-10-23 implementation and validation record](validation/security-deployment-2026-10-23.md)
 describes accounts/RBAC, schema 8, installers/updater, complete API coverage, exact
-checks and remaining target-host validation. The [0.22.0 release notes](releases/v0.22.0.md)
+checks and remaining target-host validation. The [0.22.0 release notes](releases/0.22.0.md)
 record the release scope; older release evidence remains historical.
 
 ## Latest release evidence at a glance
@@ -39,10 +39,10 @@ claims unchanged.
 
 | Evidence | Latest recorded scope |
 | --- | --- |
-| [v0.17.0](releases/v0.17.0.md#validation) | `make foundation check`: 478 backend tests passed, one CUDA case skipped; 137 frontend tests, formatting/type checks and production build passed |
-| [v0.17.0 CPU experiment](releases/v0.17.0.md#performance-evidence) | Four-game batched smoke training with real updates/reload/legal model play; equal-work tiny CPU comparisons showed 0.98× and 0.65× speedups, **no CPU batching improvement** |
-| [v0.16.0](releases/v0.16.0.md#validation) | 90 targeted backend and 68 frontend tests for editable resume, optimizer-state retention and all three neural wrappers; full browser suite not rerun for that milestone |
-| [v0.15.0](releases/v0.15.0.md#validation) | Latest release-recorded full browser suite: 38 desktop/mobile passes, four intentional mobile duplicates skipped |
+| [0.17.0](releases/0.17.0.md#validation) | `make foundation check`: 478 backend tests passed, one CUDA case skipped; 137 frontend tests, formatting/type checks and production build passed |
+| [0.17.0 CPU experiment](releases/0.17.0.md#performance-evidence) | Four-game batched smoke training with real updates/reload/legal model play; equal-work tiny CPU comparisons showed 0.98× and 0.65× speedups, **no CPU batching improvement** |
+| [0.16.0](releases/0.16.0.md#validation) | 90 targeted backend and 68 frontend tests for editable resume, optimizer-state retention and all three neural wrappers; full browser suite not rerun for that milestone |
+| [0.15.0](releases/0.15.0.md#validation) | Latest release-recorded full browser suite: 38 desktop/mobile passes, four intentional mobile duplicates skipped |
 | Hardware/deployment limits | CUDA/MPS execution, GPU speedup, physical-device/browser-engine compatibility and target-host systemd/proxy operation remain unverified |
 
 Functional tests prove data generation, real optimizer updates, checkpoint
