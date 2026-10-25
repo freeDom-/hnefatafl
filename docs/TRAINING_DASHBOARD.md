@@ -69,7 +69,9 @@ refresh use their existing state restrictions and confirmation dialogs. Progress
 uses recorded iteration counts; the interface does not invent an ETA.
 
 - **Overview** shows six concise KPIs, learning/evaluation charts, the last
-  completed iteration's sequential phase timings and checkpoint selection.
+  completed iteration's sequential phase timings and checkpoint selection. Its
+  evaluation chart merges every recorded series into one curve, so a job that
+  changed opponent or Champion incumbent no longer needs several small graphs.
   Saturation, champion decisions, incomplete evaluations and failed/cancelled
   jobs receive contextual messages.
 - **Learning** shows loss trends, replay positions, recorded optimizer updates,
@@ -77,8 +79,10 @@ uses recorded iteration counts; the interface does not invent an ETA.
   fit to self-play targets; it does not establish stronger play.
 - **Evaluation** shows the effective opponent, side scores, wins/losses, rules
   draws, unfinished games, duration, champion decisions and fixed-benchmark
-  records. A series selector defaults to the latest comparison context; all
-  contexts remain available. Its detailed table retains the complete evidence.
+  records. A series selector defaults to the latest comparison context.
+  **All evaluation series** draws the same single merged curve as the overview,
+  and every individual context stays selectable on its own. Its detailed table
+  retains the complete evidence.
 - **Performance** groups throughput, MCTS, GPU/inference and phase timings.
   Select one historical metric at a time. CPU search, inference-host and CUDA
   activity counters stay separate from the sequential wall-time comparison,
@@ -103,12 +107,17 @@ and performance histories omit repetitive point markers. Values remain available
 through tooltips and tables.
 
 Evaluation groups include the recorded opponent identity, effective context and
-Champion incumbent. Different opponents, changed search settings and changed
-incumbents never share a continuous curve. Scheduled but absent evaluations stay
-gaps; they are not zero scores. Champion promotion events are marked on the
-relevant evaluation series. Legacy baseline records remain readable and identify
-missing effective settings. A high score from a small sample remains limited
-evidence; use larger held-out tournaments before claiming general strength.
+Champion incumbent. A single-series view plots only its own context. The merged
+view (overview, and **All evaluation series** in Evaluation) connects the same
+per-iteration scores across contexts so one curve covers the whole run; read a
+step where the opponent, settings or incumbent changed as a context change, not
+as continuous improvement, and use the per-series views to compare like with
+like. The merged view lists every merged context under its effective settings.
+Scheduled but absent evaluations stay gaps in both views; they are not zero
+scores. Champion promotion events are marked on the relevant evaluation series.
+Legacy baseline records remain readable and identify missing effective settings.
+A high score from a small sample remains limited evidence; use larger held-out
+tournaments before claiming general strength.
 
 ## Model collection and compatibility
 
