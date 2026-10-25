@@ -52,6 +52,9 @@ must inspect both linked games when deciding an incident's resolution.
 | `HNEFATAFL_ONLINE_TIMEOUT_POLICY_APPROVED` | `false` | Operational prerequisite for timeout finalization; set only after separate owner approval of an outage procedure |
 | `HNEFATAFL_ONLINE_SWEEP_SECONDS` | `10` | Background interval, integer 1–300 |
 | `HNEFATAFL_ONLINE_SWEEP_BATCH` | `50` | Maximum candidate games per pass, integer 1–256 |
+| `HNEFATAFL_ONLINE_WAITING_LIMIT` | `5` | Maximum outstanding waiting lobbies per creator, integer 1–1000 |
+| `HNEFATAFL_ONLINE_CREATION_LIMIT` | `10` | Successful new matches per account/window, integer 1–1000 |
+| `HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS` | `900` | Rolling creation window, integer 60–86400 seconds |
 
 No deployment configuration is enabled by this phase. The timeout prerequisite
 does not itself resume the persistent gate: both controls must allow finalization.
@@ -78,6 +81,51 @@ is only a hint; each candidate reloads and resamples inside its own write transa
 Backwards time relative to the game's last transition or timeout-control audit
 fails closed. This does not detect every possible host-clock adjustment. Monitor
 clock synchronization and investigate anomalies rather than rewriting timestamps.
+
+## Creation quotas and monitoring
+
+Verified accounts, including administrators, may have at most five waiting lobbies
+and create ten matches per rolling fifteen minutes by default. Both checks use
+indexed persisted records under the same `BEGIN IMMEDIATE` as creation. Admission
+scans stop at the configured cap even when upgrading an account already above it.
+Competing connections/processes cannot both take the last slot. HTTP 429 indicates
+the caller's waiting or creation-rate limit; it creates no match/game rows.
+
+Activation, cancellation or pre-start void frees a waiting slot. Cancellation and
+void retain the creation record and do not refill the rolling rate budget. A record
+expires from that budget at exactly creation time plus the window. Successful
+creations spend budget; transaction failures do not. Duplicate creation UUIDs still
+return 409 before quota checks and do not spend budget or count as quota denials.
+Limits are per account across all rulesets/modes. A two-game match is one creation;
+its automatic return game uses the existing admission and spends no additional slot.
+Set consistent limits across API processes. Zero/invalid values are rejected;
+use the existing admission switch to disable new games.
+
+`GET /api/online/monitoring` requires a current administrator session. It reports
+active configuration, cumulative quota-denial counts/last-denial times, match/game/
+move/result totals, game-state counts and SQLite allocated/used/free bytes. Main
+database and WAL file bytes are reported separately; logical SQLite usage and file
+sizes are operational trends, not one atomic filesystem snapshot. This read does
+not change limits, counters or games. It exposes no account IDs, emails, credentials,
+file paths or administrative notes. Normal users and anonymous callers are denied.
+
+Two fixed rows in `online_creation_metrics` retain denial counts across connections
+and restart; no attacker-controlled limiter keys are allocated. A rejected creation
+commits only this bounded telemetry before returning 429. Sanitized warning messages
+contain only a fixed reason and cumulative count, at most once per reason/minute
+across processes and restart. Every quota denial still increments its counter when
+the database commit succeeds. Collect monitoring snapshots periodically (for example
+once a minute), alert on counter increases and database/WAL growth or low disk space,
+and set alert thresholds for the deployment's capacity. No external monitoring
+service, automatic deletion, lobby-expiry policy or data-retention approval is added.
+
+Schema 10 gains optional monitoring state and two indexes without rewriting
+authoritative rows or changing their layout. Existing schema-10 databases initialize
+them on startup. Compatible recovery also accepts older schema-10 snapshots that
+lack monitoring state: it retains live creation records/budgets and available live
+denial counts. Snapshot-only recovery can retain only the counters present in that
+snapshot. This observability addition does not make older authoritative schemas
+compatible or weaken the account/online rollback boundary.
 
 ## Persistence, authorization and concurrency
 
@@ -145,6 +193,7 @@ are in [the API inventory](API_PERMISSIONS.json).
 | `POST /api/online/games/{id}/void` | `version`, private `note` of 1–1000 nonblank characters; administrator |
 | `GET /api/online/games/{id}/replay` | Deterministically validated read-only states; no shared cursor |
 | `GET /api/online/stats` | Own effective online counts, separate from single-player |
+| `GET /api/online/monitoring` | Administrator-only quota denials, aggregate counts and database/WAL growth |
 | `GET /api/online/timeout-gate` | Administrator-only current/effective gate and latest 50 private audit entries |
 | `PATCH /api/online/timeout-gate` | Administrator: current gate `version`, boolean `enabled`, private `note` |
 

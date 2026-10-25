@@ -74,6 +74,16 @@ def migrate_online(c: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS online_created ON online_games(created_at DESC,id)",
         "CREATE INDEX IF NOT EXISTS online_attackers ON online_games(attackers_id)",
         "CREATE INDEX IF NOT EXISTS online_defenders ON online_games(defenders_id)",
+        "CREATE INDEX IF NOT EXISTS online_waiting_creator ON online_games(creator_id) WHERE status='waiting'",
+        "CREATE INDEX IF NOT EXISTS online_creation_window ON online_matches(creator_id,created_at)",
+        """CREATE TABLE IF NOT EXISTS online_creation_metrics (
+            reason TEXT PRIMARY KEY NOT NULL CHECK(reason IN ('waiting_limit','creation_rate')),
+            denials INTEGER NOT NULL CHECK(denials>=0),
+            last_denied_at BLOB CHECK(last_denied_at IS NULL OR typeof(last_denied_at)='integer'),
+            last_logged_at BLOB CHECK(last_logged_at IS NULL OR typeof(last_logged_at)='integer')
+        )""",
+        "INSERT OR IGNORE INTO online_creation_metrics VALUES('waiting_limit',0,NULL,NULL)",
+        "INSERT OR IGNORE INTO online_creation_metrics VALUES('creation_rate',0,NULL,NULL)",
         """CREATE TABLE IF NOT EXISTS online_moves (
             game_id TEXT NOT NULL REFERENCES online_games(id), ply INTEGER NOT NULL CHECK(ply>=1),
             source BLOB NOT NULL CHECK(typeof(source)='integer' AND source BETWEEN 0 AND 120),
@@ -179,6 +189,17 @@ def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connect
         restored, "Live online state retained; timeout finalization paused after restore."
     )
     migrate_online(restored)
+    # Optional observability is not authoritative game state. Older schema-10
+    # snapshots lack this table; initialize it above and retain live counters when
+    # available rather than rejecting an otherwise compatible recovery.
+    if live.execute("SELECT 1 FROM sqlite_master WHERE name='online_creation_metrics'").fetchone():
+        for row in live.execute(
+            "SELECT denials,last_denied_at,last_logged_at,reason FROM online_creation_metrics"
+        ):
+            restored.execute(
+                "UPDATE online_creation_metrics SET denials=?,last_denied_at=?,last_logged_at=? WHERE reason=?",
+                tuple(row),
+            )
 
 
 def pause_online_after_restore(restored: sqlite3.Connection, note: str) -> None:

@@ -73,6 +73,13 @@ Creators can cancel Waiting; administrators use audited per-game void with a
 private justification. Do not send actor IDs, boards, winners, timestamps, rated
 flags or rules versions as asserted authority; extra fields are rejected.
 
+On creation 429, show the waiting-cap or creation-rate message and let the user
+cancel/wait or retry later; do not generate new UUIDs in an automatic retry loop.
+Defaults are five waiting lobbies and ten new matches per fifteen minutes per
+account, configurable by the operator. Two-game matches count as one creation and
+automatic return games need no new admission. The administrator-only
+`GET /api/online/monitoring` exposes aggregate denials/growth, never a public profile.
+
 On 409, reload; do not replay the old mutation automatically with a newer version.
 The old version can represent an already-committed move/result or another actor's
 move. On 401, restore/login again; inactive/revoked sessions cannot mutate. On 403,
