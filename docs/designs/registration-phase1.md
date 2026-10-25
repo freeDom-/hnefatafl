@@ -1,5 +1,10 @@
 # Phase 1 account registration implementation brief
 
+This Phase 0 brief is retained as design context. The implemented Phase 1 defaults,
+operations and remaining deployment decisions are documented in
+[Registration and recovery](../REGISTRATION.md); Phase 0 recommendations alone
+did not approve production activation.
+
 [Documentation index](../README.md) · [Repository assessment](online-phase0-assessment.md) ·
 [Online design](online-phase0.md) · [Validation/handoff](../validation/online-phase0.md)
 

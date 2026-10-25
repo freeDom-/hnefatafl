@@ -74,6 +74,13 @@ reconstructions. Dedicated rule documents record interpretation and source acces
 
 ## Future multiplayer
 
+Phase 1 extends existing auth with [registration and recovery](docs/REGISTRATION.md).
+`account_policy.py` shares validation, `account_migrations.py` owns schema-9
+preflight/token/mail state, `account_api.py` declares the public account flows and
+`registration.py` coordinates transactional tokens, durable limits and leased SMTP
+delivery through `account_mail.py`. Lifespan supervises delivery independently of
+request lifetime. This adds a reusable verified-account gate, not multiplayer routes.
+
 [Phase 0](docs/designs/online-phase0.md) records the proposed online lifecycle,
 deadline, result and permission boundaries, backed by a
 [source assessment](docs/designs/online-phase0-assessment.md). The pure
