@@ -37,6 +37,29 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   seed: ['Random seed', 0, 4294967295],
 };
 
+export const trainingParameterLabels: Record<string, string> = {
+  device: 'Training device',
+  inference_backend: 'Neural inference backend',
+  inference_device: 'Inference device',
+  preset: 'Training preset',
+  optimizer: 'Optimizer',
+  self_play_mode: 'Self-play execution',
+  evaluation_opponent: 'Evaluation opponent',
+  model_name: 'Model name',
+  ruleset: 'Battlefield',
+  search_space: 'Parameter search space (JSON)',
+  trials: 'Trial budget',
+  study_name: 'Study name',
+  study_seed: 'Study random seed',
+  inference_cache_mode: 'Inference cache',
+  training_symmetry_mode: 'Training symmetry augmentation',
+};
+
+/** Human label (translation key) for one importable training parameter. */
+export function trainingParameterLabel(key: string): string {
+  return trainingNumberFields[key]?.[0] ?? trainingParameterLabels[key] ?? key;
+}
+
 export function SelfPlayModeField({
   value,
   onChange,

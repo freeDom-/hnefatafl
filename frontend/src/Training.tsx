@@ -12,8 +12,9 @@ import {
   recordedTrainingParameters,
 } from './trainingPresets';
 import { recordedJobParameters } from './trainingReuse';
-import { trainingNumberFields } from './TrainingFields';
+import { trainingParameterLabel } from './TrainingFields';
 import TrainingResumeDialog from './TrainingResumeDialog';
+import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
 import { opponentName } from './EvaluationSettings';
 import Rune from './Rune';
 import ModelRenameDialog from './ModelRenameDialog';
@@ -42,23 +43,6 @@ interface ModelUsage {
 }
 
 const defaults = trainingConfig('tablut', 'recommended');
-const parameterLabels: Record<string, string> = {
-  device: 'Training device',
-  inference_backend: 'Neural inference backend',
-  inference_device: 'Inference device',
-  preset: 'Training preset',
-  optimizer: 'Optimizer',
-  self_play_mode: 'Self-play execution',
-  evaluation_opponent: 'Evaluation opponent',
-  model_name: 'Model name',
-  ruleset: 'Battlefield',
-  search_space: 'Parameter search space (JSON)',
-  trials: 'Trial budget',
-  study_name: 'Study name',
-  study_seed: 'Study random seed',
-  inference_cache_mode: 'Inference cache',
-  training_symmetry_mode: 'Training symmetry augmentation',
-};
 const metricText = (value: unknown) =>
   typeof value === 'number'
     ? new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 4 }).format(value)
@@ -109,6 +93,7 @@ export default function Training({
     '{\n  "learning_rate": {"type": "float", "low": 0.0001, "high": 0.003, "log": true},\n  "mcts_iterations": {"type": "int", "low": 4, "high": 16}\n}',
   );
   const [busy, setBusy] = useState(false);
+  const [importingConfig, setImportingConfig] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importingJob, setImportingJob] = useState(false);
   const [exportingJob, setExportingJob] = useState(false);
@@ -413,11 +398,49 @@ export default function Training({
     warnings.length
       ? ' ' +
         t('Invalid or unavailable settings kept safe values: {fields}. Review before starting.', {
-          fields: warnings
-            .map((key) => t(trainingNumberFields[key]?.[0] ?? parameterLabels[key] ?? key))
-            .join(', '),
+          fields: warnings.map((key) => t(trainingParameterLabel(key))).join(', '),
         })
       : '';
+  const importConfig = async (file: File) => {
+    setImportingConfig(true);
+    setNotice('');
+    try {
+      const imported = await readImportedConfig(file, config, { mode: 'create' });
+      // Keep the imported target even when the current server or worker cannot
+      // provide it, matching the resume dialog. The form shows the unavailable
+      // option and starting reports the platform error so the user can adjust it.
+      setConfig(imported.config);
+      setKind(imported.kind);
+      if (imported.kind === 'tune') {
+        if (imported.trials !== undefined) setTrials(imported.trials);
+        if (imported.studySeed !== undefined) setStudySeed(imported.studySeed);
+        if (imported.studyName !== undefined) setStudyName(imported.studyName);
+        if (imported.search !== undefined) setSpace(JSON.stringify(imported.search, null, 2));
+      }
+      setAdvanced(true);
+      setCreationOpen(true);
+      setNotice(
+        t('Configuration imported. Review the values before starting.') +
+          (imported.ignored.length
+            ? ' ' +
+              t('Fields that are not training parameters were ignored: {fields}.', {
+                fields: imported.ignored.join(', '),
+              })
+            : ''),
+      );
+      requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
+    } catch (error) {
+      if (error instanceof ConfigImportError && error.fields.length)
+        onError(
+          t('Invalid configuration values: {fields}.', {
+            fields: error.fields.map((key) => t(trainingParameterLabel(key))).join(', '),
+          }),
+        );
+      else onError((error as Error).message);
+    } finally {
+      setImportingConfig(false);
+    }
+  };
   const loadJobParameters = (job: Job) => {
     const loaded = recordedJobParameters(config, job, device);
     if (!loaded) return;
@@ -592,6 +615,8 @@ export default function Training({
               workers,
               device,
               start,
+              importingConfig,
+              onImportConfig: (file: File) => void importConfig(file),
             }}
           />
         </div>

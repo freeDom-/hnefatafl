@@ -229,6 +229,32 @@ it('queues GPU training on a remote worker even when the server only has a CPU',
   ).toBeInTheDocument();
 });
 
+it('enables every device for an unspecified remote worker and follows the chosen worker', async () => {
+  const cpuWorker: TrainingWorker = {
+    ...worker,
+    id: 'cpu',
+    name: 'CPU node',
+    capabilities: { cuda_available: false, mps_available: false },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => {
+      if (path.endsWith('/workers')) return json([worker, cpuWorker]);
+      if (path.endsWith('/device')) return json({ cuda_available: false, mps_available: false });
+      return json([]);
+    }),
+  );
+  render(<Training rulesets={rulesets} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
+  await screen.findByRole('option', { name: /CPU node/ });
+  expect(screen.getByRole('option', { name: 'NVIDIA CUDA (unavailable)' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Run training on'), { target: { value: 'remote' } });
+  expect(screen.getByRole('option', { name: 'NVIDIA CUDA' })).toBeEnabled();
+  expect(screen.getByRole('option', { name: 'Apple Metal' })).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('Run training on'), { target: { value: 'worker:cpu' } });
+  expect(screen.getByRole('option', { name: 'NVIDIA CUDA (unavailable)' })).toBeDisabled();
+  expect(screen.getByRole('option', { name: 'Apple Metal (unavailable)' })).toBeDisabled();
+});
+
 it('refreshes completed models from another job without changing the selected progress graph', async () => {
   let jobs: Job[] = [first, second];
   vi.stubGlobal(

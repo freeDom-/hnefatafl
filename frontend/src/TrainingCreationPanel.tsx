@@ -9,6 +9,8 @@ import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
+import ConfigImportButton from './ConfigImportButton';
+import TrainingDeviceField from './TrainingDeviceField';
 
 interface Props {
   config: TrainingConfig;
@@ -34,6 +36,8 @@ interface Props {
   workers: TrainingWorker[];
   device: DeviceInfo;
   start: (event: FormEvent) => void;
+  importingConfig: boolean;
+  onImportConfig: (file: File) => void;
 }
 
 export default function TrainingCreationPanel({
@@ -60,6 +64,8 @@ export default function TrainingCreationPanel({
   workers,
   device,
   start,
+  importingConfig,
+  onImportConfig,
 }: Props) {
   const isRemote = kind === 'train' && target !== 'local';
   const selectedWorker = workers.find((worker) => `worker:${worker.id}` === target);
@@ -94,6 +100,14 @@ export default function TrainingCreationPanel({
           >
             {t('Tune parameters')}
           </button>
+        </div>
+        <div className="creation-import">
+          <ConfigImportButton onImport={onImportConfig} busy={importingConfig} disabled={busy} />
+          <span className="subtle">
+            {t(
+              'Load parameters from an exported config.json. Review them before starting; importing never starts a job.',
+            )}
+          </span>
         </div>
         <fieldset className="creation-group">
           <legend>{t('General')}</legend>
@@ -179,38 +193,12 @@ export default function TrainingCreationPanel({
                 </button>
               </div>
             </div>
-            <label>
-              {t('Training device')}
-              <select
-                value={String(config.device)}
-                onChange={(e) => update('device', e.target.value)}
-              >
-                <option value="auto">{t('Automatic')}</option>
-                <option value="cpu">{t('CPU')}</option>
-                <option
-                  value="cuda"
-                  disabled={
-                    targetDevice?.cuda_available === false || (!isRemote && !device.cuda_available)
-                  }
-                >
-                  {t('NVIDIA CUDA')}
-                  {targetDevice?.cuda_available === false || (!isRemote && !device.cuda_available)
-                    ? ` (${t('unavailable')})`
-                    : ''}
-                </option>
-                <option
-                  value="mps"
-                  disabled={
-                    targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
-                  }
-                >
-                  {t('Apple Metal')}
-                  {targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
-                    ? ` (${t('unavailable')})`
-                    : ''}
-                </option>
-              </select>
-            </label>
+            <TrainingDeviceField
+              value={String(config.device)}
+              onChange={(value) => update('device', value)}
+              remote={isRemote}
+              capabilities={targetDevice}
+            />
             <InferenceSettings
               config={config}
               update={update}
