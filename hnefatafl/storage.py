@@ -14,6 +14,7 @@ from typing import Iterable, Iterator
 
 from .identities import rune_for_ordinal
 from .security_context import owner_scope, principal
+from .account_migrations import SCHEMA_VERSION, migrate_accounts
 
 
 class ConflictError(ValueError):
@@ -53,7 +54,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 8:
+            if schema > SCHEMA_VERSION:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -122,7 +123,8 @@ class Store:
                 connection.execute(
                     f"CREATE INDEX IF NOT EXISTS {table}_owner ON {table}(owner_account_id)"
                 )
-            connection.execute("PRAGMA user_version=8")
+            migrate_accounts(connection)
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.
         with self.connection() as connection:

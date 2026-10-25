@@ -69,9 +69,12 @@ describe('authenticated application boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
     expect(await screen.findByRole('heading', { name: 'Log in' })).toBeVisible();
     expect(screen.queryByText('Protected gameplay for Odin')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sign up / Register' })).toBeEnabled(),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Sign up / Register' }));
     expect(screen.getByRole('status')).toHaveTextContent('Registration is not available yet.');
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it('requires login before mounting gameplay and keeps passwords out of storage', async () => {
     const fetcher = vi.fn((path: string) =>

@@ -13,8 +13,8 @@ import fcntl
 import os
 import re
 import secrets
+import sqlite3
 import time
-import unicodedata
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 from uuid import uuid4
@@ -29,22 +29,32 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Match
 
 from .security_context import PERMISSIONS, allowed, principal
+from .account_policy import (
+    normalize,
+    username as validate_username,
+    email as validate_email,
+    validate_password,
+)
 
 COOKIE = "hnefatafl_session"
 SAFE = {"GET", "HEAD", "OPTIONS"}
+# This module owns policy; account_api is imported only after Auth is defined.
+ACCOUNT_ACTIONS = {
+    "/api/auth/register": "register",
+    "/api/auth/verification/resend": "resend",
+    "/api/auth/verify-email": "confirm",
+    "/api/auth/password-reset/request": "reset",
+    "/api/auth/password-reset/confirm": "confirm",
+}
+ACCOUNT_PAGES = {"/register", "/verify-email", "/forgot-password", "/reset-password"}
 
 
 def digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def normalize(value: str) -> str:
-    return unicodedata.normalize("NFKC", value).strip().casefold()
-
-
 def password_hash(password: str) -> str:
-    if len(password) < 12 or len(password) > 256 or len(set(password)) < 4:
-        raise ValueError("Use 12–256 characters with at least four distinct characters.")
+    validate_password(password)
     salt = secrets.token_hex(16)
     key = hashlib.scrypt(password.encode(), salt=salt.encode(), n=32768, r=8, p=3, maxmem=67108864)
     return f"scrypt$32768$8$3${salt}${key.hex()}"
@@ -133,6 +143,7 @@ def public_account(account: dict) -> dict:
             )
         },
         "permissions": sorted(PERMISSIONS.get(account["role"], ())),
+        "email_verified": account.get("email_verified_at") is not None,
     }
 
 
@@ -142,19 +153,15 @@ class Auth:
         self.gate_path = store.path.parent / ".deployment-gate"
         os.close(os.open(self.gate_path, os.O_CREAT | os.O_RDONLY, 0o644))
         self.worker_auth: Callable | None = None
+        self.account_requests: Callable[[str, str], None] | None = None
+        self.public_hash_budget: Callable[[sqlite3.Connection], None] | None = None
         # Same work for nonexistent identities; no per-request expensive setup.
         self.dummy_hash = password_hash(secrets.token_urlsafe(24))
 
     def create_account(
         self, username: str, email: str, password: str, role="USER", *, bootstrap=False
     ) -> dict:
-        username, email = unicodedata.normalize("NFKC", username).strip(), normalize(email)
-        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{1,63}", username):
-            raise ValueError(
-                "Username must contain 2–64 letters, digits, dots, underscores or hyphens"
-            )
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) or len(email) > 254:
-            raise ValueError("A valid email address is required")
+        username, email = validate_username(username), validate_email(email)
         if role not in PERMISSIONS:
             raise ValueError("Unknown role")
         encoded = password_hash(password)
@@ -196,6 +203,10 @@ class Auth:
                 ).fetchone()
                 if row and row[0] >= (30 if key.startswith("ip:") else 10):
                     raise HTTPException(429, "Too many login attempts. Try again later.")
+            if self.public_hash_budget:
+                # Share the transaction: denial must not allocate unbounded legacy
+                # login-attempt keys for fresh attacker-controlled identities/IPs.
+                self.public_hash_budget(c)
             for key in keys:
                 c.execute(
                     "INSERT INTO login_attempts(key,started,attempts) VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET attempts=attempts+1",
@@ -212,6 +223,14 @@ class Auth:
         token = secrets.token_urlsafe(32)
         csrf = digest("csrf:" + token)
         with self.store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            current = c.execute("SELECT * FROM accounts WHERE id=?", (account["id"],)).fetchone()
+            if (
+                current is None
+                or not allowed(dict(current), "play")
+                or not hmac.compare_digest(current["password_hash"], account["password_hash"])
+            ):
+                raise HTTPException(401, "Invalid username/email or password.")
             c.execute("DELETE FROM sessions WHERE expires<=?", (moment,))
             c.execute(
                 "INSERT INTO sessions(token_hash,account_id,expires,csrf_hash) VALUES(?,?,?,?)",
@@ -266,6 +285,13 @@ class Auth:
                 (role, active, encoded, identifier),
             )
             c.execute("DELETE FROM sessions WHERE account_id=?", (identifier,))
+            if password is not None or active is False:
+                for table in ("account_tokens", "account_mail"):
+                    c.execute(
+                        f"DELETE FROM {table} WHERE account_id=?"
+                        + (" AND purpose='reset'" if active is not False else ""),
+                        (identifier,),
+                    )
 
 
 # Exact method/path declarations: unknown routes remain denied, including future
@@ -280,7 +306,7 @@ def grant(permission, method, *paths):
 
 
 grant("public", "GET", "/api/health", "/api/auth/registration")
-grant("public", "POST", "/api/auth/login")
+grant("public", "POST", "/api/auth/login", *ACCOUNT_ACTIONS)
 grant("profile", "GET", "/api/auth/me")
 grant("profile", "POST", "/api/auth/logout")
 grant(
@@ -373,7 +399,10 @@ class SecurityBoundary:
                 message["headers"] += [
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
-                    (b"referrer-policy", b"same-origin"),
+                    (
+                        b"referrer-policy",
+                        b"no-referrer" if scope["path"] in ACCOUNT_PAGES else b"same-origin",
+                    ),
                     (b"cache-control", b"no-store"),
                     (
                         b"content-security-policy",
@@ -391,7 +420,7 @@ class SecurityBoundary:
         route = next((r for r in self.router.routes if r.matches(scope)[0] == Match.FULL), None)
         route_path = getattr(route, "path", "")
         permission = POLICY.get((method, route_path), "deny")
-        if (method, route_path) == ("POST", "/api/auth/login"):
+        if method == "POST" and route_path.startswith("/api/auth/"):
             try:
                 length = int(request.headers.get("content-length", "0"))
             except ValueError:
@@ -415,7 +444,7 @@ class SecurityBoundary:
         shell = method == "GET" and (
             (
                 route_path == "/{path:path}"
-                and path in {"/", "/login", "/index.html", "/favicon.svg"}
+                and path in {"/", "/login", "/index.html", "/favicon.svg", *ACCOUNT_PAGES}
             )
             or (route_path == "/assets" and path.startswith("/assets/"))
         )
@@ -485,6 +514,16 @@ class SecurityBoundary:
                     return await JSONResponse(
                         {"detail": "Deployment in progress. Please retry shortly."}, 503
                     )(scope, receive, send)
+            if method == "POST" and route_path in ACCOUNT_ACTIONS and self.auth.account_requests:
+                try:
+                    self.auth.account_requests(
+                        ACCOUNT_ACTIONS[route_path],
+                        request.client.host if request.client else "unknown",
+                    )
+                except HTTPException as error:
+                    return await JSONResponse({"detail": error.detail}, error.status_code)(
+                        scope, receive, send
+                    )
             await self.app(scope, receive, send)
         finally:
             if gate is not None:
@@ -504,9 +543,16 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
-        if request.url.path == "/api/auth/login":
+        if request.url.path.startswith("/api/auth/"):
             # Pydantic's default errors include raw inputs, potentially passwords.
-            return JSONResponse({"detail": "Invalid login request."}, 422)
+            return JSONResponse(
+                {
+                    "detail": "Invalid login request."
+                    if request.url.path == "/api/auth/login"
+                    else "Invalid account request."
+                },
+                422,
+            )
         return await request_validation_exception_handler(request, error)
 
     @app.post("/api/auth/login")
@@ -541,10 +587,6 @@ def attach_auth(app, store):
             COOKIE, path="/", secure=auth.settings.production, httponly=True, samesite="lax"
         )
         return {"logged_out": True}
-
-    @app.get("/api/auth/registration")
-    def registration():
-        return {"message": "Registration is not available yet."}
 
     app.add_middleware(SecurityBoundary, router=app.router, auth=auth)
     return auth

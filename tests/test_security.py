@@ -236,7 +236,8 @@ def test_csrf_origin_cookies_and_forged_claims(application):
             client.get("/api/auth/registration").json()["message"]
             == "Registration is not available yet."
         )
-        assert client.post("/api/auth/register", json={"role": "ADMIN"}).status_code == 401
+        # Public registration still rejects client-supplied privileges.
+        assert client.post("/api/auth/register", json={"role": "ADMIN"}).status_code == 422
 
 
 def test_object_ownership_all_game_routes_statistics_and_players(application):
@@ -336,7 +337,7 @@ def test_legacy_migration_preserves_data_and_has_no_invented_ownership(tmp_path)
     assert migrated.players()[0]["id"] == "historical"
     assert migrated.players()[0]["owner_account_id"] is None
     with migrated.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 9
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
 
 

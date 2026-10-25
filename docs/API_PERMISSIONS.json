@@ -32,12 +32,52 @@
     "user_specific": true
   },
   {
+    "method": "POST",
+    "route": "/api/auth/password-reset/confirm",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/auth/password-reset/request",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/auth/register",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
     "method": "GET",
     "route": "/api/auth/registration",
     "authentication": "public",
     "permission": "public",
     "persistent_state": false,
     "user_specific": false
+  },
+  {
+    "method": "POST",
+    "route": "/api/auth/verification/resend",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/auth/verify-email",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": true,
+    "user_specific": true
   },
   {
     "method": "GET",
