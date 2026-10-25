@@ -493,3 +493,35 @@ browser suite passed 66 desktop/mobile checks with four intentional mobile
 duplicates skipped, including the new config-import flow. No storage, checkpoint
 or protocol migration is required; CUDA, MPS and OpenVINO GPU were not exercised.
 See the [0.29.0 release record](docs/releases/0.29.0.md).
+
+## Shared notifications and a preserved job tab (`0.30.0`)
+
+Transient frontend messages now use one shared notification layer instead of
+per-page error banners. `frontend/src/notifications.tsx` owns an external store
+and a single viewport rendered at the application root: errors stay until
+dismissed, success and info auto-dismiss after six seconds, identical messages
+are deduplicated for five seconds, and at most three are visible with a bounded
+queue of five. `api()` and the shared `errorMessage` helper reduce failures to a
+capped readable string and never render stack traces or objects. The viewport is
+portaled into the topmost open modal dialog so it is never clipped, announces
+errors as `role="alert"` and success/info as `role="status"`, ships an
+accessible close button and never moves focus. Migrated surfaces include the
+former application banner, new-game creation, login/logout/expired sessions,
+model rename, training resume, tournament creation, remote-worker management and
+analytics saves; field validation and persistent states stay inline.
+
+The training workshop keeps the active analysis tab when switching jobs, so the
+same view can be compared across jobs, while per-job view state (iteration range,
+selected evaluation series, open diagnostics) resets for the new job. Opening a
+job for the first time and starting, resuming or importing a job still focus
+Overview, and an unavailable future tab falls back to Overview. Tab handling is
+centralized in `frontend/src/jobTabs.ts`; the workshop owns the selection and the
+dashboard is keyed by job id so state cannot leak between jobs. This release
+changes only the frontend.
+
+Validation: `make check` passed 1,150 backend tests (36 hardware skips), 243
+frontend unit tests, formatting/types/docs and the production build. The full
+browser suite passed 70 desktop/mobile checks with four intentional mobile
+duplicates skipped, including the new notification and tab-preservation flows.
+No storage, checkpoint or protocol migration is required; CUDA, MPS and OpenVINO
+GPU were not exercised. See the [0.30.0 release record](docs/releases/0.30.0.md).
