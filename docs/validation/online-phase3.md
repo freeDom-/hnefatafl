@@ -40,13 +40,59 @@ No schema/lifecycle/timeout/admission policy changes were needed.
 
 ## Validation results
 
-Final commands and counts are recorded below after the full validation run.
-The first online browser run passed **10/10** checks (five desktop and five mobile)
-on local Chromium 154. It used real FastAPI/SQLite and isolated ordinary accounts:
-single game with move/concession/replay, simultaneous swapped seats, sequential
+Validated on 2026-10-25. The implementation commit is
+`3b8f17eaf23d0efe463bd1deb8b31a76e9d9209d`; the following commit records this
+evidence only. [PR #13](https://github.com/freeDom-/hnefatafl/pull/13) targets
+`feat/online-multiplayer` and remains unmerged. No production setting was enabled.
+
+| Command | Result |
+| --- | --- |
+| Focused Vitest command below | **44 passed**, 6 files |
+| Backend selection below | **162 passed**, no skips, 1 existing deprecation warning |
+| `make check` | **Passed**: **1413 backend passed / 36 skipped**, **269 frontend passed**, 34 frontend files; Ruff, mypy (43 source files), TypeScript, formatting, docs and production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:online` | **10 passed**, no skips; final run on the pushed implementation, 5 desktop + 5 mobile |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:registration` | **6 passed**, no skips; final sequential run |
+| `make docs` | **Passed**: 76 Markdown files, 553 local links/images/anchors |
+| `.venv/bin/python scripts/audit_api.py` | **Passed**: 77 registered grants |
+| `.venv/bin/ruff check frontend/tests/start_online_backend.py frontend/tests/generate_online_fixtures.py` | **Passed** |
+| `.venv/bin/ruff format --check frontend/tests/start_online_backend.py frontend/tests/generate_online_fixtures.py` | **Passed**, 2 files |
+
+The focused commands, run from repository root:
+
+```sh
+(cd frontend && ./node_modules/.bin/vitest run src/Online.test.tsx src/useOnlinePoll.test.tsx src/Auth.test.tsx src/Board.test.tsx src/api.test.ts src/AppOnline.test.tsx)
+.venv/bin/python -m pytest tests/test_online_api.py tests/test_online_core.py tests/test_online_matches.py tests/test_online_admission.py tests/test_security.py -q
+```
+
+Real-browser acceptance uses FastAPI/SQLite and isolated ordinary accounts:
+single game with a move/concession/replay, simultaneous swapped seats, sequential
 return discovery, reconnect, competing stale concession, spectator mutation denial,
 legacy analysis denial, disabled admission and paused adjudication with controlled
-time. No long real-time timeout wait or production account was used.
+time. No long real-time timeout wait or production account was used. Local Chromium
+154 screenshots were inspected at desktop and 390-pixel mobile width; lobby/game
+pages had no horizontal overflow. Long account names now occupy a separate mobile
+header row without overlapping the brand.
+
+[Verify run 76](https://github.com/freeDom-/hnefatafl/actions/runs/40237649511)
+passed on the implementation commit: both Python and browser jobs succeeded.
+Its all-extras backend run passed **1443 tests / 6 skipped**; skips were CUDA and
+Intel OpenVINO GPU hardware checks. Optional dependencies account for the difference
+from the local backend run. The browser job passed **269 unit tests**, build/types/
+formatting, the complete legacy suite (**66 passed / 4 intentional skips**),
+registration (**6 passed**) and online acceptance (**10 passed**). Check
+[the PR checks](https://github.com/freeDom-/hnefatafl/pull/13/checks) for validation
+of the final documentation commit; no source changes followed the implementation.
+
+Two supplemental local legacy-browser development runs were interrupted: the first
+had 15 passes, 1 failure after a development reload lost the selected page, 1
+interruption and 53 not run; the second had 18 passes, 1 CPU-training completion
+timeout while backend tests ran concurrently, 1 interruption and 50 not run. They
+are not accepted as full-suite passes. Final local multiplayer/registration runs
+were sequential after `make check`, and the clean full legacy CI run passed. One
+parallel focused run also exceeded the existing 20-second test bound under that
+load; the final focused run passed all 44 tests without raising timeouts or
+weakening functional assertions. The test helper flushes initial passive effects
+before interacting with a newly loaded position.
 
 Unit fixtures are snapshots from actual `OnlineCore` creation/join/move/concession/
 replay/sibling/timeout projections, not invented fields. Regenerate explicitly with
