@@ -1,12 +1,14 @@
-# Durable online game core
+# Online gameplay and durable core
 
 [Documentation index](README.md) · [Phase 0 contract](designs/online-phase0.md) ·
 [Security](SECURITY.md) · [Phase 2 evidence](validation/online-phase2.md) ·
-[Phase 3 backend handoff](designs/online-phase3-handoff.md)
+[Playing online](ONLINE_PLAY.md) · [Phase 3 evidence](validation/online-phase3.md) ·
+[Phase 4 handoff](designs/online-phase4-handoff.md)
 
 Phase 2 provides authenticated backend gameplay. It reuses the existing engine,
-pure lifecycle, accounts and SQLite transactions. It supplies no lobby frontend,
-anonymous access, online advice, Elo, aggregate match scoring or deployment.
+pure lifecycle, accounts and SQLite transactions. Phase 3 adds the authenticated
+lobby and playable UI described in [Playing online](ONLINE_PLAY.md). Anonymous
+access, online advice, Elo, aggregate match scoring and deployment remain absent.
 Account single-player, training, workers and model records keep their existing
 tables and behavior. The old local `game_participants` scaffold references local
 `games`; online seats therefore live in the separate authoritative online tables.
@@ -289,3 +291,25 @@ Restarts do not reset deadlines or forget the persistent gate. Unsupported rules
 clock anomalies or frozen deployment block affected processing; investigate rather
 than treating them as successful finalizations. There is no broker or transient
 timer authority, and no exactly-once HTTP/mail claim.
+
+## Frontend availability and state ownership
+
+`GET /api/online/availability` requires a current session and `play` permission.
+It returns exactly `{enabled, eligible}`: `enabled` combines the configured
+admission switch and approved creation policy; `eligible` uses
+`security_context.online_eligible`. It does not reserve admission and may change
+before a write. An ineligible account can still use its existing seat subject to
+normal session/account/turn checks. No administrator monitoring is exposed.
+
+The UI has separate online types/state and abortable reads. A selected game cycle
+reads its sibling independently even if the selected version did not change.
+Mutation bodies contain only API-defined version/coordinates, or the explicit
+creation intent fields. A response's `transition` and `action_accepted` control
+feedback, and an effective lifecycle result controls terminal presentation.
+Replay positions never enter the mutation path or App's local-game state.
+
+Poll intervals are five seconds after success, ten/twenty/thirty seconds after
+failures, with a ten-second read deadline. Focus/online/manual refresh coalesces
+to one queued cycle. Writes have a fifteen-second client wait bound; abort is not
+a server rollback, so uncertain writes reload and are never automatically retried.
+Only the frozen creation request can be deliberately resubmitted.

@@ -77,6 +77,10 @@ def attach_online(app, auth, *, settings=None, clock=None):
     ):
         return execute(lambda credential: core.listing(credential, limit, offset, mine=mine))
 
+    @app.get("/api/online/availability")
+    def availability():
+        return execute(core.availability)
+
     @app.get("/api/online/games/{game_id}")
     def read(game_id: str):
         return execute(lambda credential: core.read(credential, game_id))

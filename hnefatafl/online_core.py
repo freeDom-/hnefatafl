@@ -642,6 +642,16 @@ class OnlineCore:
             self._identity(c, credential)
             return self._projection(c, *self._load(c, identifier))
 
+    def availability(self, credential: str) -> dict:
+        """Own admission eligibility/configuration, independent of existing seats."""
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self._identity(c, credential)
+            return {
+                "enabled": bool(self.settings.enabled and self.settings.creation_policy_approved),
+                "eligible": online_eligible(account),
+            }
+
     def listing(self, credential: str, limit=25, offset=0, *, mine=False) -> dict:
         if (
             type(limit) is not int

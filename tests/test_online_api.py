@@ -381,3 +381,20 @@ def test_deployment_freeze_blocks_http_and_background_expiry(rig, api):
         assert rig.core.sweep()["blocked"] == 1
         assert rig.core.read(rig.credentials["Keeper"], game["id"])["status"] == "active"
     assert rig.core.sweep()["finalized"] == 1
+
+
+def test_availability_uses_current_security_context_without_leaking_account_data(rig, api):
+    app, client = api
+    endpoint = "/api/online/availability"
+    assert TestClient(app).get(endpoint).status_code == 401
+    for name in ("Archer", "Odin"):
+        assert client(name).get(endpoint).json() == {"enabled": True, "eligible": True}
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE accounts SET email_verified_at=NULL WHERE id=?", (rig.accounts["Archer"]["id"],)
+        )
+    assert client().get(endpoint).json() == {"enabled": True, "eligible": False}
+    app.state.online.settings = replace(POLICY, enabled=False)
+    assert client("Keeper").get(endpoint).json() == {"enabled": False, "eligible": True}
+    app.state.online.settings = replace(POLICY, creation_policy_approved=False)
+    assert client("Keeper").get(endpoint).json() == {"enabled": False, "eligible": True}
