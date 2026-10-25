@@ -3,6 +3,33 @@
 Each cloud task already has an isolated workspace. Use the existing checkout;
 do not create Git worktrees unless the user explicitly requests one.
 
+## Branch and pull request workflow
+
+Deliver every change through a branch and a pull request. Do not commit directly
+to `main`, and never force-push or rewrite a branch that is already shared.
+
+1. Update the local `main` and branch off it, choosing a type prefix:
+   `feat/…` for features, `fix/…` for bug fixes, and `docs/…`, `test/…`,
+   `refactor/…`, `perf/…` or `chore/…` for other work.
+2. Implement and verify the change on that branch (see `docs/DEVELOPMENT.md`).
+3. Commit focused changes with a conventional prefix, push the branch and open a
+   pull request against `main`:
+
+```sh
+gh pr create --base main --head "$(git branch --show-current)" \
+  --title 'fix: concrete change' --body-file /tmp/pr-body.md
+```
+
+4. Verify CI on the pull request (`gh pr checks`) and fix failures on the branch.
+5. Leave merging to the user unless they explicitly ask for it. After a merge,
+   update `main` before starting the next change.
+
+A pull request description states delivered behavior, exact validation and
+remaining limitations, and never claims more than the checks support. Keep it
+readable without the conversation: the review happens on the pull request, not in
+chat. Milestone releases follow the same path and are tagged only after their pull
+request is merged; see `docs/RELEASING.md`.
+
 Read `ARCHITECTURE.md` and the relevant rules document before changing behavior.
 Use `docs/README.md` to navigate current guides. `make docs` checks local Markdown
 links/anchors/images without extra dependencies; run it for documentation changes.

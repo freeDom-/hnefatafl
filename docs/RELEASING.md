@@ -26,19 +26,25 @@ For each reached milestone:
 3. Write `docs/releases/X.Y.Z.md` with the milestone outcome, added features,
    changes/fixes, exact validation, installation/update instructions and limitations.
    Describe actual behavior and distinguish functional training from model quality.
-4. Commit only the milestone's files. Push the commit to `main` and verify CI.
-5. Create and push an annotated tag referencing that tested commit.
-6. Publish the GitHub release using the checked-in notes file:
+4. Commit only the milestone's files on a release branch, push it and open a pull
+   request against `main`; verify CI on the pull request (`gh pr checks`). Do not
+   push milestone commits directly to `main`.
+5. Merge the pull request (or let the user merge it) and update the local `main`.
+   The tag must reference the merged, tested commit.
+6. Create and push an annotated tag referencing that tested commit, then publish
+   the GitHub release using the checked-in notes file:
 
 ```sh
+git switch main && git pull
 git tag -a X.Y.Z -m 'Concrete milestone description'
-git push origin main X.Y.Z
-gh release create X.Y.Z --verify-tag --title 'X.Y.Z — Concrete milestone' \
+git push origin X.Y.Z
+gh release create X.Y.Z --verify-tag --title 'X.Y.Z' \
   --notes-file docs/releases/X.Y.Z.md --prerelease
 ```
 
-Omit `--prerelease` for stable versions. Do not move published tags. Include data
-migration requirements whenever storage changes. GitHub automatically includes
+Omit `--prerelease` for stable versions. Do not move published tags, and do not tag
+a commit that has not passed CI on `main`. Include data migration requirements
+whenever storage changes. GitHub automatically includes
 source archives. Large trained models are separate artifacts; do not commit them
 or claim strength without a documented evaluation budget and results.
 
