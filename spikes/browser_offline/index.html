@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hnefatafl offline feasibility spike</title>
+  <h1>Browser-local engine spike</h1>
+  <p>Isolated experiment. No accounts, saved history or competitive results.</p>
+  <label
+    >Ruleset
+    <select id="ruleset">
+      <option>brandubh</option>
+      <option>tablut</option>
+      <option>copenhagen</option>
+    </select></label
+  >
+  <button id="new">Replace game</button>
+  <button id="ai">Local AI move</button>
+  <button id="fixtures">Compare CPython fixtures</button>
+  <button id="pulse">Check UI response</button
+  ><output id="pulses">0</output>
+  <p id="status" role="status">Loading local runtime…</p>
+  <pre id="board"></pre>
+  <label
+    >Legal move
+    <select id="moves"></select></label
+  ><button id="move">Play move</button>
+  <pre id="metrics"></pre>
+  <script src="./app.js" type="module"></script>
+</html>

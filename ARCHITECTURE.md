@@ -74,6 +74,13 @@ reconstructions. Dedicated rule documents record interpretation and source acces
 
 ## Future multiplayer
 
+[Phase 0](docs/designs/online-phase0.md) records the proposed online lifecycle,
+deadline, result and permission boundaries, backed by a
+[source assessment](docs/designs/online-phase0-assessment.md). The pure
+`lifecycle.py` contract is intentionally unintegrated with production gameplay.
+The [browser-offline spike](spikes/browser_offline/README.md) stages an isolated
+runtime, not a production anonymous mode or authentication exception.
+
 Game IDs, stable player identities, persisted ordered moves and versioned move
 requests permit future online participation and WebSocket broadcasts. Persistent
 accounts, database sessions and centralized permissions now protect the API;
