@@ -353,6 +353,7 @@ grant(
 grant("accounts", "POST", "/api/online/games/{game_id}/void")
 grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
+grant("play", "GET", "/api/online/availability")
 grant("accounts", "PATCH", "/api/online/timeout-gate")
 grant("play", "DELETE", "/api/games/{game_id}", "/api/players/{player_id}")
 grant(

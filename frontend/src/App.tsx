@@ -25,9 +25,10 @@ import Rune, { participantName } from './Rune';
 import { modelLabel } from './modelLabel';
 import SearchWrapper from './SearchWrapper';
 import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
+import Online from './Online';
 import { useAuth } from './Auth';
 
-type Tab = 'play' | 'archive' | 'training' | 'tournaments';
+type Tab = 'online' | 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const sideGlyph = (side: Side) => (
   <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
@@ -38,15 +39,35 @@ export default function App() {
   const { account, logout } = useAuth();
   const permissions = account?.permissions ?? [];
   const [tab, setTab] = useState<Tab>(() =>
-    location.pathname === '/training' && permissions.includes('training')
-      ? 'training'
-      : location.pathname === '/tournaments' && permissions.includes('tournaments')
-        ? 'tournaments'
-        : 'play',
+    location.pathname.startsWith('/online')
+      ? 'online'
+      : location.pathname === '/training' && permissions.includes('training')
+        ? 'training'
+        : location.pathname === '/tournaments' && permissions.includes('tournaments')
+          ? 'tournaments'
+          : 'play',
   );
   useEffect(() => {
     if ((tab === 'training' || tab === 'tournaments') && !permissions.includes(tab)) setTab('play');
   }, [tab, account?.permissions]);
+  useEffect(() => {
+    const changed = () => {
+      const path = location.pathname;
+      setTab(
+        path.startsWith('/online')
+          ? 'online'
+          : path === '/archive'
+            ? 'archive'
+            : path === '/training' && permissions.includes('training')
+              ? 'training'
+              : path === '/tournaments' && permissions.includes('tournaments')
+                ? 'tournaments'
+                : 'play',
+      );
+    };
+    window.addEventListener('popstate', changed);
+    return () => window.removeEventListener('popstate', changed);
+  }, [account?.permissions]);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -83,7 +104,7 @@ export default function App() {
     return rules;
   }, []);
   useEffect(() => {
-    if (initialized.current) return;
+    if (initialized.current || tab === 'online') return;
     initialized.current = true;
     refreshOptions()
       .then(async (rules) => {
@@ -100,7 +121,7 @@ export default function App() {
       })
       .catch((e) => reportError(e))
       .finally(() => setInitializing(false));
-  }, [refreshOptions]);
+  }, [refreshOptions, tab]);
   useEffect(() => {
     if (game) localStorage.setItem('hnefatafl-game', game.id);
   }, [game?.id]);
@@ -203,7 +224,7 @@ export default function App() {
           </span>
         </a>
         <nav aria-label={t('Main navigation')}>
-          {(['play', 'archive', 'training', 'tournaments'] as Tab[])
+          {(['play', 'online', 'archive', 'training', 'tournaments'] as Tab[])
             .filter(
               (item) =>
                 (item !== 'training' && item !== 'tournaments') || permissions.includes(item),
@@ -213,6 +234,10 @@ export default function App() {
                 type="button"
                 key={item}
                 onClick={() => {
+                  if (item === 'online') history.pushState(null, '', '/online');
+                  else if (location.pathname.startsWith('/online'))
+                    history.pushState(null, '', item === 'play' ? '/' : `/${item}`);
+                  window.dispatchEvent(new PopStateEvent('popstate'));
                   setTab(item);
                   if (item === 'tournaments') void refreshOptions().catch((e) => reportError(e));
                 }}
@@ -221,18 +246,22 @@ export default function App() {
               >
                 {item === 'play'
                   ? t('Play')
-                  : item === 'archive'
-                    ? t('Hall of records')
-                    : item === 'training'
-                      ? t('AI workshop')
-                      : t('Tournaments')}
+                  : item === 'online'
+                    ? t('Online')
+                    : item === 'archive'
+                      ? t('Hall of records')
+                      : item === 'training'
+                        ? t('AI workshop')
+                        : t('Tournaments')}
               </button>
             ))}
         </nav>
         <div className="header-controls">
-          <span>{account?.username}</span>
-          <button type="button" onClick={() => void logout()}>
-            Log out
+          <span className="account-name" title={account?.username}>
+            {account?.username}
+          </span>
+          <button className="button small secondary" type="button" onClick={() => void logout()}>
+            {t('Log out')}
           </button>
           <LanguageSelect />
           <AppearanceSettings />
@@ -582,6 +611,7 @@ export default function App() {
             )}
           </>
         )}
+        {tab === 'online' && <Online />}
         {tab === 'archive' && (
           <Archive
             rulesets={rulesets}
@@ -615,7 +645,7 @@ export default function App() {
         <p>{t('An ancient game. An open horizon.')}</p>
         <span>{t('Made for thoughtful moves.')}</span>
       </footer>
-      {newOpen && (
+      {tab !== 'online' && newOpen && (
         <NewGame
           rulesets={rulesets}
           profiles={profiles}
@@ -633,7 +663,7 @@ export default function App() {
           }}
         />
       )}
-      {rulesOpen && activeRules && (
+      {tab !== 'online' && rulesOpen && activeRules && (
         <Modal
           title={t('{name} rules', { name: t(activeRules.name) })}
           onClose={() => setRulesOpen(false)}

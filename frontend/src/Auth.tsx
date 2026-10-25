@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   type FormEvent,
   type ReactNode,
 } from 'react';
@@ -25,13 +26,19 @@ export const useAuth = () => useContext(Context);
 
 export default function Auth({ children }: { children: ReactNode }) {
   const { t } = useI18n();
+  const generation = useRef(0);
+  const acceptedAccountId = useRef<string | null>(null);
+  const signingOut = useRef(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   function accept(session: Session) {
+    let changed =
+      acceptedAccountId.current !== null && acceptedAccountId.current !== session.account.id;
     try {
       if (localStorage.getItem('hnefatafl-account-cache') !== session.account.id) {
+        changed = true;
         localStorage.removeItem('hnefatafl-game');
         localStorage.removeItem('hnefatafl-new-game-options');
       }
@@ -39,10 +46,25 @@ export default function Auth({ children }: { children: ReactNode }) {
     } catch {
       /* Private browser mode must not prevent authentication. */
     }
+    if (changed) {
+      try {
+        sessionStorage.removeItem('hnefatafl-online-intent');
+      } catch {
+        /* Private mode. */
+      }
+    }
+    acceptedAccountId.current = session.account.id;
     setCSRF(session.csrf_token);
     setAccount(session.account);
   }
   function clear() {
+    generation.current++;
+    acceptedAccountId.current = null;
+    try {
+      sessionStorage.removeItem('hnefatafl-online-intent');
+    } catch {
+      /* Private mode. */
+    }
     setCSRF('');
     setAccount(null);
     try {
@@ -54,9 +76,11 @@ export default function Auth({ children }: { children: ReactNode }) {
   }
   useEffect(() => {
     let alive = true;
-    api<Session>('/auth/me')
+    const expected = generation.current;
+    const controller = new AbortController();
+    api<Session>('/auth/me', undefined, undefined, controller.signal)
       .then((session) => {
-        if (alive) accept(session);
+        if (alive && expected === generation.current) accept(session);
       })
       .catch(() => {})
       .finally(() => {
@@ -69,29 +93,35 @@ export default function Auth({ children }: { children: ReactNode }) {
     window.addEventListener('authentication-required', expired);
     return () => {
       alive = false;
+      controller.abort();
       window.removeEventListener('authentication-required', expired);
     };
   }, []);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (signingOut.current) return;
     const form = event.currentTarget;
     const values = new FormData(form);
+    const expected = ++generation.current;
     setBusy(true);
     setError('');
     try {
-      accept(
-        await api<Session>('/auth/login', {
-          identity: values.get('identity'),
-          password: values.get('password'),
-        }),
-      );
+      const session = await api<Session>('/auth/login', {
+        identity: values.get('identity'),
+        password: values.get('password'),
+      });
+      if (expected !== generation.current) return;
+      accept(session);
       form.reset();
       if (location.pathname === '/login') {
         const next = new URLSearchParams(location.search).get('next') ?? '/';
         history.replaceState(
           null,
           '',
-          ['/', '/training', '/tournaments', '/archive'].includes(next) ? next : '/',
+          ['/', '/training', '/tournaments', '/archive', '/online'].includes(next) ||
+            /^\/online\/games\/online-[0-9a-f]{32}$/.test(next)
+            ? next
+            : '/',
         );
       }
     } catch (e) {
@@ -101,35 +131,58 @@ export default function Auth({ children }: { children: ReactNode }) {
     }
   }
   async function logout() {
+    signingOut.current = true;
+    generation.current++;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      await api('/auth/logout', {});
+      const pending = api('/auth/logout', {}, undefined, controller.signal);
       clear();
+      setBusy(true);
+      await pending;
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      clearTimeout(timeout);
+      signingOut.current = false;
+      setBusy(false);
     }
   }
   useEffect(() => {
     if (!account) return;
+    let alive = true;
+    let controller: AbortController | null = null;
     const refresh = () => {
-      void api<Session>('/auth/me')
-        .then(accept)
+      if (controller || signingOut.current) return;
+      const expected = generation.current;
+      const attempt = new AbortController();
+      controller = attempt;
+      void api<Session>('/auth/me', undefined, undefined, attempt.signal)
+        .then((session) => {
+          if (alive && expected === generation.current && !signingOut.current) accept(session);
+        })
         .catch(() => {
-          clear();
+          if (alive && expected === generation.current && !attempt.signal.aborted) clear();
+        })
+        .finally(() => {
+          if (controller === attempt) controller = null;
         });
     };
     const timer = window.setInterval(refresh, 60000);
     window.addEventListener('focus', refresh);
     window.addEventListener('permissions-changed', refresh);
     return () => {
+      alive = false;
+      controller?.abort();
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('permissions-changed', refresh);
     };
   }, [account?.id]);
-  if (loading)
+  if (loading || signingOut.current)
     return (
       <main className="auth-screen" role="status">
-        {t('Loading your session…')}
+        {t(signingOut.current ? 'Logging out…' : 'Loading your session…')}
       </main>
     );
   if (
