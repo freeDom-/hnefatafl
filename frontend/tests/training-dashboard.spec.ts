@@ -65,6 +65,36 @@ test('dashboard keeps form edits, explicit selection and analysis state through 
   await expect(page.locator('.training-details .log-view')).toContainText('Worker initialized.');
   await expect(page.getByRole('button', { name: 'Export job', exact: true })).toBeVisible();
 });
+test('shows one merged evaluation series in the overview and in the evaluation tab', async ({
+  page,
+}) => {
+  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: workshopFixtures() }));
+  await open(page);
+  await selectWorkshopJob(page, 'completed', 'Bjorn · Northern campaign');
+  // Overview: one merged curve, not the latest series only.
+  await expect(page.locator('.evaluation-series')).toHaveCount(1);
+  await expect(page.locator('.series-context')).toHaveText(
+    /^Merged evaluation series · \d+ series$/,
+  );
+  await page.getByRole('tab', { name: 'Evaluation', exact: true }).click();
+  const selector = page.getByLabel('Evaluation series', { exact: true });
+  // Latest series stays the default and is drawn on its own.
+  await expect(selector).toHaveValue('latest');
+  await expect(page.locator('.evaluation-series')).toHaveCount(1);
+  await expect(page.locator('.series-context')).toHaveText(/^Champion · Series \d+/);
+  await selector.selectOption('all');
+  await expect(page.locator('.evaluation-series')).toHaveCount(1);
+  await expect(page.locator('.evaluation-series figure')).toHaveCount(1);
+  await expect(page.locator('.series-context')).toHaveText(
+    /^Merged evaluation series · \d+ series$/,
+  );
+  // Individual series remain selectable and render separately.
+  const first = await selector.locator('option').nth(2).getAttribute('value');
+  await selector.selectOption(first!);
+  await expect(page.locator('.series-context')).toHaveText(/^Shield bearer · Series 1/);
+  await expect(page.locator('.evaluation-series')).toHaveCount(1);
+});
+
 test('workshop visual fixtures fit desktop, laptop, tablet and mobile in every analysis view', async ({
   page,
 }, info) => {

@@ -8,6 +8,7 @@ import {
   evaluationIdentity,
   finite,
   recentHistory,
+  type HistoryPoint,
 } from './trainingDashboardData';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
 import './trainingHistory.css';
@@ -21,6 +22,11 @@ const sideSeries: ChartSeries[] = [
   { key: 'attacker_score', name: 'Attacker-side score', color: 'var(--chart-policy)' },
   { key: 'defender_score', name: 'Defender-side score', color: 'var(--chart-value)' },
 ];
+interface DisplayedSeries {
+  identity: string;
+  points: HistoryPoint[];
+  merged?: boolean;
+}
 export default function TrainingHistoryChart({
   history,
   view = 'all',
@@ -38,6 +44,34 @@ export default function TrainingHistoryChart({
   const [selectedSeries, setSelectedSeries] = useState('latest');
   const rows = useMemo(() => recentHistory(trainingHistory(history), range), [history, range]);
   const groups = useMemo(() => evaluationGroups(rows), [rows]);
+  // Every observation in one series: the merged chart keeps each iteration's own
+  // score, so changed opponents or incumbents stay visible without splitting the graph.
+  const mergedGroup = useMemo(
+    () => ({
+      identity: 'merged',
+      merged: true,
+      points: rows.filter((row) => finite(row.evaluation_score)),
+    }),
+    [rows],
+  );
+  const mergedSeriesSettings = useMemo(
+    () =>
+      groups.map((group, index) => {
+        const first = group.points[0];
+        const last = group.points.at(-1)!;
+        return {
+          series: index + 1,
+          opponent:
+            last.evaluation?.opponent ??
+            last.evaluation_opponent ??
+            last.opponent_identity?.split(':')[0] ??
+            'shield_bearer',
+          iterations: [first.iteration, last.iteration],
+          context: last.evaluation?.context ?? null,
+        };
+      }),
+    [groups],
+  );
   if (!rows.length)
     return (
       <p className="training-chart-empty subtle">
@@ -51,13 +85,19 @@ export default function TrainingHistoryChart({
   const detailedEvaluation = rows.some((row) => row.evaluation);
   const selection =
     selectedSeries === 'all' ? groups : groups.filter((group) => group.identity === selectedSeries);
-  const displayedGroups = compact
-    ? groups.slice(-1)
-    : selectable && selectedSeries !== 'all'
-      ? selection.length
-        ? selection
-        : groups.slice(-1)
-      : groups;
+  // The job overview and the "all series" selection read better as one merged chart
+  // than as one chart per series. A single series is still drawn on its own.
+  const displayedGroups: DisplayedSeries[] = compact
+    ? groups.length > 1
+      ? [mergedGroup]
+      : groups.slice(-1)
+    : selectable && selectedSeries === 'all'
+      ? [mergedGroup]
+      : selectable
+        ? selection.length
+          ? selection
+          : groups.slice(-1)
+        : groups;
   const headers = [
     'Iteration',
     'Policy loss',
@@ -146,30 +186,39 @@ export default function TrainingHistoryChart({
               record?.opponent_identity?.split(':')[0] ??
               'shield_bearer';
             const series = !compact && detailedEvaluation ? sideSeries : scoreSeries;
-            const chartRows = rows.map((row) =>
-              evaluationIdentity(row) === group.identity
-                ? row
-                : {
-                    ...row,
-                    evaluation_score: undefined,
-                    attacker_score: undefined,
-                    defender_score: undefined,
-                    evaluation: undefined,
-                  },
-            );
+            const chartRows = group.merged
+              ? rows
+              : rows.map((row) =>
+                  evaluationIdentity(row) === group.identity
+                    ? row
+                    : {
+                        ...row,
+                        evaluation_score: undefined,
+                        attacker_score: undefined,
+                        defender_score: undefined,
+                        evaluation: undefined,
+                      },
+                );
             return (
               <div key={group.identity} className="evaluation-series">
-                <p className="series-context" title={record?.opponent_identity}>
-                  {t(opponentName(opponent))} ·{' '}
-                  {t('Series {number}', {
-                    number: groups.findIndex((item) => item.identity === group.identity) + 1,
-                  })}
-                  {record?.evaluation?.champion_iteration !== undefined &&
-                    ` · ${t('Accepted champion iteration')} ${record.evaluation.champion_iteration}`}
-                  {!record?.opponent_identity &&
-                    !record?.evaluation?.context &&
-                    ` · ${t('Historical settings')}`}
-                </p>
+                {group.merged ? (
+                  <p className="series-context">
+                    {t('Merged evaluation series')} ·{' '}
+                    {t('{count} series', { count: groups.length })}
+                  </p>
+                ) : (
+                  <p className="series-context" title={record?.opponent_identity}>
+                    {t(opponentName(opponent))} ·{' '}
+                    {t('Series {number}', {
+                      number: groups.findIndex((item) => item.identity === group.identity) + 1,
+                    })}
+                    {record?.evaluation?.champion_iteration !== undefined &&
+                      ` · ${t('Accepted champion iteration')} ${record.evaluation.champion_iteration}`}
+                    {!record?.opponent_identity &&
+                      !record?.evaluation?.context &&
+                      ` · ${t('Historical settings')}`}
+                  </p>
+                )}
                 <TrainingMetricChart
                   title="Evaluation by iteration"
                   rows={chartRows}
@@ -177,14 +226,24 @@ export default function TrainingHistoryChart({
                   score
                   gaps
                 />
-                {!compact && record?.evaluation?.context && (
-                  <details>
-                    <summary>{t('Effective evaluation settings')}</summary>
-                    <pre className="log-view">
-                      {JSON.stringify(record.evaluation.context, null, 2)}
-                    </pre>
-                  </details>
-                )}
+                {!compact &&
+                  (group.merged ? (
+                    <details>
+                      <summary>{t('Effective evaluation settings')}</summary>
+                      <pre className="log-view">
+                        {JSON.stringify(mergedSeriesSettings, null, 2)}
+                      </pre>
+                    </details>
+                  ) : (
+                    record?.evaluation?.context && (
+                      <details>
+                        <summary>{t('Effective evaluation settings')}</summary>
+                        <pre className="log-view">
+                          {JSON.stringify(record.evaluation.context, null, 2)}
+                        </pre>
+                      </details>
+                    )
+                  ))}
               </div>
             );
           },

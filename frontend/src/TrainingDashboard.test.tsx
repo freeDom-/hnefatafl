@@ -476,6 +476,115 @@ it('keeps overlapping activity counters outside the phase comparison and reports
   );
   expect(screen.getByText('Overlapping activity counters')).toBeInTheDocument();
 });
+it('merges every evaluation series in the overview and when all series are selected', () => {
+  const rows = trainingHistory([
+    {
+      iteration: 1,
+      evaluation_score: 0.5,
+      evaluation: { opponent: 'jarl', context: { depth: 2 } },
+    },
+    { iteration: 2 },
+    {
+      iteration: 3,
+      evaluation_score: 0.7,
+      evaluation: { opponent: 'jarl', context: { depth: 3 } },
+    },
+    {
+      iteration: 4,
+      evaluation_score: 0.6,
+      evaluation: { opponent: 'champion', champion_iteration: 1 },
+    },
+  ]);
+  expect(evaluationGroups(rows)).toHaveLength(3);
+  // The job overview keeps one merged chart instead of the latest series only.
+  const overview = render(<TrainingHistoryChart history={rows} compact />);
+  const overviewCharts = [...document.querySelectorAll('figure')];
+  expect(overviewCharts).toHaveLength(2);
+  expect(document.querySelector('.series-context')).toHaveTextContent(
+    'Merged evaluation series · 3 series',
+  );
+  // The merged chart plots every observation, including the earlier series.
+  const mergedPoints = [...overviewCharts[1].querySelectorAll('circle')];
+  expect(mergedPoints).toHaveLength(3);
+  overview.unmount();
+
+  // Selecting every series in the evaluation tab shows the same single merged chart.
+  const view = render(<TrainingHistoryChart history={rows} view="evaluation" selectable />);
+  expect(document.querySelectorAll('.evaluation-series')).toHaveLength(1);
+  expect(document.querySelector('.series-context')).toHaveTextContent('Series 3');
+  fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value: 'all' } });
+  expect(document.querySelectorAll('.evaluation-series')).toHaveLength(1);
+  expect(document.querySelector('.series-context')).toHaveTextContent(
+    'Merged evaluation series · 3 series',
+  );
+  expect(document.querySelectorAll('figure')).toHaveLength(1);
+  fireEvent.click(screen.getByText('Effective evaluation settings'));
+  expect(screen.getByText(/"series": 1/)).toBeInTheDocument();
+  // Individual series remain selectable and are still drawn separately.
+  const options = [...screen.getByLabelText('Evaluation series').querySelectorAll('option')];
+  expect(options.map((option) => option.getAttribute('value'))).toEqual([
+    'latest',
+    'all',
+    expect.any(String),
+    expect.any(String),
+    expect.any(String),
+  ]);
+  const identity = options[2].getAttribute('value')!;
+  fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value: identity } });
+  expect(document.querySelector('.series-context')).toHaveTextContent('Series 1');
+  expect(document.querySelectorAll('.evaluation-series')).toHaveLength(1);
+  view.unmount();
+});
+
+it('shows the merged series in the real overview and evaluation tab, in both languages', async () => {
+  show();
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: /Bjorn · Northern campaign/ }));
+  const history = trainingHistory(jobs[0].progress?.history);
+  const series = evaluationGroups(history).length;
+  expect(series).toBeGreaterThan(1);
+  // Overview: one merged chart plus the loss chart, with an honest note.
+  expect(document.querySelectorAll('figure')).toHaveLength(2);
+  expect(document.querySelector('.series-context')).toHaveTextContent(
+    `Merged evaluation series · ${series} series`,
+  );
+  expect(screen.getByText(/Overview merges all recorded evaluation series/)).toBeInTheDocument();
+  expect(screen.queryByText(/Overview shows the latest evaluation series/)).toBeNull();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Evaluation' }));
+  // Latest series stays the default and is drawn on its own.
+  expect(screen.getByLabelText('Evaluation series')).toHaveValue('latest');
+  expect(document.querySelectorAll('.evaluation-series')).toHaveLength(1);
+  expect(document.querySelector('.series-context')).toHaveTextContent(`Series ${series}`);
+  fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value: 'all' } });
+  expect(document.querySelectorAll('.evaluation-series')).toHaveLength(1);
+  expect(document.querySelector('.series-context')).toHaveTextContent(
+    `Merged evaluation series · ${series} series`,
+  );
+  expect(document.querySelectorAll('figure')).toHaveLength(1);
+  const mergedIterations = new Set(
+    [...document.querySelectorAll('.evaluation-series figure circle')].map((circle) =>
+      circle.getAttribute('cx'),
+    ),
+  );
+  expect(mergedIterations.size).toBeGreaterThan(evaluationGroups(history).at(-1)!.points.length);
+  // Individual series remain selectable.
+  const control = screen.getByLabelText('Evaluation series');
+  const identity = [...control.querySelectorAll('option')][2].getAttribute('value')!;
+  fireEvent.change(control, { target: { value: identity } });
+  expect(document.querySelector('.series-context')).toHaveTextContent('Series 1');
+  fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value: 'all' } });
+  // Back to the overview before switching language, then check both new strings.
+  fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+  act(() => setLanguage('de', false));
+  expect(document.querySelector('.series-context')).toHaveTextContent(
+    `Zusammengefasste Auswertungsreihen · ${series} Reihen`,
+  );
+  expect(
+    screen.getByText(/Die Übersicht fasst alle erfassten Auswertungsreihen zusammen/),
+  ).toBeInTheDocument();
+});
+
 it('redacts nested credentials in diagnostic projections', () => {
   expect(
     safeDiagnostics({ config: { worker_token: 'private', seed: 17 }, authorization: 'bearer' }),

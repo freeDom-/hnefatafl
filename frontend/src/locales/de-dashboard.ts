@@ -78,8 +78,8 @@ const translations: Record<string, string> = {
     'Unvollendete Auswertungspartien erhalten null Punkte und zählen getrennt von Regelremis. Die Anzahl steht unter Auswertung.',
   'Loss measures fit to self-play targets; evaluation measures play against a specific opponent.':
     'Der Verlust misst die Anpassung an Selbstspielziele; die Auswertung misst das Spiel gegen einen bestimmten Gegner.',
-  'Overview shows the latest evaluation series. Compare changed settings in Evaluation.':
-    'Die Übersicht zeigt die neueste Auswertungsreihe. Vergleiche geänderte Einstellungen unter Auswertung.',
+  'Overview merges all recorded evaluation series. Compare individual settings in Evaluation.':
+    'Die Übersicht fasst alle erfassten Auswertungsreihen zusammen. Vergleiche einzelne Einstellungen unter Auswertung.',
   'Checkpoint selection': 'Kontrollpunktauswahl',
   'Checkpoint selection metadata was not recorded by this worker.':
     'Dieser Worker hat keine Metadaten zur Kontrollpunktauswahl erfasst.',
@@ -131,5 +131,7 @@ const translations: Record<string, string> = {
   'All evaluation series': 'Alle Auswertungsreihen',
   'Latest series': 'Neueste Reihe',
   'Latest evaluation settings': 'Neueste Auswertungseinstellungen',
+  'Merged evaluation series': 'Zusammengefasste Auswertungsreihen',
+  '{count} series': '{count} Reihen',
 };
 export default translations;

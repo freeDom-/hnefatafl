@@ -221,7 +221,7 @@ export function TrainingJobOverview({
           'Loss measures fit to self-play targets; evaluation measures play against a specific opponent.',
         )}
         {groups.length > 1 &&
-          ` ${t('Overview shows the latest evaluation series. Compare changed settings in Evaluation.')}`}
+          ` ${t('Overview merges all recorded evaluation series. Compare individual settings in Evaluation.')}`}
       </p>
       <div className="overview-bottom">
         <PhaseTimings performance={completedPerformance} />
