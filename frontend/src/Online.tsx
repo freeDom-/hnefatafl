@@ -637,7 +637,7 @@ function GameRoom({
           <div className="online-toolbar">
             <span>{t(modeNames[game.match.mode])}</span>
             <span>
-              {t('Creator side')}: {t(sideNames[game.match.side_selection])}
+              {t('Creator side')}: {t(sideNames[game.creator_side ?? game.match.side_selection])}
             </span>
             <span>{t('Game {leg}', { leg: game.match.leg })}</span>
             <span>

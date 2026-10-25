@@ -92,6 +92,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   await expect(nav.getByRole('button')).toHaveCount(2);
   await nav.getByRole('button', { name: /Game 2/ }).click();
   await expect(page.getByText('Attackers: OnlineArcher · You')).toBeVisible();
+  await expect(page.getByText('Creator side: Attackers')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await concede(page);
   await page
@@ -122,6 +123,7 @@ test('sequential discovers the return game after the first result', async ({ pag
     .getByRole('button', { name: /Game 2/ })
     .click();
   await expect(page.getByText('Defenders: OnlineArcher · You')).toBeVisible();
+  await expect(page.getByText('Creator side: Defenders')).toBeVisible();
   await expect(page.getByText('Active', { exact: true })).toBeVisible();
   await other.page.goto(page.url());
   await concede(other.page);

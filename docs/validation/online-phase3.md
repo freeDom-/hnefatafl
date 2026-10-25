@@ -40,17 +40,19 @@ No schema/lifecycle/timeout/admission policy changes were needed.
 
 ## Validation results
 
-Validated on 2026-10-25. The implementation commit is
-`3b8f17eaf23d0efe463bd1deb8b31a76e9d9209d`; the following commit records this
-evidence only. [PR #13](https://github.com/freeDom-/hnefatafl/pull/13) targets
+Validated on 2026-10-25. The initial implementation commit is
+`3b8f17eaf23d0efe463bd1deb8b31a76e9d9209d`. A final frontend follow-up displays
+each game's server-assigned creator side in the configuration summary, including
+swapped return games; focused/unit/browser checks assert both two-game modes. [PR #13](https://github.com/freeDom-/hnefatafl/pull/13) targets
 `feat/online-multiplayer` and remains unmerged. No production setting was enabled.
 
 | Command | Result |
 | --- | --- |
 | Focused Vitest command below | **44 passed**, 6 files |
 | Backend selection below | **162 passed**, no skips, 1 existing deprecation warning |
-| `make check` | **Passed**: **1413 backend passed / 36 skipped**, **269 frontend passed**, 34 frontend files; Ruff, mypy (43 source files), TypeScript, formatting, docs and production build passed |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:online` | **10 passed**, no skips; final run on the pushed implementation, 5 desktop + 5 mobile |
+| `make check` (initial implementation; backend code unchanged afterward) | **Passed**: **1413 backend passed / 36 skipped**, **269 frontend passed**, 34 frontend files; Ruff, mypy (43 source files), TypeScript, formatting, docs and production build passed |
+| `npm --prefix frontend test`; `npm --prefix frontend run build`; `npm --prefix frontend run format:check` (return-side follow-up) | **269 passed**, 34 files; TypeScript, production build and formatting passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:online` | **10 passed**, no skips; final run including return-side assertions, 5 desktop + 5 mobile |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:registration` | **6 passed**, no skips; final sequential run |
 | `make docs` | **Passed**: 76 Markdown files, 553 local links/images/anchors |
 | `.venv/bin/python scripts/audit_api.py` | **Passed**: 77 registered grants |
@@ -81,7 +83,8 @@ from the local backend run. The browser job passed **269 unit tests**, build/typ
 formatting, the complete legacy suite (**66 passed / 4 intentional skips**),
 registration (**6 passed**) and online acceptance (**10 passed**). Check
 [the PR checks](https://github.com/freeDom-/hnefatafl/pull/13/checks) for validation
-of the final documentation commit; no source changes followed the implementation.
+of the final head, including the return-game summary correction. Backend code
+remains the version covered by the full local run.
 
 Two supplemental local legacy-browser development runs were interrupted: the first
 had 15 passes, 1 failure after a development reload lost the selected page, 1
