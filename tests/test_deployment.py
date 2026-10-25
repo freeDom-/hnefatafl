@@ -221,6 +221,48 @@ def test_backup_verification_corruption_and_preservation(deployment):
     assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
 
 
+def test_restore_preserves_live_verification_and_limits_but_revokes_tokens_and_mail(deployment):
+    identifier = deployment.admin["id"]
+    with deployment.store.connection() as c:
+        c.execute(
+            "INSERT INTO account_tokens VALUES(?,'reset','old-digest',1,'old-address-digest',1,9999999999,NULL)",
+            (identifier,),
+        )
+        c.execute(
+            "INSERT INTO account_mail(account_id,purpose,generation,email_version,address_hash,status,created_at,next_attempt) VALUES(?,'reset','old-generation',1,'old-address-digest','pending',1,1)",
+            (identifier,),
+        )
+    backup = deployment.snapshot()
+    with deployment.store.connection() as c:
+        c.execute("UPDATE accounts SET email_verified_at=12345 WHERE id=?", (identifier,))
+        c.execute("INSERT INTO account_limits VALUES('hashes',12345,99)")
+    deployment.restore(backup)
+    with deployment.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT email_verified_at FROM accounts WHERE id=?", (identifier,)
+            ).fetchone()[0]
+            == 12345
+        )
+        assert (
+            c.execute("SELECT attempts FROM account_limits WHERE key='hashes'").fetchone()[0] == 99
+        )
+        assert c.execute("SELECT COUNT(*) FROM account_tokens").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM account_mail").fetchone()[0] == 0
+
+
+def test_cross_account_schema_restore_refuses_to_replace_live_security(deployment):
+    import sqlite3
+
+    backup = deployment.snapshot()
+    live = deployment.data / "hnefatafl.sqlite3"
+    with sqlite3.connect(live) as c:
+        c.execute("ALTER TABLE accounts ADD COLUMN future_security_state TEXT")
+    with pytest.raises(ValueError, match="Account schema changed"):
+        deployment.restore(backup)
+    assert deployment.auth.account(deployment.admin["id"])["role"] == "ADMIN"
+
+
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])
 def test_active_training_prevents_service_interruption(deployment, status):
     deployment.store.save_job({"id": "active", "created_at": "now", "status": status})

@@ -51,7 +51,7 @@ function readableDetail(payload: unknown): string | undefined {
 export async function apiFetch(path: string, body?: unknown, method?: string): Promise<Response> {
   const headers: Record<string, string> = { 'X-CSRF-Token': csrf };
   if (!(body instanceof FormData)) headers['Content-Type'] = 'application/json';
-  if (path === '/auth/login') headers.Origin = location.origin;
+  if (path.startsWith('/auth/')) headers.Origin = location.origin;
   const response = await fetch(`/api${path}`, {
     method: method ?? (body === undefined ? 'GET' : 'POST'),
     headers,

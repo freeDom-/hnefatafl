@@ -9,6 +9,18 @@ and [Validation](docs/VALIDATION.md). This checklist is not a current user manua
 Releases are created only after the corresponding implementation and validation.
 See GitHub Releases and `docs/releases/` for exact evidence and limitations.
 
+## Online milestone phases (unreleased)
+
+Phase work integrates into `feat/online-multiplayer`, not main. Phase 0 PR #6 was
+reviewed/merged there before the Phase 1 implementation branch was created.
+Phase 1 adds disabled-by-default public signup, explicit email verification,
+password recovery, schema-9 preflight/migration, leased SMTP delivery, durable
+abuse budgets and English/German account forms. It does not activate multiplayer
+or execute a production migration/deployment. Current checks, remaining operator
+choices and limitations are recorded in the
+[Phase 1 handoff](docs/validation/account-registration-phase1.md) and
+[registration operations guide](docs/REGISTRATION.md); these are not release claims.
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

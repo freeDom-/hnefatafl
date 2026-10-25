@@ -1,7 +1,7 @@
 name: Verify
 on:
   push:
-    branches: [main]
+    branches: [main, feat/online-multiplayer]
   pull_request:
 permissions:
   contents: read
@@ -19,6 +19,7 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen --all-extras --python 3.12
       - run: make foundation
+      - run: make docs
       - run: .venv/bin/python -m pytest
       - run: .venv/bin/ruff check hnefatafl tests
       - run: .venv/bin/ruff format --check hnefatafl tests
@@ -51,6 +52,7 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - run: npm run test:registration
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

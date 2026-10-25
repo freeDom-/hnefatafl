@@ -46,6 +46,7 @@ Commands assume the repository root unless a different directory is shown.
 ## Installation, deployment, security and backups
 
 - [Accounts, sessions, CSRF and API permissions](SECURITY.md)
+- [Registration, verification, password recovery and SMTP operations](REGISTRATION.md)
 - [Local production/development, Linux/LXC, systemd, reverse proxy, upgrades and rollback](DEPLOYMENT.md)
 - [Backup and relocation safeguards](TRAINING_DATA.md#consistent-backup-and-restoration)
 
@@ -65,6 +66,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Phase 1 registration implementation brief](designs/registration-phase1.md)
 - [Executable browser-offline spike](../spikes/browser_offline/README.md)
 - [Phase 0 validation evidence and handoff](validation/online-phase0.md)
+- [Phase 1 registration validation and integration handoff](validation/account-registration-phase1.md)
 
 ## Rulesets, release history and historical requirements
 

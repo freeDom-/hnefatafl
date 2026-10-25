@@ -23,3 +23,10 @@ def allowed(account: dict | None, permission: str) -> bool:
 def owner_scope() -> str | None:
     account = principal.get()
     return account["id"] if account and not allowed(account, "all_data") else None
+
+
+def online_eligible(account: dict | None) -> bool:
+    """Future online gate only; existing single-player permissions stay unchanged."""
+    return bool(
+        allowed(account, "play") and account and account.get("email_verified_at") is not None
+    )
