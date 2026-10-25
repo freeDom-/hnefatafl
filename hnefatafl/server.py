@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
@@ -1391,6 +1391,26 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 fail(str(exc), 409)
             return {"deleted": True, "id": tournament_id}
 
+    @app.get("/api/tournaments/{tournament_id}/export")
+    def export_tournament(tournament_id: str):
+        tournament_or_404(tournament_id)
+        payload = tournaments.export(tournament_id)
+        if payload is None:
+            fail("Tournament not found.", 404)
+        try:
+            body = json.dumps(payload, indent=2, allow_nan=False)
+        except (TypeError, ValueError):
+            fail("The saved tournament results could not be exported.", 500)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="hnefatafl-tournament-{tournament_id}.json"'
+                )
+            },
+        )
+
     @app.get("/api/tournaments/{tournament_id}/games/{game_index}/replay")
     def replay_tournament_game(tournament_id: str, game_index: int):
         tournament = tournament_or_404(tournament_id)
@@ -1822,6 +1842,21 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def training_job(job_id: str):
         return read_job(job_id)
 
+    @app.patch("/api/training/jobs/{job_id}")
+    def rename_training_job(job_id: str, request: ModelNameRequest):
+        # Renaming changes display metadata only: IDs, paths, checkpoints,
+        # parameters, worker assignments and execution state are untouched.
+        with job_lock:
+            job = store.get_job(job_id)
+            if job is None:
+                fail("Training job not found.", 404)
+            name = request.name.strip()
+            if not name or len(name) > 100:
+                fail("Training job names must contain 1–100 characters.")
+            job["name"] = name
+            store.save_job(job)
+            return read_job(job_id)
+
     def job_worker_alive(job: dict) -> bool:
         if job.get("execution") == "remote":
             return job["status"] in {"running", "cancelling"}
@@ -2213,6 +2248,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             # Checkpoint inputs are authoritative. Older checkpoints may omit
             # fields introduced later; prefer their job's saved inputs before
             # filling only genuinely absent fields through normal validation.
+            if "training_symmetry_mode" not in values and "training_symmetry_mode" not in saved:
+                # Pre-0.28 jobs/checkpoints predate D4 augmentation. Keep their
+                # historical OFF behavior; explicit saved values still win.
+                saved = {**saved, "training_symmetry_mode": "off"}
             saved = normalize_config(
                 {
                     **{

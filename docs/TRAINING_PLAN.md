@@ -9,9 +9,9 @@ The beginner and balanced presets remain available, and every field is editable.
 
 | Ruleset | Board | Channels / residual blocks | Iterations × games | Search visits / time ceiling | Replay positions | Evaluation games / visits / move limit |
 | --- | --- | --- | --- | --- | --- | --- |
-| Brandubh | 7×7 | 32 / 2 | 20 × 16 | 128 / 2 s | 8,000 | 12 / 64 / 300 |
-| Tablut, market rules | 9×9 | 48 / 3 | 30 × 24 | 192 / 3 s | 12,000 | 16 / 96 / 500 |
-| Copenhagen | 11×11 | 64 / 4 | 40 × 32 | 256 / 4 s | 20,000 | 20 / 128 / 800 |
+| Brandubh | 7×7 | 32 / 2 | 20 × 16 | 128 / 10 s | 8,000 | 12 / 64 / 300 |
+| Tablut, market rules | 9×9 | 48 / 3 | 30 × 24 | 192 / 10 s | 12,000 | 16 / 96 / 500 |
+| Copenhagen | 11×11 | 64 / 4 | 40 × 32 | 256 / 10 s | 20,000 | 20 / 128 / 800 |
 
 The time ceiling can end search before its visit budget. Record actual hardware
 and budgets when comparing runs. Self-play move limits are 200, 300 and 500,
@@ -42,9 +42,11 @@ perspective during search. AdamW and gradient clipping regularize the update.
 Learning rates are 0.001, 0.0007 and 0.0005; epochs per iteration are 2, 3 and 3.
 Larger replay buffers mix older and newer positions rather than repeatedly fitting
 one short game. Opening temperature and Dirichlet noise diversify self-play, with
-noise alpha 0.3, 0.2 and 0.15 as the branching space grows. These plans do not enable
-[symmetry augmentation](TRAINING.md#training-symmetry-augmentation), which is an
-explicit opt-in, and add no hand-labelled tactical curriculum.
+noise alpha 0.3, 0.2 and 0.15 as the branching space grows. These plans inherit the
+[random D4 symmetry augmentation](TRAINING.md#training-symmetry-augmentation)
+default for new jobs, so every minibatch example is transformed; set the mode to
+**Disabled** to reproduce the earlier unaugmented plan. They add no hand-labelled
+tactical curriculum.
 
 ## How to establish a better configuration
 

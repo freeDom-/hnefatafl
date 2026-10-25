@@ -8,7 +8,7 @@ export const evaluationDefaults: TrainingConfig = {
   evaluation_games: 2,
   evaluation_iterations: 16,
   evaluation_max_plies: 150,
-  evaluation_time_limit: 2,
+  evaluation_time_limit: 10,
   evaluation_jarl_depth: 5,
   evaluation_jarl_time_limit: 2,
   champion_confidence: 0.95,

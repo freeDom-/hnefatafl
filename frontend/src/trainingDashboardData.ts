@@ -12,7 +12,10 @@ export const activeJob = (job: Job) =>
   ['running', 'pending', 'queued', 'cancelling'].includes(job.status);
 export const jobName = (job: Job) =>
   String(
-    (job.kind === 'tune' ? job.config?.study_name : undefined) ??
+    // An explicit rename wins over derived configuration names; job IDs and
+    // training parameters are never rewritten by renaming.
+    job.name ??
+      (job.kind === 'tune' ? job.config?.study_name : undefined) ??
       job.config?.model_name ??
       object(job.config?.training)?.model_name ??
       job.ruleset ??

@@ -78,8 +78,10 @@ replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
 
 ## Parameters and presets
 
-Symmetry augmentation (`training_symmetry_mode`, default `"off"`) is described in
-[Training symmetry augmentation](#training-symmetry-augmentation).
+Symmetry augmentation (`training_symmetry_mode`, default `"random_d4"` for new
+jobs) is described in [Training symmetry augmentation](#training-symmetry-augmentation).
+Jobs and checkpoints that predate the setting keep their historical `"off"`
+behavior unless you set it explicitly.
 
 The default is `recommended` for the chosen ruleset, not the raw base defaults.
 Precedence is base settings → selected preset/ruleset plan → explicit JSON fields.
@@ -94,7 +96,7 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `channels`, `blocks` | Residual architecture width (4–128) and depth (0–8) |
 | `games`, `iterations`, `epochs` | Games per iteration, total iterations, optimization epochs |
 | `batch_size`, `learning_rate`, `optimizer`, `momentum` | Optimization settings; momentum applies to SGD (0–1, default 0.9) |
-| `mcts_iterations`, `mcts_time_limit`, `exploration` | Search simulation/time budget and PUCT constant |
+| `mcts_iterations`, `mcts_time_limit`, `exploration` | Search simulation/time budget and PUCT constant; the time ceiling defaults to 10 seconds for new jobs |
 | `self_play_mode` | `auto` (default): batched on CUDA, sequential otherwise; or explicitly `sequential`/`batched` on either CPU or CUDA |
 | `self_play_concurrency` | Maximum independent active self-play games, 1–1024 (default 16), bounded by games remaining |
 | `inference_batch_size` | Maximum positions per neural inference batch, 1–4096 (default 32); separate from optimization `batch_size` |
@@ -103,7 +105,7 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `checkpoint_frequency`, `evaluation_frequency` | Cadence measured in training iterations |
 | `evaluation_opponent` | Exactly one of `shield_bearer` (default), `shield_maiden`, `jarl`, `champion` |
 | `evaluation_games`, `evaluation_iterations`, `evaluation_max_plies` | Balanced evaluation budget; games must be even |
-| `evaluation_time_limit` | Neural move deadline; also Shield bearer/Shield maiden deadline; defaults to saved/self-play deadline if omitted |
+| `evaluation_time_limit` | Neural move deadline; also Shield bearer/Shield maiden deadline; defaults to the self-play deadline (10 seconds for new jobs) if omitted |
 | `evaluation_jarl_depth`, `evaluation_jarl_time_limit` | Actual alpha-beta depth (default 5) and deadline (default 2 seconds) |
 | `champion_confidence`, `champion_min_pairs`, `champion_min_improvement` | Conservative promotion evidence: default 0.95, 12 pairs, 0 margin above 50% |
 | `max_game_plies` | Explicit self-play truncation limit |
@@ -224,7 +226,8 @@ Defaults preserve the existing cadence (every iteration), even game budget
 (2 for base/smoke; recommended Brandubh/Tablut/Copenhagen: 12/16/20), neural
 simulation budget (16 base, 2 smoke, 64/96/128 recommended) and move limits
 (150 base, 12 smoke, 300/500/800 recommended). The neural deadline inherits
-`mcts_time_limit` when omitted; the UI exposes it independently. Consider these
+`mcts_time_limit` when omitted (10 seconds for new jobs); the UI exposes it
+independently. Consider these
 less frequent starting experiments, adjusting completion rates and cost:
 
 | Opponent | Evaluate every | Games |
@@ -415,7 +418,8 @@ lookups, eliminated batch duplicates and actual evaluated positions.
 
 ## Training symmetry augmentation
 
-`training_symmetry_mode` is `"off"` (default) or `"random_d4"`. Start Training and
+`training_symmetry_mode` is `"off"` or `"random_d4"`; new jobs default to
+`"random_d4"`. Start Training and
 Resume Training expose it as **Training symmetry augmentation** (German:
 *Symmetrie-Datenaugmentation*): **Disabled** or **Random D4 rotations and reflections**.
 
@@ -459,6 +463,8 @@ run `off` jobs, and the default is omitted from their transport copy.
 eight per-transform counts, augmentation seconds and its share of optimization
 time. These count optimizer presentations, not replay positions or games.
 
-Presets are unchanged and do not enable augmentation. Evidence and the suggested
+The `recommended`, `smoke`, `beginner` and `balanced` presets do not set the mode
+explicitly, so new jobs inherit the `random_d4` default. Legacy exported configs
+and checkpoints that omit the field keep `off`. Evidence and the suggested
 comparison experiment are in the [performance guide](PERFORMANCE.md#phase-3-training-symmetry-augmentation).
 

@@ -52,8 +52,11 @@ def ai_profiles() -> list[dict[str, Any]]:
             "algorithm": "mcts",
             "difficulty": "Advanced",
             "parameters": {
-                "iterations": 5000,
-                "time_limit": 2.0,
+                # The Seer preset is ruleset-independent, so it uses the base
+                # training self-play budget. Per-ruleset recommended plans
+                # (128/192/256 visits) are available in training jobs.
+                "iterations": 24,
+                "time_limit": 10.0,
                 "exploration": 1.4,
                 "temperature": 0.0,
                 "rollout_depth": 8,
@@ -65,7 +68,7 @@ def ai_profiles() -> list[dict[str, Any]]:
             "name": "Trained model",
             "algorithm": "neural",
             "difficulty": "Model dependent",
-            "parameters": {"iterations": 40, "time_limit": 2.0},
+            "parameters": {"iterations": 40, "time_limit": 10.0},
             "supported_rulesets": common,
         },
     ]
@@ -301,7 +304,7 @@ def mcts_context(
     rollout_depth = int(config.get("rollout_depth", 8))
     if not 0 <= rollout_depth <= 128:
         raise ValueError("Rollout depth must be between 0 and 128")
-    seconds = float(config.get("time_limit", 2.0))
+    seconds = float(config.get("time_limit", 10.0))
     if not math.isfinite(seconds) or seconds <= 0 or seconds > 300:
         raise ValueError("Time limit must be positive and at most 300 seconds")
     rng = random.Random(config.get("seed", 0))
@@ -580,7 +583,10 @@ def choose_move(
         if not config.get("model_path") and config.get("_model") is None:
             raise ValueError("The neural opponent requires a registered model")
     rng = random.Random(config.get("seed", 0))
-    seconds = float(config.get("time_limit", 2.0))
+    # Only time-limited MCTS defaults to ten seconds; non-MCTS strategies keep
+    # their historical two-second ceiling when no explicit value is supplied.
+    mcts_budget = algorithm == "mcts" or (algorithm == "neural" and wrapper == "mcts")
+    seconds = float(config.get("time_limit", 10.0 if mcts_budget else 2.0))
     if not math.isfinite(seconds) or not 0 < seconds <= 300:
         raise ValueError("Time limit must be positive and at most 300 seconds")
     deadline = time.monotonic() + seconds

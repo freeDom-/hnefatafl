@@ -19,8 +19,8 @@ requires a registered model compatible with the selected battlefield.
 | Shield bearer | One-ply tactical heuristic | Maximum 1 second |
 | Shield maiden | Rules-aware one-ply tactical heuristic (Intermediate) | Maximum 1 second; heuristic version 1 |
 | Jarl | Iterative-deepening alpha-beta | Depth 5, maximum 2 seconds |
-| Seer | Monte Carlo tree search | 5,000 simulations, exploration 1.4, rollout depth 8, temperature 0, maximum 2 seconds |
-| Trained model | Selected neural wrapper | MCTS by default; profile supplies 40 simulations and maximum 2 seconds; controls remain configurable |
+| Seer | Monte Carlo tree search | 24 simulations (the base training self-play budget), exploration 1.4, rollout depth 8, temperature 0, maximum 10 seconds |
+| Trained model | Selected neural wrapper | MCTS by default; profile supplies 40 simulations and maximum 10 seconds; controls remain configurable |
 
 The static heuristic uses defender-relative material, the king's escape distance,
 open escape rays and adjacent attackers. It uses edge escape for Tablut and corner
@@ -117,8 +117,11 @@ raw engine defaults and training has [its own bounds](TRAINING.md#configuration-
 | `temperature` | 0–10 | 0–5 | 0–2 |
 
 A direct configuration without `profile_id` uses core defaults: alpha-beta depth 2,
-MCTS 80 simulations, rollout depth 8, exploration 1.4, temperature 0 and a 2-second
-ceiling. Profile selection supplies the named preset's parameters before explicit
+MCTS 80 simulations, rollout depth 8, exploration 1.4, temperature 0 and a 10-second
+ceiling; non-MCTS strategies keep their historical 2-second default when no value
+is supplied. The fixed Seer preset is ruleset-independent and uses the base
+training self-play budget (24 visits); the per-ruleset training plans use
+128/192/256. Profile selection supplies the named preset's parameters before explicit
 headless overrides. New browser games fix named preset budgets instead; use Custom
 for overrides. Advisors have a separate maximum time setting (default 5, 0.01–15
 seconds through API; see [Analysis](ANALYSIS.md)).

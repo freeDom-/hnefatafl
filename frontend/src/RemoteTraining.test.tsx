@@ -14,7 +14,11 @@ const worker: TrainingWorker = {
   status: 'online',
   last_seen: '2026-10-22T08:00:00Z',
   active_jobs: 0,
-  capabilities: { cuda_available: true, cuda_devices: ['Cloud GPU'] },
+  capabilities: {
+    cuda_available: true,
+    cuda_devices: ['Cloud GPU'],
+    training_symmetry_modes: ['off', 'random_d4'],
+  },
   compatibility: {
     eligible: true,
     code: 'compatible',
@@ -239,7 +243,11 @@ it('enables every device for an unspecified remote worker and follows the chosen
     ...worker,
     id: 'cpu',
     name: 'CPU node',
-    capabilities: { cuda_available: false, mps_available: false },
+    capabilities: {
+      cuda_available: false,
+      mps_available: false,
+      training_symmetry_modes: ['off', 'random_d4'],
+    },
   };
   vi.stubGlobal(
     'fetch',

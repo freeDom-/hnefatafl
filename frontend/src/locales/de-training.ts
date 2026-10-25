@@ -274,5 +274,13 @@ const translations: Record<string, string> = {
   'Throughput history': 'Durchsatzverlauf',
   'Wall-clock durations and accumulated activity times are reported separately; activities can overlap.':
     'Gesamtdauer und aufsummierte Aktivitätszeiten werden getrennt angezeigt; Aktivitäten können sich überlappen.',
+  'Rename job': 'Auftrag umbenennen',
+  'Rename training job': 'Trainingsauftrag umbenennen',
+  'Close rename training job': 'Umbenennen des Trainingsauftrags schließen',
+  'Job name': 'Auftragsname',
+  'Renaming changes only the displayed job name. Its ID, checkpoint, parameters and execution are unchanged.':
+    'Das Umbenennen ändert nur den angezeigten Auftragsnamen. ID, Kontrollpunkt, Parameter und Ausführung bleiben unverändert.',
+  'Training job renamed. Its identity, checkpoint, parameters and execution are unchanged.':
+    'Trainingsauftrag umbenannt. Identität, Kontrollpunkt, Parameter und Ausführung bleiben unverändert.',
 };
 export default translations;

@@ -64,6 +64,22 @@ it('preserves form values omitted from a partial config', () => {
   expect(result.config.iterations).toBe(3);
 });
 
+it('keeps a legacy config without a symmetry setting on the historical OFF behavior', () => {
+  const legacy = { ...base } as Record<string, unknown>;
+  delete legacy.training_symmetry_mode;
+  const result = parseImportedConfig(legacy, base, { mode: 'create' });
+  expect(result.config.training_symmetry_mode).toBe('off');
+});
+
+it('applies an explicit symmetry choice from the imported file', () => {
+  const result = parseImportedConfig(
+    { ...base, training_symmetry_mode: 'random_d4' },
+    { ...base, training_symmetry_mode: 'off' },
+    { mode: 'create' },
+  );
+  expect(result.config.training_symmetry_mode).toBe('random_d4');
+});
+
 it('ignores identifiers, paths, status and other non-training metadata', () => {
   const result = parseImportedConfig(
     {

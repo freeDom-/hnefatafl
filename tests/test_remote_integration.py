@@ -32,7 +32,8 @@ def worker(client, name, capacity=1):
         headers=headers,
         json={
             "capabilities": {
-                "package_version": created["worker"]["compatibility"]["server_version"]
+                "package_version": created["worker"]["compatibility"]["server_version"],
+                "training_symmetry_modes": ["off", "random_d4"],
             }
         },
     )

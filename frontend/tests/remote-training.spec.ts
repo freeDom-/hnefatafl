@@ -70,6 +70,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
         cuda_available: true,
         cuda_devices: ['Test cloud accelerator'],
         device: 'cuda',
+        training_symmetry_modes: ['off', 'random_d4'],
       },
     });
     expect(reported.worker.compatibility.eligible).toBe(true);
@@ -211,6 +212,7 @@ test('OpenVINO is explicit, hardware aware and stays selected across targets and
         openvino_devices: [
           { id: 'GPU', name: 'Intel Iris Xe (reported test device)', available: true },
         ],
+        training_symmetry_modes: ['off', 'random_d4'],
       },
     });
     expect(reported.worker.compatibility.eligible).toBe(true);
@@ -272,7 +274,11 @@ test('version mismatch stays online and requires an explicit administrator overr
   const { worker, token } = await created.json();
   try {
     const reported = await post(request, '/heartbeat', token, {
-      capabilities: { protocol_version: 1, package_version: '0.25.0' },
+      capabilities: {
+        protocol_version: 1,
+        package_version: '0.25.0',
+        training_symmetry_modes: ['off', 'random_d4'],
+      },
     });
     const currentVersion = reported.worker.compatibility.server_version;
     await openWorkshop(page);
@@ -307,7 +313,11 @@ test('version mismatch stays online and requires an explicit administrator overr
     await expect(card.locator('.worker-compatibility')).toHaveText('Application version mismatch');
     await expect(page.getByRole('button', { name: 'Queue training', exact: true })).toBeDisabled();
     await post(request, '/heartbeat', token, {
-      capabilities: { protocol_version: 1, package_version: currentVersion },
+      capabilities: {
+        protocol_version: 1,
+        package_version: currentVersion,
+        training_symmetry_modes: ['off', 'random_d4'],
+      },
     });
     await expect(card.locator('.worker-compatibility')).toHaveText('Compatible');
     await expect(page.getByRole('button', { name: 'Queue training', exact: true })).toBeEnabled();

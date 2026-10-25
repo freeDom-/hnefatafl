@@ -25,7 +25,7 @@ def client(tmp_path, monkeypatch):
         yield session
 
 
-def worker(client, capacity=1, *, connected=True):
+def worker(client, capacity=1, *, connected=True, symmetry=True):
     response = client.post(
         "/api/training/workers", json={"name": "Cloud raven", "capacity": capacity}
     )
@@ -33,10 +33,13 @@ def worker(client, capacity=1, *, connected=True):
     value = response.json()
     headers = {"Authorization": "Bearer " + value["token"]}
     if connected:
+        capabilities = {"package_version": client.app.version}
+        if symmetry:
+            capabilities["training_symmetry_modes"] = ["off", "random_d4"]
         client.post(
             "/api/worker/heartbeat",
             headers=headers,
-            json={"capabilities": {"package_version": client.app.version}},
+            json={"capabilities": capabilities},
         )
     return value["worker"], headers
 
@@ -79,7 +82,13 @@ def report(client, headers, lease, sequence=0, **changes):
 @pytest.fixture
 def artifacts(tmp_path):
     config = normalize_config(
-        {"preset": "smoke", "ruleset": "brandubh", "model_name": "Cloud raven"}
+        {
+            "preset": "smoke",
+            "ruleset": "brandubh",
+            "model_name": "Cloud raven",
+            # Legacy checkpoints predate D4 augmentation and remain OFF.
+            "training_symmetry_mode": "off",
+        }
     )
     model = PolicyValueNet("brandubh", 4, 0)
     optimizer = torch.optim.AdamW(model.parameters())
@@ -244,7 +253,13 @@ def test_remote_gpu_jobs_do_not_require_local_gpu_and_skip_cpu_workers(client):
     client.post(
         "/api/worker/heartbeat",
         headers=gpu,
-        json={"capabilities": {"package_version": client.app.version, "cuda_available": True}},
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "cuda_available": True,
+                "training_symmetry_modes": ["off", "random_d4"],
+            }
+        },
     )
     assert claim(client, gpu)["id"] == gpu_job["id"]
     assert (
@@ -489,6 +504,7 @@ def test_openvino_scheduling_is_opt_in_and_requires_operational_devices(client):
         "inference_backends": ["pytorch", "openvino"],
         "openvino_version": "2026.4.1",
         "openvino_devices": [{"id": "GPU.0", "name": "Intel Iris Xe", "available": True}],
+        "training_symmetry_modes": ["off", "random_d4"],
     }
     job = queue(client, inference_backend="openvino", inference_device="GPU")
     assert claim(client, cpu_auth) is None
@@ -551,6 +567,7 @@ def test_openvino_cpu_only_report_does_not_claim_gpu_job(client):
             "capabilities": {
                 "package_version": client.app.version,
                 "inference_backends": ["pytorch", "openvino"],
+                "training_symmetry_modes": ["off", "random_d4"],
                 "openvino_devices": [
                     {"id": "CPU", "name": "CPU", "available": True},
                     {"id": "GPU", "name": "broken GPU", "available": False},
@@ -605,8 +622,8 @@ def test_openvino_auto_training_requires_cpu_default():
 def test_legacy_worker_transport_omits_new_defaults_and_preserves_resume_tensors(
     client, artifacts, tmp_path
 ):
-    _, headers = worker(client)
-    source = queue(client)
+    _, headers = worker(client, symmetry=False)
+    source = queue(client, training_symmetry_mode="off")
     leased = claim(client, headers)
     assert "inference_backend" not in leased["config"]
     assert "inference_device" not in leased["config"]
@@ -656,7 +673,7 @@ def test_symmetry_mode_gates_workers_and_legacy_transport_omits_it(client):
     assert not worker_compatible(config, {"training_symmetry_modes": ["off"]})
     assert worker_compatible(config, {"training_symmetry_modes": ["off", "random_d4"]})
     assert worker_compatible({}, {}) and worker_compatible({"training_symmetry_mode": "off"}, {})
-    _, headers = worker(client)
+    _, headers = worker(client, symmetry=False)
     assert (
         client.post(
             "/api/worker/heartbeat",
@@ -674,7 +691,7 @@ def test_symmetry_mode_gates_workers_and_legacy_transport_omits_it(client):
         json={"execution": "remote", "preset": "smoke", "training_symmetry_mode": "all_d4"},
     )
     assert invalid.status_code == 400
-    pinned, _ = worker(client)
+    pinned, _ = worker(client, symmetry=False)
     rejected = client.post(
         "/api/training/jobs",
         json={

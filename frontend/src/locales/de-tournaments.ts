@@ -154,5 +154,15 @@ const german: Record<string, string> = {
   '{channels} channels · {blocks} blocks': '{channels} Kanäle · {blocks} Blöcke',
   '{side} win': '{side} gewinnen',
   '{side} to move': '{side} am Zug',
+  'Import configuration': 'Konfiguration importieren',
+  'Import a portable JSON tournament configuration, then review and edit it before starting.':
+    'Eine portable JSON-Turnierkonfiguration importieren, dann vor dem Start prüfen und bearbeiten.',
+  'Tournament configuration imported. Review the values before starting.':
+    'Turnierkonfiguration importiert. Prüfe die Werte vor dem Start.',
+  'Invalid tournament configuration fields: {fields}.':
+    'Ungültige Turnierkonfigurationsfelder: {fields}.',
+  'Export results': 'Ergebnisse exportieren',
+  'Exporting results…': 'Ergebnisse werden exportiert…',
+  'Tournament export failed.': 'Turnierexport fehlgeschlagen.',
 };
 export default german;

@@ -102,6 +102,8 @@ export interface Model {
 }
 export interface Job {
   id: string;
+  /** Explicit display name set by a rename; derived from config when absent. */
+  name?: string;
   status: string;
   kind?: string;
   ruleset?: string;

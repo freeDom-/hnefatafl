@@ -88,9 +88,18 @@ trial rather than all trials, so study-wide totals show **Not recorded**.
 
 The summary above the tabs keeps the selected name, status, ruleset, execution
 location, recorded iteration/total, stage, elapsed time and remote update time
-available. Stop, checkpoint/study resume, job export, training-data deletion and
-refresh use their existing state restrictions and confirmation dialogs. Progress
-uses recorded iteration counts; the interface does not invent an ETA.
+available. Rename, stop, checkpoint/study resume, job export, training-data
+deletion and refresh use their existing state restrictions and confirmation
+dialogs. Progress uses recorded iteration counts; the interface does not invent
+an ETA.
+
+**Rename job** edits the display name only, for active and inactive jobs alike.
+The dialog starts from the current name; saving persists a separate display field
+and refreshes the rail and header without a page reload, while cancelling keeps
+the previous name. Empty, whitespace-only and longer-than-100-character names are
+rejected on both the client and the server, and a failed save keeps the entered
+text. Job IDs, output paths, checkpoints, training parameters, worker assignments
+and execution state never change.
 
 - **Overview** shows six concise KPIs, learning/evaluation charts, the last
   completed iteration's sequential phase timings and checkpoint selection. Its

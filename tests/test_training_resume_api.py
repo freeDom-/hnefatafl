@@ -384,6 +384,7 @@ def test_resume_api_shows_legacy_off_and_reviews_symmetry_override(client, tmp_p
         "cpu_threads": 1,
         "max_game_plies": 6,
         "evaluation_max_plies": 2,
+        "training_symmetry_mode": "off",
     }
     assert (
         client.post(
