@@ -115,7 +115,14 @@ class TournamentRequest(BaseModel):
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
 
 
-def create_app(data_dir: str | Path | None = None) -> FastAPI:
+def create_app(
+    data_dir: str | Path | None = None,
+    *,
+    account_settings=None,
+    mail_transport=None,
+    account_clock=None,
+    account_background=True,
+) -> FastAPI:
     server_build = application_metadata()
     package_version = server_build["package_version"]
     app = FastAPI(
@@ -137,6 +144,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     from .auth import attach_auth
 
     auth = attach_auth(app, store)
+    from .account_api import attach_accounts
+
+    account_options = {"settings": account_settings, "transport": mail_transport}
+    if account_clock is not None:
+        account_options["clock"] = account_clock
+    registration = attach_accounts(app, auth, **account_options)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
     # Catalog changes and new references must be atomic with respect to each
@@ -160,7 +173,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     raise RuntimeError(
                         "Provision the initial administrator using the local CLI before startup"
                     )
-        yield
+        if account_background:
+            registration.start()
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(registration.shutdown)
         await asyncio.to_thread(tournaments.shutdown)
         await asyncio.to_thread(analyses.shutdown)
         # A server shutdown stops workers it started, preserving completed

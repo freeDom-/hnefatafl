@@ -380,7 +380,7 @@ class Deployment:
                 closing(sqlite3.connect(live_db)) as live,
                 closing(sqlite3.connect(copy_db)) as copy,
             ):
-                for table in ("accounts", "auth_meta"):
+                for table in ("accounts", "auth_meta", "account_limits"):
                     live_columns = [row[1] for row in live.execute(f"PRAGMA table_info({table})")]
                     copy_columns = [row[1] for row in copy.execute(f"PRAGMA table_info({table})")]
                     if copy_columns and live_columns != copy_columns:
@@ -396,6 +396,12 @@ class Deployment:
                         )
                 if copy.execute("SELECT 1 FROM sqlite_master WHERE name='sessions'").fetchone():
                     copy.execute("DELETE FROM sessions")
+                # Never restore an old verification/reset capability or mail intent.
+                for table in ("account_tokens", "account_mail"):
+                    if copy.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name=?", (table,)
+                    ).fetchone():
+                        copy.execute(f"DELETE FROM {table}")
                 if copy.execute(
                     "SELECT 1 FROM sqlite_master WHERE name='training_workers'"
                 ).fetchone():

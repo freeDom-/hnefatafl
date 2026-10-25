@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from 'react';
 import { api, setCSRF } from './api';
+import AccountForms from './AccountForms';
+import { useI18n } from './i18n';
 
 export type Account = {
   id: string;
@@ -14,6 +16,7 @@ export type Account = {
   email: string;
   role: string;
   permissions: string[];
+  email_verified?: boolean;
 };
 type Session = { account: Account; csrf_token: string };
 type Authentication = { account: Account | null; logout: () => Promise<void> };
@@ -21,11 +24,11 @@ const Context = createContext<Authentication>({ account: null, logout: async () 
 export const useAuth = () => useContext(Context);
 
 export default function Auth({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   function accept(session: Session) {
     try {
       if (localStorage.getItem('hnefatafl-account-cache') !== session.account.id) {
@@ -75,7 +78,6 @@ export default function Auth({ children }: { children: ReactNode }) {
     const values = new FormData(form);
     setBusy(true);
     setError('');
-    setNotice('');
     try {
       accept(
         await api<Session>('/auth/login', {
@@ -127,51 +129,16 @@ export default function Auth({ children }: { children: ReactNode }) {
   if (loading)
     return (
       <main className="auth-screen" role="status">
-        Loading your session…
+        {t('Loading your session…')}
       </main>
     );
-  if (!account)
-    return (
-      <main className="auth-screen">
-        <section className="auth-card">
-          <h1>HNEFATAFL</h1>
-          <p>The King’s Table</p>
-          <h2>Log in</h2>
-          <form onSubmit={login}>
-            <label>
-              Username or email
-              <input name="identity" autoComplete="username" required maxLength={254} autoFocus />
-            </label>
-            <label>
-              Password
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                maxLength={256}
-              />
-            </label>
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
-            <button className="button primary" type="submit" disabled={busy}>
-              {busy ? 'Logging in…' : 'Log in'}
-            </button>
-          </form>
-          <button
-            className="button secondary"
-            type="button"
-            onClick={() => setNotice('Registration is not available yet.')}
-          >
-            Sign up / Register
-          </button>
-          {notice && <p role="status">{notice}</p>}
-        </section>
-      </main>
-    );
+  if (
+    !account ||
+    ['/register', '/verify-email', '/forgot-password', '/reset-password'].includes(
+      location.pathname,
+    )
+  )
+    return <AccountForms onLogin={login} loginBusy={busy} loginError={error} onReset={clear} />;
   const required =
     location.pathname.replace(/\/$/, '') === '/training'
       ? 'training'
@@ -185,8 +152,8 @@ export default function Auth({ children }: { children: ReactNode }) {
     >
       {required && !account.permissions.includes(required) ? (
         <main>
-          <h1>Access denied</h1>
-          <a href="/">Return to gameplay</a>
+          <h1>{t('Access denied')}</h1>
+          <a href="/">{t('Return to gameplay')}</a>
         </main>
       ) : (
         children

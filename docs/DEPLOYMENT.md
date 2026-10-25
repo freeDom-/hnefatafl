@@ -182,7 +182,14 @@ an old installation, stop all writers and copy the **complete** data root and
 configuration first; see [backup and relocation](TRAINING_DATA.md#consistent-backup-and-restoration).
 Do not copy only the database or registry. Existing legacy games/players remain
 administrator-only, with no invented account ownership. Schema 8 is additive and
-transactional; newer unsupported schemas are refused.
+transactional; newer unsupported schemas are refused. Schema 9 adds account
+verification/token/mail/limiter state without reassigning owners; run the
+[read-only collision preflight and review rollback constraints](REGISTRATION.md#migration-and-rollback-boundary)
+before a separately authorized upgrade. No production migration is implied by
+development validation.
+
+Registration remains off unless explicitly enabled with valid mail configuration.
+See [SMTP setup and account operations](REGISTRATION.md#enable-and-configure-mail).
 
 ## Private GitHub authentication
 

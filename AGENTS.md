@@ -5,6 +5,12 @@ do not create Git worktrees unless the user explicitly requests one.
 
 ## Branch and pull request workflow
 
+Online milestone phases use `feat/online-multiplayer` as their integration base,
+not `main`. Confirm the preceding phase is reviewed/merged there, then branch
+from its current remote head and target the phase PR back to that branch. See
+[the milestone workflow](docs/DEVELOPMENT.md#online-milestone-workflow).
+The default workflow below applies to other changes.
+
 Deliver every change through a branch and a pull request. Do not commit directly
 to `main`, and never force-push or rewrite a branch that is already shared.
 
