@@ -406,25 +406,10 @@ export default function Training({
     setNotice('');
     try {
       const imported = await readImportedConfig(file, config, { mode: 'create' });
-      // Reuse the recorded-config compatibility checks so unavailable devices and
-      // inference backends keep safe values instead of failing server validation.
-      // Remote targets are checked against the selected worker, not this server.
-      const capabilities =
-        target === 'local'
-          ? device
-          : workers.find((worker) => `worker:${worker.id}` === target)?.capabilities;
-      const normalized = capabilities
-        ? recordedTrainingParameters(
-            config,
-            {
-              name: String(imported.config.model_name ?? config.model_name),
-              ruleset: String(imported.config.ruleset ?? config.ruleset),
-              training_config: imported.config,
-            },
-            capabilities,
-          )
-        : null;
-      setConfig(normalized?.config ?? imported.config);
+      // Keep the imported target even when the current server or worker cannot
+      // provide it, matching the resume dialog. The form shows the unavailable
+      // option and starting reports the platform error so the user can adjust it.
+      setConfig(imported.config);
       setKind(imported.kind);
       if (imported.kind === 'tune') {
         if (imported.trials !== undefined) setTrials(imported.trials);
@@ -436,7 +421,6 @@ export default function Training({
       setCreationOpen(true);
       setNotice(
         t('Configuration imported. Review the values before starting.') +
-          parameterWarnings(normalized?.warnings ?? []) +
           (imported.ignored.length
             ? ' ' +
               t('Fields that are not training parameters were ignored: {fields}.', {

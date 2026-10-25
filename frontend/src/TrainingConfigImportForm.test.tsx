@@ -137,28 +137,45 @@ it('reports malformed and invalid imports and leaves the form untouched', async 
   expect(name).toHaveValue('Manual name');
 });
 
-it('keeps a safe device when an imported accelerator is unavailable', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn((path: string) =>
-      json(
-        path === '/api/training/device'
-          ? { cuda_available: false, mps_available: false }
-          : path === '/api/training/jobs' || path === '/api/training/workers'
-            ? []
-            : {},
-      ),
-    ),
-  );
-  render(<Training rulesets={rules} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+it('keeps an unavailable imported target and lets the user adjust it before starting', async () => {
+  const error = vi.fn();
+  const created = { id: 'new-job', status: 'running', config: {} };
+  let posts = 0;
+  const fetcher = vi.fn((path: string, init?: RequestInit) => {
+    if (path === '/api/training/device')
+      return json({ cuda_available: false, mps_available: false });
+    if (path === '/api/training/workers') return json([]);
+    if (path === '/api/training/jobs') {
+      if (init?.method === 'POST') {
+        posts += 1;
+        return posts === 1
+          ? json({ detail: 'CUDA is not available on this server.' }, false)
+          : json(created);
+      }
+      return json([]);
+    }
+    return json([]);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<Training rulesets={rules} models={[]} onError={error} onModelsChanged={vi.fn()} />);
   await screen.findByText('Your next opponent starts here.');
   fireEvent.change(input(), {
     target: { files: [file({ ...trainingConfig('brandubh', 'smoke'), device: 'cuda' })] },
   });
-  expect(
-    await screen.findByText(/Invalid or unavailable settings kept safe values: Training device/),
-  ).toBeInTheDocument();
-  expect(screen.getByRole('combobox', { name: 'Training device' })).toHaveValue('cpu');
+  expect(await screen.findByText(/Configuration imported/)).toBeInTheDocument();
+  const device = screen.getByRole('combobox', { name: 'Training device' });
+  expect(device).toHaveValue('cuda');
+  expect(screen.getByRole('option', { name: 'NVIDIA CUDA (unavailable)' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
+  await waitFor(() => expect(error).toHaveBeenCalledWith('CUDA is not available on this server.'));
+  fireEvent.change(device, { target: { value: 'cpu' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
+  await waitFor(() => expect(posts).toBe(2));
+  const bodies = fetcher.mock.calls
+    .filter(([path, init]) => path === '/api/training/jobs' && init?.method === 'POST')
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(bodies[0]).toMatchObject({ device: 'cuda' });
+  expect(bodies[1]).toMatchObject({ device: 'cpu' });
 });
 
 it('edits an imported value and submits the resulting payload', async () => {

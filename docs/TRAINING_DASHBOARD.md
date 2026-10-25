@@ -49,10 +49,13 @@ fields omitted from the file keep their current values, and explicit `false`,
 `0` and empty values are preserved rather than replaced by defaults. An
 optimization configuration switches the form to tuning and restores its trial
 budget, study name, study seed and search space. Importing only fills the form: it
-never starts a job, and the imported values stay editable before submission.
-Fields with no training meaning, such as paths, identifiers, status and metadata,
-are listed as ignored, and a malformed or invalid file leaves the previous form
-state untouched with an explanation.
+never starts a job, and the imported values stay editable before submission. An
+imported device or inference backend is kept even when this server or the
+selected worker cannot provide it, so the form shows the unavailable option and
+starting reports the platform error instead of silently switching to CPU. The
+user can then adjust it manually. Fields with no training meaning, such as paths,
+identifiers, status and metadata, are listed as ignored, and a malformed or
+invalid file leaves the previous form state untouched with an explanation.
 
 ## Recorded self-play totals
 
