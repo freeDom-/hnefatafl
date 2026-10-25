@@ -313,3 +313,14 @@ it. If known commits differ, install the same source revision on both sides.
 Hardware/backend/cache incompatibilities require the corresponding runtime and
 operational device, even when version overrides are enabled. Offline status
 requires checking reachability and worker supervision separately from versions.
+
+## Training symmetry augmentation
+
+Jobs carry `training_symmetry_mode` (`off` or `random_d4`) like any other training
+field, validated by the server and the worker. Workers advertise
+`training_symmetry_modes` in their capabilities; a `random_d4` job is only assigned
+to (or accepted for) a worker that lists it, and a pinned incompatible worker is
+rejected at queue time. Workers that predate the feature never receive the key for
+`off` jobs, and legacy resume transports omit it from the saved configuration.
+Resumed checkpoints carry the optional `augmentation_rng` state unchanged.
+

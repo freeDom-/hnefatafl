@@ -3,6 +3,7 @@ import { api } from './api';
 import { useI18n } from './i18n';
 import type { Job, TrainingWorker, DeviceInfo } from './types';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
+import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
 import TrainingTarget, { jobTarget, targetRequest, workerEligible } from './TrainingTarget';
 import {
   numberField,
@@ -95,6 +96,7 @@ export default function TrainingResumeDialog({
         saved.inference_device ??= 'auto';
         saved.inference_cache_mode ??= 'off';
         saved.inference_cache_capacity ??= 4096;
+        saved.training_symmetry_mode ??= 'off';
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
@@ -118,8 +120,13 @@ export default function TrainingResumeDialog({
       alive = false;
     };
   }, [job]);
+  const targetCapabilities =
+    executionTarget === 'local'
+      ? localDevice
+      : workers.find((worker) => `worker:${worker.id}` === executionTarget)?.capabilities;
   const valid =
     checkpoint?.can_resume &&
+    !symmetryTargetError(config, targetCapabilities) &&
     !inferenceTargetError(
       config,
       executionTarget,
@@ -160,6 +167,7 @@ export default function TrainingResumeDialog({
                   'inference_backend',
                   'inference_cache_mode',
                   'inference_device',
+                  'training_symmetry_mode',
                 ].includes(key)) &&
               value !== savedConfig.current[key],
           ),
@@ -252,6 +260,12 @@ export default function TrainingResumeDialog({
                     target={executionTarget}
                     workers={workers}
                     local={localDevice}
+                    disabled={busy}
+                  />
+                  <SymmetrySettings
+                    config={config}
+                    update={update}
+                    capabilities={targetCapabilities}
                     disabled={busy}
                   />
                   <div className="form-grid resume-optimizer-settings">

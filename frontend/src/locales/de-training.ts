@@ -1,4 +1,20 @@
 const translations: Record<string, string> = {
+  'Training symmetry augmentation': 'Symmetrie-Datenaugmentation',
+  Disabled: 'Deaktiviert',
+  'Random D4 rotations and reflections': 'Zufällige D4-Drehungen und -Spiegelungen',
+  'Random D4': 'Zufällig (D4)',
+  Mode: 'Modus',
+  'Randomly rotate or reflect training positions and their corresponding move targets to help the network learn equivalent board orientations.':
+    'Trainingspositionen und die zugehörigen Zugwahrscheinlichkeiten werden zufällig gedreht oder gespiegelt, damit das Netz gleichwertige Brettausrichtungen erlernt.',
+  'This changes training samples only, not the game rules or MCTS search budget.':
+    'Das betrifft nur Trainingsbeispiele, nicht die Spielregeln oder das MCTS-Suchbudget.',
+  'This target does not support training symmetry augmentation. Choose a newer worker or disable it.':
+    'Dieses Ziel unterstützt keine Symmetrie-Datenaugmentation. Wähle einen neueren Worker oder deaktiviere sie.',
+  'Symmetry augmentation (seconds)': 'Symmetrie-Augmentation (Sekunden)',
+  'Training exposures': 'Trainingspräsentationen',
+  'Augmented exposures': 'Augmentierte Präsentationen',
+  'Identity transformations': 'Identitätstransformationen',
+  'Share of optimization time': 'Anteil an der Optimierungszeit',
   'Inference cache': 'Inferenzcache',
   'Off · default': 'Aus · Standard',
   'Exact positions': 'Identische Stellungen',

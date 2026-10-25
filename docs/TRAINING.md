@@ -78,6 +78,9 @@ replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
 
 ## Parameters and presets
 
+Symmetry augmentation (`training_symmetry_mode`, default `"off"`) is described in
+[Training symmetry augmentation](#training-symmetry-augmentation).
+
 The default is `recommended` for the chosen ruleset, not the raw base defaults.
 Precedence is base settings → selected preset/ruleset plan → explicit JSON fields.
 `beginner` uses the base budget; `balanced` supplies its own overrides. The UI
@@ -409,3 +412,53 @@ Use the [performance protocol](PERFORMANCE.md#exact-input-cache-and-symmetry-fou
 to compare throughput. Lower neural evaluation counts alone do not establish
 faster training. New performance fields distinguish requests, distinct cache
 lookups, eliminated batch duplicates and actual evaluated positions.
+
+## Training symmetry augmentation
+
+`training_symmetry_mode` is `"off"` (default) or `"random_d4"`. Start Training and
+Resume Training expose it as **Training symmetry augmentation** (German:
+*Symmetrie-Datenaugmentation*): **Disabled** or **Random D4 rotations and reflections**.
+
+With `random_d4`, every replay example placed in an optimizer minibatch receives
+one independently drawn, uniformly distributed transform from the eight D4
+elements (identity included), and is drawn afresh on each later exposure. The
+encoded `[6, n, n]` input is permuted by the same square permutation on every
+plane; each policy action `(source, target)` becomes `(T(source), T(target))` and
+keeps its MCTS probability; the legal mask is mapped elementwise; and the
+defender-relative value is unchanged, because a rotation or reflection never
+swaps attackers and defenders. The throne and corner planes are D4-invariant.
+
+What it does **not** change: self-play, MCTS and evaluation never see transformed
+positions; replay stores the original positions only (it is never multiplied
+eightfold); capacity, minibatch size, epochs and optimizer-update counts are
+identical to `off`; games, replay and simulation counts keep their meanings.
+Augmentation uses its own random stream, so `off` draws no extra random values
+and reproduces the previous baseline bit-for-bit on CPU.
+
+Augmentation, [exact inference caching](#optional-exact-input-inference-reuse)
+and MCTS node-level prediction reuse are independent. Augmentation teaches the
+network that orientations are equivalent, but it does **not** make the network
+exactly equivariant, so predictions for rotated positions are never shared or
+merged anywhere in inference or search.
+
+**Reproducibility and resume.** The dedicated stream is saved in full checkpoints
+as `augmentation_rng`. A resumed job restores it, so an interrupted
+`random_d4` CPU run matches an uninterrupted one exactly. Checkpoints without the
+field (older, or written by an `off` job) resume with `off` unless you set the mode,
+and a deliberate off→`random_d4` resume derives its stream deterministically from
+the unchanged seed and completed iteration. The new job's effective configuration
+records the choice; the source checkpoint is never rewritten.
+
+**Remote workers.** Workers report `training_symmetry_modes`. A `random_d4` job
+waits for (or is refused by) a worker that does not list it; older workers still
+run `off` jobs, and the default is omitted from their transport copy.
+
+**Metrics.** Progress `performance` and `metrics.augmentation` report the mode,
+`training_exposures` (examples presented to the optimizer, `epochs × replay`),
+`augmentation_exposures` (those transformed, 0 when off), identity count, the
+eight per-transform counts, augmentation seconds and its share of optimization
+time. These count optimizer presentations, not replay positions or games.
+
+Presets are unchanged and do not enable augmentation. Evidence and the suggested
+comparison experiment are in the [performance guide](PERFORMANCE.md#phase-3-training-symmetry-augmentation).
+

@@ -1,0 +1,33 @@
+{
+  "rulesets": [
+    "brandubh",
+    "tablut",
+    "copenhagen"
+  ],
+  "device": "cuda",
+  "seed": 20260901,
+  "replay_games": 16,
+  "heldout_games": 6,
+  "epochs": 12,
+  "repetitions": 3,
+  "consistency_positions": 96,
+  "throughput_repetitions": 5,
+  "strength_iterations": 4,
+  "strength_games": 16,
+  "strength_replicates": 2,
+  "training": {
+    "channels": 16,
+    "blocks": 1,
+    "mcts_iterations": 16,
+    "max_game_plies": 80,
+    "batch_size": 64,
+    "learning_rate": 0.002,
+    "games": 8,
+    "evaluation_max_plies": 120,
+    "evaluation_iterations": 16,
+    "cpu_threads": 4
+  },
+  "sections": [
+    "throughput"
+  ]
+}

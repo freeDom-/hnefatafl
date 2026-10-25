@@ -8,6 +8,7 @@ import { numberField, SelfPlayModeField } from './TrainingFields';
 import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
+import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
 
 interface Props {
   config: TrainingConfig;
@@ -239,6 +240,15 @@ export default function TrainingCreationPanel({
                 <option value="sgd">SGD</option>
               </select>
             </label>
+            <SymmetrySettings
+              config={config}
+              update={update}
+              capabilities={
+                isRemote
+                  ? workers.find((worker) => `worker:${worker.id}` === target)?.capabilities
+                  : device
+              }
+            />
           </div>
         </fieldset>
         <fieldset className="creation-group">
@@ -380,7 +390,15 @@ export default function TrainingCreationPanel({
             disabled={
               busy ||
               unavailableTarget ||
-              Boolean(inferenceTargetError(config, isRemote ? target : 'local', targetDevice))
+              Boolean(inferenceTargetError(config, isRemote ? target : 'local', targetDevice)) ||
+              Boolean(
+                symmetryTargetError(
+                  config,
+                  isRemote
+                    ? workers.find((worker) => `worker:${worker.id}` === target)?.capabilities
+                    : device,
+                ),
+              )
             }
           >
             {busy

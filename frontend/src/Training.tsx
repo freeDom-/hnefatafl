@@ -57,6 +57,7 @@ const parameterLabels: Record<string, string> = {
   study_name: 'Study name',
   study_seed: 'Study random seed',
   inference_cache_mode: 'Inference cache',
+  training_symmetry_mode: 'Training symmetry augmentation',
 };
 const metricText = (value: unknown) =>
   typeof value === 'number'

@@ -32,6 +32,13 @@ from .models import (
     save_checkpoint,
 )
 from .inference_backends import InferenceBackend, create_inference, normalize_inference
+from .training_augmentation import (
+    AugmentationStats,
+    augmentation_rng,
+    collate_batch,
+    sample_symmetries,
+    validate_mode,
+)
 from .training_presets import RECOMMENDED
 from .game_statistics import checkpoint_cumulative, self_play_statistics
 from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
@@ -62,6 +69,7 @@ DEFAULTS = {
     "replay_buffer_size": 5000,
     "weight_decay": 0.0001,
     "momentum": 0.9,
+    "training_symmetry_mode": "off",
     "checkpoint_frequency": 1,
     "evaluation_opponent": "shield_bearer",
     "evaluation_frequency": 1,
@@ -197,6 +205,7 @@ def normalize_config(configuration: dict) -> dict:
         raise ValueError("model_name must contain 1–100 characters")
     if config["inference_cache_mode"] not in ("off", "exact"):
         raise ValueError("inference_cache_mode must be off or exact")
+    validate_mode(config["training_symmetry_mode"])
     normalize_inference(config)
     return config
 
@@ -524,6 +533,72 @@ def _make_optimizer(model: PolicyValueNet, config: dict):
     return torch.optim.AdamW(model.parameters(), **arguments)
 
 
+def optimize_replay(
+    model: PolicyValueNet,
+    optimizer: torch.optim.Optimizer,
+    scaler,
+    replay: list[dict],
+    config: dict,
+    device: torch.device,
+    mixed: bool,
+    rng: random.Random,
+    augment_rng: random.Random,
+    *,
+    should_stop: Callable[[], bool] | None = None,
+    on_epoch: Callable[[int], None] | None = None,
+) -> dict:
+    """One iteration's optimizer updates over shuffled replay minibatches.
+
+    Replay is never modified. ``rng`` shuffles; ``augment_rng`` is consulted only
+    in ``random_d4`` mode (one uniform D4 draw per presented example), so OFF
+    consumes no extra random values and keeps its exact baseline stream.
+    """
+    model.train()
+    policy_losses: list[float] = []
+    value_losses: list[float] = []
+    updates = presented = 0
+    augmenting = config["training_symmetry_mode"] == "random_d4"
+    augmentation = AugmentationStats()
+    for epoch in range(config["epochs"]):
+        order = list(range(len(replay)))
+        rng.shuffle(order)
+        for start in range(0, len(order), config["batch_size"]):
+            if should_stop and should_stop():
+                raise InterruptedError("Training was cancelled")
+            batch = [replay[index] for index in order[start : start + config["batch_size"]]]
+            symmetries = sample_symmetries(augment_rng, len(batch)) if augmenting else None
+            inputs, target_policy, legal_mask, values = collate_batch(
+                batch, device, symmetries, augmentation
+            )
+            presented += len(batch)
+            optimizer.zero_grad(set_to_none=True)
+            with torch.autocast(device_type=device.type, enabled=mixed):
+                logits, predicted = model(inputs)
+                logits = logits.float().masked_fill(~legal_mask, -1e9)
+                policy_loss = -(target_policy * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
+                value_loss = F.mse_loss(predicted.float(), values)
+                loss = policy_loss + value_loss
+            if not torch.isfinite(loss):
+                raise ValueError("Non-finite training loss; reduce learning rate")
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            scaler.step(optimizer)
+            scaler.update()
+            policy_losses.append(float(policy_loss.detach()))
+            value_losses.append(float(value_loss.detach()))
+            updates += 1
+        if on_epoch:
+            on_epoch(epoch + 1)
+    return {
+        "policy_losses": policy_losses,
+        "value_losses": value_losses,
+        "updates": updates,
+        "presented": presented,
+        "augmentation": augmentation,
+    }
+
+
 def train(
     configuration: dict,
     progress: Callable[[dict], None] | None = None,
@@ -557,6 +632,9 @@ def train(
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(config["seed"])
     rng = random.Random(config["seed"])
+    # Dedicated stream: OFF never draws from it, and neither replay shuffling nor
+    # self-play scheduling can shift augmentation choices (or vice versa).
+    augment_rng = augmentation_rng(config["seed"], 0)
     model = (
         resume_model
         if resume_model is not None
@@ -618,6 +696,11 @@ def train(
             raise ValueError("Resume checkpoint is missing its portable best-model snapshot")
         if "python_rng" in extra:
             rng.setstate(extra["python_rng"])
+        if "augmentation_rng" in extra:
+            augment_rng.setstate(extra["augmentation_rng"])
+        else:
+            # Legacy checkpoints: reproducible derivation from seed and progress.
+            augment_rng = augmentation_rng(config["seed"], completed)
         if "torch_rng" in extra:
             torch.set_rng_state(extra["torch_rng"].cpu())
         if device.type == "cuda" and extra.get("cuda_rng"):
@@ -704,6 +787,7 @@ def train(
             "history": history,
             "best_models": best_models,
             "python_rng": rng.getstate(),
+            "augmentation_rng": augment_rng.getstate(),
             "torch_rng": torch.get_rng_state(),
             "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
             "grad_scaler": scaler.state_dict(),
@@ -752,48 +836,36 @@ def train(
                 raise ValueError("Self-play generated no training examples")
             optimization_started = time.monotonic()
             model.train()
-            policy_losses, value_losses = [], []
-            updates = 0
-            for epoch in range(config["epochs"]):
-                order = list(range(len(replay)))
-                rng.shuffle(order)
-                for start in range(0, len(order), config["batch_size"]):
-                    if should_stop and should_stop():
-                        raise InterruptedError("Training was cancelled")
-                    batch = [replay[index] for index in order[start : start + config["batch_size"]]]
-                    inputs = torch.stack([row["input"] for row in batch]).to(device)
-                    values = torch.tensor(
-                        [row["value"] for row in batch], dtype=torch.float32, device=device
-                    )
-                    target_policy = torch.zeros((len(batch), model.size**4), device=device)
-                    legal_mask = torch.zeros_like(target_policy, dtype=torch.bool)
-                    for index, row in enumerate(batch):
-                        target_policy[index, row["actions"]] = torch.tensor(
-                            row["probabilities"], dtype=torch.float32, device=device
-                        )
-                        legal_mask[index, row["legal"]] = True
-                    optimizer.zero_grad(set_to_none=True)
-                    with torch.autocast(device_type=device.type, enabled=mixed):
-                        logits, predicted = model(inputs)
-                        logits = logits.float().masked_fill(~legal_mask, -1e9)
-                        policy_loss = (
-                            -(target_policy * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
-                        )
-                        value_loss = F.mse_loss(predicted.float(), values)
-                        loss = policy_loss + value_loss
-                    if not torch.isfinite(loss):
-                        raise ValueError("Non-finite training loss; reduce learning rate")
-                    scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-                    scaler.step(optimizer)
-                    scaler.update()
-                    policy_losses.append(float(policy_loss.detach()))
-                    value_losses.append(float(value_loss.detach()))
-                    updates += 1
-                publish(stage="optimization", epoch=epoch + 1)
+            optimized = optimize_replay(
+                model,
+                optimizer,
+                scaler,
+                replay,
+                config,
+                device,
+                mixed,
+                rng,
+                augment_rng,
+                should_stop=should_stop,
+                on_epoch=lambda epoch: publish(stage="optimization", epoch=epoch),
+            )
+            policy_losses, value_losses = optimized["policy_losses"], optimized["value_losses"]
+            updates, presented = optimized["updates"], optimized["presented"]
+            augmentation = optimized["augmentation"]
             model.eval()
             performance["optimization_seconds"] = time.monotonic() - optimization_started
+            summary = augmentation.summary(
+                config["training_symmetry_mode"], performance["optimization_seconds"]
+            )
+            summary["training_exposures"] = presented
+            performance.update(
+                augmentation_mode=summary["mode"],
+                training_exposures=presented,
+                augmentation_exposures=summary["exposures"],
+                augmentation_identity=summary["identity"],
+                augmentation_seconds=summary["seconds"],
+                augmentation_optimization_share=summary["optimization_share"],
+            )
             try:
                 import resource
                 import sys
@@ -809,6 +881,7 @@ def train(
                 "updates": updates,
                 "self_play": generated,
                 "replay_positions": len(replay),
+                "augmentation": summary,
                 "performance": performance,
             }
             # Optimization is complete even if the following evaluation is cancelled.

@@ -447,3 +447,22 @@ hashes. Eleven cache/mode comparisons improve; sequential/exact is effectively
 flat. Packed tree storage adds 6.8–8.1% traced memory in the measured probe;
 maximum median process RSS increase is 15.6 MiB/5.7%. No GPU or strength gain is
 claimed. Version 0.26.0 was already published at the verified baseline commit.
+
+## D4 training augmentation (`0.28.0`)
+
+Phase 3 adds optional symmetry augmentation of optimizer samples. `random_d4`
+transforms each replay example's six input planes, action ids, probabilities and
+legal mask with cached D4 permutations while preserving the defender-relative
+value; `off` stays the default and keeps the previous baseline. Self-play, MCTS,
+evaluation and Phase 1/2 inference reuse are untouched, and no prediction is shared
+across orientations. A dedicated `augmentation_rng` in full checkpoints makes
+interrupted and uninterrupted CPU runs identical, including a deliberate
+off→random_d4 resume; legacy checkpoints load unchanged. The workshop exposes the
+setting for new and resumed jobs with English/German labels, and workers advertise
+`training_symmetry_modes`.
+
+Measured augmentation work is 1.4–1.9% of optimization time with unchanged memory;
+policy consistency under D4 improved by 4.6–6.5× and held-out policy loss fell in
+all nine replicates, while paired smoke games established no strength difference.
+See the [0.28.0 release record](docs/releases/0.28.0.md) and
+[benchmark evidence](docs/benchmarks/symmetry-phase3.md).

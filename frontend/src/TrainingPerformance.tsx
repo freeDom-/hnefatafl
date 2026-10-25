@@ -162,12 +162,30 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
             {fields([
               ['self_play_wall_seconds', 'Self-play wall time (seconds)'],
               ['optimization_seconds', 'Gradient optimization (seconds)'],
+              ['augmentation_seconds', 'Symmetry augmentation (seconds)'],
               ['evaluation_seconds', 'Opponent evaluation (seconds)'],
               ['iteration_wall_seconds', 'Iteration wall time (seconds)'],
             ])}
           </dl>
         </section>
       </div>
+      {typeof performance.augmentation_mode === 'string' && (
+        <>
+          <h5>{t('Training symmetry augmentation')}</h5>
+          <dl className="job-metrics">
+            <div>
+              <dt>{t('Mode')}</dt>
+              <dd>{t(performance.augmentation_mode === 'random_d4' ? 'Random D4' : 'Disabled')}</dd>
+            </div>
+            {fields([
+              ['training_exposures', 'Training exposures'],
+              ['augmentation_exposures', 'Augmented exposures'],
+              ['augmentation_identity', 'Identity transformations'],
+              ['augmentation_optimization_share', 'Share of optimization time'],
+            ])}
+          </dl>
+        </>
+      )}
       <h5>{t('Overlapping activity counters')}</h5>
       <p className="subtle">
         {t(

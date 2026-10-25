@@ -30,6 +30,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
 | [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and content-addressed model registry |
 | [training.py](hnefatafl/training.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
+| [training_augmentation.py](hnefatafl/training_augmentation.py), [symmetry_benchmark.py](hnefatafl/symmetry_benchmark.py) | Tensor-level D4 transforms of replay examples (input, action ids, legal mask), cached action permutations, minibatch collation and evidence tooling; no engine, search or inference dependency |
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
 | [benchmark.py](hnefatafl/benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons and headless command dispatch |
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
@@ -122,7 +123,18 @@ common orientation. Board-only `BoardKey` and full `StateKey` are different type
 full keys retain all metadata and ordered history, using history to resolve
 symmetric-board ties. Saved states and move formats are unchanged. Existing models
 need not be rotation invariant: none of these canonical keys is used for neural
-inference, pruning, transpositions, replay or training augmentation.
+inference, pruning, transpositions or replay.
+
+Training augmentation is a separate, optional (`training_symmetry_mode`, default
+`off`) optimization-stage transform. `training_augmentation.py` reuses
+`coordinate_map` to build `[8, n²]` square and `[8, n⁴]` action permutations. For
+each minibatch row it permutes all six planes, maps every policy/legal action id,
+keeps probabilities paired and leaves the defender-relative value unchanged. It
+runs on host tensors before the one device transfer and draws from a dedicated
+RNG saved as `augmentation_rng` in full checkpoints. Self-play, MCTS, evaluation,
+replay storage and the exact-input cache never see transformed positions.
+Augmentation encourages but does not guarantee equivariance, so independent
+neural predictions remain unmerged.
 
 ## Model scope and trust
 

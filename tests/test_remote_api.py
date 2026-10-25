@@ -380,6 +380,7 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
                 "package_version": client.app.version,
                 "inference_backends": ["pytorch"],
                 "inference_cache_modes": ["off", "exact"],
+                "training_symmetry_modes": ["off", "random_d4"],
             }
         },
     )
@@ -610,6 +611,7 @@ def test_legacy_worker_transport_omits_new_defaults_and_preserves_resume_tensors
     assert "inference_backend" not in leased["config"]
     assert "inference_device" not in leased["config"]
     assert "inference_cache_mode" not in leased["config"]
+    assert "training_symmetry_mode" not in leased["config"]
     assert (
         client.get(f"/api/training/jobs/{source['id']}").json()["config"]["inference_backend"]
         == "pytorch"
@@ -644,3 +646,60 @@ def test_legacy_worker_transport_omits_new_defaults_and_preserves_resume_tensors
     assert (
         client.app.state.data_dir / "jobs" / resumed["id"] / "resume.pt"
     ).read_bytes() == artifacts[0].read_bytes()
+
+
+def test_symmetry_mode_gates_workers_and_legacy_transport_omits_it(client):
+    from hnefatafl.remote_training import worker_compatible
+
+    config = {"training_symmetry_mode": "random_d4"}
+    assert not worker_compatible(config, {})
+    assert not worker_compatible(config, {"training_symmetry_modes": ["off"]})
+    assert worker_compatible(config, {"training_symmetry_modes": ["off", "random_d4"]})
+    assert worker_compatible({}, {}) and worker_compatible({"training_symmetry_mode": "off"}, {})
+    _, headers = worker(client)
+    assert (
+        client.post(
+            "/api/worker/heartbeat",
+            headers=headers,
+            json={"capabilities": {"training_symmetry_modes": ["off", "all_d4"]}},
+        ).status_code
+        == 400
+    )
+    # A connected worker that predates augmentation refuses explicit augmentation
+    # for an unpinned job and receives no unknown key for the default.
+    queue(client, training_symmetry_mode="random_d4")
+    assert claim(client, headers, "none") is None
+    invalid = client.post(
+        "/api/training/jobs",
+        json={"execution": "remote", "preset": "smoke", "training_symmetry_mode": "all_d4"},
+    )
+    assert invalid.status_code == 400
+    pinned, _ = worker(client)
+    rejected = client.post(
+        "/api/training/jobs",
+        json={
+            "execution": "remote",
+            "preset": "smoke",
+            "device": "cpu",
+            "worker_id": pinned["id"],
+            "training_symmetry_mode": "random_d4",
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+
+
+def test_augmenting_worker_receives_setting_and_legacy_default_stays_off(client):
+    remote, headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+            }
+        },
+    )
+    job = queue(client, training_symmetry_mode="random_d4", worker_id=remote["id"])
+    assert job["config"]["training_symmetry_mode"] == "random_d4"
+    assert claim(client, headers)["config"]["training_symmetry_mode"] == "random_d4"

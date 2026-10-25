@@ -159,6 +159,7 @@ export interface DeviceInfo {
   protocol_version?: number;
   inference_backends?: string[];
   inference_cache_modes?: string[];
+  training_symmetry_modes?: string[];
   openvino_version?: string;
   openvino_error?: string;
   openvino_devices?: { id: string; name: string; available: boolean; error?: string }[];

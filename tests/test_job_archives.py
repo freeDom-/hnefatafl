@@ -227,6 +227,42 @@ def test_model_deduplication_reimport_and_existing_catalog(client, trained_archi
         assert response.json()["resumable"] is True
 
 
+def test_export_import_preserves_training_symmetry_mode(client, tmp_path):
+    # A real augmented job: the portable configuration must survive export/import.
+    created = client.post(
+        "/api/training/jobs",
+        json={
+            "preset": "smoke",
+            "ruleset": "brandubh",
+            "device": "cpu",
+            "cpu_threads": 1,
+            "max_game_plies": 4,
+            "evaluation_max_plies": 2,
+            "mcts_time_limit": 5,
+            "seed": 0,
+            "training_symmetry_mode": "random_d4",
+        },
+    )
+    assert created.status_code == 201, created.text
+    identifier = created.json()["id"]
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        job = client.get(f"/api/training/jobs/{identifier}").json()
+        if job["status"] not in {"running", "cancelling"}:
+            break
+        time.sleep(0.05)
+    assert job["status"] == "completed", job
+    assert job["config"]["training_symmetry_mode"] == "random_d4"
+    assert job["progress"]["metrics"]["augmentation"]["exposures"] > 0
+    exported = export(client, job)
+    with TestClient(create_app(tmp_path / "symmetry")) as target:
+        response = upload(target, exported)
+        assert response.status_code == 201, response.text
+        imported = target.get(f"/api/training/jobs/{response.json()['id']}").json()
+        assert imported["config"]["training_symmetry_mode"] == "random_d4"
+        assert imported["resumable"] is True
+
+
 def test_archive_contains_checkpoints_history_models_and_sanitized_logs(trained_archive):
     content, original, _ = trained_archive
     with zipfile.ZipFile(io.BytesIO(content)) as archive:

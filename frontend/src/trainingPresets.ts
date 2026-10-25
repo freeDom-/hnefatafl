@@ -26,6 +26,7 @@ const base: TrainingConfig = {
   replay_buffer_size: 5000,
   weight_decay: 0.0001,
   momentum: 0.9,
+  training_symmetry_mode: 'off',
   checkpoint_frequency: 1,
   evaluation_frequency: 1,
   evaluation_opponent: 'shield_bearer',
@@ -167,6 +168,7 @@ export function changeTrainingPlan(
     inference_batch_size: previous.inference_batch_size ?? 32,
     inference_cache_mode: previous.inference_cache_mode ?? 'off',
     inference_cache_capacity: previous.inference_cache_capacity ?? 4096,
+    training_symmetry_mode: previous.training_symmetry_mode ?? 'off',
   };
 }
 
@@ -190,6 +192,7 @@ export function recordedTrainingParameters(
     ruleset: ['brandubh', 'tablut', 'copenhagen'],
     device: ['auto', 'cpu', 'cuda', 'mps'],
     inference_cache_mode: ['off', 'exact'],
+    training_symmetry_mode: ['off', 'random_d4'],
     inference_backend: ['pytorch', 'openvino'],
     optimizer: ['adamw', 'adam', 'sgd'],
     self_play_mode: ['auto', 'sequential', 'batched'],
@@ -229,6 +232,7 @@ export function recordedTrainingParameters(
     inference_device: 'auto',
     inference_cache_mode: 'off',
     inference_cache_capacity: 4096,
+    training_symmetry_mode: 'off',
     ...values,
     model_name: model.name.trim() && model.name.length <= 100 ? model.name : previous.model_name,
     ruleset: choices.ruleset.includes(model.ruleset) ? model.ruleset : previous.ruleset,

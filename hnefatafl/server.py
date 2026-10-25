@@ -1713,6 +1713,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         "replay_buffer_size",
         "weight_decay",
         "momentum",
+        "training_symmetry_mode",
         "checkpoint_frequency",
         "evaluation_frequency",
         "evaluation_opponent",

@@ -72,6 +72,11 @@ Imported inference-only models without a retained full training checkpoint are
 available for play but cannot restore optimizer/replay/random state.
 
 Resumption starts a new job/output directory and preserves the original run.
+The reviewed dialog and resume API also edit `training_symmetry_mode`. Checkpoints
+that do not record it show and resume as `off`; switching to `random_d4` is a
+deliberate, recorded change of the new job's effective configuration, and full
+checkpoints add an optional `augmentation_rng` field (the replay itself remains
+the original, untransformed positions; no format version change).
 The API uses `GET /api/training/jobs/{id}/resume` for reviewed checkpoint metadata
 and `POST` to the same route with `{ "iterations": <target total> }` to continue.
 Optional editable training fields, including `self_play_mode`,

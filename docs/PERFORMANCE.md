@@ -141,6 +141,16 @@ fields mean unavailable measurements, not zero GPU usage.
 
 ## Benchmark protocol and evidence
 
+Three commands produce the checked-in evidence. `benchmark` compares self-play
+scheduling, `benchmark-training` compares complete CPU/OpenVINO training iterations
+and `benchmark-symmetry` measures D4 augmentation cost, geometric consistency,
+held-out learning and paired strength:
+
+```sh
+.venv/bin/python -m hnefatafl.cli benchmark-symmetry \
+  --config docs/benchmarks/symmetry-phase3-cpu-config.json --output data/symmetry.json
+```
+
 Compare modes without starting a training job or registering a model. `--output`
 also saves the JSON report; `--config` selects an explicit training-style budget:
 
@@ -436,3 +446,57 @@ The graph is compiled/refreshed once per device and warmed before timing; all
 scenarios use that frozen snapshot. Conversion time is excluded from this
 self-play benchmark. Use `benchmark-training` to measure full refresh/optimizer
 iteration costs instead.
+
+## Phase 3: training symmetry augmentation
+
+`training_symmetry_mode: "random_d4"` transforms each replay example presented to
+the optimizer (see [Training](TRAINING.md#training-symmetry-augmentation)). It is a
+learning-quality feature, not a speed feature, and it is separate from the Phase 1
+exact-input cache and Phase 2 node-level prediction reuse: those avoid repeated
+evaluation of the *same* orientation; augmentation changes training samples only and
+never merges or shares predictions across orientations. A network trained with
+augmentation is closer to, but not exactly, D4-equivariant.
+
+| Field | Meaning |
+| --- | --- |
+| `training_exposures` | Examples presented to the optimizer this iteration (`epochs × replay`) |
+| `augmentation_exposures` | Exposures that were transformed (0 when off) |
+| `augmentation_identity` | Exposures that drew the identity transform |
+| `augmentation_seconds` | Host time computing transformed inputs, actions and masks |
+| `augmentation_optimization_share` | `augmentation_seconds / optimization_seconds` |
+| `metrics.augmentation.transform_counts` | Eight per-transform counts in `Symmetry` enum order |
+
+Original replay positions, games, simulations and neural evaluations keep their
+existing meanings. Index tables are cached per board size (`[8, n²]` squares,
+`[8, n⁴]` actions) and applied with vectorized gather/index operations before one
+device transfer.
+
+### Measured results (2026-10-25)
+
+Full tables, environment and raw JSON: [symmetry-phase3.md](benchmarks/symmetry-phase3.md).
+With matched replay, weights, batches and seed on tiny networks: measured augmentation
+work is 1.4–1.9% of optimization time; end-to-end optimizer-time ratios (random_d4/off)
+medians were 0.97–1.04 on CPU, 0.94–1.05 on CUDA FP32 and 1.03–1.14 on CUDA mixed
+precision (RTX 3060), with per-repetition scatter spanning roughly ±20% (CPU timings
+shared the host with another training job). Memory was unchanged. Mean policy
+total-variation distance between a position and its mapped-back rotations fell from
+0.54/0.47/0.42 to 0.12/0.09/0.07 (Brandubh/Tablut/Copenhagen) and held-out policy loss
+fell in 9/9 replicates, but top-move agreement remained far from exact and a 32-game
+paired smoke match per ruleset showed no distinguishable strength difference. CUDA
+FP32 and mixed-precision optimization, training and resume were executed on the RTX
+3060; MPS and OpenVINO GPU were not exercised for this feature (OpenVINO inference
+does not touch the optimizer path).
+
+### Recommended experiment
+
+To decide whether `random_d4` should become a default, start from one shared full
+checkpoint (`last.pt`) per ruleset and resume two new jobs with equal iterations,
+games, search budgets, seed-derived settings and replay capacity, differing only in
+`training_symmetry_mode`. Repeat over at least five seeds/starting checkpoints and
+train long enough that the replay buffer is a meaningful fraction of its capacity.
+Evaluate with the champion/paired evaluation (or tournaments) with at least 200
+side-swapped games per pair at equal search budgets, reporting wins, losses, rule
+draws and unfinished games with Wilson or paired intervals, plus held-out loss on
+positions from games not used for optimization. Do not infer strength from loss or
+symmetry consistency alone.
+

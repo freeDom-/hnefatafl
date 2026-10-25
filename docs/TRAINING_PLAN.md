@@ -42,8 +42,9 @@ perspective during search. AdamW and gradient clipping regularize the update.
 Learning rates are 0.001, 0.0007 and 0.0005; epochs per iteration are 2, 3 and 3.
 Larger replay buffers mix older and newer positions rather than repeatedly fitting
 one short game. Opening temperature and Dirichlet noise diversify self-play, with
-noise alpha 0.3, 0.2 and 0.15 as the branching space grows. No symmetry augmentation
-or hand-labelled tactical curriculum is introduced in this release.
+noise alpha 0.3, 0.2 and 0.15 as the branching space grows. These plans do not enable
+[symmetry augmentation](TRAINING.md#training-symmetry-augmentation), which is an
+explicit opt-in, and add no hand-labelled tactical curriculum.
 
 ## How to establish a better configuration
 

@@ -28,6 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     full_benchmark.add_argument("--config", required=True, help="Full-training benchmark JSON")
     full_benchmark.add_argument("--output", help="Save measured JSON evidence")
+    symmetry = sub.add_parser(
+        "benchmark-symmetry", help="Measure D4 augmentation cost, consistency and learning"
+    )
+    symmetry.add_argument("--config", help="Optional symmetry benchmark JSON")
+    symmetry.add_argument("--output", help="Save measured JSON evidence")
     benchmark = sub.add_parser("benchmark", help="Compare sequential and batched self-play")
     benchmark.add_argument("--config", help="Optional training JSON with benchmark budgets")
     benchmark.add_argument("--output", help="Also save the JSON comparison to this file")
@@ -58,7 +63,12 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     try:
         result: Any
-        if args.command in ("benchmark", "benchmark-heuristics", "benchmark-training"):
+        if args.command in (
+            "benchmark",
+            "benchmark-heuristics",
+            "benchmark-training",
+            "benchmark-symmetry",
+        ):
             config = (
                 json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
             )
@@ -68,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .training_benchmark import run_training_benchmark
 
                 result = run_training_benchmark(config, should_stop=stop.is_set)
+            elif args.command == "benchmark-symmetry":
+                from .symmetry_benchmark import run_symmetry_benchmark
+
+                result = run_symmetry_benchmark(config, should_stop=stop.is_set)
             elif args.command == "benchmark-heuristics":
                 from .heuristic_benchmark import run_heuristic_benchmark
 

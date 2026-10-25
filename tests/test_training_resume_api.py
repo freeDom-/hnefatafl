@@ -371,3 +371,50 @@ def test_resume_switches_to_maiden_without_resetting_learning_state(client):
     for parameter, values in before["optimizer_state"]["state"].items():
         assert after["optimizer_state"]["state"][parameter]["step"] > values["step"]
     assert after["extra"]["best_snapshot"]["metadata"]["version"] == 1
+
+
+def test_resume_api_shows_legacy_off_and_reviews_symmetry_override(client, tmp_path):
+    config = {
+        "preset": "smoke",
+        "ruleset": "brandubh",
+        "model_name": "Symmetry resume",
+        "seed": 5,
+        "device": "cpu",
+        "mcts_time_limit": 5,
+        "cpu_threads": 1,
+        "max_game_plies": 6,
+        "evaluation_max_plies": 2,
+    }
+    assert (
+        client.post(
+            "/api/training/jobs", json={**config, "training_symmetry_mode": "bogus"}
+        ).status_code
+        == 400
+    )
+    first = completed(client, client.post("/api/training/jobs", json=config))
+    assert first["config"]["training_symmetry_mode"] == "off"
+    route = f"/api/training/jobs/{first['id']}/resume"
+    # Simulate a pre-Phase-3 job/checkpoint: no setting is recorded at all.
+    root = client.app.state.data_dir
+    path = root / "jobs" / first["id"] / "last.pt"
+    model, payload = load_checkpoint(path)
+    del payload["metadata"]["training_config"]["training_symmetry_mode"]
+    del payload["extra"]["augmentation_rng"]
+    torch.save(payload, path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert client.get(route).json()["config"]["training_symmetry_mode"] == "off"
+    assert client.post(
+        route, json={"iterations": 2, "training_symmetry_mode": "x"}
+    ).status_code == (400)
+    response = client.post(
+        route, json={"iterations": 2, "training_symmetry_mode": "random_d4", "seed": 6}
+    )
+    assert response.status_code == 400  # identity stays immutable
+    second = completed(
+        client, client.post(route, json={"iterations": 2, "training_symmetry_mode": "random_d4"})
+    )
+    assert second["config"]["training_symmetry_mode"] == "random_d4"
+    assert first["config"]["training_symmetry_mode"] == "off"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    unchanged = completed(client, client.post(route, json={"iterations": 2}))
+    assert unchanged["config"]["training_symmetry_mode"] == "off"

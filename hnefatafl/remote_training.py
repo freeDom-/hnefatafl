@@ -55,6 +55,7 @@ TRAINING_FIELDS = {
     "replay_buffer_size",
     "weight_decay",
     "momentum",
+    "training_symmetry_mode",
     "checkpoint_frequency",
     "evaluation_frequency",
     "evaluation_opponent",
@@ -87,6 +88,13 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         or any(mode not in ("off", "exact") for mode in cache_modes)
     ):
         fail("Invalid worker inference_cache_modes.")
+    symmetry_modes = capabilities.get("training_symmetry_modes", ["off"])
+    if (
+        not isinstance(symmetry_modes, list)
+        or len(symmetry_modes) > 4
+        or any(mode not in ("off", "random_d4") for mode in symmetry_modes)
+    ):
+        fail("Invalid worker training_symmetry_modes.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -119,6 +127,10 @@ def validate_inference_capabilities(capabilities: dict) -> None:
 
 
 def worker_compatible(config: dict, capabilities: dict) -> bool:
+    if config.get("training_symmetry_mode", "off") not in capabilities.get(
+        "training_symmetry_modes", ["off"]
+    ):
+        return False
     if config.get("inference_cache_mode", "off") not in capabilities.get(
         "inference_cache_modes", ["off"]
     ):
@@ -723,6 +735,10 @@ class RemoteTraining:
                         # reject unknown configuration keys, even default values.
                         configuration.pop("inference_backend", None)
                         configuration.pop("inference_device", None)
+                    if "training_symmetry_modes" not in worker.get("capabilities", {}):
+                        # Workers predating augmentation reject unknown keys; OFF is
+                        # their behavior and worker_compatible() excludes random_d4.
+                        configuration.pop("training_symmetry_mode", None)
                     if "inference_cache_modes" not in worker.get("capabilities", {}):
                         configuration.pop("inference_cache_mode", None)
                         configuration.pop("inference_cache_capacity", None)
@@ -798,6 +814,8 @@ class RemoteTraining:
                 if not job.get("resume_source") or not checkpoint.is_file():
                     fail("The saved checkpoint was not found.", 404)
                 omitted = set()
+                if "training_symmetry_modes" not in worker.get("capabilities", {}):
+                    omitted.add("training_symmetry_mode")
                 if "inference_cache_modes" not in worker.get("capabilities", {}):
                     omitted.update({"inference_cache_mode", "inference_cache_capacity"})
                 if "inference_backends" not in worker.get("capabilities", {}):
