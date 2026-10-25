@@ -9,10 +9,13 @@ import {
   numberField,
   SelfPlayModeField,
   trainingNumberFields,
+  trainingParameterLabel,
   validTrainingNumbers,
 } from './TrainingFields';
 import type { TrainingConfig } from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
+import ConfigImportButton from './ConfigImportButton';
+import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -63,6 +66,8 @@ export default function TrainingResumeDialog({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [importingConfig, setImportingConfig] = useState(false);
+  const [importNotice, setImportNotice] = useState('');
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
@@ -120,6 +125,56 @@ export default function TrainingResumeDialog({
       alive = false;
     };
   }, [job]);
+  const importConfig = async (file: File) => {
+    if (!checkpoint) return;
+    setImportingConfig(true);
+    setError('');
+    setImportNotice('');
+    try {
+      const imported = await readImportedConfig(file, config, {
+        mode: 'resume',
+        immutable: {
+          ruleset: checkpoint.ruleset,
+          channels: checkpoint.channels,
+          blocks: checkpoint.blocks,
+          seed: checkpoint.seed,
+          optimizer: checkpoint.optimizer,
+        },
+        minimumIterations: checkpoint.completed_iteration + 1,
+      });
+      setConfig(imported.config);
+      const parts = [t('Configuration imported. Review the values before continuing.')];
+      if (imported.warnings.length)
+        parts.push(
+          t('Checkpoint settings kept: {fields}.', {
+            fields: imported.warnings.map((key) => t(trainingParameterLabel(key))).join(', '),
+          }),
+        );
+      if (imported.targetKept)
+        parts.push(
+          t(
+            'The imported iteration target was kept at the current value because it does not exceed the saved completed iteration.',
+          ),
+        );
+      if (imported.ignored.length)
+        parts.push(
+          t('Fields that are not resume parameters were ignored: {fields}.', {
+            fields: imported.ignored.join(', '),
+          }),
+        );
+      setImportNotice(parts.join(' '));
+    } catch (error) {
+      if (error instanceof ConfigImportError && error.fields.length)
+        setError(
+          t('Invalid configuration values: {fields}.', {
+            fields: error.fields.map((key) => t(trainingParameterLabel(key))).join(', '),
+          }),
+        );
+      else setError((error as Error).message);
+    } finally {
+      setImportingConfig(false);
+    }
+  };
   const targetCapabilities =
     executionTarget === 'local'
       ? localDevice
@@ -248,6 +303,23 @@ export default function TrainingResumeDialog({
               </p>
               {checkpoint.can_resume ? (
                 <>
+                  <div className="creation-import">
+                    <ConfigImportButton
+                      onImport={(file) => void importConfig(file)}
+                      busy={importingConfig}
+                      disabled={busy}
+                    />
+                    <span className="subtle">
+                      {t(
+                        'Load editable parameters from an exported config.json. Checkpoint identity and the resume source are never replaced.',
+                      )}
+                    </span>
+                  </div>
+                  {importNotice && (
+                    <p className="notice" role="status">
+                      {importNotice}
+                    </p>
+                  )}
                   <TrainingTarget
                     value={executionTarget}
                     workers={workers}

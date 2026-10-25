@@ -1,4 +1,13 @@
 const translations: Record<string, string> = {
+  'Load editable parameters from an exported config.json. Checkpoint identity and the resume source are never replaced.':
+    'Editierbare Parameter aus einer exportierten config.json laden. Kontrollpunkt-Identität und Fortsetzungsquelle werden nie ersetzt.',
+  'Configuration imported. Review the values before continuing.':
+    'Konfiguration importiert. Prüfe die Werte, bevor du fortsetzt.',
+  'The imported iteration target was kept at the current value because it does not exceed the saved completed iteration.':
+    'Das importierte Iterationsziel wurde beim aktuellen Wert belassen, da es die gespeicherte abgeschlossene Iteration nicht überschreitet.',
+  'Checkpoint settings kept: {fields}.': 'Einstellungen des Kontrollpunkts beibehalten: {fields}.',
+  'Fields that are not resume parameters were ignored: {fields}.':
+    'Felder, die keine Fortsetzungsparameter sind, wurden ignoriert: {fields}.',
   'Resume training': 'Training fortsetzen',
   'Close resume training': 'Trainingsfortsetzung schließen',
   'Checking the saved training checkpoint…': 'Gespeicherter Trainingsstand wird geprüft…',

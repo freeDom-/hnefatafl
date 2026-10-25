@@ -52,6 +52,42 @@ const base: TrainingConfig = {
   dirichlet_fraction: 0.25,
   save_all_best: false,
 };
+/** Explicit schema for importable parameters. Anything else is metadata, not input. */
+export const trainingChoices: Record<string, string[]> = {
+  preset: ['recommended', 'smoke', 'beginner', 'balanced'],
+  ruleset: ['brandubh', 'tablut', 'copenhagen'],
+  device: ['auto', 'cpu', 'cuda', 'mps'],
+  inference_cache_mode: ['off', 'exact'],
+  training_symmetry_mode: ['off', 'random_d4'],
+  inference_backend: ['pytorch', 'openvino'],
+  optimizer: ['adamw', 'adam', 'sgd'],
+  self_play_mode: ['auto', 'sequential', 'batched'],
+  evaluation_opponent: ['shield_bearer', 'shield_maiden', 'jarl', 'champion'],
+};
+
+export function isTrainingParameter(key: string): boolean {
+  return Object.hasOwn(base, key);
+}
+
+/** One validator shared by recorded-config reuse and explicit config.json import. */
+export function validTrainingInput(key: string, value: unknown): boolean {
+  const bounds = trainingNumberFields[key];
+  return (
+    isTrainingParameter(key) &&
+    typeof value === typeof base[key] &&
+    (typeof value !== 'number' || Number.isFinite(value)) &&
+    (!trainingChoices[key] || trainingChoices[key].includes(String(value))) &&
+    (!bounds ||
+      (typeof value === 'number' &&
+        value >= bounds[1] &&
+        value <= bounds[2] &&
+        (!Number.isInteger(bounds[3] ?? 1) ||
+          (Number.isInteger(value) && (value - bounds[1]) % (bounds[3] ?? 1) === 0)))) &&
+    (key !== 'model_name' || (String(value).trim().length > 0 && String(value).length <= 100)) &&
+    (key !== 'inference_device' || /^(auto|cpu|cuda|mps|GPU(?:\.\d+)?)$/.test(String(value)))
+  );
+}
+
 const plans: Record<string, TrainingConfig> = {
   brandubh: {
     channels: 32,
@@ -187,37 +223,10 @@ export function recordedTrainingParameters(
   if (!recorded || typeof recorded !== 'object' || Array.isArray(recorded)) return null;
   const values: TrainingConfig = {};
   const warnings: string[] = [];
-  const choices: Record<string, string[]> = {
-    preset: ['recommended', 'smoke', 'beginner', 'balanced'],
-    ruleset: ['brandubh', 'tablut', 'copenhagen'],
-    device: ['auto', 'cpu', 'cuda', 'mps'],
-    inference_cache_mode: ['off', 'exact'],
-    training_symmetry_mode: ['off', 'random_d4'],
-    inference_backend: ['pytorch', 'openvino'],
-    optimizer: ['adamw', 'adam', 'sgd'],
-    self_play_mode: ['auto', 'sequential', 'batched'],
-    evaluation_opponent: ['shield_bearer', 'shield_maiden', 'jarl', 'champion'],
-  };
-  const validInput = (key: string, value: unknown) => {
-    const bounds = trainingNumberFields[key];
-    return (
-      typeof value === typeof base[key] &&
-      (typeof value !== 'number' || Number.isFinite(value)) &&
-      (!choices[key] || choices[key].includes(String(value))) &&
-      (!bounds ||
-        (typeof value === 'number' &&
-          value >= bounds[1] &&
-          value <= bounds[2] &&
-          (!Number.isInteger(bounds[3] ?? 1) ||
-            (Number.isInteger(value) && (value - bounds[1]) % (bounds[3] ?? 1) === 0)))) &&
-      (key !== 'model_name' || (String(value).trim().length > 0 && String(value).length <= 100)) &&
-      (key !== 'inference_device' || /^(auto|cpu|cuda|mps|GPU(?:\.\d+)?)$/.test(String(value)))
-    );
-  };
   for (const key of Object.keys(base)) {
     const value = recorded[key];
     if (value === undefined) continue;
-    if (validInput(key, value)) values[key] = value as string | number | boolean;
+    if (validTrainingInput(key, value)) values[key] = value as string | number | boolean;
     else warnings.push(key);
   }
   if (!Object.keys(values).some((key) => !['model_name', 'ruleset', 'preset'].includes(key)))
@@ -226,7 +235,9 @@ export function recordedTrainingParameters(
     ...base,
     ...Object.fromEntries(Object.entries(previous).filter(([key]) => Object.hasOwn(base, key))),
     ...Object.fromEntries(
-      warnings.filter((key) => !validInput(key, previous[key])).map((key) => [key, base[key]]),
+      warnings
+        .filter((key) => !validTrainingInput(key, previous[key]))
+        .map((key) => [key, base[key]]),
     ),
     inference_backend: 'pytorch',
     inference_device: 'auto',
@@ -235,9 +246,9 @@ export function recordedTrainingParameters(
     training_symmetry_mode: 'off',
     ...values,
     model_name: model.name.trim() && model.name.length <= 100 ? model.name : previous.model_name,
-    ruleset: choices.ruleset.includes(model.ruleset) ? model.ruleset : previous.ruleset,
+    ruleset: trainingChoices.ruleset.includes(model.ruleset) ? model.ruleset : previous.ruleset,
   };
-  if (!choices.ruleset.includes(model.ruleset)) warnings.push('ruleset');
+  if (!trainingChoices.ruleset.includes(model.ruleset)) warnings.push('ruleset');
   if (capabilities) {
     if (
       (config.device === 'cuda' && !capabilities.cuda_available) ||

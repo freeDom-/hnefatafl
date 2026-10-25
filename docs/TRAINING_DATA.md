@@ -84,6 +84,16 @@ Optional editable training fields, including `self_play_mode`,
 the new job on local or updated remote workers, using new-job validation.
 It never accepts an arbitrary client checkpoint path or an architecture override.
 
+**Import config.json** in the resume dialog applies the same parser on top of the
+checkpoint-initialized values. Only editable parameters are overridden. The
+ruleset, network channels, residual blocks, seed and optimizer remain fixed by the
+checkpoint; an imported value that conflicts with them is reported as a kept
+checkpoint setting rather than applied, and the target total iteration must still
+exceed the saved completed iteration. Identifiers, paths, status fields and
+metadata are ignored, so an imported file cannot replace the selected resume
+source or bypass its compatibility checks. Importing never resumes a job by
+itself, and a malformed or invalid file leaves the reviewed values unchanged.
+
 To resume, keep the same ruleset, architecture, seed and optimizer and increase
 `iterations` in a copied JSON configuration. This field is the target **total**
 iteration count, not the number of additional iterations:

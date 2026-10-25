@@ -9,6 +9,7 @@ import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
+import ConfigImportButton from './ConfigImportButton';
 
 interface Props {
   config: TrainingConfig;
@@ -34,6 +35,8 @@ interface Props {
   workers: TrainingWorker[];
   device: DeviceInfo;
   start: (event: FormEvent) => void;
+  importingConfig: boolean;
+  onImportConfig: (file: File) => void;
 }
 
 export default function TrainingCreationPanel({
@@ -60,6 +63,8 @@ export default function TrainingCreationPanel({
   workers,
   device,
   start,
+  importingConfig,
+  onImportConfig,
 }: Props) {
   const isRemote = kind === 'train' && target !== 'local';
   const selectedWorker = workers.find((worker) => `worker:${worker.id}` === target);
@@ -94,6 +99,14 @@ export default function TrainingCreationPanel({
           >
             {t('Tune parameters')}
           </button>
+        </div>
+        <div className="creation-import">
+          <ConfigImportButton onImport={onImportConfig} busy={importingConfig} disabled={busy} />
+          <span className="subtle">
+            {t(
+              'Load parameters from an exported config.json. Review them before starting; importing never starts a job.',
+            )}
+          </span>
         </div>
         <fieldset className="creation-group">
           <legend>{t('General')}</legend>

@@ -1,4 +1,13 @@
 const translations: Record<string, string> = {
+  'Import config.json': 'config.json importieren',
+  'Importing configuration…': 'Konfiguration wird importiert…',
+  'Load parameters from an exported config.json. Review them before starting; importing never starts a job.':
+    'Parameter aus einer exportierten config.json laden. Prüfe sie vor dem Start; der Import startet nie einen Auftrag.',
+  'Configuration imported. Review the values before starting.':
+    'Konfiguration importiert. Prüfe die Werte vor dem Start.',
+  'Fields that are not training parameters were ignored: {fields}.':
+    'Felder, die keine Trainingsparameter sind, wurden ignoriert: {fields}.',
+  'Invalid configuration values: {fields}.': 'Ungültige Konfigurationswerte: {fields}.',
   'Training symmetry augmentation': 'Symmetrie-Datenaugmentation',
   Disabled: 'Deaktiviert',
   'Random D4 rotations and reflections': 'Zufällige D4-Drehungen und -Spiegelungen',
