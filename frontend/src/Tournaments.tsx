@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, errorMessage } from './api';
+import { notify } from './notifications';
 import Board, { coordinate, Crown } from './Board';
 import RecordsConfirm from './RecordsConfirm';
 import RecordsParameters, { parameterSummary } from './RecordsParameters';
@@ -751,7 +752,6 @@ function TournamentSetup({
     seed: 42,
   }));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
@@ -862,7 +862,6 @@ function TournamentSetup({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError('');
     try {
       onCreated(
         await api<Tournament>('/tournaments', {
@@ -875,7 +874,7 @@ function TournamentSetup({
         }),
       );
     } catch (failure) {
-      setError((failure as Error).message);
+      notify.error(errorMessage(failure));
     } finally {
       setBusy(false);
     }
@@ -1217,11 +1216,6 @@ function TournamentSetup({
             {!config.rulesets.length
               ? t('Choose at least one battlefield.')
               : t('Choose a compatible trained model and its single matching battlefield.')}
-          </p>
-        )}
-        {error && (
-          <p className="form-error" role="alert">
-            {t(error)}
           </p>
         )}
         <div className="modal-actions">

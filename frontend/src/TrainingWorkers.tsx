@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, errorMessage } from './api';
+import { notify } from './notifications';
 import { useAuth } from './Auth';
 import RecordsConfirm from './RecordsConfirm';
 import { useI18n } from './i18n';
@@ -18,13 +19,11 @@ export default function TrainingWorkers({
   const [connect, setConnect] = useState(false);
   const [revoking, setRevoking] = useState<TrainingWorker | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [revokedIds, setRevokedIds] = useState<string[]>([]);
   const [overriding, setOverriding] = useState<TrainingWorker | null>(null);
   const changeOverride = async () => {
     if (!overriding) return;
     setBusy(true);
-    setError('');
     try {
       await api(
         `/training/workers/${overriding.id}/version-override`,
@@ -36,7 +35,7 @@ export default function TrainingWorkers({
       setOverriding(null);
       onChanged();
     } catch (error) {
-      setError((error as Error).message);
+      notify.error(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -47,14 +46,13 @@ export default function TrainingWorkers({
   const revoke = async () => {
     if (!revoking) return;
     setBusy(true);
-    setError('');
     try {
       await api(`/training/workers/${revoking.id}`, undefined, 'DELETE');
       setRevokedIds((previous) => [...previous, revoking.id]);
       setRevoking(null);
       onChanged(revoking.id);
     } catch (error) {
-      setError((error as Error).message);
+      notify.error(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -120,10 +118,7 @@ export default function TrainingWorkers({
                       : 'Enable version override for {name}',
                     { name: worker.name },
                   )}
-                  onClick={() => {
-                    setError('');
-                    setOverriding(worker);
-                  }}
+                  onClick={() => setOverriding(worker)}
                 >
                   {t(
                     worker.version_override_enabled
@@ -173,10 +168,7 @@ export default function TrainingWorkers({
                 type="button"
                 className="text-button danger-text"
                 aria-label={t('Revoke worker {name}', { name: worker.name })}
-                onClick={() => {
-                  setError('');
-                  setRevoking(worker);
-                }}
+                onClick={() => setRevoking(worker)}
               >
                 {t('Revoke access')}
               </button>
@@ -199,7 +191,6 @@ export default function TrainingWorkers({
               : 'Enable version override',
           )}
           busy={busy}
-          error={error}
           confirmLabel={t('Apply')}
           busyLabel="Working…"
           cancelLabel="Cancel"
@@ -217,7 +208,6 @@ export default function TrainingWorkers({
         <RecordsConfirm
           title={t('Revoke worker {name}?', { name: revoking.name })}
           busy={busy}
-          error={error}
           onCancel={() => setRevoking(null)}
           onConfirm={() => void revoke()}
         >
@@ -240,7 +230,6 @@ function WorkerSetup({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [created, setCreated] = useState<{ worker: TrainingWorker; token: string } | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     dialog.current?.showModal();
@@ -249,12 +238,11 @@ function WorkerSetup({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const create = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError('');
     try {
       setCreated(await api('/training/workers', { name: name.trim(), capacity }));
       onCreated();
     } catch (error) {
-      setError((error as Error).message);
+      notify.error(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -351,13 +339,13 @@ function WorkerSetup({ onClose, onCreated }: { onClose: () => void; onCreated: (
               type="button"
               onClick={() => {
                 if (!navigator.clipboard) {
-                  setError(t('Copy failed. Reveal and copy the token manually.'));
+                  notify.error(t('Copy failed. Reveal and copy the token manually.'));
                   return;
                 }
                 void navigator.clipboard
                   .writeText(created.token)
                   .then(() => setCopied(true))
-                  .catch(() => setError(t('Copy failed. Reveal and copy the token manually.')));
+                  .catch(() => notify.error(t('Copy failed. Reveal and copy the token manually.')));
               }}
             >
               {copied ? t('Copied') : t('Copy token')}
@@ -385,11 +373,6 @@ function WorkerSetup({ onClose, onCreated }: { onClose: () => void; onCreated: (
             </button>
           </div>
         </div>
-      )}
-      {error && (
-        <p className="form-error" role="alert">
-          {t(error)}
-        </p>
       )}
     </dialog>
   );

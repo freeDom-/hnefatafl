@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
+import { clearNotifications } from './notifications';
 
 // Existing component regressions render an authenticated administrator. Auth.test
 // explicitly unmocks this hook to exercise real session restoration and login.
@@ -16,3 +17,7 @@ vi.mock('./Auth', async (original) => ({
     logout: async () => {},
   }),
 }));
+
+afterEach(() => {
+  clearNotifications();
+});

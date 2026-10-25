@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NewGame } from './App';
+import { NotificationProvider } from './notifications';
 import { GAME_MODE_KEY, readLastGameMode } from './gameModePreference';
 import type { AIProfile, Game, Ruleset } from './types';
 
@@ -38,15 +39,17 @@ afterEach(() => {
 
 function show(onCreated = vi.fn(), onClose = vi.fn()) {
   return render(
-    <NewGame
-      rulesets={rulesets}
-      profiles={profiles}
-      models={[]}
-      players={[]}
-      initialRuleset="brandubh"
-      onClose={onClose}
-      onCreated={onCreated}
-    />,
+    <NotificationProvider>
+      <NewGame
+        rulesets={rulesets}
+        profiles={profiles}
+        models={[]}
+        players={[]}
+        initialRuleset="brandubh"
+        onClose={onClose}
+        onCreated={onCreated}
+      />
+    </NotificationProvider>,
   );
 }
 

@@ -3,7 +3,8 @@ import { t, useI18n, LanguageSelect, getLocale } from './i18n';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate, Crown } from './Board';
-import { api } from './api';
+import { api, errorMessage } from './api';
+import { notify } from './notifications';
 import type { AIProfile, Game, Mode, Model, Player, PlayerConfig, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
@@ -51,7 +52,6 @@ export default function App() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [game, setGame] = useState<Game | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -63,6 +63,10 @@ export default function App() {
   const currentGame = useRef<Game | null>(null);
   currentGame.current = game;
   const analysis = useGameAnalysis(game, tab === 'play');
+
+  const reportError = useCallback((message: unknown) => {
+    notify.error(errorMessage(message));
+  }, []);
 
   const refreshOptions = useCallback(async () => {
     const [rules, ais, people, savedModels] = await Promise.all([
@@ -93,7 +97,7 @@ export default function App() {
         }
         if (rules.length) setNewOpen(true);
       })
-      .catch((e) => setError(String(e.message)))
+      .catch((e) => reportError(e))
       .finally(() => setInitializing(false));
   }, [refreshOptions]);
   useEffect(() => {
@@ -105,7 +109,6 @@ export default function App() {
     if (!active || aiLock.current) return;
     aiLock.current = true;
     setBusy(true);
-    setError('');
     try {
       const next = await api<Game>(`/games/${active.id}/${name}`, {
         ...body,
@@ -117,7 +120,7 @@ export default function App() {
       }
     } catch (e) {
       if (currentGame.current?.id === active.id) {
-        setError((e as Error).message);
+        reportError(e);
         try {
           const fresh = await api<Game>(`/games/${active.id}`);
           if (currentGame.current?.id === active.id) setGame(fresh);
@@ -166,7 +169,6 @@ export default function App() {
     setSelected(null);
     setPaused(true);
     setTab('play');
-    setError('');
   };
   const removeGames = useCallback((ids: string[]) => {
     if (!currentGame.current || !ids.includes(currentGame.current.id)) return;
@@ -176,7 +178,6 @@ export default function App() {
     setSelected(null);
     setPaused(true);
     setRulesOpen(false);
-    setError('');
     localStorage.removeItem('hnefatafl-game');
   }, []);
   const activeRules = rulesets.find((r) => r.id === game?.ruleset);
@@ -212,8 +213,7 @@ export default function App() {
                 key={item}
                 onClick={() => {
                   setTab(item);
-                  if (item === 'tournaments')
-                    void refreshOptions().catch((e) => setError(e.message));
+                  if (item === 'tournaments') void refreshOptions().catch((e) => reportError(e));
                 }}
                 className={tab === item ? 'active' : ''}
                 aria-current={tab === item ? 'page' : undefined}
@@ -238,14 +238,6 @@ export default function App() {
         </div>
       </header>
       <main>
-        {error && (
-          <div role="alert" className="error-banner">
-            <span>{t(error)}</span>
-            <button onClick={() => setError('')} aria-label={t('Dismiss error')}>
-              ×
-            </button>
-          </div>
-        )}
         {tab === 'play' && (
           <>
             <section className="page-intro">
@@ -257,7 +249,7 @@ export default function App() {
                 className="button primary"
                 onClick={() => {
                   setNewOpen(true);
-                  void refreshOptions().catch((e) => setError(e.message));
+                  void refreshOptions().catch((e) => reportError(e));
                 }}
                 disabled={initializing}
               >
@@ -593,22 +585,27 @@ export default function App() {
           <Archive
             rulesets={rulesets}
             onLoad={loadGame}
-            onError={setError}
+            onError={reportError}
             players={players}
-            refreshPlayers={() => void refreshOptions().catch((e) => setError(e.message))}
+            refreshPlayers={() => void refreshOptions().catch((e) => reportError(e))}
             onGameDeleted={(id) => removeGames([id])}
           />
         )}
         {tab === 'tournaments' && permissions.includes('tournaments') && (
-          <Tournaments rulesets={rulesets} profiles={profiles} models={models} onError={setError} />
+          <Tournaments
+            rulesets={rulesets}
+            profiles={profiles}
+            models={models}
+            onError={reportError}
+          />
         )}
         {tab === 'training' && permissions.includes('training') && (
           <Training
             rulesets={rulesets}
             models={models}
-            onModelsChanged={() => void refreshOptions().catch((e) => setError(e.message))}
+            onModelsChanged={() => void refreshOptions().catch((e) => reportError(e))}
             onGamesDeleted={removeGames}
-            onError={setError}
+            onError={reportError}
           />
         )}
       </main>
@@ -632,7 +629,6 @@ export default function App() {
             setPaused(false);
             setNewOpen(false);
             setTab('play');
-            setError('');
           }}
         />
       )}
@@ -933,7 +929,6 @@ export function NewGame({
   const [customAI, setCustomAI] = useState<Record<Side, boolean>>(restored.customAI);
   const priorRuleset = useRef(ruleset);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const recommendation = selectStrongestModel(models, ruleset);
   useEffect(() => {
     const changedRuleset = priorRuleset.current !== ruleset;
@@ -980,7 +975,6 @@ export function NewGame({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError('');
     const configured = Object.fromEntries(
       (['attackers', 'defenders'] as Side[]).map((side) => {
         const ai = mode === 'ai-ai' || (mode === 'human-ai' && side !== humanSide);
@@ -1010,7 +1004,7 @@ export function NewGame({
       });
       onCreated(created);
     } catch (e) {
-      setError((e as Error).message);
+      notify.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -1205,11 +1199,6 @@ export function NewGame({
             </label>
           )}
         </fieldset>
-        {error && (
-          <p className="form-error" role="alert">
-            {t(error)}
-          </p>
-        )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             {t('Cancel')}

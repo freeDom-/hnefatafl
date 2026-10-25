@@ -1170,6 +1170,94 @@ h1 {
   margin: 15px 0;
   overflow-wrap: anywhere;
 }
+
+/* Shared transient notifications. The popover layer keeps them above dialogs
+   and outside every scroll container. */
+.notification-viewport {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(460px, calc(100vw - 24px));
+  max-height: calc(100vh - 28px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.notification {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e1bfad;
+  border-radius: 6px;
+  background: var(--ui-error-surface, #f8ece3);
+  color: var(--ui-heading, #8e513a);
+  font-size: 12px;
+  line-height: 1.6;
+  box-shadow: 0 10px 28px #1c241c33;
+  pointer-events: auto;
+}
+.notification-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff;
+  background: currentColor;
+}
+.notification-error .notification-icon {
+  background: #b4553a;
+}
+.notification-success {
+  border-color: #c3d3ad;
+  background: var(--ui-selected, #edf2e4);
+  color: var(--ui-heading, #4f6b3f);
+}
+.notification-success .notification-icon {
+  background: #5f8248;
+}
+.notification-info {
+  border-color: #c9d4e2;
+  background: #eef3f9;
+  color: #43566b;
+}
+.notification-info .notification-icon {
+  background: #557392;
+}
+.notification-message {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.notification-close {
+  flex: none;
+  margin: -4px -4px -4px 0;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.notification-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 .rules-document {
   font-size: 13px;
   line-height: 1.9;
@@ -2168,6 +2256,14 @@ summary {
   }
 }
 @media (max-width: 540px) {
+  .notification-viewport {
+    width: calc(100vw - 16px);
+    top: max(8px, env(safe-area-inset-top));
+  }
+  .notification {
+    padding: 11px 12px;
+    font-size: 12px;
+  }
   .site-header {
     flex-wrap: wrap;
     height: auto;

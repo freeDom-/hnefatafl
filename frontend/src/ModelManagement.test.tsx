@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Training from './Training';
+import { NotificationProvider } from './notifications';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { recordedTrainingConfig, trainingConfig } from './trainingPresets';
 import { setLanguage } from './i18n';
@@ -88,12 +89,14 @@ function show(jobs: Job[] = [], models = [model]) {
   const onModelsChanged = vi.fn();
   const onError = vi.fn();
   render(
-    <Training
-      rulesets={rules}
-      models={models}
-      onModelsChanged={onModelsChanged}
-      onError={onError}
-    />,
+    <NotificationProvider>
+      <Training
+        rulesets={rules}
+        models={models}
+        onModelsChanged={onModelsChanged}
+        onError={onError}
+      />
+    </NotificationProvider>,
   );
   return { onModelsChanged, onError, jobs };
 }
@@ -258,7 +261,9 @@ describe('model and training collection controls', () => {
       target: { value: '   New name  ' },
     });
     fireEvent.click(dialog.getByRole('button', { name: 'Save name' }));
-    await dialog.findByRole('alert');
+    expect(
+      await screen.findByText('The model name could not be saved. Try again.'),
+    ).toBeInTheDocument();
     expect(onModelsChanged).not.toHaveBeenCalled();
     fireEvent.click(dialog.getByRole('button', { name: 'Save name' }));
     await waitFor(() => expect(onModelsChanged).toHaveBeenCalledOnce());

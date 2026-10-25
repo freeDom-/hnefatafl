@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, errorMessage } from './api';
+import { notify } from './notifications';
 import { useI18n } from './i18n';
 import type { Model } from './types';
 
@@ -16,7 +17,6 @@ export default function ModelRenameDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(model.name);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
@@ -26,12 +26,11 @@ export default function ModelRenameDialog({
     event.preventDefault();
     if (!name.trim() || name.trim().length > 100) return;
     setBusy(true);
-    setError('');
     try {
       await api(`/models/${model.id}`, { name: name.trim() }, 'PATCH');
       onRenamed();
     } catch (error) {
-      setError((error as Error).message);
+      notify.error(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -75,11 +74,6 @@ export default function ModelRenameDialog({
             'The model keeps its identity, rune and weights. Saved games and tournaments retain their recorded names.',
           )}
         </p>
-        {error && (
-          <p className="form-error" role="alert">
-            {t(error)}
-          </p>
-        )}
         <div className="modal-actions">
           <button type="button" className="button secondary" disabled={busy} onClick={onClose}>
             {t('Cancel')}

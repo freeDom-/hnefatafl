@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { notify } from './notifications';
 import type { Advisor, AnalyticsSettings } from './analysisTypes';
 import type { AIProfile, Game, Model } from './types';
 import { selectStrongestModel } from './modelSelection';
@@ -97,6 +99,9 @@ export function AnalyticsSettingsPanel({
   error?: string;
 }) {
   const { t } = useI18n();
+  useEffect(() => {
+    if (error) notify.error(error);
+  }, [error]);
   const options = advisorOptions(profiles, models, game.ruleset);
   const advisor = settings.advisor;
   const value = !advisor
@@ -267,11 +272,6 @@ export function AnalyticsSettingsPanel({
       {pending && (
         <p className="subtle" role="status">
           {t('Saving analytics settings…')}
-        </p>
-      )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
         </p>
       )}
     </section>

@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Training from './Training';
 import TrainingWorkers from './TrainingWorkers';
+import { NotificationProvider } from './notifications';
 import TrainingResumeDialog from './TrainingResumeDialog';
 import { setLanguage } from './i18n';
 import type { Job, TrainingWorker } from './types';
@@ -145,11 +146,15 @@ it('keeps a worker visible when revocation fails', async () => {
     vi.fn(() => json({ detail: 'Revocation failed' }, false)),
   );
   const changed = vi.fn();
-  render(<TrainingWorkers workers={[worker]} onChanged={changed} />);
+  render(
+    <NotificationProvider>
+      <TrainingWorkers workers={[worker]} onChanged={changed} />
+    </NotificationProvider>,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Revoke worker Cloud raven' }));
   const dialog = within(screen.getByRole('dialog', { name: 'Revoke worker Cloud raven?' }));
   fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
-  expect(await dialog.findByText('Revocation failed')).toBeInTheDocument();
+  expect(await screen.findByText('Revocation failed')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: worker.name })).toBeInTheDocument();
   expect(changed).not.toHaveBeenCalled();
 });

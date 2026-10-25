@@ -52,6 +52,7 @@ Commands assume the repository root unless a different directory is shown.
 ## Architecture, development and testing
 
 - [Current architecture and module boundaries](../ARCHITECTURE.md)
+- [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)

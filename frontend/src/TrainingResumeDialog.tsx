@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, errorMessage } from './api';
+import { notify } from './notifications';
 import { useI18n } from './i18n';
 import type { Job, TrainingWorker, DeviceInfo } from './types';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
@@ -66,7 +67,6 @@ export default function TrainingResumeDialog({
   const [executionTarget, setExecutionTarget] = useState(() => jobTarget(job));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [importingConfig, setImportingConfig] = useState(false);
   const [importNotice, setImportNotice] = useState('');
   useEffect(() => {
@@ -77,7 +77,6 @@ export default function TrainingResumeDialog({
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    setError('');
     void api<ResumeCheckpoint>(`/training/jobs/${job.id}/resume`)
       .then((info) => {
         if (!alive) return;
@@ -117,7 +116,7 @@ export default function TrainingResumeDialog({
         });
       })
       .catch((error) => {
-        if (alive) setError((error as Error).message);
+        if (alive) notify.error(errorMessage(error));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -129,7 +128,6 @@ export default function TrainingResumeDialog({
   const importConfig = async (file: File) => {
     if (!checkpoint) return;
     setImportingConfig(true);
-    setError('');
     setImportNotice('');
     try {
       const imported = await readImportedConfig(file, config, {
@@ -166,12 +164,12 @@ export default function TrainingResumeDialog({
       setImportNotice(parts.join(' '));
     } catch (error) {
       if (error instanceof ConfigImportError && error.fields.length)
-        setError(
+        notify.error(
           t('Invalid configuration values: {fields}.', {
             fields: error.fields.map((key) => t(trainingParameterLabel(key))).join(', '),
           }),
         );
-      else setError((error as Error).message);
+      else notify.error(errorMessage(error));
     } finally {
       setImportingConfig(false);
     }
@@ -204,7 +202,6 @@ export default function TrainingResumeDialog({
     event.preventDefault();
     if (!checkpoint || !valid) return;
     setBusy(true);
-    setError('');
     try {
       const next = await api<Job>(`/training/jobs/${job.id}/resume`, {
         iterations: target,
@@ -232,7 +229,7 @@ export default function TrainingResumeDialog({
       });
       onStarted(next, checkpoint.completed_iteration, target);
     } catch (error) {
-      setError((error as Error).message);
+      notify.error(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -433,11 +430,6 @@ export default function TrainingResumeDialog({
               )}
             </>
           )
-        )}
-        {error && (
-          <p className="form-error" role="alert">
-            {t(error)}
-          </p>
         )}
         <div className="modal-actions">
           <button type="button" className="button secondary" disabled={busy} onClick={onClose}>

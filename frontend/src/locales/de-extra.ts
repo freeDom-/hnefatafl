@@ -51,5 +51,10 @@ const translations: Record<string, string> = {
   '{side} search wrapper': '{side}: Suchverfahren',
   'MCTS (default)': 'MCTS (Standard)',
   'None (policy only)': 'Keines (nur Strategieausgabe)',
+
+  Notifications: 'Benachrichtigungen',
+  'Dismiss notification': 'Benachrichtigung schließen',
+  'Something went wrong. Please try again.': 'Etwas ist schiefgelaufen. Bitte versuche es erneut.',
+  'Done.': 'Fertig.',
 };
 export default translations;
