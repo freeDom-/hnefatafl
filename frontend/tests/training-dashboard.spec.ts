@@ -65,6 +65,41 @@ test('dashboard keeps form edits, explicit selection and analysis state through 
   await expect(page.locator('.training-details .log-view')).toContainText('Worker initialized.');
   await expect(page.getByRole('button', { name: 'Export job', exact: true })).toBeVisible();
 });
+test('preserves the selected analysis tab and shows the new job content when switching jobs', async ({
+  page,
+}) => {
+  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: workshopFixtures() }));
+  await open(page);
+  // Initial opening keeps the default Overview tab.
+  await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await selectWorkshopJob(page, 'completed', 'Bjorn · Northern campaign');
+  await page.getByRole('tab', { name: 'Evaluation', exact: true }).click();
+  await expect(page.locator('.training-overview')).toHaveCount(0);
+  await expect(page.locator('.evaluation-series')).toHaveCount(1);
+  // Switching to another job keeps Evaluation selected and swaps the content.
+  await selectWorkshopJob(page, 'running', 'Eir · Tablut strategist');
+  await expect(
+    page.getByRole('heading', { name: 'Eir · Tablut strategist', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Evaluation', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.locator('.training-overview')).toHaveCount(0);
+  await expect(page.locator('.evaluation-series')).toHaveCount(1);
+  // A third switch still preserves the same tab.
+  await selectWorkshopJob(page, 'cancelled', 'cancelled strategist');
+  await expect(
+    page.getByRole('heading', { name: 'cancelled strategist', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Evaluation', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
 test('shows one merged evaluation series in the overview and in the evaluation tab', async ({
   page,
 }) => {

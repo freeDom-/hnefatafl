@@ -19,11 +19,12 @@ import {
   TrainingPerformance,
   TrainingJobDetails,
 } from './TrainingAnalysisViews';
+import { availableJobTabs, type JobTab } from './jobTabs';
 
-const tabs = ['Overview', 'Learning', 'Evaluation', 'Performance', 'Details'] as const;
-type Tab = (typeof tabs)[number];
 interface Props {
   job: Job;
+  tab: JobTab;
+  onTabChange: (tab: JobTab) => void;
   revision: number;
   busy: boolean;
   exporting: boolean;
@@ -37,6 +38,8 @@ interface Props {
 }
 export default function TrainingJobDashboard({
   job,
+  tab,
+  onTabChange,
   revision,
   busy,
   exporting,
@@ -51,10 +54,11 @@ export default function TrainingJobDashboard({
   const { t, locale } = useI18n();
   const id = useId();
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  const [tab, setTab] = useState<Tab>('Overview');
   const [range, setRange] = useState(0);
+  const availableTabs = availableJobTabs(job);
+  // The active tab is owned by the parent so it survives switching jobs. The
+  // per-job iteration range stays local and resets for a new job or revision.
   useEffect(() => {
-    setTab('Overview');
     setRange(0);
   }, [job.id, revision]);
   const progress = jobProgress(job);
@@ -176,7 +180,7 @@ export default function TrainingJobDashboard({
         )}
       </header>
       <div className="training-tabs" role="tablist" aria-label={t('Training analysis')}>
-        {tabs.map((name, index) => (
+        {availableTabs.map((name, index) => (
           <button
             key={name}
             ref={(element) => {
@@ -187,7 +191,7 @@ export default function TrainingJobDashboard({
             aria-selected={tab === name}
             aria-controls={`${id}-panel`}
             tabIndex={tab === name ? 0 : -1}
-            onClick={() => setTab(name)}
+            onClick={() => onTabChange(name)}
             onKeyDown={(event) => {
               if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault();
@@ -195,9 +199,10 @@ export default function TrainingJobDashboard({
                 event.key === 'Home'
                   ? 0
                   : event.key === 'End'
-                    ? tabs.length - 1
-                    : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
-              setTab(tabs[next]);
+                    ? availableTabs.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : availableTabs.length - 1)) %
+                      availableTabs.length;
+              onTabChange(availableTabs[next]);
               buttons.current[next]?.focus();
             }}
           >

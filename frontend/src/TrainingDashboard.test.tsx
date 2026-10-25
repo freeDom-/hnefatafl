@@ -359,6 +359,82 @@ it('keeps the explicit job, tab and range during polling refresh and filtering',
     within(await screen.findByRole('table', { name: 'Training history data' })).getAllByRole('row'),
   ).toHaveLength(11);
 });
+it('opens job details on the default Overview tab', async () => {
+  show();
+  await loaded();
+  expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+  expect(document.querySelector('.training-overview')).toBeInTheDocument();
+});
+it('focuses the default Overview tab after starting a job', async () => {
+  show();
+  await loaded();
+  fireEvent.click(screen.getByRole('tab', { name: 'Details' }));
+  expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+  fireEvent.click(screen.getByRole('button', { name: /New training/ }));
+  fireEvent.submit(screen.getByRole('button', { name: /Start training/ }).closest('form')!);
+  await waitFor(() =>
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true'),
+  );
+  expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'false');
+});
+it('preserves the active tab and shows the new job content when switching jobs', async () => {
+  show();
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: /Bjorn · Northern campaign/ }));
+  await screen.findByRole('heading', { name: 'Bjorn · Northern campaign' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Learning' }));
+  fireEvent.click(screen.getByRole('button', { name: /Legacy raven/ }));
+  await screen.findByRole('heading', { name: 'Legacy raven' });
+  expect(screen.getByRole('tab', { name: 'Learning' })).toHaveAttribute('aria-selected', 'true');
+  expect(document.querySelector('.learning-kpis')).toBeInTheDocument();
+  expect(document.querySelector('.training-overview')).toBeNull();
+});
+it('preserves a newly selected tab across repeated job switches', async () => {
+  show();
+  await loaded();
+  fireEvent.click(screen.getByRole('tab', { name: 'Details' }));
+  for (const name of [
+    'Bjorn · Northern campaign',
+    'Legacy raven',
+    'failed strategist',
+    'cancelled strategist',
+    'Eir · Tablut strategist',
+  ]) {
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(name) }));
+    await screen.findByRole('heading', { name });
+    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+  }
+  expect(document.querySelector('.training-details')).toBeInTheDocument();
+});
+it('resets per-job analysis state when switching jobs while preserving the tab', async () => {
+  show();
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: /Bjorn · Northern campaign/ }));
+  await screen.findByRole('heading', { name: 'Bjorn · Northern campaign' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Evaluation' }));
+  fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value: 'all' } });
+  expect(screen.getByLabelText('Evaluation series')).toHaveValue('all');
+  fireEvent.click(screen.getByRole('button', { name: /Eir · Tablut strategist/ }));
+  await screen.findByRole('heading', { name: 'Eir · Tablut strategist' });
+  expect(screen.getByRole('tab', { name: 'Evaluation' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByLabelText('Evaluation series')).toHaveValue('latest');
+});
+it('keeps the latest job and preserved tab when rapid switches resolve out of order', async () => {
+  const pending: ((response: Response) => void)[] = [];
+  show();
+  await loaded();
+  fetcher.mockImplementation((path: string) =>
+    path.endsWith('/jobs') ? new Promise<Response>((resolve) => pending.push(resolve)) : json([]),
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
+  fireEvent.click(screen.getByRole('button', { name: /Bjorn · Northern campaign/ }));
+  fireEvent.click(screen.getByRole('button', { name: /failed strategist/ }));
+  await act(async () => pending[1](await json(jobs)));
+  await act(async () => pending[0](await json([jobs[0]])));
+  expect(screen.getByRole('heading', { name: 'failed strategist' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Performance' })).toHaveAttribute('aria-selected', 'true');
+  expect(document.querySelector('.training-performance')).toBeInTheDocument();
+});
 it('supports arrow/Home/End tab navigation and lazy bounded diagnostics', async () => {
   show();
   await loaded();

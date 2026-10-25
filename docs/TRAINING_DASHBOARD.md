@@ -27,6 +27,15 @@ workspace width. Tablet and phone layouts use a job selector with collapsible
 search/filter controls. A filtered-out selected job remains selected and is
 identified in the selector.
 
+Selecting another job in the list keeps the currently open analysis tab, so the
+same view can be compared across jobs. The panel always renders the newly
+selected job's data and actions; per-job view state such as the iteration range,
+selected evaluation series and open diagnostics resets for the new job. If a
+future job type does not offer the preserved view, the dashboard falls back to
+**Overview**. Opening a job for the first time, and starting, resuming or
+importing a job, still focuses **Overview**. The selection is not stored across
+browser sessions.
+
 **Use parameters** beside the selected job's actions copies its recorded supported
 inputs into **Forge a new strategist**, opens Advanced configuration and scrolls
 the form into view. It works for active and inactive jobs without changing the
@@ -111,8 +120,9 @@ uses recorded iteration counts; the interface does not invent an ETA.
 Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
 left/right and Home/End keys for exact values and support pointer inspection.
 All/recent 10/25/50 iteration controls are shared across analysis views and remain
-selected during polling. Data tables mount when opened, keeping long histories
-out of the DOM during ordinary monitoring.
+selected during polling; switching jobs resets them for the new job. Data tables
+mount when opened, keeping long histories out of the DOM during ordinary
+monitoring.
 
 ## Reading charts correctly
 
