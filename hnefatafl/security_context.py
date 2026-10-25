@@ -9,6 +9,9 @@ PERMISSIONS = {
     ),
 }
 principal: ContextVar[dict | None] = ContextVar("principal", default=None)
+# Trusted middleware context; domain mutations reload this session under their
+# write transaction instead of trusting an account snapshot read before the lock.
+session_identity: ContextVar[str | None] = ContextVar("session_identity", default=None)
 
 
 def allowed(account: dict | None, permission: str) -> bool:

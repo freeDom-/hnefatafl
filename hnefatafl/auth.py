@@ -28,7 +28,7 @@ from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Match
 
-from .security_context import PERMISSIONS, allowed, principal
+from .security_context import PERMISSIONS, allowed, principal, session_identity
 from .account_policy import (
     normalize,
     username as validate_username,
@@ -333,6 +333,26 @@ grant(
     ),
 )
 grant("play", "PUT", "/api/games/{game_id}/analytics")
+grant(
+    "play",
+    "GET",
+    "/api/online/games",
+    "/api/online/games/{game_id}",
+    "/api/online/games/{game_id}/replay",
+    "/api/online/stats",
+)
+grant(
+    "play",
+    "POST",
+    "/api/online/games",
+    *(
+        f"/api/online/games/{{game_id}}/{action}"
+        for action in ("join", "cancel", "moves", "concede")
+    ),
+)
+grant("accounts", "POST", "/api/online/games/{game_id}/void")
+grant("accounts", "GET", "/api/online/timeout-gate")
+grant("accounts", "PATCH", "/api/online/timeout-gate")
 grant("play", "DELETE", "/api/games/{game_id}", "/api/players/{player_id}")
 grant(
     "tournaments",
@@ -420,15 +440,17 @@ class SecurityBoundary:
         route = next((r for r in self.router.routes if r.matches(scope)[0] == Match.FULL), None)
         route_path = getattr(route, "path", "")
         permission = POLICY.get((method, route_path), "deny")
-        if method == "POST" and route_path.startswith("/api/auth/"):
+        online_mutation = method not in SAFE and route_path.startswith("/api/online/")
+        if (method == "POST" and route_path.startswith("/api/auth/")) or online_mutation:
+            size_error = (
+                "Online request too large" if online_mutation else "Login request too large"
+            )
             try:
                 length = int(request.headers.get("content-length", "0"))
             except ValueError:
                 length = 8193
             if not 0 <= length <= 8192:
-                return await JSONResponse({"detail": "Login request too large"}, 413)(
-                    scope, receive, send
-                )
+                return await JSONResponse({"detail": size_error}, 413)(scope, receive, send)
             original_receive, received = receive, 0
 
             async def bounded_login_receive():
@@ -436,7 +458,7 @@ class SecurityBoundary:
                 message = await original_receive()
                 received += len(message.get("body", b""))
                 if received > 8192:
-                    raise HTTPException(413, "Login request too large")
+                    raise HTTPException(413, size_error)
                 return message
 
             receive = bounded_login_receive
@@ -502,8 +524,18 @@ class SecurityBoundary:
                 return await JSONResponse(
                     {"detail": "Login requires JSON and a same-origin Origin header"}, 403
                 )(scope, receive, send)
+            if online_mutation and (
+                not origin
+                or request.headers.get("content-type", "").split(";")[0] != "application/json"
+            ):
+                return await JSONResponse(
+                    {"detail": "Online actions require JSON and a same-origin Origin header"}, 403
+                )(scope, receive, send)
 
         context = principal.set(account)
+        session_context = session_identity.set(
+            digest(request.cookies.get(COOKIE, "")) if account else None
+        )
         gate = None
         try:
             if method not in SAFE:
@@ -529,6 +561,7 @@ class SecurityBoundary:
             if gate is not None:
                 gate.close()
             principal.reset(context)
+            session_identity.reset(session_context)
 
 
 class LoginRequest(BaseModel):
@@ -543,12 +576,14 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
-        if request.url.path.startswith("/api/auth/"):
+        if request.url.path.startswith(("/api/auth/", "/api/online/")):
             # Pydantic's default errors include raw inputs, potentially passwords.
             return JSONResponse(
                 {
                     "detail": "Invalid login request."
                     if request.url.path == "/api/auth/login"
+                    else "Invalid online request."
+                    if request.url.path.startswith("/api/online/")
                     else "Invalid account request."
                 },
                 422,
