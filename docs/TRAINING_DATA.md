@@ -240,8 +240,12 @@ Only a full compatible `last.pt` is resumable; `best.pt` and inference-only impo
 remain playable without being advertised as full training state. Resumption creates
 a new job and leaves the imported source unchanged. CUDA-trained checkpoints load
 on CPU; select **CPU** or **Automatic** in the resume dialog on a CPU-only machine.
-The original device setting remains visible. Cross-device bitwise reproducibility
-and model strength are not implied by a successful migration.
+The original device setting remains visible. As in new training, the resume
+dialog disables CUDA or Metal options this server cannot provide. A specific
+remote worker disables the accelerators it lacks, while **Any remote worker**
+keeps every option enabled so the queue selects a worker with the requested
+device. Cross-device bitwise reproducibility and model strength are not implied
+by a successful migration.
 
 ### Optimization studies and archive limits
 

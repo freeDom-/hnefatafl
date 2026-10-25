@@ -15,6 +15,7 @@ import {
 import type { TrainingConfig } from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
+import TrainingDeviceField from './TrainingDeviceField';
 import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
 
 export interface ResumeCheckpoint {
@@ -362,19 +363,13 @@ export default function TrainingResumeDialog({
                       </label>
                     )}
                     {config.device !== undefined && (
-                      <label>
-                        {t('Training device')}
-                        <select
-                          value={String(config.device)}
-                          disabled={busy}
-                          onChange={(event) => update('device', event.target.value)}
-                        >
-                          <option value="auto">{t('Automatic')}</option>
-                          <option value="cpu">{t('CPU')}</option>
-                          <option value="cuda">{t('NVIDIA CUDA')}</option>
-                          <option value="mps">{t('Apple Metal')}</option>
-                        </select>
-                      </label>
+                      <TrainingDeviceField
+                        value={String(config.device)}
+                        onChange={(value) => update('device', value)}
+                        remote={executionTarget !== 'local'}
+                        capabilities={targetCapabilities}
+                        disabled={busy}
+                      />
                     )}
                     {config.self_play_mode !== undefined && (
                       <SelfPlayModeField

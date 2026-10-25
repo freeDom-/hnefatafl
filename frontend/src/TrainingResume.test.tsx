@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDialog';
 import Training from './Training';
-import type { Job, Model } from './types';
+import type { Job, Model, TrainingWorker } from './types';
 import { setLanguage } from './i18n';
 import { trainingConfig } from './trainingPresets';
 
@@ -31,6 +31,28 @@ const info: ResumeCheckpoint = {
 };
 const json = (value: unknown, ok = true) =>
   Promise.resolve({ ok, json: async () => value } as Response);
+const worker = (id: string, capabilities: TrainingWorker['capabilities']): TrainingWorker => ({
+  id,
+  name: `${id} raven`,
+  capacity: 1,
+  status: 'online',
+  last_seen: '2026-10-22T08:00:00Z',
+  active_jobs: 0,
+  capabilities,
+  compatibility: {
+    eligible: true,
+    code: 'compatible',
+    reason: 'Compatible',
+    mismatches: [],
+    protocol_compatible: true,
+    override_enabled: false,
+    override_active: false,
+    worker_version: '0.28.0',
+    server_version: '0.28.0',
+    worker_git_revision: null,
+    server_git_revision: null,
+  },
+});
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
     this.setAttribute('open', '');
@@ -120,6 +142,50 @@ it.each([
   expect(button).toBeDisabled();
   fireEvent.submit(button.closest('form')!);
   expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it('disables unavailable accelerators for the server and enables all options for any remote worker', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json({ ...info, config: { device: 'cpu' } })),
+  );
+  render(
+    <TrainingResumeDialog
+      job={job}
+      localDevice={{ cuda_available: false, mps_available: false }}
+      onClose={vi.fn()}
+      onStarted={vi.fn()}
+    />,
+  );
+  const device = await screen.findByLabelText('Training device');
+  expect(within(device).getByRole('option', { name: 'NVIDIA CUDA (unavailable)' })).toBeDisabled();
+  expect(within(device).getByRole('option', { name: 'Apple Metal (unavailable)' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Run training on'), { target: { value: 'remote' } });
+  expect(within(device).getByRole('option', { name: 'NVIDIA CUDA' })).toBeEnabled();
+  expect(within(device).getByRole('option', { name: 'Apple Metal' })).toBeEnabled();
+});
+
+it('reflects the selected remote worker capabilities for the device options', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json({ ...info, config: { device: 'cpu' } })),
+  );
+  render(
+    <TrainingResumeDialog
+      job={job}
+      localDevice={{ cuda_available: true, mps_available: true }}
+      workers={[worker('cpu-node', { cuda_available: false, mps_available: false })]}
+      onClose={vi.fn()}
+      onStarted={vi.fn()}
+    />,
+  );
+  const device = await screen.findByLabelText('Training device');
+  expect(within(device).getByRole('option', { name: 'NVIDIA CUDA' })).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('Run training on'), {
+    target: { value: 'worker:cpu-node' },
+  });
+  expect(within(device).getByRole('option', { name: 'NVIDIA CUDA (unavailable)' })).toBeDisabled();
+  expect(within(device).getByRole('option', { name: 'Apple Metal (unavailable)' })).toBeDisabled();
 });
 
 it('localizes the editable resume settings and optimizer explanation in German', async () => {

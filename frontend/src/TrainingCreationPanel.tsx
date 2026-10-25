@@ -10,6 +10,7 @@ import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
 import ConfigImportButton from './ConfigImportButton';
+import TrainingDeviceField from './TrainingDeviceField';
 
 interface Props {
   config: TrainingConfig;
@@ -192,38 +193,12 @@ export default function TrainingCreationPanel({
                 </button>
               </div>
             </div>
-            <label>
-              {t('Training device')}
-              <select
-                value={String(config.device)}
-                onChange={(e) => update('device', e.target.value)}
-              >
-                <option value="auto">{t('Automatic')}</option>
-                <option value="cpu">{t('CPU')}</option>
-                <option
-                  value="cuda"
-                  disabled={
-                    targetDevice?.cuda_available === false || (!isRemote && !device.cuda_available)
-                  }
-                >
-                  {t('NVIDIA CUDA')}
-                  {targetDevice?.cuda_available === false || (!isRemote && !device.cuda_available)
-                    ? ` (${t('unavailable')})`
-                    : ''}
-                </option>
-                <option
-                  value="mps"
-                  disabled={
-                    targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
-                  }
-                >
-                  {t('Apple Metal')}
-                  {targetDevice?.mps_available === false || (!isRemote && !device.mps_available)
-                    ? ` (${t('unavailable')})`
-                    : ''}
-                </option>
-              </select>
-            </label>
+            <TrainingDeviceField
+              value={String(config.device)}
+              onChange={(value) => update('device', value)}
+              remote={isRemote}
+              capabilities={targetDevice}
+            />
             <InferenceSettings
               config={config}
               update={update}
