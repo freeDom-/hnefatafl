@@ -30,6 +30,28 @@ requires the built frontend and starts one API worker. It honors `HNEFATAFL_HOST
 and `HNEFATAFL_PORT`; `dev.sh` uses its fixed API host/port. `.env` is not loaded
 automatically. See [Deployment](DEPLOYMENT.md) for persistent/service configuration.
 
+## Branch and pull request workflow
+
+Never commit to `main` directly. Update `main`, branch off it with a type prefix
+(`feat/…`, `fix/…`, `docs/…`, `test/…`, `refactor/…`, `perf/…`, `chore/…`), make the
+change, run the checks below, then push the branch and open a pull request:
+
+```sh
+git switch main && git pull
+git switch -c fix/short-description
+# … edit, then run the relevant checks …
+git commit -m 'fix: concrete change'
+git push -u origin HEAD
+gh pr create --base main --fill   # or --title/--body-file for a written description
+gh pr checks                       # wait for green before requesting review
+```
+
+CI runs on every pull request, so a red check blocks the change. Leave merging to
+the user unless they explicitly ask for it; after a merge, update `main` before
+branching again. Keep one concern per branch and do not force-push a branch that is
+already shared. Milestone releases take the same path and are tagged only after
+their pull request is merged ([Releasing](RELEASING.md)).
+
 ## Check the change you made
 
 | Command | Checks |
@@ -119,7 +141,9 @@ run `python3 scripts/check_docs.py` directly. Validate the checker itself with
 `python3 -m unittest discover -s scripts -p test_check_docs.py`.
 
 Release tags and GitHub Releases require explicit authorization; a documentation
-commit alone is not a milestone release. See [Releasing](RELEASING.md).
+commit alone is not a milestone release. See [Releasing](RELEASING.md). A merged
+pull request is not a release either: version metadata, release notes, the
+annotated tag and the GitHub release stay separate, deliberate steps.
 
 ## Authentication regression fixtures
 

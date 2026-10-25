@@ -134,8 +134,10 @@ make check
 
 This runs formatting/lint, Python/TypeScript checks, backend/frontend unit tests
 and a production build. Browser checks additionally require Playwright Chromium.
-See [Development](docs/DEVELOPMENT.md), [Architecture](ARCHITECTURE.md) and
-[validation evidence](docs/VALIDATION.md) for commands, counts and limitations.
+Changes are delivered on a branch and reviewed in a pull request against `main`;
+see [Development](docs/DEVELOPMENT.md) for that workflow and
+[validation evidence](docs/VALIDATION.md) for recorded counts and limitations.
+[Architecture](ARCHITECTURE.md) describes the component boundaries.
 
 ## Current limitations
 
