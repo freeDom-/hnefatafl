@@ -37,6 +37,21 @@ waiting/rolling creation limits, persistent bounded denial telemetry, sanitized
 rate-limited logs and administrator-only database-growth monitoring. It retains
 creation budgets through cancellation/restart and compatible schema-10 restore.
 
+Phase 2 PR #12 was merged before Phase 3 branched from the integration tip.
+Phase 3 adds the authenticated lobby and playable online board, all match modes,
+frozen creation-request recovery, conflict/reconnect polling, effective results and
+read-only local replay. A narrow authenticated availability projection supplies
+backend admission eligibility without blocking existing seats. No lifecycle/schema/
+timeout policy or production setting changed. See [online play](docs/ONLINE_PLAY.md),
+[Phase 3 evidence](docs/validation/online-phase3.md) and the
+[Phase 4 handoff](docs/designs/online-phase4-handoff.md).
+Validation: local `make check` passed 1413 backend tests with 36 optional/hardware
+skips and all 269 frontend tests. Final real-backend online browsers passed 10
+checks and registration passed 6. All-extras CI passed 1443 backend tests with 6
+hardware skips, 269 frontend tests, 66 legacy browser checks with 4 intentional
+skips, plus all registration/online checks. This is integration evidence, not a
+release or production rollout.
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

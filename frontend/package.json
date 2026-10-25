@@ -13,7 +13,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:online": "playwright test --config playwright.online.config.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

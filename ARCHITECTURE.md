@@ -107,8 +107,13 @@ the gap after middleware authentication. Admission requires active/verified acco
 existing admitted seats retain play after verification changes while active/session-valid.
 
 The [operations guide](docs/ONLINE.md) documents policy approval, schema/restore
-boundaries and safe projections. [Phase 3](docs/designs/online-phase3-handoff.md)
-owns lobby frontend/reconnect presentation and remaining public/rated policies.
+boundaries and safe projections. The [online UI](docs/ONLINE_PLAY.md) owns separate
+account-keyed lobby/game state, abortable/coalesced polling and viewer-local replay.
+The presentation-only Board receives no online assistance. Auth generation guards
+prevent delayed session responses restoring old state after logout. Admission UX
+uses the authenticated availability projection backed by `online_eligible`; writes
+remain authoritative. [Phase 4 handoff](docs/designs/online-phase4-handoff.md) records
+remaining public/rated/operational decisions.
 All online endpoints are authenticated, with CSRF/Origin/JSON/body protections.
 Legacy analysis/AI/shared-cursor/export adapters reject online IDs, including admins;
 no online assistance or WebSocket endpoint is provided. The engine remains shared.

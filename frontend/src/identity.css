@@ -98,3 +98,31 @@
     width: 23px;
   }
 }
+
+/* Account names must not overlap the brand or controls on narrow screens. */
+.header-controls .account-name {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 540px) {
+  .site-header .brand {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .site-header .header-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+  }
+  .site-header > nav {
+    grid-row: 3;
+  }
+  .header-controls .account-name {
+    flex: 1;
+    max-width: none;
+  }
+}

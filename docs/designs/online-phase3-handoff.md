@@ -9,6 +9,12 @@ automatically. Authenticate through the existing shell, restore CSRF in memory,
 and clear protected state when accounts change. No WebSocket support was added;
 bounded polling of safe reads is the current reconnect mechanism.
 
+Phase 3 UI implementation and current evidence are described in
+[online play](../ONLINE_PLAY.md), [validation](../validation/online-phase3.md) and
+the [Phase 4 handoff](online-phase4-handoff.md). The API contract below remains
+applicable; authenticated `/api/online/availability` now exposes admission
+enabled/eligible flags.
+
 ## Creation and match modes
 
 Authenticated same-origin JSON, CSRF-protected create:
