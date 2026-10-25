@@ -152,6 +152,9 @@ test('workshop visual fixtures fit desktop, laptop, tablet and mobile in every a
       }
     }
   }
+  // Switching jobs keeps the active tab, so return to Overview for the
+  // per-job fixtures.
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   for (const id of ['completed', 'legacy', 'failed', 'cancelled']) {
     const job = workshopFixtures().find((job) => job.id === id)!;
     await selectWorkshopJob(page, id, String(job.config!.model_name));
