@@ -213,6 +213,7 @@ it('shows unassigned random waiting seats, admission denial and creator cancella
   current = {
     ...fixture.waiting,
     creator_side: null,
+    match: { ...fixture.waiting.match, side_selection: 'random', first_creator_side: null },
     participants: { attackers: null, defenders: null },
   } as OnlineGame;
   enabled = false;
@@ -268,6 +269,7 @@ it.each(['simultaneous', 'sequential'] as const)(
     expect(fetcher.mock.calls.some(([path]) => path.endsWith(sibling.id))).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /Game 2 · Active · Version 1/ }));
     await waitFor(() => expect(location.pathname).toBe(`/online/games/${sibling.id}`));
+    await screen.findByText('Creator side: Attackers');
   },
 );
 it('shows awaiting adjudication using the device clock without inventing a terminal result', async () => {
