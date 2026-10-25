@@ -58,6 +58,14 @@ Commands assume the repository root unless a different directory is shown.
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
+## Online foundations and offline feasibility
+
+- [Phase 0 source-backed architecture assessment](designs/online-phase0-assessment.md)
+- [Lifecycle, deadlines, results, permissions and pending policy decisions](designs/online-phase0.md)
+- [Phase 1 registration implementation brief](designs/registration-phase1.md)
+- [Executable browser-offline spike](../spikes/browser_offline/README.md)
+- [Phase 0 validation evidence and handoff](validation/online-phase0.md)
+
 ## Rulesets, release history and historical requirements
 
 - [Brandubh](rules/brandubh.md), [Tablut market rules](rules/tablut.md),
