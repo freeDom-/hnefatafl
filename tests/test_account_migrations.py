@@ -42,7 +42,7 @@ def test_forward_migration_preserves_security_and_ownership(tmp_path):
     store = Store(path)
     with store.connection() as c:
         account = dict(c.execute("SELECT * FROM accounts").fetchone())
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 10
         assert account["id"] == "one" and account["password_hash"] == "retained-hash"
         assert account["role"] == "ADMIN" and account["active"] == 1
         assert account["username"] == "Admin" and account["email"] == "admin@example.test"
@@ -87,7 +87,7 @@ def test_operator_collision_command_is_read_only(tmp_path, capsys):
 def test_newer_schema_is_refused(tmp_path):
     store = Store(tmp_path / "db.sqlite3")
     with store.connection() as c:
-        c.execute("PRAGMA user_version=10")
+        c.execute("PRAGMA user_version=11")
     with pytest.raises(ValueError, match="newer unsupported schema"):
         Store(store.path)
 

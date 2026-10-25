@@ -192,6 +192,11 @@ browser persistence. Reopening an expired/replaced link provides a resend path.
 
 ## Migration and rollback boundary
 
+The current overall database is schema 10 after [online-core integration](ONLINE.md).
+The account upgrade below remains schema 9; schema-10-aware recovery additionally
+preserves current online authority and pauses its timeout gate. Review the
+[online compatibility boundary](ONLINE.md#migration-backup-and-recovery) too.
+
 Schema 9 adds nullable `email_verified_at`, `email_version` (default 1), purpose-bound
 digest rows, delivery intents and limiter buckets. The migration preflights NFKC/
 trim/casefold username/email collisions, normalizes legacy stored identifiers and

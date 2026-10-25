@@ -375,11 +375,18 @@ class Deployment:
         # Restoring game/training data must not resurrect logged-out sessions or
         # undo password, role, and status changes made since the snapshot.
         live_db, copy_db = self.data / "hnefatafl.sqlite3", restored / "hnefatafl.sqlite3"
+        if live_db.exists() and not copy_db.exists():
+            raise ValueError(
+                "Snapshot has no database; manual recovery is required before replacing live authority"
+            )
         if live_db.exists() and copy_db.exists():
             with (
                 closing(sqlite3.connect(live_db)) as live,
                 closing(sqlite3.connect(copy_db)) as copy,
             ):
+                # One live read snapshot for security and authoritative online
+                # state. The deployment gate/service stop excludes writers.
+                live.execute("BEGIN")
                 for table in ("accounts", "auth_meta", "account_limits"):
                     live_columns = [row[1] for row in live.execute(f"PRAGMA table_info({table})")]
                     copy_columns = [row[1] for row in copy.execute(f"PRAGMA table_info({table})")]
@@ -394,26 +401,22 @@ class Deployment:
                             f"INSERT INTO {table} VALUES({','.join('?' for _ in copy_columns)})",
                             rows,
                         )
-                if copy.execute("SELECT 1 FROM sqlite_master WHERE name='sessions'").fetchone():
-                    copy.execute("DELETE FROM sessions")
-                # Never restore an old verification/reset capability or mail intent.
-                for table in ("account_tokens", "account_mail"):
-                    if copy.execute(
-                        "SELECT 1 FROM sqlite_master WHERE name=?", (table,)
-                    ).fetchone():
-                        copy.execute(f"DELETE FROM {table}")
-                if copy.execute(
-                    "SELECT 1 FROM sqlite_master WHERE name='training_workers'"
-                ).fetchone():
-                    for identifier, encoded in copy.execute(
-                        "SELECT id,data FROM training_workers"
-                    ).fetchall():
-                        worker = json.loads(encoded)
-                        worker["revoked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                        copy.execute(
-                            "UPDATE training_workers SET data=? WHERE id=?",
-                            (json.dumps(worker), identifier),
-                        )
+                self.revoke_restore_capabilities(copy)
+                from .online_migrations import retain_online_on_restore
+
+                retain_online_on_restore(live, copy)
+                copy.commit()
+        elif copy_db.exists():
+            # Disaster recovery without a live DB cannot recover post-snapshot
+            # progress. It must still revoke saved capabilities and pause clocks.
+            with closing(sqlite3.connect(copy_db)) as copy:
+                from .online_migrations import pause_online_after_restore
+
+                self.revoke_restore_capabilities(copy)
+                pause_online_after_restore(
+                    copy,
+                    "Snapshot-only recovery; timeout finalization paused for operator reconciliation.",
+                )
                 copy.commit()
         retained = self.data.with_name(self.data.name + ".retained-" + secrets.token_hex(4))
         gate = self.data / ".deployment-gate"
@@ -430,6 +433,22 @@ class Deployment:
             self.run(["chown", "-R", "root:root", self.data / "backups"])
             (self.data / "backups").chmod(0o700)
         print(f"Restored pre-deployment state. Newer data retained at {retained}.")
+
+    @staticmethod
+    def revoke_restore_capabilities(copy):
+        for table in ("sessions", "account_tokens", "account_mail"):
+            if copy.execute("SELECT 1 FROM sqlite_master WHERE name=?", (table,)).fetchone():
+                copy.execute(f"DELETE FROM {table}")
+        if copy.execute("SELECT 1 FROM sqlite_master WHERE name='training_workers'").fetchone():
+            for identifier, encoded in copy.execute(
+                "SELECT id,data FROM training_workers"
+            ).fetchall():
+                worker = json.loads(encoded)
+                worker["revoked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                copy.execute(
+                    "UPDATE training_workers SET data=? WHERE id=?",
+                    (json.dumps(worker), identifier),
+                )
 
     def activate(self, release: Path):
         pending = self.base / "current.new"

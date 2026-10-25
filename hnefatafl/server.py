@@ -122,6 +122,9 @@ def create_app(
     mail_transport=None,
     account_clock=None,
     account_background=True,
+    online_settings=None,
+    online_clock=None,
+    online_background=True,
 ) -> FastAPI:
     server_build = application_metadata()
     package_version = server_build["package_version"]
@@ -150,6 +153,9 @@ def create_app(
     if account_clock is not None:
         account_options["clock"] = account_clock
     registration = attach_accounts(app, auth, **account_options)
+    from .online_api import attach_online
+
+    online = attach_online(app, auth, settings=online_settings, clock=online_clock)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
     # Catalog changes and new references must be atomic with respect to each
@@ -175,9 +181,13 @@ def create_app(
                     )
         if account_background:
             registration.start()
+        if online_background:
+            await asyncio.to_thread(online.sweep)
+            online.start()
         try:
             yield
         finally:
+            await asyncio.to_thread(online.shutdown)
             await asyncio.to_thread(registration.shutdown)
         await asyncio.to_thread(tournaments.shutdown)
         await asyncio.to_thread(analyses.shutdown)
@@ -207,6 +217,10 @@ def create_app(
         raise HTTPException(status, message)
 
     def game_or_404(game_id: str, version: int | None = None) -> dict:
+        # All local analysis/AI/seek/export adapters use this guard. Separate
+        # online tables also keep collections, tournaments and training isolated.
+        if store.online_game_exists(game_id):
+            fail("Online games require the dedicated read-only game/replay adapters.", 409)
         game = store.get_game(game_id)
         if game is None:
             fail("Game not found.", 404)

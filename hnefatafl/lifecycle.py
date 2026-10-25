@@ -1,8 +1,9 @@
-"""Unintegrated online lifecycle contract; no IO, clock, scheduler or board rules.
+"""Pure online lifecycle contract; no IO, clock, scheduler or board rules.
 
 Callers supply trusted account identities, server time and engine-validated states.
-Effects are replacement result snapshots, not counter increments. Persisting them
-exactly once requires the transaction described in docs/designs/online-phase0.md.
+Effects are replacement result snapshots, not counter increments. online_core.py
+integrates them with engine legality and SQLite transactions; the pure module
+alone does not establish concurrency or delivery guarantees.
 """
 
 from __future__ import annotations

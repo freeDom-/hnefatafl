@@ -66,7 +66,9 @@ def main(argv=None):
     os.umask(0o077)
     store = Store(root / "hnefatafl.sqlite3")
     if args.command == "migrate":
-        print("Database schema 9 ready.")
+        from .storage import SCHEMA_VERSION
+
+        print(f"Database schema {SCHEMA_VERSION} ready.")
         return 0
     auth = Auth(store, SecuritySettings())
     try:
