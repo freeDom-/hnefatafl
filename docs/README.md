@@ -60,6 +60,9 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Online foundations and offline feasibility
 
+- [Durable online game core, match modes, timeout controls and schema-10 recovery](ONLINE.md)
+- [Phase 2 implementation checklist and validation](validation/online-phase2.md)
+- [Phase 3 backend/API/reconnect handoff](designs/online-phase3-handoff.md)
 - [Phase 0 source-backed architecture assessment](designs/online-phase0-assessment.md)
 - [Lifecycle, deadlines, results, permissions and pending policy decisions](designs/online-phase0.md)
 - [Phase 1 registration implementation brief](designs/registration-phase1.md)

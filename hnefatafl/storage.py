@@ -14,7 +14,8 @@ from typing import Iterable, Iterator
 
 from .identities import rune_for_ordinal
 from .security_context import owner_scope, principal
-from .account_migrations import SCHEMA_VERSION, migrate_accounts
+from .account_migrations import migrate_accounts
+from .online_migrations import SCHEMA_VERSION, migrate_online
 
 
 class ConflictError(ValueError):
@@ -124,6 +125,7 @@ class Store:
                     f"CREATE INDEX IF NOT EXISTS {table}_owner ON {table}(owner_account_id)"
                 )
             migrate_accounts(connection)
+            migrate_online(connection)
             connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.
@@ -195,6 +197,13 @@ class Store:
                 (game_id, owner) if owner else (game_id,),
             ).fetchone()
         return json.loads(row["data"]) if row else None
+
+    def online_game_exists(self, game_id: str) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute("SELECT 1 FROM online_games WHERE id=?", (game_id,)).fetchone()
+                is not None
+            )
 
     def list_games(self) -> list[dict]:
         owner = owner_scope()

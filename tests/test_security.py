@@ -264,7 +264,8 @@ def test_object_ownership_all_game_routes_statistics_and_players(application):
                 path.replace("{game_id}", game["id"]),
                 json={"version": 0, "source": 1, "target": 2, "cursor": 0},
             )
-            assert response.status_code in {404, 422}, (method, path, response.text)
+            expected = {403} if POLICY[(method, path)] == "accounts" else {404, 422}
+            assert response.status_code in expected, (method, path, response.text)
         assert second.get("/api/games").json() == []
         assert second.get("/api/players").json() == []
         assert second.delete("/api/players/" + player["id"]).status_code == 404
@@ -337,7 +338,7 @@ def test_legacy_migration_preserves_data_and_has_no_invented_ownership(tmp_path)
     assert migrated.players()[0]["id"] == "historical"
     assert migrated.players()[0]["owner_account_id"] is None
     with migrated.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 10
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
 
 
