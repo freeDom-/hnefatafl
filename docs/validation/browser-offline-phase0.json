@@ -1,0 +1,147 @@
+{
+  "browser": "154.0.8037.57",
+  "pyodide": "0.27.7",
+  "runtime": {
+    "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b",
+    "strategy": "baseline",
+    "time_limit": 0.1
+  },
+  "worker_probe": {
+    "worker_busy_ms": 500
+  },
+  "startup_ms": 4883.70000000007,
+  "offline_startup_ms": 4714.20000000007,
+  "fixtures": 34,
+  "worker_ui_pulses": "3",
+  "results": [
+    {
+      "ruleset": "brandubh",
+      "offline": false,
+      "ai_ms": 36.10000099999944
+    },
+    {
+      "ruleset": "tablut",
+      "offline": false,
+      "ai_ms": 28.099999000000153
+    },
+    {
+      "ruleset": "copenhagen",
+      "offline": false,
+      "ai_ms": 67.40000000000012
+    },
+    {
+      "ruleset": "brandubh",
+      "offline": true,
+      "ai_ms": 9.800001000000336
+    },
+    {
+      "ruleset": "tablut",
+      "offline": true,
+      "ai_ms": 33.00000000000036
+    },
+    {
+      "ruleset": "copenhagen",
+      "offline": true,
+      "ai_ms": 79.50000000000034
+    }
+  ],
+  "external_requests": [],
+  "inventory": [
+    {
+      "path": "index.html",
+      "bytes": 969,
+      "gzip_bytes": 509,
+      "sha256": "bba1f74c016165e1d3f51d0ee2e0654bcad373e28f84a772d3fd8f1167cc357b"
+    },
+    {
+      "path": "app.js",
+      "bytes": 3744,
+      "gzip_bytes": 1389,
+      "sha256": "9d19483fb65f8592960e88e59e27c144aa540189fd2ef4aa002baf5689c66185"
+    },
+    {
+      "path": "worker.js",
+      "bytes": 1283,
+      "gzip_bytes": 627,
+      "sha256": "4bce195e99b47df27afdf4ea2a24536dda45911b1c9aef038aef36c633a82ae2"
+    },
+    {
+      "path": "bridge.py",
+      "bytes": 1880,
+      "gzip_bytes": 731,
+      "sha256": "b189b8e84678d04cad0239e7db87b8644d891611ddfeedf721c7b9ba5e1ca32b"
+    },
+    {
+      "path": "sw.js",
+      "bytes": 1425,
+      "gzip_bytes": 616,
+      "sha256": "2dc04f0abf28eaeeb5b899b4049d020a0fa172bc64a3323d75af8e1261003a11"
+    },
+    {
+      "path": "fixtures.json",
+      "bytes": 150856,
+      "gzip_bytes": 5266,
+      "sha256": "73d5100cab66e77a264e639cc244a212662d2417139e7b50e6ee622c48df1b17"
+    },
+    {
+      "path": "python/hnefatafl/__init__.py",
+      "bytes": 80,
+      "gzip_bytes": 94,
+      "sha256": "43b28e6bb56484d3063db5014af703c3adf971c24fd26a197370900f48d7ac73"
+    },
+    {
+      "path": "python/hnefatafl/engine.py",
+      "bytes": 15816,
+      "gzip_bytes": 4463,
+      "sha256": "79e626700971ed7b92e0b3d00110205b06e8a1ac9054dd78711c5703d2381aa3"
+    },
+    {
+      "path": "python/hnefatafl/ai.py",
+      "bytes": 35334,
+      "gzip_bytes": 9242,
+      "sha256": "b0974b46c6bd7fb8f7bb5eb381bfbf88c7be62f38f94deacfa39c69eab2a7121"
+    },
+    {
+      "path": "runtime/pyodide.js",
+      "bytes": 14913,
+      "gzip_bytes": 5981,
+      "sha256": "b4cb23a53aba19c221659b9fb40a2f18281d685691dc06647fb0afd0681baf98"
+    },
+    {
+      "path": "runtime/pyodide.asm.js",
+      "bytes": 1255688,
+      "gzip_bytes": 235580,
+      "sha256": "6b4c90de5b7172873f04f21884d0e9d2274e305fe32116558fe3e4fbe3618d51"
+    },
+    {
+      "path": "runtime/pyodide.asm.wasm",
+      "bytes": 10105545,
+      "gzip_bytes": 3137600,
+      "sha256": "a50dd1843f805a0b7c45b61037ee0d7b26dfe85efe0e18ef95a34ad24e401f5f"
+    },
+    {
+      "path": "runtime/python_stdlib.zip",
+      "bytes": 2360737,
+      "gzip_bytes": 2322662,
+      "sha256": "16611534726e5d8ac2bd8f926410b2dcb8d6f49aa24913463533b457a2115c16"
+    },
+    {
+      "path": "runtime/pyodide-lock.json",
+      "bytes": 112205,
+      "gzip_bytes": 25823,
+      "sha256": "9c45b916001a750f4102fc287494f3eab215909c7535c626a20db80fd6333e2c"
+    }
+  ],
+  "environment": {
+    "date": "2026-10-25",
+    "host_python": "3.12.14",
+    "node": "24.19.0",
+    "playwright": "1.64.1",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+    "machine": "x86_64",
+    "logical_cpus": 3,
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "compression": "gzip.compress level 9 mtime=0 estimates; HTTP server uncompressed"
+  },
+  "command": "SPIKE_CHROMIUM=/usr/bin/chromium node spikes/browser_offline/verify.mjs work/phase0/measured"
+}
