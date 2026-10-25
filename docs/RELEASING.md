@@ -10,10 +10,10 @@ unchanged, and the already-published releases keep their original notes because
 those bodies point into the tagged trees. The publish workflow therefore still
 falls back to `vX.Y.Z.md` for tags whose trees predate the rename.
 
-Every release note opens with one H1 that is the concise summary alone, for example
-`# Remote worker management fixes`. The version is carried by the file name and by
-the GitHub release title, which is the bare `X.Y.Z`; do not repeat the product name
-or the version in the H1, and do not duplicate the summary in the release title.
+Every release note opens with one H1 of the form `# X.Y.Z - Concise summary`, for
+example `# 0.22.1 - Remote worker management fixes`. The GitHub release title is the
+bare `X.Y.Z`; do not repeat the product name in the H1, and do not duplicate the
+summary in the release title.
 
 Patch releases correct defects; minor releases add compatible features; breaking
 changes after 1.0 require a new major version.
