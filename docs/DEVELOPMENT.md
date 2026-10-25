@@ -203,3 +203,21 @@ annotated tag and the GitHub release stay separate, deliberate steps.
 Backend regression clients and browser tests log in through the real API with
 ordinary disposable accounts and send CSRF tokens. No runtime authentication
 bypass exists. The security matrix derives from every registered API route.
+
+## Guest runtime and browser validation
+
+`npm --prefix frontend run build` and `dev` first run `scripts/prepare_guest.py`
+using the repository `.venv`. The initial build downloads a SHA-512-pinned Pyodide
+0.27.7 archive from npm; subsequent builds verify the cached archive. Generated
+`frontend/public/assets/guest-*` output is ignored. Keep matching
+[licenses/source notices](../frontend/guest/licenses/NOTICE.md) with every generated
+package. Runtime or engine changes require the replay/CSP checks described in the
+[guest guide](GUEST_PLAY.md). No service worker is installed.
+
+`npm --prefix frontend run test:guest` builds production assets and starts the real
+backend on port 8007, with a separate loopback row-count controller on 8008 and
+guarded disposable development data. Install Playwright Chromium first, or set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` when using a system installation.
+The two projects check desktop and mobile emulation; this is not physical-device
+or full offline evidence. Run heavy browser and backend training checks serially
+on constrained local hosts. The suite also runs in browser CI.

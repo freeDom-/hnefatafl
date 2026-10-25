@@ -26,6 +26,8 @@ import { modelLabel } from './modelLabel';
 import SearchWrapper from './SearchWrapper';
 import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 import Online from './Online';
+import Modal from './Modal';
+import { surfaceLink } from './surfaceNavigation';
 import { useAuth } from './Auth';
 
 type Tab = 'online' | 'play' | 'archive' | 'training' | 'tournaments';
@@ -257,6 +259,9 @@ export default function App() {
             ))}
         </nav>
         <div className="header-controls">
+          <a className="button small secondary" href="/guest" onClick={surfaceLink}>
+            {t('Guest play')}
+          </a>
           <span className="account-name" title={account?.username}>
             {account?.username}
           </span>
@@ -273,6 +278,7 @@ export default function App() {
             <section className="page-intro">
               <div>
                 <h1>{t('Every move tells a saga.')}</h1>
+                <p>{t('Account single-player · saved to your account')}</p>
                 <p>{t('One king. Two armies. A thousand ways to outwit your opponent.')}</p>
               </div>
               <button
@@ -679,53 +685,7 @@ export default function App() {
   );
 }
 
-export function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    dialog.current?.showModal();
-    return () => dialog.current?.close();
-  }, []);
-  return (
-    <dialog
-      ref={dialog}
-      className="modal"
-      aria-label={title}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onPointerDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        const bounds = event.currentTarget.getBoundingClientRect();
-        if (
-          event.clientX < bounds.left ||
-          event.clientX > bounds.right ||
-          event.clientY < bounds.top ||
-          event.clientY > bounds.bottom
-        )
-          onClose();
-      }}
-    >
-      <div className="modal-top">
-        <div>
-          <h2>{title}</h2>
-        </div>
-        <button className="icon-button" aria-label={t('Close dialog')} onClick={onClose}>
-          ×
-        </button>
-      </div>
-      {children}
-    </dialog>
-  );
-}
+export { default as Modal } from './Modal';
 
 function AIFields({
   side,

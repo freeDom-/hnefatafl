@@ -93,6 +93,8 @@ export default function Auth({ children }: { children: ReactNode }) {
     window.addEventListener('authentication-required', expired);
     return () => {
       alive = false;
+      generation.current++;
+      setCSRF('');
       controller.abort();
       window.removeEventListener('authentication-required', expired);
     };

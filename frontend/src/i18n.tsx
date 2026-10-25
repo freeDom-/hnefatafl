@@ -9,6 +9,7 @@ import modelManagement from './locales/de-model-management';
 import workers from './locales/de-workers';
 import evaluation from './locales/de-evaluation';
 import dashboard from './locales/de-dashboard';
+import guest from './locales/de-guest';
 import online from './locales/de-online';
 import accounts from './locales/de-accounts';
 
@@ -29,6 +30,7 @@ const dictionary = {
   ...dashboard,
   ...accounts,
   ...online,
+  ...guest,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();
