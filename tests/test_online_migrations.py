@@ -15,6 +15,7 @@ def schema9(path):
     with store.connection() as c:
         for table in reversed(ONLINE_TABLES):
             c.execute(f"DROP TABLE {table}")
+        c.execute("DROP TABLE online_creation_metrics")
         c.execute("PRAGMA user_version=9")
     return store
 

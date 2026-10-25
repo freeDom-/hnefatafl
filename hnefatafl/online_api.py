@@ -121,6 +121,10 @@ def attach_online(app, auth, *, settings=None, clock=None):
     def gate():
         return execute(core.gate)
 
+    @app.get("/api/online/monitoring")
+    def monitoring():
+        return execute(core.monitoring)
+
     @app.patch("/api/online/timeout-gate")
     def set_gate(body: GateRequest):
         return execute(

@@ -112,6 +112,36 @@ Observed intermediate results/corrections:
 
 ## Security/concurrency evidence and limitations
 
+### Authenticated creation-abuse follow-up
+
+The subsequent security follow-up adds defaults of five waiting lobbies per
+creator and ten new matches per rolling 900 seconds. Checks share the creation
+write transaction; cancellation does not refill the rolling budget. Two-game
+matches count as one intent and automatic return games do not spend it again.
+Current records remain the budget authority across connections/processes/restarts.
+Two fixed monitoring rows retain quota-denial counts, with sanitized warnings
+limited to one per reason/minute. Administrator-only `/api/online/monitoring`
+reports these counters and database/WAL growth; exact route grants now total 76.
+Optional telemetry/indexes extend the unreleased schema 10 without rewriting
+authority or rejecting older schema-10 snapshots that lack telemetry.
+
+Initial `.venv/bin/python -m pytest tests/test_online_admission.py -q` passed
+29 cases in 22.50 seconds. Two subsequent cases cover existing schema-10 startup
+and an older snapshot retaining the current budget/counters.
+
+- `.venv/bin/python -m pytest tests/test_online_admission.py tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_security.py tests/test_deployment.py -q`:
+  **191 passed** in 223.70 seconds, including the final 31 admission cases.
+- `.venv/bin/ruff check hnefatafl tests` and
+  `.venv/bin/ruff format --check hnefatafl tests`: passed (93 formatted files).
+- `.venv/bin/mypy hnefatafl`: passed (43 source files).
+- `.venv/bin/python scripts/audit_api.py`: passed (76 grants).
+- `make docs`: passed (73 Markdown files, 527 local references).
+
+The full repository and existing frontend/browser regression suites run in CI
+on the follow-up head; no additional local browser run or full `make check` rerun
+is claimed for this backend-only follow-up. No frontend, application-version,
+release or production configuration change is part of it.
+
 The suites assert durable rows as well as responses: competing joins/moves, creator
 self-join, cancellation, request/sweeper and two-sweeper races, microsecond boundaries,
 status/session/role changes while blocked on a writer lock, paused/restarted expiry,

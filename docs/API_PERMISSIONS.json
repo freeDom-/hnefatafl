@@ -321,6 +321,14 @@
   },
   {
     "method": "GET",
+    "route": "/api/online/monitoring",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
     "route": "/api/online/stats",
     "authentication": "session",
     "permission": "play",

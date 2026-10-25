@@ -32,6 +32,11 @@ remain gated. No lobby frontend or deployment is part of the phase. See
 [operations](docs/ONLINE.md), [validation](docs/validation/online-phase2.md) and
 [Phase 3 handoff](docs/designs/online-phase3-handoff.md).
 
+The Phase 2 creation-abuse follow-up adds transactionally enforced per-account
+waiting/rolling creation limits, persistent bounded denial telemetry, sanitized
+rate-limited logs and administrator-only database-growth monitoring. It retains
+creation budgets through cancellation/restart and compatible schema-10 restore.
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

@@ -9,6 +9,7 @@ from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import fcntl
 import json
+import logging
 import sqlite3
 import secrets
 import threading
@@ -21,6 +22,7 @@ from .online_settings import OnlineSettings
 from .security_context import allowed, online_eligible
 
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+LOGGER = logging.getLogger(__name__)
 
 
 class OnlineError(ValueError):
@@ -154,6 +156,36 @@ class OnlineCore:
         if not self.settings.enabled or not self.settings.creation_policy_approved:
             raise OnlineError(503, "Online game admission is disabled pending policy approval.")
 
+    def _creation_denial(self, c, account_id, now):
+        # Index-backed scans stop at the configured cap, including when upgrading
+        # a database that already exceeds the new limits. No new limiter keys.
+        if c.execute(
+            "SELECT 1 FROM online_games WHERE creator_id=? AND status='waiting' LIMIT 1 OFFSET ?",
+            (account_id, self.settings.waiting_limit - 1),
+        ).fetchone():
+            reason = "waiting_limit"
+        elif c.execute(
+            "SELECT 1 FROM online_matches WHERE creator_id=? AND created_at>? LIMIT 1 OFFSET ?",
+            (
+                account_id,
+                micros(now) - self.settings.creation_window_seconds * 1000000,
+                self.settings.creation_limit - 1,
+            ),
+        ).fetchone():
+            reason = "creation_rate"
+        else:
+            return None
+        metrics = c.execute(
+            "SELECT * FROM online_creation_metrics WHERE reason=?", (reason,)
+        ).fetchone()
+        at = micros(now)
+        log_due = metrics["last_logged_at"] is None or at >= metrics["last_logged_at"] + 60000000
+        c.execute(
+            "UPDATE online_creation_metrics SET denials=denials+1,last_denied_at=?,last_logged_at=? WHERE reason=?",
+            (at, at if log_due else metrics["last_logged_at"], reason),
+        )
+        return reason, metrics["denials"] + 1, log_due
+
     def create(
         self,
         credential: str,
@@ -185,39 +217,110 @@ class OnlineCore:
             ).fetchone():
                 raise OnlineError(409, "Creation request already committed. Reload your games.")
             now = self._now()
-            game = lifecycle.waiting(
-                "online-" + uuid4().hex,
-                lifecycle.Actor(account["id"]),
-                ruleset,
-                side if side != "random" else "attackers",
-                now,
-                control,
-            )
-            match_id = "match-" + uuid4().hex
-            c.execute(
-                "INSERT INTO online_matches VALUES(?,?,NULL,?,?,?,?,?,?,NULL,NULL)",
-                (
-                    match_id,
-                    account["id"],
-                    side,
-                    mode,
+            denial = self._creation_denial(c, account["id"], now)
+            response = None
+            if denial is None:
+                game = lifecycle.waiting(
+                    "online-" + uuid4().hex,
+                    lifecycle.Actor(account["id"]),
                     ruleset,
-                    RULESETS[ruleset].version,
-                    seconds,
-                    micros(now),
-                ),
+                    side if side != "random" else "attackers",
+                    now,
+                    control,
+                )
+                match_id = "match-" + uuid4().hex
+                c.execute(
+                    "INSERT INTO online_matches VALUES(?,?,NULL,?,?,?,?,?,?,NULL,NULL)",
+                    (
+                        match_id,
+                        account["id"],
+                        side,
+                        mode,
+                        ruleset,
+                        RULESETS[ruleset].version,
+                        seconds,
+                        micros(now),
+                    ),
+                )
+                self._insert_game(
+                    c,
+                    game,
+                    request_id,
+                    match_id,
+                    1,
+                    now,
+                    assigned_side=None if side == "random" else side,
+                )
+                response = self._projection(c, *self._load(c, game.id))
+        # Commit denial metrics without committing any game. Log only after that
+        # commit, at most once per reason/minute across connections and restarts.
+        if denial is not None:
+            reason, total, log_due = denial
+            if log_due:
+                LOGGER.warning("Online creation denied: %s; cumulative denials=%d", reason, total)
+            raise OnlineError(
+                429,
+                "Too many waiting games. Wait for an opponent or cancel a waiting game."
+                if reason == "waiting_limit"
+                else "Game creation rate limit reached. Try again later.",
             )
-            self._insert_game(
-                c,
-                game,
-                request_id,
-                match_id,
-                1,
-                now,
-                assigned_side=None if side == "random" else side,
-            )
-            response = self._projection(c, *self._load(c, game.id))
+        assert response is not None
         return {"game": response, "transition": "created", "action_accepted": True}
+
+    def monitoring(self, credential: str) -> dict:
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            self._identity(c, credential, admin=True)
+            page_size = c.execute("PRAGMA page_size").fetchone()[0]
+            pages = c.execute("PRAGMA page_count").fetchone()[0]
+            free = c.execute("PRAGMA freelist_count").fetchone()[0]
+            counts = {status.value: 0 for status in lifecycle.Status}
+            counts.update(
+                dict(
+                    c.execute("SELECT status,COUNT(*) FROM online_games GROUP BY status").fetchall()
+                )
+            )
+            denials = {
+                row["reason"]: {
+                    "count": row["denials"],
+                    "last_denied_at": stamp(instant(row["last_denied_at"]))
+                    if row["last_denied_at"] is not None
+                    else None,
+                }
+                for row in c.execute("SELECT * FROM online_creation_metrics")
+            }
+            totals = {
+                name: c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for name, table in (
+                    ("matches", "online_matches"),
+                    ("games", "online_games"),
+                    ("accepted_moves", "online_moves"),
+                    ("result_revisions", "online_results"),
+                )
+            }
+
+        def file_bytes(path):
+            try:
+                return path.stat().st_size
+            except FileNotFoundError:
+                return 0
+
+        return {
+            "limits": {
+                "waiting_per_account": self.settings.waiting_limit,
+                "creations_per_account": self.settings.creation_limit,
+                "window_seconds": self.settings.creation_window_seconds,
+            },
+            "denied_creations": denials,
+            "online": {**totals, "by_status": counts},
+            "database": {
+                "allocated_bytes": pages * page_size,
+                "used_bytes": (pages - free) * page_size,
+                "free_bytes": free * page_size,
+                "main_file_bytes": file_bytes(self.store.path),
+                "wal_bytes": file_bytes(self.store.path.with_name(self.store.path.name + "-wal")),
+            },
+        }
 
     def _insert_game(self, c, game, request_id, match_id, leg, now, *, assigned_side):
         c.execute(

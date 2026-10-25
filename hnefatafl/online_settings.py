@@ -13,12 +13,24 @@ class OnlineSettings:
     timeout_policy_approved: bool = False
     sweep_seconds: int = 10
     sweep_batch: int = 50
+    waiting_limit: int = 5
+    creation_limit: int = 10
+    creation_window_seconds: int = 900
 
     def __post_init__(self):
         if type(self.sweep_seconds) is not int or not 1 <= self.sweep_seconds <= 300:
             raise ValueError("Online sweep interval must be 1–300 seconds")
         if type(self.sweep_batch) is not int or not 1 <= self.sweep_batch <= 256:
             raise ValueError("Online sweep batch must be 1–256 games")
+        for name in ("waiting_limit", "creation_limit"):
+            value = getattr(self, name)
+            if type(value) is not int or not 1 <= value <= 1000:
+                raise ValueError(f"Online {name} must be 1–1000")
+        if (
+            type(self.creation_window_seconds) is not int
+            or not 60 <= self.creation_window_seconds <= 86400
+        ):
+            raise ValueError("Online creation window must be 60–86400 seconds")
 
     @classmethod
     def environment(cls):
@@ -30,4 +42,9 @@ class OnlineSettings:
             == "true",
             sweep_seconds=int(os.environ.get("HNEFATAFL_ONLINE_SWEEP_SECONDS", "10")),
             sweep_batch=int(os.environ.get("HNEFATAFL_ONLINE_SWEEP_BATCH", "50")),
+            waiting_limit=int(os.environ.get("HNEFATAFL_ONLINE_WAITING_LIMIT", "5")),
+            creation_limit=int(os.environ.get("HNEFATAFL_ONLINE_CREATION_LIMIT", "10")),
+            creation_window_seconds=int(
+                os.environ.get("HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS", "900")
+            ),
         )

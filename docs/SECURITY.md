@@ -115,6 +115,14 @@ finalization disabled until an approved outage procedure and explicit gate resum
 Compatible recovery retains live online authority and pauses the gate; incompatible
 online schema rollback is refused before root replacement.
 
+Authenticated online creation is additionally bounded per account: five waiting
+lobbies and ten new matches per rolling fifteen minutes by default, without an
+administrator exemption. Limits serialize with creation and survive cancellation,
+restart and compatible recovery. Quota denials use fixed-size persistent counters
+and sanitized, rate-limited logs; aggregate monitoring requires administrator
+permission and exposes no account/security identifiers. See
+[creation quotas and monitoring](ONLINE.md#creation-quotas-and-monitoring).
+
 ## Coverage and explicit exceptions
 
 The complete [JSON inventory](API_PERMISSIONS.json) records every API method/path,

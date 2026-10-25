@@ -113,6 +113,13 @@ All online endpoints are authenticated, with CSRF/Origin/JSON/body protections.
 Legacy analysis/AI/shared-cursor/export adapters reject online IDs, including admins;
 no online assistance or WebSocket endpoint is provided. The engine remains shared.
 
+Creation admission also checks per-account waiting and rolling creation quotas in
+the game transaction, using indexed persisted rows rather than process-local
+limiter state. Bounded aggregate denial counters and rate-limited sanitized logs
+survive restart; administrator-only monitoring reports these and database/WAL
+growth. Optional schema-10 monitoring state is initialized on compatible restore
+without changing authoritative game rows or resetting the live creation budget.
+
 ## Training execution and inference
 
 Self-play uses sequential execution or cooperatively interleaves independent games
