@@ -41,3 +41,26 @@ it('ignores a delayed unauthorized response from an aborted account request', as
   expect(expired).not.toHaveBeenCalled();
   window.removeEventListener('authentication-required', expired);
 });
+
+it('aborts and ignores an old account response after leaving the protected surface', async () => {
+  setCSRF('old-session');
+  let finish!: (value: unknown) => void;
+  const fetcher = vi.fn((_path: string, options?: RequestInit) => {
+    void options;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const expired = vi.fn();
+  window.addEventListener('authentication-required', expired);
+  const pending = api('/games/old-account');
+  const signal = fetcher.mock.calls[0][1]?.signal;
+  setCSRF('');
+  setCSRF('new-session');
+  expect(signal?.aborted).toBe(true);
+  finish({ ok: false, status: 401, json: async () => ({ detail: 'old account' }) });
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  expect(expired).not.toHaveBeenCalled();
+  window.removeEventListener('authentication-required', expired);
+});

@@ -52,6 +52,16 @@ hardware skips, 269 frontend tests, 66 legacy browser checks with 4 intentional
 skips, plus all registration/online checks. This is integration evidence, not a
 release or production rollout.
 
+Phase 3 PR #13 was merged before Phase 4 branched. The owner approved the Phase 0
+single-slot policy explicitly. Phase 4 separates public browser-local guest play
+from preserved account single-player and server-authoritative Online. It reuses
+the Python engine/AI through pinned Pyodide, saves only a bounded move envelope,
+restores via validated replay, and requires replacement/clear confirmation. It adds
+no archive/upload, competitive/training accounting, service worker or full offline
+startup. Existing account keys/history and online authorization remain independent.
+See [guest/storage behavior](docs/GUEST_PLAY.md), [Phase 4 evidence](docs/validation/online-phase4.md)
+and the [Phase 5 handoff](docs/designs/online-phase5-handoff.md).
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

@@ -10,6 +10,10 @@ requires the backend's current active/verified/play eligibility. An existing sea
 can keep playing after verification is removed, while its account/session remains
 valid. Visibility is authenticated: this is not an anonymous spectator service.
 
+Guest single-player is a separate public browser surface with one device slot;
+see [guest play and storage](GUEST_PLAY.md). It never uploads games or feeds online
+results, and online IDs never enter its replay/AI adapter.
+
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),

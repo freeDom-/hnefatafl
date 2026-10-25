@@ -464,3 +464,6 @@ must restart after a cloud snapshot is restored.
 
 The current FastAPI/Starlette test client emits a dependency deprecation warning;
 the tested requests execute and pass. It does not skip or replace API tests.
+
+Current guest separation evidence is in [Phase 4 validation](validation/online-phase4.md),
+including production-CSP Chromium, real IndexedDB and account/online boundaries.
