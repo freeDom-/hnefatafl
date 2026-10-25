@@ -9,6 +9,13 @@ Release-note filenames are the unprefixed `X.Y.Z` tag in every case. The histori
 unchanged, and the already-published releases keep their original notes because
 those bodies point into the tagged trees. The publish workflow therefore still
 falls back to `vX.Y.Z.md` for tags whose trees predate the rename.
+
+Every release note opens with one H1 of the form `# X.Y.Z — Concise summary`, for
+example `# 0.22.1 — Remote worker management fixes`. The summary names the release's
+main delivered change, so the notes and the published release stay identifiable
+without repeating the product name. The GitHub release title stays the bare
+`X.Y.Z`; do not duplicate the H1 summary there.
+
 Patch releases correct defects; minor releases add compatible features; breaking
 changes after 1.0 require a new major version.
 
