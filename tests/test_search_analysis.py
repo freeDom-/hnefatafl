@@ -69,7 +69,12 @@ def test_alpha_beta_keeps_last_completed_search_value_if_deeper_iteration_expire
     monkeypatch.setattr(ai, "_ordered", expiry_at_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})
     assert root_calls == 2
-    assert result == expected
+    # The interrupted deeper iteration keeps the last completed value, move and
+    # depth; the richer report may additionally expose the discarded iteration.
+    assert result["value"] == expected["value"]
+    assert result["best_move"] == expected["best_move"]
+    assert result["completed_depth"] == expected["completed_depth"]
+    assert result["chosen_from_completed_iteration"] is True
 
 
 def test_alpha_beta_reports_root_evaluator_if_no_depth_can_finish(monkeypatch):
@@ -136,7 +141,7 @@ def test_profile_depth_defaults_and_explicit_overrides_match_play_and_analysis(m
     profile["parameters"] = {"depth": 1, "time_limit": 15}
     monkeypatch.setattr(ai, "ai_profiles", lambda: profiles)
     state = new_game("brandubh")
-    choices = []
+    node_counts = []
     for explicit, expected_depth in (({}, 1), ({"depth": 2}, 2)):
         configuration = {"profile_id": "alpha_beta", "seed": 0, **explicit}
         diagnostics = {}
@@ -146,8 +151,10 @@ def test_profile_depth_defaults_and_explicit_overrides_match_play_and_analysis(m
         assert selected.to_dict() == report["best_move"]
         assert report["value"] == diagnostics["value"]
         assert configuration == {"profile_id": "alpha_beta", "seed": 0, **explicit}
-        choices.append(selected)
-    assert choices[0] != choices[1]
+        node_counts.append(diagnostics.get("nodes", 0))
+    # The explicit override really searches deeper. The chosen move can
+    # legitimately coincide at one and two plies, so compare work instead.
+    assert node_counts[0] < node_counts[1]
 
 
 @pytest.mark.parametrize("blocks", [0, 3])

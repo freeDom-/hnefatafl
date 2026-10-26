@@ -38,14 +38,23 @@ DEFAULTS = {
     "oracle_node_budget": 200_000,
     "table_capacity": 200_000,
     "warmup": True,
+    "scenarios": None,
 }
 
 # Feature ablation. ``legacy`` keeps the original exact-value cache search as the
-# reference; every other scenario shares the production code path.
+# reference; every other scenario shares the production code path. The
+# ``ordering_*`` scenarios isolate each move-ordering priority behind the
+# benchmark-only ``_ordering`` hook (never part of a saved search identity).
 SCENARIOS: dict[str, dict] = {
     "legacy": {"legacy": True},
     "transposition": {"transposition": True, "move_ordering": False},
     "ordering": {"transposition": True, "move_ordering": True},
+    "ordering_static": {"transposition": True, "move_ordering": True, "_ordering": "static"},
+    "ordering_pv": {"transposition": True, "move_ordering": True, "_ordering": "pv"},
+    "ordering_tt": {"transposition": True, "move_ordering": True, "_ordering": "tt"},
+    "ordering_killer": {"transposition": True, "move_ordering": True, "_ordering": "killer"},
+    "ordering_history": {"transposition": True, "move_ordering": True, "_ordering": "history"},
+    "ordering_depth": {"transposition": True, "move_ordering": True, "_ordering": "depth"},
     "symmetry_transposition": {
         "transposition": True,
         "symmetry_transposition": True,
@@ -63,6 +72,17 @@ SCENARIOS: dict[str, dict] = {
         "move_ordering": True,
     },
 }
+
+# The production ablation keeps the original six scenarios. A dedicated
+# ordering comparison selects the ``ordering_*`` names through ``scenarios``.
+DEFAULT_SCENARIOS = (
+    "legacy",
+    "transposition",
+    "ordering",
+    "symmetry_transposition",
+    "symmetry_pruning",
+    "all",
+)
 
 
 def _position(ruleset: str, pieces: dict[tuple[int, int], str], turn: str) -> State:
@@ -289,13 +309,18 @@ def _run(
     table_capacity: int,
     measure_memory: bool = False,
 ) -> dict:
+    search = {key: value for key, value in scenario.items() if key != "_ordering"}
     config = {
         "algorithm": "alpha_beta",
         "depth": depth,
         "time_limit": time_limit,
         "seed": seed,
-        "search": {**scenario, "table_capacity": table_capacity},
+        "search": {**search, "table_capacity": table_capacity},
     }
+    if "_ordering" in scenario:
+        config["_ordering"] = scenario["_ordering"]
+    # Enable the per-node timing breakdown; integer counters are always kept.
+    config["_profile"] = True
     details: dict = {}
     if measure_memory:
         tracemalloc.start()
@@ -322,9 +347,24 @@ def _run(
         "transposition_cutoffs": details.get("transposition_cutoffs"),
         "transposition_cross_orientation_hits": details.get("transposition_cross_orientation_hits"),
         "transposition_peak_entries": details.get("transposition_peak_entries"),
+        "transposition_depth_compatible": details.get("transposition_depth_compatible"),
+        "transposition_board_history_divergence": details.get(
+            "transposition_board_history_divergence"
+        ),
         "symmetry_hits": details.get("symmetry_hits"),
         "symmetry_moves_skipped": details.get("symmetry_moves_skipped"),
+        "successors": details.get("successors"),
+        "ordered_moves": details.get("ordered_moves"),
+        "chosen_from_completed_iteration": details.get("chosen_from_completed_iteration"),
+        "interrupted_depth": details.get("interrupted_depth"),
+        "interrupted_seconds": details.get("interrupted_seconds"),
+        "discarded_nodes": details.get("discarded_nodes"),
         "canonicalization_seconds": details.get("canonicalization_seconds"),
+        "stabilizer_seconds": details.get("stabilizer_seconds"),
+        "pruning_seconds": details.get("pruning_seconds"),
+        "successor_seconds": details.get("successor_seconds"),
+        "sort_seconds": details.get("sort_seconds"),
+        "transposition_seconds": details.get("transposition_seconds"),
         "wall_seconds": elapsed,
         "peak_traced_bytes": peak,
     }
@@ -342,9 +382,20 @@ def _aggregate(rows: list[dict]) -> dict:
         "transposition_cutoffs",
         "transposition_cross_orientation_hits",
         "transposition_peak_entries",
+        "transposition_depth_compatible",
+        "transposition_board_history_divergence",
         "symmetry_hits",
         "symmetry_moves_skipped",
+        "successors",
+        "ordered_moves",
+        "interrupted_seconds",
+        "discarded_nodes",
         "canonicalization_seconds",
+        "stabilizer_seconds",
+        "pruning_seconds",
+        "successor_seconds",
+        "sort_seconds",
+        "transposition_seconds",
         "wall_seconds",
         "peak_traced_bytes",
     )
@@ -391,10 +442,19 @@ def run_alpha_beta_benchmark(
         raise ValueError("Benchmark oracle depth must be between 1 and 4")
     seed = int(config["seed"])
     positions = corpus(seed + 7000)
-    names = list(SCENARIOS)
+    requested = config["scenarios"]
+    if requested is None:
+        names = list(DEFAULT_SCENARIOS)
+    elif isinstance(requested, list) and requested:
+        unknown_scenarios = [name for name in requested if name not in SCENARIOS]
+        if unknown_scenarios:
+            raise ValueError(f"Unknown benchmark scenario: {unknown_scenarios[0]}")
+        names = list(dict.fromkeys(requested))
+    else:
+        raise ValueError("Benchmark scenarios must be a nonempty list")
     result: dict = {
         "config": config,
-        "scenarios": SCENARIOS,
+        "scenarios": {name: SCENARIOS[name] for name in names},
         "host": {
             "python": platform.python_version(),
             "platform": platform.platform(),
@@ -423,8 +483,15 @@ def run_alpha_beta_benchmark(
     }
     if config["warmup"]:
         warm = new_game("brandubh")
-        for scenario in SCENARIOS.values():
-            _run(warm, scenario, depth=1, time_limit=1.0, seed=seed, table_capacity=10_000)
+        for name in names:
+            _run(
+                warm,
+                SCENARIOS[name],
+                depth=1,
+                time_limit=1.0,
+                seed=seed,
+                table_capacity=10_000,
+            )
 
     depth_rows: dict[str, list[dict]] = {name: [] for name in names}
     for label, state in positions:
@@ -485,9 +552,12 @@ def run_alpha_beta_benchmark(
             )
 
     reference_values: dict[str, float] = {}
+    # The legacy exact-value search is the reference when present. A dedicated
+    # ordering comparison that omits legacy falls back to its first scenario,
+    # which is still an exact minimax search at the completed depth.
+    reference_name = "legacy" if "legacy" in names else names[0]
     for entry in result["fixed_depth"]["positions"]:
-        legacy = entry["scenarios"]["legacy"]
-        reference_values[entry["position"]] = legacy["values"][0]
+        reference_values[entry["position"]] = entry["scenarios"][reference_name]["values"][0]
     mismatches = []
     for entry in result["fixed_depth"]["positions"]:
         expected = reference_values[entry["position"]]
@@ -505,7 +575,7 @@ def run_alpha_beta_benchmark(
     result["fixed_depth"]["summary"] = {
         "scenarios": {name: _aggregate(rows) for name, rows in depth_rows.items()},
         "minimax_mismatches": mismatches,
-        "reference": "legacy exact-value cache value at the same completed depth",
+        "reference": f"{reference_name} value at the same completed depth",
     }
 
     # Independent exhaustive oracle at a feasible depth.

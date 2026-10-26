@@ -13,7 +13,14 @@ import time
 import pytest
 
 from hnefatafl import ai, shield_maiden
-from hnefatafl.ai import _Bound, _TranspositionTable, _search_settings
+from hnefatafl.ai import (
+    _Bound,
+    _TTEntry,
+    _TranspositionTable,
+    _bound_for,
+    _search_settings,
+    _tt_tighten,
+)
 from hnefatafl.engine import RULESETS, Move, State, apply_move, legal_moves, new_game
 from hnefatafl.symmetry import (
     Symmetry,
@@ -137,6 +144,52 @@ def test_transposition_table_prefers_exact_at_equal_depth():
     assert table.probe("b").value == 0.4
 
 
+def test_bound_for_classifies_against_the_searched_window():
+    # A transposition lower bound raised alpha from 0 to 5, then the node failed
+    # low at 3. The true value is at most 3, never an exact 3.
+    assert _bound_for(3.0, 5.0, 10.0) == _Bound.UPPER
+    assert _bound_for(3.0, 0.0, 10.0) == _Bound.EXACT
+    assert _bound_for(12.0, 0.0, 10.0) == _Bound.LOWER
+    # Boundary values fail soft in the direction of the window edge.
+    assert _bound_for(5.0, 5.0, 10.0) == _Bound.UPPER
+    assert _bound_for(10.0, 0.0, 10.0) == _Bound.LOWER
+    assert _bound_for(7.0, 5.0, 10.0) == _Bound.EXACT
+
+
+def test_tt_tighten_applies_bounds_and_cutoffs_from_prepopulated_entries():
+    table = _TranspositionTable(8)
+    table.store("lower", 3, 0.4, _Bound.LOWER, Move(1, 2))
+    table.store("upper", 3, 0.8, _Bound.UPPER, None)
+    table.store("exact", 3, 0.6, _Bound.EXACT, None)
+
+    # A lower bound inside the window raises alpha without cutting off.
+    alpha, beta, cutoff = _tt_tighten(table.probe("lower"), 2, 0.0, 1.0)
+    assert (alpha, beta, cutoff) == (0.4, 1.0, None)
+    # The same lower bound at or above beta is a cutoff.
+    assert _tt_tighten(table.probe("lower"), 2, 0.0, 0.4)[2] == _Bound.LOWER
+    # An upper bound below the window is a fail-low cutoff.
+    assert _tt_tighten(table.probe("upper"), 2, 0.9, 1.0)[2] == _Bound.UPPER
+    # An upper bound inside the window lowers beta.
+    assert _tt_tighten(table.probe("upper"), 2, 0.0, 1.0) == (0.0, 0.8, None)
+    # An exact entry cuts off regardless of the window.
+    assert _tt_tighten(table.probe("exact"), 2, 0.0, 1.0)[2] == _Bound.EXACT
+    # An entry shallower than the remaining depth never narrows the window.
+    assert _tt_tighten(table.probe("exact"), 4, 0.1, 0.9) == (0.1, 0.9, None)
+
+
+def test_tightened_alpha_fail_low_is_not_stored_as_exact():
+    # Reproduce the unsafe classification directly: a valid lower bound raises
+    # alpha, the node then fails low, and the result must be an upper bound.
+    entry = _TTEntry(depth=3, value=5.0, bound=_Bound.LOWER, best_move=None, generation=0)
+    alpha, beta, cutoff = _tt_tighten(entry, 2, 0.0, 10.0)
+    assert cutoff is None
+    assert (alpha, beta) == (5.0, 10.0)
+    # The pre-fix classifier compared against the stale alpha of 0.0, so
+    # 3.0 <= 0.0 was false and 3.0 >= 10.0 was false: an exact 3.0 was stored.
+    assert _bound_for(3.0, alpha, beta) == _Bound.UPPER
+    assert _bound_for(3.0, 0.0, beta) == _Bound.EXACT
+
+
 def test_transposition_table_capacity_is_bounded():
     table = _TranspositionTable(2)
     for index in range(10):
@@ -224,6 +277,156 @@ def test_static_evaluation_is_d4_invariant(ruleset):
     expected = ai.evaluate(moved)
     for symmetry in Symmetry:
         assert ai.evaluate(transform_state(moved, symmetry)) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+def test_shield_maiden_child_score_is_d4_equivariant(ruleset):
+    """The move-dependent Shield maiden score must be invariant under D4.
+
+    Symmetry transpositions and move pruning share values across orientations,
+    so the parent/move-context score that alpha-beta threads into leaves must be
+    equivariant, not merely the static :func:`ai.evaluate` function.
+    """
+    import random
+
+    state = new_game(ruleset)
+    rng = random.Random(7)
+    for _ in range(4):
+        if state.winner or not legal_moves(state):
+            break
+        state = apply_move(state, rng.choice(legal_moves(state)))
+    for variant in (state, replace(state, history=state.history + (state.history[-1],))):
+        context = shield_maiden.DecisionContext(variant)
+        for move in legal_moves(variant):
+            child = apply_move(variant, move)
+            expected = context.score(child, move)
+            for symmetry in Symmetry:
+                transformed_state = transform_state(variant, symmetry)
+                transformed_move = transform_move(move, variant.size, symmetry)
+                transformed_child = apply_move(transformed_state, transformed_move)
+                transformed_context = shield_maiden.DecisionContext(transformed_state)
+                assert transformed_context.score(
+                    transformed_child, transformed_move
+                ) == pytest.approx(expected)
+
+
+TACTICAL_EQUIVARIANCE_POSITIONS = [
+    (
+        "brandubh-king-threat",
+        position(
+            "brandubh",
+            {(3, 3): "K", (2, 3): "A", (3, 2): "A", (4, 3): "A", (3, 4): "A", (5, 5): "D"},
+            "defenders",
+        ),
+    ),
+    (
+        "tablut-immediate-escape",
+        position(
+            "tablut",
+            {(1, 4): "K", (6, 6): "D", (5, 6): "A", (6, 5): "A"},
+            "defenders",
+        ),
+    ),
+    (
+        "copenhagen-shieldwall",
+        position(
+            "copenhagen",
+            {
+                (0, 3): "D",
+                (0, 4): "D",
+                (0, 5): "D",
+                (1, 3): "A",
+                (1, 4): "A",
+                (1, 5): "A",
+                (5, 5): "K",
+                (9, 9): "D",
+                (3, 2): "A",
+            },
+            "attackers",
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize("label,state", TACTICAL_EQUIVARIANCE_POSITIONS)
+def test_shield_maiden_tactical_scores_are_d4_equivariant(label, state):
+    context = shield_maiden.DecisionContext(state)
+    for move in legal_moves(state):
+        child = apply_move(state, move)
+        expected = context.score(child, move)
+        for symmetry in Symmetry:
+            transformed_state = transform_state(state, symmetry)
+            transformed_move = transform_move(move, state.size, symmetry)
+            transformed_child = apply_move(transformed_state, transformed_move)
+            transformed_context = shield_maiden.DecisionContext(transformed_state)
+            assert transformed_context.score(transformed_child, transformed_move) == pytest.approx(
+                expected
+            )
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+def test_symmetry_minimax_matches_reference_with_asymmetric_history(ruleset):
+    """Symmetry search must preserve minimax under a non-symmetric history."""
+    import random
+
+    state = new_game(ruleset)
+    rng = random.Random(11)
+    for _ in range(5):
+        if state.winner or not legal_moves(state):
+            break
+        state = apply_move(state, rng.choice(legal_moves(state)))
+    if state.winner or not legal_moves(state):
+        pytest.skip("position ended before the asymmetry check")
+    depth = 2
+    expected = minimax(state, depth)
+    diagnostics: dict = {}
+    ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": depth,
+            "time_limit": 120,
+            "seed": 3,
+            "search": FEATURE_CONFIGS["all"],
+        },
+        diagnostics=diagnostics,
+    )
+    assert diagnostics["completed_depth"] == depth
+    assert diagnostics["value"] == pytest.approx(expected, abs=1e-9)
+
+
+def test_repetition_signature_is_order_independent_and_count_sensitive():
+    signature = ai._repetition_signature
+    assert signature(("a", "b", "a")) == (("a", 2), ("b", 1))
+    # Move-order transpositions share a key...
+    assert signature(("a", "b", "a")) == signature(("a", "a", "b"))
+    # ...but a different occurrence count (one move from threefold) must not.
+    assert signature(("a", "b")) != signature(("a", "b", "a"))
+    assert signature(()) == ()
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+def test_search_preserves_minimax_with_repetition_history(ruleset):
+    from hnefatafl.alpha_beta_benchmark import _repetition_states
+
+    states = _repetition_states(ruleset)
+    assert states
+    for state in states:
+        expected = minimax(state, 2)
+        diagnostics: dict = {}
+        ai.choose_move(
+            state,
+            {
+                "algorithm": "alpha_beta",
+                "depth": 2,
+                "time_limit": 120,
+                "seed": 5,
+                "search": FEATURE_CONFIGS["ordering"],
+            },
+            diagnostics=diagnostics,
+        )
+        assert diagnostics["completed_depth"] == 2
+        assert diagnostics["value"] == pytest.approx(expected, abs=1e-9)
 
 
 @pytest.mark.parametrize("ruleset", RULESETS)
@@ -381,7 +584,12 @@ def test_interrupted_iteration_keeps_last_completed_value(monkeypatch):
     monkeypatch.setattr(ai, "_ordered", expire_on_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})
     assert root_calls == 2
-    assert result == expected
+    # The interrupted iteration keeps the last completed value and move; the
+    # richer diagnostics may additionally report the discarded iteration.
+    assert result["value"] == expected["value"]
+    assert result["best_move"] == expected["best_move"]
+    assert result["completed_depth"] == expected["completed_depth"]
+    assert result["chosen_from_completed_iteration"] is True
 
 
 # --- Neural safety and integration -----------------------------------------
@@ -461,6 +669,105 @@ def test_benchmark_corpus_is_deterministic_and_oracle_matches_minimax():
         value = oracle_value(state, 2, 200_000)
         if value is not None:
             assert value == pytest.approx(minimax(state, 2), abs=1e-9)
+
+
+def test_root_window_pruning_reduces_work_without_changing_value():
+    state = new_game("brandubh")
+    config = {
+        "algorithm": "alpha_beta",
+        "depth": 3,
+        "time_limit": 60,
+        "seed": 1,
+        "search": {"transposition": True, "move_ordering": True},
+    }
+    full: dict = {}
+    window: dict = {}
+    ai.choose_move(state, {**config, "_root_window": False}, diagnostics=full)
+    ai.choose_move(state, {**config, "_root_window": True}, diagnostics=window)
+    assert full["value"] == pytest.approx(window["value"], abs=1e-9)
+    # The historical full-window root visited every child subtree; the narrowed
+    # window prunes siblings at the widest part of the tree.
+    assert window["nodes"] < full["nodes"]
+    assert window["evaluations"] < full["evaluations"]
+
+
+def test_presets_invoke_distinct_search_paths():
+    state = new_game("brandubh")
+    base = {"algorithm": "alpha_beta", "depth": 2, "time_limit": 60, "seed": 1}
+    legacy: dict = {}
+    ai.choose_move(
+        state,
+        # Legacy collapses the optimized flags instead of silently ignoring them.
+        {**base, "search": {"legacy": True, "symmetry_pruning": True}},
+        diagnostics=legacy,
+    )
+    assert "transposition_lookups" not in legacy
+    optimized: dict = {}
+    ai.choose_move(
+        state,
+        {**base, "search": {"transposition": True, "move_ordering": True}},
+        diagnostics=optimized,
+    )
+    assert optimized["transposition_lookups"] > 0
+    assert optimized["symmetry_moves_skipped"] == 0
+    assert optimized["canonicalization_seconds"] == 0
+    symmetry: dict = {}
+    ai.choose_move(
+        state,
+        {
+            **base,
+            "search": {
+                "transposition": True,
+                "move_ordering": True,
+                "symmetry_transposition": True,
+                "symmetry_pruning": True,
+            },
+        },
+        diagnostics=symmetry,
+    )
+    assert symmetry["symmetry_moves_skipped"] > 0
+    assert symmetry["canonicalization_seconds"] > 0
+
+
+def test_tournament_reports_per_opponent_search_diagnostics():
+    config = {
+        "players": [
+            {
+                "config": {
+                    "algorithm": "alpha_beta",
+                    "depth": 1,
+                    "time_limit": 1,
+                    "seed": 1,
+                    "search": {"transposition": True, "move_ordering": True},
+                }
+            },
+            {
+                "config": {
+                    "algorithm": "alpha_beta",
+                    "depth": 1,
+                    "time_limit": 1,
+                    "seed": 2,
+                    "search": {"legacy": True},
+                }
+            },
+        ],
+        "rulesets": ["brandubh"],
+        "games": 2,
+        "max_plies": 6,
+        "seed": 5,
+    }
+    result = ai.tournament(config)
+    assert len(result["standings"]) == 2
+    for row in result["standings"]:
+        diagnostics = row["diagnostics"]
+        assert diagnostics["decisions"] > 0
+        assert diagnostics["mean_completed_depth"] is not None
+        assert diagnostics["mean_decision_time"] is not None
+    optimized, legacy = (row["diagnostics"] for row in result["standings"])
+    # The legacy opponent never probes a transposition table, so its per-opponent
+    # aggregate reports zero cutoffs instead of another agent's counters.
+    assert legacy["transposition_cutoffs"] == 0
+    assert optimized["decisions"] > 0 and legacy["decisions"] > 0
 
 
 def test_analysis_exposes_search_counters():
