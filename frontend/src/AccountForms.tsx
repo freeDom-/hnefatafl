@@ -52,7 +52,7 @@ export default function AccountForms({
   const [notice, setNotice] = useState('');
   const [complete, setComplete] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  const brand = useRef<HTMLHeadingElement>(null);
+  const identity = useRef<HTMLInputElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     const changed = () => {
@@ -86,7 +86,8 @@ export default function AccountForms({
     };
   }, []);
   useEffect(() => {
-    (view === 'login' ? brand.current : heading.current)?.focus();
+    // Login starts in the identity field; other views announce their heading.
+    (view === 'login' ? identity.current : heading.current)?.focus();
   }, [view]);
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
@@ -191,9 +192,7 @@ export default function AccountForms({
     <main className="auth-screen">
       <section className="auth-card">
         <LanguageSelect />
-        <h1 ref={brand} tabIndex={-1}>
-          HNEFATAFL
-        </h1>
+        <h1>HNEFATAFL</h1>
         <p>{t('The King’s Table')}</p>
         {view !== 'login' && (
           <h2 ref={heading} tabIndex={-1}>
@@ -204,7 +203,13 @@ export default function AccountForms({
           <form onSubmit={(event) => void onLogin(event)}>
             <label>
               {t('Username or email')}
-              <input name="identity" autoComplete="username" required maxLength={254} />
+              <input
+                ref={identity}
+                name="identity"
+                autoComplete="username"
+                required
+                maxLength={254}
+              />
             </label>
             <label>
               {t('Password')}

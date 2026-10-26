@@ -64,11 +64,13 @@ completed recorded result and shows **Draw** for a draw; unfinished, cancelled a
 voided rows show an em dash and never gain an invented or board-inferred winner.
 Each row is clickable: the Date cell holds the single accessible review link
 (named "Open review: … vs …") and its overlay makes the whole row activate that
-link without adding duplicate links or changing the accessibility tree. The date
-is converted to the viewer's local timezone and shows a locale-aware date and time
-with a timezone label; the `datetime` attribute keeps the stored instant. The
-trailing Review label is removed. The table scrolls inside its card on narrow
-screens without page-level horizontal overflow. Dashboard shows at most the latest
+link without adding duplicate links or changing the accessibility tree. The
+selected or keyboard-focused row is highlighted as a whole; the date link has no
+separate focus ring or hover underline. The date is converted to the viewer's
+local timezone and shows a locale-aware date and time with a timezone label; the
+`datetime` attribute keeps the stored instant. The trailing Review label is
+removed. The table scrolls inside its card on narrow screens without page-level
+horizontal overflow. Dashboard shows at most the latest
 three eligible completed visible games belonging to the current account, with
 **View all** and no pagination. Normal users see participating online games;
 administrators can also see their own account-single-player games.
@@ -111,7 +113,8 @@ writes the authoritative game cursor/version. The replay controls add a
 **Play**/**Stop** button that advances one recorded move per second from the
 current position, stops at the final position and stops on manual navigation.
 Playback is viewer-local: it never requests AI moves or analysis and never writes
-authoritative games/results. Lifecycle and effective result remain
+authoritative games/results. The board keeps a captured king visible at its final
+square, matching the live game. Lifecycle and effective result remain
 separate from the board: concessions/timeouts can end a non-terminal board and a
 void removes the effective winning side. Existing private
 `/dashboard/single-player/{id}` and `/online/games/{id}/review` deep links retain

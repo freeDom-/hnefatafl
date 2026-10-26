@@ -70,13 +70,10 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await expect(board.locator('.hint-overlay')).toBeVisible();
   await expect(board.locator('.hint-source')).toHaveCount(1);
   await expect(board.locator('.hint-target')).toHaveCount(1);
-  const showChances = panel.getByRole('checkbox', { name: 'Show winning chances', exact: true });
-  await expect(showChances).toBeChecked();
-  await showChances.uncheck();
-  await expect(advisorOpinion.getByRole('meter')).toHaveCount(0);
-  await expect(board.locator('.hint-overlay')).toBeVisible();
-  await showChances.check();
+  // The advisor selection is the single trigger; no visibility checkbox remains.
+  await expect(panel.getByRole('checkbox')).toHaveCount(0);
   await expect(advisorOpinion.getByRole('meter')).toHaveCount(1);
+  await expect(board.locator('.hint-overlay')).toBeVisible();
   await board.locator('.hint-source').click();
   await board.locator('.hint-target').click();
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
@@ -169,8 +166,13 @@ test('the actual AI decision and the opponent’s background estimate survive re
   await page.goto('/games/' + game.id);
   await page.getByRole('button', { name: /Pause AI/ }).click();
   await page.clock.resume();
-  const meters = page.getByRole('region', { name: 'Agent evaluations' }).getByRole('meter');
-  await expect(meters).toHaveCount(2);
+  // The advisor selection is the display trigger; stored playing-agent evidence
+  // still appears alongside the advisor.
+  await page
+    .getByRole('region', { name: 'Analytics', exact: true })
+    .getByRole('combobox', { name: 'Move advisor', exact: true })
+    .selectOption('profile:baseline');
+  await expect(page.getByRole('region', { name: 'Agent evaluations' })).toBeVisible();
   for (const agent of replay.analysis.evaluations) {
     await expect(
       page.getByRole('meter', { name: `${agent.name} estimate for Attackers` }),

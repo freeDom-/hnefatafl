@@ -12,9 +12,10 @@ admission/timeout activation.
 ## Delivered scope
 
 - Login shows one accessible page heading; the redundant `Log in` heading is
-  removed. The single-player setup no longer renders the account card, while the
-  server still binds the human seat to the authenticated account and rejects
-  caller-supplied human identities.
+  removed and initial focus moves to the username/email field. The single-player
+  setup no longer renders the account card, while the server still binds the
+  human seat to the authenticated account and rejects caller-supplied human
+  identities.
 - Dashboard statistics are personal. `GET /api/personal/single-player` and
   `GET /api/personal/online` add a `statistics` object grouped by ruleset and
   matchup/game mode. Account outcomes require an account-bound human seat;
@@ -31,13 +32,19 @@ admission/timeout activation.
   voided rows show an em dash and never gain an invented winner. The Date cell
   holds the single accessible review link and its overlay makes the whole row
   clickable; the date is shown in the viewer's local timezone with a locale-aware
-  format and timezone label, and the trailing Review label is removed. The table
-  scrolls inside its card on narrow screens.
+  format and timezone label, and the trailing Review label is removed. The
+  selected/focused row is highlighted as a whole and the date link has no separate
+  focus ring or hover underline. The table scrolls inside its card on narrow
+  screens.
 - Selecting a row restores the full read-only review: "The saga so far" move
   list, board replay navigation, general game information and the
-  Analytics/Winning chances panels. Account single-player review may use the
-  existing authorized analysis; recorded online review keeps those panels but
-  shows them as unavailable because all-role online analysis stays denied.
+  Analytics/Winning chances panels. The board keeps a captured king visible at
+  its final square, matching the live game. Account single-player review may use
+  the existing authorized analysis; recorded online review keeps those panels but
+  shows them as unavailable because all-role online analysis stays denied. The
+  Winning chances checkbox and label are removed: selecting a move advisor is the
+  single trigger for calculating and displaying winning chances and the best-move
+  hint.
 - The recorded-game replay controls add a viewer-local Play/Stop button. Play
   advances one recorded move per second from the current position, stops at the
   final position, stops on manual navigation and is disabled with no next move.
@@ -104,7 +111,7 @@ result rows are not mutated.
 | --- | --- |
 | `make check` | **passed**, 14:55 backend + frontend + build; docs, Ruff/format, Prettier, mypy and TypeScript all passed |
 | Complete backend `pytest` | **1483 passed, 36 hardware/optional skips, 1 warning**, 895.43 s |
-| Complete frontend `vitest` | **44 files, 359 passed** (run twice consecutively) |
+| Complete frontend `vitest` | **44 files, 361 passed** |
 | Ruff / Ruff format / Prettier | passed (104 backend files; frontend formatting clean) |
 | mypy | passed, 48 source files |
 | TypeScript | passed |
@@ -112,13 +119,16 @@ result rows are not mutated.
 | `make docs` | passed, 86 Markdown files, 637 links |
 | Personal production browsers | **14 passed**, desktop + mobile Chromium, 3.7 min |
 | Affected legacy production browsers | **16 passed, 2 intentional duplicate skips**, desktop + mobile Chromium, 6.8 min |
+| Advisor/replay production browsers | **6 passed**, desktop + mobile Chromium, 5.2 min |
 
 Focused new tests cover the recorded-games table headers/order, winner
-formatting, non-winning states, accessible review links, the removal of the
-Review label, locale/timezone date rendering, one-move-per-second playback,
-Stop preserving position, end-of-game and empty-game Play disabling, replay from
-an earlier position, manual navigation stopping playback, unmount cleanup and the
-absence of analysis requests during playback.
+formatting, non-winning states, accessible review links, the selected-row
+highlight, the removal of the Review label, locale/timezone date rendering,
+one-move-per-second playback, Stop preserving position, end-of-game and
+empty-game Play disabling, replay from an earlier position, manual navigation
+stopping playback, unmount cleanup, the absence of analysis requests during
+playback, login identity focus, the advisor-triggered winning-chances/best-move
+display without a checkbox, and captured-king retention in the review.
 
 ## Limits
 

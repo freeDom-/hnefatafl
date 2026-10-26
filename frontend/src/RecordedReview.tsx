@@ -50,6 +50,20 @@ type ReviewGame = {
   players: Record<Side, ReviewParticipant>;
 };
 
+/** Reconstruct the captured pieces for the board overlay without trusting moves. */
+function capturedBetween(
+  before: OnlinePosition,
+  after: OnlinePosition,
+): { square: number; piece: string }[] {
+  const captured: { square: number; piece: string }[] = [];
+  for (let square = 0; square < before.board.length; square++) {
+    if (before.board[square] !== '.' && after.board[square] === '.') {
+      captured.push({ square, piece: before.board[square] });
+    }
+  }
+  return captured;
+}
+
 function normalize(data: OnlineReplay | AccountReviewData): {
   game: ReviewGame;
   moves: GameMove[];
@@ -84,11 +98,16 @@ function normalize(data: OnlineReplay | AccountReviewData): {
         source: move.source,
         target: move.target,
         side: index % 2 ? 'defenders' : 'attackers',
+        captured:
+          replay.states[index] && replay.states[index + 1]
+            ? capturedBetween(replay.states[index], replay.states[index + 1])
+            : [],
       })),
       states: replay.states,
     };
   }
   const account = (data as AccountReviewData).game;
+  const accountStates = (data as AccountReviewData).states;
   return {
     game: {
       id: account.id,
@@ -108,8 +127,12 @@ function normalize(data: OnlineReplay | AccountReviewData): {
       source: move.source,
       target: move.target,
       side: index % 2 ? 'defenders' : 'attackers',
+      captured:
+        accountStates[index] && accountStates[index + 1]
+          ? capturedBetween(accountStates[index], accountStates[index + 1])
+          : [],
     })),
-    states: (data as AccountReviewData).states,
+    states: accountStates,
   };
 }
 

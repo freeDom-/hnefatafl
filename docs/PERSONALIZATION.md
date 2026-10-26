@@ -110,9 +110,9 @@ an agent's best searched legal move. **None** is the default, with a 5-second
 maximum search time. The settings are also available during history replay.
 The advisor updates in the background without blocking either player. Playing
 AI estimates reuse actual move searches; other opinions run in the background.
-Use **Show winning chances** to hide or reveal estimates while keeping move
-suggestions. Saved snapshots appear during replay; missing older evaluations
-are explicit. See [ANALYSIS.md](ANALYSIS.md) for the value sources,
+Selecting a move advisor calculates and displays the best-move hint together
+with its winning-chance estimate; **None** closes the analysis section. Saved
+snapshots appear during replay; missing older evaluations are explicit. See [ANALYSIS.md](ANALYSIS.md) for the value sources,
 expected-score interpretation, draw handling and model-reference protection.
 
 ## Language

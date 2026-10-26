@@ -69,10 +69,11 @@ identities/tombstones remain readable in saved games; their CRUD routes are remo
 
 ## Get advice and read results
 
-**Analytics** below move history selects an optional background advisor and controls
-**Show winning chances**. The advisor suggests a legal move without executing it;
-AI player opinions can disagree and remain saved in replay. These displayed values
-are uncalibrated expected-score assessments, not measured win probabilities.
+**Analytics** below move history selects an optional background advisor. When an
+advisor is selected, the panel shows the best-move hint and winning chances; the
+advisor suggests a legal move without executing it. AI player opinions can
+disagree and remain saved in replay. These displayed values are uncalibrated
+expected-score assessments, not measured win probabilities.
 See [Analysis](ANALYSIS.md) for sources and completed-search diagnostics.
 
 The [Hall of records](DASHBOARD.md) offers compact read-only rows, server filters,
