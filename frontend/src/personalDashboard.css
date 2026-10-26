@@ -172,6 +172,7 @@
 }
 .personal-dashboard .online-page .page-intro {
   margin-block: 1.5rem 0.5rem;
+  padding: 0;
 }
 @media (max-width: 800px) {
   .dashboard-overview {
