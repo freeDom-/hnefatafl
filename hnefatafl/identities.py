@@ -43,6 +43,11 @@ def effective_ai_config(configuration: dict, profile_id: str | None = None) -> d
         from .shield_maiden import VERSION
 
         result["heuristic_version"] = raw.get("heuristic_version", VERSION)
+    elif algorithm in {"alpha_beta", "mcts"}:
+        heuristic = raw.get("heuristic", "shield_maiden")
+        if heuristic not in ("shield_bearer", "shield_maiden"):
+            raise ValueError("Unsupported search heuristic")
+        result["heuristic"] = heuristic
     wrapper = raw.get("search_wrapper", "mcts") if algorithm == "neural" else None
     if wrapper not in (None, "mcts", "alpha_beta", "none"):
         raise ValueError("Unknown neural search wrapper")

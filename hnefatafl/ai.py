@@ -146,15 +146,33 @@ def policy_value(
     return dict(zip(moves, probabilities)), float(value.reshape(-1)[0])
 
 
-def _heuristic_evaluator(algorithm: str) -> Callable[[State], float]:
-    """Leaf evaluator for model-free search.
+_HEURISTICS = ("shield_bearer", "shield_maiden")
 
-    Jarl (alpha-beta) and Seer (MCTS) reuse the Shield maiden one-ply heuristic
-    instead of the generic Shield bearer static evaluation. The standalone
-    Shield bearer baseline keeps ``evaluate``. Neural-backed search ignores this
-    evaluator and uses the model value head.
+
+def _heuristic_name(config: dict) -> str:
+    """Resolve the model-free evaluator, defaulting per algorithm.
+
+    Jarl (alpha-beta) and Seer (MCTS) default to the Shield maiden heuristic.
+    The standalone Shield bearer baseline keeps the generic static evaluation.
+    An explicit ``heuristic`` value is preserved for testing and evaluation;
+    only alpha-beta and MCTS consume it.
     """
-    if algorithm in ("alpha_beta", "alphabeta", "mcts"):
+    algorithm = config.get("algorithm", config.get("profile_id", "baseline"))
+    name = config.get("heuristic")
+    if name is None:
+        return (
+            "shield_maiden"
+            if algorithm in ("alpha_beta", "alphabeta", "mcts")
+            else "shield_bearer"
+        )
+    if name not in _HEURISTICS:
+        raise ValueError("Unsupported search heuristic")
+    return str(name)
+
+
+def _heuristic_evaluator(name: str) -> Callable[[State], float]:
+    """Return the model-free leaf evaluator for a resolved heuristic name."""
+    if name == "shield_maiden":
         from .shield_maiden import evaluate as shield_maiden_evaluate
 
         return shield_maiden_evaluate
@@ -387,7 +405,9 @@ def _alpha_beta_legacy(
     model_path = config.get("model_path")
     model = config.get("_model")
     model_backed = bool(model_path) or model is not None
-    evaluator = _heuristic_evaluator(config.get("algorithm", "alpha_beta"))
+    heuristic = _heuristic_name(config)
+    evaluator = _heuristic_evaluator(heuristic)
+    maiden = heuristic == "shield_maiden" and not model_backed
     if diagnostics is None and progress is not None:
         diagnostics = {}
     if diagnostics is not None:
@@ -420,7 +440,7 @@ def _alpha_beta_legacy(
         maximizing = position.turn == "defenders"
         value = -math.inf if maximizing else math.inf
         fully_searched = True
-        for _, child, maiden_value in _ordered(position, moves, rng, maiden=not model_backed):
+        for _, child, maiden_value in _ordered(position, moves, rng, maiden=maiden):
             score = search(
                 child, remaining - 1, alpha, beta, None if model_backed else maiden_value
             )
@@ -442,7 +462,7 @@ def _alpha_beta_legacy(
         iteration_best = best_move
         score_best = -math.inf
         try:
-            ordered = _ordered(state, list(root_moves), rng, maiden=not model_backed)
+            ordered = _ordered(state, list(root_moves), rng, maiden=maiden)
             for move, child, maiden_value in ordered:
                 score = sign * search(
                     child,
@@ -491,7 +511,9 @@ def _alpha_beta(
     model = config.get("_model")
     model_backed = bool(model_path) or model is not None
     settings = _search_settings(config, model_backed)
-    evaluator = _heuristic_evaluator(config.get("algorithm", "alpha_beta"))
+    heuristic = _heuristic_name(config)
+    evaluator = _heuristic_evaluator(heuristic)
+    maiden = heuristic == "shield_maiden" and not model_backed
     if settings.legacy:
         return _alpha_beta_legacy(
             state,
@@ -604,7 +626,7 @@ def _alpha_beta(
         maximizing = position.turn == "defenders"
         value = -math.inf if maximizing else math.inf
         best_child_move: Move | None = None
-        children = _ordered(position, moves, rng, maiden=not model_backed)
+        children = _ordered(position, moves, rng, maiden=maiden)
         if settings.move_ordering:
             children = _prioritise(
                 children,
@@ -658,7 +680,7 @@ def _alpha_beta(
         iteration_best = best_move
         score_best = -math.inf
         try:
-            ordered = _ordered(state, list(root_moves), rng, maiden=not model_backed)
+            ordered = _ordered(state, list(root_moves), rng, maiden=maiden)
             # Rank ties by the seeded base order so prioritising the previous
             # principal variation cannot silently change which equal move wins.
             base_rank = {item[0]: index for index, item in enumerate(ordered)}
@@ -788,7 +810,7 @@ def mcts_context(
     model_path = config.get("model_path")
     model = config.get("_model")
     neural = bool(model_path) or model is not None
-    evaluator = _heuristic_evaluator(config.get("algorithm", "mcts"))
+    evaluator = _heuristic_evaluator(_heuristic_name(config))
     deadline = time.monotonic() + seconds
     root = _Node(state)
 

@@ -754,6 +754,7 @@ def test_ai_statistics_use_effective_parameter_variants_and_stable_defaults(clie
         "algorithm": "alpha_beta",
         "depth": 2,
         "evaluation": "heuristic",
+        "heuristic": "shield_maiden",
         "time_limit": 2.0,
     }
     assert all(row["id"] == row["variant_id"] for row in stats["by_player"])

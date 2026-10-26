@@ -349,6 +349,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "rollout_depth",
             "search_wrapper",
             "heuristic_version",
+            "heuristic",
         }
         if set(config) - supported:
             fail("Unsupported AI configuration field.")
@@ -376,6 +377,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             or config["heuristic_version"] != 1
         ):
             fail("Unsupported Shield maiden heuristic version.")
+        if "heuristic" in config:
+            if config["heuristic"] not in ("shield_bearer", "shield_maiden"):
+                fail("Search heuristic must be shield_bearer or shield_maiden.")
+            if algorithm not in ("alpha_beta", "mcts"):
+                fail("A search heuristic applies only to alpha-beta or MCTS.")
         numeric_ranges = {
             "depth": (1, 5),
             "rollout_depth": (0, 50),
