@@ -24,15 +24,15 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | Module | Responsibility and boundary |
 | --- | --- |
 | [engine.py](hnefatafl/engine.py) | Immutable state, legal moves, captures, terminal rules; no HTTP/database/tensor dependency |
-| [symmetry.py](hnefatafl/symmetry.py) | Pure D4 geometry, full-history transforms and typed canonical keys; no search or neural canonicalization |
-| [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
+| [symmetry.py](hnefatafl/symmetry.py) | Pure D4 geometry, full-history transforms, board/full-state stabilizers and typed canonical keys; no search or neural dependency |
+| [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS with bounded transposition tables and full-state symmetry pruning, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
 | [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; separate from generic search evaluation |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
 | [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and content-addressed model registry |
 | [training.py](hnefatafl/training.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
 | [training_augmentation.py](hnefatafl/training_augmentation.py), [symmetry_benchmark.py](hnefatafl/symmetry_benchmark.py) | Tensor-level D4 transforms of replay examples (input, action ids, legal mask), cached action permutations, minibatch collation and evidence tooling; no engine, search or inference dependency |
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
-| [benchmark.py](hnefatafl/benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons and headless command dispatch |
+| [benchmark.py](hnefatafl/benchmark.py), [alpha_beta_benchmark.py](hnefatafl/alpha_beta_benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons, alpha-beta optimization ablations and headless command dispatch |
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
@@ -288,6 +288,39 @@ versioned job-local/baseline/cumulative self-play counters in existing JSON and
 checkpoint metadata; immutable selection snapshots retain their own totals.
 Tensor format and database schema remain unchanged. See the
 [dashboard guide](docs/TRAINING_DASHBOARD.md).
+
+## Alpha-beta search
+
+`choose_move` keeps the public contract: immutable `State` in, one legal `Move`
+out, with a monotonic deadline and a legal fallback. Iterative deepening searches
+alternating defender-maximizing and attacker-minimizing nodes over the
+defender-perspective evaluator. A search owns one `_TranspositionTable` for its
+lifetime; entries store searched depth, exact/lower/upper bounds, a preferred move
+and a generation. Replacement prefers deeper entries and exact bounds within a
+bounded capacity, and keys carry the complete repetition-aware state, so identical
+boards with different histories never alias. Bounds tighten the window, cut off
+when established and supply the preferred move; an interrupted search never
+publishes a partial exact result.
+
+An optional internal `search` configuration selects independent optimizations for
+regression and ablation: ordinary bounded transpositions, D4-canonical
+transpositions, full-state symmetry move pruning and improved move ordering. The
+handcrafted evaluator is D4-invariant and the engine's move generation and
+terminal adjudication are equivariant, so canonical keys and move orbits may be
+shared. Neural value heads are not guaranteed D4-equivariant even after
+augmentation; requesting symmetry reuse with a neural evaluator raises instead of
+merging unequal predictions. Ordinary orientation-specific transpositions remain
+available to neural alpha-beta.
+
+Full-state canonicalization transforms every historical entry under one global
+transformation; the board is canonicalized for all eight symmetries first and
+only the tied orientations transform history. Move pruning computes the full-state
+stabilizer (a D4 subgroup), partitions legal moves into orbits and searches one
+deterministic representative per orbit. Neither symmetry feature is enabled by
+default because canonicalization cost varies by ruleset and history length; the
+reproducible benchmark measures the tradeoff. Move ordering prioritizes the
+transposition and principal-variation moves, killer moves and cutoff history
+without changing minimax values; root ties still follow the seeded base order.
 
 ## MCTS node lifecycle
 
