@@ -117,22 +117,53 @@ def canonical_board(board: tuple[str, ...]) -> tuple[BoardKey, Symmetry]:
     return min((BoardKey(transform_board(board, symmetry)), symmetry) for symmetry in Symmetry)
 
 
+def board_stabilizer(board: tuple[str, ...]) -> tuple[Symmetry, ...]:
+    """Return every D4 symmetry that leaves the board geometry unchanged."""
+    return tuple(symmetry for symmetry in Symmetry if transform_board(board, symmetry) == board)
+
+
+def state_stabilizer(state: State) -> tuple[Symmetry, ...]:
+    """Return every D4 symmetry that leaves the complete state unchanged.
+
+    A visually symmetric board is not sufficient: the ordered repetition
+    history must map onto itself under the same global transformation. The
+    returned symmetries form a subgroup of D4 and generate the move orbits that
+    symmetry-aware search may safely prune.
+    """
+    result: list[Symmetry] = []
+    for symmetry in board_stabilizer(state.board):
+        if state.history and any(
+            _transform_history(entry, state.size, symmetry) != entry for entry in state.history
+        ):
+            continue
+        result.append(symmetry)
+    return tuple(result)
+
+
 def canonical_state_key(state: State) -> tuple[StateKey, Symmetry]:
     """Canonicalize full histories globally, breaking board ties using history.
 
     Canonicalizing each historical board separately would erase relative
-    orientations and could change future repetition outcomes.
+    orientations and could change future repetition outcomes. Only the board
+    is transformed for all eight symmetries; the ordered history is transformed
+    for the (usually single) symmetry that already realizes the least board.
     """
-    candidates = [(transform_state(state, symmetry), symmetry) for symmetry in Symmetry]
-    canonical, symmetry = min(
-        candidates, key=lambda item: (item[0].board, item[0].history, item[1])
+    board_candidates = [(transform_board(state.board, symmetry), symmetry) for symmetry in Symmetry]
+    least_board = min(board for board, _ in board_candidates)
+    tied = [symmetry for board, symmetry in board_candidates if board == least_board]
+    history, symmetry = min(
+        (
+            tuple(_transform_history(entry, state.size, candidate) for entry in state.history),
+            candidate,
+        )
+        for candidate in tied
     )
     return StateKey(
-        canonical.ruleset,
-        canonical.board,
-        canonical.turn,
-        canonical.ply,
-        canonical.winner,
-        canonical.reason,
-        canonical.history,
+        state.ruleset,
+        least_board,
+        state.turn,
+        state.ply,
+        state.winner,
+        state.reason,
+        history,
     ), symmetry

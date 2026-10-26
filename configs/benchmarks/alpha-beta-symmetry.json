@@ -1,0 +1,10 @@
+{
+  "seed": 20260101,
+  "depth": {"brandubh": 3, "tablut": 2, "copenhagen": 2},
+  "time_limit": 0.2,
+  "repetitions": 2,
+  "oracle_depth": 2,
+  "oracle_node_budget": 200000,
+  "table_capacity": 200000,
+  "warmup": true
+}

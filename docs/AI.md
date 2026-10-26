@@ -30,10 +30,48 @@ through the resulting static score. This is a useful baseline rather than a
 claim of expert strength.
 
 Alpha-beta searches alternating maximizing defender and minimizing attacker
-nodes, orders moves by terminal and static value, and caches only completely
-searched values with the repetition context included. Iterative deepening retains
-the last completed result when time expires. An optional `model_path` replaces
-its nonterminal leaf evaluation with a compatible neural value network.
+nodes and orders moves by terminal/static value plus the previous iteration's
+principal variation, the transposition-table move, killer moves and cutoff
+history. Iterative deepening retains the last completed result when time expires.
+An optional `model_path` replaces its nonterminal leaf evaluation with a
+compatible neural value network.
+
+Each search owns a bounded transposition table for its lifetime. Entries record
+searched depth, an exact/lower/upper bound and a preferred move; keys include the
+full repetition context, so identical boards with different histories never
+alias. Bounds tighten the search window, cut off when established and supply move
+ordering. An interrupted search never publishes a partial exact result. The table
+is discarded when the search ends and is never shared across games, rulesets or
+evaluators.
+
+### Search optimization configuration
+
+Named presets keep their existing parameters, so Jarl uses the optimized search
+with no configuration change. Headless callers (benchmarks and experiments) may
+pass an optional internal `search` object to ablate individual features:
+
+| `search` field | Default | Effect |
+| --- | --- | --- |
+| `transposition` | `true` | Depth-aware exact/lower/upper transposition bounds |
+| `move_ordering` | `true` | PV, table, killer and history ordering |
+| `symmetry_transposition` | `false` | D4-canonical, repetition-safe table keys |
+| `symmetry_pruning` | `false` | Search one representative per full-state move orbit |
+| `table_capacity` | `100000` | Maximum resident table entries (1–5000000) |
+| `legacy` | `false` | Restore the original exact-value-cache reference search |
+
+The handcrafted evaluator is D4-invariant, so the two symmetry features are valid
+for heuristic-backed search. Trained value heads are not guaranteed
+equivariant even after augmentation; requesting either symmetry feature with a
+neural evaluator raises instead of merging unequal predictions. Neural alpha-beta
+still uses the ordinary orientation-specific table and move ordering. Symmetry
+features are optional rather than defaults because canonicalizing long histories
+costs more than it saves on some rulesets; see the
+[benchmark evidence](PERFORMANCE.md#phase-4-alpha-beta-symmetry-search).
+
+Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`,
+`transposition_hits`, `transposition_peak_entries` and `symmetry_moves_skipped`.
+Counts describe visited interior nodes, leaf/terminal evaluations, alpha-beta
+cutoffs, reused exact/bound results and symmetry-pruned moves respectively.
 
 MCTS stores defender-perspective values consistently at every node. Selection
 converts that value to the active side's perspective, adds a PUCT exploration

@@ -2,6 +2,25 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Alpha-beta search optimization (Phase 4)
+
+The dedicated `tests/test_alpha_beta_search.py` module covers transposition-table
+depth/bound/replacement behavior, search-configuration validation, D4 stabilizers
+and canonical keys, static-evaluation invariance, move inverse/mapping, seeded tie
+breaking, deadline and cancellation fallbacks, neural symmetry refusal and search
+counter exposure. Six feature ablations are compared against an independent
+exhaustive minimax for Brandubh, Tablut and Copenhagen positions, including
+sparse and symmetric openings. A deliberately symmetric board with a one-sided
+history asserts that unsafe board-only pruning cannot occur.
+
+`benchmark-alpha-beta` exercises the real production search on a deterministic
+corpus with a fixed-depth correctness pass, an independent minimax oracle,
+fixed-time equal-budget scenarios and traced memory. Measured CPU results and the
+raw report are recorded in
+[Phase 4 evidence](benchmarks/alpha-beta-symmetry.md). The symmetry features
+remain optional defaults; the report distinguishes fixed-depth speedups from
+fixed-time strength and names any per-ruleset regression.
+
 ## Remote worker application compatibility (`0.26.0`)
 
 The [0.26.0 validation record](releases/0.26.0.md#validation) records exact-version

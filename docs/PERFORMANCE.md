@@ -500,3 +500,54 @@ draws and unfinished games with Wilson or paired intervals, plus held-out loss o
 positions from games not used for optimization. Do not infer strength from loss or
 symmetry consistency alone.
 
+
+## Phase 4: alpha-beta symmetry search
+
+The production Jarl alpha-beta search now owns a bounded, depth-aware
+transposition table with exact/lower/upper bounds and improved move ordering.
+Optional D4-canonical transpositions and full-state symmetry move pruning are
+available for heuristic-backed search only; neural value heads are not assumed
+equivariant. The features are independently toggleable through the internal
+`search` configuration (see [AI opponents](AI.md#search-optimization-configuration)).
+
+Reproduce the ablation and correctness benchmark with:
+
+```sh
+.venv/bin/python -m hnefatafl.cli benchmark-alpha-beta \
+  --config configs/benchmarks/alpha-beta-symmetry.json \
+  --output work/alpha-beta-symmetry.json
+```
+
+The benchmark runs the real `choose_move` path on a deterministic corpus of
+openings, seeded midgames, symmetric/asymmetric positions, immediate wins, king
+threats, restricted-square tactics, Copenhagen shieldwalls/encirclement/forts,
+repetition-sensitive positions and long histories. It compares six feature
+ablations (legacy reference, ordinary table, ordering, canonical table, symmetry
+pruning, all). Fixed-depth scenarios must match the legacy minimax value; a
+separate independent exhaustive minimax oracle validates feasible positions.
+Fixed-time scenarios use equal wall-clock budgets and report the last completed
+depth. Repetitions alternate scenario order, and median/min/max variability is
+reported. Memory is traced once per scenario outside the timed repetitions.
+
+Measured CPU results and the raw report are kept in
+[Phase 4 alpha-beta evidence](benchmarks/alpha-beta-symmetry.md). On WSL2
+Intel i7-8750H, two math threads, the fixed-depth median wall time by ruleset was:
+
+| Ruleset (depth) | legacy | transposition | ordering | symmetry_pruning | all |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Brandubh (3) | 2.507 s | 2.472 s | 2.505 s | 0.603 s | 0.608 s |
+| Tablut (2) | 0.179 s | 0.150 s | 0.196 s | 0.125 s | 0.115 s |
+| Copenhagen (2) | 0.581 s | 0.628 s | 0.568 s | 0.484 s | 0.428 s |
+
+All six ablations matched the legacy minimax value on every fixed-depth position,
+and an independent exhaustive oracle found an optimal legal move for all 37
+feasible positions. The symmetry scenarios are much faster because symmetric
+positions dominate the corpus total; per-position analysis shows they are pure
+wins on symmetric positions (0.12–0.65×) but cost 7–25% on generic asymmetric
+midgames. Because canonicalization cost grows with board size and history length,
+the symmetry features remain optional defaults; the ordinary table and move
+ordering are the safe default and enable them only after measuring a
+representative corpus on the target host. The ordinary table was neutral
+(median ratio 0.96–1.03) and a 1.0-second depth-5 probe showed move ordering
+recovering a lost ply on Tablut and full symmetry reaching one ply deeper on the
+symmetric openings.
