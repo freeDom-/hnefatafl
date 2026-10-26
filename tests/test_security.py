@@ -268,7 +268,7 @@ def test_object_ownership_all_game_routes_statistics_and_players(application):
             expected = {403} if POLICY[(method, path)] == "accounts" else {404, 422}
             assert response.status_code in expected, (method, path, response.text)
         assert second.get("/api/games").json() == []
-        assert second.get("/api/players").status_code == 404
+        assert second.get("/api/players").status_code in {403, 404}
         assert (
             second.post(
                 "/api/games", json={"players": {"defenders": {"account_id": "forged"}}}

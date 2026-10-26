@@ -201,9 +201,9 @@ store resolved parameters and display-name snapshots. Legacy explicit-algorithm
 sessions retain the defaults their original engine used; profile defaults are not
 retroactively applied. Variant statistics expose configuration metadata for inspection.
 
-Player tombstones and archived model metadata preserve deleted identities. Deleting a player
-hides it from selection while preserving its ID and saved history; reusing the same
-display name creates a new identity. Deleting an available model removes its registry
+Retained player tombstones and archived model metadata preserve historical identities.
+Local-player creation/deletion paths are removed; saved IDs, names and runes stay
+readable. New human seats use account IDs and one stable account rune. Deleting an available model removes its registry
 copy and entry, retaining historical labels and original training outputs. Catalog
 reference creation and deletion are serialized in the supported single API process.
 
@@ -214,8 +214,10 @@ persists choices. New artwork and palettes can be added without changing game ru
 or persistence. See [Personalization](docs/PERSONALIZATION.md).
 
 Ordinary new games store a server-generated base seed; actual decision seeds combine
-the base with the ply. Explicit game seeds support reproducible requests. Restart
-always creates a fresh seed, and legacy records retain their original semantics.
+the base with the ply. Explicit seeds remain available to authorized training and
+tournament workflows, while account creation uses server seeds only. Restart of a
+current-policy unfinished game creates a fresh seed; historical records retain their
+original read/play seed semantics.
 Game deletion uses an expected version and removes the source record; statistics
 are derived from retained records, so all counts/rates update without cached totals.
 Restart is restricted to unfinished records, using the retained final outcome
@@ -227,11 +229,10 @@ a matching usage fingerprint. SQL and registry failure handling preserve referen
 if deletion fails; completed histories and training checkpoints remain. App-level
 deletion callbacks clear matching current-game pointers and reject late AI responses.
 
-Hall tables sort and filter presentation data locally without rewriting stored
-results or changing aggregate statistics. Numeric comparisons cover counts, rates
-and averages; player/history text searches remain independent. AI parameter dialogs
-share the same full-value renderer as recorded-game details while keeping table rows
-compact. New browser preferences default to carved wood and walnut; valid saved
+Hall filters and counts run on authorized server queries without rewriting stored
+results. Selected canonical review is independent of filtering and pagination.
+AI parameter details remain inspectable in recorded games; account setup exposes
+only the four named presets and their time/depth/iteration budgets. New browser preferences default to carved wood and walnut; valid saved
 preferences remain authoritative.
 
 ## Background analysis

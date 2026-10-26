@@ -82,9 +82,10 @@ storage does not prevent creation. Account/guest storage remains separate.
 
 ## Persistent runes and tournament names
 
-Players and models receive persistent unique runes. A model keeps the same rune
+Accounts and models receive persistent unique runes; historical local-player IDs
+retain their earlier assignments. A model keeps the same rune
 in dropdowns, its workshop card, either game side, advisor, analysis and records.
-Human profiles retain theirs after deletion. Assignments are never recycled;
+Retained human-profile tombstones keep their runes; no local-player CRUD is supported. Assignments are never recycled;
 after the 24 single Elder Futhark runes, unique combinations extend the catalog.
 See [IDENTITIES.md](IDENTITIES.md) for identity and migration details.
 
