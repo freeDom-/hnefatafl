@@ -3,8 +3,8 @@
 [Documentation index](README.md) · [Rules and board controls](GAMEPLAY.md) ·
 [Online operations](ONLINE.md) · [Phase 3 evidence](validation/online-phase3.md)
 
-Online play requires a signed-in account. Choose **Online** in the main navigation
-or open `/online`. Admission is disabled by default; the lobby explains when the
+Online play requires a signed-in account. Open **New online game** on Dashboard. The old `/online` entry redirects to
+Dashboard with online setup selected. Admission is disabled by default; the lobby explains when the
 operator has disabled new games or your account is not eligible. Creating/joining
 requires the backend's current active/verified/play eligibility. An existing seat
 can keep playing after verification is removed, while its account/session remains
@@ -14,8 +14,8 @@ Guest single-player is a separate public browser surface with one device slot;
 see [guest play and storage](GUEST_PLAY.md). It never uploads games or feeds online
 results, and online IDs never enter its replay/AI adapter.
 
-The authenticated [personal dashboard](DASHBOARD.md) provides separate own account
-and participant online histories, bounded filters/pages and read-only review.
+The authenticated [personal dashboard](DASHBOARD.md) combines the existing lobby with personal statistics and compact recent records.
+Hall provides participant-scoped online history and read-only review.
 
 ## Create, find and join
 

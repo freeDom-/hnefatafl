@@ -186,3 +186,13 @@ outside account authentication. No guest API or upload path is granted. Only
 `/assets/guest-<64 hex>/worker.js` receives `wasm-unsafe-eval`; document and other
 asset/API policies retain their existing restrictions. The runtime/engine and
 license update policy is in [guest play and storage](GUEST_PLAY.md).
+
+The Phase 5 history refinement adds read-only `/api/history/games` and
+`/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits
+administrator-wide server history filters/review. Normal users remain scoped to
+online participation; account categories/name filters are denied and unauthorized
+object lookups return 404. Dashboard always adds own-account and completed eligible
+scope before its three-row limit, including administrators. List/count/category
+statistics and direct canonical review recheck current sessions in read transactions.
+No history route adds mutation, exports, assistance or public access. See
+[Dashboard](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).

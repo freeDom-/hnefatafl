@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import HTTPException, Query
 
 from .online_core import OnlineError
+from .history import RecordedHistory
 from .personal import PersonalHistory
 from .security_context import session_identity
 
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 def attach_personal(app, online, *, replay):
     history = PersonalHistory(online, replay=replay)
     app.state.personal = history
+    recorded = RecordedHistory(history)
+    app.state.history = recorded
 
     def execute(action_name, action):
         try:
@@ -37,6 +40,39 @@ def attach_personal(app, online, *, replay):
                 exc_info=(Exception, Exception(), error.__traceback__),
             )
             raise HTTPException(503, "Personal history unavailable. Retry shortly.") from None
+
+    @app.get("/api/history/games")
+    def recorded_games(
+        limit: int = Query(default=25, ge=1, le=100),
+        cursor: str | None = Query(default=None, min_length=1, max_length=512),
+        category: Literal["online", "account-single-player"] | None = None,
+        ruleset: Rule | None = None,
+        player: str | None = Query(default=None, min_length=1, max_length=80),
+        status: Literal["waiting", "active", "in_progress", "completed", "cancelled", "voided"]
+        | None = None,
+        winner: Literal["attackers", "defenders", "draw"] | None = None,
+        dashboard: bool = False,
+    ):
+        return execute(
+            "recorded_games",
+            lambda credential: recorded.listing(
+                credential,
+                limit=limit,
+                cursor=cursor,
+                category=category,
+                ruleset=ruleset,
+                player=player,
+                status=status,
+                winner=winner,
+                dashboard=dashboard,
+            ),
+        )
+
+    @app.get("/api/history/{category}/{game_id}/replay")
+    def recorded_review(category: Literal["online", "account-single-player"], game_id: str):
+        return execute(
+            "recorded_review", lambda credential: recorded.review(credential, category, game_id)
+        )
 
     @app.get("/api/personal/single-player")
     def account_games(

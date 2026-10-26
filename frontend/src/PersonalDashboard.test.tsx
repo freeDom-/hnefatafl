@@ -1,167 +1,150 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PersonalDashboard from './PersonalDashboard';
 import fixture from './onlineFixture.testdata.json';
 import { setLanguage } from './i18n';
-const identity = vi.hoisted(() => ({ id: 'archer' }));
+const identity = vi.hoisted(() => ({ id: 'archer', permissions: ['play'] }));
 vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
-const summary = {
-  id: 'local-owned',
-  category: 'account-single-player',
-  ruleset: 'brandubh',
-  mode: 'human-human',
-  created_at: '2026-01-01T00:00:00Z',
-  ended_at: null,
-  status: 'in_progress',
-  winner: null,
-  plies: 1,
-  players: {
-    attackers: { name: 'Archer', kind: 'human' },
-    defenders: { name: 'Keeper', kind: 'human' },
+const local = {
+  games: [],
+  totals: {
+    total_games: 4,
+    completed_games: 1,
+    in_progress: 3,
+    attackers_wins: 0,
+    defenders_wins: 0,
+    draws: 1,
   },
 };
-const totals = {
-  total_games: 1,
-  completed_games: 0,
-  in_progress: 1,
-  attackers_wins: 0,
-  defenders_wins: 0,
-  draws: 0,
-  average_game_length: 0,
-};
-const local = () => ({
-  category: 'account-single-player',
-  games: [summary],
-  totals,
-  limit: 10,
-  matching: 11,
-  next_cursor: 'next-local',
-});
-const online = () => ({
-  category: 'online',
+const online = {
   games: [],
-  totals: { category: 'online', played: 0, wins: 0, losses: 0, draws: 0, abandoned_games: 0 },
-  overview: { your_turn: 0, other_active: 0, waiting: 0, completed: 0, cancelled: 0, voided: 0 },
-  as_of: '2026-01-01T00:00:00Z',
-  limit: 10,
-  matching: 0,
-  next_cursor: null,
-});
+  totals: { played: 2, wins: 1, losses: 1, draws: 0, abandoned_games: 1 },
+  overview: {},
+};
+const row = {
+  id: fixture.replay.game.id,
+  category: 'online',
+  ruleset: 'brandubh',
+  status: 'completed',
+  winner: 'attackers',
+  attackers: 'Archer',
+  defenders: 'Keeper',
+  recorded_at: '2035-01-01T00:00:00Z',
+};
+const recent = { games: [row], matching: 1, totals: [], next_cursor: null, limit: 3 };
 const respond = (body: unknown, status = 200) =>
-  Promise.resolve({ ok: status < 400, status, json: async () => body } as Response);
-let serve: (path: string, opts?: RequestInit) => Promise<Response>;
-const fetcher = vi.fn((path: string, opts?: RequestInit) => serve(path, opts));
+  Promise.resolve({ ok: status === 200, status, json: async () => body } as Response);
+let serve: (url: string) => Promise<Response>;
+const fetcher = vi.fn((url: string, _opts?: RequestInit) => serve(url));
 beforeEach(() => {
   identity.id = 'archer';
   history.replaceState(null, '', '/dashboard');
   setLanguage('en', false);
   fetcher.mockClear();
-  serve = (path) => respond(path.includes('/single-player?') ? local() : online());
+  serve = (url) =>
+    respond(
+      url.includes('/single-player?')
+        ? local
+        : url.includes('/personal/online?')
+          ? online
+          : url.includes('/history/')
+            ? recent
+            : url.includes('/online/games?')
+              ? { games: [], limit: 25, offset: 0 }
+              : url.includes('/availability')
+                ? { enabled: false, eligible: false }
+                : [],
+    );
   vi.stubGlobal('fetch', fetcher);
 });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  history.replaceState(null, '', '/');
   setLanguage('en', false);
 });
-it('separates categories and totals, paginates/filters on the server and never opens guest storage', async () => {
+it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without guest reads', async () => {
   const open = vi.fn();
   vi.stubGlobal('indexedDB', { open });
-  render(<PersonalDashboard />);
-  await screen.findByRole('link', { name: 'Review account game' });
-  expect(screen.getByRole('heading', { name: 'Account single-player' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Online multiplayer' })).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Guest play on this device' })).toHaveAttribute(
-    'href',
-    '/guest',
+  const start = vi.fn();
+  render(<PersonalDashboard onNewSingle={start} />);
+  const link = await screen.findByRole('link', { name: /Archer · Keeper/ });
+  expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
+  expect(link.closest('ul')).toHaveClass('recorded-games');
+  expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  expect(screen.getByText('Upcoming in Phase 6')).toBeVisible();
+  expect(screen.queryByText(/Guest games stay/)).toBeNull();
+  expect(screen.queryByText('Local players')).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Guest play on this device' })).toBeNull();
+  expect(fetcher.mock.calls.some(([url]) => url === '/api/history/games?dashboard=true')).toBe(
+    true,
   );
-  const account = screen
-    .getByRole('heading', { name: 'Account single-player' })
-    .closest('section')!;
-  fireEvent.click(within(account).getByRole('button', { name: 'Next page' }));
-  await waitFor(() =>
-    expect(fetcher.mock.calls.some(([path]) => path.includes('cursor=next-local'))).toBe(true),
-  );
-  fireEvent.change(within(account).getByLabelText('Ruleset'), { target: { value: 'tablut' } });
-  await waitFor(() =>
-    expect(fetcher.mock.calls.some(([path]) => path.includes('ruleset=tablut'))).toBe(true),
-  );
-  expect(location.search).not.toContain('sc=');
-  expect(
-    fetcher.mock.calls.every(
-      ([path, opts]) =>
-        path.startsWith('/api/personal/') && (!opts?.method || opts.method === 'GET'),
-    ),
-  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'New single-player game' }));
+  expect(start).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: 'New online game' }));
+  await screen.findByRole('heading', { name: 'Create an online game' });
   expect(open).not.toHaveBeenCalled();
 });
-it('shows loading, error/retry, then empty records', async () => {
-  let finish!: (response: Response) => void;
-  serve = () =>
-    new Promise((resolve) => {
-      finish = resolve;
-    });
+it('shows stale retry and recovers empty recent results', async () => {
+  serve = (url) =>
+    url.includes('/history/')
+      ? respond({}, 503)
+      : respond(
+          url.includes('/games?')
+            ? { games: [] }
+            : url.includes('/personal/')
+              ? { ...local, ...online }
+              : [],
+        );
   render(<PersonalDashboard />);
-  expect(screen.getAllByText('Loading your games…')).toHaveLength(2);
-  await act(async () => {
-    finish(await respond({}, 503));
-  });
   await screen.findByRole('button', { name: 'Retry' });
-  serve = () => respond(online());
+  serve = () => respond({ ...recent, games: [] });
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  await screen.findByText('No online games match these filters.');
+  await screen.findByText('No completed games yet.');
 });
-it('aborts the old account and rejects a late response even if fetch ignores cancellation', async () => {
+it('aborts old-account history/statistics and rejects late responses', async () => {
   let finish!: (response: Response) => void;
-  serve = (path) =>
-    path.includes('/single-player?')
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/history/')
       ? new Promise((resolve) => {
           finish = resolve;
         })
-      : respond(online());
+      : previous(url);
   const view = render(<PersonalDashboard />);
   const signals = fetcher.mock.calls.map(([, opts]) => opts?.signal as AbortSignal);
   identity.id = 'keeper';
-  serve = (path) =>
-    respond(
-      path.includes('/single-player?')
-        ? { ...local(), games: [], matching: 0, next_cursor: null }
-        : online(),
-    );
+  serve = (url) => (url.includes('/history/') ? respond({ ...recent, games: [] }) : previous(url));
   view.rerender(<PersonalDashboard />);
-  await screen.findByText('No account games match these filters.');
-  await act(async () => {
-    finish(await respond(local()));
-  });
-  expect(signals.every((s) => s.aborted)).toBe(true);
-  expect(screen.queryByRole('link', { name: 'Review account game' })).toBeNull();
+  await screen.findByText('No completed games yet.');
+  await act(async () => finish(await respond(recent)));
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(screen.queryByRole('link', { name: /Archer · Keeper/ })).toBeNull();
 });
-it('reviews canonical account replay with viewer-only controls and no write or analysis adapter', async () => {
+it('retains canonical private account replay at its existing deep link', async () => {
   history.replaceState(null, '', '/dashboard/single-player/local-owned');
   serve = () =>
     respond({
-      game: summary,
-      game_id: summary.id,
-      version: 9,
+      game: {
+        id: 'local-owned',
+        category: 'account-single-player',
+        ruleset: 'brandubh',
+        status: 'in_progress',
+        winner: null,
+      },
       validated: true,
-      cursor: 0,
-      moves: fixture.replay.game.moves,
       states: fixture.replay.states,
+      moves: fixture.replay.game.moves,
     });
   render(<PersonalDashboard />);
   await screen.findByRole('grid');
   fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
   expect(screen.getByText('Move 1 of 1')).toBeVisible();
-  fireEvent.click(screen.getAllByRole('gridcell')[1]);
-  fireEvent.click(screen.getByRole('button', { name: 'Previous move' }));
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher.mock.calls[0][0]).toBe('/api/personal/single-player/local-owned/replay');
-  expect(screen.queryByRole('button', { name: /analysis/i })).toBeNull();
 });
-it('translates personal controls in German', async () => {
+it('translates dashboard actions in German', async () => {
   setLanguage('de', false);
   render(<PersonalDashboard />);
-  await screen.findByRole('link', { name: 'Kontospiel ansehen' });
-  expect(screen.getByRole('heading', { name: 'Deine Spiele' })).toBeVisible();
+  await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(3));
+  expect(screen.getByRole('heading', { name: 'Übersicht' })).toBeVisible();
 });

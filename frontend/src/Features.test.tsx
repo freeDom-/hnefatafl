@@ -1,6 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Archive from './Archive';
 import Training from './Training';
 import App from './App';
 import { sortRulesets } from './sortRulesets';
@@ -62,97 +61,6 @@ describe('records and training controls', () => {
     expect(next).not.toBe(first);
   });
 
-  it('shows different AI parameters in game records and statistics without nested buttons', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((path: string) =>
-        path.startsWith('/api/games')
-          ? json([game])
-          : json({
-              by_player: [
-                {
-                  id: 'a',
-                  kind: 'ai',
-                  name: 'Jarl',
-                  games: 1,
-                  config: { algorithm: 'alpha_beta', depth: 2 },
-                  variant_id: 'variant-a',
-                },
-                {
-                  id: 'b',
-                  kind: 'ai',
-                  name: 'Jarl',
-                  games: 1,
-                  config: { algorithm: 'alpha_beta', depth: 4 },
-                  variant_id: 'variant-b',
-                },
-              ],
-            }),
-      ),
-    );
-    const { container } = render(
-      <Archive rulesets={rules} players={[]} onLoad={noop} onError={noop} refreshPlayers={noop} />,
-    );
-    await screen.findByRole('button', { name: /Tablut.*Jarl vs Astrid/ });
-    expect(container.querySelectorAll('.record-parameters')).toHaveLength(1);
-    const aiRows = screen.getByRole('table').querySelectorAll('tbody tr');
-    expect(
-      within(aiRows[0] as HTMLElement).getByText('depth 2', { exact: false }),
-    ).toBeInTheDocument();
-    expect(
-      within(aiRows[1] as HTMLElement).getByText('depth 4', { exact: false }),
-    ).toBeInTheDocument();
-    expect(aiRows[0].querySelector('details')).toBeNull();
-    fireEvent.click(
-      within(aiRows[0] as HTMLElement).getByRole('button', { name: 'Show AI parameters for Jarl' }),
-    );
-    const parameterDialog = screen.getByRole('dialog', { name: 'Jarl AI parameters' });
-    expect(parameterDialog).toHaveTextContent('Search depth');
-    expect(parameterDialog).toHaveTextContent('Configuration variant-a');
-    fireEvent.click(within(parameterDialog).getByRole('button', { name: 'Close AI parameters' }));
-    fireEvent.click(container.querySelector('.record-parameters summary')!);
-    expect(container.querySelector('.record-parameters')).toHaveAttribute('open');
-    expect(screen.getByText('Random seed')).toBeInTheDocument();
-    expect(container.querySelector('.record button')).toBeNull();
-    expect(
-      within(screen.getByLabelText('Battlefield'))
-        .getAllByRole('option')
-        .map((o) => o.textContent),
-    ).toEqual(['All rulesets', 'Brandubh', 'Tablut', 'Copenhagen']);
-  });
-
-  it('requires confirmation before deleting a human profile and keeps historical records visible', async () => {
-    const refresh = vi.fn();
-    const fetcher = vi.fn((path: string, init?: RequestInit) => {
-      if (init?.method === 'DELETE') return json({ deleted: true, id: 'human-one' });
-      return path.startsWith('/api/games') ? json([game]) : json({});
-    });
-    vi.stubGlobal('fetch', fetcher);
-    render(
-      <Archive
-        rulesets={rules}
-        players={[{ id: 'human-one', name: 'Astrid' }]}
-        onLoad={noop}
-        onError={noop}
-        refreshPlayers={refresh}
-      />,
-    );
-    await screen.findByRole('button', { name: /Tablut.*Jarl vs Astrid/ });
-    fireEvent.click(screen.getByRole('button', { name: 'Delete player Astrid' }));
-    const confirm = screen.getByRole('dialog', { name: 'Delete player Astrid?' });
-    expect(
-      within(confirm).getByText(/saved games, name and statistics remain/),
-    ).toBeInTheDocument();
-    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
-    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
-    expect(fetcher).toHaveBeenCalledWith(
-      '/api/players/human-one',
-      expect.objectContaining({ method: 'DELETE' }),
-    );
-    expect(screen.getByRole('button', { name: /Tablut.*Jarl vs Astrid/ })).toBeInTheDocument();
-  });
-
   it('keeps an in-use model deletion error visible and suggests a different model name', async () => {
     const changed = vi.fn();
     const fetcher = vi.fn((path: string, init?: RequestInit) => {
@@ -191,7 +99,12 @@ describe('records and training controls', () => {
   });
 
   it('uses a single human dropdown, then clears the profile identity when choosing a new name', async () => {
+    history.replaceState(null, '', '/dashboard?setup=single-player');
     const fetcher = vi.fn((path: string) => {
+      if (path.startsWith('/api/personal/')) return json({ games: [], totals: {}, overview: {} });
+      if (path.startsWith('/api/history/')) return json({ games: [], totals: [] });
+      if (path.startsWith('/api/online/games?')) return json({ games: [] });
+      if (path === '/api/online/availability') return json({ enabled: false, eligible: false });
       if (path === '/api/rulesets') return json(rules);
       if (path === '/api/players') return json([{ id: 'astrid-one', name: 'Astrid' }]);
       if (path === '/api/games')

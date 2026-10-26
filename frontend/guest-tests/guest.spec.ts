@@ -50,6 +50,15 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
   });
   const began = Date.now();
   await page.goto('/guest');
+  const accountLink = page.getByRole('link', { name: 'Account single-player', exact: true });
+  await expect(accountLink).toHaveClass(/header-link.*button/);
+  await expect(accountLink).toHaveAttribute('href', '/dashboard?setup=single-player');
+  await accountLink.focus();
+  await expect(accountLink).toBeFocused();
+  expect(
+    await accountLink.evaluate((a) => a.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(42);
+
   await ready(page);
   console.log('Guest startup ms:', Date.now() - began);
   await start(page);
@@ -293,6 +302,7 @@ test('guest survives login, logout, account switching, back navigation and onlin
   expect(await saved(page)).toEqual(checkpoint);
   expect(await page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBe(owned.id);
   await page.goBack();
+  await page.goto('/games/' + owned.id);
   await expect(page.getByRole('grid')).toBeVisible();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Log in', exact: true })).toBeVisible();

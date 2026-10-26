@@ -3,7 +3,7 @@ import { expect, test } from './auth-fixture';
 test('a searching advisor publishes partial results while the human can move and can be changed immediately', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('radio', { name: /Copenhagen/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
@@ -39,7 +39,7 @@ test('advisor highlights a legal move and original estimates survive replay, rel
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await expect(page.getByRole('combobox', { name: 'Agent for move suggestions' })).toHaveCount(0);
   await page.getByRole('button', { name: 'To the table' }).click();
@@ -151,7 +151,7 @@ test('the actual AI decision and the opponent’s background estimate survive re
   });
   expect(replay.analysis.evaluations).toHaveLength(2);
   await page.addInitScript((id) => localStorage.setItem('hnefatafl-game', id), game.id);
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: /Pause AI/ }).click();
   const meters = page.getByRole('region', { name: 'Agent evaluations' }).getByRole('meter');
   await expect(meters).toHaveCount(2);

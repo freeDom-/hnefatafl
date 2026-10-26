@@ -38,21 +38,10 @@ test('player selection/deletion preserves records and AI variants expose their p
 }, info) => {
   const name = `Freydis ${info.project.name}`;
   const aiName = `Raven Jarl ${info.project.name}`;
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  const fields = page.getByRole('combobox', { name: 'Battlefield', exact: true });
-  await expect(fields.locator('option')).toHaveText([
-    'All rulesets',
-    'Brandubh',
-    'Tablut (market rules)',
-    'Copenhagen Hnefatafl',
-  ]);
-  await page.getByLabel('Display name').fill(name);
-  await page.getByRole('button', { name: 'Create player' }).click();
-  await expect(page.locator('.profile-list').getByText(name, { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await page.getByRole('button', { name: /New game/ }).click();
+  const profile = await (
+    await request.post('http://127.0.0.1:8001/api/players', { data: { name } })
+  ).json();
+  await page.goto('/dashboard?setup=single-player');
   await expect(page.locator('.ruleset-options strong')).toHaveText([
     'Brandubh',
     'Tablut (market rules)',
@@ -68,17 +57,13 @@ test('player selection/deletion preserves records and AI variants expose their p
   await page.getByRole('button', { name: 'To the table' }).click();
   const gameId = (await (await createdGame).json()).id;
   await expect(page.getByRole('grid')).toBeVisible();
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  await page.getByRole('button', { name: `Delete player ${name}` }).click();
-  const confirm = page.getByRole('dialog', { name: `Delete player ${name}?` });
-  await expect(confirm).toContainText('saved games, name and statistics remain');
-  await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
-  await expect(page.locator('.profile-list').getByText(name, { exact: true })).toHaveCount(0);
-  await expect(
-    page.locator(`.record-entry[data-game-id="${gameId}"] .record`).filter({ hasText: name }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await page.getByRole('button', { name: /New game/ }).click();
+  expect((await request.delete('http://127.0.0.1:8001/api/players/' + profile.id)).ok()).toBe(true);
+  await page.goto('/archive');
+  await expect(page.getByText('Local players', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.recorded-games a').filter({ hasText: name })).toBeVisible();
+  expect((await request.get('http://127.0.0.1:8001/api/games/' + gameId)).ok()).toBe(true);
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await expect(
     page
       .getByRole('combobox', { name: 'Attackers human player' })
@@ -90,23 +75,14 @@ test('player selection/deletion preserves records and AI variants expose their p
   await finishVariant(request, aiName, 1);
   await finishVariant(request, aiName, 2);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  const rows = page.getByRole('row').filter({ hasText: aiName });
-  await expect(rows).toHaveCount(2);
-  await expect(rows.filter({ hasText: 'depth 1' })).toHaveCount(1);
-  await expect(rows.filter({ hasText: 'depth 2' })).toHaveCount(1);
-  await rows
-    .filter({ hasText: 'depth 2' })
-    .getByRole('button', { name: `Show AI parameters for ${aiName}`, exact: true })
-    .click();
-  const parameters = page.getByRole('dialog', { name: `${aiName} AI parameters`, exact: true });
-  await expect(parameters.getByText('Search depth', { exact: true })).toBeVisible();
-  await parameters.getByRole('button', { name: 'Close AI parameters', exact: true }).click();
-  const records = page.locator('.record-entry').filter({ hasText: aiName });
-  await expect(records).toHaveCount(2);
-  await records.first().getByText('Attacker AI parameters', { exact: false }).click();
-  await expect(
-    records.first().locator('details[open]').getByText('Random seed', { exact: true }),
-  ).toBeVisible();
+  await page.getByLabel('Player name').fill(aiName);
+  await expect(page.locator('.recorded-games li')).toHaveCount(2);
+  const stats = await (await request.get('http://127.0.0.1:8001/api/stats')).json();
+  const variants = stats.by_player.filter((row: { name: string }) => row.name === aiName);
+  expect(variants).toHaveLength(2);
+  expect(variants.map((row: { config: { depth: number } }) => row.config.depth).sort()).toEqual([
+    1, 2,
+  ]);
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
@@ -120,7 +96,7 @@ test('workshop suggests Viking names and deletes a model only after confirmation
     info.project.name === 'mobile',
     'Real training is verified once on desktop; mobile records/profile controls are checked separately.',
   );
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCreation(page);

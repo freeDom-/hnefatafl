@@ -2,8 +2,8 @@
 
 [Documentation index](README.md) · [Quick start](../README.md#quick-start)
 
-The authenticated [personal dashboard](DASHBOARD.md) provides separate own account
-and participant online histories, bounded filters/pages and read-only review.
+The authenticated [personal dashboard](DASHBOARD.md) is the landing page for new single-player/online games, personal statistics and
+read-only history. Hall visibility depends on role; see the dashboard guide.
 
 ## Choose where to play
 
@@ -33,7 +33,7 @@ draws. Ordinary games have no experimental move cap.
 
 ## Create and control an account game
 
-1. Open **New game** and select a battlefield and mode: pass-and-play Human vs
+1. On Dashboard open **New single-player game** and select a battlefield and mode: pass-and-play Human vs
    Human, Human vs AI or AI vs AI.
 2. Choose sides, existing/new human profiles and computer opponents. Models must
    match the battlefield. Named presets have fixed budgets; Custom exposes search
@@ -51,7 +51,8 @@ is not deletion of saved games. A connection to the server is required.
 
 ## Replay, undo and restart
 
-**Hall of records** reopens saved games. Seek, undo and redo inspect retained
+Account gameplay uses `/games/{id}`, including refresh/reconnect. **Resume single-player**
+on Dashboard opens an unfinished account game. Seek, undo and redo inspect retained
 positions without changing the recorded final outcome or discarding future moves.
 Making a different legal continuation branches history. Completed-game controls
 disable further play/restart even when viewing an earlier position. **Restart** is
@@ -60,8 +61,8 @@ old record. Use New game for a new match after completion.
 
 Moves include expected versions; a stale concurrent request is rejected rather
 than overwriting another move. Replay uses saved moves, so completed histories
-remain viewable after deleting source models. Removing a game after confirmation
-permanently removes its moves/result and recalculates statistics. Profile deletion
+remain viewable after deleting source models. The existing version-guarded game deletion API
+removes its moves/result and recalculates statistics. Profile deletion
 hides a local player from future selection but preserves historical identity.
 
 ## Get advice and read results
@@ -72,10 +73,12 @@ AI player opinions can disagree and remain saved in replay. These displayed valu
 are uncalibrated expected-score assessments, not measured win probabilities.
 See [Analysis](ANALYSIS.md) for sources and completed-search diagnostics.
 
-The Hall of records offers global battlefield/mode/player-type filters, sortable
-statistics, independent player/history name searches and expandable AI parameters.
-Equivalent AI configurations group across seeds while individual games keep their
-seeds. [Records and personalization](PERSONALIZATION.md) explains deletion, model
+The [Hall of records](DASHBOARD.md) offers compact read-only rows, server filters,
+pagination and independent selected review. Normal users see their participating
+online records; administrators can inspect all server-recorded categories. Account
+single-player gameplay remains available despite being hidden from normal-user Hall.
+Equivalent AI configurations still group across seeds in the existing statistics API.
+[Records and personalization](PERSONALIZATION.md) explains identities, model
 suggestions, themes and local preferences. [Tournaments](TOURNAMENTS.md) describes
 a separate saved comparison collection; its matches do not enter ordinary-game
 statistics.

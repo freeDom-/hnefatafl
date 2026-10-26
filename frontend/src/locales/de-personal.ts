@@ -1,5 +1,25 @@
 const personal: Record<string, string> = {
   Dashboard: 'Übersicht',
+  'New online game': 'Neues Onlinespiel',
+  'New single-player game': 'Neues Einzelspiel',
+  'Resume single-player': 'Einzelspiel fortsetzen',
+  'Recorded games': 'Gespeicherte Spiele',
+  'View all': 'Alle ansehen',
+  Leaderboard: 'Rangliste',
+  'Upcoming in Phase 6': 'Geplant für Phase 6',
+  'Close setup': 'Einrichtung schließen',
+  'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
+  'All server-recorded games. Guest saves stay on their device.':
+    'Alle auf dem Server gespeicherten Spiele. Gastspiele bleiben auf ihrem Gerät.',
+  'Your participating online games.': 'Deine Onlinespiele als Teilnehmer.',
+  'Game type': 'Spieltyp',
+  'All server games': 'Alle Serverspiele',
+  'Player name': 'Spielername',
+  Review: 'Ansehen',
+  'Selected game review': 'Ausgewähltes Spiel ansehen',
+  'Review unavailable. Check your access or retry.':
+    'Spielansicht nicht verfügbar. Zugriff prüfen oder erneut versuchen.',
+  'No games match these filters.': 'Keine Spiele passen zu diesen Filtern.',
   'Your games': 'Deine Spiele',
   'Private account records. Single-player and online results are kept separate.':
     'Private Kontoeinträge. Einzelspieler- und Online-Ergebnisse bleiben getrennt.',

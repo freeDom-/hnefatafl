@@ -2,7 +2,7 @@ import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
 test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
@@ -27,7 +27,7 @@ test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
 });
 
 test('Shield maiden is localized and selectable for training and advisors', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCreation(page);
@@ -42,8 +42,8 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
   await expect(page.getByRole('option', { name: 'Schildmaid', exact: true })).toHaveCount(1);
   await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en');
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await page.getByRole('button', { name: /New game/ }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });

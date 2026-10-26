@@ -323,6 +323,8 @@ grant(
     "/api/personal/online",
     "/api/personal/online/{game_id}",
     "/api/personal/online/{game_id}/replay",
+    "/api/history/games",
+    "/api/history/{category}/{game_id}/replay",
     "/api/games/{game_id}",
     "/api/games/{game_id}/analytics",
     "/api/games/{game_id}/replay",
@@ -518,7 +520,12 @@ class SecurityBoundary:
                 response = (
                     JSONResponse({"detail": "Authentication required"}, 401)
                     if path.startswith("/api")
-                    else RedirectResponse("/login?next=" + quote(path, safe=""))
+                    else RedirectResponse(
+                        "/login?next="
+                        + quote(
+                            path + ("?" + request.url.query if request.url.query else ""), safe=""
+                        )
+                    )
                 )
                 return await response(scope, receive, send)
             if not allowed(account, permission):

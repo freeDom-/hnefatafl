@@ -27,7 +27,7 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
       { timeout: 30000 },
     )
     .toBe('completed');
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await selectWorkshopJob(page, source.id, name);

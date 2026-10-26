@@ -36,6 +36,7 @@ const rules = [
 ];
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value } as Response);
 beforeEach(() => {
+  history.replaceState(null, '', '/games/g1');
   localStorage.clear();
   localStorage.setItem('hnefatafl-game', 'g1');
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {

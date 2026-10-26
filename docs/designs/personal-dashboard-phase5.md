@@ -149,3 +149,25 @@ original exception messages and chained exception details are not logged. The
 authenticated global online listing/detail remain intentional spectator surfaces;
 personal object detail/replay still return 404 for nonparticipants, while their
 personal listings are empty. No route or grant changes are introduced.
+
+## Owner-authorized Phase 5 consolidation refinement
+
+The owner explicitly directed implementation on the existing Phase 5 branch/PR,
+superseding the proposed new branch and preceding-merge prerequisite for this
+refinement. PR #17 remains targeted at `feat/online-multiplayer`, unmerged. No
+schema, version, deployment or production gate change is included.
+
+The initial UI contract above describes the first delivery. Current navigation and
+Hall behavior are defined in [Dashboard](../DASHBOARD.md): default Dashboard with
+existing setup/lobby, shared latest-three/compact rows, independent selected review,
+normal-user online participation scope and administrator server-wide Hall filters.
+Personal APIs keep their original private scope and canonical validation.
+`GET /api/history/games` adds bounded `category`, `player` (literal name substring),
+`ruleset`, `status`, `winner`, `limit`, `cursor`, and `dashboard` parameters. Current
+trusted `all_data` enables global Hall scope; `dashboard=true` always forces own,
+eligible completed scope and limit three. Normal users cannot request account games
+or name filters. Counts and side-result totals use the same authorized filter.
+`GET /api/history/{category}/{game_id}/replay` independently authorizes participant
+online or administrator record access, then canonically validates in that read
+transaction. There are no history writes, exports or analysis routes. See
+[refinement validation](../validation/dashboard-consolidation.md).

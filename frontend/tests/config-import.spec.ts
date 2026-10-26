@@ -39,7 +39,7 @@ test('imports an exporter-compatible config.json into new and resume forms witho
   };
   const before = (await (await request.get(`${api}/training/jobs`)).json()).length;
 
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCreation(page);

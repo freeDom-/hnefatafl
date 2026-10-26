@@ -1,3 +1,4 @@
+import HeaderLink from './HeaderLink';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Board from './Board';
 import Modal from './Modal';
@@ -6,7 +7,6 @@ import { LanguageSelect, useI18n } from './i18n';
 import { GuestEngine } from './guestEngine';
 import { GuestConflict, readGuestSlot, writeGuestSlot, clearGuestSlot } from './guestStore';
 import { parseGuestRecord, type GuestInfo, type GuestSnapshot } from './guestTypes';
-import { surfaceLink } from './surfaceNavigation';
 import type { Side } from './types';
 import './guest.css';
 const sides = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -220,13 +220,13 @@ export default function Guest() {
       <header className="guest-header">
         <strong>HNEFATAFL</strong>
         <nav aria-label={t('Play surfaces')}>
-          <span aria-current="page">{t('Guest play')}</span>
-          <a href="/" onClick={surfaceLink}>
+          <HeaderLink href="/guest" current>
+            {t('Guest play')}
+          </HeaderLink>
+          <HeaderLink href="/dashboard?setup=single-player">
             {t('Account single-player')}
-          </a>
-          <a href="/online" onClick={surfaceLink}>
-            {t('Online multiplayer')}
-          </a>
+          </HeaderLink>
+          <HeaderLink href="/dashboard?setup=online">{t('Online multiplayer')}</HeaderLink>
         </nav>
         <LanguageSelect />
         <AppearanceSettings />

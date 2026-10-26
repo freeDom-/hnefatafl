@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { api, setCSRF } from './api';
 import AccountForms from './AccountForms';
+import { safeDestination } from './navigation';
 import { useI18n } from './i18n';
 
 export type Account = {
@@ -116,15 +117,10 @@ export default function Auth({ children }: { children: ReactNode }) {
       accept(session);
       form.reset();
       if (location.pathname === '/login') {
-        const next = new URLSearchParams(location.search).get('next') ?? '/';
         history.replaceState(
           null,
           '',
-          ['/', '/dashboard', '/training', '/tournaments', '/archive', '/online'].includes(next) ||
-            /^\/online\/games\/online-[0-9a-f]{32}(?:\/review)?$/.test(next) ||
-            /^\/dashboard\/single-player\/[A-Za-z0-9_-]{1,100}$/.test(next)
-            ? next
-            : '/',
+          safeDestination(new URLSearchParams(location.search).get('next')),
         );
       }
     } catch (e) {

@@ -10,7 +10,7 @@ async function open(page: Page) {
       JSON.stringify({ mode: 'wood', tokens: 'wood', board: 'walnut' }),
     );
   });
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute(

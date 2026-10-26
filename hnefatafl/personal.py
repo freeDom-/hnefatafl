@@ -161,35 +161,37 @@ class PersonalHistory:
             ).fetchone()
             if row is None:
                 raise OnlineError(404, "Account game not found.")
-            game = json.loads(row[0])
-            replay = self.account_replay(game)
-            # Canonical replay validates the board, never reconstructs result metadata.
-            result = game.get("recorded_result") or {}
-            winner = result.get("winner")
-            summary = {
-                "id": game["id"],
-                "category": "account-single-player",
-                "ruleset": game["ruleset"],
-                "mode": game["mode"],
-                "created_at": game["created_at"],
-                "ended_at": game.get("ended_at"),
-                "status": "completed" if winner else "in_progress",
-                "winner": winner,
-                "plies": result.get("plies", len(game["moves"])),
-                "players": {
-                    side: {"name": str(p["name"])[:80], "kind": p["kind"]}
-                    for side, p in game["players"].items()
-                },
-            }
-            return {
-                **replay,
-                "states": [
-                    {k: v for k, v in state.items() if k != "history"} for state in replay["states"]
-                ],
-                "game": summary,
-                "moves": [{"source": m["source"], "target": m["target"]} for m in game["moves"]],
-                "version": game["version"],
-            }
+            return self._single_replay(json.loads(row[0]))
+
+    def _single_replay(self, game):
+        replay = self.account_replay(game)
+        # Canonical replay validates the board, never reconstructs result metadata.
+        result = game.get("recorded_result") or {}
+        winner = result.get("winner")
+        summary = {
+            "id": game["id"],
+            "category": "account-single-player",
+            "ruleset": game["ruleset"],
+            "mode": game["mode"],
+            "created_at": game["created_at"],
+            "ended_at": game.get("ended_at"),
+            "status": "completed" if winner else "in_progress",
+            "winner": winner,
+            "plies": result.get("plies", len(game["moves"])),
+            "players": {
+                side: {"name": str(p["name"])[:80], "kind": p["kind"]}
+                for side, p in game["players"].items()
+            },
+        }
+        return {
+            **replay,
+            "states": [
+                {k: v for k, v in state.items() if k != "history"} for state in replay["states"]
+            ],
+            "game": summary,
+            "moves": [{"source": m["source"], "target": m["target"]} for m in game["moves"]],
+            "version": game["version"],
+        }
 
     def online_games(
         self,
