@@ -213,7 +213,7 @@ function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => v
       </p>
       <p>
         {t('Attackers')}: {game.participants.attackers?.name ?? t('Unassigned')}
-        <br />
+        {' · '}
         {t('Defenders')}: {game.participants.defenders?.name ?? t('Unassigned')}
       </p>
       <p>{t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}</p>
@@ -223,15 +223,39 @@ function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => v
     </article>
   );
 }
-function Lobby({ accountId, open }: { accountId: string; open: (id: string) => void }) {
+export function Lobby({
+  accountId,
+  open,
+  embedded = false,
+  creationRequested = 0,
+}: {
+  accountId: string;
+  open: (id: string) => void;
+  embedded?: boolean;
+  creationRequested?: number;
+}) {
   const { t } = useI18n();
-  const [mine, setMine] = useState(false);
+  const pageSize = embedded ? 10 : 25;
+  const [createOpen, setCreateOpen] = useState(
+    new URLSearchParams(location.search).get('setup') === 'online',
+  );
+  useEffect(() => {
+    if (creationRequested) setCreateOpen(true);
+  }, [creationRequested]);
+  const [mine, setMine] = useState(new URLSearchParams(location.search).get('mine') === 'true');
   const [offset, setOffset] = useState(0);
   const [intent, setIntent] = useState<CreationIntent | null>(() => restoreIntent(accountId));
   const intentRef = useRef(intent);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [rulesError, setRulesError] = useState('');
-  const [ruleset, setRuleset] = useState(intent?.ruleset ?? 'brandubh');
+  const [ruleset, setRuleset] = useState(
+    intent?.ruleset ??
+      (['brandubh', 'tablut', 'copenhagen'].includes(
+        new URLSearchParams(location.search).get('ruleset') ?? '',
+      )
+        ? new URLSearchParams(location.search).get('ruleset')!
+        : 'brandubh'),
+  );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
   const [duration, setDuration] = useState(String(intent?.time_per_move ?? 259200));
@@ -259,7 +283,7 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
       const [availability, listing] = await Promise.all([
         api<Availability>('/online/availability', undefined, undefined, signal),
         api<OnlineListing>(
-          `/online/games?limit=25&offset=${offset}&mine=${mine}`,
+          `/online/games?limit=${pageSize}&offset=${offset}&mine=${mine}`,
           undefined,
           undefined,
           signal,
@@ -267,7 +291,7 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
       ]);
       return { availability, listing };
     },
-    [mine, offset],
+    [mine, offset, pageSize],
   );
   const poll = useOnlinePoll(`lobby:${accountId}:${mine}:${offset}`, load);
   const action = useOnlineAction(poll);
@@ -308,94 +332,103 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
     <section className="online-page">
       <div className="page-intro">
         <div>
-          <h1>{t('Online lobby')}</h1>
+          {embedded ? <h2>{t('Online lobby')}</h2> : <h1>{t('Online lobby')}</h1>}
           <p>{t('Play another person. Every move is confirmed by the server.')}</p>
         </div>
       </div>
       <Health phase={poll.phase} error={poll.error} refresh={poll.refresh} />
       {poll.data && <Admission availability={poll.data.availability} />}
-      <div className="online-lobby-layout">
-        <section className="panel online-create">
-          <h2>{t('Create an online game')}</h2>
-          <form onSubmit={create}>
-            <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
-              <label>
-                {t('Ruleset')}
-                <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
-                  {rulesets.map((r) => (
-                    <option value={r.id} key={r.id}>
-                      {t(r.name)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Creator side')}
-                <select value={side} onChange={(e) => setSide(e.target.value as SideSelection)}>
-                  {Object.entries(sideNames).map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {t(label)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Match mode')}
-                <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
-                  {Object.entries(modeNames).map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {t(label)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Seconds per move')}
-                <input
-                  value={duration}
-                  inputMode="numeric"
-                  onChange={(e) => setDuration(e.target.value)}
-                  required
-                />
-              </label>
-              <p>
-                {t(
-                  '60–1209600 seconds. Both players receive a fresh allowance after each accepted move.',
-                )}
-              </p>
-            </fieldset>
-            {validation && <p role="alert">{t(validation)}</p>}
-            {rulesError && <p role="alert">{t(rulesError)}</p>}
-            {intent && (
-              <p role="status">
-                {t(
-                  'Request retained. Check My games before deliberately retrying the same request. A conflict can mean it already committed.',
-                )}
-              </p>
+      <div
+        className={`online-lobby-layout ${embedded && !createOpen && !intent ? 'lobby-discovery' : ''}`}
+      >
+        {(!embedded || createOpen || intent) && (
+          <section className="panel online-create">
+            <h2>{t('Create an online game')}</h2>
+            {embedded && (
+              <button className="text-button" onClick={() => setCreateOpen(false)}>
+                {t('Close setup')}
+              </button>
             )}
-            <button
-              className="button primary"
-              disabled={action.busy || !available || !rulesets.length}
-            >
-              {t(intent ? 'Retry retained request' : 'Create game')}
-            </button>
-          </form>
-          {intent && (
-            <button
-              className="button secondary"
-              disabled={action.busy}
-              onClick={() => {
-                rememberIntent(accountId, null);
-                intentRef.current = null;
-                setIntent(null);
-              }}
-            >
-              {t('Discard request after checking My games')}
-            </button>
-          )}
-          <Notice value={action.notice} />
-          <p>{t('Disconnecting, closing the browser or logging out does not pause clocks.')}</p>
-        </section>
+            <form onSubmit={create}>
+              <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
+                <label>
+                  {t('Ruleset')}
+                  <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
+                    {rulesets.map((r) => (
+                      <option value={r.id} key={r.id}>
+                        {t(r.name)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('Creator side')}
+                  <select value={side} onChange={(e) => setSide(e.target.value as SideSelection)}>
+                    {Object.entries(sideNames).map(([value, label]) => (
+                      <option value={value} key={value}>
+                        {t(label)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('Match mode')}
+                  <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
+                    {Object.entries(modeNames).map(([value, label]) => (
+                      <option value={value} key={value}>
+                        {t(label)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('Seconds per move')}
+                  <input
+                    value={duration}
+                    inputMode="numeric"
+                    onChange={(e) => setDuration(e.target.value)}
+                    required
+                  />
+                </label>
+                <p>
+                  {t(
+                    '60–1209600 seconds. Both players receive a fresh allowance after each accepted move.',
+                  )}
+                </p>
+              </fieldset>
+              {validation && <p role="alert">{t(validation)}</p>}
+              {rulesError && <p role="alert">{t(rulesError)}</p>}
+              {intent && (
+                <p role="status">
+                  {t(
+                    'Request retained. Check My games before deliberately retrying the same request. A conflict can mean it already committed.',
+                  )}
+                </p>
+              )}
+              <button
+                className="button primary"
+                disabled={action.busy || !available || !rulesets.length}
+              >
+                {t(intent ? 'Retry retained request' : 'Create game')}
+              </button>
+            </form>
+            {intent && (
+              <button
+                className="button secondary"
+                disabled={action.busy}
+                onClick={() => {
+                  rememberIntent(accountId, null);
+                  intentRef.current = null;
+                  setIntent(null);
+                }}
+              >
+                {t('Discard request after checking My games')}
+              </button>
+            )}
+            <Notice value={action.notice} />
+            <p>{t('Disconnecting, closing the browser or logging out does not pause clocks.')}</p>
+          </section>
+        )}
         <section className="online-games">
           <h2>{t(mine ? 'My games' : 'Visible games')}</h2>
           <div className="online-toolbar">
@@ -432,20 +465,20 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
             <button
               className="button secondary"
               disabled={action.busy || offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - 25))}
+              onClick={() => setOffset(Math.max(0, offset - pageSize))}
             >
               {t('Previous page')}
             </button>
-            <span>{t('Page {page}', { page: offset / 25 + 1 })}</span>
+            <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
             <button
               className="button secondary"
               disabled={
                 action.busy ||
                 poll.phase !== 'ready' ||
-                (poll.data?.listing.games.length ?? 0) < 25 ||
-                offset + 25 > 100000
+                (poll.data?.listing.games.length ?? 0) < pageSize ||
+                offset + pageSize > 100000
               }
-              onClick={() => setOffset(offset + 25)}
+              onClick={() => setOffset(offset + pageSize)}
             >
               {t('Next page')}
             </button>
@@ -856,7 +889,7 @@ export default function Online() {
           accountId={account.id}
           reviewOnly={!!match[2]}
           open={(id) => navigate(`/online/games/${id}${match[2] ? '/review' : ''}`)}
-          lobby={() => navigate(match[2] ? '/dashboard' : '/online')}
+          lobby={() => navigate('/dashboard')}
         />
       ) : (
         <Lobby

@@ -12,9 +12,6 @@
   gap: 1rem;
   flex: 1;
 }
-.guest-header a {
-  color: var(--green);
-}
 .guest-page {
   max-width: 1300px;
   margin: 2rem auto;

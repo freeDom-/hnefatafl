@@ -1,72 +1,87 @@
-# Personal games and review
+# Dashboard and Hall of records
 
 [Documentation index](README.md) · [Account play](GAMEPLAY.md) ·
 [Online play](ONLINE_PLAY.md) · [Guest storage](GUEST_PLAY.md)
 
-Sign in and choose **Dashboard**, or open `/dashboard`. This page shows only your
-own account records and online participation, including when you are an
-administrator. The existing Hall of records retains its established account and
-administrator behavior.
+Dashboard (`/dashboard`) is the authenticated landing and default post-login page.
+`/`, `/play` and `/online` redirect there, retaining search parameters and fragments;
+old Play/Online entries select the corresponding setup. Main navigation contains
+Dashboard, Hall of records and the authorized workshop/tournament controls.
+Guest play remains a header link and a standalone public `/guest` surface.
 
-## Find a game
+## Play from Dashboard
 
-**Account single-player** lists your server-backed records. Filter by ruleset,
-unfinished/completed status and recorded winning side or draw. The totals describe
-recorded sides: owning a game does not establish which human or AI seat is yours.
-They therefore do not claim personal wins or losses. A retained completed line
-continues to count after its shared play cursor has been moved backwards.
-Completion comes only from the stored result. Missing or null results count as
-unfinished; no legacy account records or automatic result reconstruction are
-supported. Lists and totals never run engine replay. Single-game review retains
-canonical validation of moves and positions.
+**New single-player game** opens the existing account setup. New and resumed games
+use `/games/{id}`; refresh reconnects to that account game. **Resume single-player**
+opens your latest unfinished account record. Server-backed single-player gameplay,
+AI, analysis, setup preferences and optimistic versions retain their semantics.
 
-**Online multiplayer** starts with **Awaiting your move**. Other sections show
-other active games, waiting games you created, all current games, or terminal
-history. Overdue active games appear under other active games while awaiting
-adjudication. The server decides turn eligibility and deadlines; a dashboard link
-never permits a move after the deadline. Open a current game to use the dedicated
-online play surface. Simultaneous and sequential matches link their individual
-legs and statuses without an aggregate score or winner.
+**New online game** opens the existing lobby configuration. Dashboard embeds its
+All games/My games discovery, pagination and retained-request recovery. Open a
+waiting game to join, your game to resume, or a visible game to watch under existing
+permissions. `/online/games/{id}` remains the dedicated gameplay/reconnect URL.
+The authenticated global lobby is intentionally distinct from private history;
+this refinement adds no anonymous access or spectator grants. Server admission,
+quotas, seats, deadlines and result revisions remain authoritative.
 
-Choose **Online history** for completed, cancelled and voided records. Filter by
-ruleset, lifecycle and your eligible outcome (win, loss, draw or your timeout).
-Cancelled and voided games have no competitive outcome. Each category has its own
-bounded pages, filters and totals. Totals cover the entire category independently
-of page filters. Online totals count current eligible completed results per game;
-a timeout is abandonment only for the timed-out player. Concession counts as a
-loss, not abandonment. A void withdraws its superseded result from these totals.
+Account statistics describe recorded sides, not personal wins/losses. Missing/null
+`recorded_result` is unfinished; no legacy account records or result reconstruction
+are supported. Online statistics describe your current eligible per-game results;
+voids withdraw contributions, and concession is not abandonment. Guest data and
+rated results are absent. The small **Leaderboard** panel says **Upcoming in Phase 6**;
+it contains no rankings or rating calculation.
 
-Pages sort newest first, with game ID ascending for ties. Account pages use
-creation time; online terminal history uses the latest terminal update time.
-**Next page** continues after the last row. Reads are consistent within one
-response, but the pages do not freeze the database: new records, moves, completion
-and corrections can change membership or order between reads. Use **Refresh** to
-return to the first page and see current results. A cursor belongs to its account,
-category and filters; changing these starts again. Signing in through the existing
-login redirect starts with the default filters. No browser history archive is
-created. A stale/error notice means the displayed records may be old; use **Retry**.
+## Shared Recorded games and visibility
 
-## Review without changing a game
+Dashboard and Hall use the same compact, keyboard-accessible record rows. Dashboard
+shows at most the latest three eligible completed visible games belonging to the
+current account, with **View all** and no pagination. Normal users see participating
+online games; administrators can also see their own account-single-player games.
+An administrator's Dashboard never becomes an all-account collection.
 
-**Review account game** opens `/dashboard/single-player/{id}`. It reuses the existing
-engine-validated retained replay while keeping the selected move in this viewer.
-Previous/next never changes the shared account-game cursor or version. The existing
-account play and Hall controls retain their own capabilities and authorization.
+Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/result
+filters and pagination. Normal users see only participating online records and have
+no account-single-player or player-name filter. Administrators with trusted current
+`all_data` permission can inspect online and account-single-player records across
+accounts. Guest saves are never server records. The Local players section is removed;
+profile APIs and setup selection still work and no historical data is deleted.
 
-**Review online game** opens `/online/games/{id}/review` and uses participant-scoped
-personal reads. The dedicated online viewer displays the authoritative lifecycle
-and current effective result alongside engine replay. Concession/timeout may end
-an otherwise non-terminal board. A void is shown as void with no winning side,
-regardless of its old result. Review never moves, concedes, seeks, undoes or branches
-a game and offers no hints, evaluation, analysis, imports or exports. Completed
-online analysis still requires a separate product decision.
+Rows and counts/statistics share the same authorized filter and read transaction.
+Hall totals remain separated by category and describe winning sides, not an invented
+administrator win/loss perspective. Dashboard applies ownership, role visibility and
+completion/eligibility before its limit. Ordering is newest recorded time first
+(account end/creation time, online update time), then ID ascending for stable ties.
+Account dates are converted to integer microseconds by SQLite for cross-category
+sorting; pages do not promise a frozen snapshot across refreshes. Cursors bind to
+account, effective role/scope and filters. Refresh returns to the first page.
 
-## Guest and account boundaries
+## Independent read-only review
 
-**Guest play on this device** opens the existing `/guest` surface. The dashboard
-never opens the guest database, reads its slot, uploads it, converts it, counts it
-or adds it to any history. Its one-slot retention/replacement policy is unchanged.
-Guest and account play use distinct adapters; online IDs only enter dedicated
-online adapters. Logging out removes private dashboard state; account changes
-abort reads and discard old responses. Existing setup/selection keys retain their
-formats. Guest storage remains independent of authentication.
+A row opens `/archive?review=online&selected={id}` or
+`/archive?review=account-single-player&selected={id}`. Review category and ID are
+independent of list filters/cursor, so selection survives refresh, empty results
+and pages that do not contain the selected game. Direct lookup repeats backend
+role/participant authorization. Administrators' history reads grant no mutation,
+assistance or exports. Online IDs always use online adapters.
+
+Review canonically validates moves/positions, then uses a viewer-local cursor;
+previous/next never writes the authoritative game cursor/version. Lifecycle and
+effective result remain separate from the board: concessions/timeouts can end a
+non-terminal board and a void removes the effective winning side. Active online
+analysis remains denied to every role. Existing private
+`/dashboard/single-player/{id}` and `/online/games/{id}/review` deep links retain
+their canonical, personal read adapters.
+
+## Session and device boundaries
+
+Safe same-origin post-login destinations retain valid queries and selected review;
+external/unknown destinations fall back to Dashboard. Logout/account changes abort
+history/statistics/replay reads and discard late responses. The personal APIs remain
+strictly own-account even for administrators; broader Hall access uses separate
+read-only `/api/history` routes with trusted session rechecks.
+
+Dashboard never imports or reads guest storage. Guest header links use the shared
+header-link control and real anchors; protected destinations enter Auth only after
+leaving Guest. The guest worker, one device slot, validated replay, replacement and
+clear policy are unchanged. No save upload/import, archive or server accounting is
+introduced. See [the Phase 5 refinement evidence](validation/dashboard-consolidation.md).

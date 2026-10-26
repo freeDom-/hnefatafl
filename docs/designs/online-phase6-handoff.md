@@ -16,7 +16,7 @@ failures log scrubbed type/traceback plus fixed action IDs; HTTP details remain
 redacted. Global authenticated online listing/detail intentionally allow spectators.
 
 Preserve the Phase 4 guest suite and one-slot policy, session-epoch/cancellation
-checks, strict personal scope even for administrators, legacy Hall/API permissions,
+checks, strict personal API scope even for administrators, role-scoped Hall reads,
 existing authenticated spectator behavior, quotas, immutable online configuration,
 seats, expected versions, deadlines, result revisions and all-role analysis denial.
 Keep terminal lifecycle/effective result distinct from the engine board outcome.
@@ -54,3 +54,20 @@ deployment and releases remain independent owner decisions. Next-phase tests mus
 retain real API/session authorization and production-build guest/dashboard browser
 checks, including delayed account switches, no guest reads/uploads, void withdrawal
 and replay without authoritative writes.
+
+## Consolidated Dashboard integration point
+
+The owner classified the pre–Phase 6 consolidation as a refinement of Phase 5 on
+PR #17. Dashboard is now default/post-login with reused single-player setup and
+online lobby, distinct personal totals, shared latest-three Recorded games and a
+small **Leaderboard — Upcoming in Phase 6** placeholder. Integrate future approved
+leaderboard presentation there; do not create another landing/setup surface.
+
+Hall now uses shared compact rows and independent URL-selected canonical review.
+Normal users have participating online history only; administrators use trusted
+`all_data` history reads across server categories/accounts. Administrator Dashboard
+history stays own-only. Existing global authenticated lobby/spectator visibility
+is separate and unchanged. History visibility adds no assistance/mutation/exports.
+The Local players UI is removed; setup profiles/APIs and historical data remain.
+All rating-policy decisions above remain unapproved. See
+[refinement evidence](../validation/dashboard-consolidation.md).

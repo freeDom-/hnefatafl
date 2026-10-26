@@ -1,3 +1,4 @@
+import HeaderLink from './HeaderLink';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n, LanguageSelect, getLocale } from './i18n';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -30,6 +31,7 @@ import Modal from './Modal';
 import { surfaceLink } from './surfaceNavigation';
 import PersonalDashboard from './PersonalDashboard';
 import { useAuth } from './Auth';
+import { canonicalLocation, navigate } from './navigation';
 
 type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -41,42 +43,23 @@ export default function App() {
   useI18n();
   const { account, logout } = useAuth();
   const permissions = account?.permissions ?? [];
-  const [tab, setTab] = useState<Tab>(() =>
-    location.pathname.startsWith('/dashboard')
-      ? 'dashboard'
-      : location.pathname.startsWith('/online')
-        ? 'online'
-        : location.pathname === '/archive'
-          ? 'archive'
-          : location.pathname === '/training' && permissions.includes('training')
-            ? 'training'
-            : location.pathname === '/tournaments' && permissions.includes('tournaments')
-              ? 'tournaments'
-              : 'play',
-  );
+  const [path, setPath] = useState(canonicalLocation);
+  const tab: Tab = path.startsWith('/online/games/')
+    ? 'online'
+    : path.startsWith('/games/')
+      ? 'play'
+      : path.split('?')[0] === '/archive'
+        ? 'archive'
+        : path.startsWith('/training') && permissions.includes('training')
+          ? 'training'
+          : path.startsWith('/tournaments') && permissions.includes('tournaments')
+            ? 'tournaments'
+            : 'dashboard';
   useEffect(() => {
-    if ((tab === 'training' || tab === 'tournaments') && !permissions.includes(tab)) setTab('play');
-  }, [tab, account?.permissions]);
-  useEffect(() => {
-    const changed = () => {
-      const path = location.pathname;
-      setTab(
-        path.startsWith('/dashboard')
-          ? 'dashboard'
-          : path.startsWith('/online')
-            ? 'online'
-            : path === '/archive'
-              ? 'archive'
-              : path === '/training' && permissions.includes('training')
-                ? 'training'
-                : path === '/tournaments' && permissions.includes('tournaments')
-                  ? 'tournaments'
-                  : 'play',
-      );
-    };
+    const changed = () => setPath(canonicalLocation());
     window.addEventListener('popstate', changed);
     return () => window.removeEventListener('popstate', changed);
-  }, [account?.permissions]);
+  }, []);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -90,7 +73,7 @@ export default function App() {
   const [speed, setSpeed] = useState(900);
   const [initializing, setInitializing] = useState(true);
   const aiLock = useRef(false);
-  const initialized = useRef(false);
+
   const currentGame = useRef<Game | null>(null);
   currentGame.current = game;
   const analysis = useGameAnalysis(game, tab === 'play');
@@ -112,25 +95,52 @@ export default function App() {
     setModels(savedModels);
     return rules;
   }, []);
+  const startSinglePlayer = useCallback(() => {
+    void refreshOptions()
+      .then(() => setNewOpen(true))
+      .catch((e) => setError(e.message));
+  }, [refreshOptions]);
   useEffect(() => {
-    if (initialized.current || tab === 'online' || tab === 'dashboard') return;
-    initialized.current = true;
-    refreshOptions()
-      .then(async (rules) => {
-        const storedId = localStorage.getItem('hnefatafl-game');
-        if (storedId) {
-          try {
-            setGame(await api<Game>(`/games/${storedId}`));
-            return;
-          } catch {
-            localStorage.removeItem('hnefatafl-game');
-          }
+    if (
+      tab === 'dashboard' &&
+      new URLSearchParams(location.search).get('setup') === 'single-player'
+    )
+      startSinglePlayer();
+  }, [path, tab, startSinglePlayer]);
+  useEffect(() => {
+    if (tab === 'training' || tab === 'tournaments')
+      void refreshOptions().catch((e) => setError(e.message));
+  }, [tab, refreshOptions]);
+  useEffect(() => {
+    const match = /^\/games\/((?!online-)[A-Za-z0-9_-]{1,100})$/.exec(path.split('?')[0]);
+    if (!match || currentGame.current?.id === match[1]) return;
+    let alive = true;
+    const controller = new AbortController();
+    currentGame.current = null;
+    setGame(null);
+    setInitializing(true);
+    setPaused(true);
+    void Promise.all([
+      refreshOptions(),
+      api<Game>(`/games/${match[1]}`, undefined, undefined, controller.signal),
+    ])
+      .then(([, saved]) => {
+        if (alive) {
+          setGame(saved);
+          setSelected(null);
         }
-        if (rules.length) setNewOpen(true);
       })
-      .catch((e) => reportError(e))
-      .finally(() => setInitializing(false));
-  }, [refreshOptions, tab]);
+      .catch((e) => {
+        if (alive) setError(e.message);
+      })
+      .finally(() => {
+        if (alive) setInitializing(false);
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [path, refreshOptions]);
   useEffect(() => {
     if (game) localStorage.setItem('hnefatafl-game', game.id);
   }, [game?.id]);
@@ -147,6 +157,7 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
+        if (next.id !== active.id) navigate(`/games/${next.id}`);
         setSelected(null);
       }
     } catch (e) {
@@ -194,13 +205,7 @@ export default function App() {
         : null,
     );
   };
-  const loadGame = (saved: Game) => {
-    currentGame.current = saved;
-    setGame(saved);
-    setSelected(null);
-    setPaused(true);
-    setTab('play');
-  };
+
   const removeGames = useCallback((ids: string[]) => {
     if (!currentGame.current || !ids.includes(currentGame.current.id)) return;
     // Invalidate the ref before any in-flight move can restore the removed game.
@@ -216,21 +221,7 @@ export default function App() {
   return (
     <>
       <header className="site-header">
-        <a
-          className="brand"
-          href="#play"
-          onClick={(event) => {
-            event.preventDefault();
-            if (
-              location.pathname.startsWith('/dashboard') ||
-              location.pathname.startsWith('/online')
-            ) {
-              history.pushState(null, '', '/');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }
-            setTab('play');
-          }}
-        >
+        <a className="brand" href="/dashboard" onClick={surfaceLink}>
           <span className="brand-emblem">
             <Crown />
           </span>
@@ -240,7 +231,7 @@ export default function App() {
           </span>
         </a>
         <nav aria-label={t('Main navigation')}>
-          {(['dashboard', 'play', 'online', 'archive', 'training', 'tournaments'] as Tab[])
+          {(['dashboard', 'archive', 'training', 'tournaments'] as Tab[])
             .filter(
               (item) =>
                 (item !== 'training' && item !== 'tournaments') || permissions.includes(item),
@@ -249,18 +240,7 @@ export default function App() {
               <button
                 type="button"
                 key={item}
-                onClick={() => {
-                  if (item === 'online' || item === 'dashboard')
-                    history.pushState(null, '', `/${item}`);
-                  else if (
-                    location.pathname.startsWith('/online') ||
-                    location.pathname.startsWith('/dashboard')
-                  )
-                    history.pushState(null, '', item === 'play' ? '/' : `/${item}`);
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                  setTab(item);
-                  if (item === 'tournaments') void refreshOptions().catch((e) => reportError(e));
-                }}
+                onClick={() => navigate(`/${item}`)}
                 className={tab === item ? 'active' : ''}
                 aria-current={tab === item ? 'page' : undefined}
               >
@@ -279,9 +259,7 @@ export default function App() {
             ))}
         </nav>
         <div className="header-controls">
-          <a className="button small secondary" href="/guest" onClick={surfaceLink}>
-            {t('Guest play')}
-          </a>
+          <HeaderLink href="/guest">{t('Guest play')}</HeaderLink>
           <span className="account-name" title={account?.username}>
             {account?.username}
           </span>
@@ -301,7 +279,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {tab === 'dashboard' && <PersonalDashboard />}
+        {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
         {tab === 'play' && (
           <>
             <section className="page-intro">
@@ -647,16 +625,7 @@ export default function App() {
           </>
         )}
         {tab === 'online' && <Online />}
-        {tab === 'archive' && (
-          <Archive
-            rulesets={rulesets}
-            onLoad={loadGame}
-            onError={reportError}
-            players={players}
-            refreshPlayers={() => void refreshOptions().catch((e) => reportError(e))}
-            onGameDeleted={(id) => removeGames([id])}
-          />
-        )}
+        {tab === 'archive' && <Archive />}
         {tab === 'tournaments' && permissions.includes('tournaments') && (
           <Tournaments
             rulesets={rulesets}
@@ -686,7 +655,10 @@ export default function App() {
           profiles={profiles}
           models={models}
           players={players}
-          initialRuleset={game?.ruleset}
+          initialRuleset={
+            rulesets.find((rule) => rule.id === new URLSearchParams(location.search).get('ruleset'))
+              ?.id ?? game?.ruleset
+          }
           onClose={() => setNewOpen(false)}
           onCreated={(next) => {
             currentGame.current = next;
@@ -694,7 +666,9 @@ export default function App() {
             setSelected(null);
             setPaused(false);
             setNewOpen(false);
-            setTab('play');
+            setInitializing(false);
+            navigate(`/games/${next.id}`);
+            setError('');
           }}
         />
       )}

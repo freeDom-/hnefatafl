@@ -439,28 +439,35 @@ provided. See [Phase 4 validation](docs/validation/online-phase4.md) and the
 
 ## Personal dashboard and review
 
-`PersonalDashboard.tsx` keeps account single-player and online DTOs, filters, pages
-and totals separate. It mounts without initializing account play/analysis and
-links to the guest surface without importing or reading guest storage. Account-keyed
-poll state, request cancellation and Auth's session epochs reject late responses.
-Shared `ReplayControls` change viewer state only. Account review reuses canonical
-retained replay; personal online review uses the dedicated Online viewer with
-mutation controls disabled and participant-scoped reads. Lifecycle/effective result
-remain separate from the engine position, including concession, timeout and void.
+`PersonalDashboard.tsx` is the authenticated landing with existing account setup and
+embedded `Online.Lobby`, separate personal statistics and at most three completed
+visible own records. `navigation.ts` normalizes obsolete landing URLs while retaining
+search/selection; account gameplay has `/games/{id}` and dedicated online/replay paths
+remain. `RecordedGames` supplies compact rows to Dashboard and `Archive` (Hall).
+`RecordedReview` uses category-specific validated read adapters and viewer-local state.
+Selected review is independent of Hall filters/page and survives direct load/refresh.
+Guest links use shared `HeaderLink` without mounting Auth or reading account/device
+state on the guest surface. Account-keyed poll state, cancellation and session epochs
+reject late responses. The leaderboard panel is only an upcoming Phase 6 placeholder.
 
-`personal_api.py` adds five authenticated read-only `play` routes under
-`/api/personal`. `personal.py` scopes SQL to the current owner/participant even for
-administrators, projects summary fields, applies bounded keyset pagination and
-batches match siblings. Account totals retain existing side-based retained-result
-semantics through stored `recorded_result` metadata only. Current game creation,
-restart and move writers always include it; seeks preserve it. Missing/null results
-are unfinished, with no legacy account-result replay or SQLite callback. Canonical
-single-game replay validation remains separate. Unexpected personal API errors log
-a fixed action, exception type and scrubbed traceback while retaining generic 503
-responses. Online totals aggregate only the current eligible completed revision
-per game, withdrawing voided/superseded contributions. No migration, materialized
-accounting, stored training change or new infrastructure is introduced. Existing
-Hall/statistics/spectator APIs and all-role online assistance denial are preserved.
-See [API/query contract](docs/designs/personal-dashboard-phase5.md),
-[dashboard guide](docs/DASHBOARD.md), [evidence](docs/validation/online-phase5.md)
-and [Phase 6 handoff](docs/designs/online-phase6-handoff.md).
+`personal_api.py` retains five own-account GET adapters under `/api/personal`, including
+administrators. Two additional read-only `/api/history` routes use `history.py`:
+normal-user lists/review are participant online only; trusted current `all_data`
+sessions can filter/review all server-recorded online/account records. Dashboard
+history always applies own-account scope, visibility and eligible completion before
+limit three. Summary/count/category totals use set-based SQL and bounded cursors in
+one read transaction, without engine calls or schema changes. Detail rechecks role
+and object scope in the same transaction as canonical replay. No history grant adds
+mutation, analysis or export authority. Global authenticated online lobby/spectator
+reads and all-role active-online assistance denial retain their permissions.
+
+Account totals read persisted `recorded_result` only: current writers include it,
+seeks preserve it and missing/null results are unfinished. No legacy account records
+or result reconstruction are supported. Unexpected personal/history API failures log
+fixed actions, exception types and scrubbed tracebacks with generic 503 responses.
+Online totals use only current eligible completed revisions, withdrawing voids.
+Guest saves never enter these adapters. Local players UI and Archive-only profile
+queries are removed; setup profile selection/APIs and stored data remain. See the
+[dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
+[refinement evidence](docs/validation/dashboard-consolidation.md) and
+[Phase 6 handoff](docs/designs/online-phase6-handoff.md).

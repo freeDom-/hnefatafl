@@ -8,59 +8,27 @@ Each human side in **New game** has a player selector. Choose an existing profil
 or select the new-player option and enter a name. Switching to a new name clears
 the previous profile ID; a dropdown choice identifies the player by ID, not just name.
 
-Delete profiles in **Hall of records → Local players**. The confirmation explains
-that existing history remains. Deletion removes the profile from new-game selectors;
-saved games, results, replay, name and stable historical identity remain. A later
-profile using the same display name is a separate identity. Existing saved games
-can still be viewed and played. Starting another game from a record whose player
-was deleted requires choosing active players in a new game.
+The Local players management panel is removed from Hall. Existing profile creation
+and deletion APIs remain available for account setup/integrations. Deleting a
+profile hides it from selection while preserving historical identity/name/results;
+reusing a display name creates another identity. No records are deleted by this
+navigation refinement.
 
 ## AI configurations in the Hall of records
 
-The Hall opens with summary cards and a separate **Statistics** section. Detailed
-battlefield rates and player/AI performance appear before the saved-game list.
-**Recorded games** is collapsible and initially shows a short page of recent
-records; show more when needed. Shared filters apply to both history and statistics.
+[Dashboard and Hall](DASHBOARD.md) now share compact read-only recorded-game rows.
+Normal users browse participating online records; administrators can filter all
+server-recorded online and account-single-player games by category, player name,
+ruleset, lifecycle and result. Counts and category totals match the server filter.
+Selected validated review is independent of the current page/filter. Historical
+screenshots of the earlier statistics/Local players layout do not describe this UI.
 
-Click a column heading in either statistics table to sort ascending; click again
-to reverse the order. Rates, counts and averages sort numerically. The W/D/L
-column sorts by wins, then draws, then losses; the rate column uses the same
-win/draw/loss priority. Player performance opens with W/D/L descending, so the
-most wins appear first. Before a battlefield sort is chosen, boards stay in size order.
-Use **Filter players** to search player names and their visible AI summaries.
-Use **Filter recorded games** to find either participant by name. These two
-case-insensitive filters operate independently and do not change the overall
-summary cards or the global battlefield/mode/player-type filters.
-
-![Sortable statistics and compact AI rows before saved-game history](screenshots/sortable-records.png)
-
-See the [compact AI row on mobile](screenshots/compact-ai-mobile.png).
-
-See the [mobile dark view](screenshots/records-mobile.png) and the
-[model cleanup confirmation](screenshots/model-cleanup.png).
-
-Each record has a delete button. Confirmation permanently removes that game's
-moves and result. The statistics are recomputed from the remaining records,
-including completed counts, win/draw/loss rates and averages. Profiles, models and
-other games remain. Deleting the game currently open in this browser clears its
-local game selection. A changed record requires a fresh confirmation before deletion.
-
-Different effective AI configurations have separate records even when they share
-an opponent name or model. Each AI performance entry occupies one compact row,
-with its profile, algorithm and main search budget below its name. The parameter
-button to the left opens all saved settings without enlarging the table row.
-Expand **AI parameters** under a recorded game to inspect the actual algorithm and
-settings: depth, iteration/time budget, rollout depth, exploration, temperature,
-seed, evaluation and model ID as
-applicable. Compact summaries help distinguish opponents before opening details.
-
-Identity uses normalized effective settings, not the order of JSON fields. Omitted
-defaults and equivalent explicit defaults group together; different relevant parameter
-values remain separate, except that seed-only differences share one row. Each game
-retains its original seed; an aggregate row omits seed rather than implying a
-single experiment. Stale controls for a different algorithm do not create false
-variants. Historical explicit-algorithm games keep their original engine-default
-meaning rather than receiving a profile's different defaults retroactively.
+The existing account statistics API continues to group normalized effective AI
+configurations independently of seed. Different algorithms/budgets/models remain
+separate identities; individual games retain their actual seed and configuration.
+Account gameplay still supports its existing analytics/settings; read-only Hall
+review grants no analysis, export or mutation controls. Model cleanup below retains
+its existing explicit confirmation and authoritative reference checks.
 
 ## Models and suggested names
 

@@ -641,3 +641,15 @@ passed in isolation and in the clean rerun. The full browser suite passed 72
 desktop/mobile Chromium checks with four intentional mobile duplicates skipped.
 No storage, checkpoint or protocol migration is required; CUDA, MPS and
 OpenVINO GPU were not exercised. See the [0.31.0 release record](docs/releases/0.31.0.md).
+## Phase 5 Dashboard/navigation/history refinement (unreleased)
+
+Owner-authorized refinement remains on `feat/phase5-personal-dashboard`, PR #17 to
+`feat/online-multiplayer`. Dashboard becomes default and reuses account setup/online
+lobby. Shared compact history rows link to independently selected read-only Hall
+reviews. Normal Hall scope is participating online; trusted administrators can
+filter all server records while Dashboard stays personal. Local players UI is
+removed without deleting profiles/history. Guest header uses shared link controls;
+guest storage, gameplay/AI, online gates/quotas/results and analysis denial remain.
+Leaderboard is an upcoming placeholder with no approved rating policy. See
+[refinement evidence](docs/validation/dashboard-consolidation.md) for actual checks.
+No version, release, schema, production gates, merge or deployment changed.

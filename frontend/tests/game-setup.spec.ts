@@ -6,7 +6,7 @@ const api = 'http://127.0.0.1:8001/api';
 test('named opponents keep fixed presets, custom settings stay editable and the dialog closes on outside press', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
@@ -47,7 +47,7 @@ test('named opponents keep fixed presets, custom settings stay editable and the 
     time_limit: 2,
   });
   await page.getByRole('button', { name: /Pause AI/ }).click();
-  await page.getByRole('button', { name: /New game/ }).click();
+  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await setup.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('');
   await attackers.getByRole('combobox', { name: 'Attackers algorithm' }).selectOption('alpha_beta');
   await attackers.getByRole('spinbutton', { name: 'Search depth', exact: true }).fill('3');
@@ -122,7 +122,7 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
   expect(ulf.rune).toBeTruthy();
   expect(freydis.rune).toBeTruthy();
   expect(ulf.rune).not.toBe(freydis.rune);
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'AI vs AI', exact: true }).click();
   await page
@@ -210,12 +210,10 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });
   await expect(ulfCard.locator('[data-rune]')).toHaveAttribute('data-rune', ulf.rune);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  await expect(
-    page.locator(`.record-entry[data-game-id="${game.id}"] [data-rune]`).nth(0),
-  ).toHaveAttribute('data-rune', ulf.rune);
-  await expect(
-    page.locator(`.record-entry[data-game-id="${game.id}"] [data-rune]`).nth(1),
-  ).toHaveAttribute('data-rune', freydis.rune);
+  const row = page.locator('.recorded-games a').filter({ hasText: ulf.name });
+  await expect(row).toContainText(freydis.name);
+  expect(game.players.attackers.rune).toBe(ulf.rune);
+  expect(game.players.defenders.rune).toBe(freydis.rune);
   await expect(page.locator('.header-note')).toHaveCount(0);
   await expect(page.locator('p.eyebrow')).toHaveCount(0);
   await expect

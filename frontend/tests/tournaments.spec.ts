@@ -4,7 +4,7 @@ import type { Tournament } from '../src/tournamentTypes';
 const tournamentApi = 'http://127.0.0.1:8001/api/tournaments';
 
 async function openTournaments(page: Page) {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
 }

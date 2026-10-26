@@ -79,6 +79,9 @@ conceded = active()
 moved = core.mutate(archer, conceded["id"], 1, "move", source=3, target=1)["game"]
 core.mutate(keeper, moved["id"], moved["version"], "concede")
 ids["completed"] = conceded["id"]
+for _ in range(3):
+    extra = active()
+    core.mutate(archer, extra["id"], extra["version"], "concede")
 cancelled = core.create(archer, "brandubh", "random", 259200, str(uuid4()))["game"]
 core.mutate(archer, cancelled["id"], 0, "cancel")
 ids["cancelled"] = cancelled["id"]
@@ -115,6 +118,20 @@ with TestClient(seed, base_url="http://127.0.0.1:8009") as client:
     assert client.post(
         "/api/games", json={"ruleset": "tablut", "mode": "human-human"}
     ).status_code in (200, 201)
+
+    session = client.post(
+        "/api/auth/login",
+        json={"identity": "PersonalOdin", "password": "personal-browser-fixture-password"},
+        headers={"Origin": "http://127.0.0.1:8009"},
+    ).json()
+    client.headers.update({"X-CSRF-Token": session["csrf_token"]})
+    game = client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"}).json()
+    for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
+        game = client.post(
+            f"/api/games/{game['id']}/moves",
+            json={"version": game["version"], "source": source, "target": target},
+        ).json()
+    ids["admin_account"] = game["id"]
 
 # Fresh production resources after fixture TestClient shutdown.
 app = application()

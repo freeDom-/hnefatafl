@@ -692,21 +692,24 @@ class OnlineCore:
             account = self._identity(c, credential)
             if participant_only:
                 self._participant(c, account["id"], identifier)
-            row, game = self._load(c, identifier)
-            state = new_game(row["ruleset"])
-            states = [safe_position(state)]
-            try:
-                for move in c.execute(
-                    "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
-                    (identifier,),
-                ):
-                    state = apply_move(state, Move(*move))
-                    states.append(safe_position(state))
-            except (ValueError, IndexError):
-                raise OnlineError(409, "Stored online history requires operator review.") from None
-            if state != game.position:
-                raise OnlineError(409, "Stored online history requires operator review.")
-            return {"game": self._projection(c, row, game), "validated": True, "states": states}
+            return self._replay(c, identifier)
+
+    def _replay(self, c, identifier):
+        row, game = self._load(c, identifier)
+        state = new_game(row["ruleset"])
+        states = [safe_position(state)]
+        try:
+            for move in c.execute(
+                "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
+                (identifier,),
+            ):
+                state = apply_move(state, Move(*move))
+                states.append(safe_position(state))
+        except (ValueError, IndexError):
+            raise OnlineError(409, "Stored online history requires operator review.") from None
+        if state != game.position:
+            raise OnlineError(409, "Stored online history requires operator review.")
+        return {"game": self._projection(c, row, game), "validated": True, "states": states}
 
     def statistics(self, credential: str) -> dict:
         with self.store.connection() as c:

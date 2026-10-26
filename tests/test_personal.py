@@ -598,3 +598,163 @@ def test_internal_errors_log_only_safe_action_type_and_traceback(
     for secret in (private, credentials["Archer"], "private-id"):
         assert secret not in caplog.text and secret not in response.text
     assert error_type.__name__ not in response.text
+
+
+def test_hall_role_scope_and_independent_typed_review(world):
+    _, clients, _, _, _ = world
+    game = draw_account(clients["Archer"])
+    live = online(world)
+    for name in ("Archer", "Keeper"):
+        rows = clients[name].get("/api/history/games").json()
+        assert [r["id"] for r in rows["games"]] == [live["id"]]
+        assert rows["matching"] == 1
+        assert rows["totals"][0]["games"] == 1
+        assert (
+            clients[name].get("/api/history/games?category=account-single-player").status_code
+            == 403
+        )
+        assert clients[name].get("/api/history/games?player=Archer").status_code == 403
+        # Hiding account records in Hall must not remove owner gameplay or personal review.
+        assert (
+            clients[name].get(f"/api/history/account-single-player/{game['id']}/replay").status_code
+            == 404
+        )
+        assert clients[name].get(f"/api/history/online/{game['id']}/replay").status_code == 404
+        assert (
+            clients[name].get(f"/api/history/account-single-player/{live['id']}/replay").status_code
+            == 404
+        )
+    assert clients["Archer"].get(f"/api/games/{game['id']}").status_code == 200
+    assert (
+        clients["Archer"].get(f"/api/personal/single-player/{game['id']}/replay").status_code == 200
+    )
+    observer = clients["Observer"]
+    assert (
+        observer.get("/api/history/games?owner=Archer&admin=true&all_data=true").json()["games"]
+        == []
+    )
+    assert observer.get(f"/api/history/online/{live['id']}/replay").status_code == 404
+    # Existing global lobby/spectator access is intentionally unchanged.
+    assert observer.get("/api/online/games").status_code == 200
+    assert observer.get(f"/api/online/games/{live['id']}").status_code == 200
+    odin = clients["Odin"]
+    all_games = odin.get("/api/history/games").json()
+    assert {r["id"] for r in all_games["games"]} == {game["id"], live["id"]}
+    assert {r["category"] for r in all_games["totals"]} == {"online", "account-single-player"}
+    for category, identifier in [("online", live["id"]), ("account-single-player", game["id"])]:
+        # Independent lookup does not depend on list filters/page membership.
+        filtered = odin.get(f"/api/history/games?category={category}&ruleset=tablut").json()
+        assert filtered["games"] == [] and filtered["matching"] == 0 and filtered["totals"] == []
+        response = odin.get(f"/api/history/{category}/{identifier}/replay")
+        assert response.status_code == 200, response.text
+        assert response.json()["validated"] is True
+    assert (
+        odin.get("/api/history/games?category=account-single-player&player=Archer").json()[
+            "matching"
+        ]
+        == 1
+    )
+    assert odin.get("/api/history/games?player=%25").json()["matching"] == 0
+    assert odin.get("/api/history/games?dashboard=true").json()["games"] == []
+    assert odin.get(f"/api/personal/single-player/{game['id']}/replay").status_code == 404
+
+
+def test_dashboard_latest_three_filters_before_limit_and_stable_pages(world):
+    app, clients, credentials, _, clock = world
+    own_account = draw_account(clients["Odin"])
+    draw_account(clients["Archer"])
+    completed = []
+    for _ in range(5):
+        active = online(world)
+        done = app.state.online.mutate(
+            credentials["Archer"], active["id"], active["version"], "concede"
+        )["game"]
+        completed.append(done["id"])
+    live = online(world)
+    cancelled = app.state.online.create(
+        credentials["Archer"], "brandubh", "random", 60, str(uuid4())
+    )["game"]
+    app.state.online.mutate(credentials["Archer"], cancelled["id"], 0, "cancel")
+    # Withdrawal must disappear before the limit, not produce a short client-filtered page.
+    app.state.online.mutate(credentials["Odin"], completed[-1], 2, "void", note="private test note")
+    expected = sorted(completed[:-1])
+    dashboard = clients["Archer"].get("/api/history/games?dashboard=true&limit=100").json()
+    assert [r["id"] for r in dashboard["games"]] == expected[:3]
+    assert dashboard["limit"] == 3 and dashboard["matching"] == 4
+    assert all(r["category"] == "online" and r["eligible"] for r in dashboard["games"])
+    # Own-only remains true for administrators, with their own account category eligible.
+    assert [
+        r["id"] for r in clients["Odin"].get("/api/history/games?dashboard=true").json()["games"]
+    ] == [own_account["id"]]
+    first = clients["Archer"].get("/api/history/games?status=completed&limit=2").json()
+    second = (
+        clients["Archer"]
+        .get(
+            "/api/history/games",
+            params={"status": "completed", "limit": 2, "cursor": first["next_cursor"]},
+        )
+        .json()
+    )
+    assert [r["id"] for r in first["games"] + second["games"]] == expected
+    assert first["matching"] == second["matching"] == first["totals"][0]["completed"] == 4
+    assert (
+        clients["Keeper"]
+        .get("/api/history/games", params={"status": "completed", "cursor": first["next_cursor"]})
+        .status_code
+        == 422
+    )
+    assert (
+        clients["Archer"]
+        .get("/api/history/games", params={"ruleset": "tablut", "cursor": first["next_cursor"]})
+        .status_code
+        == 422
+    )
+    for client in clients.values():
+        assert client.post(f"/api/games/{live['id']}/analysis", json={}).status_code in (404, 422)
+    assert "private test note" not in json.dumps(dashboard)
+    # Revocation is reloaded by the history domain, not trusted from a supplied flag.
+    with app.state.store.connection() as c:
+        c.execute("UPDATE accounts SET role='USER' WHERE username='Odin'")
+    assert (
+        clients["Odin"].get("/api/history/games?category=account-single-player").status_code == 403
+    )
+    assert (
+        clients["Odin"]
+        .get(f"/api/history/account-single-player/{own_account['id']}/replay")
+        .status_code
+        == 404
+    )
+
+
+def test_auth_shell_preserves_history_selection_query(world):
+    from urllib.parse import parse_qs, urlsplit
+
+    app, _, _, _, _ = world
+    path = "/archive?ruleset=tablut&review=online&selected=online-test"
+    with TestClient(app) as anonymous:
+        response = anonymous.get(path, follow_redirects=False)
+    assert response.status_code == 307
+    redirect = urlsplit(response.headers["location"])
+    assert redirect.path == "/login"
+    assert parse_qs(redirect.query)["next"] == [path]
+
+
+def test_admin_dashboard_own_scope_precedes_mixed_category_limit(world):
+    app, clients, credentials, _, _ = world
+    account = draw_account(clients["Odin"])
+    others = draw_account(clients["Archer"])
+    own = []
+    for _ in range(4):
+        game = app.state.online.create(
+            credentials["Odin"], "brandubh", "attackers", 60, str(uuid4())
+        )["game"]
+        game = app.state.online.mutate(credentials["Observer"], game["id"], 0, "join")["game"]
+        game = app.state.online.mutate(credentials["Odin"], game["id"], game["version"], "concede")[
+            "game"
+        ]
+        own.append(game["id"])
+    rows = clients["Odin"].get("/api/history/games?dashboard=true").json()
+    assert [r["id"] for r in rows["games"]] == sorted(own)[:3]
+    assert rows["matching"] == 5
+    assert sum(r["games"] for r in rows["totals"]) == 5
+    assert {r["id"] for r in rows["games"]}.isdisjoint({account["id"], others["id"]})
