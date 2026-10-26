@@ -34,21 +34,31 @@ through the resulting static score. This is a useful baseline rather than a
 claim of expert strength.
 
 Alpha-beta searches alternating maximizing defender and minimizing attacker
-nodes and orders moves by the Shield maiden child score plus the previous
-iteration's principal variation, the transposition-table move, killer moves and
-cutoff history. Move ordering has one deterministic priority: principal
-variation, then transposition-table move, then killers, then history-ranked quiet
-moves, then the stable static order. History is consulted even when no preferred
-move exists, so a quiet move that caused a cutoff still rises; when every history
-score is zero the base order is returned untouched. Root ties still follow the
-seeded base order. Iterative deepening retains the last completed result when time
-expires. An optional `model_path` replaces its nonterminal leaf evaluation with a
-compatible neural value network.
+nodes and orders moves by the Shield maiden child score plus, optionally, the
+previous iteration's principal variation, the transposition-table move, killer
+moves and cutoff history. The production priority is principal variation, then
+transposition-table move, then killers, then history-ranked quiet moves, then the
+stable static order. History is consulted even when no preferred move exists, so
+a quiet move that caused a cutoff still rises; when every history score is zero
+the base order is returned untouched. The root now searches each candidate with a
+window narrowed by the best value so far, so the widest part of the tree is no
+longer a full-window minimax fan-out; the first move to reach the best value wins,
+which stays deterministic. Iterative deepening retains the last completed result
+when time expires. An optional `model_path` replaces its nonterminal leaf
+evaluation with a compatible neural value network.
 
 Each search owns a bounded transposition table for its lifetime. Entries record
-searched depth, an exact/lower/upper bound and a preferred move; keys include the
-full repetition context, so identical boards with different histories never
-alias. Bounds tighten the search window, cut off when established and supply move
+searched depth, an exact/lower/upper bound and a preferred move. The ordinary key
+is ``(ruleset, board, turn, repetition signature)``: the ordered move history is
+replaced by the order-independent occurrence counts of board/turn keys. The
+engine's threefold rule and the Shield maiden repetition penalty depend only on
+those counts, so the compact key preserves every future outcome while letting
+move-order transpositions share one entry. Two histories with different counts
+(for example a position seen once versus twice) keep distinct keys, so
+repetition-sensitive states never alias. A depth-compatible bound is classified
+against the window that was *actually searched* after any table tightening; a
+fail-low against a tightened alpha is stored as an upper bound, never as an exact
+value. Bounds tighten the search window, cut off when established and supply move
 ordering. An interrupted search never publishes a partial exact result. The table
 is discarded when the search ends and is never shared across games, rulesets or
 evaluators.
@@ -118,19 +128,28 @@ New-game custom opponents, tournament setup and custom advisors expose the same
 choice. The resolved `heuristic` is part of the effective AI configuration, so a
 Shield bearer Jarl record stays distinct from a default Shield maiden one.
 
-Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`,
-`transposition_lookups`, `transposition_successful_lookups`,
+Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`, `successors`,
+`ordered_moves`, `transposition_lookups`, `transposition_successful_lookups`,
 `transposition_exact_hits`, `transposition_bound_hits`,
+`transposition_depth_compatible`, `transposition_board_history_divergence`,
 `transposition_cutoffs`, `transposition_cross_orientation_hits`,
-`transposition_peak_entries`, `canonicalization_seconds` and
-`symmetry_moves_skipped`. `transposition_hits` remains the exact-plus-bound hit
-count. `symmetry_hits` keeps its historical meaning (a probe that found any
-canonical-table entry); `transposition_cross_orientation_hits` is the precise
-count of probes whose stored orientation differed from the query's canonical
-orientation, so genuine cross-orientation reuse is distinguishable from ordinary
-same-orientation table hits. Counts describe visited interior nodes,
-leaf/terminal evaluations, alpha-beta cutoffs, reused results and symmetry-pruned
-moves respectively.
+`transposition_peak_entries`, `canonicalization_seconds`, `stabilizer_seconds`,
+`pruning_seconds`, `successor_seconds`, `sort_seconds`,
+`transposition_seconds` and `symmetry_moves_skipped`. Iterative deepening adds
+`iteration_timings` (per completed depth: seconds and nodes), `interrupted_depth`,
+`interrupted_seconds`, `discarded_nodes` and `chosen_from_completed_iteration`.
+The per-node timing fields are only populated when the benchmark-only `_profile`
+hook is set; the integer counters are always collected.
+`transposition_hits` remains the exact-plus-bound hit count. `symmetry_hits` keeps
+its historical meaning (a probe that found any canonical-table entry);
+`transposition_cross_orientation_hits` is the precise count of probes whose stored
+orientation differed from the query's canonical orientation, so genuine
+cross-orientation reuse is distinguishable from ordinary same-orientation table
+hits. `transposition_board_history_divergence` counts distinct `(board, turn)`
+keys probed with different repetition signatures, measuring the reuse the old
+full-history key forwent. Counts describe visited interior nodes, leaf/terminal
+evaluations, alpha-beta cutoffs, built successors, ordered moves, reused results
+and symmetry-pruned moves respectively.
 
 MCTS stores defender-perspective values consistently at every node. Selection
 converts that value to the active side's perspective, adds a PUCT exploration

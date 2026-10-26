@@ -639,3 +639,29 @@ symmetry pruning through a cooperative check callback. On a synthetic symmetric
 copenhagen position with a 400-entry history, a 1 ms budget returns in ~1.2 ms
 instead of overrunning by a full ~45 ms stabilizer. Raw numbers are in the
 [control-refinement evidence](benchmarks/alpha-beta-controls.md).
+
+## Alpha-beta profiling and root-window pruning
+
+A follow-up investigation reproduced the reported bottlenecks. The full report is
+in [alpha-beta profiling and comparison](benchmarks/alpha-beta-profiling.md).
+The two findings that changed the code are:
+
+- The root passed a full `(-inf, +inf)` window to every child, so the widest part
+  of the tree was a minimax fan-out and move ordering could not prune there. The
+  optimized search now narrows the root window with the best value so far. An
+  isolated A/B on eleven positions cut interior nodes 4.4×, leaf evaluations 4.5×
+  and total wall time 2.5×, with identical values.
+- The ordinary transposition key was the full ordered history. It is now a
+  compact, order-independent repetition signature. The key is correct and does
+  find entries, but every hit was depth-incompatible under iterative deepening
+  (zero exact hits, zero table cutoffs), so the table remains compatibility
+  overhead rather than a measured speedup.
+
+Move ordering was benchmarked as seven isolated strategies. The principal
+variation is the only priority that measurably reduces successors; killer,
+history and transposition-move priorities were indistinguishable from noise, and
+the sort itself costs under 1.5 ms. Eager successor construction in `_ordered`
+dominates the remaining wall time and is shared with the legacy search. D4
+symmetry is verified value-safe but helps only genuinely symmetric positions, so
+the symmetry features stay optional and off by default. The legacy search stays
+available as the historical reference.

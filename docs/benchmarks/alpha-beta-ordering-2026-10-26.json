@@ -1,0 +1,2059 @@
+{
+ "config": {
+  "depth": {
+   "brandubh": 3,
+   "copenhagen": 2,
+   "tablut": 2
+  },
+  "oracle_depth": 2,
+  "oracle_node_budget": 200000,
+  "repetitions": 2,
+  "scenarios": [
+   "ordering",
+   "ordering_static",
+   "ordering_pv",
+   "ordering_tt",
+   "ordering_killer",
+   "ordering_history",
+   "ordering_depth"
+  ],
+  "seed": 20260101,
+  "table_capacity": 200000,
+  "time_limit": 0.2,
+  "warmup": true
+ },
+ "corpus_sha256": "62129f3159c51e58c3604e5276eb52e472037cd37e40aa382fa710a2c460befc",
+ "fixed_depth_summary": {
+  "minimax_mismatches": [],
+  "reference": "ordering value at the same completed depth",
+  "scenarios": {
+   "ordering": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 153.0,
+     "median": 56.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 3102.0,
+     "median": 224.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 203.0,
+     "median": 62.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1552.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.009211487951688468,
+     "median": 0.0013019561883993447,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.690355669474229,
+     "median": 0.27897340402705595,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1552.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 203.0,
+     "median": 62.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 159.0,
+     "median": 59.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.0021049167262390256,
+     "median": 0.00028688303427770734,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 4.870336125954054,
+     "median": 0.311804007505998,
+     "min": 0.01736562908627093
+    }
+   },
+   "ordering_depth": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 153.0,
+     "median": 56.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 3102.0,
+     "median": 224.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 203.0,
+     "median": 62.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1552.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.008084376808255911,
+     "median": 0.0012235615868121386,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.299969551386312,
+     "median": 0.28640452079707757,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1552.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 203.0,
+     "median": 62.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 159.0,
+     "median": 59.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.0020504395943135023,
+     "median": 0.0002775436732918024,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 4.519271183060482,
+     "median": 0.3088658095221035,
+     "min": 0.017449268023483455
+    }
+   },
+   "ordering_history": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 153.0,
+     "median": 61.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 2554.0,
+     "median": 240.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 188.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1954.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.00969768944196403,
+     "median": 0.001479069294873625,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.966073580319062,
+     "median": 0.29483338072896004,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1954.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 188.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 154.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.0025294090155512094,
+     "median": 0.000387685839086771,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 5.152548445039429,
+     "median": 0.3163095604395494,
+     "min": 0.017578440019860864
+    }
+   },
+   "ordering_killer": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 153.0,
+     "median": 60.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 2914.0,
+     "median": 242.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 196.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1767.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.009250270202755928,
+     "median": 0.0013849134556949139,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.667949796421453,
+     "median": 0.28684999991673976,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1767.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 196.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 172.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.002212074352428317,
+     "median": 0.00034876365680247545,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 4.841951895970851,
+     "median": 0.3097237540059723,
+     "min": 0.017993728979490697
+    }
+   },
+   "ordering_pv": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 182.0,
+     "median": 56.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 4012.0,
+     "median": 214.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 224.0,
+     "median": 62.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1552.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.007506323279812932,
+     "median": 0.000889879185706377,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.539331642095931,
+     "median": 0.29624933295417577,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 1552.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 224.0,
+     "median": 62.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 199.0,
+     "median": 59.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.0020064874552190304,
+     "median": 0.00031842634780332446,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 4.715979769942351,
+     "median": 0.3293068769853562,
+     "min": 0.017254284932278097
+    }
+   },
+   "ordering_static": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 177.0,
+     "median": 61.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 4012.0,
+     "median": 240.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 257.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 2169.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.000592752592638135,
+     "median": 0.00010265113087370992,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.452512735733762,
+     "median": 0.2887619456159882,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 2169.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 257.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 220.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.0019716754322871566,
+     "median": 0.00035050581209361553,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 4.6372157339937985,
+     "median": 0.31384203396737576,
+     "min": 0.01716167898848653
+    }
+   },
+   "ordering_tt": {
+    "canonicalization_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "completed_depth": {
+     "max": 3,
+     "median": 2.0,
+     "min": 2
+    },
+    "cutoffs": {
+     "count": 74,
+     "max": 177.0,
+     "median": 61.0,
+     "min": 0.0
+    },
+    "evaluations": {
+     "count": 74,
+     "max": 4012.0,
+     "median": 240.0,
+     "min": 30.0
+    },
+    "legal": true,
+    "nodes": {
+     "count": 74,
+     "max": 257.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "ordered_moves": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 2180.0,
+     "min": 0.0
+    },
+    "pruning_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "runs": 74,
+    "sort_seconds": {
+     "count": 74,
+     "max": 0.00721388217061758,
+     "median": 0.0013026281958445907,
+     "min": 0.0
+    },
+    "stabilizer_seconds": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "successor_seconds": {
+     "count": 74,
+     "max": 4.345965213607997,
+     "median": 0.2947143545607105,
+     "min": 0.0
+    },
+    "successors": {
+     "count": 74,
+     "max": 11711.0,
+     "median": 2180.0,
+     "min": 0.0
+    },
+    "symmetry_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "symmetry_moves_skipped": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_bound_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cross_orientation_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_cutoffs": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_exact_hits": {
+     "count": 74,
+     "max": 0.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "transposition_lookups": {
+     "count": 74,
+     "max": 257.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_peak_entries": {
+     "count": 74,
+     "max": 220.0,
+     "median": 63.0,
+     "min": 0.0
+    },
+    "transposition_seconds": {
+     "count": 74,
+     "max": 0.0021762028336524963,
+     "median": 0.00037843466270715,
+     "min": 0.0
+    },
+    "transposition_successful_lookups": {
+     "count": 74,
+     "max": 44.0,
+     "median": 0.0,
+     "min": 0.0
+    },
+    "wall_seconds": {
+     "count": 74,
+     "max": 4.522562480997294,
+     "median": 0.3180634605232626,
+     "min": 0.017400530981831253
+    }
+   }
+  }
+ },
+ "fixed_time_summary": {
+  "ordering": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 56.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 105.0,
+    "median": 17.5,
+    "min": 1.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 604.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.18854291597381234,
+    "median": 0.15620716847479343,
+    "min": 0.05079402809496969
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 83.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 1373.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.001996960141696036,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.13321397837717086,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 1373.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 83.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 59.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0006372025236487389,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.20193430304061621,
+    "median": 0.20023865200346336,
+    "min": 0.027618316002190113
+   }
+  },
+  "ordering_depth": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 56.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 89.0,
+    "median": 19.5,
+    "min": 1.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 604.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.18798767600674182,
+    "median": 0.15245705744018778,
+    "min": 0.06998864491470158
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 83.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 1373.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.002187532722018659,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.11354644119273871,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 1373.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 83.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 59.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0006713139591738582,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.2013310530455783,
+    "median": 0.20025145797990263,
+    "min": 0.027681438019499183
+   }
+  },
+  "ordering_history": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 72.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 109.0,
+    "median": 18.5,
+    "min": 1.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 867.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.18824760802090168,
+    "median": 0.15136549895396456,
+    "min": 0.06059206405188888
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 110.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 1954.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.002610575524158776,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.12577922537457198,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 1954.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 110.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 86.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0008945956360548735,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.20114183297846466,
+    "median": 0.20025952049763873,
+    "min": 0.02448673197068274
+   }
+  },
+  "ordering_killer": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 65.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 109.0,
+    "median": 17.5,
+    "min": 1.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 819.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.18812162999529392,
+    "median": 0.154441173421219,
+    "min": 0.059603039058856666
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 102.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 1767.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.0024790867464616895,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.12420680106151849,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 1767.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 102.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 78.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0007875995943322778,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.2013055239804089,
+    "median": 0.2002978774253279,
+    "min": 0.026545542990788817
+   }
+  },
+  "ordering_pv": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 56.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 102.0,
+    "median": 17.5,
+    "min": 1.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 580.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.1884084369521588,
+    "median": 0.1509462755639106,
+    "min": 0.061624553985893726
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 83.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 1373.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.0016456149751320481,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.12268557515926659,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 1373.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 83.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 59.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0006968018133193254,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.20225340698380023,
+    "median": 0.20028967398684472,
+    "min": 0.02866409905254841
+   }
+  },
+  "ordering_static": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 73.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 102.0,
+    "median": 18.0,
+    "min": 0.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 1067.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.18822009395807981,
+    "median": 0.15660604846198112,
+    "min": 0.05984343902673572
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 122.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 2169.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.00034405116457492113,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.13674542645458132,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 2169.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 122.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 98.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0009972425177693367,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.20112943300046027,
+    "median": 0.20025564299430698,
+    "min": 0.026817493955604732
+   }
+  },
+  "ordering_tt": {
+   "canonicalization_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "completed_depth": {
+    "max": 3,
+    "median": 2.0,
+    "min": 1
+   },
+   "cutoffs": {
+    "count": 74,
+    "max": 72.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "discarded_nodes": {
+    "count": 50,
+    "max": 107.0,
+    "median": 19.0,
+    "min": 1.0
+   },
+   "evaluations": {
+    "count": 74,
+    "max": 1098.0,
+    "median": 95.0,
+    "min": 18.0
+   },
+   "interrupted_seconds": {
+    "count": 50,
+    "max": 0.18800201499834657,
+    "median": 0.1547748989542015,
+    "min": 0.06532567308750004
+   },
+   "legal": true,
+   "nodes": {
+    "count": 74,
+    "max": 123.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "ordered_moves": {
+    "count": 74,
+    "max": 2180.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "pruning_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "runs": 74,
+   "sort_seconds": {
+    "count": 74,
+    "max": 0.0026007886044681072,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "stabilizer_seconds": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successor_seconds": {
+    "count": 74,
+    "max": 0.1389034427702427,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "successors": {
+    "count": 74,
+    "max": 2180.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "symmetry_moves_skipped": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_bound_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cross_orientation_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_cutoffs": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_exact_hits": {
+    "count": 74,
+    "max": 0.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_lookups": {
+    "count": 74,
+    "max": 123.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_peak_entries": {
+    "count": 74,
+    "max": 99.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_seconds": {
+    "count": 74,
+    "max": 0.0009914543479681015,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "transposition_successful_lookups": {
+    "count": 74,
+    "max": 24.0,
+    "median": 0.0,
+    "min": 0.0
+   },
+   "wall_seconds": {
+    "count": 74,
+    "max": 0.2015192119870335,
+    "median": 0.20027172495611012,
+    "min": 0.02709711599163711
+   }
+  }
+ },
+ "host": {
+  "device": "CPU",
+  "math_threads": 2,
+  "platform": "Linux-7.0.14-25-pve-x86_64-with-glibc2.41",
+  "processor": "",
+  "python": "3.13.5"
+ },
+ "oracle_summary": {
+  "ordering": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  },
+  "ordering_depth": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  },
+  "ordering_history": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  },
+  "ordering_killer": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  },
+  "ordering_pv": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  },
+  "ordering_static": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  },
+  "ordering_tt": {
+   "legal": true,
+   "positions": 37,
+   "value_matches": 37
+  }
+ },
+ "source_sha256": {
+  "ai.py": "f451a34d45d97ac5c41ecf9ec5f30a17a69ee2b6bc4998baa215d219e32d37c4",
+  "alpha_beta_benchmark.py": "4a84f6cc004f587cc101d5c131667ac98b7a16756e930f7feae5bbe2843ab818",
+  "engine.py": "79e626700971ed7b92e0b3d00110205b06e8a1ac9054dd78711c5703d2381aa3",
+  "shield_maiden.py": "3437267061f639312d5f542bca1023b4e84f99b5d0e9bd3106ec1f30be677cf8",
+  "symmetry.py": "bd1b401f143b137aa21e9463cc33fd6fa601b11224786d6413dce374721c1f28"
+ }
+}
