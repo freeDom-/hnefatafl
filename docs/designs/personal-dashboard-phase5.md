@@ -116,8 +116,8 @@ history after validation; the legacy replay response is unchanged.
 Online summary pages perform one batched sibling query for the bounded page and
 no per-card loads. Totals/counts are SQL aggregates over owned/participating rows;
 legacy uncertain account results can require pure engine replay. These aggregates
-still scan the current account's matching history and are not claimed as constant
-CPU work on arbitrarily large histories. No materialized counters or new indexes
+scan existing SQLite tables with account-scoped conditions; their CPU cost is not
+claimed constant on arbitrarily large account or global histories. No materialized counters or new indexes
 are added. Existing schema 10 remains the persistence and recovery boundary.
 
 See [validation](../validation/online-phase5.md) and
