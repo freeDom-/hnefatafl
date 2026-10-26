@@ -32,7 +32,71 @@ bump, tag/release, deployment, rating or production admission/timeout activation
   seconds. Lobby polling recovers on reconnect/focus/visible tabs without a
   persistent connected banner or manual lobby Refresh.
 
-## Current evidence
+## Focused Dashboard and Guest navigation cleanup
+
+The subsequent owner instruction is implemented on the same PR in `1c2202b`,
+with browser login-budget isolation in `e9e4f70`. The lobby now participates in
+the Dashboard grid and shares its card padding; the conflicting general online
+page padding and one-off lobby margin are removed. Only the create-dialog clock
+warning is removed. Clock policy, deadlines and disconnect handling are unchanged.
+
+`SiteHeader` is shared with authenticated direct Guest visits. Authenticated
+navigation has no Guest entry, and Guest has no self-link. Anonymous Guest
+navigation offers one login anchor. Only the header reads the existing session;
+guest gameplay remains outside the account guard, and that session read does not
+alter saved account selections. Explicit logout retains its existing cleanup.
+The settings card ends at Clear device game, with its confirmation unchanged and
+the runtime license/source link retained above it.
+
+Current checks for this cleanup:
+
+- TypeScript, frontend formatting and docs passed. Focused Auth, shared header,
+  Guest, App, Online and Dashboard tests: **69 passed / 6 files**, 44.28 s.
+- Full personal production browsers: **14 passed**, desktop/mobile Chromium,
+  3.7 min. Includes current default auth guards, role-scoped history, login
+  redirects, reload/resume, late-response isolation and the removed dialog copy.
+- Actual screenshots were visually inspected at desktop and mobile widths for
+  all four lobby states and the complete Dashboard. Geometry assertions check
+  equal card padding, heading inset, shared section gap and horizontal containment.
+  These presentation-state cases hold/replace the listing response, using the
+  first two real authorized records for the populated state; ordinary lifecycle
+  and permissions tests continue to use real APIs.
+- Guest production browsers locally finished **14 passed / 2 failed**, 14.9 min.
+  The mobile anonymous case exceeded its 30-second engine-ready expectation; the
+  mobile invalid-history case reached its 120-second test limit while waiting for
+  engine readiness. All desktop cases and the mobile clear, terminal, memory-only,
+  stale-tab, account-switching and automatic-AI cases passed. The two affected
+  cases were rechecked with unchanged timeouts: **1 passed / 1 failed**, 4.6 min.
+  Anonymous mobile save/restore/CSP passed; invalid-history recovery again reached
+  its 120-second test limit while waiting for readiness. Both failed runs remain
+  recorded as failures; no runtime behavior or test budget was changed.
+- Guest desktop/mobile screenshots were also visually inspected: anonymous login,
+  authenticated shared navigation, the actual board layout and settings ending
+  at the clear button. Local PNGs and failure artifacts are retained under ignored
+  `work/ui-cleanup-visual/`.
+- [Verify 115](https://github.com/freeDom-/hnefatafl/actions/runs/40377320289)
+  passed on `e9e4f70`: **1510 backend passes / 6 hardware skips / 25 warnings**
+  (584.49 s), **342 frontend passes / 40 files** (21.61 s), and **118 browser
+  passes / 4 intentional duplicate skips**. Browser breakdown: legacy **66/4**
+  (5.1 min), registration **8** (19.0 s), online **14** (51.8 s), personal **14**
+  (28.4 s), guest **16** (1.9 min). Foundation, docs, Ruff/104 modules, mypy/48
+  modules, frontend formatting/types and the production build passed.
+- The new local `make check` **passed with exit status 0**, within its 60-minute
+  limit: docs, Ruff/formatting, Prettier, mypy/48 modules and TypeScript passed;
+  backend **1480 passed / 36 skipped / 1 warning** (2179.00 s), frontend **342
+  passed / 40 files** (206.47 s), and the production build passed (4.88 s). The
+  build retains its existing large-chunk advisory. Local optional-dependency and
+  hardware skips differ from the complete all-extras CI environment.
+
+The first focused unit attempt had **68 passes / 1 failure** from using the
+visible Appearance text instead of its existing accessible name; the corrected
+69-case run passed. The first expanded personal browser run had **12 passes / 2
+failures** (4.9 min) after exhausting the shared fixture login budget. Its existing
+isolated, development-only loopback controller now resets login-attempt state
+between cases. Production auth limits and application routes are unchanged; the
+corrected 14-case run passed.
+
+## Earlier implementation snapshot
 
 [Verify 112](https://github.com/freeDom-/hnefatafl/actions/runs/40368171689) passed
 both jobs on implementation/test snapshot `b472c0b`. Counts below distinguish that
