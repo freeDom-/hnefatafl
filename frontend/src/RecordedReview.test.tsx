@@ -86,7 +86,12 @@ it('keeps authorized single-player analytics available on the review', async () 
   fetcher.mockImplementation((url) => {
     if (url.includes('/ai/profiles') || url.includes('/models')) return respond([]);
     if (url.includes('/analytics'))
-      return respond({ advisor: null, time_limit: 5, show_win_chances: false, revision: 0 });
+      return respond({
+        advisor: { name: 'Advisor', profile_id: 'baseline', config: { algorithm: 'baseline' } },
+        time_limit: 5,
+        show_win_chances: true,
+        revision: 0,
+      });
     return respond(account);
   });
   render(
@@ -135,7 +140,12 @@ it('does not request analysis while playing a recorded account game', async () =
   fetcher.mockImplementation((url) => {
     if (url.includes('/ai/profiles') || url.includes('/models')) return respond([]);
     if (url.includes('/analytics'))
-      return respond({ advisor: null, time_limit: 5, show_win_chances: true, revision: 0 });
+      return respond({
+        advisor: { name: 'Advisor', profile_id: 'baseline', config: { algorithm: 'baseline' } },
+        time_limit: 5,
+        show_win_chances: true,
+        revision: 0,
+      });
     if (url.includes('/analysis')) return respond(analysisReport);
     return respond(account);
   });
@@ -156,4 +166,52 @@ it('does not request analysis while playing a recorded account game', async () =
     false,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+});
+
+it('keeps the captured king on the board in a recorded review', async () => {
+  const initial = fixture.replay.states[0];
+  const capturedBoard = initial.board.map((piece) => (piece === 'K' ? '.' : piece));
+  const account = {
+    game: {
+      id: 'king-capture',
+      category: 'account-single-player',
+      ruleset: 'brandubh',
+      mode: 'human-ai',
+      status: 'completed',
+      winner: 'attackers',
+      plies: 1,
+      players: {
+        attackers: { name: 'Odin', kind: 'human' },
+        defenders: { name: 'Jarl', kind: 'ai' },
+      },
+    },
+    game_id: 'king-capture',
+    version: 1,
+    validated: true,
+    cursor: 1,
+    states: [
+      initial,
+      {
+        ...initial,
+        board: capturedBoard,
+        ply: 1,
+        turn: 'attackers',
+        winner: 'attackers',
+        reason: 'king_captured',
+      },
+    ],
+    moves: [{ source: 0, target: 1 }],
+  };
+  fetcher.mockImplementation((url) => {
+    if (url.includes('/ai/profiles') || url.includes('/models')) return respond([]);
+    if (url.includes('/analytics'))
+      return respond({ advisor: null, time_limit: 5, show_win_chances: false, revision: 0 });
+    return respond(account);
+  });
+  render(
+    <RecordedReview id="king-capture" category="account-single-player" accountId="odin" personal />,
+  );
+  await screen.findByRole('grid');
+  // The final board omits K, but the review retains the captured king marker.
+  expect(screen.getByRole('gridcell', { name: /king/ })).toBeVisible();
 });

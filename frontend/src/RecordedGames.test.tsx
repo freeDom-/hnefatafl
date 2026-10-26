@@ -55,11 +55,12 @@ it('shows a locale-aware date and time with a timezone and no Review label', () 
   expect(screen.queryByText('Ansehen')).toBeNull();
 });
 
-it('provides an accessible link to the full review', () => {
+it('provides an accessible link to the full review and highlights the selected row', () => {
   render(<RecordedGames games={[base]} selected={base.id} />);
   const link = screen.getByRole('link', { name: 'Open review: Odin vs Seer' });
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${base.id}`);
   expect(link).toHaveAttribute('aria-current', 'true');
   const row = link.closest('tr')!;
   expect(within(row).getByText('Odin (Attackers)')).toBeVisible();
+  expect(row).toHaveClass('selected');
 });

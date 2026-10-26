@@ -111,9 +111,15 @@
 .recorded-games tbody tr {
   position: relative;
 }
-.recorded-games tbody tr:hover {
+.recorded-games tbody tr:hover,
+.recorded-games tbody tr:focus-within,
+.recorded-games tbody tr.selected {
   background: var(--surface);
   cursor: pointer;
+}
+.recorded-games tbody tr:focus-within,
+.recorded-games tbody tr.selected {
+  box-shadow: inset 3px 0 0 var(--green);
 }
 .recorded-games th,
 .recorded-games td {
@@ -136,21 +142,17 @@
   color: inherit;
   text-decoration: none;
 }
-.recorded-games a:hover {
-  text-decoration: underline;
-}
 /* One link per row; its overlay makes the whole row clickable without adding
-   duplicate links or changing the accessibility tree. */
+   duplicate links or changing the accessibility tree. The selected/focused row
+   itself carries the highlight, so the date link has no separate focus ring. */
 .recorded-games tbody td a::after {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 1;
 }
-.recorded-games a:focus-visible,
-.recorded-games [aria-current='true'] {
-  outline: 2px solid var(--green);
-  outline-offset: 2px;
+.recorded-games a:focus-visible {
+  outline: none;
 }
 .recorded-games time {
   font-size: 0.8rem;

@@ -240,3 +240,19 @@ stops automatically and disables Play, and the timer is cleared on dependency
 change and unmount. Playback never requests AI moves or analysis and never writes
 authoritative games or results. The active online spectator controls in
 `Online.tsx` do not enable playback.
+
+### Focus, selection and analysis refinements
+
+- The login view focuses the username/email field on mount; the `HNEFATAFL`
+  heading remains the accessible page heading and other auth views still focus
+  their own heading.
+- The selected or keyboard-focused recorded-games row is highlighted as a whole.
+  The date link has no separate focus ring or hover underline; the row highlight
+  is the visible focus indicator.
+- The "Show winning chances" checkbox and label are removed. Selecting a move
+  advisor is the single trigger for calculating and displaying winning chances and
+  the best-move hint; the frontend keeps the persisted winning-chance gate enabled
+  when an advisor is chosen. Deselecting the advisor closes the analysis section.
+- Recorded review reconstructs captured pieces by diffing adjacent validated
+  states, so a captured king stays visible at its final square exactly as in the
+  live game. It does not trust move metadata for the overlay.

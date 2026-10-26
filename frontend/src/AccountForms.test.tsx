@@ -47,6 +47,15 @@ it('does not consume a fragment token on GET or StrictMode mount and removes it 
   expect(JSON.stringify(localStorage)).not.toContain(token);
 });
 
+it('focuses the identity field and has no redundant Log in heading', async () => {
+  history.replaceState(null, '', '/login');
+  mount(vi.fn(() => response({ enabled: false, email_available: false })));
+  const identity = await screen.findByLabelText('Username or email');
+  await waitFor(() => expect(identity).toHaveFocus());
+  expect(screen.getByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Log in' })).toBeNull();
+});
+
 it('registers without a session and displays verification guidance', async () => {
   history.replaceState(null, '', '/register');
   const fetcher = vi.fn((path: string) =>

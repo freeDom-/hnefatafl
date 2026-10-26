@@ -110,7 +110,10 @@ export default function RecordedGames({
         </thead>
         <tbody>
           {games.map((game) => (
-            <tr key={`${game.category}:${game.id}`}>
+            <tr
+              key={`${game.category}:${game.id}`}
+              className={selected === game.id ? 'selected' : undefined}
+            >
               <td>{t(statusNames[game.status] ?? game.status)}</td>
               <td>{t(ruleNames[game.ruleset] ?? game.ruleset)}</td>
               <td>{participantLabel(game.attackers, t)}</td>

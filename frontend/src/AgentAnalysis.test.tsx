@@ -11,7 +11,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { advisorOptions, AnalyticsSettingsPanel } from './AdvisorSelect';
 import { defaultAnalyticsSettings } from './analysisTypes';
-import { useState } from 'react';
 import type { Game } from './types';
 import type { PositionAnalysis } from './analysisTypes';
 
@@ -33,7 +32,11 @@ const game = {
   captured: { attackers: 0, defenders: 0 },
   created_at: '',
   analysis_enabled: true,
-  analytics: defaultAnalyticsSettings,
+  // Winning chances and best-move hints are requested only with an advisor.
+  analytics: {
+    ...defaultAnalyticsSettings,
+    advisor: { name: 'Advisor', profile_id: 'baseline', config: { algorithm: 'baseline' } },
+  },
   players: {
     attackers: { name: 'Hugin', kind: 'ai', config: { algorithm: 'baseline' } },
     defenders: { name: 'Munin', kind: 'ai', config: { algorithm: 'alpha_beta' } },
@@ -195,29 +198,21 @@ it('keeps partial estimates visible while background search improves them', asyn
   expect(calls).toBe(2);
 });
 
-it('hides chances with the checkbox while retaining the advisor move', () => {
+it('shows chances and the advisor move without a visibility checkbox', () => {
   const hint = { agent_id: 'advisor' as const, move: { source: 0, target: 1 } };
-  function Harness() {
-    const [settings, setSettings] = useState(defaultAnalyticsSettings);
-    return (
-      <AgentAnalysis
-        game={game}
-        report={{ ...report, hint }}
-        pending={false}
-        failed={false}
-        retry={vi.fn()}
-        settings={settings}
-        updateSettings={async (next) => {
-          setSettings(next);
-        }}
-      />
-    );
-  }
-  render(<Harness />);
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Show winning chances' }));
-  expect(screen.queryByRole('meter')).not.toBeInTheDocument();
+  render(
+    <AgentAnalysis
+      game={game}
+      report={{ ...report, hint }}
+      pending={false}
+      failed={false}
+      retry={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(screen.queryByText('Show winning chances')).toBeNull();
+  expect(screen.getByRole('meter', { name: 'Hugin estimate for Attackers' })).toBeInTheDocument();
   expect(screen.getByText('Suggested move: a7 → b7')).toBeInTheDocument();
-  expect(screen.getByRole('checkbox', { name: 'Show winning chances' })).not.toBeChecked();
 });
 
 it('renders progressively available estimates without waiting for the final search', () => {
@@ -422,7 +417,7 @@ it('stops background polling if saving and reloading settings both fail', async 
   await act(() =>
     view.result.current.updateSettings({ ...defaultAnalyticsSettings, time_limit: 9, revision: 8 }),
   );
-  expect(view.result.current.settings).toEqual(defaultAnalyticsSettings);
+  expect(view.result.current.settings).toEqual(game.analytics);
   expect(view.result.current.settingsError).toBe('offline');
   expect(view.result.current.pending).toBe(false);
   expect(searches).toBe(before);
