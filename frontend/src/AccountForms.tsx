@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { surfaceLink } from './surfaceNavigation';
 import { api } from './api';
 import { LanguageSelect, useI18n } from './i18n';
 
@@ -191,6 +192,9 @@ export default function AccountForms({
         <LanguageSelect />
         <h1>HNEFATAFL</h1>
         <p>{t('The King’s Table')}</p>
+        <a className="button secondary" href="/guest" onClick={surfaceLink}>
+          {t('Play as guest on this device')}
+        </a>
         <h2 ref={heading} tabIndex={-1}>
           {t(titles[view])}
         </h2>

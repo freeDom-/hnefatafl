@@ -14,8 +14,10 @@ responsive browser client for desktop and phones. SQLite keeps ordinary Linux an
 Proxmox LXC installations simple. PyTorch provides real CPU/CUDA policy/value learning;
 Optuna manages persistent search studies. Docker is not required.
 
-The browser never decides legality or game outcomes. Every position and move has a
-serializable representation, shared by interactive play, replay, AI and training.
+Account and online positions/results are server-authoritative. Public guest play
+runs the same Python engine locally in a dedicated Pyodide worker and has no server
+game record. Every position and move has a serializable representation, shared by
+interactive play, replay, AI and training.
 Pieces are `.`, `A`, `D`, `K`; moves use zero-based flattened `source` and `target`
 indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 
@@ -25,6 +27,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | --- | --- |
 | [engine.py](hnefatafl/engine.py) | Immutable state, legal moves, captures, terminal rules; no HTTP/database/tensor dependency |
 | [symmetry.py](hnefatafl/symmetry.py) | Pure D4 geometry, full-history transforms, board/full-state stabilizers and typed canonical keys; no search or neural dependency |
+| [guest.py](hnefatafl/guest.py) | Device-only bounded save validation and canonical replay; no HTTP/database/account or online dependency |
 | [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS with bounded transposition tables and full-state symmetry pruning, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
 | [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; reused by the Jarl alpha-beta and Seer MCTS model-free paths |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
@@ -414,3 +417,21 @@ square-root threshold; weighted sampling and RNG consumption are unchanged.
 The scheduler still batches one dependent request per independent game. Node
 reuse reduces generator transitions before the Phase 1 cache; cache hits and
 batch deduplication remain separate from node reuse and completed simulations.
+
+## Guest, account and online play surfaces
+
+`PlaySurfaces.tsx` routes exact `/guest` paths outside Auth. Guest owns its worker,
+types and IndexedDB slot; it does not import API/account/online adapters. Navigation
+terminates the worker; returning validates saved moves again. Protected requests
+have session epochs and cancellation so delayed old-account responses cannot update
+a different account or emit stale authentication events. Existing account
+selection/setup and online-intent keys keep their formats and semantics.
+
+The [guest guide](docs/GUEST_PLAY.md) specifies schema/limits, atomic revisions,
+replay authority, confirmed replacement/clear, eviction and memory-only recovery.
+`scripts/prepare_guest.py` pins and checks Pyodide, copies unchanged Python sources,
+includes third-party notices, and generates content-addressed static assets. Only
+the hashed worker receives Wasm CSP permission. No production service worker, PWA,
+full offline startup, guest archive, automatic migration/import or server upload is
+provided. See [Phase 4 validation](docs/validation/online-phase4.md) and the
+[Phase 5 handoff](docs/designs/online-phase5-handoff.md).

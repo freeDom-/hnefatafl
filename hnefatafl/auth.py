@@ -428,7 +428,16 @@ class SecurityBoundary:
                     (b"cache-control", b"no-store"),
                     (
                         b"content-security-policy",
-                        b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+                        # Only the content-addressed guest worker may compile Wasm.
+                        # Account/online documents and APIs keep the strict policy.
+                        (
+                            b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+                            if scope["method"] == "GET"
+                            and re.fullmatch(
+                                r"/assets/guest-[a-f0-9]{64}/worker\.js", scope["path"]
+                            )
+                            else b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+                        ),
                     ),
                 ]
             await original_send(message)
@@ -468,7 +477,16 @@ class SecurityBoundary:
         shell = method == "GET" and (
             (
                 route_path == "/{path:path}"
-                and path in {"/", "/login", "/index.html", "/favicon.svg", *ACCOUNT_PAGES}
+                and path
+                in {
+                    "/",
+                    "/login",
+                    "/guest",
+                    "/guest/",
+                    "/index.html",
+                    "/favicon.svg",
+                    *ACCOUNT_PAGES,
+                }
             )
             or (route_path == "/assets" and path.startswith("/assets/"))
         )

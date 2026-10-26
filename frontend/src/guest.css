@@ -1,0 +1,76 @@
+.guest-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 4%;
+  border-bottom: 1px solid var(--line);
+}
+.guest-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  flex: 1;
+}
+.guest-header a {
+  color: var(--green);
+}
+.guest-page {
+  max-width: 1300px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+.guest-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 800px) minmax(240px, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.guest-page .board-with-labels {
+  margin-left: 0;
+}
+.guest-settings {
+  padding: 1.25rem;
+}
+.guest-settings fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.guest-settings label {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.guest-settings select {
+  width: 100%;
+}
+.guest-settings button,
+.guest-actions button {
+  margin: 0.4rem 0;
+  min-height: 44px;
+  white-space: normal;
+}
+.guest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+.guest-warning {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+@media (max-width: 800px) {
+  .guest-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .guest-header nav {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .guest-page {
+    margin: 1rem auto;
+  }
+}

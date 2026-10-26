@@ -260,4 +260,8 @@ the slot and must be explained. Offline results never enter competitive accounti
 
 The spike intentionally keeps one game in memory and demonstrates cache/runtime
 feasibility, **not** production persistence, install/update UX or full offline play.
-Approve the retention/replacement policy before implementing it.
+The owner explicitly approved this exact single-slot retention/replacement policy
+in conversation on 2026-10-25, after clarification of accepted moves and engine
+replay: “Yes, I approve this”. Phase 4 records the implementation and validation.
+This approval covers guest retention, not production service-worker rollout or
+any public/rated online policy.
