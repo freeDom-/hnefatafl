@@ -43,6 +43,46 @@ const ruleNames: Record<string, string> = {
   tablut: 'Tablut',
   copenhagen: 'Copenhagen',
 };
+const statusNames: Record<string, string> = {
+  voided: 'Voided',
+  cancelled: 'Cancelled',
+  active: 'Active',
+  waiting: 'Waiting',
+  in_progress: 'In progress',
+  completed: 'Completed',
+};
+/**
+ * Backend instants carry their own offset. The viewer's local timezone is
+ * resolved here so the table always shows the user's time, never the server's.
+ */
+const dateTimeFormat = (locale: string) =>
+  new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
+export const participantLabel = (name: string | null, t: (key: string) => string) =>
+  name ?? t('Unassigned');
+/**
+ * Only a completed recorded result names a winner. Draws, unfinished,
+ * cancelled and voided games never gain an invented or board-inferred winner.
+ */
+export function winnerLabel(
+  game: RecordedGame,
+  t: (key: string, values?: Record<string, string | number>) => string,
+) {
+  if (game.status !== 'completed') return '—';
+  if (game.winner === 'draw') return t('Draw');
+  if (game.winner === 'attackers')
+    return `${participantLabel(game.attackers, t)} (${t('Attackers')})`;
+  if (game.winner === 'defenders')
+    return `${participantLabel(game.defenders, t)} (${t('Defenders')})`;
+  return '—';
+}
 export default function RecordedGames({
   games,
   selected,
@@ -53,47 +93,48 @@ export default function RecordedGames({
   link?: (game: RecordedGame) => string;
 }) {
   const { t, locale } = useI18n();
+  const format = dateTimeFormat(locale);
   return (
-    <ul className="recorded-games">
-      {games.map((game) => (
-        <li key={`${game.category}:${game.id}`}>
-          <a
-            href={link(game)}
-            onClick={surfaceLink}
-            aria-current={selected === game.id ? 'true' : undefined}
-          >
-            <span className="recorded-identity">
-              <strong>
-                {game.attackers ?? t('Unassigned')} · {game.defenders ?? t('Unassigned')}
-              </strong>
-              <small>
-                {t(game.category === 'online' ? 'Online multiplayer' : 'Account single-player')}
-                {game.owner ? ` · ${game.owner}` : ''} ·{' '}
-                {t(ruleNames[game.ruleset] ?? game.ruleset)}
-              </small>
-            </span>
-            <span>
-              {t(
-                game.status === 'voided'
-                  ? 'Voided'
-                  : game.status === 'cancelled'
-                    ? 'Cancelled'
-                    : game.status === 'active'
-                      ? 'Active'
-                      : game.status === 'waiting'
-                        ? 'Waiting'
-                        : game.status === 'in_progress'
-                          ? 'In progress'
-                          : resultName(game.winner),
-              )}
-            </span>
-            <time dateTime={game.recorded_at}>
-              {new Date(game.recorded_at).toLocaleDateString(locale)}
-            </time>
-            <span>{t('Review')} ↗</span>
-          </a>
-        </li>
-      ))}
-    </ul>
+    <div className="recorded-games-table">
+      <table className="recorded-games">
+        <caption className="sr-only">{t('Recorded games')}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{t('Status')}</th>
+            <th scope="col">{t('Ruleset')}</th>
+            <th scope="col">{t('Attacker')}</th>
+            <th scope="col">{t('Defender')}</th>
+            <th scope="col">{t('Winner')}</th>
+            <th scope="col">{t('Date')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {games.map((game) => (
+            <tr key={`${game.category}:${game.id}`}>
+              <td>{t(statusNames[game.status] ?? game.status)}</td>
+              <td>{t(ruleNames[game.ruleset] ?? game.ruleset)}</td>
+              <td>{participantLabel(game.attackers, t)}</td>
+              <td>{participantLabel(game.defenders, t)}</td>
+              <td>{winnerLabel(game, t)}</td>
+              <td>
+                <a
+                  href={link(game)}
+                  onClick={surfaceLink}
+                  aria-current={selected === game.id ? 'true' : undefined}
+                  aria-label={t('Open review: {attacker} vs {defender}', {
+                    attacker: participantLabel(game.attackers, t),
+                    defender: participantLabel(game.defenders, t),
+                  })}
+                >
+                  <time dateTime={game.recorded_at}>
+                    {format.format(new Date(game.recorded_at))}
+                  </time>
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

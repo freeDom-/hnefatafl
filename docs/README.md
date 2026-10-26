@@ -64,6 +64,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Online foundations and offline feasibility
 
+- [Post-Phase 5 statistics and review refinement validation](validation/post-phase5-refinements.md)
 - [Dashboard consolidation refinement validation](validation/dashboard-consolidation.md)
 - [Phase 5 validation](validation/online-phase5.md)
 - [Phase 6 handoff and rating policy decisions](designs/online-phase6-handoff.md)

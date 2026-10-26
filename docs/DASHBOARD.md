@@ -25,19 +25,53 @@ The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
 
-Account statistics describe recorded sides, not personal wins/losses. Missing/null
-`recorded_result` is unfinished; no legacy account records or result reconstruction
-are supported. Online statistics describe your current eligible per-game results;
-voids withdraw contributions, and concession is not abandonment. Guest data and
-rated results are absent. The small **Leaderboard** panel says **Upcoming in Phase 6**;
-it contains no rankings or rating calculation.
+Dashboard statistics are personal and relative to the signed-in account's
+authoritative seat. Each panel groups by ruleset and matchup/game mode:
+
+- **Account single-player** uses the account-bound human seat and the persisted
+  `recorded_result`. `Human vs AI` groups show played games, wins, losses, draws,
+  win rate, side-specific win rates and average length. `AI vs AI` groups have no
+  personal human result: they show played games and average length but no
+  wins/losses/draws or win rates. Legacy records without an account-bound seat are
+  excluded from personal statistics; the panel reports how many records are
+  unattributed. Missing/null `recorded_result` is unfinished and never
+  reconstructed.
+- **Online multiplayer** uses the current effective eligible result revision and
+  the account's seat. Cancelled, waiting and voided games do not contribute; voids
+  withdraw prior contributions and concession is a loss. `Timed-out games` counts
+  only games the account lost because its own clock expired, never wins caused by
+  an opponent's timeout.
+
+Win rate is `wins / (wins + losses + draws)`. Side-specific win rates use the same
+denominator restricted to games played on that side. Average length uses the same
+completed-game population and the existing accepted-ply ("moves") convention.
+Rates and averages with no eligible games render as an em dash. Unfinished games
+stay out of completed-result denominators. Lifecycle, effective result and the
+engine board outcome remain separate. Guest data and rated results are absent.
+The small **Leaderboard** panel says **Upcoming in Phase 6**; it contains no
+rankings or rating calculation.
+
+On the Dashboard grid the embedded **Online lobby** takes the slot after the two
+statistics panels, the **Leaderboard** placeholder follows, and **Recorded games**
+spans the final row. All three cards share the same padding and section gap.
 
 ## Shared Recorded games and visibility
 
-Dashboard and Hall use the same compact, keyboard-accessible record rows. Dashboard
-shows at most the latest three eligible completed visible games belonging to the
-current account, with **View all** and no pagination. Normal users see participating
-online games; administrators can also see their own account-single-player games.
+Dashboard and Hall share a keyboard-accessible recorded-games table with visible
+**Status**, **Ruleset**, **Attacker**, **Defender**, **Winner** and **Date**
+headers. The Winner cell names the participant and side ("Odin (Defenders)") for a
+completed recorded result and shows **Draw** for a draw; unfinished, cancelled and
+voided rows show an em dash and never gain an invented or board-inferred winner.
+Each row is clickable: the Date cell holds the single accessible review link
+(named "Open review: … vs …") and its overlay makes the whole row activate that
+link without adding duplicate links or changing the accessibility tree. The date
+is converted to the viewer's local timezone and shows a locale-aware date and time
+with a timezone label; the `datetime` attribute keeps the stored instant. The
+trailing Review label is removed. The table scrolls inside its card on narrow
+screens without page-level horizontal overflow. Dashboard shows at most the latest
+three eligible completed visible games belonging to the current account, with
+**View all** and no pagination. Normal users see participating online games;
+administrators can also see their own account-single-player games.
 An administrator's Dashboard never becomes an all-account collection.
 
 Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/result
@@ -66,11 +100,20 @@ and pages that do not contain the selected game. Direct lookup repeats backend
 role/participant authorization. Administrators' history reads grant no mutation,
 assistance or exports. Online IDs always use online adapters.
 
-Review canonically validates moves/positions, then uses a viewer-local cursor;
-previous/next never writes the authoritative game cursor/version. Lifecycle and
-effective result remain separate from the board: concessions/timeouts can end a
-non-terminal board and a void removes the effective winning side. Active online
-analysis remains denied to every role. Existing private
+The review restores the single-player presentation: the complete "The saga so far"
+move list with move selection, board replay navigation, general game information
+(ruleset, matchup mode, participants and lifecycle) and the Analytics/Winning
+chances panels. Account single-player review may use the existing authorized
+analysis. Recorded online review keeps those panels visible but shows them as
+unavailable, because online analysis stays denied to every role. Review canonically
+validates moves/positions, then uses a viewer-local cursor; previous/next never
+writes the authoritative game cursor/version. The replay controls add a
+**Play**/**Stop** button that advances one recorded move per second from the
+current position, stops at the final position and stops on manual navigation.
+Playback is viewer-local: it never requests AI moves or analysis and never writes
+authoritative games/results. Lifecycle and effective result remain
+separate from the board: concessions/timeouts can end a non-terminal board and a
+void removes the effective winning side. Existing private
 `/dashboard/single-player/{id}` and `/online/games/{id}/review` deep links retain
 their canonical, personal read adapters.
 

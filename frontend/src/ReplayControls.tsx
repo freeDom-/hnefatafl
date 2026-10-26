@@ -5,13 +5,16 @@ export default function ReplayControls({
   length,
   onChange,
   disabled = false,
+  playback,
 }: {
   cursor: number;
   length: number;
   onChange: (value: number) => void;
   disabled?: boolean;
+  playback?: { playing: boolean; toggle: () => void };
 }) {
   const { t } = useI18n();
+  const atEnd = cursor >= Math.max(0, length - 1);
   return (
     <nav className="online-toolbar" aria-label={t('Replay navigation')}>
       <button
@@ -21,12 +24,22 @@ export default function ReplayControls({
       >
         {t('Previous move')}
       </button>
+      {playback && (
+        <button
+          className="button secondary"
+          disabled={disabled || (!playback.playing && atEnd)}
+          aria-pressed={playback.playing}
+          onClick={playback.toggle}
+        >
+          {t(playback.playing ? 'Stop' : 'Play')}
+        </button>
+      )}
       <span aria-live="polite">
         {t('Move {move} of {total}', { move: cursor, total: Math.max(0, length - 1) })}
       </span>
       <button
         className="button secondary"
-        disabled={disabled || cursor >= length - 1}
+        disabled={disabled || atEnd}
         onClick={() => onChange(Math.min(length - 1, cursor + 1))}
       >
         {t('Next move')}

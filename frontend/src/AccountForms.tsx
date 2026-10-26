@@ -52,6 +52,7 @@ export default function AccountForms({
   const [notice, setNotice] = useState('');
   const [complete, setComplete] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const brand = useRef<HTMLHeadingElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     const changed = () => {
@@ -85,7 +86,7 @@ export default function AccountForms({
     };
   }, []);
   useEffect(() => {
-    heading.current?.focus();
+    (view === 'login' ? brand.current : heading.current)?.focus();
   }, [view]);
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
@@ -190,11 +191,15 @@ export default function AccountForms({
     <main className="auth-screen">
       <section className="auth-card">
         <LanguageSelect />
-        <h1>HNEFATAFL</h1>
+        <h1 ref={brand} tabIndex={-1}>
+          HNEFATAFL
+        </h1>
         <p>{t('The King’s Table')}</p>
-        <h2 ref={heading} tabIndex={-1}>
-          {t(titles[view])}
-        </h2>
+        {view !== 'login' && (
+          <h2 ref={heading} tabIndex={-1}>
+            {t(titles[view])}
+          </h2>
+        )}
         {view === 'login' ? (
           <form onSubmit={(event) => void onLogin(event)}>
             <label>
