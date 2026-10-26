@@ -1,9 +1,10 @@
+import { historicalGame } from './historical-fixture';
 import { expect, test, type APIRequestContext } from './auth-fixture';
 
 const api = 'http://127.0.0.1:8001/api';
 
 async function completedAI(request: APIRequestContext, name: string) {
-  const created = await request.post(`${api}/games`, {
+  const created = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',
@@ -39,7 +40,7 @@ async function replayAsHumans(
   attacker: string,
   defender: string,
 ) {
-  const created = await request.post(`${api}/games`, {
+  const created = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       players: { attackers: { name: attacker }, defenders: { name: defender } },
@@ -57,7 +58,7 @@ async function replayAsHumans(
   expect(game.winner).toBeTruthy();
 }
 
-test('record tables sort numeric values, filter names independently and keep AI rows compact', async ({
+test('compact records filter server-side by names and category with independent selected review', async ({
   page,
   request,
 }, info) => {
@@ -73,106 +74,24 @@ test('record tables sort numeric values, filter names independently and keep AI 
     await replayAsHumans(request, recorded.moves, names[0], game < 2 ? names[2] : names[1]);
   }
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  const battlefields = page.getByRole('table', { name: 'Results by battlefield', exact: true });
-  const players = page.getByRole('table', { name: 'Player & AI performance', exact: true });
-  await expect(battlefields).toBeVisible();
-  await expect(players).toBeVisible();
-
-  // Every displayed battlefield column exposes an accessible two-way sort.
-  const battlefieldHeaders = battlefields.locator('thead th');
-  await expect(battlefieldHeaders).toHaveCount(6);
-  for (let column = 0; column < 6; column++) {
-    const header = battlefieldHeaders.nth(column);
-    await header.getByRole('button').click();
-    await expect(header).toHaveAttribute('aria-sort', 'ascending');
-    await header.getByRole('button').click();
-    await expect(header).toHaveAttribute('aria-sort', 'descending');
-  }
-
-  const playerFilter = page.getByRole('searchbox', { name: 'Filter players', exact: true });
-  const gameFilter = page.getByRole('searchbox', { name: 'Filter recorded games', exact: true });
-  await playerFilter.fill(prefix.toUpperCase());
-  const playerRows = players.locator('tbody tr');
-  await expect(playerRows).toHaveCount(3);
-  await players.getByRole('button', { name: 'Sort by Played', exact: true }).click();
-  await expect
-    .poll(() =>
-      playerRows.evaluateAll((rows) =>
-        rows.map((row) => Number(row.querySelector('td')?.textContent)),
-      ),
-    )
-    .toEqual([2, 8, 10]);
-  await players.getByRole('button', { name: 'Sort by Played', exact: true }).click();
-  await expect
-    .poll(() =>
-      playerRows.evaluateAll((rows) =>
-        rows.map((row) => Number(row.querySelector('td')?.textContent)),
-      ),
-    )
-    .toEqual([10, 8, 2]);
-  await players.getByRole('button', { name: 'Sort by Player', exact: true }).click();
-  await expect(playerRows.nth(0)).toContainText(names[0]);
-  await expect(playerRows.nth(1)).toContainText(names[1]);
-  await expect(playerRows.nth(2)).toContainText(names[2]);
-
-  const originalCount = await page
-    .locator('.metric')
-    .filter({ hasText: 'BATTLES RECORDED' })
-    .locator('strong')
-    .innerText();
-  await gameFilter.fill(names[2].toUpperCase());
-  const savedRows = page.locator('.records-list .record-entry');
-  await expect(savedRows).toHaveCount(2);
-  await expect(savedRows.nth(0)).toContainText(names[2]);
-  await expect(savedRows.nth(1)).toContainText(names[2]);
-  await expect(playerRows).toHaveCount(3);
-  await expect(
-    page.locator('.metric').filter({ hasText: 'BATTLES RECORDED' }).locator('strong'),
-  ).toHaveText(originalCount);
-
-  await playerFilter.fill(aiName.toLowerCase());
-  const aiRows = players.locator('tbody tr');
-  await expect(aiRows).toHaveCount(1);
-  await expect(aiRows).toContainText('Computer');
-  await expect(aiRows).toContainText('Jarl');
-  await expect(aiRows).toContainText('Alpha-beta');
-  await expect(aiRows).toContainText('depth 1');
-  await expect(aiRows).toContainText('0.1s');
-  await expect(aiRows.locator('details')).toHaveCount(0);
-  await aiRows
-    .getByRole('button', { name: `Show AI parameters for ${aiName}`, exact: true })
-    .click();
-  const parameters = page.getByRole('dialog', { name: `${aiName} AI parameters`, exact: true });
-  await expect(parameters.getByText('Search depth', { exact: true })).toBeVisible();
-  await expect(parameters.getByText('Random seed', { exact: true })).toHaveCount(0);
-  await expect(
-    parameters.getByText('Game seeds are recorded per game and are excluded from this comparison.'),
-  ).toBeVisible();
-  await parameters.getByRole('button', { name: 'Close AI parameters', exact: true }).click();
-  await expect(savedRows).toHaveCount(2);
-
-  const playerHeaders = players.locator('thead th');
-  await expect(playerHeaders).toHaveCount(5);
-  // A new key always starts ascending; Player was the most recent active key.
-  for (const column of [1, 2, 3, 4]) {
-    const header = playerHeaders.nth(column);
-    await header.getByRole('button').click();
-    await expect(header).toHaveAttribute('aria-sort', 'ascending');
-    await header.getByRole('button').click();
-    await expect(header).toHaveAttribute('aria-sort', 'descending');
-  }
-  await gameFilter.fill('no matching recorded participant');
-  await expect(page.locator('.records-list .record-entry')).toHaveCount(0);
-  await expect(aiRows).toHaveCount(1);
-  await page.getByRole('button', { name: 'Clear recorded game filter', exact: true }).click();
-  await expect(gameFilter).toHaveValue('');
-  await page.getByRole('button', { name: 'Clear player filter', exact: true }).click();
-  await expect(playerFilter).toHaveValue('');
-  await expect
-    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
-    .toBe(true);
+  await page.goto('/archive');
+  await page.getByLabel('Game type').selectOption('account-single-player');
+  await page.getByLabel('Player name').fill(names[2].toUpperCase());
+  await expect(page.locator('.recorded-games li')).toHaveCount(2);
+  await expect(page.locator('.hall-totals')).toContainText('2 Games');
+  await page.getByRole('combobox', { name: 'Ruleset', exact: true }).selectOption('tablut');
+  await expect(page.locator('.recorded-games li')).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Ruleset', exact: true }).selectOption('brandubh');
+  await expect(page.locator('.recorded-games li')).toHaveCount(2);
+  await page.getByLabel('Player name').fill(aiName);
+  await expect(page.locator('.recorded-games li')).toHaveCount(1);
+  await page.locator('.recorded-games a').click();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await page.getByLabel('Player name').fill('no matching participant');
+  await expect(page.locator('.recorded-games li')).toHaveCount(0);
+  await expect(page.getByRole('grid')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('grid')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });

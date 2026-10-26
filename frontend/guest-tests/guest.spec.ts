@@ -28,14 +28,15 @@ async function start(page: Page) {
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await expect(page.getByRole('grid')).toBeVisible();
 }
-async function humanMove(page: Page) {
+async function humanMove(page: Page, expectSavedReply = true) {
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
   await page.getByRole('gridcell', { name: /^b7, empty/ }).click();
-  await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
+  if (expectSavedReply)
+    await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(2);
   await ready(page);
 }
 
-test('anonymous guest uses real Python engine, persists moves and reloads through production CSP without API calls', async ({
+test('anonymous guest uses real Python engine and production CSP with session-only navigation requests', async ({
   page,
   request,
 }) => {
@@ -46,17 +47,47 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
     if (new URL(r.url()).pathname.startsWith('/api/')) apis.push(r.url());
   });
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (
+      message.type() === 'error' &&
+      !(message.location().url.endsWith('/api/auth/me') && message.text().includes('401'))
+    )
+      errors.push(message.text());
   });
   const began = Date.now();
   await page.goto('/guest');
+  const accountLink = page.getByRole('link', { name: 'Log in', exact: true });
+  await expect(accountLink).toHaveClass(/header-link.*button/);
+  await expect(accountLink).toHaveAttribute('href', '/login');
+  await expect(
+    page.getByRole('link', { name: /Guest play|Account single-player|Online multiplayer/ }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Appearance settings' })).toBeVisible();
+  await accountLink.focus();
+  await expect(accountLink).toBeFocused();
+  expect(
+    await accountLink.evaluate((a) => a.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(42);
+
   await ready(page);
+  const clear = page.getByRole('button', { name: 'Clear device game', exact: true });
+  expect(await clear.evaluate((button) => button.nextElementSibling === null)).toBe(true);
+  await expect(
+    page.getByText(
+      /Only the current or last guest game is kept|Browser storage can be cleared or evicted|Language and appearance are separate preferences/,
+    ),
+  ).toHaveCount(0);
+  await page
+    .locator('header')
+    .screenshot({ path: test.info().outputPath('guest-anonymous-header.png') });
+  await page
+    .locator('.guest-settings')
+    .screenshot({ path: test.info().outputPath('guest-settings-clean.png') });
   console.log('Guest startup ms:', Date.now() - began);
   await start(page);
   await humanMove(page);
   const slot = await saved(page);
-  expect(JSON.parse(slot.raw!).moves).toEqual([{ source: 3, target: 1 }]);
-  await page.getByRole('button', { name: 'Play computer move' }).click();
+  expect(JSON.parse(slot.raw!).moves[0]).toEqual({ source: 3, target: 1 });
+  await expect(page.getByRole('button', { name: 'Play computer move' })).toHaveCount(0);
   await ready(page);
   await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(2);
   const checkpoint = await saved(page);
@@ -70,7 +101,8 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
   expect(
     await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
   ).toBe(0);
-  expect(apis).toEqual([]);
+  expect(apis.length).toBeGreaterThan(0);
+  expect(apis.every((url) => new URL(url).pathname === '/api/auth/me')).toBe(true);
   expect(errors).toEqual([]);
   expect(await (await request.get('http://127.0.0.1:8008/counts')).json()).toEqual(before);
   const headers = await request.get('/assets/guest-manifest.json');
@@ -143,7 +175,7 @@ test('confirmed replacement is atomic on an interrupted write; clear keeps indep
   expect(await saved(page)).toEqual(before);
   await page.reload();
   await ready(page);
-  await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
+  expect(await saved(page)).toEqual(before);
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm replacement', exact: true }).click();
   await ready(page);
@@ -233,7 +265,7 @@ test('unavailable IndexedDB permits memory-only play with a visible warning', as
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm replacement', exact: true }).click();
   await expect(page.getByRole('grid')).toBeVisible();
-  await humanMove(page);
+  await humanMove(page, false);
   await expect(page.getByText(/Device storage is unavailable/)).toBeVisible();
 });
 
@@ -244,7 +276,7 @@ test('a stale tab cannot resurrect a cleared slot', async ({ page, context }) =>
   await other.goto('/guest');
   await ready(other);
   await confirmClear(page);
-  await humanMove(other);
+  await humanMove(other, false);
   await expect(
     other.getByText('Another tab changed the device game. Reload it before continuing.'),
   ).toBeVisible();
@@ -262,7 +294,10 @@ async function login(page: Page, name: string) {
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
   const cancel = page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true });
-  if (await cancel.isVisible()) await cancel.click();
+  if (new URL(page.url()).searchParams.get('setup') === 'single-player') {
+    await expect(cancel).toBeVisible();
+    await cancel.click();
+  } else if (await cancel.isVisible()) await cancel.click();
   await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
 }
 test('guest survives login, logout, account switching, back navigation and online routes without upload', async ({
@@ -274,7 +309,7 @@ test('guest survives login, logout, account switching, back navigation and onlin
   await start(page);
   await humanMove(page);
   const checkpoint = await saved(page);
-  await page.getByRole('link', { name: 'Account single-player', exact: true }).click();
+  await page.getByRole('link', { name: 'Log in', exact: true }).click();
   await login(page, 'GuestArcher');
   const owned = await page.evaluate(async () => {
     const session = await (await fetch('/api/auth/me')).json();
@@ -282,17 +317,28 @@ test('guest survives login, logout, account switching, back navigation and onlin
       await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf_token },
-        body: JSON.stringify({ ruleset: 'brandubh', mode: 'human-human' }),
+        body: JSON.stringify({ ruleset: 'brandubh', mode: 'human-ai' }),
       })
     ).json();
     localStorage.setItem('hnefatafl-game', created.id);
     return created;
   });
-  await page.getByRole('link', { name: 'Guest play', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Guest play', exact: true })).toHaveCount(0);
+  await page.goto('/guest');
+  await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Guest play|Log in/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hall of records', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Appearance settings' })).toBeVisible();
+  await page
+    .locator('header')
+    .screenshot({ path: test.info().outputPath('guest-authenticated-header.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await ready(page);
   expect(await saved(page)).toEqual(checkpoint);
   expect(await page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBe(owned.id);
   await page.goBack();
+  await page.goto('/games/' + owned.id);
   await expect(page.getByRole('grid')).toBeVisible();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Log in', exact: true })).toBeVisible();
@@ -323,4 +369,34 @@ test('guest survives login, logout, account switching, back navigation and onlin
     ...before,
     games: before.games + 1,
   });
+});
+
+test('AI-first games and restored pending replies advance automatically through the real worker', async ({
+  page,
+}) => {
+  await page.goto('/guest');
+  await ready(page);
+  await page.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('defenders');
+  await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
+  await expect
+    .poll(async () => JSON.parse((await saved(page)).raw ?? 'null')?.moves.length ?? 0)
+    .toBe(1);
+  await ready(page);
+  const slot = JSON.parse((await saved(page)).raw!);
+  expect(slot.human_side).toBe('defenders');
+  expect(slot.moves).toHaveLength(1);
+  // Restore the same valid AI-first starting position; the Python validator,
+  // rather than the device JSON, determines whose turn it is.
+  slot.moves = [];
+  slot.cursor = 0;
+  await inject(page, JSON.stringify(slot));
+  await page.reload();
+  await ready(page);
+  await expect
+    .poll(async () => JSON.parse((await saved(page)).raw ?? 'null')?.moves.length ?? 0)
+    .toBe(1);
+  await expect(page.getByRole('button', { name: 'Play computer move', exact: true })).toHaveCount(
+    0,
+  );
+  expect(JSON.parse((await saved(page)).raw!).human_side).toBe('defenders');
 });

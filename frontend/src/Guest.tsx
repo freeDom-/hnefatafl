@@ -1,22 +1,22 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import SiteHeader from './SiteHeader';
 import Board from './Board';
 import Modal from './Modal';
-import { AppearanceSettings } from './Appearance';
-import { LanguageSelect, useI18n } from './i18n';
+import { useI18n } from './i18n';
 import { GuestEngine } from './guestEngine';
 import { GuestConflict, readGuestSlot, writeGuestSlot, clearGuestSlot } from './guestStore';
 import { parseGuestRecord, type GuestInfo, type GuestSnapshot } from './guestTypes';
-import { surfaceLink } from './surfaceNavigation';
 import type { Side } from './types';
 import './guest.css';
 const sides = { attackers: 'Attackers', defenders: 'Defenders' };
-export default function Guest() {
+export default function Guest({ header }: { header?: ReactNode }) {
   const { t } = useI18n();
   const [info, setInfo] = useState<GuestInfo | null>(null);
   const [game, setGame] = useState<GuestSnapshot | null>(null);
   const current = useRef<GuestSnapshot | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(true);
+  const [saving, setSaving] = useState(false);
   const lock = useRef(false);
   const alive = useRef(false);
   const engine = useRef<GuestEngine | null>(null);
@@ -153,7 +153,12 @@ export default function Guest() {
       const value = await engine.current!.request<GuestSnapshot>(request);
       if (!alive.current || expected !== operation.current) return;
       publish(value);
-      await persist(value);
+      setSaving(true);
+      try {
+        await persist(value);
+      } finally {
+        if (alive.current && expected === operation.current) setSaving(false);
+      }
     } catch (e) {
       if (alive.current && expected === operation.current) {
         setError((e as Error).message);
@@ -200,6 +205,25 @@ export default function Guest() {
   };
   const historical = !!game && game.record.cursor !== game.record.moves.length;
   const humanTurn = !!game && game.position.turn === game.record.human_side;
+  // The lock is set synchronously before the request, including StrictMode's
+  // repeated effects. Publish/save one accepted move before scheduling the next.
+  useEffect(() => {
+    if (
+      ready &&
+      !busy &&
+      !lock.current &&
+      !conflict &&
+      !confirm &&
+      !error &&
+      game &&
+      !historical &&
+      !game.live_winner &&
+      !game.position.winner &&
+      !humanTurn
+    ) {
+      void run({ action: 'computer' });
+    }
+  }, [game, ready, busy, conflict, confirm, error, historical, humanTurn]);
   const mayMove =
     ready && !busy && !conflict && !historical && !!game && !game.live_winner && humanTurn;
   const select = (index: number) => {
@@ -217,20 +241,7 @@ export default function Guest() {
   };
   return (
     <>
-      <header className="guest-header">
-        <strong>HNEFATAFL</strong>
-        <nav aria-label={t('Play surfaces')}>
-          <span aria-current="page">{t('Guest play')}</span>
-          <a href="/" onClick={surfaceLink}>
-            {t('Account single-player')}
-          </a>
-          <a href="/online" onClick={surfaceLink}>
-            {t('Online multiplayer')}
-          </a>
-        </nav>
-        <LanguageSelect />
-        <AppearanceSettings />
-      </header>
+      {header ?? <SiteHeader account={null} />}
       <main className="guest-page">
         <h1>{t('Guest play · this browser only')}</h1>
         <p>
@@ -241,13 +252,17 @@ export default function Guest() {
         <p role="status">
           {t(
             busy
-              ? 'Loading or computing in the browser…'
+              ? saving
+                ? 'Saving on this device…'
+                : game && !humanTurn
+                  ? 'Computer is thinking…'
+                  : 'Loading or computing in the browser…'
               : ready
                 ? 'Local engine ready.'
                 : 'Local engine is not ready.',
           )}
         </p>
-        {busy && (
+        {busy && !saving && (
           <button
             className="button secondary"
             onClick={() => {
@@ -320,13 +335,13 @@ export default function Guest() {
                   readOnly={!mayMove}
                 />
                 {game.live_reason && <p>{t(game.live_reason.replaceAll('_', ' '))}</p>}
-                {!historical && !game.live_winner && !humanTurn && (
+                {!historical && !game.live_winner && !humanTurn && error && ready && (
                   <button
                     className="button primary"
                     disabled={!ready || busy || conflict}
                     onClick={() => void run({ action: 'computer' })}
                   >
-                    {t('Play computer move')}
+                    {t('Retry computer move')}
                   </button>
                 )}
                 <nav className="guest-actions" aria-label={t('Guest replay')}>
@@ -384,23 +399,6 @@ export default function Guest() {
                 <button className="button primary">{t('Start guest game')}</button>
               </fieldset>
             </form>
-            <button
-              className="button secondary"
-              disabled={busy || (!hasSlot && !game)}
-              onClick={() => setConfirm('clear')}
-            >
-              {t('Clear device game')}
-            </button>
-            <p>
-              {t(
-                'Only the current or last guest game is kept. Starting another replaces it after confirmation. There is no guest archive.',
-              )}
-            </p>
-            <p>
-              {t(
-                'Browser storage can be cleared or evicted. Initial loading needs a connection and can take several seconds; full offline startup is not provided.',
-              )}
-            </p>
             {ready && (
               <p>
                 <a href={engine.current?.notices} target="_blank" rel="noreferrer">
@@ -408,11 +406,13 @@ export default function Guest() {
                 </a>
               </p>
             )}
-            <p>
-              {t(
-                'Language and appearance are separate preferences. Logging in does not upload or delete this guest game.',
-              )}
-            </p>
+            <button
+              className="button secondary"
+              disabled={busy || (!hasSlot && !game)}
+              onClick={() => setConfirm('clear')}
+            >
+              {t('Clear device game')}
+            </button>
           </aside>
         </div>
       </main>

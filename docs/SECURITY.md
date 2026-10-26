@@ -85,9 +85,15 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators
-explicitly have global data access. Users can play all existing modes, configure
-bounded inference opponents/advisors, delete their own games/local profiles, and
-select existing models. The ordinary model catalog exposes only ID/name/ruleset/rune;
+explicitly have global data access. New account game creation binds the human
+seat to the current account and resolves one of four server presets. Only a trusted
+current administrator can create/restart AI vs AI; pass-and-play, arbitrary identity,
+raw configurations, seeds and neural opponents are rejected in this creation API.
+Identity/session/role are rechecked inside the creation transaction. Historical
+setups remain read/play compatible, with no restart creation bypass. Local-player
+CRUD routes are removed (unknown routes remain default-denied); historical storage
+is retained. Owned deletion, bounded advisors and authorized training/tournaments
+remain available independently. The ordinary model catalog exposes only ID/name/ruleset/rune;
 paths, training summaries, checkpoints, renames/imports/exports/deletion are admin-only.
 
 Schema 8 introduced accounts, sessions, login attempts, bootstrap metadata, nullable
@@ -122,6 +128,16 @@ restart and compatible recovery. Quota denials use fixed-size persistent counter
 and sanitized, rate-limited logs; aggregate monitoring requires administrator
 permission and exposes no account/security identifiers. See
 [creation quotas and monitoring](ONLINE.md#creation-quotas-and-monitoring).
+
+Personal dashboard routes under `/api/personal` are authenticated GET-only `play`
+grants. Account listings/replay require exact ownership, online listings/detail/
+replay require participation (including creator/admitted match opponent), and
+administrators have the same personal scope. Known-game spectator routes and
+legacy administrator Hall access keep their existing behavior. Summary projections
+omit private configuration, security fields and correction notes. Account-keyed UI,
+abort cleanup and session epochs prevent stale account responses entering the next
+account. Guest storage is never read by this surface. See the
+[personal API contract](designs/personal-dashboard-phase5.md#api-contract).
 
 ## Coverage and explicit exceptions
 
@@ -176,3 +192,13 @@ outside account authentication. No guest API or upload path is granted. Only
 `/assets/guest-<64 hex>/worker.js` receives `wasm-unsafe-eval`; document and other
 asset/API policies retain their existing restrictions. The runtime/engine and
 license update policy is in [guest play and storage](GUEST_PLAY.md).
+
+The Phase 5 history refinement adds read-only `/api/history/games` and
+`/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits
+administrator-wide server history filters/review. Normal users remain scoped to
+online participation; account categories/name filters are denied and unauthorized
+object lookups return 404. Dashboard always adds own-account and completed eligible
+scope before its three-row limit, including administrators. List/count/category
+statistics and direct canonical review recheck current sessions in read transactions.
+No history route adds mutation, exports, assistance or public access. See
+[Dashboard](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).

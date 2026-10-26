@@ -201,9 +201,9 @@ store resolved parameters and display-name snapshots. Legacy explicit-algorithm
 sessions retain the defaults their original engine used; profile defaults are not
 retroactively applied. Variant statistics expose configuration metadata for inspection.
 
-Player tombstones and archived model metadata preserve deleted identities. Deleting a player
-hides it from selection while preserving its ID and saved history; reusing the same
-display name creates a new identity. Deleting an available model removes its registry
+Retained player tombstones and archived model metadata preserve historical identities.
+Local-player creation/deletion paths are removed; saved IDs, names and runes stay
+readable. New human seats use account IDs and one stable account rune. Deleting an available model removes its registry
 copy and entry, retaining historical labels and original training outputs. Catalog
 reference creation and deletion are serialized in the supported single API process.
 
@@ -214,8 +214,10 @@ persists choices. New artwork and palettes can be added without changing game ru
 or persistence. See [Personalization](docs/PERSONALIZATION.md).
 
 Ordinary new games store a server-generated base seed; actual decision seeds combine
-the base with the ply. Explicit game seeds support reproducible requests. Restart
-always creates a fresh seed, and legacy records retain their original semantics.
+the base with the ply. Explicit seeds remain available to authorized training and
+tournament workflows, while account creation uses server seeds only. Restart of a
+current-policy unfinished game creates a fresh seed; historical records retain their
+original read/play seed semantics.
 Game deletion uses an expected version and removes the source record; statistics
 are derived from retained records, so all counts/rates update without cached totals.
 Restart is restricted to unfinished records, using the retained final outcome
@@ -227,11 +229,10 @@ a matching usage fingerprint. SQL and registry failure handling preserve referen
 if deletion fails; completed histories and training checkpoints remain. App-level
 deletion callbacks clear matching current-game pointers and reject late AI responses.
 
-Hall tables sort and filter presentation data locally without rewriting stored
-results or changing aggregate statistics. Numeric comparisons cover counts, rates
-and averages; player/history text searches remain independent. AI parameter dialogs
-share the same full-value renderer as recorded-game details while keeping table rows
-compact. New browser preferences default to carved wood and walnut; valid saved
+Hall filters and counts run on authorized server queries without rewriting stored
+results. Selected canonical review is independent of filtering and pagination.
+AI parameter details remain inspectable in recorded games; account setup exposes
+only the four named presets and their time/depth/iteration budgets. New browser preferences default to carved wood and walnut; valid saved
 preferences remain authoritative.
 
 ## Background analysis
@@ -262,9 +263,14 @@ exclude seed from identity. Tournaments display the underlying agent rune; older
 seat-rune reservations remain stored. Older response snapshots gain runes without
 rewriting game JSON or checkpoint metadata. See [Identities](docs/IDENTITIES.md).
 
-New-game browser preferences retain a validated complete successful setup. Native
-model choices update their canonical names with their IDs, and saved model-name
-snapshots identify earlier games whose supplied aliases were stale. Training
+Account setup retains only battlefield, permitted mode, side and four preset IDs.
+The server binds human seats to the account and resolves preset budgets itself;
+creation and restart recheck current sessions/roles in a write transaction. New
+pass-and-play, local-player CRUD and custom/neural account-game creation are removed.
+Historical player IDs, modes and effective configurations remain read/play shims,
+without supporting legacy result reconstruction or cloning old setups via restart.
+Model choices in authorized advisors/tournaments retain canonical names/IDs, and
+saved model-name snapshots identify earlier games whose supplied aliases were stale. Training
 resumption uses an explicit job checkpoint metadata route and server-derived
 configuration, then creates a new worker/output directory for the chosen total
 iteration target. The UI never reconstructs a resume request from arbitrary paths.
@@ -366,12 +372,17 @@ batch deduplication remain separate from node reuse and completed simulations.
 
 ## Guest, account and online play surfaces
 
-`PlaySurfaces.tsx` routes exact `/guest` paths outside Auth. Guest owns its worker,
-types and IndexedDB slot; it does not import API/account/online adapters. Navigation
+`PlaySurfaces.tsx` routes exact `/guest` paths outside the account guard. Guest owns
+its worker, types and IndexedDB slot; gameplay does not import API/account/online
+adapters. Only `GuestNavigation` mounts Auth's navigation-only session view and
+the shared `SiteHeader`. Session reads do not modify saved account preferences;
+explicit logout keeps its existing cleanup. Header session changes never remount
+the guest game. Navigation
 terminates the worker; returning validates saved moves again. Protected requests
 have session epochs and cancellation so delayed old-account responses cannot update
 a different account or emit stale authentication events. Existing account
-selection/setup and online-intent keys keep their formats and semantics.
+selection and online-intent keys keep their formats and semantics; account setup
+preferences retain only the permitted subset of older values.
 
 The [guest guide](docs/GUEST_PLAY.md) specifies schema/limits, atomic revisions,
 replay authority, confirmed replacement/clear, eviction and memory-only recovery.
@@ -381,3 +392,41 @@ the hashed worker receives Wasm CSP permission. No production service worker, PW
 full offline startup, guest archive, automatic migration/import or server upload is
 provided. See [Phase 4 validation](docs/validation/online-phase4.md) and the
 [Phase 5 handoff](docs/designs/online-phase5-handoff.md).
+
+
+## Personal dashboard and review
+
+`PersonalDashboard.tsx` is the authenticated landing with existing account setup and
+embedded `Online.Lobby`, separate personal statistics and at most three completed
+visible own records. `navigation.ts` normalizes obsolete landing URLs while retaining
+search/selection; account gameplay has `/games/{id}` and dedicated online/replay paths
+remain. `RecordedGames` supplies compact rows to Dashboard and `Archive` (Hall).
+`RecordedReview` uses category-specific validated read adapters and viewer-local state.
+Selected review is independent of Hall filters/page and survives direct load/refresh.
+Authenticated headers omit the Guest link. Anonymous Guest navigation offers one
+login anchor; authenticated direct Guest visits retain shared account navigation
+without a login or self-link. Dashboard never reads device saves.
+Account-keyed poll state, cancellation and session epochs
+reject late responses. The leaderboard panel is only an upcoming Phase 6 placeholder.
+
+`personal_api.py` retains five own-account GET adapters under `/api/personal`, including
+administrators. Two additional read-only `/api/history` routes use `history.py`:
+normal-user lists/review are participant online only; trusted current `all_data`
+sessions can filter/review all server-recorded online/account records. Dashboard
+history always applies own-account scope, visibility and eligible completion before
+limit three. Summary/count/category totals use set-based SQL and bounded cursors in
+one read transaction, without engine calls or schema changes. Detail rechecks role
+and object scope in the same transaction as canonical replay. No history grant adds
+mutation, analysis or export authority. Global authenticated online lobby/spectator
+reads and all-role active-online assistance denial retain their permissions.
+
+Account totals read persisted `recorded_result` only: current writers include it,
+seeks preserve it and missing/null results are unfinished. No legacy account records
+or result reconstruction are supported. Unexpected personal/history API failures log
+fixed actions, exception types and scrubbed tracebacks with generic 503 responses.
+Online totals use only current eligible completed revisions, withdrawing voids.
+Guest saves never enter these adapters. Local players UI and Archive-only profile
+queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the
+[dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
+[refinement evidence](docs/validation/dashboard-consolidation.md) and
+[Phase 6 handoff](docs/designs/online-phase6-handoff.md).

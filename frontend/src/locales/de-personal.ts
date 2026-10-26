@@ -1,0 +1,118 @@
+const personal: Record<string, string> = {
+  Dashboard: 'Übersicht',
+  'New online game': 'Neues Onlinespiel',
+  'New single-player game': 'Neues Einzelspiel',
+  'Resume single-player': 'Einzelspiel fortsetzen',
+  'Recorded games': 'Gespeicherte Spiele',
+  'View all': 'Alle ansehen',
+  Leaderboard: 'Rangliste',
+  'Upcoming in Phase 6': 'Geplant für Phase 6',
+  'Close setup': 'Einrichtung schließen',
+  'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
+  'All server-recorded games. Guest saves stay on their device.':
+    'Alle auf dem Server gespeicherten Spiele. Gastspiele bleiben auf ihrem Gerät.',
+  'Your participating online games.': 'Deine Onlinespiele als Teilnehmer.',
+  'Game type': 'Spieltyp',
+  'All server games': 'Alle Serverspiele',
+  'Player name': 'Spielername',
+  Review: 'Ansehen',
+  'Selected game review': 'Ausgewähltes Spiel ansehen',
+  'Review unavailable. Check your access or retry.':
+    'Spielansicht nicht verfügbar. Zugriff prüfen oder erneut versuchen.',
+  'No games match these filters.': 'Keine Spiele passen zu diesen Filtern.',
+  'Your games': 'Deine Spiele',
+  'Private account records. Single-player and online results are kept separate.':
+    'Private Kontoeinträge. Einzelspieler- und Online-Ergebnisse bleiben getrennt.',
+  'Guest play on this device': 'Gastspiel auf diesem Gerät',
+  'Guest games stay in the device slot and never appear in account history.':
+    'Gastspiele bleiben im Gerätespeicher und erscheinen nie im Kontoverlauf.',
+  'Account single-player': 'Einzelspieler im Konto',
+  'All your account single-player records': 'Alle deine Einzelspieler-Kontoeinträge',
+  'Totals are independent of the page filters.':
+    'Die Gesamtzahlen sind unabhängig von den Seitenfiltern.',
+  'Account totals describe recorded sides, not personal wins or losses.':
+    'Die Kontozahlen beschreiben die gespeicherten Seiten, keine persönlichen Siege oder Niederlagen.',
+  'All your eligible online game results': 'Alle deine gültigen Online-Spielergebnisse',
+  'Per-game eligible results only. Cancelled and voided games do not count; concession is not abandonment.':
+    'Nur gültige Ergebnisse je Spiel. Abgebrochene und annullierte Spiele zählen nicht; Aufgeben gilt nicht als Verlassen.',
+  'Loading your games…': 'Deine Spiele werden geladen…',
+  'History unavailable or stale. Retry to load current records.':
+    'Der Verlauf ist nicht verfügbar oder veraltet. Erneut versuchen, um aktuelle Einträge zu laden.',
+  'All rulesets': 'Alle Regelwerke',
+  'All statuses': 'Alle Status',
+  'All results': 'Alle Ergebnisse',
+  'All outcomes': 'Alle Ausgänge',
+  'Recorded result': 'Gespeichertes Ergebnis',
+  'Unfinished record': 'Unbeendeter Eintrag',
+  'In progress': 'Laufend',
+  'Attacker wins': 'Siege der Angreifer',
+  'Defender wins': 'Siege der Verteidiger',
+  'Timed-out games': 'Spiele mit Zeitüberschreitung',
+  'Online section': 'Online-Bereich',
+  'Awaiting your move': 'Dein Zug steht aus',
+  'Other active games': 'Andere aktive Spiele',
+  'Waiting games you created': 'Von dir erstellte wartende Spiele',
+  'All current online games': 'Alle aktuellen Online-Spiele',
+  'Online history': 'Online-Verlauf',
+  Lifecycle: 'Spielstatus',
+  'Terminal online records': 'Beendete Online-Einträge',
+  'Your online outcome': 'Dein Online-Ergebnis',
+  'Timed out by you': 'Deine Bedenkzeit überschritten',
+  Win: 'Sieg',
+  Loss: 'Niederlage',
+  'No account games match these filters.': 'Keine Kontospiele entsprechen diesen Filtern.',
+  'No online games match these filters.': 'Keine Online-Spiele entsprechen diesen Filtern.',
+  'History pages': 'Verlaufsseiten',
+  'First page': 'Erste Seite',
+  'Next page': 'Nächste Seite',
+  'Showing {shown} of {matching} matching games':
+    '{shown} von {matching} passenden Spielen angezeigt',
+  'Date unavailable': 'Datum nicht verfügbar',
+  'Review account game': 'Kontospiel ansehen',
+  'Review online game': 'Online-Spiel ansehen',
+  'Open online game': 'Online-Spiel öffnen',
+  'Account game review': 'Kontospiel-Wiedergabe',
+  'Online game review': 'Online-Spiel-Wiedergabe',
+  'Back to dashboard': 'Zurück zur Übersicht',
+  'Read-only review. Replay controls change only your view.':
+    'Schreibgeschützte Wiedergabe. Die Steuerung ändert nur deine Ansicht.',
+  'Replay navigation': 'Wiedergabesteuerung',
+  'Move {move} of {total}': 'Zug {move} von {total}',
+  'Awaiting adjudication': 'Entscheidung steht aus',
+  'Deadlines and results come from the server. Opening a game does not grant permission to move after its deadline.':
+    'Fristen und Ergebnisse stammen vom Server. Das Öffnen erlaubt keinen Zug nach Ablauf der Frist.',
+  '02 · Choose your opponent': '02 · Wähle deinen Gegner',
+  'Playing as your account': 'Du spielst mit deinem Konto',
+  '{side} opponent': 'Gegner: {side}',
+  'A quick tactical opponent that weighs immediate captures and king safety.':
+    'Ein schneller taktischer Gegner, der unmittelbare Schlagzüge und die Sicherheit des Königs abwägt.',
+  'A tactical opponent focused on king escape routes and piece safety.':
+    'Ein taktischer Gegner mit Schwerpunkt auf Fluchtwegen des Königs und Figurensicherheit.',
+  'Looks ahead through possible replies, pruning unpromising branches.':
+    'Plant mögliche Antworten voraus und überspringt wenig aussichtsreiche Fortsetzungen.',
+  'Explores promising continuations through simulated play.':
+    'Untersucht aussichtsreiche Fortsetzungen mit simulierten Partien.',
+  'Computer is thinking…': 'Der Computer denkt nach…',
+  'Saving on this device…': 'Wird auf diesem Gerät gespeichert…',
+  'Retry computer move': 'Computerzug erneut versuchen',
+  'Time allowed per move': 'Erlaubte Zeit pro Zug',
+  Days: 'Tage',
+  Hours: 'Stunden',
+  Minutes: 'Minuten',
+  'Choose your online game': 'Wähle dein Onlinespiel',
+  'At least 1 minute, at most 14 days in total. Each accepted move renews the allowance.':
+    'Mindestens 1 Minute, insgesamt höchstens 14 Tage. Jeder angenommene Zug startet die Frist neu.',
+  'This retained request uses exactly {seconds} seconds per move. Retrying keeps that value.':
+    'Diese gespeicherte Anfrage verwendet genau {seconds} Sekunden pro Zug. Ein erneuter Versuch behält diesen Wert bei.',
+  'Enter whole numbers for days, hours and minutes.':
+    'Gib ganze Zahlen für Tage, Stunden und Minuten ein.',
+  'Use 0–14 days, 0–23 hours and 0–59 minutes.':
+    'Verwende 0–14 Tage, 0–23 Stunden und 0–59 Minuten.',
+  'Time allowed per move must be at least 1 minute and at most 14 days in total.':
+    'Die erlaubte Zeit pro Zug muss insgesamt mindestens 1 Minute und höchstens 14 Tage betragen.',
+  'Lobby data is stale. Reconnecting…':
+    'Die Lobbydaten sind veraltet. Verbindung wird wiederhergestellt…',
+  'Retry connection': 'Verbindung erneut versuchen',
+  'Review retained creation request': 'Gespeicherte Erstellungsanfrage ansehen',
+};
+export default personal;

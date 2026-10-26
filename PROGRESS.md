@@ -67,6 +67,24 @@ passed 4 checks; CI passed the complete 14-check guest suite and the existing
 account/registration/online suites. Exact commit-scoped counts and the observed
 local asset-transfer stall are retained in the validation record.
 
+Phase 4 PR #15 has merged into `feat/online-multiplayer`; Phase 5 was rebased onto
+its integration merge before combined verification. The private authenticated
+personal dashboard separates owned account single-player and participant online
+records, adds bounded server filters/keyset pages and read-only viewer-local
+replay, and keeps category totals independent. Current eligible online revisions
+supply per-game W/L/D/timeout counts; cancellations/voids do not count. Five scoped
+GET grants add no migration, guest reads/uploads, online assistance, public history
+or rating policy. Legacy Hall/spectator permissions and guest keys/slot remain
+unchanged. See [dashboard use](docs/DASHBOARD.md),
+[Phase 5 validation](docs/validation/online-phase5.md) and the
+[Phase 6 policy handoff](docs/designs/online-phase6-handoff.md).
+Functional CI passed 1491 backend tests / 6 hardware skips, 312 frontend tests,
+66 legacy browsers / 4 intentional duplicate skips, and all 6 registration,
+10 online, 10 personal and 14 guest browser checks. Local `make check` hit one
+existing 60-second training smoke deadline (1460 passed / 36 optional/hardware
+skips); the evidence records its isolated recheck and separately completed frontend
+validation without claiming a green local aggregate run.
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)
@@ -551,3 +569,16 @@ browser suite passed 66 desktop/mobile checks with four intentional mobile
 duplicates skipped, including the new config-import flow. No storage, checkpoint
 or protocol migration is required; CUDA, MPS and OpenVINO GPU were not exercised.
 See the [0.29.0 release record](docs/releases/0.29.0.md).
+
+## Phase 5 Dashboard/navigation/history refinement (unreleased)
+
+Owner-authorized refinement remains on `feat/phase5-personal-dashboard`, PR #17 to
+`feat/online-multiplayer`. Dashboard becomes default and reuses account setup/online
+lobby. Shared compact history rows link to independently selected read-only Hall
+reviews. Normal Hall scope is participating online; trusted administrators can
+filter all server records while Dashboard stays personal. Local players UI is
+removed without deleting profiles/history. Guest header uses shared link controls;
+guest storage, gameplay/AI, online gates/quotas/results and analysis denial remain.
+Leaderboard is an upcoming placeholder with no approved rating policy. See
+[refinement evidence](docs/validation/dashboard-consolidation.md) for actual checks.
+No version, release, schema, production gates, merge or deployment changed.

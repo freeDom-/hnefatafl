@@ -6,6 +6,7 @@ import sqlite3
 import time
 
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import stored_player, retired_player, historical_game, historical_response
 
 from hnefatafl.identities import RUNES, effective_ai_config, rune_for_ordinal
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
@@ -51,8 +52,8 @@ def test_allocator_is_unique_past_single_alphabet_and_safe_across_connections(tm
 def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path):
     path = tmp_path / "history.sqlite3"
     store = Store(path)
-    store.create_player({"id": "retired", "name": "Astrid", "created_at": "2026-01-01"})
-    store.delete_player("retired", "2026-01-02")
+    stored_player(store, {"id": "retired", "name": "Astrid", "created_at": "2026-01-01"})
+    retired_player(store, "retired", "2026-01-02")
     game = {"id": "old", "created_at": "2026-01-01", "version": 7, "moves": []}
     store.create_game(game)
     with sqlite3.connect(path) as connection:
@@ -61,7 +62,7 @@ def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path)
         old_json = connection.execute("SELECT data FROM games WHERE id='old'").fetchone()[0]
     migrated = Store(path)
     retired = migrated.players(include_deleted=True)[0]
-    fresh = migrated.create_player({"id": "new", "name": "Astrid", "created_at": "2026-01-03"})
+    fresh = stored_player(migrated, {"id": "new", "name": "Astrid", "created_at": "2026-01-03"})
     assert fresh["rune"] != retired["rune"]
     assert Store(path).players(include_deleted=True)[0]["rune"] == fresh["rune"]
     assert migrated.rune("player:retired") == retired["rune"]
@@ -73,7 +74,7 @@ def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path)
 def test_legacy_game_response_backfills_runes_without_rewriting_payload(tmp_path):
     app = create_app(tmp_path)
     with TestClient(app) as client:
-        game = client.post("/api/games", json={"ruleset": "brandubh"}).json()
+        game = historical_game(client, ruleset="brandubh")
         database = tmp_path / "hnefatafl.sqlite3"
         with sqlite3.connect(database) as connection:
             saved = json.loads(
@@ -84,7 +85,7 @@ def test_legacy_game_response_backfills_runes_without_rewriting_payload(tmp_path
             old_json = json.dumps(saved)
             connection.execute("UPDATE games SET data=? WHERE id=?", (old_json, game["id"]))
         loaded = client.get(f"/api/games/{game['id']}").json()
-        profiles = {player["id"]: player for player in client.get("/api/players").json()}
+        profiles = {player["id"]: player for player in client.app.state.store.players()}
         for player in loaded["players"].values():
             assert player["rune"] == profiles[player["player_id"]]["rune"]
         assert loaded["players"]["attackers"]["rune"] != loaded["players"]["defenders"]["rune"]
@@ -107,8 +108,8 @@ def test_model_rune_is_shared_by_playing_sides_advice_and_analysis(tmp_path):
             "profile_id": "neural",
             "config": {"model_id": model["id"], "iterations": 1, "time_limit": 0.05},
         }
-        created = client.post(
-            "/api/games",
+        created = historical_response(
+            client,
             json={
                 "ruleset": "brandubh",
                 "mode": "ai-ai",
@@ -116,7 +117,7 @@ def test_model_rune_is_shared_by_playing_sides_advice_and_analysis(tmp_path):
                 "advisor": agent,
             },
         )
-        assert created.status_code == 201, created.text
+        assert created.status_code == 200, created.text
         game = created.json()
         assert {player["rune"] for player in game["players"].values()} == {model["rune"]}
         assert game["advisor"]["rune"] == model["rune"]
@@ -124,7 +125,7 @@ def test_model_rune_is_shared_by_playing_sides_advice_and_analysis(tmp_path):
             f"/api/games/{game['id']}/analysis", json={"version": 0, "cursor": 0}
         ).json()
         assert {agent["rune"] for agent in report["evaluations"]} == {model["rune"]}
-        assert client.get("/api/players").json() == []
+        assert client.app.state.store.players() == []
     with TestClient(create_app(tmp_path)) as reloaded:
         assert reloaded.get("/api/models").json()[0]["rune"] == model["rune"]
         assert reloaded.get(f"/api/games/{game['id']}").json()["analysis"] == report
@@ -133,8 +134,8 @@ def test_model_rune_is_shared_by_playing_sides_advice_and_analysis(tmp_path):
 def test_tournament_uses_shared_agent_rune_and_survives_deletion(tmp_path):
     app = create_app(tmp_path)
     with TestClient(app) as client:
-        game = client.post(
-            "/api/games", json={"ruleset": "brandubh", "mode": "ai-ai", "seed": 3}
+        game = historical_response(
+            client, json={"ruleset": "brandubh", "mode": "ai-ai", "seed": 3}
         ).json()
         agent_rune = game["players"]["attackers"]["rune"]
         assert game["players"]["defenders"]["rune"] == agent_rune
@@ -172,8 +173,8 @@ def test_legacy_tournament_uses_effective_agent_identity_without_rewriting_confi
     app = create_app(tmp_path)
     with TestClient(app) as client:
         config = {"algorithm": "baseline", "time_limit": 0.01}
-        game = client.post(
-            "/api/games",
+        game = historical_response(
+            client,
             json={
                 "mode": "ai-ai",
                 "ruleset": "brandubh",

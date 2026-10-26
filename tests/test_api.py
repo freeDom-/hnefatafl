@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import retired_player, historical_game, historical_player
 
 from hnefatafl.engine import State
 from hnefatafl.server import create_app
@@ -18,9 +19,7 @@ def client(tmp_path):
 
 
 def create(client, **configuration):
-    response = client.post("/api/games", json=configuration)
-    assert response.status_code == 201, response.text
-    return response.json()
+    return historical_game(client, **configuration)
 
 
 def move(client, game, selected=None):
@@ -94,16 +93,14 @@ def test_undo_redo_seek_and_branching_history(client):
     assert validated.status_code == 200
     assert validated.json()["validated"] is True
     assert validated.json()["states"][-1]["board"] == game["board"]
-    restarted = client.post(path + "/restart", json={"version": game["version"]}).json()
-    assert restarted["board"] == initial and restarted["total_moves"] == 0
-    assert restarted["id"] != game["id"] and restarted["version"] == 0
+    assert client.post(path + "/restart", json={"version": game["version"]}).status_code == 409
     assert client.get(path).json()["moves"] == game["moves"]
 
 
 def test_games_and_profiles_survive_restart(tmp_path):
     app = create_app(tmp_path)
     with TestClient(app) as first:
-        profile = first.post("/api/players", json={"name": "Freya"}).json()
+        profile = historical_player(first, "Freya")
         game = create(
             first,
             ruleset="tablut",
@@ -114,7 +111,7 @@ def test_games_and_profiles_survive_restart(tmp_path):
     with TestClient(create_app(tmp_path)) as second:
         saved = second.get(f"/api/games/{game['id']}").json()
         assert saved == game
-        assert any(p["id"] == profile["id"] for p in second.get("/api/players").json())
+        assert any(p["id"] == profile["id"] for p in second.app.state.store.players())
         replayed = second.get(f"/api/games/{game['id']}/replay").json()
         assert replayed["validated"] and replayed["states"][-1]["board"] == game["board"]
 
@@ -178,13 +175,13 @@ def test_ai_configuration_rejects_paths_and_incompatible_types(client):
         response = client.post(
             "/api/games", json={"mode": "ai-ai", "players": {"attackers": {"config": config}}}
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
     assert client.post("/api/games", json={"ruleset": "unknown"}).status_code == 422
-    assert client.post("/api/players", json={"name": "   "}).status_code == 400
+    assert client.post("/api/players", json={"name": "unused"}).status_code == 403
 
 
 def test_statistics_are_separated_by_identity_kind_ruleset_and_mode(client):
-    profile = client.post("/api/players", json={"name": "Astrid"}).json()
+    profile = historical_player(client, "Astrid")
     # Seed terminal fixtures into storage to isolate counting from search strength;
     # game/replay legality itself is exercised through real moves above.
     game = create(
@@ -470,7 +467,7 @@ def test_ai_configuration_must_be_an_object(client):
     response = client.post(
         "/api/games", json={"mode": "ai-ai", "players": {"attackers": {"config": 42}}}
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 def test_statistics_rates_include_draws_and_distinguish_model_identities(client, tmp_path):
@@ -487,7 +484,7 @@ def test_statistics_rates_include_draws_and_distinguish_model_identities(client,
         )
         models.append(registry.register(checkpoint))
     assert models[0]["id"] != models[1]["id"]
-    profile = client.post("/api/players", json={"name": "Eira"}).json()
+    profile = historical_player(client, "Eira")
     store = client.app.state.store
     # Terminal records isolate arithmetic from engine correctness, which has
     # separate complete legal-game/replay regression coverage above.
@@ -570,7 +567,7 @@ def test_schema_one_migrates_profiles_without_losing_rows(tmp_path):
     store = Store(database)
     assert store.players()[0]["id"] == "legacy-player"
     assert store.players()[0]["deleted_at"] is None
-    assert store.delete_player("legacy-player", "2026-01-02T00:00:00Z")
+    assert retired_player(store, "legacy-player", "2026-01-02T00:00:00Z")
     assert store.players() == []
     reopened = Store(database)
     assert reopened.players() == []
@@ -593,14 +590,13 @@ def complete_human_game(client, game):
 
 
 def test_delete_player_hides_selection_but_preserves_real_history_and_identity(client):
-    player = client.post("/api/players", json={"name": "Sigrid"}).json()
+    player = historical_player(client, "Sigrid")
     game = create(client, ruleset="brandubh", players={"defenders": {"player_id": player["id"]}})
     game = complete_human_game(client, game)
     stats_before = client.get("/api/stats").json()
-    response = client.delete(f"/api/players/{player['id']}")
-    assert response.status_code == 200 and response.json() == {"deleted": True, "id": player["id"]}
-    assert not any(p["id"] == player["id"] for p in client.get("/api/players").json())
-    assert client.delete(f"/api/players/{player['id']}").status_code == 404
+    assert retired_player(client.app.state.store, player["id"], "2030-01-01")
+    assert not any(p["id"] == player["id"] for p in client.app.state.store.players())
+    assert client.delete(f"/api/players/{player['id']}").status_code == 403
     record = client.get(f"/api/games/{game['id']}").json()
     assert record["players"]["defenders"]["name"] == "Sigrid"
     assert record["players"]["defenders"]["player_id"] == player["id"]
@@ -616,18 +612,18 @@ def test_delete_player_hides_selection_but_preserves_real_history_and_identity(c
         client.post(
             "/api/games", json={"players": {"defenders": {"player_id": player["id"]}}}
         ).status_code
-        == 400
+        == 422
     )
     restart = client.post(f"/api/games/{game['id']}/restart", json={"version": game["version"]})
     assert restart.status_code == 409
-    replacement = client.post("/api/players", json={"name": "Sigrid"}).json()
+    replacement = historical_player(client, "Sigrid")
     assert replacement["id"] != player["id"]
 
 
 def test_deleted_human_can_finish_existing_game_but_is_not_reused_by_name(client):
-    player = client.post("/api/players", json={"name": "Eirik"}).json()
+    player = historical_player(client, "Eirik")
     game = create(client, ruleset="brandubh", players={"attackers": {"player_id": player["id"]}})
-    assert client.delete(f"/api/players/{player['id']}").status_code == 200
+    assert retired_player(client.app.state.store, player["id"], "2030-01-01")
     game = complete_human_game(client, game)
     assert game["players"]["attackers"]["player_id"] == player["id"]
     other = create(client, players={"attackers": {"name": "Eirik"}})
@@ -788,7 +784,7 @@ def test_rulesets_and_statistics_are_ordered_by_board_size(client):
     ]
 
 
-def test_model_delete_serializes_with_new_game_reference_creation(client, tmp_path, monkeypatch):
+def test_model_delete_serializes_with_new_advisor_reference_creation(client, tmp_path, monkeypatch):
     import threading
     from concurrent.futures import TimeoutError
 
@@ -796,29 +792,24 @@ def test_model_delete_serializes_with_new_game_reference_creation(client, tmp_pa
     entered = threading.Event()
     release = threading.Event()
     delete_started = threading.Event()
-    original_create = Store.create_game
+    game = client.post("/api/games", json={"ruleset": "brandubh"}).json()
+    original_create = Store.save_analytics
 
-    def delayed_create(store, game):
+    def delayed_create(store, game_id, settings):
         entered.set()
         assert release.wait(5)
-        return original_create(store, game)
+        return original_create(store, game_id, settings)
 
     def deletion():
         delete_started.set()
         return client.delete(f"/api/models/{model['id']}")
 
-    monkeypatch.setattr(Store, "create_game", delayed_create)
+    monkeypatch.setattr(Store, "save_analytics", delayed_create)
     with ThreadPoolExecutor(max_workers=2) as executor:
         creating = executor.submit(
-            client.post,
-            "/api/games",
-            json={
-                "ruleset": "brandubh",
-                "mode": "human-ai",
-                "players": {
-                    "attackers": {"profile_id": "neural", "config": {"model_id": model["id"]}}
-                },
-            },
+            client.put,
+            f"/api/games/{game['id']}/analytics",
+            json={"advisor": {"profile_id": "neural", "config": {"model_id": model["id"]}}},
         )
         assert entered.wait(2)
         deleting = executor.submit(deletion)
@@ -828,7 +819,7 @@ def test_model_delete_serializes_with_new_game_reference_creation(client, tmp_pa
                 deleting.result(timeout=0.1)
         finally:
             release.set()
-        assert creating.result(timeout=5).status_code == 201
+        assert creating.result(timeout=5).status_code == 200
         assert deleting.result(timeout=5).status_code == 409
     assert len(client.get("/api/models").json()) == 1
 

@@ -9,7 +9,7 @@ import ModelTrainingSummary from './ModelTrainingSummary';
 import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
-import { profileConfiguration } from './gameSetupPreference';
+import { profileConfiguration } from './profileConfiguration';
 import SearchWrapper from './SearchWrapper';
 import { getLocale, t, useI18n } from './i18n';
 import type { AIProfile, Config, Game, Model, Ruleset } from './types';

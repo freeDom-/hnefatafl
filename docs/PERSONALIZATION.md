@@ -4,63 +4,27 @@
 
 ## Human profiles and history
 
-Each human side in **New game** has a player selector. Choose an existing profile
-or select the new-player option and enter a name. Switching to a new name clears
-the previous profile ID; a dropdown choice identifies the player by ID, not just name.
-
-Delete profiles in **Hall of records → Local players**. The confirmation explains
-that existing history remains. Deletion removes the profile from new-game selectors;
-saved games, results, replay, name and stable historical identity remain. A later
-profile using the same display name is a separate identity. Existing saved games
-can still be viewed and played. Starting another game from a record whose player
-was deleted requires choosing active players in a new game.
+New human seats are bound to the authenticated account, with its name shown in a
+compact card. Normal accounts create Human vs AI; administrators can also create
+AI vs AI. Pass-and-play, local-player selection/editing and local-player CRUD APIs
+are removed. Stored player IDs/tombstones remain compatibility data for historical
+game reads, statistics and runes; no historical data is deleted.
 
 ## AI configurations in the Hall of records
 
-The Hall opens with summary cards and a separate **Statistics** section. Detailed
-battlefield rates and player/AI performance appear before the saved-game list.
-**Recorded games** is collapsible and initially shows a short page of recent
-records; show more when needed. Shared filters apply to both history and statistics.
+[Dashboard and Hall](DASHBOARD.md) now share compact read-only recorded-game rows.
+Normal users browse participating online records; administrators can filter all
+server-recorded online and account-single-player games by category, player name,
+ruleset, lifecycle and result. Counts and category totals match the server filter.
+Selected validated review is independent of the current page/filter. Historical
+screenshots of the earlier statistics/Local players layout do not describe this UI.
 
-Click a column heading in either statistics table to sort ascending; click again
-to reverse the order. Rates, counts and averages sort numerically. The W/D/L
-column sorts by wins, then draws, then losses; the rate column uses the same
-win/draw/loss priority. Player performance opens with W/D/L descending, so the
-most wins appear first. Before a battlefield sort is chosen, boards stay in size order.
-Use **Filter players** to search player names and their visible AI summaries.
-Use **Filter recorded games** to find either participant by name. These two
-case-insensitive filters operate independently and do not change the overall
-summary cards or the global battlefield/mode/player-type filters.
-
-![Sortable statistics and compact AI rows before saved-game history](screenshots/sortable-records.png)
-
-See the [compact AI row on mobile](screenshots/compact-ai-mobile.png).
-
-See the [mobile dark view](screenshots/records-mobile.png) and the
-[model cleanup confirmation](screenshots/model-cleanup.png).
-
-Each record has a delete button. Confirmation permanently removes that game's
-moves and result. The statistics are recomputed from the remaining records,
-including completed counts, win/draw/loss rates and averages. Profiles, models and
-other games remain. Deleting the game currently open in this browser clears its
-local game selection. A changed record requires a fresh confirmation before deletion.
-
-Different effective AI configurations have separate records even when they share
-an opponent name or model. Each AI performance entry occupies one compact row,
-with its profile, algorithm and main search budget below its name. The parameter
-button to the left opens all saved settings without enlarging the table row.
-Expand **AI parameters** under a recorded game to inspect the actual algorithm and
-settings: depth, iteration/time budget, rollout depth, exploration, temperature,
-seed, evaluation and model ID as
-applicable. Compact summaries help distinguish opponents before opening details.
-
-Identity uses normalized effective settings, not the order of JSON fields. Omitted
-defaults and equivalent explicit defaults group together; different relevant parameter
-values remain separate, except that seed-only differences share one row. Each game
-retains its original seed; an aggregate row omits seed rather than implying a
-single experiment. Stale controls for a different algorithm do not create false
-variants. Historical explicit-algorithm games keep their original engine-default
-meaning rather than receiving a profile's different defaults retroactively.
+The existing account statistics API continues to group normalized effective AI
+configurations independently of seed. Different algorithms/budgets/models remain
+separate identities; individual games retain their actual seed and configuration.
+Account gameplay still supports its existing analytics/settings; read-only Hall
+review grants no analysis, export or mutation controls. Model cleanup below retains
+its existing explicit confirmation and authoritative reference checks.
 
 ## Models and suggested names
 
@@ -96,49 +60,32 @@ training seed say **Not recorded**.
 
 ## New-game opponents and seeds
 
-Every ordinary new game and restart receives a fresh random seed by default.
-The server saves the base seed with the game and derives AI decision seeds from
-that base and the current move number. Replay uses saved moves. A fixed seed can
-be supplied explicitly for a repeatable comparison; tight wall-clock limits can
-still change search completion across machines. Restart starts a fresh experiment
-with a new seed. Existing legacy records keep their previous seed semantics.
+Every new account game receives a server-generated random base seed. Restart is
+available for unfinished games created under the current policy, rechecks identity
+and role, resolves the preset again and uses a fresh seed. Historical setups remain
+readable/playable but cannot be cloned through Restart. Recorded moves remain the
+replay authority; old seed semantics are retained when reading existing games.
 
-When configuring an AI side, the new-game dialog preselects a compatible trained
-model using comparable evaluation results against the baseline. The ranking uses
-`(wins + draws / 2) / (wins + losses + draws + unfinished)`, so unfinished games
-receive no points. Larger samples break score ties, followed by deterministic
-date/ID ordering. Malformed reports and evaluations against a previous model
-are not treated as comparable strength evidence. If no model has a comparable
-evaluation, the newest compatible model is selected and described as a fallback.
-If no compatible model exists, a traditional opponent remains available. You can
-always change the suggested opponent; manual choices survive option refreshes.
+Account setup offers only Shield bearer, Shield maiden, Jarl and Seer, with friendly
+search-style explanations and time/depth/iteration limits. There is no benchmarked
+strength ranking in this dialog. Trained-model selection and full search settings
+remain in separate authorized advisor/training/tournament workflows; the shared
+profile catalog still includes neural models. Those workflows can retain their
+existing evidence-based model recommendation, without changing account setup.
 
-The ranking is a selection convenience based on saved evidence, not a claim that
-short smoke-trained models are strong. Per-game seeds remain inspectable in game
-and recorded-game parameters; seed-only differences share a performance row.
-
-New games and tournaments both suggest the strongest compatible model using the
-same evidence and fallback rules. Model dropdowns show saved iteration, planned
-iterations when known, network size and a short model ID to distinguish equal names.
-Tournament names are editable northern-mythology suggestions; reroll to find another.
-
-The complete last successfully created setup is saved in this browser under
-`hnefatafl-new-game-options`: battlefield, mode, human side and player choices,
-both AI profiles/models and search settings, fixed-seed switch and value.
-Advisor choices are saved per game through its Analytics section.
-Cancelling a dialog or a failed creation does not change it. Removed/incompatible
-models, deleted players and invalid stored settings fall back to valid options.
-The earlier mode-only preference is still read when no full setup is available.
-
-Selecting a trained model updates both its ID and display name. The two-sides
-panel uses the recorded model-name snapshot for older games whose display alias
-was stale; it does not change the actual weights or rewrite historical games.
+Only successful permitted setup preferences are saved at
+`hnefatafl-new-game-options` (version 2): battlefield, mode, human side and preset IDs.
+Older preferences contribute only this allowlisted subset; saved identities,
+models, custom settings and fixed seeds cannot restore removed creation options.
+Cancel/failure does not replace a successful preference, and unavailable browser
+storage does not prevent creation. Account/guest storage remains separate.
 
 ## Persistent runes and tournament names
 
-Players and models receive persistent unique runes. A model keeps the same rune
+Accounts and models receive persistent unique runes; historical local-player IDs
+retain their earlier assignments. A model keeps the same rune
 in dropdowns, its workshop card, either game side, advisor, analysis and records.
-Human profiles retain theirs after deletion. Assignments are never recycled;
+Retained human-profile tombstones keep their runes; no local-player CRUD is supported. Assignments are never recycled;
 after the 24 single Elder Futhark runes, unique combinations extend the catalog.
 See [IDENTITIES.md](IDENTITIES.md) for identity and migration details.
 

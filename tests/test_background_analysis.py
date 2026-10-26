@@ -5,6 +5,7 @@ import threading
 import time
 
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import historical_game
 import pytest
 
 from hnefatafl import ai
@@ -20,9 +21,7 @@ def client(tmp_path):
 
 
 def create(client, **options):
-    response = client.post("/api/games", json={"ruleset": "brandubh", "seed": 51, **options})
-    assert response.status_code == 201, response.text
-    return response.json()
+    return historical_game(client, **{"ruleset": "brandubh", "seed": 51, **options})
 
 
 def analyze(client, game):
@@ -464,12 +463,11 @@ def test_restart_does_not_reactivate_a_removed_legacy_advisor_model(client, tmp_
     settings(client, game, None)
     assert client.delete(f"/api/models/{model['id']}").status_code == 200
     restarted = client.post(f"/api/games/{game['id']}/restart", json={"version": 0})
-    assert restarted.status_code == 200, restarted.text
-    assert restarted.json()["analytics"]["advisor"] is None
+    assert restarted.status_code == 409  # Historical creation is no longer supported.
 
 
 def test_restart_retains_current_analytics_preferences_with_new_search_seed(client):
-    game = create(client)
+    game = client.post("/api/games", json={"ruleset": "brandubh"}).json()
     previous = settings(
         client,
         game,

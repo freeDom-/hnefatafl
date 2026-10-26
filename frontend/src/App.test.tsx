@@ -36,6 +36,7 @@ const rules = [
 ];
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value } as Response);
 beforeEach(() => {
+  history.replaceState(null, '', '/games/g1');
   localStorage.clear();
   localStorage.setItem('hnefatafl-game', 'g1');
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -56,8 +57,17 @@ function setup(
 ) {
   const fetcher = vi.fn((path: string, options?: RequestInit) => {
     if (path === '/api/rulesets') return json(rules);
-    if (path === '/api/ai/profiles' || path === '/api/players' || path === '/api/models')
-      return json([]);
+    if (path === '/api/ai/profiles')
+      return json([
+        {
+          id: 'baseline',
+          name: 'Shield bearer',
+          algorithm: 'baseline',
+          parameters: { time_limit: 1 },
+          supported_rulesets: ['tablut'],
+        },
+      ]);
+    if (path === '/api/models') return json([]);
     if (path === '/api/games/g1' && options?.method === 'GET') return json(game);
     if (path === '/api/games/g1/analytics')
       return json({ advisor: null, time_limit: 5, show_win_chances: true, revision: 0 });
@@ -118,6 +128,22 @@ describe('game flow', () => {
       ).toBe(true);
     },
   );
+  it('resumes saved unfinished computer play at its dedicated route', async () => {
+    const fetcher = setup(undefined, {
+      ...initial,
+      mode: 'human-ai',
+      players: {
+        ...initial.players,
+        attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
+      },
+    });
+    render(<App />);
+    await screen.findByRole('grid');
+    await waitFor(
+      () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
+      { timeout: 5000 },
+    );
+  });
   it('allows human moves while background analysis is still pending', async () => {
     const fetcher = setup(
       undefined,

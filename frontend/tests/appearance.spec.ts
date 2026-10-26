@@ -6,7 +6,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'To the table' }).click();
   const root = page.locator('html');
   const board = page.getByRole('grid', { name: 'tablut game board' });

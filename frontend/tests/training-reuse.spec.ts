@@ -40,7 +40,7 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
   });
   const sourceBefore = JSON.stringify(original.config);
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await selectWorkshopJob(page, original.id, name);

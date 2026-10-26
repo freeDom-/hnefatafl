@@ -123,6 +123,10 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
       }));
       controller?.abort();
     };
+    const visible = () => {
+      if (document.visibilityState === 'visible') wake();
+    };
+    document.addEventListener('visibilitychange', visible);
     window.addEventListener('focus', wake);
     window.addEventListener('online', wake);
     window.addEventListener('offline', offline);
@@ -134,6 +138,7 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
       controller?.abort();
       waiters.forEach((resolve) => resolve(null));
       waiters = [];
+      document.removeEventListener('visibilitychange', visible);
       window.removeEventListener('focus', wake);
       window.removeEventListener('online', wake);
       window.removeEventListener('offline', offline);

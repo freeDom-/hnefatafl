@@ -8,6 +8,7 @@ import time
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import stored_player, retired_player, historical_player
 
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.server import create_app
@@ -98,7 +99,7 @@ def test_real_balanced_tournament_retains_truncations_and_legal_replay(client):
 
 def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
     with TestClient(create_app(tmp_path)) as first:
-        player = first.post("/api/players", json={"name": "Astrid"}).json()
+        player = historical_player(first, "Astrid")
         game = first.post("/api/games", json={"ruleset": "brandubh"}).json()
         created = launch(first)
         saved = wait_for(first, created["id"], lambda row: row["status"] == "completed")
@@ -127,7 +128,7 @@ def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
         assert second.get(f"/api/tournaments/{created['id']}/games/0/replay").status_code == 404
         assert second.get(f"/api/tournaments/{other['id']}").json() == other
         assert second.get(f"/api/games/{game['id']}").json() == game
-        assert any(row["id"] == player["id"] for row in second.get("/api/players").json())
+        assert any(row["id"] == player["id"] for row in second.app.state.store.players())
 
 
 def test_completed_rule_outcomes_update_named_opponent_standings(client):
@@ -367,8 +368,8 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     store = Store(database)
     game = {"id": "history", "version": 0, "created_at": "2026-01-01", "moves": []}
     store.create_game(game)
-    store.create_player({"id": "retired", "name": "Freya", "created_at": "2026-01-01"})
-    store.delete_player("retired", "2026-01-02")
+    stored_player(store, {"id": "retired", "name": "Freya", "created_at": "2026-01-01"})
+    retired_player(store, "retired", "2026-01-02")
     store.archive_model({"id": "old-model", "name": "Eir"})
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE tournaments")

@@ -4,7 +4,7 @@ import type { Tournament } from '../src/tournamentTypes';
 const tournamentApi = 'http://127.0.0.1:8001/api/tournaments';
 
 async function openTournaments(page: Page) {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
 }
@@ -193,7 +193,7 @@ test('battlefield win matrices show directed wins and runes, and survive reload'
     .toBe(true);
 
   await page.reload();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expectWinMatrices(page, saved);
@@ -256,7 +256,7 @@ test('tournaments retain results, expose parameters and replay moves, and delete
   await expect(detail.getByRole('button', { name: 'Replay game 1', exact: true })).toBeVisible();
 
   await page.reload();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expect(detail.locator('.tournament-standing h3')).toHaveText([
@@ -383,7 +383,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   await expect(lastMatch).toContainText(recorded.config.players[last.attacker_player].name);
   await expect(lastMatch).toContainText(recorded.config.players[last.defender_player].name);
   await page.reload();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expect(detail.locator('.tournament-standing')).toHaveCount(4);

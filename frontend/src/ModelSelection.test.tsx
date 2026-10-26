@@ -1,8 +1,15 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import App, { NewGame } from './App';
+import App from './App';
 import { selectStrongestModel } from './modelSelection';
 import type { AIProfile, Game, Model, Ruleset } from './types';
+
+// Exercise App's retained training-cleanup callback; Hall is now read-only.
+vi.mock('./Training', () => ({
+  default: ({ onGamesDeleted }: { onGamesDeleted: (ids: string[]) => void }) => (
+    <button onClick={() => onGamesDeleted(['g1'])}>Discard fixture model games</button>
+  ),
+}));
 
 const model = (id: string, changes: Partial<Model> = {}): Model => ({
   id,
@@ -152,166 +159,20 @@ describe('model recommendations', () => {
   });
 });
 
-const setupProps = {
-  rulesets,
-  profiles,
-  models: [measured('weak', 1, 3), measured('strong', 3, 1)],
-  players: [],
-  onClose: vi.fn(),
-  onCreated: vi.fn(),
-};
-
-describe('new game defaults', () => {
-  it('configures all neural search wrappers without losing hidden search settings', async () => {
-    const fetcher = vi.fn((_path: string, _options?: RequestInit) => json(initial));
-    vi.stubGlobal('fetch', fetcher);
-    render(<NewGame {...setupProps} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-    const wrapper = screen.getByLabelText('Attackers search wrapper');
-    expect(wrapper).toHaveValue('mcts');
-    fireEvent.change(screen.getByLabelText('Search iterations'), { target: { value: '73' } });
-    fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.7' } });
-    fireEvent.change(wrapper, { target: { value: 'alpha_beta' } });
-    expect(screen.queryByLabelText('Search iterations')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Exploration')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Temperature')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Time limit (seconds)')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Search depth'), { target: { value: '4' } });
-    fireEvent.change(wrapper, { target: { value: 'none' } });
-    expect(screen.queryByLabelText('Search depth')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Time limit (seconds)')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Temperature')).toHaveValue(0.7);
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
-    expect(
-      JSON.parse(String(fetcher.mock.calls[0][1]?.body)).players.attackers.config,
-    ).toMatchObject({
-      algorithm: 'neural',
-      model_id: 'strong',
-      search_wrapper: 'none',
-      temperature: 0.7,
-    });
-    fireEvent.change(wrapper, { target: { value: 'mcts' } });
-    expect(screen.getByLabelText('Search iterations')).toHaveValue(73);
-    fireEvent.change(wrapper, { target: { value: 'alpha_beta' } });
-    expect(screen.getByLabelText('Search depth')).toHaveValue(4);
-    await waitFor(() => expect(screen.getByRole('button', { name: /To the table/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    expect(
-      JSON.parse(String(fetcher.mock.calls[1][1]?.body)).players.attackers.config,
-    ).toMatchObject({
-      algorithm: 'neural',
-      search_wrapper: 'alpha_beta',
-      depth: 4,
-    });
-    fireEvent.change(screen.getByLabelText('Attackers algorithm'), { target: { value: 'mcts' } });
-    expect(screen.queryByLabelText('Attackers search wrapper')).not.toBeInTheDocument();
-  });
-
-  it('preselects the best compatible model and omits inherited seeds unless explicitly fixed', async () => {
-    const fetcher = vi.fn((_path: string, _options?: RequestInit) => json(initial));
-    vi.stubGlobal('fetch', fetcher);
-    render(<NewGame {...setupProps} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-    expect(screen.getByRole('combobox', { name: 'Attackers algorithm' })).toHaveValue('neural');
-    expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue('strong');
-    expect(screen.getByText(/Best measured model selected: strong/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Game seed')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
-    const randomRequest = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
-    expect(randomRequest.seed).toBeUndefined();
-    expect(randomRequest.players.attackers.config.seed).toBeUndefined();
-    expect(randomRequest.players.attackers.config.model_id).toBe('strong');
-    await waitFor(() => expect(screen.getByRole('button', { name: /To the table/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Use a fixed seed' }));
-    fireEvent.change(screen.getByLabelText('Game seed'), { target: { value: '12345' } });
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).seed).toBe(12345);
-  });
-
-  it('removes an automatic neural model when a traditional profile or algorithm is chosen', async () => {
-    const fetcher = vi.fn((_path: string, _options?: RequestInit) => json(initial));
-    vi.stubGlobal('fetch', fetcher);
-    render(<NewGame {...setupProps} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Attackers AI profile' }), {
-      target: { value: 'alpha_beta' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
-    const profileRequest = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
-    expect(profileRequest.players.attackers.config).toEqual({
-      algorithm: 'alpha_beta',
-      depth: 5,
-      time_limit: 2,
-    });
-    await waitFor(() => expect(screen.getByRole('button', { name: /To the table/ })).toBeEnabled());
-    fireEvent.change(screen.getByRole('combobox', { name: 'Attackers AI profile' }), {
-      target: { value: '' },
-    });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Attackers algorithm' }), {
-      target: { value: 'neural' },
-    });
-    expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue('strong');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Attackers algorithm' }), {
-      target: { value: 'mcts' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    const customRequest = JSON.parse(String(fetcher.mock.calls[1][1]?.body));
-    expect(customRequest.players.attackers.config.algorithm).toBe('mcts');
-    expect(customRequest.players.attackers.config.model_id).toBeUndefined();
-  });
-
-  it('updates automatic choices when models arrive but preserves a manual choice until battlefield changes', () => {
-    const { rerender } = render(<NewGame {...setupProps} models={[]} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Human vs AI' }));
-    expect(screen.getByRole('combobox', { name: 'Attackers AI profile' })).toHaveValue('baseline');
-    expect(screen.queryByRole('combobox', { name: 'Attackers algorithm' })).not.toBeInTheDocument();
-    rerender(<NewGame {...setupProps} />);
-    expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue('strong');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Attackers AI profile' }), {
-      target: { value: 'baseline' },
-    });
-    const changedModels = [
-      ...setupProps.models,
-      measured('stronger', 10, 0),
-      measured('brandubh-model', 1, 1, { ruleset: 'brandubh' }),
-    ];
-    rerender(<NewGame {...setupProps} models={changedModels} />);
-    expect(screen.getByRole('combobox', { name: 'Attackers AI profile' })).toHaveValue('baseline');
-    fireEvent.click(screen.getByRole('radio', { name: /Brandubh/ }));
-    expect(screen.getByRole('combobox', { name: 'Attackers trained model' })).toHaveValue(
-      'brandubh-model',
-    );
-    fireEvent.change(screen.getByRole('combobox', { name: 'Your side' }), {
-      target: { value: 'attackers' },
-    });
-    expect(screen.getByRole('combobox', { name: 'Defenders trained model' })).toHaveValue(
-      'brandubh-model',
-    );
-  });
-});
-
-it('clears the current game when deleted and ignores its late in-flight move response', async () => {
+it('training cleanup clears the current game and ignores its late in-flight move response', async () => {
+  history.replaceState(null, '', '/games/g1');
   localStorage.setItem('hnefatafl-game', initial.id);
   let finish!: (response: Response) => void;
-  let deleted = false;
   vi.stubGlobal(
     'fetch',
-    vi.fn((path: string, options?: RequestInit) => {
+    vi.fn((path: string) => {
       if (path === '/api/rulesets') return json(rulesets);
       if (path === '/api/ai/profiles') return json(profiles);
       if (path === '/api/players' || path === '/api/models') return json([]);
-      if (options?.method === 'DELETE') {
-        deleted = true;
-        return json({ deleted: true, id: initial.id });
-      }
-      if (path.startsWith('/api/games?')) return json(deleted ? [] : [initial]);
-      if (path.startsWith('/api/stats?')) return json({ total_games: deleted ? 0 : 1 });
+      if (path.startsWith('/api/personal/')) return json({ games: [], totals: {}, overview: {} });
+      if (path.startsWith('/api/history/')) return json({ games: [], totals: [] });
+      if (path.startsWith('/api/online/games?')) return json({ games: [] });
+      if (path === '/api/online/availability') return json({ enabled: false, eligible: false });
       if (path === '/api/games/g1/moves')
         return new Promise<Response>((resolve) => {
           finish = resolve;
@@ -323,16 +184,11 @@ it('clears the current game when deleted and ignores its late in-flight move res
   render(<App />);
   fireEvent.click(await screen.findByRole('gridcell', { name: 'a3, attacker' }));
   fireEvent.click(screen.getByRole('gridcell', { name: 'b3, empty, legal move' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Hall of records' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Delete game g1' }));
-  fireEvent.click(
-    within(screen.getByRole('dialog', { name: 'Delete recorded game?' })).getByRole('button', {
-      name: 'Delete',
-    }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'AI workshop' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Discard fixture model games' }));
   await waitFor(() => expect(localStorage.getItem('hnefatafl-game')).toBeNull());
   await act(async () => finish(await json({ ...initial, version: 1 })));
-  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
-  expect(screen.getByRole('heading', { name: 'The king awaits.' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+  expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
   expect(screen.queryByRole('grid')).not.toBeInTheDocument();
 });

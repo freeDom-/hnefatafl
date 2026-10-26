@@ -15,6 +15,9 @@ import type {
   SideSelection,
 } from './onlineTypes';
 import { useOnlinePoll } from './useOnlinePoll';
+import ReplayControls from './ReplayControls';
+import Modal from './Modal';
+import { durationParts, moveSeconds } from './moveDuration';
 import './online.css';
 
 export const modeNames: Record<MatchMode, string> = {
@@ -203,7 +206,7 @@ function Admission({ availability }: { availability: Availability }) {
 function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => void }) {
   const { t } = useI18n();
   return (
-    <article className="online-card">
+    <article className="online-card" data-game-id={game.id}>
       <h3>
         {t(game.ruleset)} · {t(statuses[game.status])}
       </h3>
@@ -212,7 +215,7 @@ function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => v
       </p>
       <p>
         {t('Attackers')}: {game.participants.attackers?.name ?? t('Unassigned')}
-        <br />
+        {' · '}
         {t('Defenders')}: {game.participants.defenders?.name ?? t('Unassigned')}
       </p>
       <p>{t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}</p>
@@ -222,18 +225,53 @@ function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => v
     </article>
   );
 }
-function Lobby({ accountId, open }: { accountId: string; open: (id: string) => void }) {
+export function Lobby({
+  accountId,
+  open,
+  embedded = false,
+  creationRequested = 0,
+}: {
+  accountId: string;
+  open: (id: string) => void;
+  embedded?: boolean;
+  creationRequested?: number;
+}) {
   const { t } = useI18n();
-  const [mine, setMine] = useState(false);
+  const pageSize = embedded ? 10 : 25;
+  const [createOpen, setCreateOpen] = useState(
+    !embedded || new URLSearchParams(location.search).get('setup') === 'online',
+  );
+  const creationVisible = useRef(createOpen);
+  const closeCreation = () => {
+    creationVisible.current = false;
+    setCreateOpen(false);
+  };
+  useEffect(() => {
+    if (creationRequested) {
+      creationVisible.current = true;
+      setCreateOpen(true);
+    }
+  }, [creationRequested]);
+  const [mine, setMine] = useState(new URLSearchParams(location.search).get('mine') === 'true');
   const [offset, setOffset] = useState(0);
   const [intent, setIntent] = useState<CreationIntent | null>(() => restoreIntent(accountId));
   const intentRef = useRef(intent);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [rulesError, setRulesError] = useState('');
-  const [ruleset, setRuleset] = useState(intent?.ruleset ?? 'brandubh');
+  const [ruleset, setRuleset] = useState(
+    intent?.ruleset ??
+      (['brandubh', 'tablut', 'copenhagen'].includes(
+        new URLSearchParams(location.search).get('ruleset') ?? '',
+      )
+        ? new URLSearchParams(location.search).get('ruleset')!
+        : 'brandubh'),
+  );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
-  const [duration, setDuration] = useState(String(intent?.time_per_move ?? 259200));
+  const [parts] = useState(() => durationParts(intent?.time_per_move ?? 259200));
+  const [days, setDays] = useState(parts.days);
+  const [hours, setHours] = useState(parts.hours);
+  const [minutes, setMinutes] = useState(parts.minutes);
   const [validation, setValidation] = useState('');
   useEffect(() => {
     const controller = new AbortController();
@@ -258,7 +296,7 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
       const [availability, listing] = await Promise.all([
         api<Availability>('/online/availability', undefined, undefined, signal),
         api<OnlineListing>(
-          `/online/games?limit=25&offset=${offset}&mine=${mine}`,
+          `/online/games?limit=${pageSize}&offset=${offset}&mine=${mine}`,
           undefined,
           undefined,
           signal,
@@ -266,7 +304,7 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
       ]);
       return { availability, listing };
     },
-    [mine, offset],
+    [mine, offset, pageSize],
   );
   const poll = useOnlinePoll(`lobby:${accountId}:${mine}:${offset}`, load);
   const action = useOnlineAction(poll);
@@ -275,14 +313,11 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
   const create = (event: FormEvent) => {
     event.preventDefault();
     if (action.busy || !available) return;
-    const seconds = Number(duration);
-    if (
-      !/^\d+$/.test(duration) ||
-      !Number.isSafeInteger(seconds) ||
-      seconds < 60 ||
-      seconds > 1209600
-    ) {
-      setValidation('Use a whole number of seconds from 60 to 1209600.');
+    let seconds: number;
+    try {
+      seconds = intentRef.current?.time_per_move ?? moveSeconds(days, hours, minutes);
+    } catch (error) {
+      setValidation((error as Error).message);
       return;
     }
     setValidation('');
@@ -299,102 +334,149 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
     void action.run('/online/games', payload, (response) => {
       if (response.action_accepted && response.transition === 'created') {
         rememberIntent(accountId, null);
-        open(response.game.id);
+        intentRef.current = null;
+        setIntent(null);
+        if (creationVisible.current) open(response.game.id);
       }
     });
   };
   return (
-    <section className="online-page">
-      <div className="page-intro">
-        <div>
-          <h1>{t('Online lobby')}</h1>
-          <p>{t('Play another person. Every move is confirmed by the server.')}</p>
+    <section className="panel dashboard-lobby" aria-label={t('Online lobby')}>
+      <h2>{t('Online lobby')}</h2>
+      {poll.phase === 'loading' && <p role="status">{t('Loading online games…')}</p>}
+      {poll.phase === 'stale' && (
+        <div role="alert" className="online-notice">
+          <p>{t('Lobby data is stale. Reconnecting…')}</p>
+          <button className="button secondary" onClick={() => void poll.refresh()}>
+            {t('Retry connection')}
+          </button>
         </div>
-      </div>
-      <Health phase={poll.phase} error={poll.error} refresh={poll.refresh} />
+      )}
+      {!createOpen && <Notice value={action.notice} />}
+      {intent && !createOpen && (
+        <button
+          className="button secondary"
+          onClick={() => {
+            creationVisible.current = true;
+            setCreateOpen(true);
+          }}
+        >
+          {t('Review retained creation request')}
+        </button>
+      )}
       {poll.data && <Admission availability={poll.data.availability} />}
-      <div className="online-lobby-layout">
-        <section className="panel online-create">
-          <h2>{t('Create an online game')}</h2>
-          <form onSubmit={create}>
-            <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
-              <label>
-                {t('Ruleset')}
-                <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
-                  {rulesets.map((r) => (
-                    <option value={r.id} key={r.id}>
-                      {t(r.name)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Creator side')}
-                <select value={side} onChange={(e) => setSide(e.target.value as SideSelection)}>
-                  {Object.entries(sideNames).map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {t(label)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Match mode')}
-                <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
-                  {Object.entries(modeNames).map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {t(label)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Seconds per move')}
-                <input
-                  value={duration}
-                  inputMode="numeric"
-                  onChange={(e) => setDuration(e.target.value)}
-                  required
-                />
-              </label>
-              <p>
-                {t(
-                  '60–1209600 seconds. Both players receive a fresh allowance after each accepted move.',
-                )}
-              </p>
-            </fieldset>
-            {validation && <p role="alert">{t(validation)}</p>}
-            {rulesError && <p role="alert">{t(rulesError)}</p>}
+      <div className="online-lobby-layout lobby-discovery">
+        {createOpen && (
+          <Modal title={t('Create an online game')} onClose={closeCreation} initialFocus="select">
+            <form onSubmit={create} className="new-game-form online-create">
+              <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
+                <legend>{t('Choose your online game')}</legend>
+                <label>
+                  {t('Ruleset')}
+                  <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
+                    {rulesets.map((r) => (
+                      <option value={r.id} key={r.id}>
+                        {t(r.name)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('Creator side')}
+                  <select value={side} onChange={(e) => setSide(e.target.value as SideSelection)}>
+                    {Object.entries(sideNames).map(([value, label]) => (
+                      <option value={value} key={value}>
+                        {t(label)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('Match mode')}
+                  <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
+                    {Object.entries(modeNames).map(([value, label]) => (
+                      <option value={value} key={value}>
+                        {t(label)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <fieldset className="move-duration">
+                  <legend>{t('Time allowed per move')}</legend>
+                  <div className="form-grid">
+                    {(
+                      [
+                        ['Days', days, setDays, 14],
+                        ['Hours', hours, setHours, 23],
+                        ['Minutes', minutes, setMinutes, 59],
+                      ] as const
+                    ).map(([label, value, change, max]) => (
+                      <label key={label}>
+                        {t(label)}
+                        <input
+                          type="number"
+                          min={0}
+                          max={max}
+                          step={1}
+                          required
+                          value={value}
+                          onChange={(event) => change(event.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p>
+                    {t(
+                      'At least 1 minute, at most 14 days in total. Each accepted move renews the allowance.',
+                    )}
+                  </p>
+                </fieldset>
+              </fieldset>
+              {validation && <p role="alert">{t(validation)}</p>}
+              {rulesError && <p role="alert">{t(rulesError)}</p>}
+              {intent && intent.time_per_move % 60 !== 0 && (
+                <p role="status">
+                  {t(
+                    'This retained request uses exactly {seconds} seconds per move. Retrying keeps that value.',
+                    { seconds: intent.time_per_move },
+                  )}
+                </p>
+              )}
+              {intent && (
+                <p role="status">
+                  {t(
+                    'Request retained. Check My games before deliberately retrying the same request. A conflict can mean it already committed.',
+                  )}
+                </p>
+              )}
+              <div className="modal-actions">
+                <button type="button" className="button secondary" onClick={closeCreation}>
+                  {t('Cancel')}
+                </button>
+                <button
+                  className="button primary"
+                  disabled={action.busy || !available || !rulesets.length}
+                >
+                  {t(intent ? 'Retry retained request' : 'Create game')}
+                </button>
+              </div>
+            </form>
             {intent && (
-              <p role="status">
-                {t(
-                  'Request retained. Check My games before deliberately retrying the same request. A conflict can mean it already committed.',
-                )}
-              </p>
+              <button
+                className="button secondary"
+                disabled={action.busy}
+                onClick={() => {
+                  rememberIntent(accountId, null);
+                  intentRef.current = null;
+                  setIntent(null);
+                }}
+              >
+                {t('Discard request after checking My games')}
+              </button>
             )}
-            <button
-              className="button primary"
-              disabled={action.busy || !available || !rulesets.length}
-            >
-              {t(intent ? 'Retry retained request' : 'Create game')}
-            </button>
-          </form>
-          {intent && (
-            <button
-              className="button secondary"
-              disabled={action.busy}
-              onClick={() => {
-                rememberIntent(accountId, null);
-                intentRef.current = null;
-                setIntent(null);
-              }}
-            >
-              {t('Discard request after checking My games')}
-            </button>
-          )}
-          <Notice value={action.notice} />
-          <p>{t('Disconnecting, closing the browser or logging out does not pause clocks.')}</p>
-        </section>
+            <Notice value={action.notice} />
+          </Modal>
+        )}
         <section className="online-games">
           <h2>{t(mine ? 'My games' : 'Visible games')}</h2>
           <div className="online-toolbar">
@@ -431,20 +513,20 @@ function Lobby({ accountId, open }: { accountId: string; open: (id: string) => v
             <button
               className="button secondary"
               disabled={action.busy || offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - 25))}
+              onClick={() => setOffset(Math.max(0, offset - pageSize))}
             >
               {t('Previous page')}
             </button>
-            <span>{t('Page {page}', { page: offset / 25 + 1 })}</span>
+            <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
             <button
               className="button secondary"
               disabled={
                 action.busy ||
                 poll.phase !== 'ready' ||
-                (poll.data?.listing.games.length ?? 0) < 25 ||
-                offset + 25 > 100000
+                (poll.data?.listing.games.length ?? 0) < pageSize ||
+                offset + pageSize > 100000
               }
-              onClick={() => setOffset(offset + 25)}
+              onClick={() => setOffset(offset + pageSize)}
             >
               {t('Next page')}
             </button>
@@ -505,28 +587,33 @@ function GameRoom({
   accountId,
   open,
   lobby,
+  reviewOnly = false,
 }: {
   id: string;
   accountId: string;
   open: (id: string) => void;
   lobby: () => void;
+  reviewOnly?: boolean;
 }) {
   const { t } = useI18n();
   const { account } = useAuth();
+  const prefix = reviewOnly ? '/personal/online' : '/online/games';
   const load = useCallback(
     async (signal: AbortSignal) => {
       const [game, availability] = await Promise.all([
-        api<OnlineGame>(`/online/games/${id}`, undefined, undefined, signal),
-        api<Availability>('/online/availability', undefined, undefined, signal),
+        api<OnlineGame>(`${prefix}/${id}`, undefined, undefined, signal),
+        reviewOnly
+          ? Promise.resolve({ enabled: false, eligible: false } as Availability)
+          : api<Availability>('/online/availability', undefined, undefined, signal),
       ]);
       const siblings = await Promise.all(
         game.match.games
           .filter((item) => item.id !== id)
-          .map((item) => api<OnlineGame>(`/online/games/${item.id}`, undefined, undefined, signal)),
+          .map((item) => api<OnlineGame>(`${prefix}/${item.id}`, undefined, undefined, signal)),
       );
       return { game, availability, siblings };
     },
-    [id],
+    [id, prefix, reviewOnly],
   );
   const poll = useOnlinePoll(`game:${accountId}:${id}`, load);
   const action = useOnlineAction(poll);
@@ -561,13 +648,14 @@ function GameRoom({
   const ready = poll.phase === 'ready' && !action.busy && !replayBusy;
   const mayAct =
     !!game &&
+    !reviewOnly &&
     ready &&
     game.status === 'active' &&
     ownSide === game.position.turn &&
     account?.permissions.includes('play') &&
     cursor === null;
   const submit = (name: string, extra: Record<string, number> = {}) => {
-    if (!game || !ready) return;
+    if (reviewOnly || !game || !ready) return;
     setSelected(null);
     setConfirm(false);
     void action.run(
@@ -601,7 +689,7 @@ function GameRoom({
     setReplayError('');
     try {
       const value = await api<OnlineReplay>(
-        `/online/games/${id}/replay`,
+        `${prefix}/${id}/replay`,
         undefined,
         undefined,
         controller.signal,
@@ -623,17 +711,21 @@ function GameRoom({
       }
     }
   };
+  useEffect(() => {
+    if (reviewOnly && game) void viewReplay();
+  }, [reviewOnly, game?.id]);
   const position = cursor !== null && replay ? replay.states[cursor] : game?.position;
   return (
     <section className="online-page">
       <button className="button" onClick={lobby}>
-        {t('Back to online lobby')}
+        {t(reviewOnly ? 'Back to dashboard' : 'Back to online lobby')}
       </button>
-      <h1 tabIndex={-1}>{t('Online game')}</h1>
+      <h1 tabIndex={-1}>{t(reviewOnly ? 'Online game review' : 'Online game')}</h1>
+      {reviewOnly && <p>{t('Read-only review. Replay controls change only your view.')}</p>}
       <Health phase={poll.phase} error={poll.error} refresh={poll.refresh} />
       {game && position && (
         <>
-          <Admission availability={poll.data!.availability} />
+          {!reviewOnly && <Admission availability={poll.data!.availability} />}
           <div className="online-toolbar">
             <span>{t(modeNames[game.match.mode])}</span>
             <span>
@@ -696,11 +788,13 @@ function GameRoom({
               />
               <p>
                 {t(
-                  mayAct
-                    ? 'Select your piece, then an empty destination. The server checks the move.'
-                    : ownSide
-                      ? 'Waiting for your turn or server confirmation.'
-                      : 'You are viewing this game. Only the seated player whose turn it is may act.',
+                  reviewOnly
+                    ? 'Read-only review. Replay controls change only your view.'
+                    : mayAct
+                      ? 'Select your piece, then an empty destination. The server checks the move.'
+                      : ownSide
+                        ? 'Waiting for your turn or server confirmation.'
+                        : 'You are viewing this game. Only the seated player whose turn it is may act.',
                 )}
               </p>
               <div className="online-toolbar">
@@ -713,29 +807,22 @@ function GameRoom({
                 </button>
                 {cursor !== null && replay && (
                   <>
-                    <button
-                      className="button secondary"
-                      disabled={cursor === 0}
-                      onClick={() => setCursor(Math.max(0, cursor - 1))}
-                    >
-                      {t('Previous move')}
-                    </button>
-                    <button
-                      className="button secondary"
-                      disabled={cursor >= replay.states.length - 1}
-                      onClick={() => setCursor(Math.min(replay.states.length - 1, cursor + 1))}
-                    >
-                      {t('Next move')}
-                    </button>
-                    <button
-                      className="button secondary"
-                      onClick={() => {
-                        setCursor(null);
-                        setSelected(null);
-                      }}
-                    >
-                      {t('Return to live board')}
-                    </button>
+                    <ReplayControls
+                      cursor={cursor}
+                      length={replay.states.length}
+                      onChange={setCursor}
+                    />
+                    {!reviewOnly && (
+                      <button
+                        className="button secondary"
+                        onClick={() => {
+                          setCursor(null);
+                          setSelected(null);
+                        }}
+                      >
+                        {t('Return to live board')}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -760,9 +847,14 @@ function GameRoom({
                   )}
                 </p>
               )}
+              {reviewOnly && (
+                <p>
+                  {t('Lifecycle')}: {t(statuses[game.status])}
+                </p>
+              )}
               <Result game={game} />
               <Deadline game={game} />
-              {game.status === 'waiting' && game.creator_id !== accountId && (
+              {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
                 <button
                   className="button primary"
                   disabled={
@@ -773,7 +865,7 @@ function GameRoom({
                   {t('Join game')}
                 </button>
               )}
-              {game.status === 'waiting' && game.creator_id === accountId && (
+              {!reviewOnly && game.status === 'waiting' && game.creator_id === accountId && (
                 <button className="button" disabled={!ready} onClick={() => submit('cancel')}>
                   {t('Cancel waiting game')}
                 </button>
@@ -829,21 +921,23 @@ export default function Online() {
   const navigate = (next: string) => {
     if (next !== location.pathname) history.pushState(null, '', next);
     setPath(next);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
   useEffect(() => {
     heading.current?.focus();
   }, [path]);
   if (!account) return null;
-  const match = /^\/online\/games\/(online-[0-9a-f]{32})$/.exec(path);
+  const match = /^\/online\/games\/(online-[0-9a-f]{32})(\/review)?$/.exec(path);
   return (
     <div ref={heading} tabIndex={-1} className="online-root">
       {match ? (
         <GameRoom
-          key={`${account.id}:${match[1]}`}
+          key={`${account.id}:${match[1]}:${!!match[2]}`}
           id={match[1]}
           accountId={account.id}
-          open={(id) => navigate(`/online/games/${id}`)}
-          lobby={() => navigate('/online')}
+          reviewOnly={!!match[2]}
+          open={(id) => navigate(`/online/games/${id}${match[2] ? '/review' : ''}`)}
+          lobby={() => navigate('/dashboard')}
         />
       ) : (
         <Lobby

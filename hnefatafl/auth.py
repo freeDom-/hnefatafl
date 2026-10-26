@@ -316,8 +316,14 @@ grant(
     "/api/ai/profiles",
     "/api/models",
     "/api/games",
-    "/api/players",
     "/api/stats",
+    "/api/personal/single-player",
+    "/api/personal/single-player/{game_id}/replay",
+    "/api/personal/online",
+    "/api/personal/online/{game_id}",
+    "/api/personal/online/{game_id}/replay",
+    "/api/history/games",
+    "/api/history/{category}/{game_id}/replay",
     "/api/games/{game_id}",
     "/api/games/{game_id}/analytics",
     "/api/games/{game_id}/replay",
@@ -326,7 +332,6 @@ grant(
     "play",
     "POST",
     "/api/games",
-    "/api/players",
     *(
         f"/api/games/{{game_id}}/{action}"
         for action in ("analysis", "moves", "ai-move", "seek", "undo", "redo", "restart")
@@ -355,7 +360,7 @@ grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
 grant("play", "GET", "/api/online/availability")
 grant("accounts", "PATCH", "/api/online/timeout-gate")
-grant("play", "DELETE", "/api/games/{game_id}", "/api/players/{player_id}")
+grant("play", "DELETE", "/api/games/{game_id}")
 grant(
     "tournaments",
     "GET",
@@ -513,7 +518,12 @@ class SecurityBoundary:
                 response = (
                     JSONResponse({"detail": "Authentication required"}, 401)
                     if path.startswith("/api")
-                    else RedirectResponse("/login?next=" + quote(path, safe=""))
+                    else RedirectResponse(
+                        "/login?next="
+                        + quote(
+                            path + ("?" + request.url.query if request.url.query else ""), safe=""
+                        )
+                    )
                 )
                 return await response(scope, receive, send)
             if not allowed(account, permission):

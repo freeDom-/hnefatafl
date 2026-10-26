@@ -67,6 +67,12 @@ beforeEach(() => {
   fetcher.mockClear();
   vi.stubGlobal('fetch', fetcher);
   setLanguage('en', false);
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
 });
 afterEach(() => {
   cleanup();
@@ -83,10 +89,15 @@ it.each(
 )('creates with side %s and mode %s using only the contract payload', async (side, mode) => {
   lobby();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+  expect(
+    screen.queryByText('Disconnecting, closing the browser or logging out does not pause clocks.'),
+  ).toBeNull();
   fireEvent.change(screen.getByLabelText('Creator side'), { target: { value: side } });
   fireEvent.change(screen.getByLabelText('Match mode'), { target: { value: mode } });
   fireEvent.change(screen.getByLabelText('Ruleset'), { target: { value: 'tablut' } });
-  fireEvent.change(screen.getByLabelText('Seconds per move'), { target: { value: '3600' } });
+  fireEvent.change(screen.getByLabelText('Days'), { target: { value: '0' } });
+  fireEvent.change(screen.getByLabelText('Hours'), { target: { value: '1' } });
+  fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '0' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
   await screen.findByRole('heading', { name: 'Online game' });
   const post = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')!;
@@ -343,4 +354,90 @@ it('retains the submitted creation ID when two submit events arrive before rende
     reject(new TypeError('Connection lost after submit'));
   });
   await screen.findByText(/The outcome is uncertain/);
+});
+
+it('opens personal review with scoped reads only, effective void status and local replay controls', async () => {
+  current = {
+    ...fixture.moved,
+    status: 'voided',
+    result: {
+      ...fixture.timeout_response.game.result,
+      winner: null,
+      termination_reason: 'administrative_void',
+      competitive_eligible: false,
+    },
+  } as OnlineGame;
+  history.replaceState(null, '', `/online/games/${current.id}/review`);
+  render(<Online />);
+  await screen.findByRole('heading', { name: 'Online game review' });
+  await screen.findByText('Historical replay · read only');
+  expect(screen.getByText('Lifecycle: Voided')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
+  expect(screen.getByText('Move 1 of 1')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Concede' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Return to live board' })).toBeNull();
+  expect(
+    fetcher.mock.calls.every(
+      ([path, opts]) => path.startsWith('/api/personal/online/') && opts?.method !== 'POST',
+    ),
+  ).toBe(true);
+});
+
+it('replaces inline creation with the shared modal and closes it on Escape or Cancel', async () => {
+  history.replaceState(null, '', '/dashboard');
+  const { Lobby } = await import('./Online');
+  const view = render(
+    <Lobby accountId={identity.id} open={vi.fn()} embedded creationRequested={0} />,
+  );
+  await screen.findByRole('heading', { name: 'Online lobby' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  expect(screen.queryByText('Connected · refreshes automatically')).toBeNull();
+  view.rerender(<Lobby accountId={identity.id} open={vi.fn()} embedded creationRequested={1} />);
+  const dialog = await screen.findByRole('dialog', { name: 'Create an online game' });
+  expect(screen.getByLabelText('Ruleset')).toHaveFocus();
+  fireEvent(dialog, new Event('cancel', { cancelable: true, bubbles: true }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  view.rerender(<Lobby accountId={identity.id} open={vi.fn()} embedded creationRequested={2} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+it('retries a retained 61-second creation intent exactly without truncation to a minute', async () => {
+  const payload = {
+    request_id: crypto.randomUUID(),
+    ruleset: 'brandubh',
+    side_selection: 'random',
+    mode: 'single',
+    time_per_move: 61,
+  };
+  sessionStorage.setItem(
+    'hnefatafl-online-intent',
+    JSON.stringify({ account_id: identity.id, payload }),
+  );
+  lobby();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
+  );
+  expect(screen.getByText(/uses exactly 61 seconds per move/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
+  await screen.findByRole('heading', { name: 'Online game' });
+  expect(
+    JSON.parse(String(fetcher.mock.calls.find(([, o]) => o?.method === 'POST')![1]?.body)),
+  ).toEqual(payload);
+});
+it.each([
+  ['0', '0', '0'],
+  ['14', '0', '1'],
+])('rejects the invalid combined duration %s/%s/%s before posting', async (d, h, m) => {
+  lobby();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+  for (const [label, value] of [
+    ['Days', d],
+    ['Hours', h],
+    ['Minutes', m],
+  ])
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  fireEvent.submit(screen.getByRole('button', { name: 'Create game' }).closest('form')!);
+  await screen.findByRole('alert');
+  expect(fetcher.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false);
 });

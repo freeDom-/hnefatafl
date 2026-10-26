@@ -1,34 +1,25 @@
+import SiteHeader from './SiteHeader';
+import NewGame from './NewGame';
 import { localizedRules } from './locales/rules-de';
-import { t, useI18n, LanguageSelect, getLocale } from './i18n';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { t, useI18n } from './i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate, Crown } from './Board';
 import { api } from './api';
-import type { AIProfile, Game, Mode, Model, Player, PlayerConfig, Ruleset, Side } from './types';
+import type { AIProfile, Game, Model, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
 import Tournaments from './Tournaments';
-import { AppearanceSettings } from './Appearance';
-import { sortRulesets } from './sortRulesets';
-import {
-  defaultAI,
-  restoreGameSetup,
-  rememberGameSetup,
-  withoutSeed,
-  profileConfiguration,
-} from './gameSetupPreference';
-import { selectStrongestModel } from './modelSelection';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
-import { modelLabel } from './modelLabel';
-import SearchWrapper from './SearchWrapper';
 import Online from './Online';
 import Modal from './Modal';
-import { surfaceLink } from './surfaceNavigation';
+import PersonalDashboard from './PersonalDashboard';
 import { useAuth } from './Auth';
+import { canonicalLocation, navigate } from './navigation';
 
-type Tab = 'online' | 'play' | 'archive' | 'training' | 'tournaments';
+type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const sideGlyph = (side: Side) => (
   <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
@@ -38,40 +29,26 @@ export default function App() {
   useI18n();
   const { account, logout } = useAuth();
   const permissions = account?.permissions ?? [];
-  const [tab, setTab] = useState<Tab>(() =>
-    location.pathname.startsWith('/online')
-      ? 'online'
-      : location.pathname === '/training' && permissions.includes('training')
-        ? 'training'
-        : location.pathname === '/tournaments' && permissions.includes('tournaments')
-          ? 'tournaments'
-          : 'play',
-  );
+  const [path, setPath] = useState(canonicalLocation);
+  const tab: Tab = path.startsWith('/online/games/')
+    ? 'online'
+    : path.startsWith('/games/')
+      ? 'play'
+      : path.split('?')[0] === '/archive'
+        ? 'archive'
+        : path.startsWith('/training') && permissions.includes('training')
+          ? 'training'
+          : path.startsWith('/tournaments') && permissions.includes('tournaments')
+            ? 'tournaments'
+            : 'dashboard';
   useEffect(() => {
-    if ((tab === 'training' || tab === 'tournaments') && !permissions.includes(tab)) setTab('play');
-  }, [tab, account?.permissions]);
-  useEffect(() => {
-    const changed = () => {
-      const path = location.pathname;
-      setTab(
-        path.startsWith('/online')
-          ? 'online'
-          : path === '/archive'
-            ? 'archive'
-            : path === '/training' && permissions.includes('training')
-              ? 'training'
-              : path === '/tournaments' && permissions.includes('tournaments')
-                ? 'tournaments'
-                : 'play',
-      );
-    };
+    const changed = () => setPath(canonicalLocation());
     window.addEventListener('popstate', changed);
     return () => window.removeEventListener('popstate', changed);
-  }, [account?.permissions]);
+  }, []);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
   const [game, setGame] = useState<Game | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -82,43 +59,77 @@ export default function App() {
   const [speed, setSpeed] = useState(900);
   const [initializing, setInitializing] = useState(true);
   const aiLock = useRef(false);
-  const initialized = useRef(false);
+
   const currentGame = useRef<Game | null>(null);
+  const loadedRoute = useRef<string | null>(null);
   currentGame.current = game;
   const analysis = useGameAnalysis(game, tab === 'play');
 
   const refreshOptions = useCallback(async () => {
-    const [rules, ais, people, savedModels] = await Promise.all([
+    const [rules, ais, savedModels] = await Promise.all([
       api<Ruleset[]>('/rulesets'),
       api<AIProfile[]>('/ai/profiles'),
-      api<Player[]>('/players'),
       api<Model[]>('/models'),
     ]);
     setRulesets(rules);
     setProfiles(ais);
-    setPlayers(people);
     setModels(savedModels);
     return rules;
   }, []);
-  useEffect(() => {
-    if (initialized.current || tab === 'online') return;
-    initialized.current = true;
-    refreshOptions()
-      .then(async (rules) => {
-        const storedId = localStorage.getItem('hnefatafl-game');
-        if (storedId) {
-          try {
-            setGame(await api<Game>(`/games/${storedId}`));
-            return;
-          } catch {
-            localStorage.removeItem('hnefatafl-game');
-          }
-        }
-        if (rules.length) setNewOpen(true);
+  const startSinglePlayer = useCallback(() => {
+    void Promise.all([api<Ruleset[]>('/rulesets'), api<AIProfile[]>('/ai/profiles')])
+      .then(([rules, ais]) => {
+        setRulesets(rules);
+        setProfiles(ais);
+        setNewOpen(true);
       })
-      .catch((e) => setError(String(e.message)))
-      .finally(() => setInitializing(false));
-  }, [refreshOptions, tab]);
+      .catch((e) => setError(e.message));
+  }, []);
+  useEffect(() => {
+    if (
+      tab === 'dashboard' &&
+      new URLSearchParams(location.search).get('setup') === 'single-player'
+    )
+      startSinglePlayer();
+  }, [path, tab, startSinglePlayer]);
+  useEffect(() => {
+    if (tab === 'training' || tab === 'tournaments')
+      void refreshOptions().catch((e) => setError(e.message));
+  }, [tab, refreshOptions]);
+  useEffect(() => {
+    const match = /^\/games\/((?!online-)[A-Za-z0-9_-]{1,100})$/.exec(path.split('?')[0]);
+    if (!match) {
+      loadedRoute.current = null;
+      return;
+    }
+    if (loadedRoute.current === match[1] && currentGame.current?.id === match[1]) return;
+    loadedRoute.current = match[1];
+    let alive = true;
+    const controller = new AbortController();
+    currentGame.current = null;
+    setGame(null);
+    setInitializing(true);
+    void Promise.all([
+      refreshOptions(),
+      api<Game>(`/games/${match[1]}`, undefined, undefined, controller.signal),
+    ])
+      .then(([, saved]) => {
+        if (alive) {
+          setGame(saved);
+          setSelected(null);
+        }
+      })
+      .catch((e) => {
+        if (alive) setError(e.message);
+      })
+      .finally(() => {
+        if (alive) setInitializing(false);
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [path, refreshOptions]);
   useEffect(() => {
     if (game) localStorage.setItem('hnefatafl-game', game.id);
   }, [game?.id]);
@@ -136,6 +147,10 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
+        if (next.id !== active.id) {
+          loadedRoute.current = next.id;
+          navigate(`/games/${next.id}`);
+        }
         setSelected(null);
       }
     } catch (e) {
@@ -183,14 +198,6 @@ export default function App() {
         : null,
     );
   };
-  const loadGame = (saved: Game) => {
-    currentGame.current = saved;
-    setGame(saved);
-    setSelected(null);
-    setPaused(true);
-    setTab('play');
-    setError('');
-  };
   const removeGames = useCallback((ids: string[]) => {
     if (!currentGame.current || !ids.includes(currentGame.current.id)) return;
     // Invalidate the ref before any in-flight move can restore the removed game.
@@ -206,71 +213,7 @@ export default function App() {
 
   return (
     <>
-      <header className="site-header">
-        <a
-          className="brand"
-          href="#play"
-          onClick={(event) => {
-            event.preventDefault();
-            setTab('play');
-          }}
-        >
-          <span className="brand-emblem">
-            <Crown />
-          </span>
-          <span>
-            {t('HNEFATAFL')}
-            <small>{t('THE KING’S TABLE')}</small>
-          </span>
-        </a>
-        <nav aria-label={t('Main navigation')}>
-          {(['play', 'online', 'archive', 'training', 'tournaments'] as Tab[])
-            .filter(
-              (item) =>
-                (item !== 'training' && item !== 'tournaments') || permissions.includes(item),
-            )
-            .map((item) => (
-              <button
-                type="button"
-                key={item}
-                onClick={() => {
-                  if (item === 'online') history.pushState(null, '', '/online');
-                  else if (location.pathname.startsWith('/online'))
-                    history.pushState(null, '', item === 'play' ? '/' : `/${item}`);
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                  setTab(item);
-                  if (item === 'tournaments')
-                    void refreshOptions().catch((e) => setError(e.message));
-                }}
-                className={tab === item ? 'active' : ''}
-                aria-current={tab === item ? 'page' : undefined}
-              >
-                {item === 'play'
-                  ? t('Play')
-                  : item === 'online'
-                    ? t('Online')
-                    : item === 'archive'
-                      ? t('Hall of records')
-                      : item === 'training'
-                        ? t('AI workshop')
-                        : t('Tournaments')}
-              </button>
-            ))}
-        </nav>
-        <div className="header-controls">
-          <a className="button small secondary" href="/guest" onClick={surfaceLink}>
-            {t('Guest play')}
-          </a>
-          <span className="account-name" title={account?.username}>
-            {account?.username}
-          </span>
-          <button className="button small secondary" type="button" onClick={() => void logout()}>
-            {t('Log out')}
-          </button>
-          <LanguageSelect />
-          <AppearanceSettings />
-        </div>
-      </header>
+      <SiteHeader account={account} logout={logout} current={tab} />
       <main>
         {error && (
           <div role="alert" className="error-banner">
@@ -280,6 +223,7 @@ export default function App() {
             </button>
           </div>
         )}
+        {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
         {tab === 'play' && (
           <>
             <section className="page-intro">
@@ -498,20 +442,23 @@ export default function App() {
                         ? t('A new saga is one move away.')
                         : t('Move in straight lines. Capture by surrounding.')}
                     </span>
-                    {!game.winner && !game.recorded_winner && (
-                      <button
-                        className="icon-button"
-                        aria-label={t('Restart game')}
-                        title={t('Restart')}
-                        onClick={() => {
-                          setPaused(true);
-                          void action('restart');
-                        }}
-                        disabled={busy}
-                      >
-                        ⟲
-                      </button>
-                    )}
+                    {!game.winner &&
+                      !game.recorded_winner &&
+                      game.creation_policy === 1 &&
+                      (game.mode !== 'ai-ai' || account?.permissions.includes('all_data')) && (
+                        <button
+                          className="icon-button"
+                          aria-label={t('Restart game')}
+                          title={t('Restart')}
+                          onClick={() => {
+                            setPaused(true);
+                            void action('restart');
+                          }}
+                          disabled={busy}
+                        >
+                          ⟲
+                        </button>
+                      )}
                   </div>
                   {game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
                     <div className="playback">
@@ -625,16 +572,7 @@ export default function App() {
           </>
         )}
         {tab === 'online' && <Online />}
-        {tab === 'archive' && (
-          <Archive
-            rulesets={rulesets}
-            onLoad={loadGame}
-            onError={setError}
-            players={players}
-            refreshPlayers={() => void refreshOptions().catch((e) => setError(e.message))}
-            onGameDeleted={(id) => removeGames([id])}
-          />
-        )}
+        {tab === 'archive' && <Archive />}
         {tab === 'tournaments' && permissions.includes('tournaments') && (
           <Tournaments rulesets={rulesets} profiles={profiles} models={models} onError={setError} />
         )}
@@ -657,17 +595,20 @@ export default function App() {
         <NewGame
           rulesets={rulesets}
           profiles={profiles}
-          models={models}
-          players={players}
-          initialRuleset={game?.ruleset}
+          initialRuleset={
+            rulesets.find((rule) => rule.id === new URLSearchParams(location.search).get('ruleset'))
+              ?.id ?? game?.ruleset
+          }
           onClose={() => setNewOpen(false)}
           onCreated={(next) => {
             currentGame.current = next;
+            loadedRoute.current = next.id;
             setGame(next);
             setSelected(null);
             setPaused(false);
             setNewOpen(false);
-            setTab('play');
+            setInitializing(false);
+            navigate(`/games/${next.id}`);
             setError('');
           }}
         />
@@ -690,525 +631,4 @@ export default function App() {
 
 export { default as Modal } from './Modal';
 
-function AIFields({
-  side,
-  value,
-  onChange,
-  profiles,
-  models,
-  ruleset,
-}: {
-  side: Side;
-  value: PlayerConfig;
-  onChange: (value: PlayerConfig) => void;
-  profiles: AIProfile[];
-  models: Model[];
-  ruleset: string;
-}) {
-  const neural = value.config.algorithm === 'neural';
-  const wrapper = String(value.config.search_wrapper ?? 'mcts');
-  const search = neural ? wrapper : String(value.config.algorithm);
-  const update = (key: string, input: string | number) => {
-    const config = withoutSeed({ ...value.config, [key]: input });
-    if (key === 'algorithm') {
-      delete config.heuristic_version;
-      delete config.model_id;
-      delete config.evaluation;
-      delete config.search_wrapper;
-      if (input === 'neural')
-        config.model_id = selectStrongestModel(models, ruleset)?.model.id ?? '';
-    }
-    onChange({
-      ...value,
-      ...(key === 'algorithm' ? { profile_id: undefined, name: 'Computer' } : {}),
-      ...((key === 'model_id' || key === 'algorithm') && config.algorithm === 'neural'
-        ? { name: models.find((model) => model.id === config.model_id)?.name ?? 'Computer' }
-        : {}),
-      config,
-    });
-  };
-  const selectProfile = (id: string) => {
-    const profile = profiles.find((p) => p.id === id);
-    if (!profile) {
-      onChange({ ...value, profile_id: undefined });
-      return;
-    }
-    const selectedModel =
-      profile.algorithm === 'neural' ? selectStrongestModel(models, ruleset)?.model : undefined;
-    onChange({
-      ...value,
-      name: selectedModel?.name ?? profile.name,
-      profile_id: id,
-      config: withoutSeed({
-        time_limit: 1,
-        ...profileConfiguration(profile),
-        algorithm: profile?.algorithm ?? 'baseline',
-        ...(profile?.algorithm === 'neural' ? { model_id: selectedModel?.id ?? '' } : {}),
-      }),
-    });
-  };
-  const description = profiles.find((profile) => profile.id === value.profile_id)?.description;
-  return (
-    <div className="ai-fields">
-      <label>
-        {t('Opponent')}
-        <select
-          aria-label={t('{side} AI profile', { side: t(titles[side]) })}
-          value={value.profile_id ?? ''}
-          onChange={(e) => selectProfile(e.target.value)}
-        >
-          <option value="">{t('Custom opponent')}</option>
-          {profiles
-            .filter((p) => p.supported_rulesets.includes(ruleset))
-            .map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.rune ? `${p.rune} ` : ''}
-                {t(p.name)} · {t(p.difficulty)}
-              </option>
-            ))}
-        </select>
-      </label>
-      {description && <p className="subtle">{t(description)}</p>}
-      {['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(value.profile_id ?? '') ? (
-        <p className="subtle">
-          {['baseline', 'shield_maiden'].includes(value.profile_id ?? '')
-            ? `${t('Time limit (seconds)')}: 1`
-            : value.profile_id === 'alpha_beta'
-              ? `${t('Search depth')}: 5 · ${t('Time limit (seconds)')}: 2`
-              : `${t('Search iterations')}: 5000 · ${t('Temperature')}: 0 · ${t('Exploration')}: 1.4 · ${t('Time limit (seconds)')}: 2`}
-        </p>
-      ) : (
-        <div className="form-grid">
-          <label>
-            {t('Algorithm')}
-            <select
-              aria-label={t('{side} algorithm', { side: t(titles[side]) })}
-              value={String(value.config.algorithm ?? 'baseline')}
-              onChange={(e) => update('algorithm', e.target.value)}
-            >
-              <option value="baseline">{t('Tactical heuristic')}</option>
-              <option value="shield_maiden">{t('Shield maiden heuristic')}</option>
-              <option value="alpha_beta">{t('Alpha-beta search')}</option>
-              <option value="mcts">{t('Monte Carlo tree search')}</option>
-              <option value="neural">{t('Neural network')}</option>
-            </select>
-          </label>
-          {neural && (
-            <SearchWrapper
-              value={wrapper}
-              label={t('{side} search wrapper', { side: t(titles[side]) })}
-              onChange={(next) => update('search_wrapper', next)}
-            />
-          )}
-          {search !== 'none' && (
-            <label>
-              {t('Time limit (seconds)')}
-              <input
-                type="number"
-                min="0.05"
-                max="15"
-                step="0.05"
-                value={Number(value.config.time_limit ?? 1)}
-                onChange={(e) => update('time_limit', Number(e.target.value))}
-              />
-            </label>
-          )}
-          {search === 'alpha_beta' && (
-            <label>
-              {t('Search depth')}
-              <input
-                type="number"
-                min="1"
-                max="5"
-                value={Number(value.config.depth ?? 2)}
-                onChange={(e) => update('depth', Number(e.target.value))}
-              />
-            </label>
-          )}
-          {search === 'mcts' && (
-            <>
-              <label>
-                {t('Search iterations')}
-                <input
-                  type="number"
-                  min="1"
-                  max="5000"
-                  value={Number(value.config.iterations ?? 64)}
-                  onChange={(e) => update('iterations', Number(e.target.value))}
-                />
-              </label>
-              <label>
-                {t('Exploration')}
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.1"
-                  value={Number(value.config.exploration ?? 1.4)}
-                  onChange={(e) => update('exploration', Number(e.target.value))}
-                />
-              </label>
-            </>
-          )}
-          {(search === 'mcts' || (neural && search === 'none')) && (
-            <label>
-              {t('Temperature')}
-              <input
-                type="number"
-                min="0"
-                max="2"
-                step="0.1"
-                value={Number(value.config.temperature ?? 0)}
-                onChange={(e) => update('temperature', Number(e.target.value))}
-              />
-            </label>
-          )}
-        </div>
-      )}
-      {value.config.algorithm === 'neural' && (
-        <label>
-          {t('Trained model')}
-          <select
-            aria-label={t('{side} trained model', { side: t(titles[side]) })}
-            value={String(value.config.model_id ?? '')}
-            required
-            onChange={(e) => update('model_id', e.target.value)}
-          >
-            <option value="">{t('Choose a compatible model')}</option>
-            {models
-              .filter((m) => m.ruleset === ruleset)
-              .map((m) => (
-                <option value={m.id} key={m.id}>
-                  {modelLabel(m)}
-                </option>
-              ))}
-          </select>
-          {!models.some((m) => m.ruleset === ruleset) && (
-            <small>{t('Train or import a model in the AI workshop first.')}</small>
-          )}
-        </label>
-      )}
-    </div>
-  );
-}
-
-export function NewGame({
-  rulesets,
-  profiles,
-  models,
-  players,
-  initialRuleset,
-  onClose,
-  onCreated,
-}: {
-  rulesets: Ruleset[];
-  profiles: AIProfile[];
-  models: Model[];
-  players: Player[];
-  initialRuleset?: string;
-  onClose: () => void;
-  onCreated: (game: Game) => void;
-}) {
-  useI18n();
-  const [restored] = useState(() =>
-    restoreGameSetup({ rulesets, profiles, models, players, initialRuleset }),
-  );
-  const [ruleset, setRuleset] = useState(restored.ruleset);
-  const [mode, setMode] = useState<Mode>(restored.mode);
-  const [humanSide, setHumanSide] = useState<Side>(restored.humanSide);
-  const [fixedSeed, setFixedSeed] = useState(restored.fixedSeed);
-  const [seed, setSeed] = useState(restored.seed);
-  const [people, setPeople] = useState<Record<Side, PlayerConfig>>(restored.people);
-  const [computers, setComputers] = useState<Record<Side, PlayerConfig>>(restored.computers);
-  const [customAI, setCustomAI] = useState<Record<Side, boolean>>(restored.customAI);
-  const priorRuleset = useRef(ruleset);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const recommendation = selectStrongestModel(models, ruleset);
-  useEffect(() => {
-    const changedRuleset = priorRuleset.current !== ruleset;
-    priorRuleset.current = ruleset;
-    const reset: Side[] = (['attackers', 'defenders'] as Side[]).filter((side) => {
-      const configuration = computers[side].config;
-      const removedModel =
-        configuration.algorithm === 'neural' &&
-        !models.some((model) => model.id === configuration.model_id && model.ruleset === ruleset);
-      return changedRuleset || !customAI[side] || removedModel;
-    });
-    if (!reset.length) return;
-    const nextDefault = defaultAI(models, ruleset, profiles);
-    setComputers((previous) => ({
-      ...previous,
-      ...Object.fromEntries(reset.map((side) => [side, nextDefault])),
-    }));
-    if (changedRuleset || reset.some((side) => customAI[side]))
-      setCustomAI((previous) => ({
-        ...previous,
-        ...Object.fromEntries(reset.map((side) => [side, false])),
-      }));
-    // Only option changes reset automatic choices; editing a budget keeps it.
-  }, [ruleset, models, profiles]);
-  useEffect(() => {
-    if (
-      !Object.values(people).some(
-        (person) => person.player_id && !players.some((profile) => profile.id === person.player_id),
-      )
-    )
-      return;
-    setPeople(
-      (previous) =>
-        Object.fromEntries(
-          Object.entries(previous).map(([side, person]) => [
-            side,
-            person.player_id && !players.some((profile) => profile.id === person.player_id)
-              ? { ...person, name: '', player_id: undefined }
-              : person,
-          ]),
-        ) as Record<Side, PlayerConfig>,
-    );
-  }, [players, people]);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    const configured = Object.fromEntries(
-      (['attackers', 'defenders'] as Side[]).map((side) => {
-        const ai = mode === 'ai-ai' || (mode === 'human-ai' && side !== humanSide);
-        return [
-          side,
-          ai ? { ...computers[side], config: withoutSeed(computers[side].config) } : people[side],
-        ];
-      }),
-    );
-    try {
-      const created = await api<Game>('/games', {
-        ruleset,
-        mode,
-        human_side: humanSide,
-        players: configured,
-        ...(fixedSeed ? { seed } : {}),
-      });
-      rememberGameSetup({
-        ruleset,
-        mode,
-        humanSide,
-        people,
-        computers,
-        advisorId: '',
-        fixedSeed,
-        seed,
-      });
-      onCreated(created);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal title={t('Begin a new saga')} onClose={onClose}>
-      <form onSubmit={submit} className="new-game-form">
-        <fieldset>
-          <legend>{t('01 · Choose your battlefield')}</legend>
-          <div className="ruleset-options">
-            {sortRulesets(rulesets).map((rule) => (
-              <label key={rule.id} className={ruleset === rule.id ? 'chosen' : ''}>
-                <input
-                  type="radio"
-                  name="ruleset"
-                  value={rule.id}
-                  checked={ruleset === rule.id}
-                  onChange={() => setRuleset(rule.id)}
-                />
-                <span className="option-rune">
-                  {rule.id === 'tablut' ? 'ᛏ' : rule.id === 'brandubh' ? 'ᛒ' : 'ᛟ'}
-                </span>
-                <strong>{t(rule.name)}</strong>
-                <span>{t('{size} × {size} board', { size: rule.size })}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>{t('02 · Gather your players')}</legend>
-          <div className="segmented">
-            {(
-              [
-                { id: 'human-human', label: 'Pass & play' },
-                { id: 'human-ai', label: 'Human vs AI' },
-                { id: 'ai-ai', label: 'AI vs AI' },
-              ] as const
-            ).map((option) => (
-              <button
-                type="button"
-                className={mode === option.id ? 'active' : ''}
-                key={option.id}
-                onClick={() => setMode(option.id)}
-              >
-                {t(option.label)}
-              </button>
-            ))}
-          </div>
-          {mode === 'human-ai' && (
-            <label className="inline-label">
-              {t('Your side')}
-              <select value={humanSide} onChange={(e) => setHumanSide(e.target.value as Side)}>
-                <option value="defenders">{t('Defenders · help the king escape')}</option>
-                <option value="attackers">{t('Attackers · capture the king')}</option>
-              </select>
-            </label>
-          )}
-          <div className="player-configs">
-            {(['attackers', 'defenders'] as Side[]).map((side) => {
-              const ai = mode === 'ai-ai' || (mode === 'human-ai' && side !== humanSide);
-              return (
-                <div className="player-config" key={side}>
-                  <h3>
-                    {sideGlyph(side)} {t(titles[side])}
-                    <small>{ai ? t('COMPUTER') : t('HUMAN')}</small>
-                  </h3>
-                  {ai ? (
-                    <AIFields
-                      side={side}
-                      value={computers[side]}
-                      onChange={(value) => {
-                        setComputers((previous) => ({ ...previous, [side]: value }));
-                        setCustomAI((previous) => ({ ...previous, [side]: true }));
-                      }}
-                      profiles={profiles}
-                      models={models}
-                      ruleset={ruleset}
-                    />
-                  ) : (
-                    <>
-                      <label>
-                        {t('Human player')}
-                        <select
-                          aria-label={t('{side} human player', { side: t(titles[side]) })}
-                          value={people[side].player_id ?? ''}
-                          onChange={(e) => {
-                            const player = players.find((p) => p.id === e.target.value);
-                            setPeople((p) => ({
-                              ...p,
-                              [side]: {
-                                ...p[side],
-                                name: player?.name ?? '',
-                                player_id: player?.id,
-                              },
-                            }));
-                          }}
-                        >
-                          <option value="">{t('New player / enter name')}</option>
-                          {players.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.rune ? `${p.rune} ` : ''}
-                              {p.name}
-                              {players.filter((profile) => profile.name === p.name).length > 1
-                                ? ` · ${p.id.slice(0, 6)}`
-                                : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {!people[side].player_id && (
-                        <label>
-                          {t('Player name')}
-                          <input
-                            aria-label={t('{side} player name', { side: t(titles[side]) })}
-                            required
-                            maxLength={64}
-                            value={people[side].name}
-                            onChange={(e) =>
-                              setPeople((p) => ({
-                                ...p,
-                                [side]: { ...p[side], name: e.target.value, player_id: undefined },
-                              }))
-                            }
-                          />
-                        </label>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {recommendation &&
-            mode !== 'human-human' &&
-            (['attackers', 'defenders'] as Side[]).some(
-              (side) =>
-                (mode === 'ai-ai' || side !== humanSide) &&
-                !customAI[side] &&
-                computers[side].config.model_id === recommendation.model.id,
-            ) && (
-              <p className="subtle model-recommendation">
-                {recommendation.basis === 'evaluation'
-                  ? t(
-                      'Best measured model selected: {name} ({score}% across {games} baseline games).',
-                      {
-                        name: recommendation.model.name,
-                        score: ((recommendation.score ?? 0) * 100).toLocaleString(getLocale(), {
-                          minimumFractionDigits: 1,
-                          maximumFractionDigits: 1,
-                        }),
-                        games: recommendation.games,
-                      },
-                    )
-                  : t('No comparable evaluation; latest model selected: {name}.', {
-                      name: recommendation.model.name,
-                    })}{' '}
-                {t('You can choose another opponent or adjust its settings.')}
-              </p>
-            )}
-          <p className="subtle game-seed-note">
-            {t(
-              'A fresh random seed is generated for every new game and restart. The seed is saved with the game for inspection.',
-            )}
-          </p>
-          <label className="inline-label">
-            <input
-              type="checkbox"
-              checked={fixedSeed}
-              onChange={(event) => setFixedSeed(event.target.checked)}
-            />
-            {t('Use a fixed seed')}
-          </label>
-          {fixedSeed && (
-            <label>
-              {t('Game seed')}
-              <input
-                type="number"
-                aria-label={t('Game seed')}
-                aria-describedby="fixed-seed-help"
-                min={0}
-                max={4294967295}
-                step={1}
-                required
-                value={seed}
-                onChange={(event) => setSeed(Number(event.target.value))}
-              />
-              <small id="fixed-seed-help">
-                {t(
-                  'Use the same seed and settings to repeat an experiment. Restart uses a new seed.',
-                )}
-              </small>
-            </label>
-          )}
-        </fieldset>
-        {error && (
-          <p className="form-error" role="alert">
-            {t(error)}
-          </p>
-        )}
-        <div className="modal-actions">
-          <button type="button" className="button secondary" onClick={onClose}>
-            {t('Cancel')}
-          </button>
-          <button type="submit" className="button primary" disabled={busy || !rulesets.length}>
-            {busy ? t('Preparing…') : t('To the table')} <span aria-hidden="true">↗</span>
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
+export { default as NewGame } from './NewGame';

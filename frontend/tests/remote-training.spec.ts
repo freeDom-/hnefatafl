@@ -5,7 +5,7 @@ import { expect, test, type APIRequestContext, type Page } from './auth-fixture'
 const api = 'http://127.0.0.1:8001/api';
 
 async function openWorkshop(page: Page) {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
 }
@@ -130,7 +130,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
     );
 
     await page.reload();
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
     await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
     await expect(page.getByLabel('Worker token', { exact: true })).toHaveCount(0);
     await selectWorkshopJob(page, second.id, `Cloud Freydis ${info.project.name}`);

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import Auth from './Auth';
 import App from './App';
 import Guest from './Guest';
+import GuestNavigation from './GuestNavigation';
 import { isGuestPath } from './surfaceNavigation';
-/** The guest surface never mounts authentication or account/game adapters. */
+/** Guest gameplay stays public; only its header reads the current session. */
 export default function PlaySurfaces() {
   const [guest, setGuest] = useState(() => isGuestPath(location.pathname));
   useEffect(() => {
@@ -12,7 +13,7 @@ export default function PlaySurfaces() {
     return () => window.removeEventListener('popstate', changed);
   }, []);
   return guest ? (
-    <Guest />
+    <Guest header={<GuestNavigation />} />
   ) : (
     <Auth>
       <App />

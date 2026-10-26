@@ -636,10 +636,21 @@ class OnlineCore:
             "result": result,
         }
 
-    def read(self, credential: str, identifier: str) -> dict:
+    @staticmethod
+    def _participant(c, account_id, identifier):
+        if not c.execute(
+            """SELECT 1 FROM online_games g JOIN online_matches m ON m.id=g.match_id
+               WHERE g.id=? AND (g.creator_id=? OR g.attackers_id=? OR g.defenders_id=? OR m.opponent_id=?)""",
+            (identifier, account_id, account_id, account_id, account_id),
+        ).fetchone():
+            raise OnlineError(404, "Online game not found.")
+
+    def read(self, credential: str, identifier: str, *, participant_only=False) -> dict:
         with self.store.connection() as c:
             c.execute("BEGIN")
-            self._identity(c, credential)
+            account = self._identity(c, credential)
+            if participant_only:
+                self._participant(c, account["id"], identifier)
             return self._projection(c, *self._load(c, identifier))
 
     def availability(self, credential: str) -> dict:
@@ -675,48 +686,54 @@ class OnlineCore:
                 "offset": offset,
             }
 
-    def replay(self, credential: str, identifier: str) -> dict:
+    def replay(self, credential: str, identifier: str, *, participant_only=False) -> dict:
         with self.store.connection() as c:
             c.execute("BEGIN")
-            self._identity(c, credential)
-            row, game = self._load(c, identifier)
-            state = new_game(row["ruleset"])
-            states = [safe_position(state)]
-            try:
-                for move in c.execute(
-                    "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
-                    (identifier,),
-                ):
-                    state = apply_move(state, Move(*move))
-                    states.append(safe_position(state))
-            except (ValueError, IndexError):
-                raise OnlineError(409, "Stored online history requires operator review.") from None
-            if state != game.position:
-                raise OnlineError(409, "Stored online history requires operator review.")
-            return {"game": self._projection(c, row, game), "validated": True, "states": states}
+            account = self._identity(c, credential)
+            if participant_only:
+                self._participant(c, account["id"], identifier)
+            return self._replay(c, identifier)
+
+    def _replay(self, c, identifier):
+        row, game = self._load(c, identifier)
+        state = new_game(row["ruleset"])
+        states = [safe_position(state)]
+        try:
+            for move in c.execute(
+                "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
+                (identifier,),
+            ):
+                state = apply_move(state, Move(*move))
+                states.append(safe_position(state))
+        except (ValueError, IndexError):
+            raise OnlineError(409, "Stored online history requires operator review.") from None
+        if state != game.position:
+            raise OnlineError(409, "Stored online history requires operator review.")
+        return {"game": self._projection(c, row, game), "validated": True, "states": states}
 
     def statistics(self, credential: str) -> dict:
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self._identity(c, credential)
-            rows = c.execute(
-                "SELECT r.payload FROM online_games g JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision WHERE r.competitive_eligible=1 AND (g.attackers_id=? OR g.defenders_id=?)",
-                (account["id"], account["id"]),
-            ).fetchall()
-            totals = {"played": 0, "wins": 0, "losses": 0, "draws": 0, "abandoned_games": 0}
-            for row in rows:
-                result = stored_result(row[0])
-                side = "attackers" if result.attackers == account["id"] else "defenders"
-                totals["played"] += 1
-                totals[
-                    "draws"
-                    if result.winner == "draw"
-                    else "wins"
-                    if result.winner == side
-                    else "losses"
-                ] += 1
-                totals["abandoned_games"] += int(result.abandoned_account_id == account["id"])
-            return {"category": "online", **totals}
+            return self._statistics(c, account["id"])
+
+    @staticmethod
+    def _statistics(c, account_id):
+        totals = c.execute(
+            """WITH effective AS (
+              SELECT json_extract(r.payload,'$.winner') AS winner,
+                CASE WHEN g.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side,
+                r.abandoned_account_id
+              FROM online_games g JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision
+              WHERE g.status='completed' AND r.competitive_eligible=1 AND (g.attackers_id=? OR g.defenders_id=?)
+            ) SELECT count(*) AS played,
+              coalesce(sum(winner=side),0) AS wins,
+              coalesce(sum(winner<>'draw' AND winner<>side),0) AS losses,
+              coalesce(sum(winner='draw'),0) AS draws,
+              coalesce(sum(abandoned_account_id=?),0) AS abandoned_games FROM effective""",
+            (account_id, account_id, account_id, account_id),
+        ).fetchone()
+        return {"category": "online", **dict(totals)}
 
     def gate(self, credential: str) -> dict:
         with self.store.connection() as c:

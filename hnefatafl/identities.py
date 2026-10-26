@@ -72,6 +72,8 @@ def agent_identity(agent: dict) -> str:
     replace a known model/player identity and do not split an equivalent agent.
     """
     if agent.get("kind") == "human":
+        if agent.get("account_id"):
+            return f"account:{agent['account_id']}"
         if agent.get("player_id"):
             return f"player:{agent['player_id']}"
         # Legacy records without profile IDs retain a stable historical label.

@@ -201,6 +201,22 @@
   },
   {
     "method": "GET",
+    "route": "/api/history/games",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/history/{category}/{game_id}/replay",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
     "route": "/api/models",
     "authentication": "session",
     "permission": "play",
@@ -361,26 +377,42 @@
   },
   {
     "method": "GET",
-    "route": "/api/players",
+    "route": "/api/personal/online",
     "authentication": "session",
     "permission": "play",
-    "persistent_state": true,
+    "persistent_state": false,
     "user_specific": true
   },
   {
-    "method": "POST",
-    "route": "/api/players",
+    "method": "GET",
+    "route": "/api/personal/online/{game_id}",
     "authentication": "session",
     "permission": "play",
-    "persistent_state": true,
+    "persistent_state": false,
     "user_specific": true
   },
   {
-    "method": "DELETE",
-    "route": "/api/players/{player_id}",
+    "method": "GET",
+    "route": "/api/personal/online/{game_id}/replay",
     "authentication": "session",
     "permission": "play",
-    "persistent_state": true,
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/personal/single-player",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/personal/single-player/{game_id}/replay",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
     "user_specific": true
   },
   {
