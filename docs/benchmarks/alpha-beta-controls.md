@@ -57,3 +57,86 @@ The ordering refinement guarantees that history is always consulted in the
 documented priority order (PV, table, killers, history, stable static order) and
 that sorting is skipped when every history score is zero; the unit tests assert
 that priority directly.
+
+## Equal-time strength comparison (legacy vs full symmetry)
+
+The shipped comparison configuration was played as a balanced series with both
+opponents on equal 2-second budgets:
+
+```sh
+.venv/bin/python scripts/alpha_beta_strength.py \
+  --config configs/alpha-beta-search-comparison.json \
+  --output work/alpha-beta-strength.json
+```
+
+Configuration: brandubh, 20 games, seed 20261026, `max_plies` 500,
+`time_limit` 2 s, depth cap 3. Player 0 is legacy search; player 1 enables the
+transposition table, improved ordering, D4-canonical transpositions and symmetry
+move pruning.
+
+| Opponent | W | D | L | Score | 95% interval | Mean depth |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Legacy | 7 | 3 | 10 | 0.425 | [0.220, 0.630] | 2.46 |
+| Full symmetry | 10 | 3 | 7 | 0.575 | [0.370, 0.780] | 2.29 |
+
+All 20 games finished (king captured, king escaped or threefold repetition); none
+hit the ply limit. The full-symmetry point estimate is higher (0.575 versus
+0.425), but the 95% interval for the legacy score comfortably contains 0.5, so
+**strength did not measurably improve**. The sample is too small to claim a
+strength difference, and full symmetry reached a slightly *shallower* mean
+completed depth (2.29 versus 2.46), consistent with canonicalization overhead
+consuming part of the fixed budget rather than buying extra depth. Speed alone is
+not strength, so no strength claim is made.
+
+## Table memory bound
+
+`table_capacity` is validated to `1–500000` (reduced from 5,000,000). A search
+owns one table for its lifetime, but a repetition-aware key grows with the game
+history, so the ceiling bounds worst-case memory. Measured with `tracemalloc` on
+this host:
+
+| History entries | Bytes per stored entry | 500,000-entry peak |
+| --- | ---: | ---: |
+| 0 | 457 | 228 MB |
+| 50 | 857 | 428 MB |
+| 200 | 2,057 | 1,028 MB |
+
+The table is never shared and is discarded when the move ends. On a long game the
+search stores very few entries because the fixed time budget and canonicalization
+cost dominate, so the actual peak is far below the synthetic full-cap figures:
+
+| Position | `time_limit` | Peak entries | Peak memory |
+| --- | ---: | ---: | ---: |
+| Brandubh, 200-ply history | 5 s | 125 | 6.3 MB |
+| Tablut, 300-ply history | 5 s | 7 | 5.7 MB |
+| Copenhagen, 400-ply history | 5 s | 15 | 4.0 MB |
+| Brandubh opening | 10 s | 525 | 1.4 MB |
+
+The bound is therefore a safety valve, not a limit the search reaches in practice;
+the measured long-game peak stays under 7 MB.
+
+## Deadline inside canonicalization and symmetry pruning
+
+Move ordering, `canonical_state_key`, `state_stabilizer` and the move-orbit loop
+all receive a cooperative check callback that raises the search's deadline
+exception. A long-history canonicalization or stabilizer therefore aborts when the
+budget expires instead of running to completion. On a synthetic symmetric
+copenhagen position with a 400-entry history (one full stabilizer ≈ 45 ms, one
+canonicalization ≈ 45 ms), a 1 ms budget now returns in ≈ 1.2 ms and a 20 ms
+budget in ≈ 20 ms, instead of overrunning by the whole stabilizer. The unit test
+`test_tiny_deadline_interrupts_long_history_canonicalization` asserts the search
+returns before the uninterrupted stabilizer baseline, and
+`test_symmetry_functions_invoke_the_cancellation_check` asserts the callback is
+invoked inside each symmetry function.
+
+## Explicit default search identity
+
+A record saved with an explicit nested `search` object that repeats the defaults
+resolves to the same behaviour as the same algorithm without one, but is
+intentionally a distinct effective identity. This keeps historical records stable:
+a game saved before the object existed is never silently merged with a newer
+explicit-default record, and their runes and statistics stay separate. The trade-off
+is that two behaviourally equivalent configurations can appear as two identities
+in the Hall of Records. `tests/test_identities.py` and `tests/test_api.py` assert
+the distinct and stable variant IDs and runes; the policy is documented in
+[Persistent identity runes](../IDENTITIES.md) and [AI opponents](../AI.md).

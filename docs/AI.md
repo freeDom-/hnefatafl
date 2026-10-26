@@ -61,8 +61,12 @@ pass an optional internal `search` object to ablate individual features:
 | `move_ordering` | `true` | PV, table, killer and history ordering |
 | `symmetry_transposition` | `false` | D4-canonical, repetition-safe table keys |
 | `symmetry_pruning` | `false` | Search one representative per full-state move orbit |
-| `table_capacity` | `100000` | Maximum resident table entries (1–5000000) |
+| `table_capacity` | `100000` | Maximum resident table entries (1–500000) |
 | `legacy` | `false` | Restore the original exact-value-cache reference search |
+
+The capacity ceiling is bounded because a repetition-aware key can grow to several
+kilobytes on a long game; the measured per-entry cost and the long-game peak are
+recorded in the [control-refinement evidence](benchmarks/alpha-beta-controls.md).
 
 The handcrafted evaluator is D4-invariant, so the two symmetry features are valid
 for heuristic-backed search. Trained value heads are not guaranteed
@@ -80,12 +84,24 @@ is computed from the complete state (board, turn and ordered repetition history)
 a visually symmetric board with asymmetric history is never pruned. The engine's
 legal-move list is never modified.
 
+Move ordering, canonicalization, the stabilizer and the per-move evaluation loop
+all observe the monotonic search deadline. A long-history canonicalization or
+stabilizer therefore aborts promptly when the budget expires instead of running
+the whole computation to completion; the interrupted iteration keeps the last
+completed depth, exactly like any other deadline expiry. History is consulted in
+the documented priority even without a preferred move, but the measured node
+effect is position-dependent and is not claimed as a strength gain.
+
 Tournament setup exposes the same options for a custom alpha-beta opponent under
 **Alpha-beta optimizations**, with **Legacy alpha-beta**, **Optimized default**,
 **Full symmetry** and **Custom** presets. Jarl remains a fixed preset without
 editable optimization controls. The nested `search` object is accepted by the
 game, advisor and tournament APIs and is validated and normalised server-side
-before it reaches `choose_move`.
+before it reaches `choose_move`. An explicit `search` object is part of the
+effective configuration identity, so a record that names the defaults explicitly
+stays distinct from one without the object; the two behave identically but keep
+separate runes and statistics so historical records never change identity. See
+[persistent identity runes](IDENTITIES.md).
 
 Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`,
 `transposition_lookups`, `transposition_successful_lookups`,

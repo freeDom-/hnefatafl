@@ -614,3 +614,28 @@ matches the intended priority rather than a universal speedup claim. The value o
 the ordering change is that history is always consulted in the documented priority
 order and the ordering is deterministic; the unit tests assert the priority
 directly.
+
+### Equal-time strength, memory bound and deadline
+
+The shipped `configs/alpha-beta-search-comparison.json` (legacy vs full symmetry,
+brandubh, equal 2-second budgets, 20 games, seed 20261026) was played with
+`scripts/alpha_beta_strength.py`. Legacy scored 7W/3D/10L (0.425, 95% interval
+[0.220, 0.630], mean completed depth 2.46); full symmetry scored 10W/3D/7L (0.575,
+mean depth 2.29). The interval contains 0.5, so **strength did not measurably
+improve**, and full symmetry reached a slightly shallower mean depth because
+canonicalization consumes part of the fixed budget. Speed is not reported as
+strength.
+
+The transposition-table capacity ceiling is reduced from 5,000,000 to 500,000. A
+repetition-aware key grows with history (measured 457 bytes/entry with no history
+to ~2,057 bytes at 200 entries), so the ceiling bounds the worst case; a synthetic
+full 500,000-entry table peaks at 228 MB (no history) to 1,028 MB (200 entries).
+On long games the search stores very few entries and the actual `tracemalloc` peak
+stays under 7 MB (brandubh 200-ply 6.3 MB, tablut 300-ply 5.7 MB, copenhagen
+400-ply 4.0 MB). The bound is a safety valve rather than a practical limit.
+
+The monotonic deadline is now observed inside move ordering, canonicalization and
+symmetry pruning through a cooperative check callback. On a synthetic symmetric
+copenhagen position with a 400-entry history, a 1 ms budget returns in ~1.2 ms
+instead of overrunning by a full ~45 ms stabilizer. Raw numbers are in the
+[control-refinement evidence](benchmarks/alpha-beta-controls.md).

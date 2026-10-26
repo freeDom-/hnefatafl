@@ -321,9 +321,15 @@ only the tied orientations transform history. Move pruning computes the full-sta
 stabilizer (a D4 subgroup), partitions the legal moves into orbits and retains one
 deterministic representative per orbit *before* any successor state is built, so
 discarded moves cost no `apply_move` or static evaluation. The engine legal-move
-list is never mutated. Neither symmetry feature is enabled by default because
-canonicalization cost varies by ruleset and history length; the reproducible
-benchmark measures the tradeoff. Move ordering applies one deterministic priority
+list is never mutated. `symmetry.py` accepts an optional cooperative check
+callback (it never reads a clock), so move ordering, canonicalization, the
+stabilizer and the orbit loop all observe the search deadline and abort a
+long-history computation promptly. Neither symmetry feature is enabled by default
+because canonicalization cost varies by ruleset and history length; the
+reproducible benchmark measures the tradeoff. The per-search table capacity is
+bounded at 500,000 entries because a repetition-aware key grows with history; the
+measured per-entry cost and long-game peak are in the
+[control-refinement evidence](docs/benchmarks/alpha-beta-controls.md). Move ordering applies one deterministic priority
 (principal variation, transposition move, killers, history, stable static order)
 and consults history even when no preferred move exists, without changing minimax
 values; root ties still follow the seeded base order. The public `search`

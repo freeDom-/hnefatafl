@@ -115,6 +115,10 @@ Runnable budgets live in [configs](../configs/): smoke training, beginner traini
 smoke tuning and tournaments. Inspect a config before running: a full tournament
 or recommended plan can be much more expensive than a syntax/interface check.
 
+`scripts/alpha_beta_strength.py` is a standalone equal-time strength series for
+two alpha-beta configurations (wins/draws/losses, 95% interval and mean completed
+depth); see the [control-refinement evidence](benchmarks/alpha-beta-controls.md#equal-time-strength-comparison-legacy-vs-full-symmetry).
+
 ## API and extension boundaries
 
 The running server exposes OpenAPI at `/openapi.json` and interactive reference at
