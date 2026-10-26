@@ -48,6 +48,11 @@ export interface AgentEvaluation {
   completed_depth?: number;
   simulations?: number;
   searched_moves?: number;
+  nodes?: number;
+  evaluations?: number;
+  cutoffs?: number;
+  transposition_hits?: number;
+  symmetry_moves_skipped?: number;
   search_seed?: number;
   unavailable_reason?: 'model_unavailable' | 'evaluation_failed';
 }

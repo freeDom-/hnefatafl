@@ -11,11 +11,13 @@ import random
 import time
 from array import array
 from dataclasses import dataclass, field
+from enum import IntEnum
 from functools import lru_cache
 from itertools import combinations
 from typing import Any, Callable, Generator
 
 from .engine import Move, State, apply_move, legal_moves, new_game
+from .symmetry import Symmetry, canonical_state_key, inverse, state_stabilizer, transform_move
 
 
 def ai_profiles() -> list[dict[str, Any]]:
@@ -156,7 +158,180 @@ class _Deadline(Exception):
     pass
 
 
-def _alpha_beta(
+class _Bound(IntEnum):
+    EXACT = 0
+    LOWER = 1
+    UPPER = 2
+
+
+@dataclass(slots=True)
+class _TTEntry:
+    depth: int
+    value: float
+    bound: _Bound
+    best_move: Move | None
+    generation: int
+
+
+class _TranspositionTable:
+    """Depth-aware exact/bounded table for exactly one alpha-beta search.
+
+    A table is never shared across games, evaluators, rulesets or neural models.
+    Keys carry the full repetition-aware state identity (optionally D4-canonical),
+    so identical boards with different histories cannot alias. Replacement prefers
+    deeper entries and, among equal depths, exact bounds; a bounded capacity keeps
+    memory predictable with FIFO eviction.
+    """
+
+    def __init__(self, capacity: int = 100_000) -> None:
+        if type(capacity) is not int or not 1 <= capacity <= 5_000_000:
+            raise ValueError("Transposition table capacity must be between 1 and 5000000")
+        self.capacity = capacity
+        self.entries: dict[object, _TTEntry] = {}
+        self.generation = 0
+        self.lookups = 0
+        self.exact_hits = 0
+        self.bound_hits = 0
+        self.cutoffs = 0
+        self.stores = 0
+        self.replacements = 0
+        self.evictions = 0
+        self.peak_entries = 0
+
+    def probe(self, key: object) -> _TTEntry | None:
+        self.lookups += 1
+        return self.entries.get(key)
+
+    def store(
+        self,
+        key: object,
+        depth: int,
+        value: float,
+        bound: _Bound,
+        best_move: Move | None,
+    ) -> None:
+        existing = self.entries.get(key)
+        if existing is not None:
+            if existing.generation == self.generation:
+                if existing.depth > depth:
+                    return
+                if (
+                    existing.depth == depth
+                    and existing.bound == _Bound.EXACT
+                    and bound != _Bound.EXACT
+                ):
+                    return
+            self.replacements += 1
+        elif len(self.entries) >= self.capacity:
+            self.entries.pop(next(iter(self.entries)))
+            self.evictions += 1
+        self.entries[key] = _TTEntry(depth, value, bound, best_move, self.generation)
+        self.stores += 1
+        if len(self.entries) > self.peak_entries:
+            self.peak_entries = len(self.entries)
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchSettings:
+    transposition: bool = True
+    symmetry_transposition: bool = False
+    symmetry_pruning: bool = False
+    move_ordering: bool = True
+    table_capacity: int = 100_000
+    legacy: bool = False
+
+
+def _search_settings(config: dict, model_backed: bool) -> _SearchSettings:
+    raw = config.get("search") or {}
+    if not isinstance(raw, dict):
+        raise ValueError("Search configuration must be an object")
+    known = {
+        "transposition",
+        "symmetry_transposition",
+        "symmetry_pruning",
+        "move_ordering",
+        "table_capacity",
+        "legacy",
+    }
+    if set(raw) - known:
+        raise ValueError("Unsupported search configuration field")
+
+    def flag(name: str, default: bool) -> bool:
+        value = raw.get(name, default)
+        if not isinstance(value, bool):
+            raise ValueError(f"Search {name} must be a boolean")
+        return value
+
+    capacity = raw.get("table_capacity", 100_000)
+    if type(capacity) is not int or not 1 <= capacity <= 5_000_000:
+        raise ValueError("Search table_capacity must be an integer between 1 and 5000000")
+    settings = _SearchSettings(
+        transposition=flag("transposition", True),
+        symmetry_transposition=flag("symmetry_transposition", False),
+        symmetry_pruning=flag("symmetry_pruning", False),
+        move_ordering=flag("move_ordering", True),
+        table_capacity=capacity,
+        legacy=flag("legacy", False),
+    )
+    if model_backed and (settings.symmetry_transposition or settings.symmetry_pruning):
+        # Neural value heads are not guaranteed D4-equivariant even after
+        # augmentation, so rotated positions must never share values or moves.
+        raise ValueError("Symmetry search reuse is not available with neural evaluation")
+    return settings
+
+
+def _prioritise(
+    children: list[tuple[Move, State]],
+    *,
+    tt_move: Move | None,
+    pv_move: Move | None,
+    killers: tuple[Move, ...],
+    history: dict[Move, int],
+) -> list[tuple[Move, State]]:
+    """Move known-good moves forward while preserving the base order."""
+    if not children:
+        return children
+    preferred: list[tuple[Move, State]] = []
+    rest: list[tuple[Move, State]] = []
+    for item in children:
+        move = item[0]
+        if move == tt_move or move == pv_move or move in killers:
+            preferred.append(item)
+        else:
+            rest.append(item)
+    if not preferred:
+        return children
+    # History promotes quiet moves that caused cutoffs before. Unscored moves
+    # keep their stable static order because Python's sort is stable.
+    rest.sort(key=lambda item: history.get(item[0], 0), reverse=True)
+    return preferred + rest
+
+
+def _symmetry_children(
+    position: State, children: list[tuple[Move, State]]
+) -> tuple[list[tuple[Move, State]], int]:
+    """Keep one deterministic representative per full-state move orbit."""
+    if len(children) < 2:
+        return children, 0
+    stabilizer = state_stabilizer(position)
+    if len(stabilizer) < 2:
+        return children, 0
+    by_move = {move: child for move, child in children}
+    chosen: list[tuple[Move, State]] = []
+    seen: set[Move] = set()
+    skipped = 0
+    for move, child in children:
+        if move in seen:
+            skipped += 1
+            continue
+        orbit = {transform_move(move, position.size, symmetry) for symmetry in stabilizer}
+        seen |= orbit
+        representative = min(orbit)
+        chosen.append((representative, by_move.get(representative, child)))
+    return chosen, skipped
+
+
+def _alpha_beta_legacy(
     state: State,
     config: dict,
     rng: random.Random,
@@ -166,6 +341,7 @@ def _alpha_beta(
     progress: Callable[[dict], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> Move:
+    """Original exact-value cache search, retained as the benchmark reference."""
     depth = int(config.get("depth", 2))
     if not 1 <= depth <= 8:
         raise ValueError("Search depth must be between 1 and 8")
@@ -244,6 +420,238 @@ def _alpha_beta(
             )
             if progress is not None:
                 progress(analysis_from_search(state, config, best_move, diagnostics))
+    return best_move
+
+
+def _alpha_beta(
+    state: State,
+    config: dict,
+    rng: random.Random,
+    deadline: float,
+    *,
+    diagnostics: dict | None = None,
+    progress: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> Move:
+    """Iterative-deepening alpha-beta with bounded transpositions and symmetry.
+
+    The optional ``search`` configuration selects ordinary transposition bounds,
+    D4-canonical transpositions, full-state symmetry move pruning and improved
+    move ordering independently. Symmetry features are refused with a neural
+    evaluator, whose value head is not guaranteed to be D4-equivariant.
+    """
+    depth = int(config.get("depth", 2))
+    if not 1 <= depth <= 8:
+        raise ValueError("Search depth must be between 1 and 8")
+    model_path = config.get("model_path")
+    model = config.get("_model")
+    model_backed = bool(model_path) or model is not None
+    settings = _search_settings(config, model_backed)
+    if settings.legacy:
+        return _alpha_beta_legacy(
+            state,
+            config,
+            rng,
+            deadline,
+            diagnostics=diagnostics,
+            progress=progress,
+            should_stop=should_stop,
+        )
+    root_moves = legal_moves(state)
+    best_move = rng.choice(root_moves)
+    sign = 1 if state.turn == "defenders" else -1
+    table = (
+        _TranspositionTable(settings.table_capacity)
+        if settings.transposition or settings.symmetry_transposition
+        else None
+    )
+    killers: dict[int, list[Move]] = {}
+    history: dict[Move, int] = {}
+    pv_move: Move | None = None
+    counters = {
+        "nodes": 0,
+        "evaluations": 0,
+        "cutoffs": 0,
+        "symmetry_hits": 0,
+        "symmetry_moves_skipped": 0,
+        "canonicalization_seconds": 0.0,
+    }
+    search_started = time.monotonic()
+    if diagnostics is None and progress is not None:
+        diagnostics = {}
+    if diagnostics is not None:
+        diagnostics.update(
+            value=policy_value(state, model_path, model)[1] if model_backed else evaluate(state),
+            completed_depth=0,
+            best_move=best_move.to_dict(),
+        )
+
+    def tt_key(position: State) -> tuple[object, Symmetry | None]:
+        if settings.symmetry_transposition:
+            started = time.perf_counter()
+            key, symmetry = canonical_state_key(position)
+            counters["canonicalization_seconds"] += time.perf_counter() - started
+            return key, symmetry
+        return (position.ruleset, position.board, position.turn, position.history), None
+
+    def leaf(position: State) -> float:
+        counters["evaluations"] += 1
+        return policy_value(position, model_path, model)[1] if model_backed else evaluate(position)
+
+    def search(position: State, remaining: int, alpha: float, beta: float, ply: int) -> float:
+        if should_stop and should_stop():
+            raise InterruptedError("Search cancelled")
+        if time.monotonic() >= deadline:
+            raise _Deadline
+        if position.winner:
+            counters["evaluations"] += 1
+            return evaluate(position)
+        if remaining == 0:
+            return leaf(position)
+        counters["nodes"] += 1
+        alpha_original = alpha
+        key, symmetry = tt_key(position)
+        tt_move: Move | None = None
+        entry = table.probe(key) if table is not None else None
+        if entry is not None:
+            if settings.symmetry_transposition:
+                counters["symmetry_hits"] += 1
+            if entry.best_move is not None:
+                if symmetry is not None:
+                    tt_move = transform_move(entry.best_move, position.size, inverse(symmetry))
+                else:
+                    tt_move = entry.best_move
+            if entry.depth >= remaining:
+                if entry.bound == _Bound.EXACT:
+                    if table is not None:
+                        table.exact_hits += 1
+                    return entry.value
+                if entry.bound == _Bound.LOWER:
+                    if table is not None:
+                        table.bound_hits += 1
+                    if entry.value >= beta:
+                        if table is not None:
+                            table.cutoffs += 1
+                        return entry.value
+                    alpha = max(alpha, entry.value)
+                elif entry.bound == _Bound.UPPER:
+                    if table is not None:
+                        table.bound_hits += 1
+                    if entry.value <= alpha:
+                        if table is not None:
+                            table.cutoffs += 1
+                        return entry.value
+                    beta = min(beta, entry.value)
+        moves = legal_moves(position)
+        if not moves:
+            counters["evaluations"] += 1
+            return -1.0 if position.turn == "defenders" else 1.0
+        maximizing = position.turn == "defenders"
+        value = -math.inf if maximizing else math.inf
+        best_child_move: Move | None = None
+        children = _ordered(position, moves, rng)
+        if settings.move_ordering:
+            children = _prioritise(
+                children,
+                tt_move=tt_move,
+                pv_move=None,
+                killers=tuple(killers.get(ply, ())),
+                history=history,
+            )
+        if settings.symmetry_pruning:
+            children, skipped = _symmetry_children(position, children)
+            counters["symmetry_moves_skipped"] += skipped
+        for move, child in children:
+            score = search(child, remaining - 1, alpha, beta, ply + 1)
+            if maximizing:
+                if score > value:
+                    value, best_child_move = score, move
+                alpha = max(alpha, value)
+            else:
+                if score < value:
+                    value, best_child_move = score, move
+                beta = min(beta, value)
+            if beta <= alpha:
+                counters["cutoffs"] += 1
+                current = killers.setdefault(ply, [])
+                if move not in current:
+                    current.insert(0, move)
+                    del current[2:]
+                history[move] = history.get(move, 0) + remaining * remaining
+                break
+        if table is not None:
+            if value <= alpha_original:
+                bound = _Bound.UPPER
+            elif value >= beta:
+                bound = _Bound.LOWER
+            else:
+                bound = _Bound.EXACT
+            stored_move = best_child_move
+            if stored_move is not None and symmetry is not None:
+                stored_move = transform_move(stored_move, position.size, symmetry)
+            table.store(key, remaining, value, bound, stored_move)
+        return value
+
+    for current_depth in range(1, depth + 1):
+        iteration_best = best_move
+        score_best = -math.inf
+        try:
+            ordered = _ordered(state, list(root_moves), rng)
+            # Rank ties by the seeded base order so prioritising the previous
+            # principal variation cannot silently change which equal move wins.
+            base_rank = {move: index for index, (move, _) in enumerate(ordered)}
+            if settings.move_ordering and pv_move is not None:
+                ordered = _prioritise(
+                    ordered,
+                    tt_move=None,
+                    pv_move=pv_move,
+                    killers=(),
+                    history={},
+                )
+            if settings.symmetry_pruning:
+                ordered, skipped = _symmetry_children(state, ordered)
+                counters["symmetry_moves_skipped"] += skipped
+            for move, child in ordered:
+                score = sign * search(child, current_depth - 1, -math.inf, math.inf, 1)
+                if score > score_best or (
+                    score == score_best and base_rank[move] < base_rank[iteration_best]
+                ):
+                    score_best, iteration_best = score, move
+        except _Deadline:
+            break
+        best_move = iteration_best
+        pv_move = iteration_best
+        if diagnostics is not None:
+            diagnostics.update(
+                value=sign * score_best,
+                completed_depth=current_depth,
+                best_move=best_move.to_dict(),
+                nodes=counters["nodes"],
+                evaluations=counters["evaluations"],
+                cutoffs=counters["cutoffs"],
+                searched_moves=len(root_moves),
+                symmetry_hits=counters["symmetry_hits"],
+                symmetry_moves_skipped=counters["symmetry_moves_skipped"],
+                canonicalization_seconds=counters["canonicalization_seconds"],
+            )
+            if table is not None:
+                diagnostics.update(
+                    transposition_lookups=table.lookups,
+                    transposition_exact_hits=table.exact_hits,
+                    transposition_bound_hits=table.bound_hits,
+                    transposition_cutoffs=table.cutoffs,
+                    transposition_stores=table.stores,
+                    transposition_replacements=table.replacements,
+                    transposition_evictions=table.evictions,
+                    transposition_entries=len(table.entries),
+                    transposition_peak_entries=table.peak_entries,
+                )
+            if progress is not None:
+                progress(analysis_from_search(state, config, best_move, diagnostics))
+    if diagnostics is not None:
+        elapsed = max(time.monotonic() - search_started, 1e-9)
+        diagnostics["nodes_per_second"] = counters["nodes"] / elapsed
+        diagnostics.setdefault("searched_moves", len(root_moves))
     return best_move
 
 
@@ -698,9 +1106,21 @@ def analysis_from_search(
     if not math.isfinite(value) or not -1 <= value <= 1:
         raise ValueError("Agent evaluation must be finite and between -1 and 1")
     result = {"value": value, "source": source, "best_move": move.to_dict() if move else None}
-    for key in ("completed_depth", "simulations", "searched_moves"):
+    for key in (
+        "completed_depth",
+        "simulations",
+        "searched_moves",
+        "nodes",
+        "evaluations",
+        "cutoffs",
+        "symmetry_moves_skipped",
+    ):
         if key in details:
             result[key] = details[key]
+    exact = details.get("transposition_exact_hits")
+    bound = details.get("transposition_bound_hits")
+    if exact is not None or bound is not None:
+        result["transposition_hits"] = (exact or 0) + (bound or 0)
     return result
 
 
