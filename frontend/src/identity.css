@@ -152,7 +152,7 @@
   }
 }
 
-.header-link {
+.button.small.header-link {
   min-height: 42px;
   display: inline-flex;
   align-items: center;

@@ -271,7 +271,10 @@ async function login(page: Page, name: string) {
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
   const cancel = page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true });
-  if (await cancel.isVisible()) await cancel.click();
+  if (new URL(page.url()).searchParams.get('setup') === 'single-player') {
+    await expect(cancel).toBeVisible();
+    await cancel.click();
+  } else if (await cancel.isVisible()) await cancel.click();
   await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
 }
 test('guest survives login, logout, account switching, back navigation and online routes without upload', async ({
