@@ -133,6 +133,23 @@ follow-up. Fresh follow-up validation is recorded separately below.
 | --- | --- |
 | `.venv/bin/python -m pytest -q tests/test_personal.py tests/test_game_management.py` | **51 passed**, one existing TestClient warning, 97.67 seconds. |
 | `make docs` | Passed: **84 Markdown files / 619 local links/images/anchors**. |
+| `.venv/bin/python scripts/audit_api.py` | **82 grants accounted for**, unchanged routes and permissions. |
+| `make check` | **Passed**: **1,469 backend tests / 36 optional/hardware skips**, one existing TestClient warning; **312 frontend tests / 38 files**, docs/lint/formatting, mypy (46 sources), TypeScript and production build. No local timeout in this follow-up run. |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:personal` | **10 passed**, no skips, desktop/mobile, 3.0 minutes. |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:online` | **10 passed**, no skips, desktop/mobile, 3.0 minutes. |
 
-Full `make check` and relevant personal/online browser revalidation are pending
-at this follow-up snapshot; no earlier run is claimed as fresh validation.
+[Follow-up Verify run 94](https://github.com/freeDom-/hnefatafl/actions/runs/40308022245)
+passed both jobs on `02507f1ba78bd387b4ded1bf9bc7ae7eda270c8f`:
+**1,499 backend tests / 6 hardware skips**, 25 existing dependency warnings,
+**312 frontend tests / 38 files**, formatting/types/build, **66 existing browser
+checks / 4 intentional mobile duplicate skips**, **6 registration**, **10 online**,
+**10 personal dashboard**, and **14 production-build guest** browser checks.
+These are fresh CI results for the follow-up, not local execution claims.
+
+Local follow-up validation is complete. Optional local skips cover the unavailable
+OpenVINO extra and CUDA/Intel GPU hardware; the all-extras CI run covers OpenVINO
+CPU parity and retains six hardware skips. The earlier timeout/interrupted runs
+above remain historical evidence, not the result of this successful follow-up.
+Full existing/registration/guest browser coverage in this follow-up was executed
+in CI; locally the personal and online suites above were run. Physical devices,
+Safari/Firefox and production operation were not tested.
