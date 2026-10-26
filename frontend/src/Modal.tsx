@@ -13,10 +13,16 @@ export default function Modal({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    dialog.current?.showModal();
-    if (initialFocus) dialog.current?.querySelector<HTMLElement>(initialFocus)?.focus();
-    return () => dialog.current?.close();
+    const node = dialog.current;
+    const previous = document.activeElement;
+    node?.showModal();
+    if (initialFocus) node?.querySelector<HTMLElement>(initialFocus)?.focus();
+    return () => {
+      node?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, [initialFocus]);
+
   return (
     <dialog
       ref={dialog}

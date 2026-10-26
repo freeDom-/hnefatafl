@@ -28,10 +28,11 @@ async function start(page: Page) {
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await expect(page.getByRole('grid')).toBeVisible();
 }
-async function humanMove(page: Page) {
+async function humanMove(page: Page, expectSavedReply = true) {
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
   await page.getByRole('gridcell', { name: /^b7, empty/ }).click();
-  await expect(page.getByRole('button', { name: 'Previous move', exact: true })).toBeEnabled();
+  if (expectSavedReply)
+    await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(2);
   await ready(page);
 }
 
@@ -242,7 +243,7 @@ test('unavailable IndexedDB permits memory-only play with a visible warning', as
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm replacement', exact: true }).click();
   await expect(page.getByRole('grid')).toBeVisible();
-  await humanMove(page);
+  await humanMove(page, false);
   await expect(page.getByText(/Device storage is unavailable/)).toBeVisible();
 });
 
@@ -253,7 +254,7 @@ test('a stale tab cannot resurrect a cleared slot', async ({ page, context }) =>
   await other.goto('/guest');
   await ready(other);
   await confirmClear(page);
-  await humanMove(other);
+  await humanMove(other, false);
   await expect(
     other.getByText('Another tab changed the device game. Reload it before continuing.'),
   ).toBeVisible();
@@ -343,7 +344,7 @@ test('AI-first games and restored pending replies advance automatically through 
 }) => {
   await page.goto('/guest');
   await ready(page);
-  await page.getByLabel('Your side', { exact: true }).selectOption('defenders');
+  await page.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('defenders');
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(1);
   await ready(page);

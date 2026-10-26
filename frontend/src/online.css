@@ -13,26 +13,8 @@
   margin-top: 1rem;
   align-items: start;
 }
-.online-create,
 .online-details {
   padding: 1.25rem;
-}
-.online-create fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0;
-  min-width: 0;
-}
-.online-create label {
-  display: grid;
-  gap: 0.4rem;
-  margin: 1rem 0;
-}
-.online-create input,
-.online-create select {
-  width: 100%;
-  min-width: 0;
-  padding: 0.65rem;
 }
 .online-toolbar,
 .online-health {
@@ -44,7 +26,6 @@
 }
 .online-toolbar button,
 .online-health button,
-.online-create button,
 .online-details button {
   min-height: 44px;
   padding: 0.55rem 0.8rem;
