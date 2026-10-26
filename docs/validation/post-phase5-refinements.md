@@ -109,8 +109,8 @@ result rows are not mutated.
 
 | Check | Actual result |
 | --- | --- |
-| `make check` | **passed**, 14:55 backend + frontend + build; docs, Ruff/format, Prettier, mypy and TypeScript all passed |
-| Complete backend `pytest` | **1483 passed, 36 hardware/optional skips, 1 warning**, 895.43 s |
+| `make check` | **passed**, 14:56 backend + frontend + build; docs, Ruff/format, Prettier, mypy and TypeScript all passed |
+| Complete backend `pytest` | **1483 passed, 36 hardware/optional skips, 1 warning**, 896.25 s |
 | Complete frontend `vitest` | **44 files, 361 passed** |
 | Ruff / Ruff format / Prettier | passed (104 backend files; frontend formatting clean) |
 | mypy | passed, 48 source files |
