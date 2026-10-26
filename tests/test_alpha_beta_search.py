@@ -462,3 +462,102 @@ def test_analysis_exposes_search_counters():
     assert report["evaluations"] > 0
     assert report["transposition_hits"] >= 0
     assert report["symmetry_moves_skipped"] >= 0
+
+
+# --- Improved move ordering and precise symmetry statistics ----------------
+
+
+def test_prioritise_consults_history_without_a_preferred_move():
+    state = new_game("brandubh")
+    moves = legal_moves(state)
+    children = [(move, apply_move(state, move)) for move in moves]
+    promoted = moves[-1]
+    ordered = ai._prioritise(
+        children,
+        tt_move=None,
+        pv_move=None,
+        killers=(),
+        history={promoted: 7},
+    )
+    assert ordered[0][0] == promoted
+    # A zero history must not reorder or copy the base list unnecessarily.
+    untouched = ai._prioritise(children, tt_move=None, pv_move=None, killers=(), history={})
+    assert [item[0] for item in untouched] == moves
+
+
+def test_prioritise_orders_pv_then_table_then_killer_then_history():
+    state = new_game("brandubh")
+    moves = legal_moves(state)
+    children = [(move, apply_move(state, move)) for move in moves]
+    pv, table, killer, hot = moves[0], moves[1], moves[2], moves[3]
+    ordered = ai._prioritise(
+        children,
+        tt_move=table,
+        pv_move=pv,
+        killers=(killer,),
+        history={hot: 9},
+    )
+    assert [item[0] for item in ordered[:4]] == [pv, table, killer, hot]
+
+
+def test_clean_search_config_normalises_and_rejects_malformed_values():
+    from hnefatafl.ai import SEARCH_SETTINGS_DEFAULTS, clean_search_config
+
+    assert clean_search_config(None) == SEARCH_SETTINGS_DEFAULTS
+    # A canonical table is also an ordinary table.
+    assert (
+        clean_search_config({"symmetry_transposition": True, "transposition": False})[
+            "transposition"
+        ]
+        is True
+    )
+    # Legacy collapses every optimized flag to one deterministic shape.
+    legacy = clean_search_config({"legacy": True, "symmetry_pruning": True})
+    assert legacy == {**SEARCH_SETTINGS_DEFAULTS, "legacy": True}
+    for malformed in (
+        {"unknown": True},
+        {"transposition": 1},
+        {"table_capacity": 0},
+        {"table_capacity": True},
+    ):
+        with pytest.raises(ValueError):
+            clean_search_config(malformed)
+    for feature in ("symmetry_transposition", "symmetry_pruning"):
+        with pytest.raises(ValueError, match="neural"):
+            clean_search_config({feature: True}, model_backed=True)
+
+
+def test_cross_orientation_hits_are_distinct_from_canonical_hits():
+    state = new_game("brandubh")
+    details: dict = {}
+    ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 3,
+            "time_limit": 60,
+            "seed": 5,
+            "search": {
+                "transposition": True,
+                "symmetry_transposition": True,
+                "move_ordering": True,
+            },
+        },
+        diagnostics=details,
+    )
+    assert details["symmetry_hits"] > 0
+    assert 0 < details["transposition_cross_orientation_hits"] <= details["symmetry_hits"]
+    # Ordinary tables never claim cross-orientation reuse.
+    plain: dict = {}
+    ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 3,
+            "time_limit": 60,
+            "seed": 5,
+            "search": {"transposition": True, "move_ordering": True},
+        },
+        diagnostics=plain,
+    )
+    assert plain.get("transposition_cross_orientation_hits", 0) == 0
