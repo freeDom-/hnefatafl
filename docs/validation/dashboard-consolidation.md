@@ -34,20 +34,21 @@ bump, tag/release, deployment, rating or production admission/timeout activation
 
 ## Current evidence
 
-Validation of the final UI snapshot is still in progress. Counts below belong to
-the specified revision or focused working-tree check, not an unrun combined suite.
+[Verify 112](https://github.com/freeDom-/hnefatafl/actions/runs/40368171689) passed
+both jobs on implementation/test snapshot `b472c0b`. Counts below distinguish that
+complete CI run from focused local checks and the separate local failures.
 
 | Check | Actual result |
 | --- | --- |
-| [Verify 108](https://github.com/freeDom-/hnefatafl/actions/runs/40355201250), backend at `0eb876d` | **1510 passed, 6 hardware skips, 25 warnings**, 590.78 s; Ruff/104 formatted modules, mypy/48 modules and docs passed. This includes personal/history, real registration/online authorization, actual local/remote training, model loading and legal play. Later implementation changes are frontend only. |
-| Verify 108, frontend at `0eb876d` | **338 passed / 39 files**, TypeScript and production build passed. Legacy browser suite: **62 passed / 4 failed / 4 intentional duplicate skips**, 5.8 min; the two advisor scenarios on desktop/mobile were corrected and rerun below. Later suites were skipped after that failure. |
+| Verify 112, complete backend | **1510 passed, 6 hardware skips, 25 warnings**, 572.72 s; Ruff/104 formatted modules, mypy/48 modules, foundation and docs/85 files/633 links passed. Includes personal/history, registration/online authorization, actual local/remote training, model loading and legal play. |
+| Verify 112, complete frontend | **338 passed / 39 files**, 33.34 s; formatting, TypeScript and production build passed. |
+| Verify 112, all production browser suites | **116 passed / 4 intentional duplicate skips**, desktop/mobile Chromium: legacy **66 passed / 4 skips** (6.2 min), registration **8 passed** (22.2 s), online **14 passed** (59.4 s), personal **12 passed** (35.4 s), guest **16 passed** (2.4 min). |
 | New account creation policy, local | **5 passed**, one existing TestClient deprecation, 97.05 s. Covers presets, account identity, forged bodies, transactional role rechecks, restart denial and retained historical play. |
 | Shared modal/App/Online/Guest units, local | **56 passed / 3 files**, 70.64 s after shared focus/layout changes. |
 | Registration/auth browser suite, local | **8 passed**, desktop/mobile Chromium, 3.3 min; includes keyboard guest action order and shared auth spacing. |
 | Focused online browser suite, local | **4 passed**, desktop/mobile Chromium, 2.2 min; automatic lifecycle/reconnect/visibility updates, common modal spacing, Escape/focus, invalid aggregate durations and the 14-day boundary. |
 | Advisor/replay browser suite, local | **6 passed**, desktop/mobile Chromium, 3.4 min. Historical fixtures use ordinary real-session reads/moves/analysis; playback time is paused only while opening a retained AI position. Search and recorded moves use the real engine/API. |
 | API inventory | **81 registered method/path grants accounted for**. The three local-player CRUD grants/routes are removed; global authenticated online listing/detail and private personal scope retain their permissions. Schema remains 10. |
-| [Verify 109](https://github.com/freeDom-/hnefatafl/actions/runs/40362728128), `c7dd452` | Backend **1510 passed / 6 skipped / 25 warnings**, 579.38 s, Ruff/mypy/docs passed. Frontend **338 passed**, build passed; browsers **66 legacy passed / 4 skips**, 4.9 min; **8 registration passed**, 19.0 s; **14 online passed**, 49.2 s; personal **10 passed / 2 failed**, 24.8 s (one obsolete acting-seat assumption on both layouts). Guest was skipped after that failure. |
 
 The local production guest suite finished with **15 passed / 1 failed**, 12.9 min.
 The first desktop worker startup did not become ready within its 30-second
@@ -55,16 +56,23 @@ expectation and showed the explicit retry UI; that case has not passed locally.
 All other cases passed, including the mobile persistence/CSP/no-API case,
 automatic AI-first creation/restoration, replacement, invalid histories, terminal
 replay, memory-only storage, stale tabs and account switching.
+The complete guest suite subsequently passed in Verify 112; this does not turn
+the local startup failure into a pass.
 
 The personal acting-seat test now explicitly chooses attackers in Brandubh before
 making its versioned human move. The corrected full production personal suite
 passed **12/12** locally on desktop/mobile, **2.8 min**, including fresh Dashboard
 resume, authorization, canonical read-only review and late account-switch responses.
 
-A current `make check` attempt passed docs, Ruff/formatting, Prettier, mypy and
+A prior `make check` attempt passed docs, Ruff/formatting, Prettier, mypy and
 TypeScript, then was deliberately interrupted during pytest to fix known obsolete
-test assumptions. It is not a full pass. The final retry will use a 45-minute local limit; its actual
-result will be recorded before delivery.
+test assumptions. It is not a full pass. The final local `make check` retry
+**passed with exit status 0**, within its 45-minute limit (about 41 min total).
+Docs, Ruff/formatting, Prettier, mypy and TypeScript passed, followed by **1480
+backend passes / 36 skips / 1 warning** (2030.78 s), **338 frontend passes / 39
+files** (284.16 s) and the production build. Local optional-dependency/hardware
+skips differ from the complete all-extras CI environment. The build retains its
+existing large-chunk advisory; it completed successfully.
 
 ## Development attempts and prior consolidation
 
@@ -93,6 +101,16 @@ Earlier additional-scope attempts are not accepted full passes:
 - Advisor browser corrections initially had selector/timeouts and an autoplay
   race. The final six-case run above passed, retaining real search and historical
   review assertions.
+- Verify 108 passed all backend/frontend checks but had **62 legacy browser
+  passes / 4 failures / 4 skips** before the advisor fixture/selector corrections.
+  Verify 109 passed the legacy, registration and online suites but had **10
+  personal passes / 2 failures** from the obsolete acting-seat assumption, fixed
+  by explicitly selecting human attackers in the resume test.
+- Verify 111 passed backend/frontend and the first four browser suites; guest
+  had **14 passes / 2 failures** because the new AI-first polling assertion
+  dereferenced the initially empty save slot. The assertion now waits for a
+  persisted move without changing application/worker behavior or timeouts.
+  Verify 112 passed all suites after that correction.
 
 The earlier consolidation-only snapshot `adeaa19` passed
 [Verify 105](https://github.com/freeDom-/hnefatafl/actions/runs/40331972044):

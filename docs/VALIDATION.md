@@ -6,7 +6,10 @@
 
 The [Dashboard consolidation refinement](validation/dashboard-consolidation.md)
 records the current Phase 5 landing/navigation, role-scoped compact Hall and shared
-review checks. It remains on PR #17 by explicit owner instruction.
+review checks, plus shared authentication layout, automatic guest AI, account-bound
+preset creation and online lobby/dialog polish. It includes full CI results and
+the separate local check failures and timeouts. The refinement remains on PR #17
+by explicit owner instruction.
 
 [Phase 5 evidence](validation/online-phase5.md) records the personal dashboard,
 scoped history/review, result revision totals and preserved guest/account/online

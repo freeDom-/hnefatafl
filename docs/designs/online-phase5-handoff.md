@@ -59,4 +59,4 @@ lobby cards. Local-player CRUD and unsupported legacy restart cloning are remove
 stored identities/configurations remain read/play compatibility shims. The shared
 neural catalog and authorized advisor/training/tournaments remain independent.
 The refinement evidence identifies exact full/focused checks and local timeout
-limits; final validation remains in progress there.
+limits. Keep those limitations separate from CI results when planning rollout.
