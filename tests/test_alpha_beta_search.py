@@ -8,6 +8,7 @@ never share D4-equivalent values or moves.
 
 from dataclasses import replace
 import json
+import time
 
 import pytest
 
@@ -369,13 +370,13 @@ def test_interrupted_iteration_keeps_last_completed_value(monkeypatch):
     ordered = ai._ordered
     root_calls = 0
 
-    def expire_on_second_root(position, moves, rng, maiden=False):
+    def expire_on_second_root(position, moves, rng, maiden=False, check=None):
         nonlocal root_calls
         if position is state:
             root_calls += 1
             if root_calls == 2:
                 raise ai._Deadline
-        return ordered(position, moves, rng, maiden)
+        return ordered(position, moves, rng, maiden, check)
 
     monkeypatch.setattr(ai, "_ordered", expire_on_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})
@@ -478,3 +479,182 @@ def test_analysis_exposes_search_counters():
     assert report["evaluations"] > 0
     assert report["transposition_hits"] >= 0
     assert report["symmetry_moves_skipped"] >= 0
+
+
+# --- Improved move ordering and precise symmetry statistics ----------------
+
+
+def test_prioritise_consults_history_without_a_preferred_move():
+    state = new_game("brandubh")
+    moves = legal_moves(state)
+    children = [(move, apply_move(state, move)) for move in moves]
+    promoted = moves[-1]
+    ordered = ai._prioritise(
+        children,
+        tt_move=None,
+        pv_move=None,
+        killers=(),
+        history={promoted: 7},
+    )
+    assert ordered[0][0] == promoted
+    # A zero history must not reorder or copy the base list unnecessarily.
+    untouched = ai._prioritise(children, tt_move=None, pv_move=None, killers=(), history={})
+    assert [item[0] for item in untouched] == moves
+
+
+def test_prioritise_orders_pv_then_table_then_killer_then_history():
+    state = new_game("brandubh")
+    moves = legal_moves(state)
+    children = [(move, apply_move(state, move)) for move in moves]
+    pv, table, killer, hot = moves[0], moves[1], moves[2], moves[3]
+    ordered = ai._prioritise(
+        children,
+        tt_move=table,
+        pv_move=pv,
+        killers=(killer,),
+        history={hot: 9},
+    )
+    assert [item[0] for item in ordered[:4]] == [pv, table, killer, hot]
+
+
+def test_clean_search_config_normalises_and_rejects_malformed_values():
+    from hnefatafl.ai import SEARCH_SETTINGS_DEFAULTS, clean_search_config
+
+    assert clean_search_config(None) == SEARCH_SETTINGS_DEFAULTS
+    # A canonical table is also an ordinary table.
+    assert (
+        clean_search_config({"symmetry_transposition": True, "transposition": False})[
+            "transposition"
+        ]
+        is True
+    )
+    # Legacy collapses every optimized flag to one deterministic shape.
+    legacy = clean_search_config({"legacy": True, "symmetry_pruning": True})
+    assert legacy == {**SEARCH_SETTINGS_DEFAULTS, "legacy": True}
+    for malformed in (
+        {"unknown": True},
+        {"transposition": 1},
+        {"table_capacity": 0},
+        {"table_capacity": True},
+    ):
+        with pytest.raises(ValueError):
+            clean_search_config(malformed)
+    for feature in ("symmetry_transposition", "symmetry_pruning"):
+        with pytest.raises(ValueError, match="neural"):
+            clean_search_config({feature: True}, model_backed=True)
+
+
+def test_cross_orientation_hits_are_distinct_from_canonical_hits():
+    state = new_game("brandubh")
+    details: dict = {}
+    ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 3,
+            "time_limit": 60,
+            "seed": 5,
+            "search": {
+                "transposition": True,
+                "symmetry_transposition": True,
+                "move_ordering": True,
+            },
+        },
+        diagnostics=details,
+    )
+    assert details["symmetry_hits"] > 0
+    assert 0 < details["transposition_cross_orientation_hits"] <= details["symmetry_hits"]
+    # Ordinary tables never claim cross-orientation reuse.
+    plain: dict = {}
+    ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 3,
+            "time_limit": 60,
+            "seed": 5,
+            "search": {"transposition": True, "move_ordering": True},
+        },
+        diagnostics=plain,
+    )
+    assert plain.get("transposition_cross_orientation_hits", 0) == 0
+
+
+def long_history_state(ruleset: str = "copenhagen", plies: int = 400) -> State:
+    """A fully symmetric board with a long, valid repetition history.
+
+    Every D4 orientation is tied, so canonicalization and the stabilizer must
+    transform the whole history for each symmetry instead of returning early.
+    """
+    state = new_game(ruleset)
+    entry = f"{state.turn}:{''.join(state.board)}"
+    return replace(state, history=tuple(entry for _ in range(plies)), ply=plies)
+
+
+def test_symmetry_functions_invoke_the_cancellation_check():
+    state = long_history_state()
+
+    class Stop(Exception):
+        pass
+
+    calls = {"count": 0}
+
+    def check() -> None:
+        calls["count"] += 1
+        if calls["count"] > 3:
+            raise Stop
+
+    for operation in (canonical_state_key, state_stabilizer, board_stabilizer):
+        calls["count"] = 0
+        with pytest.raises(Stop):
+            operation(state if operation is not board_stabilizer else state.board, check)
+        assert calls["count"] > 0
+
+
+def test_tiny_deadline_interrupts_long_history_canonicalization():
+    state = long_history_state()
+    # A host-calibrated baseline for the uninterrupted stabilizer.
+    samples = []
+    for _ in range(3):
+        started = time.perf_counter()
+        state_stabilizer(state)
+        samples.append(time.perf_counter() - started)
+    stabilizer_seconds = sorted(samples)[1]
+    details: dict = {}
+    started = time.perf_counter()
+    move = ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 8,
+            "time_limit": stabilizer_seconds / 8,
+            "seed": 3,
+            "search": {
+                "transposition": True,
+                "symmetry_transposition": True,
+                "symmetry_pruning": True,
+                "move_ordering": True,
+            },
+        },
+        diagnostics=details,
+    )
+    elapsed = time.perf_counter() - started
+    assert move in legal_moves(state)
+    assert details["completed_depth"] < 8
+    # The deadline must interrupt the stabilizer/canonicalization instead of
+    # running the whole computation to completion.
+    assert elapsed < stabilizer_seconds
+
+
+def test_table_capacity_maximum_is_bounded():
+    from hnefatafl.ai import MAX_TABLE_CAPACITY, clean_search_config
+
+    assert MAX_TABLE_CAPACITY == 500_000
+    assert (
+        clean_search_config({"table_capacity": MAX_TABLE_CAPACITY})["table_capacity"]
+        == MAX_TABLE_CAPACITY
+    )
+    with pytest.raises(ValueError, match="capacity"):
+        clean_search_config({"table_capacity": MAX_TABLE_CAPACITY + 1})
+    with pytest.raises(ValueError, match="capacity"):
+        _TranspositionTable(MAX_TABLE_CAPACITY + 1)

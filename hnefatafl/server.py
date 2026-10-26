@@ -350,6 +350,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "search_wrapper",
             "heuristic_version",
             "heuristic",
+            "search",
         }
         if set(config) - supported:
             fail("Unsupported AI configuration field.")
@@ -412,7 +413,18 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 fail("Search wrappers apply only to trained neural models.")
             if config["search_wrapper"] not in ("mcts", "alpha_beta", "none"):
                 fail("Search wrapper must be mcts, alpha_beta or none.")
-        resolved = effective_ai_config(config)
+        if "search" in config:
+            if not isinstance(config["search"], dict):
+                fail("Search configuration must be an object.")
+            wrapper = config.get("search_wrapper")
+            if algorithm != "alpha_beta" and not (
+                algorithm == "neural" and wrapper == "alpha_beta"
+            ):
+                fail("Search settings apply only to alpha-beta search.")
+        try:
+            resolved = effective_ai_config(config)
+        except ValueError as error:
+            fail(str(error))
         if resolved.get("model_id"):
             if not isinstance(resolved["model_id"], str):
                 fail("Model ID must be a string.")

@@ -36,7 +36,12 @@ claim of expert strength.
 Alpha-beta searches alternating maximizing defender and minimizing attacker
 nodes and orders moves by the Shield maiden child score plus the previous
 iteration's principal variation, the transposition-table move, killer moves and
-cutoff history. Iterative deepening retains the last completed result when time
+cutoff history. Move ordering has one deterministic priority: principal
+variation, then transposition-table move, then killers, then history-ranked quiet
+moves, then the stable static order. History is consulted even when no preferred
+move exists, so a quiet move that caused a cutoff still rises; when every history
+score is zero the base order is returned untouched. Root ties still follow the
+seeded base order. Iterative deepening retains the last completed result when time
 expires. An optional `model_path` replaces its nonterminal leaf evaluation with a
 compatible neural value network.
 
@@ -60,8 +65,12 @@ pass an optional internal `search` object to ablate individual features:
 | `move_ordering` | `true` | PV, table, killer and history ordering |
 | `symmetry_transposition` | `false` | D4-canonical, repetition-safe table keys |
 | `symmetry_pruning` | `false` | Search one representative per full-state move orbit |
-| `table_capacity` | `100000` | Maximum resident table entries (1–5000000) |
+| `table_capacity` | `100000` | Maximum resident table entries (1–500000) |
 | `legacy` | `false` | Restore the original exact-value-cache reference search |
+
+The capacity ceiling is bounded because a repetition-aware key can grow to several
+kilobytes on a long game; the measured per-entry cost and the long-game peak are
+recorded in the [control-refinement evidence](benchmarks/alpha-beta-controls.md).
 
 The Shield maiden evaluator is D4-invariant, so the two symmetry features are
 valid for heuristic-backed search. Trained value heads are not guaranteed
@@ -72,10 +81,45 @@ features are optional rather than defaults because canonicalizing long histories
 costs more than it saves on some rulesets; see the
 [benchmark evidence](PERFORMANCE.md#phase-4-alpha-beta-symmetry-search).
 
+Symmetry move pruning runs before successors are built: the full-state stabilizer
+partitions the legal moves into orbits, one deterministic representative per orbit
+is retained, and only those moves are applied and evaluated. Because the stabilizer
+is computed from the complete state (board, turn and ordered repetition history),
+a visually symmetric board with asymmetric history is never pruned. The engine's
+legal-move list is never modified.
+
+Move ordering, canonicalization, the stabilizer and the per-move evaluation loop
+all observe the monotonic search deadline. A long-history canonicalization or
+stabilizer therefore aborts promptly when the budget expires instead of running
+the whole computation to completion; the interrupted iteration keeps the last
+completed depth, exactly like any other deadline expiry. History is consulted in
+the documented priority even without a preferred move, but the measured node
+effect is position-dependent and is not claimed as a strength gain.
+
+Tournament setup exposes the same options for a custom alpha-beta opponent under
+**Alpha-beta optimizations**, with **Legacy alpha-beta**, **Optimized default**,
+**Full symmetry** and **Custom** presets. Jarl remains a fixed preset without
+editable optimization controls. The nested `search` object is accepted by the
+game, advisor and tournament APIs and is validated and normalised server-side
+before it reaches `choose_move`. An explicit `search` object is part of the
+effective configuration identity, so a record that names the defaults explicitly
+stays distinct from one without the object; the two behave identically but keep
+separate runes and statistics so historical records never change identity. See
+[persistent identity runes](IDENTITIES.md).
+
 Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`,
-`transposition_hits`, `transposition_peak_entries` and `symmetry_moves_skipped`.
-Counts describe visited interior nodes, leaf/terminal evaluations, alpha-beta
-cutoffs, reused exact/bound results and symmetry-pruned moves respectively.
+`transposition_lookups`, `transposition_successful_lookups`,
+`transposition_exact_hits`, `transposition_bound_hits`,
+`transposition_cutoffs`, `transposition_cross_orientation_hits`,
+`transposition_peak_entries`, `canonicalization_seconds` and
+`symmetry_moves_skipped`. `transposition_hits` remains the exact-plus-bound hit
+count. `symmetry_hits` keeps its historical meaning (a probe that found any
+canonical-table entry); `transposition_cross_orientation_hits` is the precise
+count of probes whose stored orientation differed from the query's canonical
+orientation, so genuine cross-orientation reuse is distinguishable from ordinary
+same-orientation table hits. Counts describe visited interior nodes,
+leaf/terminal evaluations, alpha-beta cutoffs, reused results and symmetry-pruned
+moves respectively.
 
 MCTS stores defender-perspective values consistently at every node. Selection
 converts that value to the active side's perspective, adds a PUCT exploration

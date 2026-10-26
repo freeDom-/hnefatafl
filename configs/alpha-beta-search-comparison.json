@@ -1,0 +1,39 @@
+{
+  "name": "Alpha-beta search comparison",
+  "rulesets": ["brandubh"],
+  "players": [
+    {
+      "config": {
+        "algorithm": "alpha_beta",
+        "depth": 3,
+        "time_limit": 2,
+        "search": {
+          "legacy": true,
+          "transposition": true,
+          "move_ordering": true,
+          "symmetry_transposition": false,
+          "symmetry_pruning": false,
+          "table_capacity": 100000
+        }
+      }
+    },
+    {
+      "config": {
+        "algorithm": "alpha_beta",
+        "depth": 3,
+        "time_limit": 2,
+        "search": {
+          "legacy": false,
+          "transposition": true,
+          "move_ordering": true,
+          "symmetry_transposition": true,
+          "symmetry_pruning": true,
+          "table_capacity": 100000
+        }
+      }
+    }
+  ],
+  "games": 20,
+  "max_plies": 500,
+  "seed": 20261026
+}

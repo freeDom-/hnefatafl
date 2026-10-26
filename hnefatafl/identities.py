@@ -67,6 +67,14 @@ def effective_ai_config(configuration: dict, profile_id: str | None = None) -> d
         )
     if algorithm in {"alpha_beta", "mcts", "neural"} and raw.get("model_id"):
         result.update(model_id=raw["model_id"], evaluation="neural")
+    # Preserve an explicit nested search configuration. Historical records
+    # without one keep their original shape so saved identities stay stable.
+    if (algorithm == "alpha_beta" or wrapper == "alpha_beta") and raw.get("search") is not None:
+        from .ai import clean_search_config
+
+        result["search"] = clean_search_config(
+            raw["search"], model_backed=bool(result.get("model_id"))
+        )
     return result
 
 

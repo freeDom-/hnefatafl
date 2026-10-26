@@ -183,6 +183,110 @@ def test_ai_configuration_rejects_paths_and_incompatible_types(client):
     assert client.post("/api/players", json={"name": "   "}).status_code == 400
 
 
+def test_alpha_beta_search_config_reaches_the_stored_game(client):
+    search = {
+        "legacy": False,
+        "transposition": True,
+        "move_ordering": True,
+        "symmetry_transposition": True,
+        "symmetry_pruning": True,
+        "table_capacity": 4096,
+    }
+    game = create(
+        client,
+        ruleset="brandubh",
+        mode="ai-ai",
+        players={
+            "attackers": {
+                "profile_id": "alpha_beta",
+                "config": {"algorithm": "alpha_beta", "depth": 1, "time_limit": 0.05},
+            },
+            "defenders": {
+                "config": {
+                    "algorithm": "alpha_beta",
+                    "depth": 1,
+                    "time_limit": 0.05,
+                    "search": search,
+                }
+            },
+        },
+    )
+    attackers = game["players"]["attackers"]["config"]
+    defenders = game["players"]["defenders"]["config"]
+    assert "search" not in attackers
+    assert defenders["search"] == search
+    # Distinct search settings are distinct agents.
+    assert game["players"]["attackers"]["variant_id"] != game["players"]["defenders"]["variant_id"]
+
+
+def test_explicit_default_search_object_gets_a_distinct_identity(client):
+    from hnefatafl.ai import SEARCH_SETTINGS_DEFAULTS
+
+    implicit_config = {"algorithm": "alpha_beta", "depth": 2, "time_limit": 0.05}
+    explicit_config = {**implicit_config, "search": dict(SEARCH_SETTINGS_DEFAULTS)}
+    players = {
+        "attackers": {"config": implicit_config},
+        "defenders": {"config": explicit_config},
+    }
+    game = create(client, ruleset="brandubh", mode="ai-ai", players=players)
+    attackers = game["players"]["attackers"]
+    defenders = game["players"]["defenders"]
+    # The implicit shape and an explicit copy of the defaults resolve to the
+    # same behaviour, but the recorded shapes stay distinguishable.
+    assert "search" not in attackers["config"]
+    assert defenders["config"]["search"] == SEARCH_SETTINGS_DEFAULTS
+    assert attackers["variant_id"] != defenders["variant_id"]
+    assert attackers["rune"] != defenders["rune"]
+    # Both identities are stable across a repeat request.
+    repeat = create(client, ruleset="brandubh", mode="ai-ai", players=players)
+    assert repeat["players"]["attackers"]["variant_id"] == attackers["variant_id"]
+    assert repeat["players"]["defenders"]["variant_id"] == defenders["variant_id"]
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        {"unknown": True},
+        {"transposition": 1},
+        {"move_ordering": "yes"},
+        {"table_capacity": 0},
+        {"table_capacity": True},
+        {"symmetry_pruning": True, "table_capacity": 1.5},
+    ],
+)
+def test_malformed_alpha_beta_search_config_is_rejected(client, search):
+    response = client.post(
+        "/api/games",
+        json={
+            "mode": "ai-ai",
+            "players": {
+                "attackers": {
+                    "config": {
+                        "algorithm": "alpha_beta",
+                        "depth": 1,
+                        "search": search,
+                    }
+                }
+            },
+        },
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_search_config_is_rejected_for_non_alpha_beta_algorithms(client):
+    for algorithm in ("baseline", "shield_maiden", "mcts"):
+        response = client.post(
+            "/api/games",
+            json={
+                "mode": "ai-ai",
+                "players": {
+                    "attackers": {"config": {"algorithm": algorithm, "search": {"legacy": True}}}
+                },
+            },
+        )
+        assert response.status_code == 400, response.text
+
+
 def test_statistics_are_separated_by_identity_kind_ruleset_and_mode(client):
     profile = client.post("/api/players", json={"name": "Astrid"}).json()
     # Seed terminal fixtures into storage to isolate counting from search strength;

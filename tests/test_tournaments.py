@@ -96,6 +96,55 @@ def test_real_balanced_tournament_retains_truncations_and_legal_replay(client):
     assert client.get("/api/tournaments/missing").status_code == 404
 
 
+def test_tournament_records_distinct_alpha_beta_search_configs(client):
+    created = launch(
+        client,
+        configuration(
+            players=[
+                {
+                    "name": "Legacy",
+                    "config": {
+                        "algorithm": "alpha_beta",
+                        "depth": 1,
+                        "time_limit": 0.05,
+                        "search": {"legacy": True},
+                    },
+                },
+                {
+                    "name": "Full symmetry",
+                    "config": {
+                        "algorithm": "alpha_beta",
+                        "depth": 1,
+                        "time_limit": 0.05,
+                        "search": {
+                            "legacy": False,
+                            "transposition": True,
+                            "move_ordering": True,
+                            "symmetry_transposition": True,
+                            "symmetry_pruning": True,
+                        },
+                    },
+                },
+            ],
+            games=2,
+            max_plies=4,
+        ),
+    )
+    record = wait_for(client, created["id"], lambda row: row["status"] == "completed")
+    players = record["config"]["players"]
+    assert players[0]["config"]["search"] == {
+        "legacy": True,
+        "transposition": True,
+        "move_ordering": True,
+        "symmetry_transposition": False,
+        "symmetry_pruning": False,
+        "table_capacity": 100_000,
+    }
+    assert players[1]["config"]["search"]["symmetry_pruning"] is True
+    assert players[0]["variant_id"] != players[1]["variant_id"]
+    assert players[0]["agent_rune"] != players[1]["agent_rune"]
+
+
 def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
     with TestClient(create_app(tmp_path)) as first:
         player = first.post("/api/players", json={"name": "Astrid"}).json()

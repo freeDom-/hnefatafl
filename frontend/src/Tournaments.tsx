@@ -11,6 +11,16 @@ import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { profileConfiguration } from './gameSetupPreference';
+import {
+  DEFAULT_ALPHA_BETA_SEARCH,
+  TABLE_CAPACITY_MAX,
+  TABLE_CAPACITY_MIN,
+  presetSearch,
+  searchFromConfig,
+  searchPreset,
+  type AlphaBetaPresetName,
+  type AlphaBetaSearchSettings,
+} from './alphaBetaSearch';
 import ConfigImportButton from './ConfigImportButton';
 import {
   readImportedTournamentConfig,
@@ -736,6 +746,101 @@ export default function Tournaments({
   );
 }
 
+function AlphaBetaSearchFields({
+  prefix,
+  search,
+  onPreset,
+  onField,
+}: {
+  prefix: string;
+  search: AlphaBetaSearchSettings;
+  onPreset: (name: AlphaBetaPresetName) => void;
+  onField: (patch: Partial<AlphaBetaSearchSettings>) => void;
+}) {
+  const { locale } = useI18n();
+  const preset = searchPreset(search);
+  const toggle = (
+    key:
+      | 'legacy'
+      | 'transposition'
+      | 'move_ordering'
+      | 'symmetry_transposition'
+      | 'symmetry_pruning',
+    label: string,
+    tooltip: string,
+  ) => (
+    <label key={key} title={t(tooltip)}>
+      <input
+        type="checkbox"
+        aria-label={`${prefix} ${t(label).toLocaleLowerCase(locale)}`}
+        checked={search[key]}
+        onChange={(event) => onField({ [key]: event.target.checked })}
+      />
+      {t(label)}
+    </label>
+  );
+  return (
+    <fieldset className="tournament-search-optimizations">
+      <legend>{t('Alpha-beta optimizations')}</legend>
+      <label>
+        {t('Search preset')}
+        <select
+          aria-label={`${prefix} ${t('search preset').toLocaleLowerCase(locale)}`}
+          value={preset}
+          onChange={(event) => onPreset(event.target.value as AlphaBetaPresetName)}
+        >
+          <option value="legacy">{t('Legacy alpha-beta')}</option>
+          <option value="optimized">{t('Optimized default')}</option>
+          <option value="symmetry">{t('Full symmetry')}</option>
+          <option value="custom">{t('Custom')}</option>
+        </select>
+      </label>
+      <div className="form-grid tournament-search-flags">
+        {toggle(
+          'legacy',
+          'Legacy search',
+          'Use the original exact-value cache search and ignore every optimized option below.',
+        )}
+        {toggle(
+          'transposition',
+          'Transposition table',
+          'Reuse positions that were already searched during this game.',
+        )}
+        {toggle(
+          'move_ordering',
+          'Improved move ordering',
+          'Try known-good moves earlier using the transposition table, principal variation, killers and history.',
+        )}
+        {toggle(
+          'symmetry_transposition',
+          'D4-canonical transpositions',
+          'Share positions that are rotations or reflections of each other.',
+        )}
+        {toggle(
+          'symmetry_pruning',
+          'Symmetry move pruning',
+          'Search one representative per symmetric move group.',
+        )}
+      </div>
+      <label
+        title={t('Bounded number of stored transposition entries. Larger tables use more memory.')}
+      >
+        {t('Transposition table capacity')}
+        <input
+          type="number"
+          aria-label={`${prefix} ${t('transposition table capacity').toLocaleLowerCase(locale)}`}
+          min={TABLE_CAPACITY_MIN}
+          max={TABLE_CAPACITY_MAX}
+          step={1}
+          required
+          value={search.table_capacity}
+          onChange={(event) => onField({ table_capacity: Number(event.target.value) })}
+        />
+      </label>
+    </fieldset>
+  );
+}
+
 const fallbackPlayer = (index: number): TournamentPlayer =>
   index % 2
     ? {
@@ -841,6 +946,20 @@ function TournamentSetup({
     manualOpponents.current[index] = true;
     updatePlayer(index, { config: { ...config.players[index].config, [key]: value } });
   };
+  const updateSearch = (index: number, patch: Partial<AlphaBetaSearchSettings>) => {
+    manualOpponents.current[index] = true;
+    const current = searchFromConfig(config.players[index].config) ?? DEFAULT_ALPHA_BETA_SEARCH;
+    updatePlayer(index, {
+      config: { ...config.players[index].config, search: { ...current, ...patch } },
+    });
+  };
+  const applySearchPreset = (index: number, name: AlphaBetaPresetName) => {
+    manualOpponents.current[index] = true;
+    const current = searchFromConfig(config.players[index].config) ?? DEFAULT_ALPHA_BETA_SEARCH;
+    updatePlayer(index, {
+      config: { ...config.players[index].config, search: presetSearch(name, current) },
+    });
+  };
   const addPlayer = () => {
     if (config.players.length >= 4) return;
     manualOpponents.current.push(false);
@@ -875,7 +994,15 @@ function TournamentSetup({
     const profile = profiles.find((item) => item.id === id);
     manualOpponents.current[index] = true;
     if (!profile) {
-      updatePlayer(index, { profile_id: undefined, name: 'Computer' });
+      const current = config.players[index].config;
+      updatePlayer(index, {
+        profile_id: undefined,
+        name: 'Computer',
+        config:
+          current.algorithm === 'alpha_beta' && !searchFromConfig(current)
+            ? { ...current, search: { ...DEFAULT_ALPHA_BETA_SEARCH } }
+            : current,
+      });
       return;
     }
     updatePlayer(index, {
@@ -898,6 +1025,8 @@ function TournamentSetup({
     delete next.model_id;
     delete next.evaluation;
     delete next.search_wrapper;
+    delete next.search;
+    if (algorithm === 'alpha_beta') next.search = { ...DEFAULT_ALPHA_BETA_SEARCH };
     if (algorithm === 'neural' && config.rulesets.length === 1)
       next.model_id = selectStrongestModel(models, config.rulesets[0])?.model.id ?? '';
     updatePlayer(index, { profile_id: undefined, name: 'Computer', config: next });
@@ -1064,6 +1193,8 @@ function TournamentSetup({
             const neural = algorithm === 'neural';
             const wrapper = String(player.config.search_wrapper ?? 'mcts');
             const search = neural ? wrapper : String(algorithm);
+            const alphaBetaOptimizations = !player.profile_id && algorithm === 'alpha_beta';
+            const searchSettings = searchFromConfig(player.config) ?? DEFAULT_ALPHA_BETA_SEARCH;
             const fixedPreset = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(
               player.profile_id ?? '',
             );
@@ -1189,6 +1320,14 @@ function TournamentSetup({
                   />
                 )}
                 {description && <p className="subtle">{t(description)}</p>}
+                {alphaBetaOptimizations && (
+                  <AlphaBetaSearchFields
+                    prefix={prefix}
+                    search={searchSettings}
+                    onPreset={(name) => applySearchPreset(index, name)}
+                    onField={(patch) => updateSearch(index, patch)}
+                  />
+                )}
                 {fixedPreset ? (
                   <p className="subtle">{parameterSummary(player.config)}</p>
                 ) : (
