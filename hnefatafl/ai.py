@@ -161,9 +161,7 @@ def _heuristic_name(config: dict) -> str:
     name = config.get("heuristic")
     if name is None:
         return (
-            "shield_maiden"
-            if algorithm in ("alpha_beta", "alphabeta", "mcts")
-            else "shield_bearer"
+            "shield_maiden" if algorithm in ("alpha_beta", "alphabeta", "mcts") else "shield_bearer"
         )
     if name not in _HEURISTICS:
         raise ValueError("Unsupported search heuristic")

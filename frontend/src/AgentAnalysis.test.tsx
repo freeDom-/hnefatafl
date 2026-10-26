@@ -448,3 +448,43 @@ it('disables custom neural advisors until a compatible model exists', () => {
   });
   expect(onChange).not.toHaveBeenCalled();
 });
+
+it('selects the evaluator for a custom alpha-beta move advisor', () => {
+  const onChange = vi.fn(async (_next: typeof defaultAnalyticsSettings) => undefined);
+  const profiles = [
+    {
+      id: 'alpha_beta',
+      name: 'Jarl',
+      algorithm: 'alpha_beta',
+      difficulty: 'strong',
+      parameters: { depth: 5 },
+      supported_rulesets: ['brandubh'],
+    },
+  ];
+  const view = render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={[]}
+      settings={defaultAnalyticsSettings}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.change(screen.getByRole('combobox', { name: 'Move advisor' }), {
+    target: { value: 'custom' },
+  });
+  const custom = onChange.mock.calls[0][0];
+  view.rerender(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={[]}
+      settings={custom}
+      onChange={onChange}
+    />,
+  );
+  const heuristic = screen.getByRole('combobox', { name: 'Move advisor heuristic' });
+  expect(heuristic).toHaveValue('shield_maiden');
+  fireEvent.change(heuristic, { target: { value: 'shield_bearer' } });
+  expect(onChange.mock.calls.at(-1)?.[0].advisor?.config.heuristic).toBe('shield_bearer');
+});

@@ -279,3 +279,35 @@ it('rejects malformed JSON and oversized files without touching the form', async
     ),
   ).rejects.toBeInstanceOf(TournamentConfigImportError);
 });
+
+it('parses and validates the model-free search heuristic', () => {
+  const result = parseTournamentConfig(
+    {
+      ...valid,
+      players: [
+        {
+          config: { algorithm: 'alpha_beta', depth: 2, time_limit: 1, heuristic: 'shield_bearer' },
+        },
+        { config: { algorithm: 'mcts', time_limit: 1, heuristic: 'shield_maiden' } },
+      ],
+    },
+    profiles,
+    models,
+  );
+  expect(result.config.players[0].config.heuristic).toBe('shield_bearer');
+  expect(result.config.players[1].config.heuristic).toBe('shield_maiden');
+
+  for (const config of [
+    { algorithm: 'alpha_beta', heuristic: 'unknown' },
+    { algorithm: 'baseline', heuristic: 'shield_bearer' },
+    { algorithm: 'neural', model_id: 'model-brandubh', heuristic: 'shield_maiden' },
+  ]) {
+    expect(() =>
+      parseTournamentConfig(
+        { ...valid, players: [{ config }, { config: { algorithm: 'baseline' } }] },
+        profiles,
+        models,
+      ),
+    ).toThrow(TournamentConfigImportError);
+  }
+});

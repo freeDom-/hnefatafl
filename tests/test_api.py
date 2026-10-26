@@ -864,6 +864,36 @@ def test_ai_statistics_use_effective_parameter_variants_and_stable_defaults(clie
     assert all(row["id"] == row["variant_id"] for row in stats["by_player"])
 
 
+def test_search_heuristic_is_configurable_for_alpha_beta_and_mcts(client):
+    for algorithm in ("alpha_beta", "mcts"):
+        game = create(
+            client,
+            ruleset="brandubh",
+            mode="human-ai",
+            players={
+                "attackers": {"config": {"algorithm": algorithm, "heuristic": "shield_bearer"}}
+            },
+        )
+        config = game["players"]["attackers"]["config"]
+        assert config["algorithm"] == algorithm
+        assert config["heuristic"] == "shield_bearer"
+
+    for config in (
+        {"algorithm": "baseline", "heuristic": "shield_maiden"},
+        {"algorithm": "shield_maiden", "heuristic": "shield_maiden"},
+        {"algorithm": "alpha_beta", "heuristic": "unknown"},
+    ):
+        response = client.post(
+            "/api/games",
+            json={
+                "ruleset": "brandubh",
+                "mode": "human-ai",
+                "players": {"attackers": {"config": config}},
+            },
+        )
+        assert response.status_code == 400, response.text
+
+
 def test_historical_explicit_algorithm_keeps_engine_defaults_not_profile_defaults(client):
     game = create(client, ruleset="brandubh", mode="human-ai")
     saved = client.app.state.store.get_game(game["id"])

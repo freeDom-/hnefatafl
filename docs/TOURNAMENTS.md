@@ -22,8 +22,10 @@ The [setup dialog](screenshots/tournament-setup.png) and
    **Alpha-beta optimizations** section exposes **Legacy alpha-beta**,
    **Optimized default**, **Full symmetry** and **Custom** presets plus individual
    legacy, transposition-table, move-ordering, D4-canonical transposition and
-   symmetry move-pruning toggles and a bounded table capacity. The controls appear
-   only for alpha-beta, so unrelated algorithms keep their existing form.
+   symmetry move-pruning toggles and a bounded table capacity. The optimization
+   controls appear only for alpha-beta. A **Heuristic** selector is available for
+   custom alpha-beta and MCTS opponents and chooses the Shield maiden (default)
+   or Shield bearer evaluator, so unrelated algorithms keep their existing form.
 4. Choose an even number of games per pairing on each battlefield, a move limit and a seed.
 5. Start the tournament. The saved view shows progress while the worker plays.
 
@@ -118,7 +120,9 @@ shape, so the settings populate the form, submit, persist, execute and re-import
 without loss. Legacy files without `search` keep their historical identity and
 use the optimized default. A `search` object is rejected for any algorithm other
 than alpha-beta (or a neural alpha-beta wrapper), and neural symmetry reuse is
-refused. A neural opponent must reference a registered model whose
+refused. A custom alpha-beta or MCTS opponent may also set `heuristic` to
+`shield_maiden` (default) or `shield_bearer`; it is rejected for every other
+algorithm. A neural opponent must reference a registered model whose
 ruleset matches every selected battlefield, so a model-based tournament uses one
 battlefield. `games` must be even and 2–100, `max_plies` 1–1,000 and `seed`
 0–4,294,967,295. Unknown fields, malformed JSON, unsupported values and missing

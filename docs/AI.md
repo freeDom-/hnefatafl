@@ -107,6 +107,17 @@ stays distinct from one without the object; the two behave identically but keep
 separate runes and statistics so historical records never change identity. See
 [persistent identity runes](IDENTITIES.md).
 
+### Evaluator heuristic
+
+Jarl (alpha-beta) and Seer (MCTS) default to the Shield maiden evaluator. A
+custom alpha-beta or MCTS opponent may set a top-level `heuristic` field to
+`shield_maiden` (the default) or `shield_bearer` for testing and evaluation. The
+standalone `baseline` algorithm is always Shield bearer, the `shield_maiden`
+algorithm has no separate evaluator, and neural search uses its model value head.
+New-game custom opponents, tournament setup and custom advisors expose the same
+choice. The resolved `heuristic` is part of the effective AI configuration, so a
+Shield bearer Jarl record stays distinct from a default Shield maiden one.
+
 Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`,
 `transposition_lookups`, `transposition_successful_lookups`,
 `transposition_exact_hits`, `transposition_bound_hits`,

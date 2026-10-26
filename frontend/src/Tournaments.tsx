@@ -27,6 +27,7 @@ import {
   TournamentConfigImportError,
 } from './tournamentConfigImport';
 import SearchWrapper from './SearchWrapper';
+import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 import { getLocale, t, useI18n } from './i18n';
 import type { AIProfile, Config, Game, Model, Ruleset } from './types';
 import type {
@@ -1022,6 +1023,7 @@ function TournamentSetup({
     manualOpponents.current[index] = true;
     const next: Config = { ...config.players[index].config, algorithm };
     delete next.heuristic_version;
+    delete next.heuristic;
     delete next.model_id;
     delete next.evaluation;
     delete next.search_wrapper;
@@ -1326,6 +1328,13 @@ function TournamentSetup({
                     search={searchSettings}
                     onPreset={(name) => applySearchPreset(index, name)}
                     onField={(patch) => updateSearch(index, patch)}
+                  />
+                )}
+                {!neural && (search === 'alpha_beta' || search === 'mcts') && (
+                  <HeuristicSelect
+                    value={heuristicFromConfig(player.config)}
+                    label={`${prefix} ${t('Heuristic').toLocaleLowerCase(locale)}`}
+                    onChange={(next) => parameter(index, 'heuristic', next)}
                   />
                 )}
                 {fixedPreset ? (

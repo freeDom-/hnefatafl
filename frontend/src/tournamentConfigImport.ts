@@ -182,6 +182,16 @@ function parsePlayerConfig(
     }
     config.heuristic_version = 1;
   }
+  if (provided.heuristic !== undefined) {
+    if (
+      !['shield_bearer', 'shield_maiden'].includes(String(provided.heuristic)) ||
+      (algorithm !== 'alpha_beta' && algorithm !== 'mcts')
+    ) {
+      fields.push('heuristic');
+      return {};
+    }
+    config.heuristic = String(provided.heuristic);
+  }
   if (provided.search_wrapper !== undefined) {
     if (
       algorithm !== 'neural' ||

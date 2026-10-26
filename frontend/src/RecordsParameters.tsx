@@ -4,6 +4,7 @@ import type { Config } from './types';
 
 const labels: Record<string, string> = {
   algorithm: 'Algorithm',
+  heuristic: 'Heuristic',
   heuristic_version: 'Heuristic version',
   search_wrapper: 'Search wrapper',
   depth: 'Search depth',
@@ -43,6 +44,9 @@ export function parameterSummary(config: Config = {}) {
         ? t('None (policy only)')
         : undefined,
     search ? t(searchSummary(search)) : undefined,
+    config.heuristic !== undefined
+      ? t(config.heuristic === 'shield_bearer' ? 'Shield bearer' : 'Shield maiden')
+      : undefined,
     config.depth !== undefined ? t('depth {depth}', { depth: String(config.depth) }) : undefined,
     config.iterations !== undefined
       ? t('{iterations} iterations', { iterations: String(config.iterations) })
@@ -118,6 +122,8 @@ export function ParameterValues({
               <dd>
                 {key === 'algorithm' ? (
                   t(algorithms[String(value)] ?? String(value))
+                ) : key === 'heuristic' ? (
+                  t(value === 'shield_bearer' ? 'Shield bearer' : 'Shield maiden')
                 ) : key === 'search_wrapper' ? (
                   t(
                     value === 'none'

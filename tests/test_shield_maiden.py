@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from hnefatafl import shield_maiden
+from hnefatafl import ai, shield_maiden
 from hnefatafl.ai import ai_profiles, analyze_position, choose_move, evaluate
 from hnefatafl.engine import RULESETS, State, apply_move, legal_moves, new_game
 from hnefatafl.identities import agent_identity, effective_ai_config
@@ -379,3 +379,73 @@ def test_standalone_shield_maiden_agent_is_unchanged(monkeypatch):
     move = choose_move(state, {"algorithm": "shield_maiden", "time_limit": 5, "seed": 3})
     assert move in legal_moves(state)
     assert calls["score"] > 0
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("algorithm", ["alpha_beta", "mcts"])
+def test_explicit_shield_bearer_override_uses_generic_evaluator(ruleset, algorithm, monkeypatch):
+    calls = _spy_maiden(monkeypatch)
+    bearer_calls = 0
+    original_bearer = ai.evaluate
+
+    def bearer(state):
+        nonlocal bearer_calls
+        bearer_calls += 1
+        return original_bearer(state)
+
+    monkeypatch.setattr(ai, "evaluate", bearer)
+    state = new_game(ruleset)
+    move = choose_move(
+        state,
+        {
+            "algorithm": algorithm,
+            "depth": 1,
+            "iterations": 4,
+            "rollout_depth": 1,
+            "time_limit": 5,
+            "seed": 3,
+            "heuristic": "shield_bearer",
+        },
+    )
+    assert move in legal_moves(state)
+    assert bearer_calls > 0
+    assert calls["score"] == 0
+    assert calls["evaluate"] == 0
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("turn", ["attackers", "defenders"])
+def test_jarl_bearer_override_matches_bearer_not_maiden(ruleset, turn):
+    state = replace(new_game(ruleset), turn=turn)
+    result = analyze_position(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 1,
+            "time_limit": 5,
+            "seed": 3,
+            "heuristic": "shield_bearer",
+        },
+    )
+    context = shield_maiden.DecisionContext(state)
+    maiden = [
+        shield_maiden.normalise(context.score(apply_move(state, move), move))
+        for move in legal_moves(state)
+    ]
+    bearer = [evaluate(apply_move(state, move)) for move in legal_moves(state)]
+    pick = max if turn == "defenders" else min
+    assert result["value"] == pytest.approx(pick(bearer), abs=1e-9)
+    assert abs(pick(maiden) - pick(bearer)) > 1e-9
+
+
+def test_effective_config_and_identity_include_the_search_heuristic():
+    default = effective_ai_config({"algorithm": "alpha_beta"})
+    explicit = effective_ai_config({"algorithm": "alpha_beta", "heuristic": "shield_bearer"})
+    assert default["heuristic"] == "shield_maiden"
+    assert explicit["heuristic"] == "shield_bearer"
+    assert agent_identity({"kind": "ai", "config": {"algorithm": "alpha_beta"}}) != agent_identity(
+        {"kind": "ai", "config": {"algorithm": "alpha_beta", "heuristic": "shield_bearer"}}
+    )
+    # The standalone shield_maiden algorithm and the baseline keep their shape.
+    assert "heuristic" not in effective_ai_config({"algorithm": "baseline"})
+    assert "heuristic" not in effective_ai_config({"algorithm": "shield_maiden"})

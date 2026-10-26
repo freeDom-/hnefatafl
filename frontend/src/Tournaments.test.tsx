@@ -156,6 +156,10 @@ describe('tournament setup and saved selection', () => {
     fireEvent.change(setup.getByLabelText('Opponent 1 algorithm'), {
       target: { value: 'alpha_beta' },
     });
+    const heuristic = setup.getByLabelText('Opponent 1 heuristic');
+    expect(heuristic).toHaveValue('shield_maiden');
+    fireEvent.change(heuristic, { target: { value: 'shield_bearer' } });
+    expect(heuristic).toHaveValue('shield_bearer');
     const preset = setup.getByLabelText('Opponent 1 search preset');
     expect(preset).toHaveValue('optimized');
     expect(setup.getByLabelText('Opponent 1 transposition table capacity')).toHaveValue(100000);
@@ -177,8 +181,10 @@ describe('tournament setup and saved selection', () => {
       symmetry_pruning: true,
       table_capacity: 2048,
     });
-    // A non-alpha-beta opponent never carries search settings.
+    expect(players[0].config.heuristic).toBe('shield_bearer');
+    // A non-alpha-beta opponent never carries search settings or an evaluator.
     expect(players[1].config.search).toBeUndefined();
+    expect(players[1].config.heuristic).toBeUndefined();
   });
 
   it('configures neural wrappers and retains settings when switching search modes', async () => {

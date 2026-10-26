@@ -294,8 +294,10 @@ Tensor format and database schema remain unchanged. See the
 `choose_move` keeps the public contract: immutable `State` in, one legal `Move`
 out, with a monotonic deadline and a legal fallback. Iterative deepening searches
 alternating defender-maximizing and attacker-minimizing nodes over the
-defender-perspective Shield maiden evaluator; the generic Shield bearer static
-evaluation remains only for the `baseline` algorithm. A search owns one
+defender-perspective Shield maiden evaluator. A custom alpha-beta or MCTS
+configuration may select the generic Shield bearer static evaluation instead
+with the `heuristic` field; the `baseline` algorithm is always Shield bearer and
+neural search uses its model value head. A search owns one
 `_TranspositionTable` for its lifetime; entries store searched depth,
 exact/lower/upper bounds, a preferred move, a generation and the canonical
 orientation that produced the key. Replacement prefers deeper entries and exact

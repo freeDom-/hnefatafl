@@ -108,6 +108,14 @@ function restoredComputer(
   }
   if (raw.evaluation === 'heuristic' || raw.evaluation === 'neural')
     config.evaluation = raw.evaluation;
+  if (raw.heuristic !== undefined) {
+    if (
+      !['shield_bearer', 'shield_maiden'].includes(String(raw.heuristic)) ||
+      !['alpha_beta', 'mcts'].includes(String(config.algorithm))
+    )
+      return null;
+    config.heuristic = String(raw.heuristic);
+  }
   if (config.algorithm === 'neural' && raw.search_wrapper !== undefined) {
     if (!['mcts', 'alpha_beta', 'none'].includes(String(raw.search_wrapper))) return null;
     config.search_wrapper = String(raw.search_wrapper);

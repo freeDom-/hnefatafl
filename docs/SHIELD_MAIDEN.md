@@ -6,7 +6,9 @@ Shield maiden (`shield_maiden`, heuristic version 1) is an Intermediate,
 model-free one-ply opponent for all three rulesets. The standalone Shield bearer
 (`baseline`) algorithm and its generic static evaluation remain unchanged. Jarl
 and Seer now reuse the same Shield maiden child scoring for their model-free
-search, so the Jarl results below predate that default. No engine semantics changed.
+search, so the Jarl results below predate that default. A custom alpha-beta or
+MCTS opponent may set `heuristic: "shield_bearer"` to compare against the generic
+evaluation. No engine semantics changed.
 
 ## Strategy and implementation
 

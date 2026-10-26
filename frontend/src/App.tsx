@@ -24,6 +24,7 @@ import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
 import { modelLabel } from './modelLabel';
 import SearchWrapper from './SearchWrapper';
+import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 import { useAuth } from './Auth';
 
 type Tab = 'play' | 'archive' | 'training' | 'tournaments';
@@ -718,6 +719,7 @@ function AIFields({
     const config = withoutSeed({ ...value.config, [key]: input });
     if (key === 'algorithm') {
       delete config.heuristic_version;
+      delete config.heuristic;
       delete config.model_id;
       delete config.evaluation;
       delete config.search_wrapper;
@@ -830,6 +832,13 @@ function AIFields({
                 onChange={(e) => update('depth', Number(e.target.value))}
               />
             </label>
+          )}
+          {!neural && (search === 'alpha_beta' || search === 'mcts') && (
+            <HeuristicSelect
+              value={heuristicFromConfig(value.config)}
+              label={t('{side} heuristic', { side: t(titles[side]) })}
+              onChange={(next) => update('heuristic', next)}
+            />
           )}
           {search === 'mcts' && (
             <>
