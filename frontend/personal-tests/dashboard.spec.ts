@@ -16,7 +16,7 @@ async function login(page: Page, name = 'PersonalArcher', path = '/') {
 async function snapshot(request: APIRequestContext) {
   return (await request.get('http://127.0.0.1:8010/snapshot')).json();
 }
-const rows = (page: Page) => page.locator('.recorded-games > li');
+const rows = (page: Page) => page.locator('.recorded-games tbody tr');
 const accountPanel = (page: Page) => page.locator('[aria-labelledby="personal-account-heading"]');
 const onlinePanel = (page: Page) => page.locator('[aria-labelledby="personal-online-heading"]');
 
@@ -51,7 +51,8 @@ test('default landing, shared latest three and exact review survive filtering an
   ).toBe(true);
   await page.screenshot({ path: test.info().outputPath('dashboard.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await rows(page).first().getByRole('link').click();
+  // The whole row is clickable, not only the date link.
+  await rows(page).first().locator('td').first().click({ force: true });
   await expect(page).toHaveURL(new RegExp(`selected=${latest.games[0].id}`));
   await expect(page.getByRole('grid')).toBeVisible();
   await page.getByRole('combobox', { name: 'Ruleset', exact: true }).selectOption('tablut');
@@ -123,7 +124,9 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
       );
       await expect(page.getByText('No games match these filters.')).toBeVisible();
       await expect(page.getByRole('grid')).toBeVisible();
-      await expect(page.getByText('Recorded result: Draw')).toBeVisible();
+      await expect(page.locator('.detail-row', { hasText: 'Recorded result' })).toContainText(
+        'Draw',
+      );
       await page.getByRole('button', { name: 'Next move', exact: true }).click();
       await expect(page.getByText('Move 1 of 8')).toBeVisible();
     } else {
@@ -166,7 +169,9 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   );
   await expect(page).toHaveURL(new RegExp(`selected=${state.ids.completed}`));
   await expect(page.getByRole('grid')).toBeVisible();
-  await expect(page.getByText(/Attackers win · concession/)).toBeVisible();
+  await expect(page.locator('.detail-row', { hasText: 'Recorded result' })).toContainText(
+    'Attackers win · concession',
+  );
   await page.goto('/online?mine=true&selected=kept');
   await expect(page).toHaveURL(/\/dashboard\?mine=true&selected=kept&setup=online$/);
   await expect(page.getByRole('button', { name: 'My games', exact: true })).toHaveAttribute(
@@ -186,7 +191,7 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
   await page.goto('/dashboard/single-player/' + state.ids.account);
-  await expect(page.getByText('Recorded result: Draw')).toBeVisible();
+  await expect(page.locator('.detail-row', { hasText: 'Recorded result' })).toContainText('Draw');
 });
 
 test('starts account single-player from Dashboard and reconnects at its dedicated route', async ({
@@ -256,8 +261,8 @@ test('late real history/statistics responses cannot populate a new account after
   release();
   await page.unrouteAll({ behavior: 'wait' });
   await expect(rows(page)).toHaveCount(0);
-  await expect(accountPanel(page).locator('dd').first()).toHaveText('0');
-  await expect(onlinePanel(page).locator('dd').first()).toHaveText('0');
+  await expect(accountPanel(page).getByText('No games recorded yet.')).toBeVisible();
+  await expect(onlinePanel(page).getByText('No games recorded yet.')).toBeVisible();
 });
 
 test('history review is read-only, validated and preserves authoritative records', async ({
@@ -289,11 +294,16 @@ test('history review is read-only, validated and preserves authoritative records
       await page.getByRole('button', { name: 'Next move', exact: true }).click();
       await expect(page.getByText('Move 1 of 1')).toBeVisible();
     }
-    if (id === before.ids.voided) await expect(page.getByText('Lifecycle: Voided')).toBeVisible();
+    if (id === before.ids.voided)
+      await expect(page.locator('.detail-row', { hasText: 'Lifecycle' })).toContainText('Voided');
     if (id === before.ids.cancelled)
-      await expect(page.getByText('Lifecycle: Cancelled')).toBeVisible();
+      await expect(page.locator('.detail-row', { hasText: 'Lifecycle' })).toContainText(
+        'Cancelled',
+      );
   }
-  expect(writes).toEqual([]);
+  // Account single-player review may run authorized analysis in separate tables.
+  // No authoritative game/result write is allowed from the review.
+  expect(writes.filter((url) => !/\/analysis$/.test(new URL(url).pathname))).toEqual([]);
   expect((await snapshot(request)).fingerprint).toBe(before.fingerprint);
 });
 
@@ -325,8 +335,7 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
       const card = document.querySelector<HTMLElement>('.dashboard-lobby')!;
       const reference = document.querySelector<HTMLElement>('.personal-section')!;
       const overview = document.querySelector<HTMLElement>('.dashboard-overview')!;
-      const recent = document.querySelector<HTMLElement>('.dashboard-recent')!;
-      const leaderboard = document.querySelector<HTMLElement>('.leaderboard-placeholder')!;
+      const panels = Array.from(document.querySelectorAll<HTMLElement>('.personal-section'));
       const rect = card.getBoundingClientRect();
       const css = getComputedStyle(card);
       return {
@@ -337,12 +346,7 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
           card.querySelector('h2')!.getBoundingClientRect().left -
           rect.left -
           parseFloat(css.borderLeftWidth),
-        gap:
-          rect.top -
-          Math.max(
-            recent.getBoundingClientRect().bottom,
-            leaderboard.getBoundingClientRect().bottom,
-          ),
+        gap: rect.top - Math.max(...panels.map((panel) => panel.getBoundingClientRect().bottom)),
         expectedGap: parseFloat(getComputedStyle(overview).rowGap),
         contained: Array.from(card.querySelectorAll('h2, h3, p, button, article')).every((node) => {
           const child = node.getBoundingClientRect();

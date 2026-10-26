@@ -771,3 +771,166 @@ def test_latest_account_records_preserve_microsecond_order_before_limit(world):
     latest = clients["Odin"].get("/api/history/games?dashboard=true").json()
     assert [r["id"] for r in latest["games"]] == [g["id"] for g in games[::-1][:3]]
     assert latest["matching"] == 4
+
+
+def _finish_account(app, game_id, winner, plies=12):
+    """Persist an authoritative result on an existing account record for statistics."""
+    stored = app.state.store.get_game(game_id)
+    stored["recorded_result"] = {
+        "winner": winner,
+        "reason": "fixture",
+        "plies": plies,
+        "ended_at": "2035-01-01T00:00:00+00:00",
+    }
+    with app.state.store.connection() as c:
+        c.execute("UPDATE games SET data=? WHERE id=?", (json.dumps(stored), game_id))
+    return game_id
+
+
+def _account_game(client, ruleset, human_side, mode="human-ai"):
+    return client.post(
+        "/api/games", json={"ruleset": ruleset, "mode": mode, "human_side": human_side}
+    ).json()
+
+
+def test_single_player_personal_statistics_use_account_seat_and_exclude_ai_ai(world):
+    app, clients, _, _, _ = world
+    client = clients["Archer"]
+    # Attributed human-ai games across rulesets and sides.
+    _finish_account(app, _account_game(client, "brandubh", "attackers")["id"], "attackers", 20)
+    _finish_account(app, _account_game(client, "brandubh", "attackers")["id"], "defenders", 30)
+    _finish_account(app, _account_game(client, "brandubh", "defenders")["id"], "defenders", 40)
+    _finish_account(app, _account_game(client, "tablut", "attackers")["id"], "draw", 10)
+    _finish_account(app, _account_game(client, "tablut", "defenders")["id"], "attackers", 15)
+    _account_game(client, "tablut", "attackers")
+    # Legacy human-human record with no account-bound seat must not fabricate a result.
+    draw_account(client)
+    stats = client.get("/api/personal/single-player").json()["statistics"]
+    groups = {(g["ruleset"], g["mode"]): g for g in stats["groups"]}
+    brandubh = groups[("brandubh", "human-ai")]
+    assert brandubh["played"] == 3
+    assert (brandubh["wins"], brandubh["losses"], brandubh["draws"]) == (2, 1, 0)
+    assert brandubh["win_rate"] == 2 / 3
+    assert brandubh["win_rate_attackers"] == 0.5
+    assert brandubh["win_rate_defenders"] == 1.0
+    assert brandubh["average_game_length"] == 30.0
+    assert brandubh["average_game_length_unit"] == "moves"
+    tablut = groups[("tablut", "human-ai")]
+    assert tablut["played"] == 3  # two completed plus one unfinished
+    assert (tablut["wins"], tablut["losses"], tablut["draws"]) == (0, 1, 1)
+    assert tablut["win_rate"] == 0.0
+    assert tablut["win_rate_attackers"] == 0.0
+    assert tablut["win_rate_defenders"] == 0.0
+    assert tablut["average_game_length"] == 12.5
+    assert stats["coverage"]["unattributed_games"] == 1
+    # Empty dataset (another account) yields no fabricated groups.
+    assert clients["Observer"].get("/api/personal/single-player").json()["statistics"] == {
+        "groups": [],
+        "coverage": {"unattributed_games": 0},
+    }
+    # Administrator personal statistics stay own-account even with all_data.
+    odin = clients["Odin"]
+    ai_game = _account_game(odin, "brandubh", "attackers", mode="ai-ai")
+    _finish_account(app, ai_game["id"], "attackers", 25)
+    odin_groups = {
+        (g["ruleset"], g["mode"]): g
+        for g in odin.get("/api/personal/single-player").json()["statistics"]["groups"]
+    }
+    ai = odin_groups[("brandubh", "ai-ai")]
+    assert ai["played"] == 1
+    assert ai["wins"] is None and ai["losses"] is None and ai["draws"] is None
+    assert ai["win_rate"] is None and ai["win_rate_attackers"] is None
+    assert ai["average_game_length"] == 25.0
+    assert ("brandubh", "human-ai") not in odin_groups
+    assert "archer" not in json.dumps(odin.get("/api/personal/single-player").json())
+
+
+def test_online_personal_statistics_sides_timeouts_and_effective_results(world):
+    app, clients, credentials, _, clock = world
+    core = app.state.online
+    # Archer as attackers wins by opponent concession.
+    win = online(world)
+    moved = core.mutate(
+        credentials["Archer"], win["id"], win["version"], "move", source=3, target=1
+    )["game"]
+    core.mutate(credentials["Keeper"], win["id"], moved["version"], "concede")
+    # Archer as attackers loses by conceding on their own turn.
+    loss = online(world)
+    core.mutate(credentials["Archer"], loss["id"], loss["version"], "concede")
+    # Rule draw.
+    drawn = online(world)
+    for i, (source, target) in enumerate([(3, 2), (17, 16), (2, 3), (16, 17)] * 2):
+        core.mutate(
+            credentials["Archer" if i % 2 == 0 else "Keeper"],
+            drawn["id"],
+            drawn["version"] + i,
+            "move",
+            source=source,
+            target=target,
+        )
+    # Archer's own timeout is a loss, not an opponent timeout.
+    expired = online(world)
+    core.set_gate(credentials["Odin"], 0, True, "fixture outage policy")
+    clock[0] += timedelta(seconds=61)
+    core.sweep()
+    stats = clients["Archer"].get("/api/personal/online?section=history").json()["statistics"]
+    groups = {(g["ruleset"], g["mode"]): g for g in stats["groups"]}
+    single = groups[("brandubh", "single")]
+    assert single["played"] == 4
+    assert (single["wins"], single["losses"], single["draws"]) == (1, 2, 1)
+    assert single["timed_out"] == 1
+    assert single["win_rate"] == 0.25
+    assert single["win_rate_attackers"] == 0.25
+    assert single["win_rate_defenders"] is None
+    assert single["average_game_length_unit"] == "moves"
+    # Keeper sees the same games from the opposite seat with no timeouts.
+    keeper = {
+        (g["ruleset"], g["mode"]): g
+        for g in clients["Keeper"]
+        .get("/api/personal/online?section=history")
+        .json()["statistics"]["groups"]
+    }
+    assert keeper[("brandubh", "single")]["timed_out"] == 0
+    # Void withdrawal removes the contribution from both totals and statistics.
+    current = core.read(credentials["Odin"], expired["id"])
+    core.mutate(credentials["Odin"], expired["id"], current["version"], "void", note="fixture void")
+    after = clients["Archer"].get("/api/personal/online?section=history").json()["statistics"]
+    group = {(g["ruleset"], g["mode"]): g for g in after["groups"]}[("brandubh", "single")]
+    assert group["played"] == 3 and group["losses"] == 1 and group["timed_out"] == 0
+    # Empty online dataset.
+    assert clients["Observer"].get("/api/personal/online").json()["statistics"] == {
+        "groups": [],
+        "coverage": {"unattributed_games": 0},
+    }
+
+
+def test_own_timeout_loss_differs_from_opponent_timeout_win(world):
+    app, clients, credentials, _, clock = world
+    core = app.state.online
+    core.set_gate(credentials["Odin"], 0, True, "fixture outage policy")
+    # Opponent (Keeper, defenders) times out after Archer's first move.
+    opponent_timeout = online(world)
+    core.mutate(
+        credentials["Archer"],
+        opponent_timeout["id"],
+        opponent_timeout["version"],
+        "move",
+        source=3,
+        target=1,
+    )
+    clock[0] += timedelta(seconds=61)
+    core.sweep()
+    # Own (Archer, attackers) timeout on the next game's opening turn.
+    own_timeout = online(world)
+    clock[0] += timedelta(seconds=61)
+    core.sweep()
+    assert own_timeout["id"] != opponent_timeout["id"]
+    group = {
+        (g["ruleset"], g["mode"]): g
+        for g in clients["Archer"]
+        .get("/api/personal/online?section=history")
+        .json()["statistics"]["groups"]
+    }[("brandubh", "single")]
+    assert group["played"] == 2
+    assert (group["wins"], group["losses"]) == (1, 1)
+    assert group["timed_out"] == 1

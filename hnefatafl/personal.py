@@ -76,14 +76,135 @@ class PersonalHistory:
         return """SELECT id,created_at AS order_at,created_at,
             json_extract(data,'$.ruleset') AS ruleset,
             json_extract(data,'$.mode') AS mode,
+            json_extract(data,'$.human_side') AS human_side,
             json_extract(data,'$.recorded_result.winner') AS winner,
             coalesce(json_extract(data,'$.recorded_result.plies'),json_array_length(data,'$.moves')) AS plies,
             json_extract(data,'$.ended_at') AS ended_at,
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attacker_name,
             substr(json_extract(data,'$.players.defenders.name'),1,80) AS defender_name,
             json_extract(data,'$.players.attackers.kind') AS attacker_kind,
-            json_extract(data,'$.players.defenders.kind') AS defender_kind
+            json_extract(data,'$.players.defenders.kind') AS defender_kind,
+            json_extract(data,'$.players.attackers.account_id') AS attacker_account_id,
+            json_extract(data,'$.players.defenders.account_id') AS defender_account_id
             FROM games WHERE owner_account_id=?"""
+
+    @staticmethod
+    def _personal_side_case():
+        # Only an account-bound human seat is authoritative. Legacy local
+        # human-human records have no account_id and stay unattributed.
+        return """CASE
+            WHEN human_side='attackers' AND attacker_kind='human' AND attacker_account_id=?
+              THEN 'attackers'
+            WHEN human_side='defenders' AND defender_kind='human' AND defender_account_id=?
+              THEN 'defenders'
+            WHEN attacker_kind='human' AND attacker_account_id=?
+                 AND (defender_kind IS NULL OR defender_kind<>'human')
+              THEN 'attackers'
+            WHEN defender_kind='human' AND defender_account_id=?
+                 AND (attacker_kind IS NULL OR attacker_kind<>'human')
+              THEN 'defenders'
+            ELSE NULL END"""
+
+    @staticmethod
+    def _rate(wins, decided):
+        return wins / decided if decided else None
+
+    @classmethod
+    def _account_statistics(cls, c, account_id):
+        """Personal outcomes from persisted results, never attacker/defender totals."""
+        rows = c.execute(
+            f"""WITH records AS ({cls._account_base()})
+            SELECT ruleset,mode,winner,plies,{cls._personal_side_case()} AS personal_side
+            FROM records""",
+            (account_id, account_id, account_id, account_id, account_id),
+        ).fetchall()
+        groups: dict[tuple[str, str], dict] = {}
+        unattributed = 0
+        for row in rows:
+            mode = row["mode"]
+            side = row["personal_side"]
+            if mode == "ai-ai":
+                group = groups.setdefault(
+                    (row["ruleset"], mode), cls._empty_group(row["ruleset"], mode)
+                )
+                group["played"] += 1
+                if row["winner"] is not None:
+                    group["completed"] += 1
+                    group["length_sum"] += row["plies"] or 0
+                continue
+            if side is None:
+                unattributed += 1
+                continue
+            group = groups.setdefault(
+                (row["ruleset"], mode), cls._empty_group(row["ruleset"], mode)
+            )
+            group["played"] += 1
+            winner = row["winner"]
+            if winner is None:
+                continue
+            group["completed"] += 1
+            group["length_sum"] += row["plies"] or 0
+            if winner == "draw":
+                group["draws"] += 1
+            elif winner == side:
+                group["wins"] += 1
+            else:
+                group["losses"] += 1
+            if side == "attackers":
+                group["decided_attackers"] += 1
+                if winner == side:
+                    group["wins_attackers"] += 1
+            else:
+                group["decided_defenders"] += 1
+                if winner == side:
+                    group["wins_defenders"] += 1
+        return {
+            "groups": [cls._group_result(groups[key]) for key in sorted(groups)],
+            "coverage": {"unattributed_games": unattributed},
+        }
+
+    @staticmethod
+    def _empty_group(ruleset, mode):
+        return {
+            "ruleset": ruleset,
+            "mode": mode,
+            "played": 0,
+            "completed": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "wins_attackers": 0,
+            "decided_attackers": 0,
+            "wins_defenders": 0,
+            "decided_defenders": 0,
+            "length_sum": 0,
+        }
+
+    @classmethod
+    def _group_result(cls, group):
+        personal = group["mode"] != "ai-ai"
+        completed = group["completed"]
+        return {
+            "ruleset": group["ruleset"],
+            "mode": group["mode"],
+            "played": group["played"],
+            "wins": group["wins"] if personal else None,
+            "losses": group["losses"] if personal else None,
+            "draws": group["draws"] if personal else None,
+            "win_rate": (
+                cls._rate(group["wins"], group["wins"] + group["losses"] + group["draws"])
+                if personal
+                else None
+            ),
+            "win_rate_attackers": (
+                cls._rate(group["wins_attackers"], group["decided_attackers"]) if personal else None
+            ),
+            "win_rate_defenders": (
+                cls._rate(group["wins_defenders"], group["decided_defenders"]) if personal else None
+            ),
+            "average_game_length": (group["length_sum"] / completed) if completed else None,
+            "average_game_length_unit": "moves",
+        }
 
     @staticmethod
     def _account_summary(row):
@@ -148,6 +269,7 @@ class PersonalHistory:
                 "category": "account-single-player",
                 "games": [self._account_summary(r) for r in rows],
                 "totals": totals,
+                "statistics": self._account_statistics(c, account["id"]),
                 **paging,
             }
 
@@ -192,6 +314,86 @@ class PersonalHistory:
             "moves": [{"source": m["source"], "target": m["target"]} for m in game["moves"]],
             "version": game["version"],
         }
+
+    @classmethod
+    def _online_statistics(cls, c, account_id):
+        """Current effective eligible results grouped by ruleset and match mode."""
+        rows = c.execute(
+            """SELECT g.ruleset,m.mode,
+              json_extract(r.payload,'$.winner') AS winner,
+              CASE WHEN g.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side,
+              r.abandoned_account_id,
+              coalesce(json_extract(r.payload,'$.move_count'),0) AS move_count
+            FROM online_games g
+            JOIN online_matches m ON m.id=g.match_id
+            JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision
+            WHERE g.status='completed' AND r.competitive_eligible=1
+              AND (g.attackers_id=? OR g.defenders_id=?)""",
+            (account_id, account_id, account_id),
+        ).fetchall()
+        groups: dict[tuple[str, str], dict] = {}
+        for row in rows:
+            group = groups.setdefault(
+                (row["ruleset"], row["mode"]),
+                {
+                    "ruleset": row["ruleset"],
+                    "mode": row["mode"],
+                    "played": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "timed_out": 0,
+                    "wins_attackers": 0,
+                    "decided_attackers": 0,
+                    "wins_defenders": 0,
+                    "decided_defenders": 0,
+                    "length_sum": 0,
+                },
+            )
+            group["played"] += 1
+            group["length_sum"] += row["move_count"] or 0
+            winner, side = row["winner"], row["side"]
+            if winner == "draw":
+                group["draws"] += 1
+            elif winner == side:
+                group["wins"] += 1
+            else:
+                group["losses"] += 1
+            if row["abandoned_account_id"] == account_id:
+                group["timed_out"] += 1
+            if side == "attackers":
+                group["decided_attackers"] += 1
+                if winner == side:
+                    group["wins_attackers"] += 1
+            else:
+                group["decided_defenders"] += 1
+                if winner == side:
+                    group["wins_defenders"] += 1
+        result = []
+        for key in sorted(groups):
+            group = groups[key]
+            played = group["played"]
+            result.append(
+                {
+                    "ruleset": group["ruleset"],
+                    "mode": group["mode"],
+                    "played": played,
+                    "wins": group["wins"],
+                    "losses": group["losses"],
+                    "draws": group["draws"],
+                    "timed_out": group["timed_out"],
+                    "win_rate": cls._rate(group["wins"], played),
+                    "win_rate_attackers": cls._rate(
+                        group["wins_attackers"], group["decided_attackers"]
+                    ),
+                    "win_rate_defenders": cls._rate(
+                        group["wins_defenders"], group["decided_defenders"]
+                    ),
+                    "average_game_length": group["length_sum"] / played if played else None,
+                    "average_game_length_unit": "moves",
+                }
+            )
+        return {"groups": result, "coverage": {"unattributed_games": 0}}
 
     def online_games(
         self,
@@ -342,6 +544,7 @@ class PersonalHistory:
                 "games": games,
                 "overview": overview,
                 "totals": self.online._statistics(c, actor),
+                "statistics": self._online_statistics(c, actor),
                 "as_of": stamp(instant(now)),
                 **paging,
             }
