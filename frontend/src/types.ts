@@ -1,8 +1,14 @@
 import type { Advisor, AnalyticsSettings, PositionAnalysis } from './analysisTypes';
+import type { AlphaBetaSearchSettings } from './alphaBetaSearch';
 
 export type Side = 'attackers' | 'defenders';
 export type Mode = 'human-human' | 'human-ai' | 'ai-ai';
-export type Config = Record<string, string | number | boolean>;
+/**
+ * A loose AI configuration. Primitive search budgets coexist with the single
+ * structured nested `search` object accepted by alpha-beta opponents; the
+ * server validates both shapes.
+ */
+export type Config = Record<string, string | number | boolean | AlphaBetaSearchSettings>;
 export interface Move {
   source: number;
   target: number;

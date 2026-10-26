@@ -323,6 +323,92 @@ test('tournaments retain results, expose parameters and replay moves, and delete
   expect(errors).toEqual([]);
 });
 
+test('two custom alpha-beta opponents record distinct optimization settings and replay legally', async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(120000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const name = `Alpha-beta search comparison ${info.project.name}`;
+  await openTournaments(page);
+  await page.getByRole('button', { name: 'New tournament', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: 'Set up a tournament' });
+  await setup.getByRole('textbox', { name: 'Tournament name', exact: true }).fill(name);
+  const battlefields = setup.getByRole('checkbox');
+  for (let index = 0; index < (await battlefields.count()); index++) {
+    await battlefields.nth(index).uncheck();
+  }
+  await setup.getByRole('checkbox', { name: 'Brandubh 7 × 7', exact: true }).check();
+  await setup.getByLabel('Games per battlefield', { exact: true }).fill('2');
+  await setup.getByLabel('Move limit per game', { exact: true }).fill('8');
+  await setup.getByLabel('Tournament seed', { exact: true }).fill('20261026');
+  const configure = async (index: number, preset: 'legacy' | 'symmetry') => {
+    await setup.getByLabel(`Opponent ${index} profile`, { exact: true }).selectOption('');
+    await setup
+      .getByLabel(`Opponent ${index} algorithm`, { exact: true })
+      .selectOption('alpha_beta');
+    await setup.getByLabel(`Opponent ${index} search preset`, { exact: true }).selectOption(preset);
+    await setup
+      .getByText('Search parameters', { exact: true })
+      .nth(index - 1)
+      .click();
+    await setup.getByLabel(`Opponent ${index} search depth`, { exact: true }).fill('2');
+    await setup.getByLabel(`Opponent ${index} time limit (seconds)`, { exact: true }).fill('0.02');
+  };
+  await configure(1, 'legacy');
+  await configure(2, 'symmetry');
+  await expect(setup.getByLabel('Opponent 1 search preset', { exact: true })).toHaveValue('legacy');
+  await expect(setup.getByLabel('Opponent 2 search preset', { exact: true })).toHaveValue(
+    'symmetry',
+  );
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/tournaments') && response.request().method() === 'POST',
+  );
+  await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
+  const response = await created;
+  expect(response.ok()).toBe(true);
+  const tournament = (await response.json()) as Tournament;
+  expect(tournament.config.players[0].config.search).toMatchObject({
+    legacy: true,
+    symmetry_transposition: false,
+    symmetry_pruning: false,
+  });
+  expect(tournament.config.players[1].config.search).toMatchObject({
+    legacy: false,
+    symmetry_transposition: true,
+    symmetry_pruning: true,
+  });
+  expect(tournament.config.players[0].variant_id).not.toBe(tournament.config.players[1].variant_id);
+  const detail = page.locator('.tournament-detail');
+  await expect(detail.locator('.tournament-status')).toHaveText('Completed', { timeout: 60000 });
+  await expect(detail.locator('.tournament-standing')).toHaveCount(2);
+  // Saved records show the actual optimizations instead of an object placeholder.
+  await detail.getByText('Opponent 1 parameters', { exact: false }).click();
+  await expect(detail.locator('details[open]')).toContainText('Legacy search');
+  await detail.getByText('Opponent 2 parameters', { exact: false }).click();
+  await expect(detail.locator('details[open]').last()).toContainText('Symmetry move pruning');
+  // Export the saved result document and confirm it retains both search configs.
+  const download = page.waitForEvent('download');
+  await detail.getByRole('button', { name: 'Export results', exact: true }).click();
+  expect((await download).suggestedFilename()).toContain('hnefatafl-tournament');
+  // Replay a recorded game and confirm the validator accepted the move list.
+  const replayResponse = await request.get(`${tournamentApi}/${tournament.id}/games/0/replay`);
+  expect(replayResponse.ok()).toBe(true);
+  expect((await replayResponse.json()).validated).toBe(true);
+  await detail.getByRole('button', { name: 'Match log', exact: true }).click();
+  await detail.getByRole('button', { name: 'Replay game 1', exact: true }).click();
+  const replayDialog = page.getByRole('dialog', { name: 'Replay game 1', exact: true });
+  await expect(replayDialog.getByRole('grid')).toBeVisible();
+  await replayDialog.getByRole('button', { name: 'Close tournament replay', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    .toBe(true);
+  expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('a running tournament can be stopped and its retained data deleted', async ({
   page,
   request,

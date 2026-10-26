@@ -669,6 +669,30 @@
   grid-column: 1/-1;
   font-size: 10px;
 }
+.tournament-search-optimizations {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px 4px;
+  margin: 0 0 15px;
+}
+.tournament-search-optimizations legend {
+  padding: 0 5px;
+  color: var(--green);
+  font-size: 11px;
+}
+.tournament-search-optimizations label {
+  margin-bottom: 12px;
+}
+.tournament-search-optimizations label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+}
+.tournament-search-optimizations .tournament-search-flags {
+  gap: 0 12px;
+  margin-bottom: 4px;
+}
 .tournament-run-settings {
   gap: 18px;
 }
@@ -948,6 +972,9 @@
   }
   .tournament-replay {
     padding: 22px 14px;
+  }
+  .tournament-search-optimizations .tournament-search-flags {
+    grid-template-columns: 1fr;
   }
   .tournament-replay .modal-top h2 {
     font-size: 23px;

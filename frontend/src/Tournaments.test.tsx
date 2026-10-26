@@ -133,6 +133,54 @@ describe('tournament setup and saved selection', () => {
     });
   });
 
+  it('exposes alpha-beta optimization presets only for custom alpha-beta opponents', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('new'));
+        }
+        return json(path === '/api/tournaments' ? [] : saved('new'));
+      }),
+    );
+    show();
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    // A fixed named preset exposes no optimization controls.
+    expect(setup.queryByLabelText('Opponent 1 search preset')).not.toBeInTheDocument();
+    fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: '' } });
+    fireEvent.change(setup.getByLabelText('Opponent 1 algorithm'), {
+      target: { value: 'alpha_beta' },
+    });
+    const preset = setup.getByLabelText('Opponent 1 search preset');
+    expect(preset).toHaveValue('optimized');
+    expect(setup.getByLabelText('Opponent 1 transposition table capacity')).toHaveValue(100000);
+    fireEvent.change(preset, { target: { value: 'symmetry' } });
+    expect(preset).toHaveValue('symmetry');
+    expect(setup.getByLabelText('Opponent 1 symmetry move pruning')).toBeChecked();
+    fireEvent.change(setup.getByLabelText('Opponent 1 transposition table capacity'), {
+      target: { value: '2048' },
+    });
+    expect(preset).toHaveValue('custom');
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    const players = (submitted as { players: { config: Record<string, unknown> }[] }).players;
+    expect(players[0].config.search).toEqual({
+      legacy: false,
+      transposition: true,
+      move_ordering: true,
+      symmetry_transposition: true,
+      symmetry_pruning: true,
+      table_capacity: 2048,
+    });
+    // A non-alpha-beta opponent never carries search settings.
+    expect(players[1].config.search).toBeUndefined();
+  });
+
   it('configures neural wrappers and retains settings when switching search modes', async () => {
     let submitted: Record<string, unknown> | undefined;
     vi.stubGlobal(

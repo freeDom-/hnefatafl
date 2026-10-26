@@ -165,5 +165,34 @@ const german: Record<string, string> = {
   'Export results': 'Ergebnisse exportieren',
   'Exporting results…': 'Ergebnisse werden exportiert…',
   'Tournament export failed.': 'Turnierexport fehlgeschlagen.',
+  'Alpha-beta optimizations': 'Alpha-Beta-Optimierungen',
+  'Search preset': 'Such-Voreinstellung',
+  'Legacy alpha-beta': 'Klassisches Alpha-Beta',
+  'Optimized default': 'Optimierter Standard',
+  'Full symmetry': 'Volle Symmetrie',
+  Custom: 'Benutzerdefiniert',
+  'Legacy search': 'Klassische Suche',
+  'Transposition table': 'Transpositionstabelle',
+  'Improved move ordering': 'Verbesserte Zugreihenfolge',
+  'D4-canonical transpositions': 'D4-kanonische Transpositionen',
+  'Symmetry move pruning': 'Symmetrisches Zug-Beschneiden',
+  'Transposition table capacity': 'Kapazität der Transpositionstabelle',
+  On: 'An',
+  Off: 'Aus',
+  'Canonical transpositions': 'Kanonische Transpositionen',
+  'Improved ordering': 'Verbesserte Reihenfolge',
+  'Plain alpha-beta': 'Einfaches Alpha-Beta',
+  'Use the original exact-value cache search and ignore every optimized option below.':
+    'Verwendet die ursprüngliche Exaktwert-Cache-Suche und ignoriert alle optimierten Optionen unten.',
+  'Reuse positions that were already searched during this game.':
+    'Bereits in dieser Partie durchsuchte Stellungen wiederverwenden.',
+  'Try known-good moves earlier using the transposition table, principal variation, killers and history.':
+    'Bewährte Züge früher versuchen, gestützt auf Transpositionstabelle, Hauptvariante, Killerzüge und Historie.',
+  'Share positions that are rotations or reflections of each other.':
+    'Stellungen teilen, die Drehungen oder Spiegelungen voneinander sind.',
+  'Search one representative per symmetric move group.':
+    'Je symmetrischer Zuggruppe nur einen Vertreter durchsuchen.',
+  'Bounded number of stored transposition entries. Larger tables use more memory.':
+    'Begrenzte Anzahl gespeicherter Transpositionseinträge. Größere Tabellen brauchen mehr Speicher.',
 };
 export default german;
