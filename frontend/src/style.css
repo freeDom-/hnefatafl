@@ -1025,6 +1025,15 @@ h1 {
   font-weight: 600;
   margin-bottom: 15px;
 }
+.new-game-form .button {
+  min-height: 44px;
+}
+.new-game-form > fieldset {
+  min-width: 0;
+}
+.new-game-form > fieldset > label {
+  margin-block: 0.75rem;
+}
 .ruleset-options {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -61,6 +61,7 @@ class Control(BaseHTTPRequestHandler):
             app.state.online.settings = policy
             with app.state.store.connection() as c:
                 c.execute("UPDATE accounts SET email_verified_at=1")
+                c.execute("DELETE FROM login_attempts")
         elif self.path == "/admission":
             app.state.online.settings = replace(policy, enabled=bool(values["enabled"]))
         elif self.path == "/advance":

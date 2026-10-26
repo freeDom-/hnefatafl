@@ -206,7 +206,7 @@ function Admission({ availability }: { availability: Availability }) {
 function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => void }) {
   const { t } = useI18n();
   return (
-    <article className="online-card">
+    <article className="online-card" data-game-id={game.id}>
       <h3>
         {t(game.ruleset)} · {t(statuses[game.status])}
       </h3>
