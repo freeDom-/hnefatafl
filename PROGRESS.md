@@ -78,6 +78,12 @@ or rating policy. Legacy Hall/spectator permissions and guest keys/slot remain
 unchanged. See [dashboard use](docs/DASHBOARD.md),
 [Phase 5 validation](docs/validation/online-phase5.md) and the
 [Phase 6 policy handoff](docs/designs/online-phase6-handoff.md).
+Functional CI passed 1491 backend tests / 6 hardware skips, 312 frontend tests,
+66 legacy browsers / 4 intentional duplicate skips, and all 6 registration,
+10 online, 10 personal and 14 guest browser checks. Local `make check` hit one
+existing 60-second training smoke deadline (1460 passed / 36 optional/hardware
+skips); the evidence records its isolated recheck and separately completed frontend
+validation without claiming a green local aggregate run.
 
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
