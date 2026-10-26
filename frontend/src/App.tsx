@@ -125,7 +125,6 @@ export default function App() {
     currentGame.current = null;
     setGame(null);
     setInitializing(true);
-    setPaused(true);
     void Promise.all([
       refreshOptions(),
       api<Game>(`/games/${match[1]}`, undefined, undefined, controller.signal),

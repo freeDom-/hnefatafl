@@ -235,6 +235,7 @@ export function Lobby({
   creationRequested?: number;
 }) {
   const { t } = useI18n();
+  const creationPanel = useRef<HTMLElement | null>(null);
   const pageSize = embedded ? 10 : 25;
   const [createOpen, setCreateOpen] = useState(
     new URLSearchParams(location.search).get('setup') === 'online',
@@ -242,6 +243,12 @@ export function Lobby({
   useEffect(() => {
     if (creationRequested) setCreateOpen(true);
   }, [creationRequested]);
+  useEffect(() => {
+    if (creationRequested > 0 && createOpen) {
+      creationPanel.current?.scrollIntoView?.({ block: 'start' });
+      creationPanel.current?.querySelector('select')?.focus({ preventScroll: true });
+    }
+  }, [creationRequested, createOpen]);
   const [mine, setMine] = useState(new URLSearchParams(location.search).get('mine') === 'true');
   const [offset, setOffset] = useState(0);
   const [intent, setIntent] = useState<CreationIntent | null>(() => restoreIntent(accountId));
@@ -342,7 +349,7 @@ export function Lobby({
         className={`online-lobby-layout ${embedded && !createOpen && !intent ? 'lobby-discovery' : ''}`}
       >
         {(!embedded || createOpen || intent) && (
-          <section className="panel online-create">
+          <section ref={creationPanel} className="panel online-create">
             <h2>{t('Create an online game')}</h2>
             {embedded && (
               <button className="text-button" onClick={() => setCreateOpen(false)}>

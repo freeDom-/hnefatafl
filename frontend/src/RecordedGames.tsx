@@ -78,7 +78,13 @@ export default function RecordedGames({
                   ? 'Voided'
                   : game.status === 'cancelled'
                     ? 'Cancelled'
-                    : resultName(game.winner),
+                    : game.status === 'active'
+                      ? 'Active'
+                      : game.status === 'waiting'
+                        ? 'Waiting'
+                        : game.status === 'in_progress'
+                          ? 'In progress'
+                          : resultName(game.winner),
               )}
             </span>
             <time dateTime={game.recorded_at}>
