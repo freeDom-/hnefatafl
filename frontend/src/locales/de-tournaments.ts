@@ -179,11 +179,23 @@ const german: Record<string, string> = {
   'Transposition table capacity': 'Kapazität der Transpositionstabelle',
   On: 'An',
   Off: 'Aus',
+  'Search diagnostics': 'Suchdiagnose',
+  'Mean completed depth': 'Mittlere erreichte Tiefe',
+  'Mean decision time': 'Mittlere Entscheidungszeit',
+  'Mean nodes': 'Mittlere Knoten',
+  'Mean evaluations': 'Mittlere Bewertungen',
+  'Transposition cutoffs': 'Transpositions-Abschnitte',
+  'Symmetry-pruned moves': 'Symmetrisch beschnittene Züge',
+  'Reached depth cap': 'Tiefenlimit erreicht',
   'Canonical transpositions': 'Kanonische Transpositionen',
   'Improved ordering': 'Verbesserte Reihenfolge',
   'Plain alpha-beta': 'Einfaches Alpha-Beta',
   'Use the original exact-value cache search and ignore every optimized option below.':
     'Verwendet die ursprüngliche Exaktwert-Cache-Suche und ignoriert alle optimierten Optionen unten.',
+  'Legacy uses the original exact-value cache search. Every optimization switch and the table capacity below are ignored while it is selected.':
+    'Klassisch verwendet die ursprüngliche Exaktwert-Cache-Suche. Alle Optimierungsoptionen und die Tabellenkapazität unten werden ignoriert, solange sie ausgewählt ist.',
+  'Legacy search uses the original exact-value cache implementation.':
+    'Die klassische Suche verwendet die ursprüngliche Exaktwert-Cache-Implementierung.',
   'Reuse positions that were already searched during this game.':
     'Bereits in dieser Partie durchsuchte Stellungen wiederverwenden.',
   'Try known-good moves earlier using the transposition table, principal variation, killers and history.':

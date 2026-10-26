@@ -3,6 +3,7 @@ import {
   ALPHA_BETA_PRESETS,
   DEFAULT_ALPHA_BETA_SEARCH,
   TABLE_CAPACITY_MAX,
+  effectiveSearch,
   isAlphaBetaSearch,
   presetSearch,
   searchFromConfig,
@@ -52,6 +53,27 @@ describe('alpha-beta search helpers', () => {
     expect(searchSummary(ALPHA_BETA_PRESETS.legacy)).toBe('Legacy search');
     expect(searchSummary(ALPHA_BETA_PRESETS.optimized)).toContain('Transposition table');
     expect(searchSummary(ALPHA_BETA_PRESETS.symmetry)).toContain('Symmetry pruning');
+  });
+
+  it('collapses legacy over stale optimization switches like the server', () => {
+    const stale = {
+      ...DEFAULT_ALPHA_BETA_SEARCH,
+      legacy: true,
+      symmetry_transposition: true,
+      symmetry_pruning: true,
+      table_capacity: 7,
+    };
+    expect(effectiveSearch(stale)).toEqual(ALPHA_BETA_PRESETS.legacy);
+    expect(searchPreset(stale)).toBe('legacy');
+    // Reading a stored config normalises it so the form never displays an
+    // ignored optimization as active.
+    expect(searchFromConfig({ search: stale })).toEqual(ALPHA_BETA_PRESETS.legacy);
+    expect(effectiveSearch(ALPHA_BETA_PRESETS.optimized)).toEqual(ALPHA_BETA_PRESETS.optimized);
+  });
+
+  it('returns the canonical legacy shape when the legacy preset is applied', () => {
+    const stale = { ...DEFAULT_ALPHA_BETA_SEARCH, symmetry_pruning: true };
+    expect(presetSearch('legacy', stale)).toEqual(ALPHA_BETA_PRESETS.legacy);
   });
 });
 

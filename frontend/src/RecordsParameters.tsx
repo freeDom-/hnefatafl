@@ -58,8 +58,17 @@ export function parameterSummary(config: Config = {}) {
 }
 
 function SearchValues({ search }: { search: AlphaBetaSearchSettings }) {
+  // Legacy overrides the optimized flags, so showing them as On/Off would
+  // misrepresent the search the backend actually ran.
+  if (search.legacy) {
+    return (
+      <p className="subtle">
+        {t('Legacy search uses the original exact-value cache implementation.')}
+      </p>
+    );
+  }
   const entries = (Object.keys(searchLabels) as (keyof AlphaBetaSearchSettings)[]).filter(
-    (key) => key !== 'table_capacity',
+    (key) => key !== 'table_capacity' && key !== 'legacy',
   );
   return (
     <dl className="record-search-parameters">

@@ -67,10 +67,23 @@ export function isAlphaBetaSearch(value: unknown): value is AlphaBetaSearchSetti
   );
 }
 
-/** Read the nested search object from a loose AI config, if present and valid. */
+/**
+ * Apply the server's legacy collapse so the displayed controls match the
+ * effective backend search. ``legacy`` overrides every optimized flag, so a
+ * stored object with ``legacy: true`` plus stale switches must resolve to the
+ * canonical legacy shape instead of showing irrelevant features as active.
+ */
+export function effectiveSearch(search: AlphaBetaSearchSettings): AlphaBetaSearchSettings {
+  return search.legacy ? { ...DEFAULT_ALPHA_BETA_SEARCH, legacy: true } : { ...search };
+}
+
+/**
+ * Read the nested search object from a loose AI config, if present and valid.
+ * The result is already normalised to the effective backend configuration.
+ */
 export function searchFromConfig(config: Record<string, unknown> | undefined) {
   const value = config?.search;
-  return isAlphaBetaSearch(value) ? value : undefined;
+  return isAlphaBetaSearch(value) ? effectiveSearch(value) : undefined;
 }
 
 function sameSearch(left: AlphaBetaSearchSettings, right: AlphaBetaSearchSettings) {
@@ -79,6 +92,9 @@ function sameSearch(left: AlphaBetaSearchSettings, right: AlphaBetaSearchSetting
 
 /** Identify which preset a configuration matches, if any. */
 export function searchPreset(search: AlphaBetaSearchSettings): AlphaBetaPresetName {
+  // Legacy overrides every other flag, so it is the preset even if a stored
+  // object still carries stale optimization switches.
+  if (search.legacy) return 'legacy';
   for (const name of ['legacy', 'optimized', 'symmetry'] as const) {
     if (sameSearch(search, ALPHA_BETA_PRESETS[name])) return name;
   }

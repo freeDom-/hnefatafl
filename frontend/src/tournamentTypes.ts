@@ -18,6 +18,17 @@ export interface TournamentConfig {
   max_plies: number;
   seed: number;
 }
+export interface TournamentDiagnostics {
+  decisions: number;
+  mean_completed_depth?: number | null;
+  mean_decision_time?: number | null;
+  mean_nodes?: number | null;
+  mean_evaluations?: number | null;
+  total_cutoffs?: number;
+  transposition_cutoffs?: number;
+  symmetry_moves_skipped?: number;
+  depth_cap_reached_fraction?: number | null;
+}
 export interface TournamentGame {
   ruleset: string;
   winner: Side | 'draw' | null;
@@ -29,6 +40,7 @@ export interface TournamentGame {
   defender_player?: number;
   average_decision_time: number;
   total_decision_time: number;
+  diagnostics?: { attackers?: TournamentDiagnostics; defenders?: TournamentDiagnostics };
 }
 export interface TournamentResult {
   scores: number[];
@@ -40,6 +52,7 @@ export interface TournamentResult {
     truncated: number;
     games: number;
     score: number;
+    diagnostics?: TournamentDiagnostics;
   }[];
   by_ruleset: Record<string, { wins: number[]; draws: number; truncated: number; games: number }>;
   games: TournamentGame[];
