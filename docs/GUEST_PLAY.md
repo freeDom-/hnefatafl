@@ -6,9 +6,13 @@
 Open **Guest play** at `/guest` without logging in. Select Brandubh, Tablut market
 or Copenhagen and your side, then start. Select a piece and a highlighted
 destination; keyboard arrows, Enter/Space and Escape work as on the account board.
-**Play computer move** runs the bounded baseline opponent in this browser. The
-computer does not move automatically after restoring a game. No model download,
-strength claim or server analysis is involved.
+The bounded baseline opponent moves automatically after your move, when it moves
+first, and after a validated restore on its turn. A thinking indicator and cancel
+control accompany computation; saving completes before another turn can begin.
+Failures require an explicit retry and never create a retry loop. Operation guards
+discard late cancelled/unmounted results; terminal games and historical replay
+never start a computer turn. No model download, strength claim or server analysis
+is involved.
 
 Guest games are local, noncompetitive single-player. They never create server
 games or enter account statistics, online results, ratings, leaderboards, rewards,

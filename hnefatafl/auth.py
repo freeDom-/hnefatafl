@@ -316,7 +316,6 @@ grant(
     "/api/ai/profiles",
     "/api/models",
     "/api/games",
-    "/api/players",
     "/api/stats",
     "/api/personal/single-player",
     "/api/personal/single-player/{game_id}/replay",
@@ -333,7 +332,6 @@ grant(
     "play",
     "POST",
     "/api/games",
-    "/api/players",
     *(
         f"/api/games/{{game_id}}/{action}"
         for action in ("analysis", "moves", "ai-move", "seek", "undo", "redo", "restart")
@@ -362,7 +360,7 @@ grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
 grant("play", "GET", "/api/online/availability")
 grant("accounts", "PATCH", "/api/online/timeout-gate")
-grant("play", "DELETE", "/api/games/{game_id}", "/api/players/{player_id}")
+grant("play", "DELETE", "/api/games/{game_id}")
 grant(
     "tournaments",
     "GET",

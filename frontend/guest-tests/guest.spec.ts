@@ -31,7 +31,7 @@ async function start(page: Page) {
 async function humanMove(page: Page) {
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
   await page.getByRole('gridcell', { name: /^b7, empty/ }).click();
-  await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Previous move', exact: true })).toBeEnabled();
   await ready(page);
 }
 
@@ -64,8 +64,8 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
   await start(page);
   await humanMove(page);
   const slot = await saved(page);
-  expect(JSON.parse(slot.raw!).moves).toEqual([{ source: 3, target: 1 }]);
-  await page.getByRole('button', { name: 'Play computer move' }).click();
+  expect(JSON.parse(slot.raw!).moves[0]).toEqual({ source: 3, target: 1 });
+  await expect(page.getByRole('button', { name: 'Play computer move' })).toHaveCount(0);
   await ready(page);
   await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(2);
   const checkpoint = await saved(page);
@@ -152,7 +152,7 @@ test('confirmed replacement is atomic on an interrupted write; clear keeps indep
   expect(await saved(page)).toEqual(before);
   await page.reload();
   await ready(page);
-  await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
+  expect(await saved(page)).toEqual(before);
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm replacement', exact: true }).click();
   await ready(page);
@@ -294,7 +294,7 @@ test('guest survives login, logout, account switching, back navigation and onlin
       await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf_token },
-        body: JSON.stringify({ ruleset: 'brandubh', mode: 'human-human' }),
+        body: JSON.stringify({ ruleset: 'brandubh', mode: 'human-ai' }),
       })
     ).json();
     localStorage.setItem('hnefatafl-game', created.id);

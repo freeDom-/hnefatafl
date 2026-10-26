@@ -1,3 +1,4 @@
+import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
 
@@ -13,7 +14,7 @@ async function currentGame(page: Page, request: APIRequestContext) {
 }
 
 async function completedGame(request: APIRequestContext, name: string) {
-  const response = await request.post(`${api}/games`, {
+  const response = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',
@@ -76,7 +77,6 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/dashboard?setup=single-player');
   const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
-  await expect(setup).toContainText('A fresh random seed');
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   const first = await currentGame(page, request);
   expect(Number.isInteger(first.seed)).toBe(true);
@@ -192,24 +192,25 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
     String(model.evaluation.seed),
   );
 
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
-  const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
-  await setup.getByRole('radio', { name: /Brandubh/ }).check();
-  await setup.getByRole('button', { name: 'Human vs AI', exact: true }).click();
-  await setup.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('attackers');
-  await expect(
-    setup.getByRole('combobox', { name: 'Defenders algorithm', exact: true }),
-  ).toHaveValue('neural');
-  await expect(
-    setup.getByRole('combobox', { name: 'Defenders trained model', exact: true }),
-  ).toHaveValue(model.id);
-  await expect(setup.locator('.model-recommendation')).toContainText(modelName);
-  await setup.getByRole('button', { name: 'To the table', exact: true }).click();
-  const current = await currentGame(page, request);
+  const currentResponse = await historicalGame(request, {
+    data: {
+      ruleset: 'brandubh',
+      mode: 'human-ai',
+      human_side: 'attackers',
+      players: {
+        defenders: {
+          profile_id: 'neural',
+          config: { model_id: model.id, iterations: 1, time_limit: 0.1 },
+        },
+      },
+    },
+  });
+  const current = await currentResponse.json();
+  await page.goto('/games/' + current.id);
+  await expect(page.getByRole('grid')).toBeVisible();
   expect(current.players.defenders.config.model_id).toBe(model.id);
 
-  const hiddenResponse = await request.post(`${api}/games`, {
+  const hiddenResponse = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'human-ai',

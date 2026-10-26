@@ -262,9 +262,14 @@ exclude seed from identity. Tournaments display the underlying agent rune; older
 seat-rune reservations remain stored. Older response snapshots gain runes without
 rewriting game JSON or checkpoint metadata. See [Identities](docs/IDENTITIES.md).
 
-New-game browser preferences retain a validated complete successful setup. Native
-model choices update their canonical names with their IDs, and saved model-name
-snapshots identify earlier games whose supplied aliases were stale. Training
+Account setup retains only battlefield, permitted mode, side and four preset IDs.
+The server binds human seats to the account and resolves preset budgets itself;
+creation and restart recheck current sessions/roles in a write transaction. New
+pass-and-play, local-player CRUD and custom/neural account-game creation are removed.
+Historical player IDs, modes and effective configurations remain read/play shims,
+without supporting legacy result reconstruction or cloning old setups via restart.
+Model choices in authorized advisors/tournaments retain canonical names/IDs, and
+saved model-name snapshots identify earlier games whose supplied aliases were stale. Training
 resumption uses an explicit job checkpoint metadata route and server-derived
 configuration, then creates a new worker/output directory for the chosen total
 iteration target. The UI never reconstructs a resume request from arbitrary paths.
@@ -371,7 +376,8 @@ types and IndexedDB slot; it does not import API/account/online adapters. Naviga
 terminates the worker; returning validates saved moves again. Protected requests
 have session epochs and cancellation so delayed old-account responses cannot update
 a different account or emit stale authentication events. Existing account
-selection/setup and online-intent keys keep their formats and semantics.
+selection and online-intent keys keep their formats and semantics; account setup
+preferences retain only the permitted subset of older values.
 
 The [guest guide](docs/GUEST_PLAY.md) specifies schema/limits, atomic revisions,
 replay authority, confirmed replacement/clear, eviction and memory-only recovery.
@@ -413,7 +419,7 @@ or result reconstruction are supported. Unexpected personal/history API failures
 fixed actions, exception types and scrubbed tracebacks with generic 503 responses.
 Online totals use only current eligible completed revisions, withdrawing voids.
 Guest saves never enter these adapters. Local players UI and Archive-only profile
-queries are removed; setup profile selection/APIs and stored data remain. See the
+queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the
 [dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
 [refinement evidence](docs/validation/dashboard-consolidation.md) and
 [Phase 6 handoff](docs/designs/online-phase6-handoff.md).

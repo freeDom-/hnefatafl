@@ -17,6 +17,8 @@ if (
 ):
     raise SystemExit("Personal browser fixtures require isolated development storage")
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+from record_fixtures import historical_response  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from hnefatafl.auth import digest  # noqa: E402
 from hnefatafl.online_settings import OnlineSettings  # noqa: E402
@@ -101,7 +103,7 @@ with TestClient(seed, base_url="http://127.0.0.1:8009") as client:
         {"Origin": "http://127.0.0.1:8009", "X-CSRF-Token": session["csrf_token"]}
     )
     for i in range(12):
-        response = client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"})
+        response = historical_response(client, json={"ruleset": "brandubh", "mode": "human-human"})
         assert response.status_code in (200, 201), response.text
         game = response.json()
         if i == 0:
@@ -115,9 +117,7 @@ with TestClient(seed, base_url="http://127.0.0.1:8009") as client:
             ids["account"] = game["id"]
         if i == 1:
             ids["unfinished_account"] = game["id"]
-    assert client.post(
-        "/api/games", json={"ruleset": "tablut", "mode": "human-human"}
-    ).status_code in (200, 201)
+    assert historical_response(client, json={"ruleset": "tablut", "mode": "human-human"}).status_code in (200, 201)
 
     session = client.post(
         "/api/auth/login",
@@ -125,7 +125,7 @@ with TestClient(seed, base_url="http://127.0.0.1:8009") as client:
         headers={"Origin": "http://127.0.0.1:8009"},
     ).json()
     client.headers.update({"X-CSRF-Token": session["csrf_token"]})
-    game = client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"}).json()
+    game = historical_response(client, json={"ruleset": "brandubh", "mode": "human-human"}).json()
     for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
         game = client.post(
             f"/api/games/{game['id']}/moves",

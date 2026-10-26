@@ -1,5 +1,6 @@
 """Personal reads on real sessions/SQLite with deterministic authoritative time."""
 
+from record_fixtures import historical_response
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta, timezone
 import json
@@ -83,7 +84,7 @@ def online(world, *, mode="single"):
 
 
 def draw_account(client):
-    game = client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"}).json()
+    game = historical_response(client, json={"ruleset": "brandubh", "mode": "human-human"}).json()
     for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
         response = client.post(
             f"/api/games/{game['id']}/moves",
@@ -96,11 +97,9 @@ def draw_account(client):
 
 def test_ownership_details_and_administrator_personal_scope(world):
     _, clients, _, _, _ = world
-    local = (
-        clients["Archer"]
-        .post("/api/games", json={"mode": "human-human", "ruleset": "brandubh"})
-        .json()
-    )
+    local = historical_response(
+        clients["Archer"], json={"mode": "human-human", "ruleset": "brandubh"}
+    ).json()
     active = online(world)
     for name in ("Observer", "Odin"):
         assert clients[name].get("/api/personal/single-player").json()["games"] == []
@@ -162,7 +161,9 @@ def test_account_keyset_ties_combined_filters_and_insert_between_pages(world):
     app, clients, _, _, _ = world
     client = clients["Archer"]
     ids = [
-        client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"}).json()["id"]
+        historical_response(client, json={"ruleset": "brandubh", "mode": "human-human"}).json()[
+            "id"
+        ]
         for _ in range(5)
     ]
     with app.state.store.connection() as c:
@@ -173,7 +174,7 @@ def test_account_keyset_ties_combined_filters_and_insert_between_pages(world):
     filters = {"limit": 2, "ruleset": "brandubh", "status": "in_progress"}
     first = client.get("/api/personal/single-player", params=filters).json()
     assert [g["id"] for g in first["games"]] == sorted(ids)[:2]
-    client.post("/api/games", json={"ruleset": "tablut", "mode": "human-human"})
+    historical_response(client, json={"ruleset": "tablut", "mode": "human-human"})
     cursor, seen = first["next_cursor"], [g["id"] for g in first["games"]]
     while cursor:
         response = client.get("/api/personal/single-player", params={**filters, "cursor": cursor})
@@ -456,11 +457,9 @@ def test_online_keyset_ties_combined_filters_and_concurrent_completion(world):
 
 def test_explicit_unfinished_account_result_and_safe_replay_projection(world):
     app, clients, _, _, _ = world
-    game = (
-        clients["Archer"]
-        .post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"})
-        .json()
-    )
+    game = historical_response(
+        clients["Archer"], json={"ruleset": "brandubh", "mode": "human-human"}
+    ).json()
     assert app.state.store.get_game(game["id"])["recorded_result"] is None
     body = clients["Archer"].get("/api/personal/single-player").json()
     assert body["games"][0]["winner"] is None and body["totals"]["completed_games"] == 0
@@ -515,7 +514,7 @@ def test_missing_account_result_is_unfinished_without_result_reconstruction(worl
 def test_current_account_writes_store_result_metadata(world):
     app, clients, _, _, _ = world
     client = clients["Archer"]
-    game = client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"}).json()
+    game = client.post("/api/games", json={"ruleset": "brandubh", "human_side": "attackers"}).json()
 
     def assert_stored(current, winner=None):
         stored = app.state.store.get_game(current["id"])

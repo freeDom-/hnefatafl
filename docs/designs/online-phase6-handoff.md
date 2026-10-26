@@ -3,12 +3,15 @@
 [Documentation index](../README.md) · [Phase 5 contract](personal-dashboard-phase5.md) ·
 [Dashboard guide](../DASHBOARD.md) · [Phase 5 evidence](../validation/online-phase5.md)
 
-Phase 5 delivers a private authenticated dashboard, separately scoped account and
-online pages, and read-only review. `personal.py` performs bounded set-based summary
-queries and query-derived totals. `personal_api.py` declares five authenticated
-GET adapters; there is no schema change or stored accounting system. Account
-replay reuses existing validation; the online review reuses the dedicated viewer
-with participant-only reads. Generic viewer controls contain no game adapter.
+Phase 5 delivers the default authenticated Dashboard with reused account setup and
+online lobby, separate personal statistics, compact own recent records and read-only
+Hall review. `personal.py` retains own-account summaries/totals; `personal_api.py`
+retains five authenticated personal GET adapters and adds two read-only history
+adapters. `history.py` enforces participant online scope for normal users and trusted
+`all_data` Hall browsing for administrators, while Dashboard stays own-only.
+Shared rows link to independently URL-selected canonical review. Existing private
+account/online replay deep links remain, and viewer controls change local state only.
+There is no schema change or stored accounting system.
 Account totals read only persisted `recorded_result` metadata. No legacy account
 records or engine result reconstruction are supported; missing/null results remain
 unfinished. Canonical single-game validation is retained. Unexpected personal API
@@ -25,7 +28,7 @@ withdraw previous contributions without materialized counter repair. Page cursor
 are positions tied to account/filters, not snapshots or access capabilities.
 
 Production admission and timeout finalization remain disabled by default. There
-is no rating, leaderboard, public history, match score, completed-online analysis,
+is no rating, populated leaderboard, public history, match score, completed-online analysis,
 retention/expiry policy, release or deployment approval in Phase 5.
 
 ## Owner decisions required before ratings

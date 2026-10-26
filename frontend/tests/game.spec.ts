@@ -1,3 +1,4 @@
+import { historicalGame } from './historical-fixture';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
@@ -9,6 +10,7 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
   await page.getByRole('button', { name: 'To the table' }).click();
   const board = page.getByRole('grid', { name: 'tablut game board' });
   await expect(board.getByRole('gridcell')).toHaveCount(81);
+  await page.getByRole('button', { name: /Pause AI/ }).click();
   await board.getByRole('gridcell', { name: 'e7, defender', exact: true }).click();
   const destination = board.getByRole('gridcell', { name: /empty, legal move/ }).first();
   const name = await destination.getAttribute('aria-label');
@@ -46,8 +48,6 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await page.getByRole('button', { name: 'AI vs AI', exact: true }).click();
   await page.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('baseline');
   await page.getByRole('combobox', { name: 'Defenders AI profile' }).selectOption('baseline');
-  await page.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }).check();
-  await page.getByLabel('Game seed', { exact: true }).fill('3');
   const created = page.waitForResponse(
     (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
   );
@@ -218,7 +218,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toBeVisible();
   await expect(card.locator('[data-rune]')).toHaveAttribute('data-rune', model.rune);
 
-  const historyResponse = await request.post(`${api}/games`, {
+  const historyResponse = await historicalGame(request, {
     data: {
       ruleset: model.ruleset,
       mode: 'human-ai',
@@ -376,26 +376,23 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
     page.locator('.tournament-standing').first().locator('.model-training-summary'),
   ).toContainText('4 channels · 0 blocks');
 
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
-  await page.getByRole('button', { name: 'Human vs AI', exact: true }).click();
-  await page.getByRole('radio', { name: /Tablut/ }).check();
-  await page.getByLabel('Your side').selectOption('attackers');
-  await page.getByLabel('Defenders algorithm').selectOption('neural');
-  await page
-    .getByRole('combobox', { name: 'Defenders trained model', exact: true })
-    .selectOption(model.id);
-  const played = page.waitForResponse(
-    (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
-  );
-  await page.getByRole('button', { name: 'To the table' }).click();
-  expect((await (await played).json()).players.defenders).toMatchObject({
-    name: renamedName,
-    model_name: renamedName,
-    config: { model_id: model.id },
+  const played = await historicalGame(request, {
+    data: {
+      ruleset: 'tablut',
+      mode: 'human-ai',
+      human_side: 'attackers',
+      players: {
+        defenders: {
+          profile_id: 'neural',
+          config: { model_id: model.id, iterations: 2, time_limit: 0.05 },
+        },
+      },
+    },
   });
-  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible({
-    timeout: 20000,
-  });
+  expect(played.ok()).toBe(true);
+  const playable = await played.json();
+  expect(playable.players.defenders.model_name).toBe(renamedName);
+  await page.goto('/games/' + playable.id);
+  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
   await expect(page.locator('.army h3').nth(1)).toContainText(renamedName);
 });

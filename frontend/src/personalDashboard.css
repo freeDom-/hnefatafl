@@ -197,3 +197,29 @@
     grid-row: auto;
   }
 }
+.dashboard-lobby {
+  padding: 1.1rem;
+  margin-top: 1rem;
+}
+.dashboard-lobby > h2 {
+  margin-top: 0;
+}
+.dashboard-lobby .online-lobby-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.move-duration .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.account-player-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.85rem;
+  margin-block: 1rem;
+}
+.account-player-card span {
+  font-size: 0.85rem;
+}

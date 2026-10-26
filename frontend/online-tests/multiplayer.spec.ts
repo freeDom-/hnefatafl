@@ -14,9 +14,16 @@ async function opponent(browser: Browser, name = 'OnlineKeeper') {
   return { context, page };
 }
 async function create(page: Page, mode = 'single', side = 'attackers', seconds = '259200') {
+  if (!(await page.getByRole('dialog', { name: 'Create an online game' }).isVisible()))
+    await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await page.getByLabel('Creator side').selectOption(side);
   await page.getByLabel('Match mode').selectOption(mode);
-  await page.getByLabel('Seconds per move').fill(seconds);
+  const duration = Number(seconds);
+  await page.getByLabel('Days', { exact: true }).fill(String(Math.floor(duration / 86400)));
+  await page
+    .getByLabel('Hours', { exact: true })
+    .fill(String(Math.floor((duration % 86400) / 3600)));
+  await page.getByLabel('Minutes', { exact: true }).fill(String((duration % 3600) / 60));
   await page.getByRole('button', { name: 'Create game', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel waiting game' })).toBeEnabled();

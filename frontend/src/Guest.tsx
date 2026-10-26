@@ -17,6 +17,7 @@ export default function Guest() {
   const current = useRef<GuestSnapshot | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(true);
+  const [saving, setSaving] = useState(false);
   const lock = useRef(false);
   const alive = useRef(false);
   const engine = useRef<GuestEngine | null>(null);
@@ -153,7 +154,12 @@ export default function Guest() {
       const value = await engine.current!.request<GuestSnapshot>(request);
       if (!alive.current || expected !== operation.current) return;
       publish(value);
-      await persist(value);
+      setSaving(true);
+      try {
+        await persist(value);
+      } finally {
+        if (alive.current && expected === operation.current) setSaving(false);
+      }
     } catch (e) {
       if (alive.current && expected === operation.current) {
         setError((e as Error).message);
@@ -200,6 +206,25 @@ export default function Guest() {
   };
   const historical = !!game && game.record.cursor !== game.record.moves.length;
   const humanTurn = !!game && game.position.turn === game.record.human_side;
+  // The lock is set synchronously before the request, including StrictMode's
+  // repeated effects. Publish/save one accepted move before scheduling the next.
+  useEffect(() => {
+    if (
+      ready &&
+      !busy &&
+      !lock.current &&
+      !conflict &&
+      !confirm &&
+      !error &&
+      game &&
+      !historical &&
+      !game.live_winner &&
+      !game.position.winner &&
+      !humanTurn
+    ) {
+      void run({ action: 'computer' });
+    }
+  }, [game, ready, busy, conflict, confirm, error, historical, humanTurn]);
   const mayMove =
     ready && !busy && !conflict && !historical && !!game && !game.live_winner && humanTurn;
   const select = (index: number) => {
@@ -241,13 +266,17 @@ export default function Guest() {
         <p role="status">
           {t(
             busy
-              ? 'Loading or computing in the browser…'
+              ? saving
+                ? 'Saving on this device…'
+                : game && !humanTurn
+                  ? 'Computer is thinking…'
+                  : 'Loading or computing in the browser…'
               : ready
                 ? 'Local engine ready.'
                 : 'Local engine is not ready.',
           )}
         </p>
-        {busy && (
+        {busy && !saving && (
           <button
             className="button secondary"
             onClick={() => {
@@ -320,13 +349,13 @@ export default function Guest() {
                   readOnly={!mayMove}
                 />
                 {game.live_reason && <p>{t(game.live_reason.replaceAll('_', ' '))}</p>}
-                {!historical && !game.live_winner && !humanTurn && (
+                {!historical && !game.live_winner && !humanTurn && error && ready && (
                   <button
                     className="button primary"
                     disabled={!ready || busy || conflict}
                     onClick={() => void run({ action: 'computer' })}
                   >
-                    {t('Play computer move')}
+                    {t('Retry computer move')}
                   </button>
                 )}
                 <nav className="guest-actions" aria-label={t('Guest replay')}>
