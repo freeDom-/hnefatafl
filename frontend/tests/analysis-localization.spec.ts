@@ -150,8 +150,7 @@ test('the actual AI decision and the opponent’s background estimate survive re
     target: after.moves[0].target,
   });
   expect(replay.analysis.evaluations).toHaveLength(2);
-  await page.addInitScript((id) => localStorage.setItem('hnefatafl-game', id), game.id);
-  await page.goto('/dashboard?setup=single-player');
+  await page.goto('/games/' + game.id);
   await page.getByRole('button', { name: /Pause AI/ }).click();
   const meters = page.getByRole('region', { name: 'Agent evaluations' }).getByRole('meter');
   await expect(meters).toHaveCount(2);

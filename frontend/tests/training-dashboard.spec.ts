@@ -196,7 +196,7 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
   await page.getByRole('tab', { name: 'Leistung', exact: true }).click();
   await expect(page.getByLabel('Leistungskennzahl', { exact: true })).toBeVisible();
   jobs = [];
-  await page.getByRole('button', { name: 'Spielen', exact: true }).click();
+  await page.getByRole('button', { name: 'Übersicht', exact: true }).click();
   await page.getByRole('button', { name: 'KI-Werkstatt', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Schmiede einen neuen Strategen', exact: true }),

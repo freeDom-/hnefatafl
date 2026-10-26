@@ -131,7 +131,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
     );
 
     await page.reload();
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
     await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
     await expect(page.getByLabel('Worker token', { exact: true })).toHaveCount(0);
     await selectWorkshopJob(page, second.id, `Cloud Freydis ${info.project.name}`);
