@@ -116,6 +116,19 @@ leaves. This is shared with the legacy search and is the main remaining
 optimization opportunity (lazy child generation); it is recorded here rather than
 implemented because a safe refactor is larger than this change set.
 
+## Iterative deepening: interrupted work is small
+
+The fixed-time pass records the discarded work of the interrupted iteration.
+Across the six scenarios the median `discarded_nodes` was 30–34 nodes (maximum
+164), a small fraction of a completed pass. The per-iteration timings are exposed
+as `iteration_timings`, `interrupted_depth`, `interrupted_seconds` and
+`discarded_nodes`, and `chosen_from_completed_iteration` records that the returned
+move always came from a completed iteration. A conservative early-stop policy was
+considered but not enabled: the discarded work is already small, and predicting
+whether the next depth will finish risks stopping a search that would have
+completed usefully. The instrumentation is in place to revisit that decision with
+a larger budget.
+
 ## Finding 5: D4 symmetry is correct but situational
 
 The move-dependent Shield maiden score is D4-equivariant for every supported
