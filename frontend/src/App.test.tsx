@@ -119,6 +119,22 @@ describe('game flow', () => {
       ).toBe(true);
     },
   );
+  it('resumes saved unfinished computer play at its dedicated route', async () => {
+    const fetcher = setup(undefined, {
+      ...initial,
+      mode: 'human-ai',
+      players: {
+        ...initial.players,
+        attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
+      },
+    });
+    render(<App />);
+    await screen.findByRole('grid');
+    await waitFor(
+      () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
+      { timeout: 5000 },
+    );
+  });
   it('allows human moves while background analysis is still pending', async () => {
     const fetcher = setup(
       undefined,
