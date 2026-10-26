@@ -3,6 +3,11 @@
 [Documentation index](../README.md) · [User guide](../ONLINE_PLAY.md) ·
 [Operations and policies](../ONLINE.md) · [Phase 3 validation](../validation/online-phase3.md)
 
+This is the incoming Phase 3 contract. Phase 4 subsequently implements the
+owner-approved guest boundary described in [guest play and storage](../GUEST_PLAY.md);
+see [Phase 4 evidence](../validation/online-phase4.md) and the
+[Phase 5 handoff](online-phase5-handoff.md) for current follow-up decisions.
+
 Phase 3 provides authenticated lobby/game routes on top of the durable Phase 2
 core. Its only backend addition is `GET /api/online/availability`, an exact `play`
 grant returning `{enabled, eligible}` from current settings and

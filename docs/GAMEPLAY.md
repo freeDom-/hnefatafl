@@ -2,6 +2,15 @@
 
 [Documentation index](README.md) · [Quick start](../README.md#quick-start)
 
+## Choose where to play
+
+**Guest play** at `/guest` needs no login and runs single-player in this browser.
+It keeps one device slot with confirmed replacement and validated move replay; see
+[guest play and storage](GUEST_PLAY.md) for clearing, eviction and startup limits.
+**Account single-player** uses the authenticated server and account history, as
+described below. **Online** uses separate authenticated multiplayer routes; see
+[online play](ONLINE_PLAY.md). Guest games never upload or enter account results.
+
 ## Choose a battlefield
 
 All pieces move like rooks through vacant orthogonal squares. Captures require
@@ -19,7 +28,7 @@ repetition convention. Brandubh/Tablut use a no-move draw; Copenhagen uses a no-
 loss. Training/tournament move caps produce **unfinished** games, never extra rules
 draws. Ordinary games have no experimental move cap.
 
-## Create and control a game
+## Create and control an account game
 
 1. Open **New game** and select a battlefield and mode: pass-and-play Human vs
    Human, Human vs AI or AI vs AI.

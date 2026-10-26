@@ -54,6 +54,7 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:registration
       - run: npm run test:online
+      - run: npm run test:guest
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
