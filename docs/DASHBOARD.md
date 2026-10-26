@@ -15,6 +15,10 @@ unfinished/completed status and recorded winning side or draw. The totals descri
 recorded sides: owning a game does not establish which human or AI seat is yours.
 They therefore do not claim personal wins or losses. A retained completed line
 continues to count after its shared play cursor has been moved backwards.
+Completion comes only from the stored result. Missing or null results count as
+unfinished; no legacy account records or automatic result reconstruction are
+supported. Lists and totals never run engine replay. Single-game review retains
+canonical validation of moves and positions.
 
 **Online multiplayer** starts with **Awaiting your move**. Other sections show
 other active games, waiting games you created, all current games, or terminal

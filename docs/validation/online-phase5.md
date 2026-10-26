@@ -93,7 +93,7 @@ the successful CI run above. No local timeout or interrupted run is relabeled gr
 API tests use real authenticated sessions, SQLite, multiple accounts including an
 administrator and a deterministic authoritative clock. They exercise ownership,
 participant scope, safe fields, cursor bounds/context/ties/combined filters,
-concurrent page membership changes, legacy retained-result semantics, both winning
+concurrent page membership changes, stored retained-result semantics, both winning
 sides, draw/concession/timeout/cancel/void, effective revisions, restart consistency,
 batched query counts, paired grouping, analysis denial and replay without writes.
 Frontend tests additionally cover request cancellation/late responses, empty/error/
@@ -113,3 +113,26 @@ No physical phone, Safari, Firefox, GPU, AI strength, production deployment,
 durable device storage or full offline startup is claimed. Query-derived counts
 use aggregate scans over existing SQLite tables; no arbitrary-size or global-history performance benchmark is claimed.
 The database is consistent within a response, not frozen between cursor pages.
+
+## PR #17 review follow-up
+
+The review follow-up removes SQLite account-result replay, its injected outcome
+callback and the server's old-record result derivation. No legacy account records
+are supported. Current writers already persist `recorded_result`; missing/null
+results remain unfinished in personal summaries/review and `/api/stats`. Canonical
+single-game validation, route permissions and global authenticated spectator
+listing/detail remain intact. Scrubbed action/type/traceback logs accompany the
+unchanged generic 503 response. Tests cover current writer invariants, result
+absence at either cursor, retained replay, all five scrubbed error paths and
+nonparticipant global visibility with personal detail denials.
+
+The earlier command counts above belong to their stated commits, before this
+follow-up. Fresh follow-up validation is recorded separately below.
+
+| Follow-up command (repository root) | Result |
+| --- | --- |
+| `.venv/bin/python -m pytest -q tests/test_personal.py tests/test_game_management.py` | **51 passed**, one existing TestClient warning, 97.67 seconds. |
+| `make docs` | Passed: **84 Markdown files / 619 local links/images/anchors**. |
+
+Full `make check` and relevant personal/online browser revalidation are pending
+at this follow-up snapshot; no earlier run is claimed as fresh validation.

@@ -3,6 +3,8 @@
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta, timezone
 import json
+import logging
+import sqlite3
 import shutil
 from uuid import uuid4
 
@@ -109,6 +111,9 @@ def test_ownership_details_and_administrator_personal_scope(world):
             f"online/{active['id']}/replay",
         ):
             assert clients[name].get("/api/personal/" + path).status_code == 404
+        listing = clients[name].get("/api/online/games")
+        assert listing.status_code == 200
+        assert [g["id"] for g in listing.json()["games"]] == [active["id"]]
         assert clients[name].get(f"/api/online/games/{active['id']}").status_code == 200
     assert clients["Odin"].get(f"/api/games/{local['id']}").status_code == 200
     for name in ("Archer", "Keeper"):
@@ -191,7 +196,7 @@ def test_account_keyset_ties_combined_filters_and_insert_between_pages(world):
     )
 
 
-def test_retained_legacy_results_and_review_are_cursor_independent_without_writes(world):
+def test_retained_results_and_review_are_cursor_independent_without_writes(world):
     app, clients, _, _, _ = world
     client = clients["Archer"]
     game = draw_account(client)
@@ -201,36 +206,27 @@ def test_retained_legacy_results_and_review_are_cursor_independent_without_write
         ).status_code
         == 200
     )
-    for legacy in (False, True):
-        if legacy:
-            with app.state.store.connection() as c:
-                c.execute(
-                    "UPDATE games SET data=json_remove(data,'$.recorded_result') WHERE id=?",
-                    (game["id"],),
-                )
-        with app.state.store.connection() as c:
-            before = tuple(
-                c.execute("SELECT data,version FROM games WHERE id=?", (game["id"],)).fetchone()
-            )
-            rune_count = c.execute("SELECT count(*) FROM entity_runes").fetchone()[0]
-        body = client.get(
-            "/api/personal/single-player?status=completed&winner=draw&ruleset=brandubh"
-        ).json()
-        assert body["matching"] == 1 and body["games"][0]["winner"] == "draw"
-        existing = client.get("/api/stats").json()
-        assert all(body["totals"][k] == existing[k] for k in body["totals"])
-        review = client.get(f"/api/personal/single-player/{game['id']}/replay").json()
-        assert review["cursor"] == 0 and review["states"][-1]["winner"] == "draw"
-        assert review["game"]["status"] == "completed" and len(review["moves"]) == 8
-        assert client.get(f"/api/personal/single-player/{game['id']}/replay").json() == review
-        with app.state.store.connection() as c:
-            assert (
-                tuple(
-                    c.execute("SELECT data,version FROM games WHERE id=?", (game["id"],)).fetchone()
-                )
-                == before
-            )
-            assert c.execute("SELECT count(*) FROM entity_runes").fetchone()[0] == rune_count
+    with app.state.store.connection() as c:
+        before = tuple(
+            c.execute("SELECT data,version FROM games WHERE id=?", (game["id"],)).fetchone()
+        )
+        rune_count = c.execute("SELECT count(*) FROM entity_runes").fetchone()[0]
+    body = client.get(
+        "/api/personal/single-player?status=completed&winner=draw&ruleset=brandubh"
+    ).json()
+    assert body["matching"] == 1 and body["games"][0]["winner"] == "draw"
+    existing = client.get("/api/stats").json()
+    assert all(body["totals"][k] == existing[k] for k in body["totals"])
+    review = client.get(f"/api/personal/single-player/{game['id']}/replay").json()
+    assert review["cursor"] == 0 and review["states"][-1]["winner"] == "draw"
+    assert review["game"]["status"] == "completed" and len(review["moves"]) == 8
+    assert client.get(f"/api/personal/single-player/{game['id']}/replay").json() == review
+    with app.state.store.connection() as c:
+        assert (
+            tuple(c.execute("SELECT data,version FROM games WHERE id=?", (game["id"],)).fetchone())
+            == before
+        )
+        assert c.execute("SELECT count(*) FROM entity_runes").fetchone()[0] == rune_count
 
 
 def test_effective_online_results_abandonment_and_void_reversal_survive_restart(world):
@@ -460,15 +456,17 @@ def test_online_keyset_ties_combined_filters_and_concurrent_completion(world):
 
 def test_explicit_unfinished_account_result_and_safe_replay_projection(world):
     app, clients, _, _, _ = world
-    game = draw_account(clients["Archer"])
-    with app.state.store.connection() as c:
-        c.execute(
-            "UPDATE games SET data=json_set(data,'$.recorded_result',NULL) WHERE id=?",
-            (game["id"],),
-        )
+    game = (
+        clients["Archer"]
+        .post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"})
+        .json()
+    )
+    assert app.state.store.get_game(game["id"])["recorded_result"] is None
     body = clients["Archer"].get("/api/personal/single-player").json()
     assert body["games"][0]["winner"] is None and body["totals"]["completed_games"] == 0
     assert body["totals"]["total_games"] == 1
+    existing = clients["Archer"].get("/api/stats").json()
+    assert all(body["totals"][key] == existing[key] for key in body["totals"])
     assert clients["Archer"].get("/api/personal/online").json()["totals"]["played"] == 0
     assert set(body["games"][0]) == {
         "id",
@@ -485,3 +483,118 @@ def test_explicit_unfinished_account_result_and_safe_replay_projection(world):
     replay = clients["Archer"].get(f"/api/personal/single-player/{game['id']}/replay").json()
     for forbidden in ("config", "email", "password", "evaluations", "analysis", "rune"):
         assert forbidden not in json.dumps(replay)
+
+
+@pytest.mark.parametrize("cursor", [0, 8])
+def test_missing_account_result_is_unfinished_without_result_reconstruction(world, cursor):
+    app, clients, _, _, _ = world
+    client = clients["Archer"]
+    game = draw_account(client)
+    response = client.post(
+        f"/api/games/{game['id']}/seek", json={"version": game["version"], "cursor": cursor}
+    )
+    assert response.status_code == 200
+    # An absent result is unsupported data, not permission to reconstruct one.
+    stored = app.state.store.get_game(game["id"])
+    del stored["recorded_result"]
+    with app.state.store.connection() as c:
+        c.execute("UPDATE games SET data=? WHERE id=?", (json.dumps(stored), game["id"]))
+    body = client.get("/api/personal/single-player").json()
+    assert body["games"][0]["winner"] is None
+    assert body["games"][0]["status"] == "in_progress"
+    assert body["totals"]["completed_games"] == body["totals"]["draws"] == 0
+    assert body["totals"]["in_progress"] == 1
+    existing = client.get("/api/stats").json()
+    assert all(body["totals"][key] == existing[key] for key in body["totals"])
+    assert client.get("/api/personal/single-player?status=completed").json()["matching"] == 0
+    replay = client.get(f"/api/personal/single-player/{game['id']}/replay").json()
+    assert replay["validated"] and replay["states"][-1]["winner"] == "draw"
+    assert replay["game"]["winner"] is None and replay["game"]["status"] == "in_progress"
+
+
+def test_current_account_writes_store_result_metadata(world):
+    app, clients, _, _, _ = world
+    client = clients["Archer"]
+    game = client.post("/api/games", json={"ruleset": "brandubh", "mode": "human-human"}).json()
+
+    def assert_stored(current, winner=None):
+        stored = app.state.store.get_game(current["id"])
+        result = stored["recorded_result"]
+        assert (result["winner"] if result else None) == winner
+        return current
+
+    assert_stored(game)
+    for operation, payload in (
+        ("moves", {"source": 3, "target": 2}),
+        ("undo", {}),
+        ("redo", {}),
+        ("seek", {"cursor": 0}),
+        ("moves", {"source": 3, "target": 1}),
+    ):
+        response = client.post(
+            f"/api/games/{game['id']}/{operation}", json={"version": game["version"], **payload}
+        )
+        assert response.status_code == 200, response.text
+        game = assert_stored(response.json())
+    restarted = client.post(f"/api/games/{game['id']}/restart", json={"version": game["version"]})
+    assert restarted.status_code == 200
+    assert_stored(restarted.json())
+    completed = draw_account(client)
+    assert_stored(completed, "draw")
+    replayed = client.post(
+        f"/api/games/{completed['id']}/seek", json={"version": completed["version"], "cursor": 0}
+    )
+    assert replayed.status_code == 200
+    assert_stored(replayed.json(), "draw")
+    branch = client.post(
+        f"/api/games/{completed['id']}/moves",
+        json={"version": replayed.json()["version"], "source": 3, "target": 1},
+    )
+    assert branch.status_code == 200
+    assert_stored(branch.json())
+    body = client.get("/api/personal/single-player").json()
+    existing = client.get("/api/stats").json()
+    assert all(body["totals"][key] == existing[key] for key in body["totals"])
+
+
+@pytest.mark.parametrize(
+    "path,target,method,action,error_type",
+    [
+        ("single-player", "personal", "single_player", "account_games", sqlite3.OperationalError),
+        (
+            "single-player/private-id/replay",
+            "personal",
+            "single_replay",
+            "account_review",
+            ValueError,
+        ),
+        ("online", "personal", "online_games", "online_games", KeyError),
+        ("online/private-id", "online", "read", "online_detail", IndexError),
+        ("online/private-id/replay", "online", "replay", "online_review", TypeError),
+    ],
+)
+def test_internal_errors_log_only_safe_action_type_and_traceback(
+    world, monkeypatch, caplog, path, target, method, action, error_type
+):
+    app, clients, credentials, _, _ = world
+    private = "private-request-and-database-details"
+    failure = error_type(private + credentials["Archer"])
+    cause = ValueError(private)
+
+    def broken(*args, **kwargs):
+        raise failure from cause
+
+    monkeypatch.setattr(getattr(app.state, target), method, broken)
+    with caplog.at_level(logging.ERROR, logger="hnefatafl.personal_api"):
+        response = clients["Archer"].get("/api/personal/" + path, params={"cursor": private})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Personal history unavailable. Retry shortly."}
+    records = [record for record in caplog.records if record.name == "hnefatafl.personal_api"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.args == (action, error_type.__name__)
+    assert record.exc_info and record.exc_info[2] is not None
+    assert "Traceback (most recent call last)" in caplog.text
+    for secret in (private, credentials["Archer"], "private-id"):
+        assert secret not in caplog.text and secret not in response.text
+    assert error_type.__name__ not in response.text

@@ -28,8 +28,10 @@ No deployment, production change, release or version bump is authorized here.
   changing their defaults would break the Hall of records. They cannot serve a
   strictly personal administrator dashboard as-is.
 - `recorded_outcome` in `server.py` separates retained result from shared replay
-  cursor. It supports old records without `recorded_result` by canonical replay.
-  A present null result means unfinished. Account statistics are side-based;
+  cursor. Current writers always store `recorded_result`: null for unfinished
+  play, a result object for a completed retained line. Missing or null results
+  are unfinished; no legacy account records or result reconstruction are supported.
+  Account statistics are side-based;
   record ownership does not reliably identify a human seat for every mode.
 - `GET /api/games/{id}/replay` already validates the retained line and stored
   cursor position through the engine. It does not seek or mutate the game. Other
@@ -64,10 +66,11 @@ ordering; Refresh returns to the first page and current effective results. Accou
 pages order by creation; terminal online pages prioritize recent terminal updates.
 Use set-based projections and one batched sibling query instead of per-card loads.
 
-Account totals preserve retained-result side-based semantics. A pure SQL callback
-may replay one legacy record at a time when its retained end is not represented by
-the saved cursor; no list of complete histories or per-row database query is
-needed. Personal account win/loss is omitted because ownership is not a seat.
+Account totals use the persisted `recorded_result` independently of the shared
+cursor. Listings and totals never replay moves or register a SQLite replay callback.
+Missing or null results contribute only to unfinished counts, even if a board is
+terminal; no legacy account records are supported. Personal account win/loss is
+omitted because ownership is not a seat.
 Online totals aggregate only the current effective eligible completed result,
 per game. Waiting/cancelled/voided and superseded revisions do not contribute;
 concession is loss, and abandonment applies only to the timed-out account.
@@ -111,14 +114,38 @@ nonparticipant details return 404. Missing/revoked sessions return 401; permissi
 denial is enforced at the existing middleware boundary. Unavailable storage yields
 a scrubbed error. List summaries omit boards, moves, analysis/configuration, email,
 security metadata and correction notes. Account replay omits engine repetition
-history after validation; the legacy replay response is unchanged.
+history after validation; the existing account replay response is unchanged.
 
 Online summary pages perform one batched sibling query for the bounded page and
-no per-card loads. Totals/counts are SQL aggregates over owned/participating rows;
-legacy uncertain account results can require pure engine replay. These aggregates
+no per-card loads. Totals/counts are SQL aggregates over owned/participating rows
+and stored result metadata; they never invoke the engine. These aggregates
 scan existing SQLite tables with account-scoped conditions; their CPU cost is not
 claimed constant on arbitrarily large account or global histories. No materialized counters or new indexes
 are added. Existing schema 10 remains the persistence and recovery boundary.
 
 See [validation](../validation/online-phase5.md) and
 [Phase 6 policy handoff](online-phase6-handoff.md).
+
+## Current account-record write contract
+
+There are no legacy account records to support. The production writers were
+inspected before removing result replay. `server.create_game` and `restart` insert
+`recorded_result: null`. Both human and AI moves use `append_move`, which writes a
+complete result object on terminal moves and null on unfinished/new branches.
+`seek`, undo and redo preserve that retained result. These are the only production
+callers of `Store.create_game`/`update_game`, which persist their supplied JSON.
+No write-time fallback, migration or database schema change is needed.
+
+Both personal totals and `/api/stats` count completion from stored result metadata
+only. A missing/null result is unfinished; no winner is inferred from the cursor,
+board or move history. Single-game review still performs canonical engine replay
+and validates the stored cursor position; its result label uses stored metadata,
+so validation never silently reconstructs a missing result.
+
+Unexpected personal API failures retain the exact generic 503 response. Module
+logging records only a fixed action name, the original exception type and a
+traceback with a scrubbed exception value. Request/session values, IDs, cursors,
+original exception messages and chained exception details are not logged. The
+authenticated global online listing/detail remain intentional spectator surfaces;
+personal object detail/replay still return 404 for nonparticipants, while their
+personal listings are empty. No route or grant changes are introduced.

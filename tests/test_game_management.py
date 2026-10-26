@@ -181,14 +181,6 @@ def test_completed_game_cannot_restart_at_terminal_or_earlier_replay_positions(c
     assert replay["winner"] is None and replay["recorded_winner"]
     denied(replay)
 
-    # Older records derive their outcome from the final move, independently of
-    # the active replay cursor, and must retain the same protection.
-    store = client.app.state.store
-    legacy = store.get_game(game["id"])
-    legacy.pop("recorded_result")
-    store.update_game(legacy, replay["version"])
-    denied(client.get(path).json())
-
 
 @pytest.mark.parametrize("query", ["", "?version=-1", "?version=true", "?version=1.0", "?version="])
 def test_game_removal_requires_an_unambiguous_version(client, query):

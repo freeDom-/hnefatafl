@@ -452,7 +452,12 @@ remain separate from the engine position, including concession, timeout and void
 `/api/personal`. `personal.py` scopes SQL to the current owner/participant even for
 administrators, projects summary fields, applies bounded keyset pagination and
 batches match siblings. Account totals retain existing side-based retained-result
-semantics. Online totals aggregate only the current eligible completed revision
+semantics through stored `recorded_result` metadata only. Current game creation,
+restart and move writers always include it; seeks preserve it. Missing/null results
+are unfinished, with no legacy account-result replay or SQLite callback. Canonical
+single-game replay validation remains separate. Unexpected personal API errors log
+a fixed action, exception type and scrubbed traceback while retaining generic 503
+responses. Online totals aggregate only the current eligible completed revision
 per game, withdrawing voided/superseded contributions. No migration, materialized
 accounting, stored training change or new infrastructure is introduced. Existing
 Hall/statistics/spectator APIs and all-role online assistance denial are preserved.

@@ -80,7 +80,9 @@ create rollback incompatibility; additive columns alone do not make downgrades s
   [test_engine.py](../../tests/test_engine.py) has explicit source-specific positions.
 - [server.py](../../hnefatafl/server.py), `append_move` persists accepted plies,
   `ended_at` and `recorded_result`. `recorded_outcome` is independent of the replay
-  cursor and derives legacy outcomes when needed. These are engine outcomes;
+  cursor. At this assessment it derived legacy outcomes when needed; that support
+  was removed in the Phase 5 review. The [current account-result contract](personal-dashboard-phase5.md#current-account-record-write-contract)
+  supports no legacy account records and reads only stored results. These are engine outcomes;
   there are no current concession/timeout/online cancellation/result-revision APIs.
 - Game modes are local human-human, human-AI and AI-AI server sessions, not online
   two-account games. `make_move` checks human versus AI turn, not two account seats.
