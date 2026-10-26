@@ -67,24 +67,16 @@ def page(c, base, params, conditions, values, *, limit, cursor, context, online=
 
 
 class PersonalHistory:
-    def __init__(self, online, *, outcome, replay):
+    def __init__(self, online, *, replay):
         self.online, self.store = online, online.store
-        self.outcome, self.account_replay = outcome, replay
+        self.account_replay = replay
 
-    def _account_base(self, c):
-        # Only uncertain old records need engine replay. SQL consumes one record
-        # at a time; no full-history array or per-record DB lookup is created.
-        c.create_function(
-            "personal_legacy_winner", 1, lambda raw: self.outcome(json.loads(raw))["winner"]
-        )
+    @staticmethod
+    def _account_base():
         return """SELECT id,created_at AS order_at,created_at,
             json_extract(data,'$.ruleset') AS ruleset,
             json_extract(data,'$.mode') AS mode,
-            CASE WHEN json_type(data,'$.recorded_result') IS NOT NULL
-                THEN json_extract(data,'$.recorded_result.winner')
-                WHEN json_extract(data,'$.cursor')=json_array_length(data,'$.moves')
-                THEN json_extract(data,'$.state.winner')
-                ELSE personal_legacy_winner(data) END AS winner,
+            json_extract(data,'$.recorded_result.winner') AS winner,
             coalesce(json_extract(data,'$.recorded_result.plies'),json_array_length(data,'$.moves')) AS plies,
             json_extract(data,'$.ended_at') AS ended_at,
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attacker_name,
@@ -118,7 +110,7 @@ class PersonalHistory:
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
-            base = self._account_base(c)
+            base = self._account_base()
             totals = dict(
                 c.execute(
                     f"""WITH records AS ({base}) SELECT
@@ -171,8 +163,9 @@ class PersonalHistory:
                 raise OnlineError(404, "Account game not found.")
             game = json.loads(row[0])
             replay = self.account_replay(game)
-            # Reuse the established retained-result semantics, independent of cursor.
-            result = self.outcome(game)
+            # Canonical replay validates the board, never reconstructs result metadata.
+            result = game.get("recorded_result") or {}
+            winner = result.get("winner")
             summary = {
                 "id": game["id"],
                 "category": "account-single-player",
@@ -180,9 +173,9 @@ class PersonalHistory:
                 "mode": game["mode"],
                 "created_at": game["created_at"],
                 "ended_at": game.get("ended_at"),
-                "status": "completed" if result["winner"] else "in_progress",
-                "winner": result["winner"],
-                "plies": result["plies"],
+                "status": "completed" if winner else "in_progress",
+                "winner": winner,
+                "plies": result.get("plies", len(game["moves"])),
                 "players": {
                     side: {"name": str(p["name"])[:80], "kind": p["kind"]}
                     for side, p in game["players"].items()

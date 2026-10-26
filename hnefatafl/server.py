@@ -269,24 +269,11 @@ def create_app(
         }
 
     def recorded_outcome(game: dict) -> dict:
-        """The end of the retained record is independent of a replay cursor."""
+        """Only the stored result completes a record, independent of replay cursor."""
         summary = game.get("recorded_result")
         if isinstance(summary, dict):
             return summary
-        if "recorded_result" in game:
-            return {"winner": None, "reason": None, "plies": len(game["moves"])}
-        # Backward-compatible derivation for databases from early pre-releases.
-        terminal = (
-            state_of(game)
-            if game["cursor"] == len(game["moves"])
-            else state_at(game, len(game["moves"]))
-        )
-        return {
-            "winner": terminal.winner,
-            "reason": terminal.reason,
-            "plies": terminal.ply,
-            "ended_at": game.get("ended_at"),
-        }
+        return {"winner": None, "reason": None, "plies": len(game["moves"])}
 
     def agent_rune(agent: dict) -> str:
         return store.rune(agent_identity(agent))
@@ -994,7 +981,7 @@ def create_app(
 
     from .personal_api import attach_personal
 
-    attach_personal(app, online, outcome=recorded_outcome, replay=validated_account_replay)
+    attach_personal(app, online, replay=validated_account_replay)
 
     @app.post("/api/games/{game_id}/moves")
     def make_move(game_id: str, request: MoveRequest):

@@ -9,6 +9,11 @@ queries and query-derived totals. `personal_api.py` declares five authenticated
 GET adapters; there is no schema change or stored accounting system. Account
 replay reuses existing validation; the online review reuses the dedicated viewer
 with participant-only reads. Generic viewer controls contain no game adapter.
+Account totals read only persisted `recorded_result` metadata. No legacy account
+records or engine result reconstruction are supported; missing/null results remain
+unfinished. Canonical single-game validation is retained. Unexpected personal API
+failures log scrubbed type/traceback plus fixed action IDs; HTTP details remain
+redacted. Global authenticated online listing/detail intentionally allow spectators.
 
 Preserve the Phase 4 guest suite and one-slot policy, session-epoch/cancellation
 checks, strict personal scope even for administrators, legacy Hall/API permissions,
