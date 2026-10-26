@@ -391,8 +391,17 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                     },
                 )
                 assert advisor.status_code == 200, advisor.text
-                report = client.post(path + "/analysis", json={"version": 0, "cursor": 0})
-                assert report.status_code == 200, report.text
+                deadline = time.monotonic() + 30
+                while True:
+                    report = client.post(
+                        path + "/analysis", json={"version": 0, "cursor": 0, "background": True}
+                    )
+                    assert report.status_code == 200, report.text
+                    if report.json()["status"] == "complete":
+                        break
+                    assert time.monotonic() < deadline, report.text
+                    time.sleep(0.02)
+                assert report.json()["hint"] is not None, report.text
                 hint = report.json()["hint"]["move"]
                 assert hint in game.json()["legal_moves"]
                 move = client.post(path + "/moves", json={**hint, "version": 0})

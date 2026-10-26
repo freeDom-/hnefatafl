@@ -78,7 +78,10 @@ def test_forged_creation_cannot_set_identity_configuration_or_admin_mode(client)
         assert response.status_code == 422, (payload, response.text)
     assert client.post("/api/games", json={"mode": "ai-ai"}).status_code == 403
     assert client.get("/api/games").json() == []
-    assert client.get("/api/players").status_code == 404
+    assert not any(
+        getattr(route, "path", "").startswith("/api/players") for route in client.app.routes
+    )
+    assert client.get("/api/players").status_code in {403, 404}
     for method in (client.post, client.delete):
         assert method("/api/players").status_code == 403
 
