@@ -1,9 +1,10 @@
+import { historicalGame } from './historical-fixture';
 import { expect, test, type APIRequestContext } from './auth-fixture';
 
 const api = 'http://127.0.0.1:8001/api';
 
 async function completedAI(request: APIRequestContext, name: string) {
-  const created = await request.post(`${api}/games`, {
+  const created = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',
@@ -39,7 +40,7 @@ async function replayAsHumans(
   attacker: string,
   defender: string,
 ) {
-  const created = await request.post(`${api}/games`, {
+  const created = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       players: { attackers: { name: attacker }, defenders: { name: defender } },

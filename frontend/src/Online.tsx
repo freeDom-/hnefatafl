@@ -16,6 +16,8 @@ import type {
 } from './onlineTypes';
 import { useOnlinePoll } from './useOnlinePoll';
 import ReplayControls from './ReplayControls';
+import Modal from './Modal';
+import { durationParts, moveSeconds } from './moveDuration';
 import './online.css';
 
 export const modeNames: Record<MatchMode, string> = {
@@ -235,20 +237,21 @@ export function Lobby({
   creationRequested?: number;
 }) {
   const { t } = useI18n();
-  const creationPanel = useRef<HTMLElement | null>(null);
   const pageSize = embedded ? 10 : 25;
   const [createOpen, setCreateOpen] = useState(
-    new URLSearchParams(location.search).get('setup') === 'online',
+    !embedded || new URLSearchParams(location.search).get('setup') === 'online',
   );
+  const creationVisible = useRef(createOpen);
+  const closeCreation = () => {
+    creationVisible.current = false;
+    setCreateOpen(false);
+  };
   useEffect(() => {
-    if (creationRequested) setCreateOpen(true);
-  }, [creationRequested]);
-  useEffect(() => {
-    if (creationRequested > 0 && createOpen) {
-      creationPanel.current?.scrollIntoView?.({ block: 'start' });
-      creationPanel.current?.querySelector('select')?.focus({ preventScroll: true });
+    if (creationRequested) {
+      creationVisible.current = true;
+      setCreateOpen(true);
     }
-  }, [creationRequested, createOpen]);
+  }, [creationRequested]);
   const [mine, setMine] = useState(new URLSearchParams(location.search).get('mine') === 'true');
   const [offset, setOffset] = useState(0);
   const [intent, setIntent] = useState<CreationIntent | null>(() => restoreIntent(accountId));
@@ -265,7 +268,10 @@ export function Lobby({
   );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
-  const [duration, setDuration] = useState(String(intent?.time_per_move ?? 259200));
+  const [parts] = useState(() => durationParts(intent?.time_per_move ?? 259200));
+  const [days, setDays] = useState(parts.days);
+  const [hours, setHours] = useState(parts.hours);
+  const [minutes, setMinutes] = useState(parts.minutes);
   const [validation, setValidation] = useState('');
   useEffect(() => {
     const controller = new AbortController();
@@ -307,14 +313,11 @@ export function Lobby({
   const create = (event: FormEvent) => {
     event.preventDefault();
     if (action.busy || !available) return;
-    const seconds = Number(duration);
-    if (
-      !/^\d+$/.test(duration) ||
-      !Number.isSafeInteger(seconds) ||
-      seconds < 60 ||
-      seconds > 1209600
-    ) {
-      setValidation('Use a whole number of seconds from 60 to 1209600.');
+    let seconds: number;
+    try {
+      seconds = intentRef.current?.time_per_move ?? moveSeconds(days, hours, minutes);
+    } catch (error) {
+      setValidation((error as Error).message);
       return;
     }
     setValidation('');
@@ -331,33 +334,43 @@ export function Lobby({
     void action.run('/online/games', payload, (response) => {
       if (response.action_accepted && response.transition === 'created') {
         rememberIntent(accountId, null);
-        open(response.game.id);
+        intentRef.current = null;
+        setIntent(null);
+        if (creationVisible.current) open(response.game.id);
       }
     });
   };
   return (
-    <section className="online-page">
-      <div className="page-intro">
-        <div>
-          {embedded ? <h2>{t('Online lobby')}</h2> : <h1>{t('Online lobby')}</h1>}
-          <p>{t('Play another person. Every move is confirmed by the server.')}</p>
+    <section className="online-page panel dashboard-lobby" aria-label={t('Online lobby')}>
+      <h2>{t('Online lobby')}</h2>
+      {poll.phase === 'loading' && <p role="status">{t('Loading online games…')}</p>}
+      {poll.phase === 'stale' && (
+        <div role="alert" className="online-notice">
+          <p>{t('Lobby data is stale. Reconnecting…')}</p>
+          <button className="button secondary" onClick={() => void poll.refresh()}>
+            {t('Retry connection')}
+          </button>
         </div>
-      </div>
-      <Health phase={poll.phase} error={poll.error} refresh={poll.refresh} />
+      )}
+      {!createOpen && <Notice value={action.notice} />}
+      {intent && !createOpen && (
+        <button
+          className="button secondary"
+          onClick={() => {
+            creationVisible.current = true;
+            setCreateOpen(true);
+          }}
+        >
+          {t('Review retained creation request')}
+        </button>
+      )}
       {poll.data && <Admission availability={poll.data.availability} />}
-      <div
-        className={`online-lobby-layout ${embedded && !createOpen && !intent ? 'lobby-discovery' : ''}`}
-      >
-        {(!embedded || createOpen || intent) && (
-          <section ref={creationPanel} className="panel online-create">
-            <h2>{t('Create an online game')}</h2>
-            {embedded && (
-              <button className="text-button" onClick={() => setCreateOpen(false)}>
-                {t('Close setup')}
-              </button>
-            )}
-            <form onSubmit={create}>
+      <div className="online-lobby-layout lobby-discovery">
+        {createOpen && (
+          <Modal title={t('Create an online game')} onClose={closeCreation} initialFocus="select">
+            <form onSubmit={create} className="new-game-form online-create">
               <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
+                <legend>{t('Choose your online game')}</legend>
                 <label>
                   {t('Ruleset')}
                   <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
@@ -388,23 +401,47 @@ export function Lobby({
                     ))}
                   </select>
                 </label>
-                <label>
-                  {t('Seconds per move')}
-                  <input
-                    value={duration}
-                    inputMode="numeric"
-                    onChange={(e) => setDuration(e.target.value)}
-                    required
-                  />
-                </label>
-                <p>
-                  {t(
-                    '60–1209600 seconds. Both players receive a fresh allowance after each accepted move.',
-                  )}
-                </p>
+                <fieldset className="move-duration">
+                  <legend>{t('Time allowed per move')}</legend>
+                  <div className="form-grid">
+                    {(
+                      [
+                        ['Days', days, setDays, 14],
+                        ['Hours', hours, setHours, 23],
+                        ['Minutes', minutes, setMinutes, 59],
+                      ] as const
+                    ).map(([label, value, change, max]) => (
+                      <label key={label}>
+                        {t(label)}
+                        <input
+                          type="number"
+                          min={0}
+                          max={max}
+                          step={1}
+                          required
+                          value={value}
+                          onChange={(event) => change(event.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p>
+                    {t(
+                      'At least 1 minute, at most 14 days in total. Each accepted move renews the allowance.',
+                    )}
+                  </p>
+                </fieldset>
               </fieldset>
               {validation && <p role="alert">{t(validation)}</p>}
               {rulesError && <p role="alert">{t(rulesError)}</p>}
+              {intent && intent.time_per_move % 60 !== 0 && (
+                <p role="status">
+                  {t(
+                    'This retained request uses exactly {seconds} seconds per move. Retrying keeps that value.',
+                    { seconds: intent.time_per_move },
+                  )}
+                </p>
+              )}
               {intent && (
                 <p role="status">
                   {t(
@@ -412,12 +449,17 @@ export function Lobby({
                   )}
                 </p>
               )}
-              <button
-                className="button primary"
-                disabled={action.busy || !available || !rulesets.length}
-              >
-                {t(intent ? 'Retry retained request' : 'Create game')}
-              </button>
+              <div className="modal-actions">
+                <button type="button" className="button secondary" onClick={closeCreation}>
+                  {t('Cancel')}
+                </button>
+                <button
+                  className="button primary"
+                  disabled={action.busy || !available || !rulesets.length}
+                >
+                  {t(intent ? 'Retry retained request' : 'Create game')}
+                </button>
+              </div>
             </form>
             {intent && (
               <button
@@ -434,7 +476,7 @@ export function Lobby({
             )}
             <Notice value={action.notice} />
             <p>{t('Disconnecting, closing the browser or logging out does not pause clocks.')}</p>
-          </section>
+          </Modal>
         )}
         <section className="online-games">
           <h2>{t(mine ? 'My games' : 'Visible games')}</h2>

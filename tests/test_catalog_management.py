@@ -1,5 +1,6 @@
 """Catalog labels and training artifacts have independent stable lifecycles."""
 
+from record_fixtures import historical_response
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path
@@ -48,8 +49,8 @@ def wait_stopped(client, identifier):
 
 
 def model_game(client, model):
-    response = client.post(
-        "/api/games",
+    response = historical_response(
+        client,
         json={
             "ruleset": "brandubh",
             "mode": "ai-ai",
@@ -63,7 +64,7 @@ def model_game(client, model):
             },
         },
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 200, response.text
     return response.json()
 
 

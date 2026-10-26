@@ -8,6 +8,7 @@ import time
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import historical_player
 
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.server import create_app
@@ -147,7 +148,7 @@ def test_tournament_records_distinct_alpha_beta_search_configs(client):
 
 def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
     with TestClient(create_app(tmp_path)) as first:
-        player = first.post("/api/players", json={"name": "Astrid"}).json()
+        player = historical_player(first, "Astrid")
         game = first.post("/api/games", json={"ruleset": "brandubh"}).json()
         created = launch(first)
         saved = wait_for(first, created["id"], lambda row: row["status"] == "completed")
@@ -176,7 +177,7 @@ def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
         assert second.get(f"/api/tournaments/{created['id']}/games/0/replay").status_code == 404
         assert second.get(f"/api/tournaments/{other['id']}").json() == other
         assert second.get(f"/api/games/{game['id']}").json() == game
-        assert any(row["id"] == player["id"] for row in second.get("/api/players").json())
+        assert any(row["id"] == player["id"] for row in second.app.state.store.players())
 
 
 def test_completed_rule_outcomes_update_named_opponent_standings(client):

@@ -85,9 +85,15 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators
-explicitly have global data access. Users can play all existing modes, configure
-bounded inference opponents/advisors, delete their own games/local profiles, and
-select existing models. The ordinary model catalog exposes only ID/name/ruleset/rune;
+explicitly have global data access. New account game creation binds the human
+seat to the current account and resolves one of four server presets. Only a trusted
+current administrator can create/restart AI vs AI; pass-and-play, arbitrary identity,
+raw configurations, seeds and neural opponents are rejected in this creation API.
+Identity/session/role are rechecked inside the creation transaction. Historical
+setups remain read/play compatible, with no restart creation bypass. Local-player
+CRUD routes are removed (unknown routes remain default-denied); historical storage
+is retained. Owned deletion, bounded advisors and authorized training/tournaments
+remain available independently. The ordinary model catalog exposes only ID/name/ruleset/rune;
 paths, training summaries, checkpoints, renames/imports/exports/deletion are admin-only.
 
 Schema 8 introduced accounts, sessions, login attempts, bootstrap metadata, nullable

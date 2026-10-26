@@ -4,15 +4,11 @@
 
 ## Human profiles and history
 
-Each human side in **New game** has a player selector. Choose an existing profile
-or select the new-player option and enter a name. Switching to a new name clears
-the previous profile ID; a dropdown choice identifies the player by ID, not just name.
-
-The Local players management panel is removed from Hall. Existing profile creation
-and deletion APIs remain available for account setup/integrations. Deleting a
-profile hides it from selection while preserving historical identity/name/results;
-reusing a display name creates another identity. No records are deleted by this
-navigation refinement.
+New human seats are bound to the authenticated account, with its name shown in a
+compact card. Normal accounts create Human vs AI; administrators can also create
+AI vs AI. Pass-and-play, local-player selection/editing and local-player CRUD APIs
+are removed. Stored player IDs/tombstones remain compatibility data for historical
+game reads, statistics and runes; no historical data is deleted.
 
 ## AI configurations in the Hall of records
 
@@ -64,43 +60,25 @@ training seed say **Not recorded**.
 
 ## New-game opponents and seeds
 
-Every ordinary new game and restart receives a fresh random seed by default.
-The server saves the base seed with the game and derives AI decision seeds from
-that base and the current move number. Replay uses saved moves. A fixed seed can
-be supplied explicitly for a repeatable comparison; tight wall-clock limits can
-still change search completion across machines. Restart starts a fresh experiment
-with a new seed. Existing legacy records keep their previous seed semantics.
+Every new account game receives a server-generated random base seed. Restart is
+available for unfinished games created under the current policy, rechecks identity
+and role, resolves the preset again and uses a fresh seed. Historical setups remain
+readable/playable but cannot be cloned through Restart. Recorded moves remain the
+replay authority; old seed semantics are retained when reading existing games.
 
-When configuring an AI side, the new-game dialog preselects a compatible trained
-model using comparable evaluation results against the baseline. The ranking uses
-`(wins + draws / 2) / (wins + losses + draws + unfinished)`, so unfinished games
-receive no points. Larger samples break score ties, followed by deterministic
-date/ID ordering. Malformed reports and evaluations against a previous model
-are not treated as comparable strength evidence. If no model has a comparable
-evaluation, the newest compatible model is selected and described as a fallback.
-If no compatible model exists, a traditional opponent remains available. You can
-always change the suggested opponent; manual choices survive option refreshes.
+Account setup offers only Shield bearer, Shield maiden, Jarl and Seer, with friendly
+search-style explanations and time/depth/iteration limits. There is no benchmarked
+strength ranking in this dialog. Trained-model selection and full search settings
+remain in separate authorized advisor/training/tournament workflows; the shared
+profile catalog still includes neural models. Those workflows can retain their
+existing evidence-based model recommendation, without changing account setup.
 
-The ranking is a selection convenience based on saved evidence, not a claim that
-short smoke-trained models are strong. Per-game seeds remain inspectable in game
-and recorded-game parameters; seed-only differences share a performance row.
-
-New games and tournaments both suggest the strongest compatible model using the
-same evidence and fallback rules. Model dropdowns show saved iteration, planned
-iterations when known, network size and a short model ID to distinguish equal names.
-Tournament names are editable northern-mythology suggestions; reroll to find another.
-
-The complete last successfully created setup is saved in this browser under
-`hnefatafl-new-game-options`: battlefield, mode, human side and player choices,
-both AI profiles/models and search settings, fixed-seed switch and value.
-Advisor choices are saved per game through its Analytics section.
-Cancelling a dialog or a failed creation does not change it. Removed/incompatible
-models, deleted players and invalid stored settings fall back to valid options.
-The earlier mode-only preference is still read when no full setup is available.
-
-Selecting a trained model updates both its ID and display name. The two-sides
-panel uses the recorded model-name snapshot for older games whose display alias
-was stale; it does not change the actual weights or rewrite historical games.
+Only successful permitted setup preferences are saved at
+`hnefatafl-new-game-options` (version 2): battlefield, mode, human side and preset IDs.
+Older preferences contribute only this allowlisted subset; saved identities,
+models, custom settings and fixed seeds cannot restore removed creation options.
+Cancel/failure does not replace a successful preference, and unavailable browser
+storage does not prevent creation. Account/guest storage remains separate.
 
 ## Persistent runes and tournament names
 

@@ -81,5 +81,38 @@ const personal: Record<string, string> = {
   'Awaiting adjudication': 'Entscheidung steht aus',
   'Deadlines and results come from the server. Opening a game does not grant permission to move after its deadline.':
     'Fristen und Ergebnisse stammen vom Server. Das Öffnen erlaubt keinen Zug nach Ablauf der Frist.',
+  '02 · Choose your opponent': '02 · Wähle deinen Gegner',
+  'Playing as your account': 'Du spielst mit deinem Konto',
+  '{side} opponent': 'Gegner: {side}',
+  'A quick tactical opponent that weighs immediate captures and king safety.':
+    'Ein schneller taktischer Gegner, der unmittelbare Schlagzüge und die Sicherheit des Königs abwägt.',
+  'A tactical opponent focused on king escape routes and piece safety.':
+    'Ein taktischer Gegner mit Schwerpunkt auf Fluchtwegen des Königs und Figurensicherheit.',
+  'Looks ahead through possible replies, pruning unpromising branches.':
+    'Plant mögliche Antworten voraus und überspringt wenig aussichtsreiche Fortsetzungen.',
+  'Explores promising continuations through simulated play.':
+    'Untersucht aussichtsreiche Fortsetzungen mit simulierten Partien.',
+  'Computer is thinking…': 'Der Computer denkt nach…',
+  'Saving on this device…': 'Wird auf diesem Gerät gespeichert…',
+  'Retry computer move': 'Computerzug erneut versuchen',
+  'Time allowed per move': 'Erlaubte Zeit pro Zug',
+  Days: 'Tage',
+  Hours: 'Stunden',
+  Minutes: 'Minuten',
+  'Choose your online game': 'Wähle dein Onlinespiel',
+  'At least 1 minute, at most 14 days in total. Each accepted move renews the allowance.':
+    'Mindestens 1 Minute, insgesamt höchstens 14 Tage. Jeder angenommene Zug startet die Frist neu.',
+  'This retained request uses exactly {seconds} seconds per move. Retrying keeps that value.':
+    'Diese gespeicherte Anfrage verwendet genau {seconds} Sekunden pro Zug. Ein erneuter Versuch behält diesen Wert bei.',
+  'Enter whole numbers for days, hours and minutes.':
+    'Gib ganze Zahlen für Tage, Stunden und Minuten ein.',
+  'Use 0–14 days, 0–23 hours and 0–59 minutes.':
+    'Verwende 0–14 Tage, 0–23 Stunden und 0–59 Minuten.',
+  'Time allowed per move must be at least 1 minute and at most 14 days in total.':
+    'Die erlaubte Zeit pro Zug muss insgesamt mindestens 1 Minute und höchstens 14 Tage betragen.',
+  'Lobby data is stale. Reconnecting…':
+    'Die Lobbydaten sind veraltet. Verbindung wird wiederhergestellt…',
+  'Retry connection': 'Verbindung erneut versuchen',
+  'Review retained creation request': 'Gespeicherte Erstellungsanfrage ansehen',
 };
 export default personal;

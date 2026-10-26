@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NewGame } from './App';
+import NewGame from './NewGame';
 import {
   I18nProvider,
   LanguageSelect,
@@ -38,9 +38,16 @@ const form = () => (
     <LanguageSelect />
     <NewGame
       rulesets={rulesets}
-      profiles={[]}
-      models={[]}
-      players={[]}
+      profiles={[
+        {
+          id: 'baseline',
+          name: 'Shield bearer',
+          algorithm: 'baseline',
+          difficulty: '',
+          parameters: { time_limit: 1 },
+          supported_rulesets: ['tablut'],
+        },
+      ]}
       onClose={vi.fn()}
       onCreated={vi.fn()}
     />
@@ -60,15 +67,16 @@ describe('English and German localization', () => {
     });
     expect(screen.getByRole('dialog', { name: 'Beginne eine neue Saga' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'An die Tafel' })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Spielername der Angreifer' })).toBeVisible();
+    expect(screen.getByText('Odin')).toBeVisible();
+    expect(screen.queryByRole('textbox')).toBeNull();
     expect(document.documentElement.lang).toBe('de');
     expect(localStorage.getItem(LANGUAGE_KEY)).toBe('de');
     fireEvent.click(screen.getByRole('button', { name: 'An die Tafel' }));
     await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(body.ruleset).toBe('tablut');
-    expect(body.mode).toBe('human-human');
-    expect(body.players.attackers.name).toBe('Attacker');
+    expect(body.mode).toBe('human-ai');
+    expect(body.players.attackers).toEqual({ profile_id: 'baseline' });
     view.unmount();
     render(form());
     expect(screen.getByRole('button', { name: 'An die Tafel' })).toBeVisible();

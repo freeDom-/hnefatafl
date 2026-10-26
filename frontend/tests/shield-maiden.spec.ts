@@ -9,7 +9,7 @@ test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
   await setup.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('shield_maiden');
   await setup.getByRole('combobox', { name: 'Defenders AI profile' }).selectOption('baseline');
   await expect(setup.getByRole('combobox', { name: 'Attackers AI profile' })).toContainText(
-    'Shield maiden · Intermediate',
+    'Shield maiden',
   );
   const created = page.waitForResponse(
     (r) => r.url().endsWith('/api/games') && r.request().method() === 'POST',

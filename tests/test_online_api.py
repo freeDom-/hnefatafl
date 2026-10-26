@@ -398,3 +398,25 @@ def test_availability_uses_current_security_context_without_leaking_account_data
     assert client("Keeper").get(endpoint).json() == {"enabled": False, "eligible": True}
     app.state.online.settings = replace(POLICY, creation_policy_approved=False)
     assert client("Keeper").get(endpoint).json() == {"enabled": False, "eligible": True}
+
+
+def test_duration_aggregate_boundaries_preserve_exact_existing_deadlines(api):
+    _, client = api
+    archer, keeper = client(), client("Keeper")
+    response = archer.post("/api/online/games", json=creation(time_per_move=61))
+    assert response.status_code == 201, response.text
+    original = response.json()["game"]
+    path = "/api/online/games/" + original["id"]
+    joined = keeper.post(path + "/join", json={"version": 0}).json()["game"]
+    for seconds in (0, 59, 1209601, 1209660, 60.5, True, "60"):
+        assert (
+            archer.post("/api/online/games", json=creation(time_per_move=seconds)).status_code
+            == 422
+        )
+    current = archer.get(path).json()
+    assert current["time_per_move"] == 61
+    assert current["deadline"] == joined["deadline"]
+    for seconds in (60, 1209600):
+        response = archer.post("/api/online/games", json=creation(time_per_move=seconds))
+        assert response.status_code == 201, response.text
+        assert response.json()["game"]["time_per_move"] == seconds

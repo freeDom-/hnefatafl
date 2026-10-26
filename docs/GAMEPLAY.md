@@ -33,18 +33,18 @@ draws. Ordinary games have no experimental move cap.
 
 ## Create and control an account game
 
-1. On Dashboard open **New single-player game** and select a battlefield and mode: pass-and-play Human vs
-   Human, Human vs AI or AI vs AI.
-2. Choose sides, existing/new human profiles and computer opponents. Models must
-   match the battlefield. Named presets have fixed budgets; Custom exposes search
-   settings. See [AI profiles and wrappers](AI.md).
+1. On Dashboard open **New single-player game** and select a battlefield.
+   Human vs AI is the only normal-account mode; administrators can also choose AI vs AI.
+2. Your human seat uses the signed-in account. Choose your side and Shield bearer,
+   Shield maiden, Jarl or Seer. These are fixed server-resolved presets; this dialog
+   has no local-player, custom search, seed or trained-model controls. See [AI](AI.md).
 3. Select a piece and a highlighted destination. Mouse and touch use the same
    authoritative server move validation. Arrow keys navigate; Enter/Space select;
    Escape clears selection.
 4. Follow the active side, captured pieces, move history and game-over result.
    AI vs AI supports pause, playback speed and automatic legal moves.
 
-The complete last successful setup is saved in the current browser. Cancelled or
+The last successful battlefield, permitted mode, side and preset choices are saved in the current browser. Cancelled or
 failed creation does not replace it. Games live on the server; browser preferences
 hold the current selection, language and appearance. Clearing browser storage
 is not deletion of saved games. A connection to the server is required.
@@ -56,14 +56,16 @@ on Dashboard opens an unfinished account game. Seek, undo and redo inspect retai
 positions without changing the recorded final outcome or discarding future moves.
 Making a different legal continuation branches history. Completed-game controls
 disable further play/restart even when viewing an earlier position. **Restart** is
-for unfinished records: it creates a new game with a fresh seed and preserves the
-old record. Use New game for a new match after completion.
+for unfinished games created under the current account/preset policy: it creates a
+new game with a fresh seed and preserves the old record. Historical pass-and-play
+or custom-model setups remain readable/playable but cannot create another game
+through Restart. AI vs AI restart rechecks administrator permission. Use New game for a new match after completion.
 
 Moves include expected versions; a stale concurrent request is rejected rather
 than overwriting another move. Replay uses saved moves, so completed histories
 remain viewable after deleting source models. The existing version-guarded game deletion API
-removes its moves/result and recalculates statistics. Profile deletion
-hides a local player from future selection but preserves historical identity.
+removes its moves/result and recalculates statistics. Existing local-player
+identities/tombstones remain readable in saved games; their CRUD routes are removed.
 
 ## Get advice and read results
 

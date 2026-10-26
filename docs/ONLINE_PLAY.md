@@ -17,11 +17,23 @@ results, and online IDs never enter its replay/AI adapter.
 The authenticated [personal dashboard](DASHBOARD.md) combines the existing lobby with personal statistics and compact recent records.
 Hall provides participant-scoped online history and read-only review.
 
+The lobby shares Dashboard card spacing and loads automatically. Five-second polling,
+bounded failure backoff and online/focus/visible-tab resynchronization cover creation,
+joining, activation and completion. It retains stale data with an actionable warning
+and retry while disconnected. There is no manual lobby Refresh or persistent connected
+banner; the live game room retains its own refresh controls.
+
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode and a whole number of seconds per move. The supported duration is
-60–1209600 seconds; the default is 259200 seconds (three days). The settings freeze
+a match mode and integer **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
+in a shared modal. The combined **Time allowed per move** is converted to seconds
+at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
+through 14 days), default three days: all-zero and 14 days plus extra hours/minutes
+are rejected, never clamped. The component ranges do not widen that aggregate policy.
+Existing games/deadlines retain exact seconds. Retrying an already retained request
+with a sub-minute remainder keeps its exact original duration and identifies it.
+The settings freeze
 at creation. To change them, cancel the waiting game and create another.
 
 - **Single game** starts one game when another eligible account joins.

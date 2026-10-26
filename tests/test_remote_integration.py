@@ -373,29 +373,29 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
 
                 shutil.rmtree(worker_data)
                 game = client.post(
-                    "/api/games",
-                    json={
-                        "ruleset": "brandubh",
-                        "mode": "ai-ai",
-                        "players": {
-                            side: {
-                                "kind": "ai",
-                                "profile_id": "neural",
-                                "config": {
-                                    "model_id": selected["id"],
-                                    "iterations": 1,
-                                    "time_limit": 0.1,
-                                },
-                            }
-                            for side in ("attackers", "defenders")
-                        },
-                    },
+                    "/api/games", json={"ruleset": "brandubh", "human_side": "attackers"}
                 )
                 assert game.status_code == 201, game.text
-                move = client.post(
-                    f"/api/games/{game.json()['id']}/ai-move",
-                    json={"version": game.json()["version"]},
+                path = f"/api/games/{game.json()['id']}"
+                advisor = client.put(
+                    path + "/analytics",
+                    json={
+                        "advisor": {
+                            "profile_id": "neural",
+                            "config": {
+                                "model_id": selected["id"],
+                                "iterations": 1,
+                                "time_limit": 0.1,
+                            },
+                        }
+                    },
                 )
+                assert advisor.status_code == 200, advisor.text
+                report = client.post(path + "/analysis", json={"version": 0, "cursor": 0})
+                assert report.status_code == 200, report.text
+                hint = report.json()["hint"]["move"]
+                assert hint in game.json()["legal_moves"]
+                move = client.post(path + "/moves", json={**hint, "version": 0})
                 assert move.status_code == 200 and move.json()["ply"] == 1, move.text
                 assert headers["Authorization"][7:] not in logfile.read_text()
             finally:

@@ -1,3 +1,4 @@
+import { historicalGame } from './historical-fixture';
 import { expect, test } from './auth-fixture';
 
 test('a searching advisor publishes partial results while the human can move and can be changed immediately', async ({
@@ -99,7 +100,7 @@ test('the actual AI decision and the opponent’s background estimate survive re
   page,
   request,
 }) => {
-  const response = await request.post('http://127.0.0.1:8001/api/games', {
+  const response = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',

@@ -4,6 +4,10 @@
 
 ## Online milestone integration (unreleased)
 
+The [Dashboard consolidation refinement](validation/dashboard-consolidation.md)
+records the current Phase 5 landing/navigation, role-scoped compact Hall and shared
+review checks. It remains on PR #17 by explicit owner instruction.
+
 [Phase 5 evidence](validation/online-phase5.md) records the personal dashboard,
 scoped history/review, result revision totals and preserved guest/account/online
 boundaries. It is separate from release and production rollout validation.

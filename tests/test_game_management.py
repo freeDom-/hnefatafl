@@ -5,6 +5,7 @@ import threading
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import historical_game
 
 from hnefatafl.engine import legal_moves
 from hnefatafl.server import create_app
@@ -17,6 +18,10 @@ def client(tmp_path):
 
 
 def create(client, **changes):
+    if "seed" in changes or any(
+        "config" in player for player in changes.get("players", {}).values()
+    ):
+        return historical_game(client, ruleset="brandubh", **changes)
     response = client.post("/api/games", json={"ruleset": "brandubh", **changes})
     assert response.status_code == 201, response.text
     return response.json()
@@ -70,13 +75,12 @@ def complete(client, game, monkeypatch):
     pytest.fail("The tactical fixture did not reach a rule outcome")
 
 
-def test_new_games_get_random_saved_seeds_and_override_stale_profile_seeds(client, monkeypatch):
+def test_new_games_get_random_saved_seeds(client, monkeypatch):
     seeds = iter([123, 987])
     monkeypatch.setattr("hnefatafl.server.secrets.randbits", lambda bits: next(seeds))
     first = create(
         client,
         mode="ai-ai",
-        players={"attackers": {"config": {"algorithm": "baseline", "seed": 42}}},
     )
     second = create(client, mode="ai-ai")
     assert first["seed"] == 123 and second["seed"] == 987
@@ -123,8 +127,8 @@ def test_explicit_seed_is_reproducible_and_per_move_seed_wraps_without_mutating_
 def test_restart_uses_new_seed_even_if_random_source_repeats_and_preserves_old_game(
     client, monkeypatch
 ):
-    first = create(client, mode="ai-ai", seed=7)
     monkeypatch.setattr("hnefatafl.server.secrets.randbits", lambda _bits: 7)
+    first = create(client, mode="ai-ai")
     response = client.post(f"/api/games/{first['id']}/restart", json={"version": 0})
     assert response.status_code == 200
     restarted = response.json()
@@ -155,8 +159,7 @@ def test_legacy_saved_game_preserves_original_constant_seed_semantics(client, mo
     assert "seed" not in response.json()
     monkeypatch.setattr("hnefatafl.server.secrets.randbits", lambda _bits: 19)
     restarted = client.post(f"/api/games/{game['id']}/restart", json={"version": 3})
-    assert restarted.status_code == 201 or restarted.status_code == 200
-    assert restarted.json()["seed"] != 19
+    assert restarted.status_code == 409  # Historical setups are read/play compatible only.
 
 
 def test_completed_game_cannot_restart_at_terminal_or_earlier_replay_positions(client, monkeypatch):
@@ -243,7 +246,7 @@ def test_game_removal_during_ai_search_never_resurrects_the_record(client, monke
 
 
 def test_human_ai_filters_select_same_games_as_statistics(client):
-    human = create(client)
+    human = historical_game(client, ruleset="brandubh")
     both = create(client, mode="human-ai")
     ai = create(client, mode="ai-ai")
     for kind, expected in [("human", {human["id"], both["id"]}), ("ai", {ai["id"], both["id"]})]:

@@ -103,3 +103,26 @@ it('clears protected state and aborts old-account reads on a resource change', a
   });
   expect(result.current.data).toBe('current account');
 });
+
+it('resynchronizes immediately when a backgrounded tab becomes visible and removes the listener', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue(1);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  const { result, unmount } = renderHook(() => useOnlinePoll('visible-lobby', load));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  load.mockResolvedValue(2);
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(load).toHaveBeenCalledTimes(1);
+  visibility.mockReturnValue('visible');
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(result.current.data).toBe(2);
+  expect(load).toHaveBeenCalledTimes(2);
+  unmount();
+  document.dispatchEvent(new Event('visibilitychange'));
+  expect(load).toHaveBeenCalledTimes(2);
+  visibility.mockRestore();
+});

@@ -44,7 +44,8 @@ filters and pagination. Normal users see only participating online records and h
 no account-single-player or player-name filter. Administrators with trusted current
 `all_data` permission can inspect online and account-single-player records across
 accounts. Guest saves are never server records. The Local players section is removed;
-profile APIs and setup selection still work and no historical data is deleted.
+new account setup uses the current account and four preset opponents. Local-player
+CRUD is removed; historical data is retained for read/play compatibility.
 
 Rows and counts/statistics share the same authorized filter and read transaction.
 Hall totals remain separated by category and describe winning sides, not an invented
