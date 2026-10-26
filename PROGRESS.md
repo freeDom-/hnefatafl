@@ -61,6 +61,11 @@ no archive/upload, competitive/training accounting, service worker or full offli
 startup. Existing account keys/history and online authorization remain independent.
 See [guest/storage behavior](docs/GUEST_PLAY.md), [Phase 4 evidence](docs/validation/online-phase4.md)
 and the [Phase 5 handoff](docs/designs/online-phase5-handoff.md).
+Local `make check` passed 1440 backend tests / 36 optional or hardware skips and
+305 frontend tests. The final production-CSP startup/account-separation rerun
+passed 4 checks; CI passed the complete 14-check guest suite and the existing
+account/registration/online suites. Exact commit-scoped counts and the observed
+local asset-transfer stall are retained in the validation record.
 
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)

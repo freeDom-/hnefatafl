@@ -166,3 +166,19 @@ it('supports the German guest controls', async () => {
   await screen.findByText('Lokale Spiel-Engine bereit.');
   expect(screen.getByRole('heading', { name: 'Gastspiel · nur in diesem Browser' })).toBeVisible();
 });
+
+it('reflects the validated restored side in the guest setup controls', async () => {
+  const restored = {
+    ...fixture.initial,
+    record: { ...fixture.initial.record, human_side: 'defenders' },
+  };
+  state.raw = JSON.stringify(restored.record);
+  const prior = rpc.getMockImplementation()!;
+  rpc.mockImplementation(async (request: { action: string }) =>
+    request.action === 'restore' ? restored : prior(request),
+  );
+  await mount();
+  await screen.findByRole('grid');
+  expect(screen.getByLabelText('Your side')).toHaveValue('defenders');
+  expect(screen.getByLabelText('Ruleset')).toHaveValue('brandubh');
+});

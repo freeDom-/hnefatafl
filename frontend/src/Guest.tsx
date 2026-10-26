@@ -78,7 +78,11 @@ export default function Guest() {
         try {
           const record = parseGuestRecord(saved);
           const value = await runtime.request<GuestSnapshot>({ action: 'restore', record });
-          if (alive.current && expected === operation.current) publish(value);
+          if (alive.current && expected === operation.current) {
+            publish(value);
+            setRule(value.record.ruleset);
+            setSide(value.record.human_side);
+          }
         } catch {
           if (alive.current && expected === operation.current) {
             setError(

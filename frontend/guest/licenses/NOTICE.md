@@ -17,6 +17,12 @@ code are available at https://github.com/pyodide/pyodide/tree/0.27.7.
 - Emscripten 3.1.58 (the version specified by Pyodide 0.27.7's `Makefile.envs`):
   MIT and University of Illinois/NCSA notices in `Emscripten-LICENSE.txt`.
   Source: https://github.com/emscripten-core/emscripten/tree/3.1.58.
+- Its bundled musl libc attribution is included in `Emscripten-musl-COPYRIGHT.txt`,
+  from `system/lib/libc/musl/COPYRIGHT` at that tag. The matching libc++, libc++abi
+  and compiler-rt licenses (Apache 2.0 with LLVM exceptions and legacy terms) are
+  included in `Emscripten-libcxx-LICENSE.txt`, `Emscripten-libcxxabi-LICENSE.txt`
+  and `Emscripten-compiler-rt-LICENSE.txt`, from their `system/lib/` directories
+  at the same tag. Retain these linked-runtime notices with the core package.
 
 The application engine/guest bridge are separate application source files; this
 notice does not assign a new license to the Hnefatafl repository. Operators must
