@@ -346,7 +346,9 @@ test('AI-first games and restored pending replies advance automatically through 
   await ready(page);
   await page.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('defenders');
   await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
-  await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(1);
+  await expect
+    .poll(async () => JSON.parse((await saved(page)).raw ?? 'null')?.moves.length ?? 0)
+    .toBe(1);
   await ready(page);
   const slot = JSON.parse((await saved(page)).raw!);
   expect(slot.human_side).toBe('defenders');
@@ -358,7 +360,9 @@ test('AI-first games and restored pending replies advance automatically through 
   await inject(page, JSON.stringify(slot));
   await page.reload();
   await ready(page);
-  await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(1);
+  await expect
+    .poll(async () => JSON.parse((await saved(page)).raw ?? 'null')?.moves.length ?? 0)
+    .toBe(1);
   await expect(page.getByRole('button', { name: 'Play computer move', exact: true })).toHaveCount(
     0,
   );
