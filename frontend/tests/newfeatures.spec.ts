@@ -60,7 +60,7 @@ test('player selection/deletion preserves records and AI variants expose their p
   expect((await request.delete('http://127.0.0.1:8001/api/players/' + profile.id)).ok()).toBe(true);
   await page.goto('/archive');
   await expect(page.getByText('Local players', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.recorded-games a').filter({ hasText: name })).toBeVisible();
+  await expect(page.locator(`.recorded-games a[href*="selected=${gameId}"]`)).toBeVisible();
   expect((await request.get('http://127.0.0.1:8001/api/games/' + gameId)).ok()).toBe(true);
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();

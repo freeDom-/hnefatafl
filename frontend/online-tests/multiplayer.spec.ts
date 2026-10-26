@@ -219,5 +219,6 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await expect(page.getByText(/State changed or adjudication is paused/)).toBeVisible();
   await expect(page.getByText('Active', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to online lobby' }).click();
+  await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Create game', exact: true })).toBeDisabled();
 });

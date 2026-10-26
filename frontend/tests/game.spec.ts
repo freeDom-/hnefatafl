@@ -367,7 +367,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
     page.locator('.tournament-standing').first().locator('.model-training-summary'),
   ).toContainText('4 channels · 0 blocks');
   await page.reload();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
   await page
     .getByRole('button', { name: 'View tournament Fjord model provenance', exact: true })
