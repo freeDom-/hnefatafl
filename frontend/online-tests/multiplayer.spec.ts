@@ -52,6 +52,11 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   extra.push(other.context);
   const url = await create(page);
   await join(other.page, url);
+  await page.getByRole('button', { name: 'Back to online lobby', exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByRole('button', { name: 'My games', exact: true }).click();
+  await page.getByRole('button', { name: 'Open game', exact: true }).first().click();
+  await expect(page).toHaveURL(url);
   await refresh(page);
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();

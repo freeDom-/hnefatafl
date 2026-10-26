@@ -74,6 +74,7 @@ export default function App() {
   const aiLock = useRef(false);
 
   const currentGame = useRef<Game | null>(null);
+  const loadedRoute = useRef<string | null>(null);
   currentGame.current = game;
   const analysis = useGameAnalysis(game, tab === 'play');
 
@@ -108,7 +109,12 @@ export default function App() {
   }, [tab, refreshOptions]);
   useEffect(() => {
     const match = /^\/games\/((?!online-)[A-Za-z0-9_-]{1,100})$/.exec(path.split('?')[0]);
-    if (!match || currentGame.current?.id === match[1]) return;
+    if (!match) {
+      loadedRoute.current = null;
+      return;
+    }
+    if (loadedRoute.current === match[1] && currentGame.current?.id === match[1]) return;
+    loadedRoute.current = match[1];
     let alive = true;
     const controller = new AbortController();
     currentGame.current = null;
@@ -153,7 +159,10 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
-        if (next.id !== active.id) navigate(`/games/${next.id}`);
+        if (next.id !== active.id) {
+          loadedRoute.current = next.id;
+          navigate(`/games/${next.id}`);
+        }
         setSelected(null);
       }
     } catch (e) {
@@ -653,6 +662,7 @@ export default function App() {
           onClose={() => setNewOpen(false)}
           onCreated={(next) => {
             currentGame.current = next;
+            loadedRoute.current = next.id;
             setGame(next);
             setSelected(null);
             setPaused(false);

@@ -187,6 +187,7 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
 
 test('starts account single-player from Dashboard and reconnects at its dedicated route', async ({
   page,
+  context,
 }) => {
   await login(page);
   await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
@@ -198,6 +199,21 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(path);
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  const game = await (await context.request.get('/api' + path)).json();
+  const me = await (await context.request.get('/api/auth/me')).json();
+  const changed = await context.request.post('/api' + path + '/moves', {
+    headers: { Origin: 'http://127.0.0.1:8009', 'X-CSRF-Token': me.csrf_token },
+    data: { version: game.version, ...game.legal_moves[0] },
+  });
+  expect(changed.ok()).toBe(true);
+  const reload = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api' + path && response.request().method() === 'GET',
+  );
+  await page.getByRole('link', { name: 'Resume single-player', exact: true }).click();
+  expect((await (await reload).json()).version).toBe((await changed.json()).version);
+  await expect(page.getByRole('grid')).toBeVisible();
 });
 
 test('late real history/statistics responses cannot populate a new account after logout', async ({
