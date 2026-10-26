@@ -64,3 +64,30 @@ it('aborts and ignores an old account response after leaving the protected surfa
   expect(expired).not.toHaveBeenCalled();
   window.removeEventListener('authentication-required', expired);
 });
+
+it('rejects old account data when a response body finishes after the account changes', async () => {
+  setCSRF('old-session');
+  let finish!: (value: unknown) => void;
+  let started!: () => void;
+  const decoding = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: () => {
+        started();
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    })),
+  );
+  const pending = api('/games/old-account');
+  await decoding;
+  setCSRF('new-session');
+  finish({ private_game: 'old-account' });
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+});
