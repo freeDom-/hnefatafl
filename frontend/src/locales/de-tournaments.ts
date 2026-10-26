@@ -34,6 +34,7 @@ const german: Record<string, string> = {
   'Stop tournament': 'Turnier stoppen',
   'Delete tournament': 'Turnier löschen',
   'Delete tournament {name}': 'Turnier {name} löschen',
+  'Delete tournament data': 'Turnierdaten löschen',
   '{done} of {total} games saved': '{done} von {total} Spielen gespeichert',
   'Playing the next match…': 'Die nächste Partie läuft…',
   'Series finished': 'Serie abgeschlossen',

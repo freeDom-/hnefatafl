@@ -181,6 +181,10 @@
 }
 .tournament-actions {
   flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .tournament-actions .button {
   font-size: 10px;
@@ -240,6 +244,19 @@
   color: var(--muted);
   text-align: right;
   overflow-wrap: anywhere;
+}
+.tournament-section-title .disclosure-heading {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tournament-section-title .disclosure-heading > span {
+  color: var(--gold);
+  margin-right: 4px;
 }
 .tournament-opponents {
   display: grid;
@@ -549,6 +566,16 @@
   font-size: 11px;
   color: var(--muted);
   margin: -4px 0 22px;
+}
+.tournament-import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.tournament-setup .name-suggestion-field {
+  margin-bottom: 24px;
 }
 .tournament-setup label {
   font-size: 11px;

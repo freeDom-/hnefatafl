@@ -101,10 +101,10 @@ test('tournament named opponents use fixed presets while a custom opponent keeps
   });
   expect(tournament.config.players[1].config).toMatchObject({
     algorithm: 'mcts',
-    iterations: 24,
+    iterations: 5000,
     temperature: 0,
     exploration: 1.4,
-    time_limit: 10,
+    time_limit: 2,
   });
   expect(tournament.config.players[2].config).toMatchObject({
     algorithm: 'baseline',
@@ -252,6 +252,8 @@ test('tournaments retain results, expose parameters and replay moves, and delete
     'Shield bearer',
   ]);
   await expect(detail.locator('.tournament-standings')).toContainText('Unfinished');
+  await expect(detail.locator('.tournament-matches')).toBeHidden();
+  await detail.getByRole('button', { name: 'Match log', exact: true }).click();
   await expect(detail.locator('.tournament-matches')).toContainText('Move limit reached');
   await expect(detail.getByRole('button', { name: 'Replay game 1', exact: true })).toBeVisible();
 
@@ -267,6 +269,7 @@ test('tournaments retain results, expose parameters and replay moves, and delete
   await expect(detail.locator('details[open]')).toContainText('0.01');
   await expect(detail).toContainText('19');
 
+  await detail.getByRole('button', { name: 'Match log', exact: true }).click();
   await detail.getByRole('button', { name: 'Replay game 1', exact: true }).click();
   const replayResponse = await request.get(`${tournamentApi}/${tournament.id}/games/0/replay`);
   expect(replayResponse.ok()).toBe(true);
@@ -303,11 +306,11 @@ test('tournaments retain results, expose parameters and replay moves, and delete
     .toBe(true);
   await page.getByRole('button', { name: 'Close tournament replay', exact: true }).click();
 
-  await page.getByRole('button', { name: `Delete tournament ${name}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Delete tournament data', exact: true }).click();
   const confirmation = page.getByRole('dialog', { name: `Delete tournament ${name}?` });
   await confirmation.getByRole('button', { name: 'Keep it', exact: true }).click();
   expect((await request.get(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
-  await page.getByRole('button', { name: `Delete tournament ${name}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Delete tournament data', exact: true }).click();
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(
     page.getByRole('button', { name: `View tournament ${name}`, exact: true }),
@@ -339,7 +342,7 @@ test('a running tournament can be stopped and its retained data deleted', async 
   const stopped = await (await request.get(`${tournamentApi}/${tournament.id}`)).json();
   expect(stopped.status).toBe('cancelled');
   expect(stopped.progress.completed_games).toBeLessThan(stopped.progress.total_games);
-  await page.getByRole('button', { name: `Delete tournament ${name}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Delete tournament data', exact: true }).click();
   await page
     .getByRole('dialog', { name: `Delete tournament ${name}?` })
     .getByRole('button', { name: 'Delete', exact: true })
@@ -362,6 +365,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   const detail = page.locator('.tournament-detail');
   await expect(detail.locator('.tournament-status')).toHaveText('Completed', { timeout: 30000 });
   await expect(detail.locator('.tournament-standing')).toHaveCount(4);
+  await detail.getByRole('button', { name: 'Match log', exact: true }).click();
   await expect(detail.locator('.tournament-match')).toHaveCount(12);
   const entries = await (await request.get(tournamentApi)).json();
   const saved = entries.find((entry: { name: string }) => entry.name === name);
@@ -387,6 +391,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expect(detail.locator('.tournament-standing')).toHaveCount(4);
+  await detail.getByRole('button', { name: 'Match log', exact: true }).click();
   await detail.getByRole('button', { name: 'Replay game 12', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Replay game 12', exact: true });
   await expect(dialog.locator('.tournament-replay-players')).toHaveText(
@@ -407,7 +412,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
   await dialog.getByRole('button', { name: 'Close tournament replay', exact: true }).click();
-  await page.getByRole('button', { name: `Delete tournament ${name}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Delete tournament data', exact: true }).click();
   await page
     .getByRole('dialog', { name: `Delete tournament ${name}?`, exact: true })
     .getByRole('button', { name: 'Delete', exact: true })

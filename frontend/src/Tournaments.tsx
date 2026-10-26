@@ -102,6 +102,7 @@ export default function Tournaments({
   const [notice, setNotice] = useState('');
   const [replay, setReplay] = useState<{ index: number; data: TournamentReplay } | null>(null);
   const [replaying, setReplaying] = useState<number | null>(null);
+  const [matchesOpen, setMatchesOpen] = useState(false);
   const selectedId = useRef<string | null>(null);
   const requestNumber = useRef(0);
   const refreshNumber = useRef(0);
@@ -125,6 +126,9 @@ export default function Tournaments({
   const select = useCallback(async (id: string) => {
     const request = ++requestNumber.current;
     selectedId.current = id;
+    // The match log starts collapsed for every newly opened tournament; a
+    // same-tournament data refresh below keeps the current expansion state.
+    setMatchesOpen(false);
     setDetailLoading(true);
     setReplay(null);
     try {
@@ -213,6 +217,7 @@ export default function Tournaments({
         requestNumber.current++;
         setSelected(null);
         setReplay(null);
+        setMatchesOpen(false);
       }
       setDeleting(null);
       mutating.current = false;
@@ -405,16 +410,14 @@ export default function Tournaments({
                   ) : (
                     <button
                       type="button"
-                      className="icon-button danger-text"
-                      aria-label={t('Delete tournament {name}', { name: selected.name })}
-                      title={t('Delete tournament')}
+                      className="button secondary danger-text"
                       disabled={busy || detailLoading}
                       onClick={() => {
                         setDeleting(selected);
                         setDeleteError('');
                       }}
                     >
-                      ×
+                      {t('Delete tournament data')}
                     </button>
                   )}
                 </div>
@@ -602,67 +605,79 @@ export default function Tournaments({
                 </>
               )}
               <div className="tournament-section-title">
-                <h3>{t('Match log')}</h3>
+                <h3>
+                  <button
+                    type="button"
+                    className="disclosure-heading"
+                    aria-expanded={matchesOpen}
+                    aria-controls="tournament-match-log"
+                    onClick={() => setMatchesOpen((value) => !value)}
+                  >
+                    <span aria-hidden="true">{matchesOpen ? '−' : '＋'}</span> {t('Match log')}
+                  </button>
+                </h3>
                 <span>
                   {t('{count} recorded games', { count: selected.result?.games.length ?? 0 })}
                 </span>
               </div>
-              {!selected.result?.games.length ? (
-                <p className="empty-copy">
-                  {active(selected)
-                    ? t(
-                        'The first result will appear when its game finishes. You can leave this page; the tournament will keep running.',
-                      )
-                    : t('No complete game records were saved for this series.')}
-                </p>
-              ) : (
-                <div className="tournament-matches">
-                  {selected.result.games.map((match, index) => (
-                    <article className="tournament-match" key={index}>
-                      <span className="tournament-match-number">
-                        {String(index + 1).padStart(2, '0')}
-                      </span>
-                      <div>
-                        <strong>{outcome(match, selected.config.players)}</strong>
-                        <small>
-                          {t(
-                            rulesets.find((rule) => rule.id === match.ruleset)?.name ??
-                              match.ruleset,
-                          )}{' '}
-                          ·{' '}
-                          {t('{moves} moves · {seconds}s / decision', {
-                            moves: match.plies,
-                            seconds: match.average_decision_time.toLocaleString(locale, {
-                              minimumFractionDigits: 3,
-                              maximumFractionDigits: 3,
-                            }),
-                          })}
-                        </small>
-                        <p>
-                          <span className="mini-piece black" aria-hidden="true" />
-                          {seatRune(selected.config.players[match.attacker_player])}
-                          {playerName(selected.config.players[match.attacker_player])}{' '}
-                          <span className="tournament-versus">{t('vs')}</span>{' '}
-                          <span className="mini-piece ivory" aria-hidden="true" />
-                          {seatRune(selected.config.players[defender(match)])}
-                          {playerName(selected.config.players[defender(match)])}
-                        </p>
-                        <small className="tournament-match-reason">
-                          {t(match.reason.replaceAll('_', ' '))}
-                        </small>
-                      </div>
-                      <button
-                        className="button secondary small"
-                        aria-label={t('Replay game {number}', { number: index + 1 })}
-                        disabled={replaying !== null || detailLoading}
-                        onClick={() => void openReplay(index)}
-                      >
-                        {replaying === index ? t('Loading…') : t('Replay ↗')}
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              )}
+              <div id="tournament-match-log" hidden={!matchesOpen}>
+                {!selected.result?.games.length ? (
+                  <p className="empty-copy">
+                    {active(selected)
+                      ? t(
+                          'The first result will appear when its game finishes. You can leave this page; the tournament will keep running.',
+                        )
+                      : t('No complete game records were saved for this series.')}
+                  </p>
+                ) : (
+                  <div className="tournament-matches">
+                    {selected.result.games.map((match, index) => (
+                      <article className="tournament-match" key={index}>
+                        <span className="tournament-match-number">
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                        <div>
+                          <strong>{outcome(match, selected.config.players)}</strong>
+                          <small>
+                            {t(
+                              rulesets.find((rule) => rule.id === match.ruleset)?.name ??
+                                match.ruleset,
+                            )}{' '}
+                            ·{' '}
+                            {t('{moves} moves · {seconds}s / decision', {
+                              moves: match.plies,
+                              seconds: match.average_decision_time.toLocaleString(locale, {
+                                minimumFractionDigits: 3,
+                                maximumFractionDigits: 3,
+                              }),
+                            })}
+                          </small>
+                          <p>
+                            <span className="mini-piece black" aria-hidden="true" />
+                            {seatRune(selected.config.players[match.attacker_player])}
+                            {playerName(selected.config.players[match.attacker_player])}{' '}
+                            <span className="tournament-versus">{t('vs')}</span>{' '}
+                            <span className="mini-piece ivory" aria-hidden="true" />
+                            {seatRune(selected.config.players[defender(match)])}
+                            {playerName(selected.config.players[defender(match)])}
+                          </p>
+                          <small className="tournament-match-reason">
+                            {t(match.reason.replaceAll('_', ' '))}
+                          </small>
+                        </div>
+                        <button
+                          className="button secondary small"
+                          aria-label={t('Replay game {number}', { number: index + 1 })}
+                          disabled={replaying !== null || detailLoading}
+                          onClick={() => void openReplay(index)}
+                        >
+                          {replaying === index ? t('Loading…') : t('Replay ↗')}
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
             </section>
           )}
         </div>
@@ -684,6 +699,7 @@ export default function Tournaments({
             requestNumber.current++;
             setSelected(created);
             setReplay(null);
+            setMatchesOpen(false);
             setNewOpen(false);
             setNotice('Tournament started. Results are saved after every finished game.');
             void refresh().catch((error) => onError(error.message));

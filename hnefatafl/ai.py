@@ -54,11 +54,12 @@ def ai_profiles() -> list[dict[str, Any]]:
             "algorithm": "mcts",
             "difficulty": "Advanced",
             "parameters": {
-                # The Seer preset is ruleset-independent, so it uses the base
-                # training self-play budget. Per-ruleset recommended plans
-                # (128/192/256 visits) are available in training jobs.
-                "iterations": 24,
-                "time_limit": 10.0,
+                # The Seer preset is ruleset-independent. The 2-second ceiling
+                # bounds search, with 5,000 visits as the upper cap. Per-ruleset
+                # recommended plans (128/192/256 visits) are available in
+                # training jobs.
+                "iterations": 5000,
+                "time_limit": 2.0,
                 "exploration": 1.4,
                 "temperature": 0.0,
                 "rollout_depth": 8,
