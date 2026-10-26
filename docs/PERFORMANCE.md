@@ -551,3 +551,66 @@ representative corpus on the target host. The ordinary table was neutral
 (median ratio 0.96–1.03) and a 1.0-second depth-5 probe showed move ordering
 recovering a lost ply on Tablut and full symmetry reaching one ply deeper on the
 symmetric openings.
+
+## Move ordering and symmetry-pruning refinements
+
+Phase 4 left three follow-ups: history-based move ordering was skipped whenever no
+principal-variation, transposition or killer move existed; the `symmetry_hits`
+counter incremented on any canonical-table hit rather than genuine
+cross-orientation reuse; and symmetry-equivalent moves were pruned only after
+`_ordered` had already built and statically evaluated every successor.
+
+Raw numbers and the before/after comparison are kept in
+[alpha-beta control refinements evidence](benchmarks/alpha-beta-controls.md).
+
+### What changed
+
+The production search now applies one deterministic ordering priority (principal
+variation, transposition move, killers, history, stable static order), consults
+history even without a preferred move and skips sorting when every history score is
+zero. Symmetry pruning computes the full-state move orbits first and builds
+successors only for the retained representatives, so discarded moves cost no
+`apply_move` or static evaluation. The table entry records its canonical
+orientation; `transposition_cross_orientation_hits` counts probes whose stored
+orientation differs from the query's canonical orientation, and
+`transposition_successful_lookups` records any probe that found an entry.
+
+Reproduce the same ablation and compare against the Phase 4 baseline with:
+
+```sh
+.venv/bin/python -m hnefatafl.cli benchmark-alpha-beta \
+  --config configs/benchmarks/alpha-beta-symmetry.json \
+  --output work/alpha-beta-controls.json
+```
+
+### Measured results
+
+On the same WSL2 host and two math threads, two repetitions, every fixed-depth
+ablation still matched the legacy minimax value (zero mismatches) and the
+independent oracle found an optimal legal move for all 37 feasible positions. The
+fixed-depth median wall time by ruleset was:
+
+| Ruleset (depth) | legacy | transposition | ordering | symmetry_pruning | all |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Brandubh (3) | 1.448 s | 1.496 s | 1.507 s | 0.351 s | 0.377 s |
+| Tablut (2) | 0.082 s | 0.077 s | 0.076 s | 0.047 s | 0.050 s |
+| Copenhagen (2) | 0.463 s | 0.478 s | 0.486 s | 0.321 s | 0.319 s |
+
+The symmetry scenarios remain the clear win (`all` is 0.20–0.70× of legacy); the
+ordinary table and ordering are timing-neutral within run-to-run noise. A
+same-host before/after comparison against the pre-refinement code reproduced the
+same minimax and oracle results and moved the symmetry scenarios by less than 7%
+in either direction, so the structural pruning change is reported as correctness
+and work-avoidance rather than a wall-clock claim.
+
+The cross-orientation counter is meaningful: with canonical transpositions alone,
+9 of 37 corpus positions recorded genuine cross-orientation reuse (up to 101
+reuses on one position), while the full-symmetry scenario recorded none because
+move pruning had already collapsed each orbit before a differently oriented probe
+could occur. Isolating history ordering by passing an empty history dictionary to
+the same priority function produced mixed per-position node counts at depth 3–4
+(2 positions improved, 6 worsened, no completed-depth or value change), which
+matches the intended priority rather than a universal speedup claim. The value of
+the ordering change is that history is always consulted in the documented priority
+order and the ordering is deterministic; the unit tests assert the priority
+directly.

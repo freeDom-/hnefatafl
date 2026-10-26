@@ -13,6 +13,20 @@ exhaustive minimax for Brandubh, Tablut and Copenhagen positions, including
 sparse and symmetric openings. A deliberately symmetric board with a one-sided
 history asserts that unsafe board-only pruning cannot occur.
 
+Follow-up coverage asserts the deterministic move-ordering priority and that
+history is consulted without a preferred move (and skipped when all scores are
+zero), that `clean_search_config` normalises and rejects malformed values, that
+`transposition_cross_orientation_hits` counts only genuine cross-orientation
+reuse, and that a nested `search` object survives the game and tournament APIs.
+API tests confirm malformed search settings are rejected atomically, that
+non-alpha-beta algorithms reject `search`, and that two alpha-beta opponents with
+different optimizations keep distinct variant IDs and runes. Frontend unit tests
+cover import/export of nested search settings, preset spoofing protection, the
+summary renderer and the setup form's presets. A browser end-to-end test starts a
+brandubh tournament with one legacy and one full-symmetry alpha-beta opponent,
+confirms the recorded configs, standings, a validated replay, the results export
+and the responsive layout.
+
 `benchmark-alpha-beta` exercises the real production search on a deterministic
 corpus with a fixed-depth correctness pass, an independent minimax oracle,
 fixed-time equal-budget scenarios and traced memory. Measured CPU results and the

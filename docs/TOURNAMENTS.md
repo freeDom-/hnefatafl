@@ -18,7 +18,12 @@ The [setup dialog](screenshots/tournament-setup.png) and
 3. Select the opponents' models or profiles and search parameters. Use **Add
    opponent** to include a third or fourth participant. A neural
    model must match every selected battlefield; use separate tournaments to compare
-   models trained for different rulesets.
+   models trained for different rulesets. For a custom alpha-beta opponent, the
+   **Alpha-beta optimizations** section exposes **Legacy alpha-beta**,
+   **Optimized default**, **Full symmetry** and **Custom** presets plus individual
+   legacy, transposition-table, move-ordering, D4-canonical transposition and
+   symmetry move-pruning toggles and a bounded table capacity. The controls appear
+   only for alpha-beta, so unrelated algorithms keep their existing form.
 4. Choose an even number of games per pairing on each battlefield, a move limit and a seed.
 5. Start the tournament. The saved view shows progress while the worker plays.
 
@@ -73,6 +78,21 @@ The document mirrors the `POST /api/tournaments` request body:
         "search_wrapper": "mcts",
         "time_limit": 10
       }
+    },
+    {
+      "config": {
+        "algorithm": "alpha_beta",
+        "depth": 3,
+        "time_limit": 1,
+        "search": {
+          "legacy": false,
+          "transposition": true,
+          "move_ordering": true,
+          "symmetry_transposition": true,
+          "symmetry_pruning": true,
+          "table_capacity": 100000
+        }
+      }
     }
   ],
   "games": 2,
@@ -81,11 +101,24 @@ The document mirrors the `POST /api/tournaments` request body:
 }
 ```
 
+A complete two-opponent alpha-beta comparison is shipped as
+[`configs/alpha-beta-search-comparison.json`](../configs/alpha-beta-search-comparison.json)
+(name, brandubh, legacy versus full symmetry, 20 games, 500 plies, seed
+20261026); the setup dialog can create the same tournament entirely through the
+browser, and the importer validates the file without touching the form until the
+whole document is accepted.
+
 `name` is optional. `rulesets` must list one to three supported, distinct
 battlefields. `players` must list two to four opponents; a named fixed profile
 (`baseline`, `shield_maiden`, `alpha_beta`, `mcts`) is snapshotted from the
 catalog exactly as the API does, while a custom opponent keeps its validated
-search settings. A neural opponent must reference a registered model whose
+search settings. A custom alpha-beta opponent may include a nested `search`
+object; the importer, API and `effective_ai_config` all normalise it to the same
+shape, so the settings populate the form, submit, persist, execute and re-import
+without loss. Legacy files without `search` keep their historical identity and
+use the optimized default. A `search` object is rejected for any algorithm other
+than alpha-beta (or a neural alpha-beta wrapper), and neural symmetry reuse is
+refused. A neural opponent must reference a registered model whose
 ruleset matches every selected battlefield, so a model-based tournament uses one
 battlefield. `games` must be even and 2–100, `max_plies` 1–1,000 and `seed`
 0–4,294,967,295. Unknown fields, malformed JSON, unsupported values and missing
