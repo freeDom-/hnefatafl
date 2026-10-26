@@ -15,6 +15,7 @@ import type {
   SideSelection,
 } from './onlineTypes';
 import { useOnlinePoll } from './useOnlinePoll';
+import ReplayControls from './ReplayControls';
 import './online.css';
 
 export const modeNames: Record<MatchMode, string> = {
@@ -505,28 +506,33 @@ function GameRoom({
   accountId,
   open,
   lobby,
+  reviewOnly = false,
 }: {
   id: string;
   accountId: string;
   open: (id: string) => void;
   lobby: () => void;
+  reviewOnly?: boolean;
 }) {
   const { t } = useI18n();
   const { account } = useAuth();
+  const prefix = reviewOnly ? '/personal/online' : '/online/games';
   const load = useCallback(
     async (signal: AbortSignal) => {
       const [game, availability] = await Promise.all([
-        api<OnlineGame>(`/online/games/${id}`, undefined, undefined, signal),
-        api<Availability>('/online/availability', undefined, undefined, signal),
+        api<OnlineGame>(`${prefix}/${id}`, undefined, undefined, signal),
+        reviewOnly
+          ? Promise.resolve({ enabled: false, eligible: false } as Availability)
+          : api<Availability>('/online/availability', undefined, undefined, signal),
       ]);
       const siblings = await Promise.all(
         game.match.games
           .filter((item) => item.id !== id)
-          .map((item) => api<OnlineGame>(`/online/games/${item.id}`, undefined, undefined, signal)),
+          .map((item) => api<OnlineGame>(`${prefix}/${item.id}`, undefined, undefined, signal)),
       );
       return { game, availability, siblings };
     },
-    [id],
+    [id, prefix, reviewOnly],
   );
   const poll = useOnlinePoll(`game:${accountId}:${id}`, load);
   const action = useOnlineAction(poll);
@@ -561,13 +567,14 @@ function GameRoom({
   const ready = poll.phase === 'ready' && !action.busy && !replayBusy;
   const mayAct =
     !!game &&
+    !reviewOnly &&
     ready &&
     game.status === 'active' &&
     ownSide === game.position.turn &&
     account?.permissions.includes('play') &&
     cursor === null;
   const submit = (name: string, extra: Record<string, number> = {}) => {
-    if (!game || !ready) return;
+    if (reviewOnly || !game || !ready) return;
     setSelected(null);
     setConfirm(false);
     void action.run(
@@ -601,7 +608,7 @@ function GameRoom({
     setReplayError('');
     try {
       const value = await api<OnlineReplay>(
-        `/online/games/${id}/replay`,
+        `${prefix}/${id}/replay`,
         undefined,
         undefined,
         controller.signal,
@@ -623,17 +630,21 @@ function GameRoom({
       }
     }
   };
+  useEffect(() => {
+    if (reviewOnly && game) void viewReplay();
+  }, [reviewOnly, game?.id]);
   const position = cursor !== null && replay ? replay.states[cursor] : game?.position;
   return (
     <section className="online-page">
       <button className="button" onClick={lobby}>
-        {t('Back to online lobby')}
+        {t(reviewOnly ? 'Back to dashboard' : 'Back to online lobby')}
       </button>
-      <h1 tabIndex={-1}>{t('Online game')}</h1>
+      <h1 tabIndex={-1}>{t(reviewOnly ? 'Online game review' : 'Online game')}</h1>
+      {reviewOnly && <p>{t('Read-only review. Replay controls change only your view.')}</p>}
       <Health phase={poll.phase} error={poll.error} refresh={poll.refresh} />
       {game && position && (
         <>
-          <Admission availability={poll.data!.availability} />
+          {!reviewOnly && <Admission availability={poll.data!.availability} />}
           <div className="online-toolbar">
             <span>{t(modeNames[game.match.mode])}</span>
             <span>
@@ -696,11 +707,13 @@ function GameRoom({
               />
               <p>
                 {t(
-                  mayAct
-                    ? 'Select your piece, then an empty destination. The server checks the move.'
-                    : ownSide
-                      ? 'Waiting for your turn or server confirmation.'
-                      : 'You are viewing this game. Only the seated player whose turn it is may act.',
+                  reviewOnly
+                    ? 'Read-only review. Replay controls change only your view.'
+                    : mayAct
+                      ? 'Select your piece, then an empty destination. The server checks the move.'
+                      : ownSide
+                        ? 'Waiting for your turn or server confirmation.'
+                        : 'You are viewing this game. Only the seated player whose turn it is may act.',
                 )}
               </p>
               <div className="online-toolbar">
@@ -713,29 +726,22 @@ function GameRoom({
                 </button>
                 {cursor !== null && replay && (
                   <>
-                    <button
-                      className="button secondary"
-                      disabled={cursor === 0}
-                      onClick={() => setCursor(Math.max(0, cursor - 1))}
-                    >
-                      {t('Previous move')}
-                    </button>
-                    <button
-                      className="button secondary"
-                      disabled={cursor >= replay.states.length - 1}
-                      onClick={() => setCursor(Math.min(replay.states.length - 1, cursor + 1))}
-                    >
-                      {t('Next move')}
-                    </button>
-                    <button
-                      className="button secondary"
-                      onClick={() => {
-                        setCursor(null);
-                        setSelected(null);
-                      }}
-                    >
-                      {t('Return to live board')}
-                    </button>
+                    <ReplayControls
+                      cursor={cursor}
+                      length={replay.states.length}
+                      onChange={setCursor}
+                    />
+                    {!reviewOnly && (
+                      <button
+                        className="button secondary"
+                        onClick={() => {
+                          setCursor(null);
+                          setSelected(null);
+                        }}
+                      >
+                        {t('Return to live board')}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -760,9 +766,14 @@ function GameRoom({
                   )}
                 </p>
               )}
+              {reviewOnly && (
+                <p>
+                  {t('Lifecycle')}: {t(statuses[game.status])}
+                </p>
+              )}
               <Result game={game} />
               <Deadline game={game} />
-              {game.status === 'waiting' && game.creator_id !== accountId && (
+              {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
                 <button
                   className="button primary"
                   disabled={
@@ -773,7 +784,7 @@ function GameRoom({
                   {t('Join game')}
                 </button>
               )}
-              {game.status === 'waiting' && game.creator_id === accountId && (
+              {!reviewOnly && game.status === 'waiting' && game.creator_id === accountId && (
                 <button className="button" disabled={!ready} onClick={() => submit('cancel')}>
                   {t('Cancel waiting game')}
                 </button>
@@ -829,21 +840,23 @@ export default function Online() {
   const navigate = (next: string) => {
     if (next !== location.pathname) history.pushState(null, '', next);
     setPath(next);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
   useEffect(() => {
     heading.current?.focus();
   }, [path]);
   if (!account) return null;
-  const match = /^\/online\/games\/(online-[0-9a-f]{32})$/.exec(path);
+  const match = /^\/online\/games\/(online-[0-9a-f]{32})(\/review)?$/.exec(path);
   return (
     <div ref={heading} tabIndex={-1} className="online-root">
       {match ? (
         <GameRoom
-          key={`${account.id}:${match[1]}`}
+          key={`${account.id}:${match[1]}:${!!match[2]}`}
           id={match[1]}
           accountId={account.id}
-          open={(id) => navigate(`/online/games/${id}`)}
-          lobby={() => navigate('/online')}
+          reviewOnly={!!match[2]}
+          open={(id) => navigate(`/online/games/${id}${match[2] ? '/review' : ''}`)}
+          lobby={() => navigate(match[2] ? '/dashboard' : '/online')}
         />
       ) : (
         <Lobby

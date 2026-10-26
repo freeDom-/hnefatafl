@@ -9,6 +9,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Repository introduction and quick start](../README.md)
 - [Guest play, device storage, recovery and connection limits](GUEST_PLAY.md)
 - [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
+- [Personal dashboard and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
 - [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
 
@@ -62,6 +63,9 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Online foundations and offline feasibility
 
+- [Phase 5 validation](validation/online-phase5.md)
+- [Phase 6 handoff and rating policy decisions](designs/online-phase6-handoff.md)
+- [Phase 5 personal dashboard contract and dependency](designs/personal-dashboard-phase5.md)
 - [Durable online game core, match modes, timeout controls and schema-10 recovery](ONLINE.md)
 - [Phase 2 implementation checklist and validation](validation/online-phase2.md)
 - [Phase 3 backend/API/reconnect contract](designs/online-phase3-handoff.md)

@@ -344,3 +344,30 @@ it('retains the submitted creation ID when two submit events arrive before rende
   });
   await screen.findByText(/The outcome is uncertain/);
 });
+
+it('opens personal review with scoped reads only, effective void status and local replay controls', async () => {
+  current = {
+    ...fixture.moved,
+    status: 'voided',
+    result: {
+      ...fixture.timeout_response.game.result,
+      winner: null,
+      termination_reason: 'administrative_void',
+      competitive_eligible: false,
+    },
+  } as OnlineGame;
+  history.replaceState(null, '', `/online/games/${current.id}/review`);
+  render(<Online />);
+  await screen.findByRole('heading', { name: 'Online game review' });
+  await screen.findByText('Historical replay · read only');
+  expect(screen.getByText('Lifecycle: Voided')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
+  expect(screen.getByText('Move 1 of 1')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Concede' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Return to live board' })).toBeNull();
+  expect(
+    fetcher.mock.calls.every(
+      ([path, opts]) => path.startsWith('/api/personal/online/') && opts?.method !== 'POST',
+    ),
+  ).toBe(true);
+});

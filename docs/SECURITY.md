@@ -123,6 +123,16 @@ and sanitized, rate-limited logs; aggregate monitoring requires administrator
 permission and exposes no account/security identifiers. See
 [creation quotas and monitoring](ONLINE.md#creation-quotas-and-monitoring).
 
+Personal dashboard routes under `/api/personal` are authenticated GET-only `play`
+grants. Account listings/replay require exact ownership, online listings/detail/
+replay require participation (including creator/admitted match opponent), and
+administrators have the same personal scope. Known-game spectator routes and
+legacy administrator Hall access keep their existing behavior. Summary projections
+omit private configuration, security fields and correction notes. Account-keyed UI,
+abort cleanup and session epochs prevent stale account responses entering the next
+account. Guest storage is never read by this surface. See the
+[personal API contract](designs/personal-dashboard-phase5.md#api-contract).
+
 ## Coverage and explicit exceptions
 
 The complete [JSON inventory](API_PERMISSIONS.json) records every API method/path,

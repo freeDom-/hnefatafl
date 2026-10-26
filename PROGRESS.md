@@ -67,6 +67,18 @@ passed 4 checks; CI passed the complete 14-check guest suite and the existing
 account/registration/online suites. Exact commit-scoped counts and the observed
 local asset-transfer stall are retained in the validation record.
 
+Phase 4 PR #15 has merged into `feat/online-multiplayer`; Phase 5 was rebased onto
+its integration merge before combined verification. The private authenticated
+personal dashboard separates owned account single-player and participant online
+records, adds bounded server filters/keyset pages and read-only viewer-local
+replay, and keeps category totals independent. Current eligible online revisions
+supply per-game W/L/D/timeout counts; cancellations/voids do not count. Five scoped
+GET grants add no migration, guest reads/uploads, online assistance, public history
+or rating policy. Legacy Hall/spectator permissions and guest keys/slot remain
+unchanged. See [dashboard use](docs/DASHBOARD.md),
+[Phase 5 validation](docs/validation/online-phase5.md) and the
+[Phase 6 policy handoff](docs/designs/online-phase6-handoff.md).
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

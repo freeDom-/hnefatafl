@@ -2,6 +2,12 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Online milestone integration (unreleased)
+
+[Phase 5 evidence](validation/online-phase5.md) records the personal dashboard,
+scoped history/review, result revision totals and preserved guest/account/online
+boundaries. It is separate from release and production rollout validation.
+
 ## Remote worker application compatibility (`0.26.0`)
 
 The [0.26.0 validation record](releases/0.26.0.md#validation) records exact-version

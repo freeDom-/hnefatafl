@@ -1,0 +1,80 @@
+.personal-dashboard {
+  max-width: 1300px;
+  margin: 1rem auto;
+}
+.personal-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+.personal-section {
+  min-width: 0;
+  padding: 1.5rem;
+}
+.personal-section h2 {
+  margin-top: 0;
+}
+.personal-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.personal-totals dt {
+  font-size: 0.8rem;
+}
+.personal-totals dd {
+  margin: 0.3rem 0;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+.personal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.personal-filters label {
+  display: grid;
+  gap: 0.35rem;
+  flex: 1 1 130px;
+  min-width: 0;
+}
+.personal-filters select {
+  width: 100%;
+  min-width: 0;
+}
+.personal-health {
+  margin: 1rem 0;
+}
+.personal-cards {
+  list-style: none;
+  padding: 0;
+}
+.personal-cards li {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-wrap: anywhere;
+}
+.personal-cards li p {
+  margin: 0.5rem 0;
+}
+.personal-cards a {
+  display: inline-block;
+  margin: 0.5rem 0.8rem 0.25rem 0;
+}
+.personal-cards time {
+  display: block;
+}
+.personal-review-board {
+  max-width: 700px;
+  margin: 1.5rem 0;
+}
+.personal-review-board .board-with-labels {
+  margin-left: 0;
+}
+@media (max-width: 900px) {
+  .personal-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

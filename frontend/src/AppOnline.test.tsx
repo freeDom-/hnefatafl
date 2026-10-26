@@ -40,3 +40,23 @@ it('opens the online shell without loading local-game or assistance adapters, an
   await screen.findByRole('heading', { name: 'The king awaits.' });
   expect(screen.queryByRole('heading', { name: 'Online lobby' })).toBeNull();
 });
+it('opens the dashboard shell without initializing account play, analysis or guest storage', async () => {
+  history.replaceState(null, '', '/dashboard');
+  localStorage.setItem('hnefatafl-game', 'retained-local-id');
+  const fetcher = vi.fn((_path: string) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ games: [], totals: {}, overview: {} }),
+    } as Response),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<App />);
+  expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page');
+  await Promise.resolve();
+  expect(fetcher.mock.calls).toHaveLength(2);
+  expect(fetcher.mock.calls.every(([path]) => String(path).startsWith('/api/personal/'))).toBe(
+    true,
+  );
+  expect(localStorage.getItem('hnefatafl-game')).toBe('retained-local-id');
+});

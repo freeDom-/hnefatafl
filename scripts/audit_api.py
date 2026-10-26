@@ -28,8 +28,8 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                 "method": method, "route": route.path,
                 "authentication": "worker bearer + lease" if permission == "worker" else "public" if permission == "public" else "session",
                 "permission": permission,
-                "persistent_state": method not in {"GET", "HEAD", "OPTIONS"} or (not route.path.startswith("/api/online/") and route.path not in {"/api/health", "/api/auth/registration", "/api/auth/me", "/api/games/{game_id}/analytics"}),
-                "user_specific": route.path.startswith(("/api/games", "/api/players", "/api/stats", "/api/auth/", "/api/online/")) and route.path != "/api/auth/registration",
+                "persistent_state": method not in {"GET", "HEAD", "OPTIONS"} or (not route.path.startswith(("/api/online/", "/api/personal/")) and route.path not in {"/api/health", "/api/auth/registration", "/api/auth/me", "/api/games/{game_id}/analytics"}),
+                "user_specific": route.path.startswith(("/api/games", "/api/players", "/api/stats", "/api/auth/", "/api/online/", "/api/personal/")) and route.path != "/api/auth/registration",
             })
     target = Path(__file__).resolve().parents[1] / "docs/API_PERMISSIONS.json"
     rendered = json.dumps(sorted(rows, key=lambda row: (row["route"], row["method"])), indent=2) + "\n"

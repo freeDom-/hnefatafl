@@ -120,8 +120,9 @@ export default function Auth({ children }: { children: ReactNode }) {
         history.replaceState(
           null,
           '',
-          ['/', '/training', '/tournaments', '/archive', '/online'].includes(next) ||
-            /^\/online\/games\/online-[0-9a-f]{32}$/.test(next)
+          ['/', '/dashboard', '/training', '/tournaments', '/archive', '/online'].includes(next) ||
+            /^\/online\/games\/online-[0-9a-f]{32}(?:\/review)?$/.test(next) ||
+            /^\/dashboard\/single-player\/[A-Za-z0-9_-]{1,100}$/.test(next)
             ? next
             : '/',
         );
