@@ -171,6 +171,9 @@ test('two accounts and administrator retain strict personal scope; existing spec
       await expect(
         onlinePanel(page).getByText('No online games match these filters.'),
       ).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
     const me = await (await context.request.get('/api/auth/me')).json();
     for (const path of [
       `/api/personal/single-player/${state.ids.account}/replay`,

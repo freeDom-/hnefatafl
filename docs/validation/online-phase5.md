@@ -35,6 +35,7 @@ match scoring or retention policy is added.
 | `.venv/bin/python -m pytest -q tests/test_personal.py` | **21 passed**, after Phase 4 rebase; one existing TestClient warning. |
 | `npm --prefix frontend test -- --run src/PersonalDashboard.test.tsx src/Online.test.tsx src/AppOnline.test.tsx src/Auth.test.tsx` | **41 passed**, 4 files, before the final terminal-discovery buttons. |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:personal` | **10 passed**, no skips, production build, desktop/mobile, 4.4 minutes. |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:personal -- --grep 'two accounts and administrator'` | **2 passed** after navigation wrapping, including administrator/user overflow assertions. |
 | `.venv/bin/python scripts/audit_api.py` | **82 grants accounted for**, five new personal GET grants. |
 | `.venv/bin/ruff check frontend/tests/start_personal_backend.py`; same path with `ruff format --check` | Passed. |
 
@@ -45,6 +46,23 @@ Tablut's defender-first turn, filter selection after the existing login redirect
 and accessible combobox/guest-square selectors). Superseded interrupted runs are
 not claimed as passes. Both final desktop/mobile screenshots were inspected; the
 checks found no horizontal overflow. This evidence makes no production claim.
+
+## CI and follow-up
+
+[Verify run 88](https://github.com/freeDom-/hnefatafl/actions/runs/40285157727)
+on functional commit `649fe3fb167be355421d7262adebc6621e606ce0` passed its all-extras
+backend job: **1,491 passed / 6 GPU hardware skips**, 25 existing dependency
+warnings, plus Ruff/mypy/docs/foundation. Frontend units (**312 / 38 files**),
+formatting/types and production build passed. The legacy browser step failed on
+administrator header overflow after the new Dashboard tab; later fixture logins
+then hit the unchanged login limit during worker restarts. This run is not an
+all-green browser result. Header/navigation wrapping and a real administrator/user
+overflow assertion address the regression; follow-up checks are recorded below.
+Authentication limits were not relaxed.
+
+An initial interrupted local guest run included a shared-artifact collision from
+overlapping browser runners and a runtime startup timeout during native test load.
+It is not claimed as a passing suite. Subsequent browser runs are serialized.
 
 ## Test design and limits
 
