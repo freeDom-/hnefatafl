@@ -41,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     heuristics.add_argument("--config", help="Optional heuristic benchmark JSON")
     heuristics.add_argument("--output", help="Save measured JSON evidence")
+    alpha_beta = sub.add_parser(
+        "benchmark-alpha-beta", help="Compare alpha-beta search optimizations"
+    )
+    alpha_beta.add_argument("--config", help="Optional alpha-beta benchmark JSON")
+    alpha_beta.add_argument("--output", help="Save measured JSON evidence")
     worker = sub.add_parser("worker", help="Run leased training jobs from a remote server")
     worker.add_argument("--server", required=True, help="Server HTTP(S) URL")
     worker.add_argument(
@@ -68,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
             "benchmark-heuristics",
             "benchmark-training",
             "benchmark-symmetry",
+            "benchmark-alpha-beta",
         ):
             config = (
                 json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
@@ -86,6 +92,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .heuristic_benchmark import run_heuristic_benchmark
 
                 result = run_heuristic_benchmark(config, should_stop=stop.is_set)
+            elif args.command == "benchmark-alpha-beta":
+                from .alpha_beta_benchmark import run_alpha_beta_benchmark
+
+                result = run_alpha_beta_benchmark(config, should_stop=stop.is_set)
             else:
                 from .benchmark import run_benchmark
 
