@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
-from record_fixtures import historical_game, historical_player
+from record_fixtures import retired_player, historical_game, historical_player
 
 from hnefatafl.engine import State
 from hnefatafl.server import create_app
@@ -671,7 +671,7 @@ def test_schema_one_migrates_profiles_without_losing_rows(tmp_path):
     store = Store(database)
     assert store.players()[0]["id"] == "legacy-player"
     assert store.players()[0]["deleted_at"] is None
-    assert store.delete_player("legacy-player", "2026-01-02T00:00:00Z")
+    assert retired_player(store, "legacy-player", "2026-01-02T00:00:00Z")
     assert store.players() == []
     reopened = Store(database)
     assert reopened.players() == []
@@ -698,7 +698,7 @@ def test_delete_player_hides_selection_but_preserves_real_history_and_identity(c
     game = create(client, ruleset="brandubh", players={"defenders": {"player_id": player["id"]}})
     game = complete_human_game(client, game)
     stats_before = client.get("/api/stats").json()
-    assert client.app.state.store.delete_player(player["id"], "2030-01-01")
+    assert retired_player(client.app.state.store, player["id"], "2030-01-01")
     assert not any(p["id"] == player["id"] for p in client.app.state.store.players())
     assert client.delete(f"/api/players/{player['id']}").status_code == 403
     record = client.get(f"/api/games/{game['id']}").json()
@@ -727,7 +727,7 @@ def test_delete_player_hides_selection_but_preserves_real_history_and_identity(c
 def test_deleted_human_can_finish_existing_game_but_is_not_reused_by_name(client):
     player = historical_player(client, "Eirik")
     game = create(client, ruleset="brandubh", players={"attackers": {"player_id": player["id"]}})
-    assert client.app.state.store.delete_player(player["id"], "2030-01-01")
+    assert retired_player(client.app.state.store, player["id"], "2030-01-01")
     game = complete_human_game(client, game)
     assert game["players"]["attackers"]["player_id"] == player["id"]
     other = create(client, players={"attackers": {"name": "Eirik"}})

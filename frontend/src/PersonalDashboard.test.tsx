@@ -37,6 +37,12 @@ const respond = (body: unknown, status = 200) =>
 let serve: (url: string) => Promise<Response>;
 const fetcher = vi.fn((url: string, _opts?: RequestInit) => serve(url));
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   identity.id = 'archer';
   history.replaceState(null, '', '/dashboard');
   setLanguage('en', false);

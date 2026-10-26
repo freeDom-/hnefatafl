@@ -337,3 +337,29 @@ test('guest survives login, logout, account switching, back navigation and onlin
     games: before.games + 1,
   });
 });
+
+test('AI-first games and restored pending replies advance automatically through the real worker', async ({
+  page,
+}) => {
+  await page.goto('/guest');
+  await ready(page);
+  await page.getByLabel('Your side', { exact: true }).selectOption('defenders');
+  await page.getByRole('button', { name: 'Start guest game', exact: true }).click();
+  await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(1);
+  await ready(page);
+  const slot = JSON.parse((await saved(page)).raw!);
+  expect(slot.human_side).toBe('defenders');
+  expect(slot.moves).toHaveLength(1);
+  // Restore the same valid AI-first starting position; the Python validator,
+  // rather than the device JSON, determines whose turn it is.
+  slot.moves = [];
+  slot.cursor = 0;
+  await inject(page, JSON.stringify(slot));
+  await page.reload();
+  await ready(page);
+  await expect.poll(async () => JSON.parse((await saved(page)).raw!).moves.length).toBe(1);
+  await expect(page.getByRole('button', { name: 'Play computer move', exact: true })).toHaveCount(
+    0,
+  );
+  expect(JSON.parse((await saved(page)).raw!).human_side).toBe('defenders');
+});

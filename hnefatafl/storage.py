@@ -425,32 +425,6 @@ class Store:
         runes = self.runes(f"player:{player['id']}" for player in result)
         return [{**player, "rune": runes[f"player:{player['id']}"]} for player in result]
 
-    def delete_player(self, player_id: str, deleted_at: str) -> bool:
-        """Hide a profile from selection while retaining its historical identity."""
-        with self.connection() as connection:
-            cursor = connection.execute(
-                "UPDATE players SET deleted_at=? WHERE id=? AND deleted_at IS NULL"
-                + (" AND owner_account_id=?" if owner_scope() else ""),
-                (deleted_at, player_id, owner_scope())
-                if owner_scope()
-                else (deleted_at, player_id),
-            )
-        return cursor.rowcount == 1
-
-    def create_player(self, player: dict) -> dict:
-        account = principal.get()
-        with self.connection() as connection:
-            connection.execute(
-                "INSERT INTO players(id,name,created_at,owner_account_id) VALUES(?,?,?,?)",
-                (
-                    player["id"],
-                    player["name"],
-                    player["created_at"],
-                    account["id"] if account else None,
-                ),
-            )
-        return {**player, "rune": self.rune(f"player:{player['id']}")}
-
     def archive_model(self, metadata: dict) -> None:
         """Retain display provenance for pre-snapshot games, never model weights."""
         with self.connection() as connection:

@@ -57,8 +57,17 @@ function setup(
 ) {
   const fetcher = vi.fn((path: string, options?: RequestInit) => {
     if (path === '/api/rulesets') return json(rules);
-    if (path === '/api/ai/profiles' || path === '/api/players' || path === '/api/models')
-      return json([]);
+    if (path === '/api/ai/profiles')
+      return json([
+        {
+          id: 'baseline',
+          name: 'Shield bearer',
+          algorithm: 'baseline',
+          parameters: { time_limit: 1 },
+          supported_rulesets: ['tablut'],
+        },
+      ]);
+    if (path === '/api/models') return json([]);
     if (path === '/api/games/g1' && options?.method === 'GET') return json(game);
     if (path === '/api/games/g1/analytics')
       return json({ advisor: null, time_limit: 5, show_win_chances: true, revision: 0 });

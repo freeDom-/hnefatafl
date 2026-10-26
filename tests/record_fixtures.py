@@ -12,12 +12,40 @@ from hnefatafl.security_context import principal
 from hnefatafl.server import ai_variant_id
 
 
+def stored_player(store, player):
+    """Seed a retained player identity in historical fixtures only."""
+    account = principal.get()
+    with store.connection() as c:
+        c.execute(
+            "INSERT INTO players(id,name,created_at,owner_account_id) VALUES(?,?,?,?)",
+            (
+                player["id"],
+                player["name"],
+                player["created_at"],
+                account["id"] if account else None,
+            ),
+        )
+    return {**player, "rune": store.rune(f"player:{player['id']}")}
+
+
+def retired_player(store, player_id, deleted_at):
+    with store.connection() as c:
+        return (
+            c.execute(
+                "UPDATE players SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+                (deleted_at, player_id),
+            ).rowcount
+            == 1
+        )
+
+
 def historical_player(client, name):
     account = client.app.state.auth.session(client.cookies.get(COOKIE))
     token = principal.set(account)
     try:
-        return client.app.state.store.create_player(
-            {"id": uuid4().hex, "name": name, "created_at": datetime.now(timezone.utc).isoformat()}
+        return stored_player(
+            client.app.state.store,
+            {"id": uuid4().hex, "name": name, "created_at": datetime.now(timezone.utc).isoformat()},
         )
     finally:
         principal.reset(token)
