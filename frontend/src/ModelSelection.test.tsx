@@ -1,8 +1,15 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { NewGame } from './App';
 import { selectStrongestModel } from './modelSelection';
 import type { AIProfile, Game, Model, Ruleset } from './types';
+
+// Exercise App's retained training-cleanup callback; Hall is now read-only.
+vi.mock('./Training', () => ({
+  default: ({ onGamesDeleted }: { onGamesDeleted: (ids: string[]) => void }) => (
+    <button onClick={() => onGamesDeleted(['g1'])}>Discard fixture model games</button>
+  ),
+}));
 
 const model = (id: string, changes: Partial<Model> = {}): Model => ({
   id,
@@ -296,22 +303,20 @@ describe('new game defaults', () => {
   });
 });
 
-it('clears the current game when deleted and ignores its late in-flight move response', async () => {
+it('training cleanup clears the current game and ignores its late in-flight move response', async () => {
+  history.replaceState(null, '', '/games/g1');
   localStorage.setItem('hnefatafl-game', initial.id);
   let finish!: (response: Response) => void;
-  let deleted = false;
   vi.stubGlobal(
     'fetch',
-    vi.fn((path: string, options?: RequestInit) => {
+    vi.fn((path: string) => {
       if (path === '/api/rulesets') return json(rulesets);
       if (path === '/api/ai/profiles') return json(profiles);
       if (path === '/api/players' || path === '/api/models') return json([]);
-      if (options?.method === 'DELETE') {
-        deleted = true;
-        return json({ deleted: true, id: initial.id });
-      }
-      if (path.startsWith('/api/games?')) return json(deleted ? [] : [initial]);
-      if (path.startsWith('/api/stats?')) return json({ total_games: deleted ? 0 : 1 });
+      if (path.startsWith('/api/personal/')) return json({ games: [], totals: {}, overview: {} });
+      if (path.startsWith('/api/history/')) return json({ games: [], totals: [] });
+      if (path.startsWith('/api/online/games?')) return json({ games: [] });
+      if (path === '/api/online/availability') return json({ enabled: false, eligible: false });
       if (path === '/api/games/g1/moves')
         return new Promise<Response>((resolve) => {
           finish = resolve;
@@ -323,16 +328,11 @@ it('clears the current game when deleted and ignores its late in-flight move res
   render(<App />);
   fireEvent.click(await screen.findByRole('gridcell', { name: 'a3, attacker' }));
   fireEvent.click(screen.getByRole('gridcell', { name: 'b3, empty, legal move' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Hall of records' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Delete game g1' }));
-  fireEvent.click(
-    within(screen.getByRole('dialog', { name: 'Delete recorded game?' })).getByRole('button', {
-      name: 'Delete',
-    }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'AI workshop' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Discard fixture model games' }));
   await waitFor(() => expect(localStorage.getItem('hnefatafl-game')).toBeNull());
   await act(async () => finish(await json({ ...initial, version: 1 })));
-  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
-  expect(screen.getByRole('heading', { name: 'The king awaits.' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+  expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
   expect(screen.queryByRole('grid')).not.toBeInTheDocument();
 });
