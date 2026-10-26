@@ -15,7 +15,7 @@ export interface AlphaBetaSearchSettings {
 }
 
 export const TABLE_CAPACITY_MIN = 1;
-export const TABLE_CAPACITY_MAX = 5_000_000;
+export const TABLE_CAPACITY_MAX = 500_000;
 
 export const DEFAULT_ALPHA_BETA_SEARCH: AlphaBetaSearchSettings = {
   legacy: false,

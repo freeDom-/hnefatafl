@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ALPHA_BETA_PRESETS,
   DEFAULT_ALPHA_BETA_SEARCH,
+  TABLE_CAPACITY_MAX,
   isAlphaBetaSearch,
   presetSearch,
   searchFromConfig,
@@ -13,7 +14,14 @@ import { parameterSummary } from './RecordsParameters';
 describe('alpha-beta search helpers', () => {
   it('accepts only complete, bounded search configurations', () => {
     expect(isAlphaBetaSearch(DEFAULT_ALPHA_BETA_SEARCH)).toBe(true);
+    expect(TABLE_CAPACITY_MAX).toBe(500_000);
     expect(isAlphaBetaSearch({ ...DEFAULT_ALPHA_BETA_SEARCH, table_capacity: 0 })).toBe(false);
+    expect(
+      isAlphaBetaSearch({ ...DEFAULT_ALPHA_BETA_SEARCH, table_capacity: TABLE_CAPACITY_MAX }),
+    ).toBe(true);
+    expect(
+      isAlphaBetaSearch({ ...DEFAULT_ALPHA_BETA_SEARCH, table_capacity: TABLE_CAPACITY_MAX + 1 }),
+    ).toBe(false);
     expect(isAlphaBetaSearch({ ...DEFAULT_ALPHA_BETA_SEARCH, legacy: 1 })).toBe(false);
     expect(isAlphaBetaSearch({ legacy: true })).toBe(false);
     expect(isAlphaBetaSearch(null)).toBe(false);
