@@ -58,6 +58,14 @@ test('tournament named opponents use fixed presets while a custom opponent keeps
   await openTournaments(page);
   await page.getByRole('button', { name: 'New tournament', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Set up a tournament' });
+  const nameLabel = await setup.getByText('Tournament name', { exact: true }).boundingBox();
+  const nameInput = await setup
+    .getByRole('textbox', { name: 'Tournament name', exact: true })
+    .boundingBox();
+  expect(nameLabel).not.toBeNull();
+  expect(nameInput).not.toBeNull();
+  // Match the 8px label/input gap used by the other setup fields.
+  expect(nameInput!.y - (nameLabel!.y + nameLabel!.height)).toBeGreaterThanOrEqual(7);
   await setup
     .getByRole('textbox', { name: 'Tournament name', exact: true })
     .fill(`Preset rivals ${info.project.name}`);

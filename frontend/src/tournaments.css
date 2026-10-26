@@ -575,6 +575,9 @@
   margin-bottom: 20px;
 }
 .tournament-setup .name-suggestion-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 24px;
 }
 .tournament-setup label {
