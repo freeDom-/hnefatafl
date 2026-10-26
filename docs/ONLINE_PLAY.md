@@ -14,6 +14,9 @@ Guest single-player is a separate public browser surface with one device slot;
 see [guest play and storage](GUEST_PLAY.md). It never uploads games or feeds online
 results, and online IDs never enter its replay/AI adapter.
 
+The authenticated [personal dashboard](DASHBOARD.md) provides separate own account
+and participant online histories, bounded filters/pages and read-only review.
+
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),

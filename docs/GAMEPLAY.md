@@ -2,6 +2,9 @@
 
 [Documentation index](README.md) · [Quick start](../README.md#quick-start)
 
+The authenticated [personal dashboard](DASHBOARD.md) provides separate own account
+and participant online histories, bounded filters/pages and read-only review.
+
 ## Choose where to play
 
 **Guest play** at `/guest` needs no login and runs single-player in this browser.

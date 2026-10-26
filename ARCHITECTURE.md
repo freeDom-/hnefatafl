@@ -435,3 +435,27 @@ the hashed worker receives Wasm CSP permission. No production service worker, PW
 full offline startup, guest archive, automatic migration/import or server upload is
 provided. See [Phase 4 validation](docs/validation/online-phase4.md) and the
 [Phase 5 handoff](docs/designs/online-phase5-handoff.md).
+
+
+## Personal dashboard and review
+
+`PersonalDashboard.tsx` keeps account single-player and online DTOs, filters, pages
+and totals separate. It mounts without initializing account play/analysis and
+links to the guest surface without importing or reading guest storage. Account-keyed
+poll state, request cancellation and Auth's session epochs reject late responses.
+Shared `ReplayControls` change viewer state only. Account review reuses canonical
+retained replay; personal online review uses the dedicated Online viewer with
+mutation controls disabled and participant-scoped reads. Lifecycle/effective result
+remain separate from the engine position, including concession, timeout and void.
+
+`personal_api.py` adds five authenticated read-only `play` routes under
+`/api/personal`. `personal.py` scopes SQL to the current owner/participant even for
+administrators, projects summary fields, applies bounded keyset pagination and
+batches match siblings. Account totals retain existing side-based retained-result
+semantics. Online totals aggregate only the current eligible completed revision
+per game, withdrawing voided/superseded contributions. No migration, materialized
+accounting, stored training change or new infrastructure is introduced. Existing
+Hall/statistics/spectator APIs and all-role online assistance denial are preserved.
+See [API/query contract](docs/designs/personal-dashboard-phase5.md),
+[dashboard guide](docs/DASHBOARD.md), [evidence](docs/validation/online-phase5.md)
+and [Phase 6 handoff](docs/designs/online-phase6-handoff.md).

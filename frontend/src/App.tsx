@@ -28,9 +28,10 @@ import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 import Online from './Online';
 import Modal from './Modal';
 import { surfaceLink } from './surfaceNavigation';
+import PersonalDashboard from './PersonalDashboard';
 import { useAuth } from './Auth';
 
-type Tab = 'online' | 'play' | 'archive' | 'training' | 'tournaments';
+type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const sideGlyph = (side: Side) => (
   <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
@@ -41,13 +42,17 @@ export default function App() {
   const { account, logout } = useAuth();
   const permissions = account?.permissions ?? [];
   const [tab, setTab] = useState<Tab>(() =>
-    location.pathname.startsWith('/online')
-      ? 'online'
-      : location.pathname === '/training' && permissions.includes('training')
-        ? 'training'
-        : location.pathname === '/tournaments' && permissions.includes('tournaments')
-          ? 'tournaments'
-          : 'play',
+    location.pathname.startsWith('/dashboard')
+      ? 'dashboard'
+      : location.pathname.startsWith('/online')
+        ? 'online'
+        : location.pathname === '/archive'
+          ? 'archive'
+          : location.pathname === '/training' && permissions.includes('training')
+            ? 'training'
+            : location.pathname === '/tournaments' && permissions.includes('tournaments')
+              ? 'tournaments'
+              : 'play',
   );
   useEffect(() => {
     if ((tab === 'training' || tab === 'tournaments') && !permissions.includes(tab)) setTab('play');
@@ -56,15 +61,17 @@ export default function App() {
     const changed = () => {
       const path = location.pathname;
       setTab(
-        path.startsWith('/online')
-          ? 'online'
-          : path === '/archive'
-            ? 'archive'
-            : path === '/training' && permissions.includes('training')
-              ? 'training'
-              : path === '/tournaments' && permissions.includes('tournaments')
-                ? 'tournaments'
-                : 'play',
+        path.startsWith('/dashboard')
+          ? 'dashboard'
+          : path.startsWith('/online')
+            ? 'online'
+            : path === '/archive'
+              ? 'archive'
+              : path === '/training' && permissions.includes('training')
+                ? 'training'
+                : path === '/tournaments' && permissions.includes('tournaments')
+                  ? 'tournaments'
+                  : 'play',
       );
     };
     window.addEventListener('popstate', changed);
@@ -106,7 +113,7 @@ export default function App() {
     return rules;
   }, []);
   useEffect(() => {
-    if (initialized.current || tab === 'online') return;
+    if (initialized.current || tab === 'online' || tab === 'dashboard') return;
     initialized.current = true;
     refreshOptions()
       .then(async (rules) => {
@@ -214,6 +221,13 @@ export default function App() {
           href="#play"
           onClick={(event) => {
             event.preventDefault();
+            if (
+              location.pathname.startsWith('/dashboard') ||
+              location.pathname.startsWith('/online')
+            ) {
+              history.pushState(null, '', '/');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }
             setTab('play');
           }}
         >
@@ -226,7 +240,7 @@ export default function App() {
           </span>
         </a>
         <nav aria-label={t('Main navigation')}>
-          {(['play', 'online', 'archive', 'training', 'tournaments'] as Tab[])
+          {(['dashboard', 'play', 'online', 'archive', 'training', 'tournaments'] as Tab[])
             .filter(
               (item) =>
                 (item !== 'training' && item !== 'tournaments') || permissions.includes(item),
@@ -236,8 +250,12 @@ export default function App() {
                 type="button"
                 key={item}
                 onClick={() => {
-                  if (item === 'online') history.pushState(null, '', '/online');
-                  else if (location.pathname.startsWith('/online'))
+                  if (item === 'online' || item === 'dashboard')
+                    history.pushState(null, '', `/${item}`);
+                  else if (
+                    location.pathname.startsWith('/online') ||
+                    location.pathname.startsWith('/dashboard')
+                  )
                     history.pushState(null, '', item === 'play' ? '/' : `/${item}`);
                   window.dispatchEvent(new PopStateEvent('popstate'));
                   setTab(item);
@@ -246,15 +264,17 @@ export default function App() {
                 className={tab === item ? 'active' : ''}
                 aria-current={tab === item ? 'page' : undefined}
               >
-                {item === 'play'
-                  ? t('Play')
-                  : item === 'online'
-                    ? t('Online')
-                    : item === 'archive'
-                      ? t('Hall of records')
-                      : item === 'training'
-                        ? t('AI workshop')
-                        : t('Tournaments')}
+                {item === 'dashboard'
+                  ? t('Dashboard')
+                  : item === 'play'
+                    ? t('Play')
+                    : item === 'online'
+                      ? t('Online')
+                      : item === 'archive'
+                        ? t('Hall of records')
+                        : item === 'training'
+                          ? t('AI workshop')
+                          : t('Tournaments')}
               </button>
             ))}
         </nav>
@@ -273,6 +293,15 @@ export default function App() {
         </div>
       </header>
       <main>
+        {error && (
+          <div role="alert" className="error-banner">
+            <span>{t(error)}</span>
+            <button onClick={() => setError('')} aria-label={t('Dismiss error')}>
+              ×
+            </button>
+          </div>
+        )}
+        {tab === 'dashboard' && <PersonalDashboard />}
         {tab === 'play' && (
           <>
             <section className="page-intro">

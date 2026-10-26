@@ -990,7 +990,9 @@ def create_app(
 
     @app.get("/api/games/{game_id}/replay")
     def game_replay(game_id: str):
-        game = game_or_404(game_id)
+        return validated_account_replay(game_or_404(game_id))
+
+    def validated_account_replay(game: dict):
         state = new_game(game["ruleset"])
         states = [state.to_dict()]
         try:
@@ -1001,7 +1003,16 @@ def create_app(
             fail("Stored game history failed deterministic validation.", 409)
         if states[game["cursor"]] != game["state"]:
             fail("Stored position does not match the recorded moves.", 409)
-        return {"game_id": game_id, "validated": True, "cursor": game["cursor"], "states": states}
+        return {
+            "game_id": game["id"],
+            "validated": True,
+            "cursor": game["cursor"],
+            "states": states,
+        }
+
+    from .personal_api import attach_personal
+
+    attach_personal(app, online, outcome=recorded_outcome, replay=validated_account_replay)
 
     @app.post("/api/games/{game_id}/moves")
     def make_move(game_id: str, request: MoveRequest):

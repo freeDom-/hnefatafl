@@ -1,0 +1,65 @@
+const personal: Record<string, string> = {
+  Dashboard: 'Übersicht',
+  'Your games': 'Deine Spiele',
+  'Private account records. Single-player and online results are kept separate.':
+    'Private Kontoeinträge. Einzelspieler- und Online-Ergebnisse bleiben getrennt.',
+  'Guest play on this device': 'Gastspiel auf diesem Gerät',
+  'Guest games stay in the device slot and never appear in account history.':
+    'Gastspiele bleiben im Gerätespeicher und erscheinen nie im Kontoverlauf.',
+  'Account single-player': 'Einzelspieler im Konto',
+  'All your account single-player records': 'Alle deine Einzelspieler-Kontoeinträge',
+  'Totals are independent of the page filters.':
+    'Die Gesamtzahlen sind unabhängig von den Seitenfiltern.',
+  'Account totals describe recorded sides, not personal wins or losses.':
+    'Die Kontozahlen beschreiben die gespeicherten Seiten, keine persönlichen Siege oder Niederlagen.',
+  'All your eligible online game results': 'Alle deine gültigen Online-Spielergebnisse',
+  'Per-game eligible results only. Cancelled and voided games do not count; concession is not abandonment.':
+    'Nur gültige Ergebnisse je Spiel. Abgebrochene und annullierte Spiele zählen nicht; Aufgeben gilt nicht als Verlassen.',
+  'Loading your games…': 'Deine Spiele werden geladen…',
+  'History unavailable or stale. Retry to load current records.':
+    'Der Verlauf ist nicht verfügbar oder veraltet. Erneut versuchen, um aktuelle Einträge zu laden.',
+  'All rulesets': 'Alle Regelwerke',
+  'All statuses': 'Alle Status',
+  'All results': 'Alle Ergebnisse',
+  'All outcomes': 'Alle Ausgänge',
+  'Recorded result': 'Gespeichertes Ergebnis',
+  'Unfinished record': 'Unbeendeter Eintrag',
+  'In progress': 'Laufend',
+  'Attacker wins': 'Siege der Angreifer',
+  'Defender wins': 'Siege der Verteidiger',
+  'Timed-out games': 'Spiele mit Zeitüberschreitung',
+  'Online section': 'Online-Bereich',
+  'Awaiting your move': 'Dein Zug steht aus',
+  'Other active games': 'Andere aktive Spiele',
+  'Waiting games you created': 'Von dir erstellte wartende Spiele',
+  'All current online games': 'Alle aktuellen Online-Spiele',
+  'Online history': 'Online-Verlauf',
+  Lifecycle: 'Spielstatus',
+  'Terminal online records': 'Beendete Online-Einträge',
+  'Your online outcome': 'Dein Online-Ergebnis',
+  'Timed out by you': 'Deine Bedenkzeit überschritten',
+  Win: 'Sieg',
+  Loss: 'Niederlage',
+  'No account games match these filters.': 'Keine Kontospiele entsprechen diesen Filtern.',
+  'No online games match these filters.': 'Keine Online-Spiele entsprechen diesen Filtern.',
+  'History pages': 'Verlaufsseiten',
+  'First page': 'Erste Seite',
+  'Next page': 'Nächste Seite',
+  'Showing {shown} of {matching} matching games':
+    '{shown} von {matching} passenden Spielen angezeigt',
+  'Date unavailable': 'Datum nicht verfügbar',
+  'Review account game': 'Kontospiel ansehen',
+  'Review online game': 'Online-Spiel ansehen',
+  'Open online game': 'Online-Spiel öffnen',
+  'Account game review': 'Kontospiel-Wiedergabe',
+  'Online game review': 'Online-Spiel-Wiedergabe',
+  'Back to dashboard': 'Zurück zur Übersicht',
+  'Read-only review. Replay controls change only your view.':
+    'Schreibgeschützte Wiedergabe. Die Steuerung ändert nur deine Ansicht.',
+  'Replay navigation': 'Wiedergabesteuerung',
+  'Move {move} of {total}': 'Zug {move} von {total}',
+  'Awaiting adjudication': 'Entscheidung steht aus',
+  'Deadlines and results come from the server. Opening a game does not grant permission to move after its deadline.':
+    'Fristen und Ergebnisse stammen vom Server. Das Öffnen erlaubt keinen Zug nach Ablauf der Frist.',
+};
+export default personal;

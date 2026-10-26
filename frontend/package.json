@@ -17,7 +17,8 @@
     "test:online": "playwright test --config playwright.online.config.ts",
     "predev": "../.venv/bin/python ../scripts/prepare_guest.py",
     "prebuild": "../.venv/bin/python ../scripts/prepare_guest.py",
-    "test:guest": "playwright test --config playwright.guest.config.ts"
+    "test:guest": "playwright test --config playwright.guest.config.ts",
+    "test:personal": "playwright test --config playwright.personal.config.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

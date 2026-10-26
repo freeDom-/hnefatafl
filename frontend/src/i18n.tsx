@@ -12,6 +12,7 @@ import dashboard from './locales/de-dashboard';
 import guest from './locales/de-guest';
 import online from './locales/de-online';
 import accounts from './locales/de-accounts';
+import personal from './locales/de-personal';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
@@ -30,6 +31,7 @@ const dictionary = {
   ...dashboard,
   ...accounts,
   ...online,
+  ...personal,
   ...guest,
 };
 let current: Language = 'en';

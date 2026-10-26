@@ -2,6 +2,12 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Online milestone integration (unreleased)
+
+[Phase 5 evidence](validation/online-phase5.md) records the personal dashboard,
+scoped history/review, result revision totals and preserved guest/account/online
+boundaries. It is separate from release and production rollout validation.
+
 ## Alpha-beta search optimization (Phase 4)
 
 The dedicated `tests/test_alpha_beta_search.py` module covers transposition-table
