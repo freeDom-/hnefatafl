@@ -51,8 +51,8 @@ Hall totals remain separated by category and describe winning sides, not an inve
 administrator win/loss perspective. Dashboard applies ownership, role visibility and
 completion/eligibility before its limit. Ordering is newest recorded time first
 (account end/creation time, online update time), then ID ascending for stable ties.
-Account dates are converted to integer microseconds by SQLite for cross-category
-sorting; pages do not promise a frozen snapshot across refreshes. Cursors bind to
+Current UTC account dates are parsed to exact integer microseconds for cross-category
+sorting, avoiding SQLite fractional-date rounding; pages do not promise a frozen snapshot across refreshes. Cursors bind to
 account, effective role/scope and filters. Refresh returns to the first page.
 
 ## Independent read-only review
