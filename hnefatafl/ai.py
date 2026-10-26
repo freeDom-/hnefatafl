@@ -146,12 +146,27 @@ def policy_value(
     return dict(zip(moves, probabilities)), float(value.reshape(-1)[0])
 
 
-def _ordered(state: State, moves: list[Move], rng: random.Random) -> list[tuple[Move, State]]:
+def _ordered(
+    state: State,
+    moves: list[Move],
+    rng: random.Random,
+    check: Callable[[], None] | None = None,
+) -> list[tuple[Move, State]]:
     # Terminal results first; material and king progression next. Stable seeded ties.
     rng.shuffle(moves)
     sign = 1 if state.turn == "defenders" else -1
-    children = [(move, apply_move(state, move)) for move in moves]
-    children.sort(key=lambda pair: sign * evaluate(pair[1]), reverse=True)
+    children: list[tuple[Move, State]] = []
+    for move in moves:
+        if check is not None:
+            check()
+        children.append((move, apply_move(state, move)))
+
+    def order_key(pair: tuple[Move, State]) -> float:
+        if check is not None:
+            check()
+        return sign * evaluate(pair[1])
+
+    children.sort(key=order_key, reverse=True)
     return children
 
 
@@ -178,6 +193,14 @@ class _TTEntry:
     orientation: int | None = None
 
 
+# Per-search transposition-table ceiling. A single search owns one table and
+# discards it afterwards, but a repetition-aware key can be several kilobytes on
+# a long game, so the capacity is bounded to keep worst-case memory predictable.
+# The measured per-entry cost and the long-game peak are recorded in
+# docs/benchmarks/alpha-beta-controls.md.
+MAX_TABLE_CAPACITY = 500_000
+
+
 class _TranspositionTable:
     """Depth-aware exact/bounded table for exactly one alpha-beta search.
 
@@ -189,8 +212,10 @@ class _TranspositionTable:
     """
 
     def __init__(self, capacity: int = 100_000) -> None:
-        if type(capacity) is not int or not 1 <= capacity <= 5_000_000:
-            raise ValueError("Transposition table capacity must be between 1 and 5000000")
+        if type(capacity) is not int or not 1 <= capacity <= MAX_TABLE_CAPACITY:
+            raise ValueError(
+                f"Transposition table capacity must be between 1 and {MAX_TABLE_CAPACITY}"
+            )
         self.capacity = capacity
         self.entries: dict[object, _TTEntry] = {}
         self.generation = 0
@@ -289,8 +314,10 @@ def clean_search_config(raw: object, *, model_backed: bool = False) -> dict[str,
             result[name] = value
     if "table_capacity" in raw:
         capacity = raw["table_capacity"]
-        if type(capacity) is not int or not 1 <= capacity <= 5_000_000:
-            raise ValueError("Search table_capacity must be an integer between 1 and 5000000")
+        if type(capacity) is not int or not 1 <= capacity <= MAX_TABLE_CAPACITY:
+            raise ValueError(
+                f"Search table_capacity must be an integer between 1 and {MAX_TABLE_CAPACITY}"
+            )
         result["table_capacity"] = capacity
     if result["symmetry_transposition"]:
         # A canonical table is also an ordinary table; keep the dependency explicit.
@@ -365,24 +392,30 @@ def _prioritise(
     return preferred + rest
 
 
-def _symmetry_move_pruning(position: State, moves: list[Move]) -> tuple[list[Move], int]:
+def _symmetry_move_pruning(
+    position: State, moves: list[Move], check: Callable[[], None] | None = None
+) -> tuple[list[Move], int]:
     """Collapse legal moves into one deterministic representative per orbit.
 
     Successors are built only for the retained moves. A symmetry may prune only
     when the complete state, including ordered repetition history, is invariant
     under it, so the pruned move set preserves the minimax value. The
     representative is the least transformed move, which is guaranteed legal
-    because a state stabilizer maps legal moves onto legal moves.
+    because a state stabilizer maps legal moves onto legal moves. ``check`` is
+    invoked between orbit computations so a monotonic deadline is observed inside
+    the stabilizer and the orbit loop.
     """
     if len(moves) < 2:
         return moves, 0
-    stabilizer = state_stabilizer(position)
+    stabilizer = state_stabilizer(position, check)
     if len(stabilizer) < 2:
         return moves, 0
     retained: list[Move] = []
     seen: set[Move] = set()
     skipped = 0
     for move in moves:
+        if check is not None:
+            check()
         if move in seen:
             skipped += 1
             continue
@@ -422,11 +455,14 @@ def _alpha_beta_legacy(
             best_move=best_move.to_dict(),
         )
 
-    def search(position: State, remaining: int, alpha: float, beta: float) -> float:
+    def check_search() -> None:
         if should_stop and should_stop():
             raise InterruptedError("Search cancelled")
         if time.monotonic() >= deadline:
             raise _Deadline
+
+    def search(position: State, remaining: int, alpha: float, beta: float) -> float:
+        check_search()
         if position.winner:
             return evaluate(position)
         if remaining == 0:
@@ -445,7 +481,7 @@ def _alpha_beta_legacy(
         maximizing = position.turn == "defenders"
         value = -math.inf if maximizing else math.inf
         fully_searched = True
-        for _, child in _ordered(position, moves, rng):
+        for _, child in _ordered(position, moves, rng, check_search):
             score = search(child, remaining - 1, alpha, beta)
             value = max(value, score) if maximizing else min(value, score)
             if maximizing:
@@ -465,7 +501,7 @@ def _alpha_beta_legacy(
         iteration_best = best_move
         score_best = -math.inf
         try:
-            ordered = _ordered(state, list(root_moves), rng)
+            ordered = _ordered(state, list(root_moves), rng, check_search)
             for move, child in ordered:
                 score = sign * search(child, current_depth - 1, -math.inf, math.inf)
                 if score > score_best:
@@ -548,10 +584,16 @@ def _alpha_beta(
             best_move=best_move.to_dict(),
         )
 
+    def check_search() -> None:
+        if should_stop and should_stop():
+            raise InterruptedError("Search cancelled")
+        if time.monotonic() >= deadline:
+            raise _Deadline
+
     def tt_key(position: State) -> tuple[object, Symmetry | None]:
         if settings.symmetry_transposition:
             started = time.perf_counter()
-            key, symmetry = canonical_state_key(position)
+            key, symmetry = canonical_state_key(position, check_search)
             counters["canonicalization_seconds"] += time.perf_counter() - started
             return key, symmetry
         return (position.ruleset, position.board, position.turn, position.history), None
@@ -561,10 +603,7 @@ def _alpha_beta(
         return policy_value(position, model_path, model)[1] if model_backed else evaluate(position)
 
     def search(position: State, remaining: int, alpha: float, beta: float, ply: int) -> float:
-        if should_stop and should_stop():
-            raise InterruptedError("Search cancelled")
-        if time.monotonic() >= deadline:
-            raise _Deadline
+        check_search()
         if position.winner:
             counters["evaluations"] += 1
             return evaluate(position)
@@ -619,9 +658,9 @@ def _alpha_beta(
         # Prune symmetry-equivalent moves before building any successor state,
         # then order the retained moves.
         if settings.symmetry_pruning:
-            moves, skipped = _symmetry_move_pruning(position, moves)
+            moves, skipped = _symmetry_move_pruning(position, moves, check_search)
             counters["symmetry_moves_skipped"] += skipped
-        children = _ordered(position, moves, rng)
+        children = _ordered(position, moves, rng, check_search)
         if settings.move_ordering:
             children = _prioritise(
                 children,
@@ -674,9 +713,11 @@ def _alpha_beta(
         try:
             root_candidates = list(root_moves)
             if settings.symmetry_pruning:
-                root_candidates, skipped = _symmetry_move_pruning(state, root_candidates)
+                root_candidates, skipped = _symmetry_move_pruning(
+                    state, root_candidates, check_search
+                )
                 counters["symmetry_moves_skipped"] += skipped
-            ordered = _ordered(state, root_candidates, rng)
+            ordered = _ordered(state, root_candidates, rng, check_search)
             # Rank ties by the seeded base order so prioritising the previous
             # principal variation cannot silently change which equal move wins.
             base_rank = {move: index for index, (move, _) in enumerate(ordered)}

@@ -8,6 +8,7 @@ never share D4-equivalent values or moves.
 
 from dataclasses import replace
 import json
+import time
 
 import pytest
 
@@ -353,13 +354,13 @@ def test_interrupted_iteration_keeps_last_completed_value(monkeypatch):
     ordered = ai._ordered
     root_calls = 0
 
-    def expire_on_second_root(position, moves, rng):
+    def expire_on_second_root(position, moves, rng, check=None):
         nonlocal root_calls
         if position is state:
             root_calls += 1
             if root_calls == 2:
                 raise ai._Deadline
-        return ordered(position, moves, rng)
+        return ordered(position, moves, rng, check)
 
     monkeypatch.setattr(ai, "_ordered", expire_on_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})
@@ -561,3 +562,83 @@ def test_cross_orientation_hits_are_distinct_from_canonical_hits():
         diagnostics=plain,
     )
     assert plain.get("transposition_cross_orientation_hits", 0) == 0
+
+
+def long_history_state(ruleset: str = "copenhagen", plies: int = 400) -> State:
+    """A fully symmetric board with a long, valid repetition history.
+
+    Every D4 orientation is tied, so canonicalization and the stabilizer must
+    transform the whole history for each symmetry instead of returning early.
+    """
+    state = new_game(ruleset)
+    entry = f"{state.turn}:{''.join(state.board)}"
+    return replace(state, history=tuple(entry for _ in range(plies)), ply=plies)
+
+
+def test_symmetry_functions_invoke_the_cancellation_check():
+    state = long_history_state()
+
+    class Stop(Exception):
+        pass
+
+    calls = {"count": 0}
+
+    def check() -> None:
+        calls["count"] += 1
+        if calls["count"] > 3:
+            raise Stop
+
+    for operation in (canonical_state_key, state_stabilizer, board_stabilizer):
+        calls["count"] = 0
+        with pytest.raises(Stop):
+            operation(state if operation is not board_stabilizer else state.board, check)
+        assert calls["count"] > 0
+
+
+def test_tiny_deadline_interrupts_long_history_canonicalization():
+    state = long_history_state()
+    # A host-calibrated baseline for the uninterrupted stabilizer.
+    samples = []
+    for _ in range(3):
+        started = time.perf_counter()
+        state_stabilizer(state)
+        samples.append(time.perf_counter() - started)
+    stabilizer_seconds = sorted(samples)[1]
+    details: dict = {}
+    started = time.perf_counter()
+    move = ai.choose_move(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 8,
+            "time_limit": stabilizer_seconds / 8,
+            "seed": 3,
+            "search": {
+                "transposition": True,
+                "symmetry_transposition": True,
+                "symmetry_pruning": True,
+                "move_ordering": True,
+            },
+        },
+        diagnostics=details,
+    )
+    elapsed = time.perf_counter() - started
+    assert move in legal_moves(state)
+    assert details["completed_depth"] < 8
+    # The deadline must interrupt the stabilizer/canonicalization instead of
+    # running the whole computation to completion.
+    assert elapsed < stabilizer_seconds
+
+
+def test_table_capacity_maximum_is_bounded():
+    from hnefatafl.ai import MAX_TABLE_CAPACITY, clean_search_config
+
+    assert MAX_TABLE_CAPACITY == 500_000
+    assert (
+        clean_search_config({"table_capacity": MAX_TABLE_CAPACITY})["table_capacity"]
+        == MAX_TABLE_CAPACITY
+    )
+    with pytest.raises(ValueError, match="capacity"):
+        clean_search_config({"table_capacity": MAX_TABLE_CAPACITY + 1})
+    with pytest.raises(ValueError, match="capacity"):
+        _TranspositionTable(MAX_TABLE_CAPACITY + 1)

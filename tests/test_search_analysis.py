@@ -58,13 +58,13 @@ def test_alpha_beta_keeps_last_completed_search_value_if_deeper_iteration_expire
     ordered = ai._ordered
     root_calls = 0
 
-    def expiry_at_second_root(position, moves, rng):
+    def expiry_at_second_root(position, moves, rng, check=None):
         nonlocal root_calls
         if position is state:
             root_calls += 1
             if root_calls == 2:
                 raise ai._Deadline
-        return ordered(position, moves, rng)
+        return ordered(position, moves, rng, check)
 
     monkeypatch.setattr(ai, "_ordered", expiry_at_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})
@@ -229,11 +229,11 @@ def test_alpha_beta_publishes_completed_depths_without_restarting_search(monkeyp
     root_calls = 0
     ordered = ai._ordered
 
-    def count_root(position, moves, rng):
+    def count_root(position, moves, rng, check=None):
         nonlocal root_calls
         if position is state:
             root_calls += 1
-        return ordered(position, moves, rng)
+        return ordered(position, moves, rng, check)
 
     monkeypatch.setattr(ai, "_ordered", count_root)
     snapshots = []
