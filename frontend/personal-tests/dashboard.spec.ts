@@ -1,5 +1,8 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 const password = 'personal-browser-fixture-password';
+test.beforeEach(async ({ request }) => {
+  expect((await request.post('http://127.0.0.1:8010/reset-login-attempts')).status()).toBe(204);
+});
 async function credentials(page: Page, name: string) {
   await page.getByLabel('Username or email').fill(name);
   await page.getByLabel('Password', { exact: true }).fill(password);
