@@ -89,6 +89,7 @@
   }
 }
 
-.online-page .button {
+.online-page .button,
+.dashboard-lobby .button {
   white-space: normal;
 }

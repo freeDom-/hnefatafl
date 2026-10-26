@@ -21,11 +21,17 @@ export type Account = {
   email_verified?: boolean;
 };
 type Session = { account: Account; csrf_token: string };
-type Authentication = { account: Account | null; logout: () => Promise<void> };
+type Authentication = { account: Account | null; logout: () => Promise<void>; pending?: boolean };
 const Context = createContext<Authentication>({ account: null, logout: async () => {} });
 export const useAuth = () => useContext(Context);
 
-export default function Auth({ children }: { children: ReactNode }) {
+export default function Auth({
+  children,
+  navigationOnly = false,
+}: {
+  children: ReactNode;
+  navigationOnly?: boolean;
+}) {
   const { t } = useI18n();
   const generation = useRef(0);
   const acceptedAccountId = useRef<string | null>(null);
@@ -35,44 +41,54 @@ export default function Auth({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   function accept(session: Session) {
-    let changed =
-      acceptedAccountId.current !== null && acceptedAccountId.current !== session.account.id;
-    try {
-      if (localStorage.getItem('hnefatafl-account-cache') !== session.account.id) {
-        changed = true;
-        localStorage.removeItem('hnefatafl-game');
-        localStorage.removeItem('hnefatafl-new-game-options');
-      }
-      localStorage.setItem('hnefatafl-account-cache', session.account.id);
-    } catch {
-      /* Private browser mode must not prevent authentication. */
-    }
-    if (changed) {
+    if (!navigationOnly) {
+      let changed =
+        acceptedAccountId.current !== null && acceptedAccountId.current !== session.account.id;
       try {
-        sessionStorage.removeItem('hnefatafl-online-intent');
+        if (localStorage.getItem('hnefatafl-account-cache') !== session.account.id) {
+          changed = true;
+          localStorage.removeItem('hnefatafl-game');
+          localStorage.removeItem('hnefatafl-new-game-options');
+        }
+        localStorage.setItem('hnefatafl-account-cache', session.account.id);
       } catch {
-        /* Private mode. */
+        /* Private browser mode must not prevent authentication. */
+      }
+      if (changed) {
+        try {
+          sessionStorage.removeItem('hnefatafl-online-intent');
+        } catch {
+          /* Private mode. */
+        }
       }
     }
     acceptedAccountId.current = session.account.id;
     setCSRF(session.csrf_token);
     setAccount(session.account);
   }
-  function clear() {
+  function clear(clearPreferences = !navigationOnly) {
     generation.current++;
     acceptedAccountId.current = null;
-    try {
-      sessionStorage.removeItem('hnefatafl-online-intent');
-    } catch {
-      /* Private mode. */
+    if (clearPreferences) {
+      try {
+        sessionStorage.removeItem('hnefatafl-online-intent');
+      } catch {
+        /* Private mode. */
+      }
     }
     setCSRF('');
     setAccount(null);
-    try {
-      for (const key of ['hnefatafl-game', 'hnefatafl-new-game-options', 'hnefatafl-account-cache'])
-        localStorage.removeItem(key);
-    } catch {
-      /* Protected React state is still cleared. */
+    if (clearPreferences) {
+      try {
+        for (const key of [
+          'hnefatafl-game',
+          'hnefatafl-new-game-options',
+          'hnefatafl-account-cache',
+        ])
+          localStorage.removeItem(key);
+      } catch {
+        /* Protected React state is still cleared. */
+      }
     }
   }
   useEffect(() => {
@@ -136,7 +152,7 @@ export default function Auth({ children }: { children: ReactNode }) {
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const pending = api('/auth/logout', {}, undefined, controller.signal);
-      clear();
+      clear(true);
       setBusy(true);
       await pending;
     } catch (e) {
@@ -178,6 +194,15 @@ export default function Auth({ children }: { children: ReactNode }) {
       window.removeEventListener('permissions-changed', refresh);
     };
   }, [account?.id]);
+  // Only the public guest header uses this branch. It cannot mount account
+  // gameplay or replace the guest worker while session state changes.
+  if (navigationOnly)
+    return (
+      <Context.Provider value={{ account, logout, pending: loading || signingOut.current }}>
+        {children}
+        {error && <p role="alert">{t(error)}</p>}
+      </Context.Provider>
+    );
   if (loading || signingOut.current)
     return (
       <main className="auth-screen" role="status">

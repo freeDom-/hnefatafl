@@ -426,8 +426,12 @@ batch deduplication remain separate from node reuse and completed simulations.
 
 ## Guest, account and online play surfaces
 
-`PlaySurfaces.tsx` routes exact `/guest` paths outside Auth. Guest owns its worker,
-types and IndexedDB slot; it does not import API/account/online adapters. Navigation
+`PlaySurfaces.tsx` routes exact `/guest` paths outside the account guard. Guest owns
+its worker, types and IndexedDB slot; gameplay does not import API/account/online
+adapters. Only `GuestNavigation` mounts Auth's navigation-only session view and
+the shared `SiteHeader`. Session reads do not modify saved account preferences;
+explicit logout keeps its existing cleanup. Header session changes never remount
+the guest game. Navigation
 terminates the worker; returning validates saved moves again. Protected requests
 have session epochs and cancellation so delayed old-account responses cannot update
 a different account or emit stale authentication events. Existing account
@@ -453,8 +457,10 @@ search/selection; account gameplay has `/games/{id}` and dedicated online/replay
 remain. `RecordedGames` supplies compact rows to Dashboard and `Archive` (Hall).
 `RecordedReview` uses category-specific validated read adapters and viewer-local state.
 Selected review is independent of Hall filters/page and survives direct load/refresh.
-Guest links use shared `HeaderLink` without mounting Auth or reading account/device
-state on the guest surface. Account-keyed poll state, cancellation and session epochs
+Authenticated headers omit the Guest link. Anonymous Guest navigation offers one
+login anchor; authenticated direct Guest visits retain shared account navigation
+without a login or self-link. Dashboard never reads device saves.
+Account-keyed poll state, cancellation and session epochs
 reject late responses. The leaderboard panel is only an upcoming Phase 6 placeholder.
 
 `personal_api.py` retains five own-account GET adapters under `/api/personal`, including

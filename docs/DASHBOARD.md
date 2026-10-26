@@ -7,7 +7,8 @@ Dashboard (`/dashboard`) is the authenticated landing and default post-login pag
 `/`, `/play` and `/online` redirect there, retaining search parameters and fragments;
 old Play/Online entries select the corresponding setup. Main navigation contains
 Dashboard, Hall of records and the authorized workshop/tournament controls.
-Guest play remains a header link and a standalone public `/guest` surface.
+Authenticated navigation omits Guest play. The public `/guest` route remains
+available directly, and login screens still offer guest play.
 
 ## Play from Dashboard
 
@@ -81,8 +82,10 @@ history/statistics/replay reads and discard late responses. The personal APIs re
 strictly own-account even for administrators; broader Hall access uses separate
 read-only `/api/history` routes with trusted session rechecks.
 
-Dashboard never imports or reads guest storage. Guest header links use the shared
-header-link control and real anchors; protected destinations enter Auth only after
-leaving Guest. The guest worker, one device slot, validated replay, replacement and
+Dashboard never imports or reads guest storage. Dashboard cards, including the
+full-width lobby, share padding and one grid gap. Guest navigation uses the shared
+authenticated header for signed-in visitors and a single login anchor otherwise;
+only the header checks the session. Protected destinations retain their auth guard.
+The guest worker, one device slot, validated replay, replacement and
 clear policy are unchanged. No save upload/import, archive or server accounting is
 introduced. See [the Phase 5 refinement evidence](validation/dashboard-consolidation.md).

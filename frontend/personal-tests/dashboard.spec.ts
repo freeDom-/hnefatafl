@@ -29,6 +29,7 @@ test('default landing, shared latest three and exact review survive filtering an
   await expect(nav.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
   await expect(nav.getByRole('button', { name: 'Online', exact: true })).toHaveCount(0);
   await expect(page.getByText(/Guest games stay/)).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Guest play', exact: true })).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByText('Upcoming in Phase 6')).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
@@ -291,4 +292,97 @@ test('history review is read-only, validated and preserves authoritative records
   }
   expect(writes).toEqual([]);
   expect((await snapshot(request)).fingerprint).toBe(before.fingerprint);
+});
+
+test('Dashboard lobby has shared card spacing in loading, empty, populated and error states', async ({
+  page,
+}) => {
+  let state: 'loading' | 'empty' | 'populated' | 'error' = 'loading';
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/online/games?*', async (route) => {
+    if (state === 'loading') await held;
+    if (state === 'error') {
+      await route.fulfill({ status: 503, json: { detail: 'Temporarily unavailable' } });
+      return;
+    }
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      response,
+      json: { ...data, games: state === 'empty' ? [] : data.games.slice(0, 2) },
+    });
+  });
+  await login(page);
+  const lobby = page.getByRole('region', { name: 'Online lobby', exact: true });
+  const spacing = async (name: string) => {
+    const dimensions = await page.evaluate(() => {
+      const card = document.querySelector<HTMLElement>('.dashboard-lobby')!;
+      const reference = document.querySelector<HTMLElement>('.personal-section')!;
+      const overview = document.querySelector<HTMLElement>('.dashboard-overview')!;
+      const recent = document.querySelector<HTMLElement>('.dashboard-recent')!;
+      const leaderboard = document.querySelector<HTMLElement>('.leaderboard-placeholder')!;
+      const rect = card.getBoundingClientRect();
+      const css = getComputedStyle(card);
+      return {
+        left: parseFloat(css.paddingLeft),
+        right: parseFloat(css.paddingRight),
+        reference: parseFloat(getComputedStyle(reference).paddingLeft),
+        heading:
+          card.querySelector('h2')!.getBoundingClientRect().left -
+          rect.left -
+          parseFloat(css.borderLeftWidth),
+        gap:
+          rect.top -
+          Math.max(
+            recent.getBoundingClientRect().bottom,
+            leaderboard.getBoundingClientRect().bottom,
+          ),
+        expectedGap: parseFloat(getComputedStyle(overview).rowGap),
+        contained: Array.from(card.querySelectorAll('h2, h3, p, button, article')).every((node) => {
+          const child = node.getBoundingClientRect();
+          return child.left >= rect.left && child.right <= rect.right + 1;
+        }),
+        fits:
+          document.documentElement.scrollWidth <= innerWidth &&
+          card.scrollWidth <= card.clientWidth,
+      };
+    });
+    expect(dimensions.left).toBeCloseTo(dimensions.reference, 1);
+    expect(dimensions.right).toBeCloseTo(dimensions.reference, 1);
+    expect(dimensions.heading).toBeCloseTo(dimensions.reference, 1);
+    expect(dimensions.gap).toBeCloseTo(dimensions.expectedGap, 1);
+    expect(dimensions.contained).toBe(true);
+    expect(dimensions.fits).toBe(true);
+    await lobby.screenshot({ path: test.info().outputPath(`lobby-${name}.png`) });
+  };
+  await expect(lobby.getByText('Loading online games…')).toBeVisible();
+  await spacing('loading');
+  state = 'empty';
+  release();
+  await expect(lobby.getByText('No games on this page.')).toBeVisible();
+  await spacing('empty');
+  state = 'populated';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(lobby.locator('.online-card')).toHaveCount(2);
+  await spacing('populated');
+  await page.screenshot({
+    path: test.info().outputPath('dashboard-shared-spacing.png'),
+    fullPage: true,
+  });
+  state = 'error';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(lobby.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await spacing('error');
+  state = 'populated';
+  await lobby.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(lobby.getByRole('button', { name: 'Retry connection' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'New online game', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create an online game' });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByText('Disconnecting, closing the browser or logging out does not pause clocks.'),
+  ).toHaveCount(0);
 });

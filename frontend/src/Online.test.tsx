@@ -89,6 +89,9 @@ it.each(
 )('creates with side %s and mode %s using only the contract payload', async (side, mode) => {
   lobby();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+  expect(
+    screen.queryByText('Disconnecting, closing the browser or logging out does not pause clocks.'),
+  ).toBeNull();
   fireEvent.change(screen.getByLabelText('Creator side'), { target: { value: side } });
   fireEvent.change(screen.getByLabelText('Match mode'), { target: { value: mode } });
   fireEvent.change(screen.getByLabelText('Ruleset'), { target: { value: 'tablut' } });

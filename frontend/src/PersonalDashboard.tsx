@@ -128,13 +128,13 @@ function DashboardHome({
           <h2>{t('Leaderboard')}</h2>
           <p>{t('Upcoming in Phase 6')}</p>
         </aside>
+        <Lobby
+          accountId={accountId}
+          embedded
+          creationRequested={creation}
+          open={(id) => navigate(`/online/games/${id}`)}
+        />
       </div>
-      <Lobby
-        accountId={accountId}
-        embedded
-        creationRequested={creation}
-        open={(id) => navigate(`/online/games/${id}`)}
-      />
     </section>
   );
 }

@@ -36,7 +36,7 @@ async function humanMove(page: Page, expectSavedReply = true) {
   await ready(page);
 }
 
-test('anonymous guest uses real Python engine, persists moves and reloads through production CSP without API calls', async ({
+test('anonymous guest uses real Python engine and production CSP with session-only navigation requests', async ({
   page,
   request,
 }) => {
@@ -47,13 +47,21 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
     if (new URL(r.url()).pathname.startsWith('/api/')) apis.push(r.url());
   });
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (
+      message.type() === 'error' &&
+      !(message.location().url.endsWith('/api/auth/me') && message.text().includes('401'))
+    )
+      errors.push(message.text());
   });
   const began = Date.now();
   await page.goto('/guest');
-  const accountLink = page.getByRole('link', { name: 'Account single-player', exact: true });
+  const accountLink = page.getByRole('link', { name: 'Log in', exact: true });
   await expect(accountLink).toHaveClass(/header-link.*button/);
-  await expect(accountLink).toHaveAttribute('href', '/dashboard?setup=single-player');
+  await expect(accountLink).toHaveAttribute('href', '/login');
+  await expect(
+    page.getByRole('link', { name: /Guest play|Account single-player|Online multiplayer/ }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Appearance settings' })).toBeVisible();
   await accountLink.focus();
   await expect(accountLink).toBeFocused();
   expect(
@@ -61,6 +69,19 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
   ).toBeGreaterThanOrEqual(42);
 
   await ready(page);
+  const clear = page.getByRole('button', { name: 'Clear device game', exact: true });
+  expect(await clear.evaluate((button) => button.nextElementSibling === null)).toBe(true);
+  await expect(
+    page.getByText(
+      /Only the current or last guest game is kept|Browser storage can be cleared or evicted|Language and appearance are separate preferences/,
+    ),
+  ).toHaveCount(0);
+  await page
+    .locator('header')
+    .screenshot({ path: test.info().outputPath('guest-anonymous-header.png') });
+  await page
+    .locator('.guest-settings')
+    .screenshot({ path: test.info().outputPath('guest-settings-clean.png') });
   console.log('Guest startup ms:', Date.now() - began);
   await start(page);
   await humanMove(page);
@@ -80,7 +101,8 @@ test('anonymous guest uses real Python engine, persists moves and reloads throug
   expect(
     await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
   ).toBe(0);
-  expect(apis).toEqual([]);
+  expect(apis.length).toBeGreaterThan(0);
+  expect(apis.every((url) => new URL(url).pathname === '/api/auth/me')).toBe(true);
   expect(errors).toEqual([]);
   expect(await (await request.get('http://127.0.0.1:8008/counts')).json()).toEqual(before);
   const headers = await request.get('/assets/guest-manifest.json');
@@ -287,7 +309,7 @@ test('guest survives login, logout, account switching, back navigation and onlin
   await start(page);
   await humanMove(page);
   const checkpoint = await saved(page);
-  await page.getByRole('link', { name: 'Account single-player', exact: true }).click();
+  await page.getByRole('link', { name: 'Log in', exact: true }).click();
   await login(page, 'GuestArcher');
   const owned = await page.evaluate(async () => {
     const session = await (await fetch('/api/auth/me')).json();
@@ -301,7 +323,17 @@ test('guest survives login, logout, account switching, back navigation and onlin
     localStorage.setItem('hnefatafl-game', created.id);
     return created;
   });
-  await page.getByRole('link', { name: 'Guest play', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Guest play', exact: true })).toHaveCount(0);
+  await page.goto('/guest');
+  await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Guest play|Log in/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hall of records', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Appearance settings' })).toBeVisible();
+  await page
+    .locator('header')
+    .screenshot({ path: test.info().outputPath('guest-authenticated-header.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await ready(page);
   expect(await saved(page)).toEqual(checkpoint);
   expect(await page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBe(owned.id);

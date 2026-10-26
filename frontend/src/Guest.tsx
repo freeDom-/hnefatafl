@@ -1,16 +1,15 @@
-import HeaderLink from './HeaderLink';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import SiteHeader from './SiteHeader';
 import Board from './Board';
 import Modal from './Modal';
-import { AppearanceSettings } from './Appearance';
-import { LanguageSelect, useI18n } from './i18n';
+import { useI18n } from './i18n';
 import { GuestEngine } from './guestEngine';
 import { GuestConflict, readGuestSlot, writeGuestSlot, clearGuestSlot } from './guestStore';
 import { parseGuestRecord, type GuestInfo, type GuestSnapshot } from './guestTypes';
 import type { Side } from './types';
 import './guest.css';
 const sides = { attackers: 'Attackers', defenders: 'Defenders' };
-export default function Guest() {
+export default function Guest({ header }: { header?: ReactNode }) {
   const { t } = useI18n();
   const [info, setInfo] = useState<GuestInfo | null>(null);
   const [game, setGame] = useState<GuestSnapshot | null>(null);
@@ -242,20 +241,7 @@ export default function Guest() {
   };
   return (
     <>
-      <header className="guest-header">
-        <strong>HNEFATAFL</strong>
-        <nav aria-label={t('Play surfaces')}>
-          <HeaderLink href="/guest" current>
-            {t('Guest play')}
-          </HeaderLink>
-          <HeaderLink href="/dashboard?setup=single-player">
-            {t('Account single-player')}
-          </HeaderLink>
-          <HeaderLink href="/dashboard?setup=online">{t('Online multiplayer')}</HeaderLink>
-        </nav>
-        <LanguageSelect />
-        <AppearanceSettings />
-      </header>
+      {header ?? <SiteHeader account={null} />}
       <main className="guest-page">
         <h1>{t('Guest play · this browser only')}</h1>
         <p>
@@ -413,23 +399,6 @@ export default function Guest() {
                 <button className="button primary">{t('Start guest game')}</button>
               </fieldset>
             </form>
-            <button
-              className="button secondary"
-              disabled={busy || (!hasSlot && !game)}
-              onClick={() => setConfirm('clear')}
-            >
-              {t('Clear device game')}
-            </button>
-            <p>
-              {t(
-                'Only the current or last guest game is kept. Starting another replaces it after confirmation. There is no guest archive.',
-              )}
-            </p>
-            <p>
-              {t(
-                'Browser storage can be cleared or evicted. Initial loading needs a connection and can take several seconds; full offline startup is not provided.',
-              )}
-            </p>
             {ready && (
               <p>
                 <a href={engine.current?.notices} target="_blank" rel="noreferrer">
@@ -437,11 +406,13 @@ export default function Guest() {
                 </a>
               </p>
             )}
-            <p>
-              {t(
-                'Language and appearance are separate preferences. Logging in does not upload or delete this guest game.',
-              )}
-            </p>
+            <button
+              className="button secondary"
+              disabled={busy || (!hasSlot && !game)}
+              onClick={() => setConfirm('clear')}
+            >
+              {t('Clear device game')}
+            </button>
           </aside>
         </div>
       </main>
