@@ -12,7 +12,7 @@ vi.mock('./Auth', async (original) => ({
       username: 'Odin',
       email: 'odin@example.test',
       role: 'ADMIN',
-      permissions: ['play', 'profile', 'training', 'tournaments', 'models'],
+      permissions: ['play', 'profile', 'training', 'tournaments', 'models', 'all_data'],
     },
     logout: async () => {},
   }),

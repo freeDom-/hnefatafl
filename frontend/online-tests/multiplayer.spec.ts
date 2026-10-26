@@ -14,9 +14,16 @@ async function opponent(browser: Browser, name = 'OnlineKeeper') {
   return { context, page };
 }
 async function create(page: Page, mode = 'single', side = 'attackers', seconds = '259200') {
+  if (!(await page.getByRole('dialog', { name: 'Create an online game' }).isVisible()))
+    await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await page.getByLabel('Creator side').selectOption(side);
   await page.getByLabel('Match mode').selectOption(mode);
-  await page.getByLabel('Seconds per move').fill(seconds);
+  const duration = Number(seconds);
+  await page.getByLabel('Days', { exact: true }).fill(String(Math.floor(duration / 86400)));
+  await page
+    .getByLabel('Hours', { exact: true })
+    .fill(String(Math.floor((duration % 86400) / 3600)));
+  await page.getByLabel('Minutes', { exact: true }).fill(String((duration % 3600) / 60));
   await page.getByRole('button', { name: 'Create game', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel waiting game' })).toBeEnabled();
@@ -52,6 +59,11 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   extra.push(other.context);
   const url = await create(page);
   await join(other.page, url);
+  await page.getByRole('button', { name: 'Back to online lobby', exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByRole('button', { name: 'My games', exact: true }).click();
+  await page.getByRole('button', { name: 'Open game', exact: true }).first().click();
+  await expect(page).toHaveURL(url);
   await refresh(page);
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
@@ -214,5 +226,111 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await expect(page.getByText(/State changed or adjudication is paused/)).toBeVisible();
   await expect(page.getByText('Active', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to online lobby' }).click();
+  await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Create game', exact: true })).toBeDisabled();
+});
+
+test('lobby automatically observes creation, join and completion and resynchronizes after reconnect and tab visibility', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'OnlineArcher');
+  const viewer = await opponent(browser, 'OnlineViewer');
+  extra.push(viewer.context);
+  const close = viewer.page
+    .getByRole('dialog', { name: 'Create an online game' })
+    .getByRole('button', { name: 'Cancel', exact: true });
+  await expect(close).toBeVisible();
+  await close.click();
+  const lobby = viewer.page.getByRole('region', { name: 'Online lobby', exact: true });
+  await expect(lobby.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+  await expect(lobby.getByText('Connected · refreshes automatically')).toHaveCount(0);
+  const url = await create(page, 'single', 'attackers', '3600');
+  const id = new URL(url).pathname.split('/').pop();
+  const card = lobby.locator(`.online-card[data-game-id="${id}"]`);
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Waiting');
+  await viewer.context.setOffline(true);
+  await expect(lobby.getByRole('alert')).toContainText('Lobby data is stale');
+  const keeper = await opponent(browser);
+  extra.push(keeper.context);
+  await join(keeper.page, url);
+  await viewer.context.setOffline(false);
+  await viewer.page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(card).toContainText('Active');
+  await expect(lobby.getByRole('alert')).toHaveCount(0);
+  await viewer.page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }),
+  );
+  await concede(page);
+  await viewer.page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(card).toContainText('Completed');
+  await expect(lobby.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+});
+
+test('online setup shares modal spacing, restores focus on Escape and rejects invalid aggregate durations', async ({
+  page,
+}) => {
+  await login(page, 'OnlineArcher');
+  const online = page.getByRole('dialog', { name: 'Create an online game', exact: true });
+  await expect(online).toBeVisible();
+  const modalPadding = await online.evaluate((n) => getComputedStyle(n).padding);
+  const formPadding = await online.locator('form').evaluate((n) => getComputedStyle(n).padding);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
+  const single = page.getByRole('dialog', { name: 'Begin a new saga' });
+  await expect(single).toBeVisible();
+  expect(await single.evaluate((n) => getComputedStyle(n).padding)).toBe(modalPadding);
+  expect(await single.locator('form').evaluate((n) => getComputedStyle(n).padding)).toBe(
+    formPadding,
+  );
+  await page.keyboard.press('Escape');
+  const trigger = page.getByRole('button', { name: 'New online game', exact: true });
+  await trigger.click();
+  await expect(online).toBeVisible();
+  expect(await online.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+  const ruleset = online.getByRole('combobox', { name: 'Ruleset', exact: true });
+  await expect(ruleset).toBeEnabled();
+  await ruleset.focus();
+  await expect(ruleset).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  for (const [label, max] of [
+    ['Days', '14'],
+    ['Hours', '23'],
+    ['Minutes', '59'],
+  ]) {
+    const input = online.getByLabel(label, { exact: true });
+    await expect(input).toHaveAttribute('min', '0');
+    await expect(input).toHaveAttribute('max', max);
+    await expect(input).toHaveAttribute('step', '1');
+    await input.fill('0');
+  }
+  const posts: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/online/games')
+      posts.push(r.postData()!);
+  });
+  await online.getByRole('button', { name: 'Create game', exact: true }).click();
+  await expect(online.getByRole('alert')).toContainText('at least 1 minute');
+  expect(posts).toEqual([]);
+  await online.getByLabel('Days', { exact: true }).fill('14');
+  await online.getByLabel('Minutes', { exact: true }).fill('1');
+  await online.getByRole('button', { name: 'Create game', exact: true }).click();
+  await expect(online.getByRole('alert')).toContainText('at most 14 days');
+  expect(posts).toEqual([]);
+  await online.getByLabel('Minutes', { exact: true }).fill('0');
+  const created = page.waitForResponse(
+    (r) => r.url().endsWith('/api/online/games') && r.request().method() === 'POST',
+  );
+  await online.getByRole('button', { name: 'Create game', exact: true }).click();
+  const response = await created;
+  expect(response.status()).toBe(201);
+  expect((await response.json()).game.time_per_move).toBe(1209600);
+  expect(JSON.parse(posts[0]).time_per_move).toBe(1209600);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -5,7 +5,7 @@ import type { AIProfile, Game, Model } from './types';
 import { selectStrongestModel } from './modelSelection';
 import { useI18n } from './i18n';
 import { modelLabel } from './modelLabel';
-import { profileConfiguration } from './gameSetupPreference';
+import { profileConfiguration } from './profileConfiguration';
 import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 
 export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: string) {

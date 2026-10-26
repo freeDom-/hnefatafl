@@ -6,15 +6,26 @@
 Open **Guest play** at `/guest` without logging in. Select Brandubh, Tablut market
 or Copenhagen and your side, then start. Select a piece and a highlighted
 destination; keyboard arrows, Enter/Space and Escape work as on the account board.
-**Play computer move** runs the bounded baseline opponent in this browser. The
-computer does not move automatically after restoring a game. No model download,
-strength claim or server analysis is involved.
+The bounded baseline opponent moves automatically after your move, when it moves
+first, and after a validated restore on its turn. A thinking indicator and cancel
+control accompany computation; saving completes before another turn can begin.
+Failures require an explicit retry and never create a retry loop. Operation guards
+discard late cancelled/unmounted results; terminal games and historical replay
+never start a computer turn. No model download, strength claim or server analysis
+is involved.
 
 Guest games are local, noncompetitive single-player. They never create server
 games or enter account statistics, online results, ratings, leaderboards, rewards,
 training collections or tournaments. Logging in does not upload or import them.
 Account single-player still requires login and saves on the server; Online still
 uses authenticated, server-authoritative multiplayer.
+
+Guest Play has no self-link. Anonymous visitors see one **Log in** action instead
+of separate account-game links. Signed-in visitors opening `/guest` directly keep
+the shared authenticated navigation and Appearance controls, without a redundant
+login action. Authenticated navigation elsewhere has no Guest Play entry; the
+route remains public. The settings card ends at **Clear device game**; runtime
+license/source information remains available above that button.
 
 ## One current or last game
 
@@ -118,8 +129,11 @@ cache lifecycle/security/update design.
 
 ## Account and online compatibility
 
-`/guest` mounts no Auth, account-game or online adapter. Its only requests fetch
-static app/runtime assets with no game persistence endpoint. Navigation terminates
+Guest gameplay mounts no account-game or online adapter. Its header alone checks
+the existing session endpoint to choose navigation and supports explicit logout;
+it never requests account histories or server game persistence. Gameplay/runtime
+requests remain static assets. Reading the session in this header does not change
+account selection preferences or touch the device save. Navigation terminates
 the guest worker. Returning validates the saved sequence; it never uploads it.
 Account logout/switch cancels protected requests and drops protected UI state;
 responses from an old session cannot install into the new account's UI.

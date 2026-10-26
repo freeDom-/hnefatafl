@@ -76,18 +76,20 @@ class AnalyticsRequest(BaseModel):
     show_win_chances: bool = True
 
 
+Preset = Literal["baseline", "shield_maiden", "alpha_beta", "mcts"]
+
+
+class OpponentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_id: Preset = "baseline"
+
+
 class GameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
-    mode: Literal["human-human", "human-ai", "ai-ai"] = "human-human"
+    mode: Literal["human-ai", "ai-ai"] = "human-ai"
     human_side: Literal["attackers", "defenders"] = "defenders"
-    players: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    seed: StrictInt | None = Field(default=None, ge=0, le=2**32 - 1)
-    advisor: AdvisorRequest | None = None
-
-
-class PlayerRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    players: dict[str, OpponentRequest] = Field(default_factory=dict)
 
 
 class ModelNameRequest(BaseModel):
@@ -269,24 +271,11 @@ def create_app(
         }
 
     def recorded_outcome(game: dict) -> dict:
-        """The end of the retained record is independent of a replay cursor."""
+        """Only the stored result completes a record, independent of replay cursor."""
         summary = game.get("recorded_result")
         if isinstance(summary, dict):
             return summary
-        if "recorded_result" in game:
-            return {"winner": None, "reason": None, "plies": len(game["moves"])}
-        # Backward-compatible derivation for databases from early pre-releases.
-        terminal = (
-            state_of(game)
-            if game["cursor"] == len(game["moves"])
-            else state_at(game, len(game["moves"]))
-        )
-        return {
-            "winner": terminal.winner,
-            "reason": terminal.reason,
-            "plies": terminal.ply,
-            "ended_at": game.get("ended_at"),
-        }
+        return {"winner": None, "reason": None, "plies": len(game["moves"])}
 
     def agent_rune(agent: dict) -> str:
         return store.rune(agent_identity(agent))
@@ -465,77 +454,11 @@ def create_app(
             fail("The neural opponent requires a registered model.")
         return resolved
 
-    def normalise_players(request: GameRequest, seed: int) -> dict:
-        result: dict[str, dict[str, Any]] = {}
-        for side in SIDES:
-            is_ai = request.mode == "ai-ai" or (
-                request.mode == "human-ai" and side != request.human_side
-            )
-            provided = request.players.get(side, {})
-            provided_config = provided.get("config")
-            # A named preset is fixed for new games. Custom opponents omit a
-            # profile ID and retain explicit budgets; saved games are unchanged.
-            if is_ai and provided.get("profile_id") in {
-                "baseline",
-                "shield_maiden",
-                "alpha_beta",
-                "mcts",
-            }:
-                from .ai import ai_profiles
-
-                preset = next(p for p in ai_profiles() if p["id"] == provided["profile_id"])
-                provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
-            kind = "ai" if is_ai else "human"
-            player_id = provided.get("player_id")
-            name = str(provided.get("name") or ("Computer" if is_ai else side.title())).strip()
-            if not name or len(name) > 80:
-                fail("Player names must contain 1–80 characters.")
-            if player_id and kind == "human":
-                profile = next((p for p in store.players() if p["id"] == player_id), None)
-                if not profile:
-                    fail("Unknown player profile.")
-                name = profile["name"]
-            elif kind == "human":
-                existing = next((p for p in store.players() if p["name"] == name), None)
-                if existing:
-                    player_id = existing["id"]
-                else:
-                    player_id = uuid4().hex
-                    store.create_player({"id": player_id, "name": name, "created_at": now()})
-            result[side] = {
-                "name": name,
-                "kind": kind,
-                "player_id": player_id if kind == "human" else None,
-                "profile_id": provided.get("profile_id", "baseline") if kind == "ai" else None,
-                "config": clean_ai_config(provided_config, provided.get("profile_id", "baseline"))
-                if kind == "ai"
-                else {},
-            }
-            if is_ai:
-                from .ai import ai_profiles
-
-                # Manual algorithm selection must not inherit an unrelated
-                # profile label left behind by the setup form.
-                result[side]["config"]["seed"] = seed
-                algorithm = result[side]["config"]["algorithm"]
-                profile = next(p for p in ai_profiles() if p["algorithm"] == algorithm)
-                result[side]["profile_id"] = profile["id"]
-                result[side]["profile_name"] = profile["name"]
-                result[side]["variant_id"] = ai_variant_id(result[side]["config"])
-                model_id = result[side]["config"].get("model_id")
-                if model_id:
-                    model = model_info(model_id)
-                    if model["ruleset"] != request.ruleset:
-                        fail("This model is for a different ruleset.")
-                    result[side]["model_name"] = model["name"]
-        return {side: with_agent_rune(player) for side, player in result.items()}
-
-    def normalise_advisor(request: GameRequest, seed: int) -> dict | None:
-        if request.advisor is None:
+    def normalise_advisor(provided: AdvisorRequest | None, ruleset: str, seed: int) -> dict | None:
+        if provided is None:
             return None
         from .ai import ai_profiles
 
-        provided = request.advisor
         name = provided.name.strip()
         if not name:
             fail("The move advisor needs a name.")
@@ -551,7 +474,7 @@ def create_app(
         }
         if config.get("model_id"):
             model = model_info(config["model_id"])
-            if model["ruleset"] != request.ruleset:
+            if model["ruleset"] != ruleset:
                 fail("This model is for a different ruleset.")
             model_file(model)
             result["model_name"] = model["name"]
@@ -654,31 +577,64 @@ def create_app(
             for profile in ai_profiles()
         ]
 
+    def insert_account_game(c, account, request: GameRequest, *, seed=None):
+        from .ai import ai_profiles
+        from .game_records import game_record
+        from .security_context import allowed
+
+        if request.mode == "ai-ai" and not allowed(account, "all_data"):
+            fail("Administrator permission is required for AI vs AI.", 403)
+        ai_sides = set(SIDES) if request.mode == "ai-ai" else set(SIDES) - {request.human_side}
+        if set(request.players) - ai_sides:
+            fail("Human identity comes from the authenticated account.", 422)
+        seed = secrets.randbits(32) if seed is None else seed
+        catalog = {p["id"]: p for p in ai_profiles()}
+        players = {}
+        for side in SIDES:
+            if side not in ai_sides:
+                players[side] = {
+                    "name": str(account.get("display_name") or account["username"])[:80],
+                    "account_id": account["id"],
+                    "kind": "human",
+                    "config": {},
+                }
+                continue
+            profile = catalog[request.players.get(side, OpponentRequest()).profile_id]
+            config = effective_ai_config(
+                {**profile["parameters"], "algorithm": profile["algorithm"], "seed": seed}
+            )
+            players[side] = {
+                "name": profile["name"],
+                "kind": "ai",
+                "profile_id": profile["id"],
+                "profile_name": profile["name"],
+                "config": config,
+                "variant_id": ai_variant_id(config),
+            }
+        game = game_record(request.ruleset, request.mode, request.human_side, players, seed)
+        game["creation_policy"] = 1
+        c.execute(
+            "INSERT INTO games(id,version,created_at,data,owner_account_id) VALUES(?,?,?,?,?)",
+            (game["id"], 0, game["created_at"], json.dumps(game), account["id"]),
+        )
+        return game
+
+    def account_creator(c):
+        from .online_core import OnlineError
+        from .security_context import session_identity
+
+        try:
+            return online._identity(c, session_identity.get())
+        except OnlineError as error:
+            fail(str(error), error.status)
+
     @app.post("/api/games", status_code=201)
     def create_game(request: GameRequest):
-        with catalog_lock:
-            state = new_game(request.ruleset)
-            seed = secrets.randbits(32) if request.seed is None else request.seed
-            game = {
-                "id": uuid4().hex,
-                "ruleset": request.ruleset,
-                "ruleset_version": 1,
-                "mode": request.mode,
-                "human_side": request.human_side,
-                "players": normalise_players(request, seed),
-                "advisor": normalise_advisor(request, seed),
-                "analysis_enabled": True,
-                "seed": seed,
-                "state": state.to_dict(),
-                "moves": [],
-                "cursor": 0,
-                "version": 0,
-                "created_at": now(),
-                "ended_at": None,
-                "recorded_result": None,
-            }
-            store.create_game(game)
-            return response(game)
+        with catalog_lock, store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            account = account_creator(c)
+            game = insert_account_game(c, account, request)
+        return response(game)
 
     @app.get("/api/games")
     def games(ruleset: str | None = None, mode: str | None = None, kind: str | None = None):
@@ -828,7 +784,8 @@ def create_app(
                 existing
                 if same_advisor
                 else normalise_advisor(
-                    GameRequest(ruleset=game["ruleset"], advisor=request.advisor),
+                    request.advisor,
+                    game["ruleset"],
                     game.get("seed", 0),
                 )
             )
@@ -990,7 +947,9 @@ def create_app(
 
     @app.get("/api/games/{game_id}/replay")
     def game_replay(game_id: str):
-        game = game_or_404(game_id)
+        return validated_account_replay(game_or_404(game_id))
+
+    def validated_account_replay(game: dict):
         state = new_game(game["ruleset"])
         states = [state.to_dict()]
         try:
@@ -1001,7 +960,16 @@ def create_app(
             fail("Stored game history failed deterministic validation.", 409)
         if states[game["cursor"]] != game["state"]:
             fail("Stored position does not match the recorded moves.", 409)
-        return {"game_id": game_id, "validated": True, "cursor": game["cursor"], "states": states}
+        return {
+            "game_id": game["id"],
+            "validated": True,
+            "cursor": game["cursor"],
+            "states": states,
+        }
+
+    from .personal_api import attach_personal
+
+    attach_personal(app, online, replay=validated_account_replay)
 
     @app.post("/api/games/{game_id}/moves")
     def make_move(game_id: str, request: MoveRequest):
@@ -1066,81 +1034,50 @@ def create_app(
     @app.post("/api/games/{game_id}/restart")
     def restart(game_id: str, request: VersionRequest):
         with catalog_lock:
-            game = game_or_404(game_id, request.version)
-            if recorded_outcome(game)["winner"] or state_of(game).winner:
+            prior = game_or_404(game_id, request.version)
+            if recorded_outcome(prior)["winner"] or state_of(prior).winner:
                 fail("Completed games cannot be restarted. Start a new game instead.", 409)
-            active = {player["id"] for player in store.players()}
-            for player in referenced_agents(game):
-                if player.get("kind") == "human" and player.get("player_id") not in active:
-                    fail(
-                        "Choose active players in a new game; a previous profile was deleted.", 409
-                    )
-                model_id = player.get("config", {}).get("model_id")
-                if model_id and not any(model["id"] == model_id for model in models_list()):
-                    fail(
-                        "Choose an available model in a new game; the previous model was deleted.",
-                        409,
-                    )
-            previous_seeds = {game.get("seed")} | {
-                effective_ai_config(player["config"], player.get("profile_id"))["seed"]
-                for player in referenced_agents(game)
-                if player["kind"] == "ai"
+            if prior.get("creation_policy") != 1:
+                fail(
+                    "Start a new account game with the supported opponents; this saved setup is read/play compatible only.",
+                    409,
+                )
+            profiles = {
+                side: OpponentRequest(profile_id=p["profile_id"])
+                for side, p in prior["players"].items()
+                if p["kind"] == "ai"
             }
-            seed = secrets.randbits(32)
-            while seed in previous_seeds:
-                seed = (seed + 1) % 2**32
-            settings = analytics_settings(game)
-            selected_advisor = settings["advisor"]
-            agents = [*game["players"].values(), *([selected_advisor] if selected_advisor else [])]
-            for player in agents:
-                if player["kind"] == "ai":
-                    player["config"] = {
-                        **effective_ai_config(player["config"], player.get("profile_id")),
-                        "seed": seed,
-                    }
-                    player["variant_id"] = ai_variant_id(player["config"])
-            game.update(
-                advisor=selected_advisor,
-                id=uuid4().hex,
-                state=new_game(game["ruleset"]).to_dict(),
-                moves=[],
-                cursor=0,
-                version=0,
-                created_at=now(),
-                ended_at=None,
-                recorded_result=None,
-                seed=seed,
-                analysis_enabled=True,
+            setup = GameRequest(
+                ruleset=prior["ruleset"],
+                mode=prior["mode"],
+                human_side=prior["human_side"],
+                players=profiles,
             )
-            store.create_game(game)
-            store.save_analytics(
-                game["id"],
-                {
-                    "advisor": selected_advisor,
-                    "time_limit": settings["time_limit"],
-                    "show_win_chances": settings["show_win_chances"],
-                },
-            )
+            settings = analytics_settings(prior)
+            with store.connection() as c:
+                c.execute("BEGIN IMMEDIATE")
+                account = account_creator(c)
+                from .security_context import allowed
+
+                if not c.execute(
+                    "SELECT 1 FROM games WHERE id=? AND version=? AND (? OR owner_account_id=?)",
+                    (game_id, request.version, allowed(account, "all_data"), account["id"]),
+                ).fetchone():
+                    fail("The game changed. Reload before restarting.", 409)
+                seed = secrets.randbits(32)
+                if seed == prior.get("seed"):
+                    seed = (seed + 1) % 2**32
+                game = insert_account_game(c, account, setup, seed=seed)
+            preferences = {
+                key: settings[key] for key in ("advisor", "time_limit", "show_win_chances")
+            }
+            if preferences["advisor"]:
+                preferences["advisor"] = {
+                    **preferences["advisor"],
+                    "config": {**preferences["advisor"]["config"], "seed": seed},
+                }
+            store.save_analytics(game["id"], preferences)
             return response(game)
-
-    @app.get("/api/players")
-    def players():
-        return store.players()
-
-    @app.post("/api/players", status_code=201)
-    def create_player(request: PlayerRequest):
-        name = request.name.strip()
-        if not name:
-            fail("A player needs a display name.")
-        with catalog_lock:
-            return store.create_player({"id": uuid4().hex, "name": name, "created_at": now()})
-
-    @app.delete("/api/players/{player_id}")
-    def delete_player(player_id: str):
-        with catalog_lock:
-            if not store.delete_player(player_id, now()):
-                fail("Player profile not found.", 404)
-        return {"deleted": True, "id": player_id}
 
     @app.get("/api/stats")
     def stats(
@@ -1158,7 +1095,12 @@ def create_app(
             and (not mode or g["mode"] == mode)
             and (not kind or any(p["kind"] == kind for p in g["players"].values()))
             and (
-                not player_id or any(p.get("player_id") == player_id for p in g["players"].values())
+                not player_id
+                or any(
+                    p.get("player_id") == player_id
+                    or "account:" + str(p.get("account_id")) == player_id
+                    for p in g["players"].values()
+                )
             )
         ]
         completed = [g for g in selected if recorded_outcome(g)["winner"]]
@@ -1220,7 +1162,11 @@ def create_app(
                 )
                 experiment_seed = config.pop("seed", None) if config is not None else None
                 identifier = (
-                    player.get("player_id")
+                    (
+                        "account:" + player["account_id"]
+                        if player.get("account_id")
+                        else player.get("player_id")
+                    )
                     if player["kind"] == "human"
                     else ai_variant_id(config or {})
                 )

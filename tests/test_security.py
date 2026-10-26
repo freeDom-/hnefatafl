@@ -1,5 +1,6 @@
 """Route-derived authorization coverage, real cookies, real DB and no auth bypass."""
 
+from record_fixtures import stored_player
 import json
 import re
 import sqlite3
@@ -252,10 +253,10 @@ def test_object_ownership_all_game_routes_statistics_and_players(application):
         login(first, "First")
         login(second, "Second")
         login(admin, "Odin")
-        game = first.post("/api/games", json={"mode": "ai-ai"}).json()
+        game = first.post(
+            "/api/games", json={"ruleset": "brandubh", "human_side": "attackers"}
+        ).json()
         assert game["id"]
-        people = first.get("/api/players").json()
-        player = first.post("/api/players", json={"name": "Private local human"}).json()
         for method, path in registered(application):
             if "{game_id}" not in path:
                 continue
@@ -267,19 +268,20 @@ def test_object_ownership_all_game_routes_statistics_and_players(application):
             expected = {403} if POLICY[(method, path)] == "accounts" else {404, 422}
             assert response.status_code in expected, (method, path, response.text)
         assert second.get("/api/games").json() == []
-        assert second.get("/api/players").json() == []
-        assert second.delete("/api/players/" + player["id"]).status_code == 404
-        assert first.get("/api/players").json() != people
+        assert second.get("/api/players").status_code in {403, 404}
         assert (
             second.post(
-                "/api/games", json={"players": {"attackers": {"player_id": player["id"]}}}
+                "/api/games", json={"players": {"defenders": {"account_id": "forged"}}}
             ).status_code
-            == 400
+            == 422
         )
         assert second.get("/api/stats").json()["total_games"] == 0
         assert admin.get("/api/games/" + game["id"]).status_code == 200
         assert (
-            first.post(f"/api/games/{game['id']}/ai-move", json={"version": 0}).status_code == 200
+            first.post(
+                f"/api/games/{game['id']}/moves", json={**game["legal_moves"][0], "version": 0}
+            ).status_code
+            == 200
         )
 
 
@@ -330,7 +332,7 @@ def test_unknown_routes_methods_trailing_slashes_and_websockets(application):
 
 def test_legacy_migration_preserves_data_and_has_no_invented_ownership(tmp_path):
     old = Store(tmp_path / "hnefatafl.sqlite3")
-    old.create_player({"id": "historical", "name": "Old player", "created_at": "yesterday"})
+    stored_player(old, {"id": "historical", "name": "Old player", "created_at": "yesterday"})
     # Simulate legacy schema 7 columns by recreating only original tables.
     with old.connection() as c:
         c.execute("PRAGMA user_version=7")

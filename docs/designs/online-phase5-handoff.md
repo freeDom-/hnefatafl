@@ -43,3 +43,20 @@ If offline startup is requested, first specify runtime cache activation/update,
 old-cache retirement, rollback/security response, storage eviction recovery and
 license retention. Current Chromium desktop/mobile emulation does not establish
 Safari/Firefox support, physical-phone performance or durable offline storage.
+
+## Subsequent Phase 5 owner instruction
+
+The owner approved the private Phase 5 dashboard and later directed the navigation/
+history consolidation as a refinement on its existing branch/PR #17. Current
+behavior is in [Dashboard](../DASHBOARD.md) and its
+[refinement evidence](../validation/dashboard-consolidation.md). The pending public,
+rated, retention, outage and deployment policies above remain separate decisions.
+
+The additional owner polish is on the same PR: automatic device-only guest AI,
+shared auth spacing, account-bound preset creation (admin-only AI pairs), modal
+online duration entry with unchanged aggregate limits, and automatically recovering
+lobby cards. Local-player CRUD and unsupported legacy restart cloning are removed;
+stored identities/configurations remain read/play compatibility shims. The shared
+neural catalog and authorized advisor/training/tournaments remain independent.
+The refinement evidence identifies exact full/focused checks and local timeout
+limits. Keep those limitations separate from CI results when planning rollout.

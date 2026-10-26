@@ -192,9 +192,6 @@ export default function AccountForms({
         <LanguageSelect />
         <h1>HNEFATAFL</h1>
         <p>{t('The King’s Table')}</p>
-        <a className="button secondary" href="/guest" onClick={surfaceLink}>
-          {t('Play as guest on this device')}
-        </a>
         <h2 ref={heading} tabIndex={-1}>
           {t(titles[view])}
         </h2>
@@ -287,6 +284,11 @@ export default function AccountForms({
             )}
           </p>
         )}
+        <div className="auth-secondary-actions">
+          <a className="button secondary" href="/guest" onClick={surfaceLink}>
+            {t('Play as guest on this device')}
+          </a>
+        </div>
         {view === 'login' && (
           <>
             <button

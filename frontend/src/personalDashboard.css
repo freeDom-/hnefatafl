@@ -1,0 +1,221 @@
+.personal-dashboard,
+.hall-page {
+  max-width: 1320px;
+  margin: 1rem auto;
+}
+.dashboard-actions,
+.section-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.section-heading {
+  justify-content: space-between;
+}
+.section-heading h2 {
+  margin: 0;
+}
+.dashboard-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.personal-section,
+.dashboard-recent,
+.leaderboard-placeholder,
+.dashboard-lobby,
+.recorded-review {
+  min-width: 0;
+  padding: 1.1rem;
+}
+.personal-section h2,
+.leaderboard-placeholder h2 {
+  margin-top: 0;
+}
+.leaderboard-placeholder {
+  align-self: start;
+}
+.leaderboard-placeholder p {
+  margin-bottom: 0;
+}
+.personal-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem 1.2rem;
+}
+.personal-totals dt {
+  font-size: 0.8rem;
+}
+.personal-totals dd {
+  margin: 0.25rem 0;
+  font-size: 1.4rem;
+  font-weight: bold;
+}
+.personal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+.personal-filters label {
+  display: grid;
+  gap: 0.35rem;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.personal-filters select,
+.personal-filters input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+.recorded-games {
+  list-style: none;
+  padding: 0;
+  margin-block: 0.75rem;
+}
+.recorded-games li {
+  border-bottom: 1px solid var(--line);
+}
+.recorded-games a {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 0.4fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.3rem;
+  min-height: 48px;
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.recorded-games a:hover {
+  background: var(--surface);
+}
+.recorded-games a:focus-visible,
+.recorded-games [aria-current='true'] {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.recorded-identity {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.recorded-identity small,
+.recorded-games time {
+  font-size: 0.8rem;
+}
+.dashboard-recent .recorded-games a {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.dashboard-recent .recorded-games time {
+  grid-column: 1;
+}
+.hall-totals {
+  font-size: 0.9rem;
+  margin-block: 1rem;
+}
+.personal-review-board {
+  max-width: 650px;
+  margin: 1rem 0;
+}
+.personal-review-board .board-with-labels {
+  margin-left: 0;
+}
+.recorded-review {
+  margin-top: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.personal-dashboard .online-lobby-layout.lobby-discovery {
+  grid-template-columns: minmax(0, 1fr);
+}
+.personal-dashboard .online-cards {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.personal-dashboard .online-card {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.65fr) minmax(0, 1fr) minmax(130px, 0.6fr) auto;
+  gap: 0.35rem 1rem;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.65rem 0.25rem;
+}
+.personal-dashboard .online-card h3,
+.personal-dashboard .online-card p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.personal-dashboard .online-card h3 {
+  grid-column: 1;
+  grid-row: 1;
+}
+.personal-dashboard .online-card p:nth-of-type(1) {
+  grid-column: 1;
+  grid-row: 2;
+}
+.personal-dashboard .online-card p:nth-of-type(2) {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+.personal-dashboard .online-card p:nth-of-type(3) {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+.personal-dashboard .online-card button {
+  grid-column: 4;
+  grid-row: 1 / 3;
+  min-height: 44px;
+}
+@media (max-width: 800px) {
+  .dashboard-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .recorded-games a {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem;
+  }
+  .recorded-games time {
+    grid-column: 1;
+  }
+  .personal-dashboard .online-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .personal-dashboard .online-card button {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .personal-dashboard .online-card p:nth-of-type(n) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+.dashboard-lobby {
+  grid-column: 1 / -1;
+}
+.dashboard-lobby > h2 {
+  margin-top: 0;
+}
+.dashboard-lobby .online-lobby-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.move-duration .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.account-player-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.85rem;
+  margin-block: 1rem;
+}
+.account-player-card span {
+  font-size: 0.85rem;
+}

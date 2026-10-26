@@ -5,6 +5,7 @@ import sqlite3
 import threading
 
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import historical_game
 import pytest
 
 from hnefatafl import ai
@@ -21,9 +22,7 @@ def client(tmp_path):
 
 
 def create(client, **config):
-    result = client.post("/api/games", json={"ruleset": "brandubh", "seed": 51, **config})
-    assert result.status_code == 201, result.text
-    return result.json()
+    return historical_game(client, **{"ruleset": "brandubh", "seed": 51, **config})
 
 
 def analyze(client, game):
@@ -165,10 +164,8 @@ def test_advisor_moves_are_legal_and_reports_survive_replay_and_server_restart(c
     assert game["analysis"] == report1
     with TestClient(create_app(tmp_path)) as reloaded:
         assert reloaded.get(path).json()["analysis"] == report1
-    restarted = client.post(path + "/restart", json={"version": game["version"]}).json()
-    assert restarted["id"] != game["id"] and restarted["analysis"] is None
-    assert restarted["advisor"]["config"]["seed"] == restarted["seed"] != 51
-    assert restarted["advisor"]["profile_id"] == "alpha_beta"
+    assert client.post(path + "/restart", json={"version": game["version"]}).status_code == 409
+    assert client.get(path).json()["analysis"] == report1
 
 
 def test_missing_history_and_legacy_games_do_not_invent_agent_opinions(client, monkeypatch):
@@ -360,20 +357,22 @@ def test_advisor_validation_matches_ai_opponents(client, tmp_path):
         {"config": {"iterations": True}},
         {"config": {"model_id": "missing", "algorithm": "neural"}},
     ]
+    game = client.post("/api/games", json={"ruleset": "brandubh"}).json()
     for advisor in cases:
-        assert client.post(
-            "/api/games", json={"ruleset": "brandubh", "advisor": advisor}
+        assert client.put(
+            f"/api/games/{game['id']}/analytics", json={"advisor": advisor}
         ).status_code in {400, 404}
-    wrong_ruleset = client.post(
-        "/api/games",
-        json={
-            "ruleset": "tablut",
-            "advisor": {"profile_id": "neural", "config": {"model_id": registered["id"]}},
-        },
+    other = client.post("/api/games", json={"ruleset": "tablut"}).json()
+    wrong_ruleset = client.put(
+        f"/api/games/{other['id']}/analytics",
+        json={"advisor": {"profile_id": "neural", "config": {"model_id": registered["id"]}}},
     )
     assert wrong_ruleset.status_code == 400
     assert (
-        client.post("/api/games", json={"advisor": {"arbitrary_path": "/tmp/model.pt"}}).status_code
+        client.put(
+            f"/api/games/{game['id']}/analytics",
+            json={"advisor": {"arbitrary_path": "/tmp/model.pt"}},
+        ).status_code
         == 422
     )
 
