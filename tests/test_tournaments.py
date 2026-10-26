@@ -435,10 +435,10 @@ def test_tournament_names_come_from_profiles_without_client_aliases(client):
             "mcts",
             {
                 "algorithm": "mcts",
-                "iterations": 24,
+                "iterations": 5000,
                 "temperature": 0.0,
                 "exploration": 1.4,
-                "time_limit": 10.0,
+                "time_limit": 2.0,
             },
         ),
     ],

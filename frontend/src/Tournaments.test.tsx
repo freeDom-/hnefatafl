@@ -503,11 +503,159 @@ describe('tournament setup and saved selection', () => {
     const wins = container.querySelectorAll('.tournament-battlefield-wins li');
     expect(wins).toHaveLength(4);
     expect(wins[3]).toHaveTextContent('Fox1 wins');
+    fireEvent.click(screen.getByRole('button', { name: 'Match log' }));
     fireEvent.click(screen.getByRole('button', { name: 'Replay game 1' }));
     const replay = await screen.findByRole('dialog', { name: 'Replay game 1' });
     expect(replay).toHaveTextContent('ᚱEagle · Attackers vs ᚱFox · Defenders');
     expect(replay).toHaveTextContent('Fox wins');
   });
+});
+
+const withMatches = (id: string): Tournament => {
+  const tournament = saved(id);
+  tournament.result = {
+    scores: [1, 1],
+    standings: tournament.config.players.map((_, player) => ({
+      player,
+      wins: 1,
+      losses: 1,
+      draws: 0,
+      truncated: 0,
+      games: 2,
+      score: 1,
+    })),
+    by_ruleset: { brandubh: { wins: [1, 1], draws: 0, truncated: 0, games: 2 } },
+    games: [
+      {
+        ruleset: 'brandubh',
+        winner: 'attackers',
+        outcome: 'completed',
+        reason: 'king_captured',
+        plies: 12,
+        moves: [],
+        attacker_player: 0,
+        defender_player: 1,
+        average_decision_time: 0.01,
+        total_decision_time: 0.12,
+      },
+      {
+        ruleset: 'brandubh',
+        winner: 'attackers',
+        outcome: 'completed',
+        reason: 'king_captured',
+        plies: 20,
+        moves: [],
+        attacker_player: 1,
+        defender_player: 0,
+        average_decision_time: 0.02,
+        total_decision_time: 0.4,
+      },
+    ],
+    truncated: 0,
+    average_game_length: 16,
+    average_decision_time: 0.015,
+  };
+  return tournament;
+};
+
+describe('tournament match log disclosure', () => {
+  it('starts collapsed and expands and collapses the recorded matches', async () => {
+    const tournament = withMatches('log');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge log' });
+    const toggle = screen.getByRole('button', { name: 'Match log' });
+    const panel = document.getElementById('tournament-match-log');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', 'tournament-match-log');
+    expect(panel).toHaveAttribute('hidden');
+    expect(screen.getByText('Raven wins')).not.toBeVisible();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).not.toHaveAttribute('hidden');
+    expect(screen.getByText('Raven wins')).toBeVisible();
+    expect(screen.getByText('Wolf wins')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: /^Replay game/ })).toHaveLength(2);
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Raven wins')).not.toBeVisible();
+  });
+
+  it('collapses the match log when a different tournament is selected', async () => {
+    const first = withMatches('first');
+    const second = withMatches('second');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments') return json([first, second]);
+        return json(path === '/api/tournaments/first' ? first : second);
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge first' });
+    const toggle = screen.getByRole('button', { name: 'Match log' });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Raven wins')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge second' }));
+    await screen.findByRole('heading', { name: 'Challenge second' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Match log' })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      ),
+    );
+    expect(screen.getByText('Raven wins')).not.toBeVisible();
+  });
+
+  it('keeps the match log open when the selected tournament data refreshes', async () => {
+    const tournament = withMatches('running');
+    tournament.status = 'running';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments/running/cancel') return json({});
+        return json(path === '/api/tournaments' ? [tournament] : tournament);
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge running' });
+    fireEvent.click(screen.getByRole('button', { name: 'Match log' }));
+    expect(screen.getByRole('button', { name: 'Match log' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop tournament' }));
+    await screen.findByText('Tournament stopped. All finished games have been saved.');
+    expect(screen.getByRole('button', { name: 'Match log' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByText('Raven wins')).toBeVisible();
+  });
+});
+
+it('labels the destructive tournament action as deleting tournament data', async () => {
+  const tournament = saved('delete');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+  );
+  show();
+  await screen.findByRole('heading', { name: 'Challenge delete' });
+  const button = screen.getByRole('button', { name: 'Delete tournament data' });
+  expect(button).toHaveClass('danger-text');
+  fireEvent.click(button);
+  expect(
+    screen.getByRole('dialog', { name: 'Delete tournament Challenge delete?' }),
+  ).toBeInTheDocument();
 });
 
 it('keeps Shield bearer, Jarl and Seer presets fixed while exposing independent custom search controls', async () => {
@@ -546,10 +694,10 @@ it('keeps Shield bearer, Jarl and Seer presets fixed while exposing independent 
         profile_id: 'mcts',
         config: {
           algorithm: 'mcts',
-          iterations: 24,
+          iterations: 5000,
           temperature: 0,
           exploration: 1.4,
-          time_limit: 10,
+          time_limit: 2,
         },
       },
       { profile_id: 'baseline', config: { algorithm: 'baseline', time_limit: 1 } },

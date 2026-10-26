@@ -348,7 +348,7 @@ def test_recommended_defaults_cover_board_and_keep_explicit_overrides(tmp_path, 
     )
 
 
-def test_mcts_defaults_are_ten_seconds_and_match_training_budget():
+def test_mcts_training_defaults_stay_ten_seconds_while_seer_preset_is_fast():
     from hnefatafl.ai import ai_profiles
     from hnefatafl.training import DEFAULTS
     from hnefatafl.training_evaluation import evaluation_context
@@ -365,9 +365,10 @@ def test_mcts_defaults_are_ten_seconds_and_match_training_budget():
         context = evaluation_context(config)
         assert context["candidate_config"]["time_limit"] == 10.0
     profile = next(item for item in ai_profiles() if item["id"] == "mcts")["parameters"]
-    assert profile["time_limit"] == 10.0
-    # The ruleset-independent tournament/play preset matches the base self-play budget.
-    assert profile["iterations"] == DEFAULTS["mcts_iterations"]
+    # The ruleset-independent tournament/play preset caps search at 5,000
+    # visits within 2 seconds, independently of the training self-play budget.
+    assert profile["time_limit"] == 2.0
+    assert profile["iterations"] == 5000
     # Explicit budgets and non-MCTS strategies are preserved unchanged.
     explicit = normalize_config(
         {"mcts_time_limit": 3.0, "evaluation_time_limit": 4.0, "evaluation_jarl_time_limit": 1.5}

@@ -41,10 +41,10 @@ test('named opponents keep fixed presets, custom settings stay editable and the 
   });
   expect(game.players.defenders.config).toMatchObject({
     algorithm: 'mcts',
-    iterations: 24,
+    iterations: 5000,
     temperature: 0,
     exploration: 1.4,
-    time_limit: 10,
+    time_limit: 2,
   });
   await page.getByRole('button', { name: /Pause AI/ }).click();
   await page.getByRole('button', { name: /New game/ }).click();

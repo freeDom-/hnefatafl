@@ -39,13 +39,14 @@ export function profileConfiguration(profile: AIProfile): Config {
   if (profile.id === 'mcts')
     return {
       algorithm: 'mcts',
-      // Matches the base training self-play budget; the named preset is
-      // ruleset-independent. Training recommended plans use 128/192/256.
-      iterations: 24,
+      // Ruleset-independent preset: the 2-second ceiling bounds search and
+      // 5,000 visits cap the upper end. Training recommended plans use
+      // 128/192/256.
+      iterations: 5000,
       exploration: 1.4,
       temperature: 0,
       rollout_depth: 8,
-      time_limit: 10,
+      time_limit: 2,
     };
   return { ...profile.parameters, algorithm: profile.algorithm };
 }

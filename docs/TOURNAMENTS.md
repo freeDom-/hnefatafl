@@ -111,7 +111,11 @@ fewer finished games than scheduled; an interrupted in-flight game is discarded.
 
 Inspect the saved opponent parameters, results by battlefield, game lengths and
 decision timings. Each retained match includes its side assignments, recorded
-moves and outcome. **Replay game** opens a read-only board with move navigation.
+moves and outcome. The **Match log** starts collapsed whenever you open a
+tournament; use the **Match log** control to show the recorded matches. A live
+data refresh of the same running tournament keeps the current expanded or
+collapsed state, while opening a different tournament collapses it again.
+**Replay game** opens a read-only board with move navigation.
 Replay uses the rules engine, so it still works after the original model is deleted.
 The selected appearance settings also apply to tournament boards.
 Each saved match identifies its attacker and defender explicitly. Earlier

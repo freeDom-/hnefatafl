@@ -31,7 +31,7 @@ it('preserves an explicit symmetry choice when changing the training plan', () =
   expect(changeTrainingPlan(on, 'copenhagen', 'balanced').training_symmetry_mode).toBe('random_d4');
 });
 
-it('keeps the ten-second MCTS default in evaluation and named tournament presets', () => {
+it('keeps the ten-second MCTS training evaluation default while the Seer preset stays fast', () => {
   expect(evaluationDefaults.evaluation_time_limit).toBe(10);
   // Jarl uses alpha-beta; its own deadline is not an MCTS default.
   expect(evaluationDefaults.evaluation_jarl_time_limit).toBe(2);
@@ -44,7 +44,7 @@ it('keeps the ten-second MCTS default in evaluation and named tournament presets
     supported_rulesets: rulesets,
   };
   const config = profileConfiguration(profile);
-  expect(config.time_limit).toBe(10);
-  // The named tournament preset matches the base training self-play budget.
-  expect(config.iterations).toBe(24);
+  // The named tournament/play preset caps search at 5,000 visits within 2 seconds.
+  expect(config.time_limit).toBe(2);
+  expect(config.iterations).toBe(5000);
 });

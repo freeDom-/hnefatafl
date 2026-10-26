@@ -21,7 +21,7 @@ const profiles: AIProfile[] = [
     name: 'Seer',
     algorithm: 'mcts',
     difficulty: 'Advanced',
-    parameters: { iterations: 24, time_limit: 10, exploration: 1.4, temperature: 0 },
+    parameters: { iterations: 5000, time_limit: 2, exploration: 1.4, temperature: 0 },
     supported_rulesets: ['brandubh', 'tablut', 'copenhagen'],
   },
   {
@@ -94,8 +94,8 @@ it('keeps a custom opponent’s explicit budget and defaults a profile opponent'
   // The named preset is authoritative, exactly as the API snapshots it.
   expect(result.config.players[1].config).toMatchObject({
     algorithm: 'mcts',
-    iterations: 24,
-    time_limit: 10,
+    iterations: 5000,
+    time_limit: 2,
   });
   expect(result.config.players[0].config).toMatchObject({
     algorithm: 'mcts',
