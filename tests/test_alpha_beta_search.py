@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from hnefatafl import ai
+from hnefatafl import ai, shield_maiden
 from hnefatafl.ai import _Bound, _TranspositionTable, _search_settings
 from hnefatafl.engine import RULESETS, Move, State, apply_move, legal_moves, new_game
 from hnefatafl.symmetry import (
@@ -25,14 +25,26 @@ from hnefatafl.symmetry import (
 )
 
 
-def minimax(state: State, depth: int) -> float:
-    """Independent exhaustive minimax using only the real engine and evaluator."""
-    if state.winner or depth == 0:
+def minimax(state: State, depth: int, incoming: float | None = None) -> float:
+    """Independent exhaustive minimax using the real engine and Shield maiden.
+
+    The leaf value is the normalized Shield maiden child score of the move that
+    produced it, matching how Jarl threads the maiden evaluation into alpha-beta.
+    """
+    if state.winner:
         return ai.evaluate(state)
+    if depth == 0:
+        return incoming if incoming is not None else shield_maiden.evaluate(state)
     moves = legal_moves(state)
     if not moves:
         return -1.0 if state.turn == "defenders" else 1.0
-    values = [minimax(apply_move(state, move), depth - 1) for move in moves]
+    context = shield_maiden.DecisionContext(state)
+    values = []
+    for move in moves:
+        child = apply_move(state, move)
+        values.append(
+            minimax(child, depth - 1, shield_maiden.normalise(context.score(child, move)))
+        )
     return max(values) if state.turn == "defenders" else min(values)
 
 
@@ -246,7 +258,11 @@ def test_search_preserves_reference_minimax(label, state, depth, feature):
     assert diagnostics["completed_depth"] == depth
     assert diagnostics["value"] == pytest.approx(expected, abs=1e-9)
     # The chosen move must itself be optimal for the mover under the same evaluator.
-    assert minimax(apply_move(state, move), depth - 1) == pytest.approx(expected, abs=1e-9)
+    context = shield_maiden.DecisionContext(state)
+    chosen = apply_move(state, move)
+    assert minimax(
+        chosen, depth - 1, shield_maiden.normalise(context.score(chosen, move))
+    ) == pytest.approx(expected, abs=1e-9)
 
 
 def test_symmetry_pruning_actually_skips_equivalent_moves():
@@ -353,13 +369,13 @@ def test_interrupted_iteration_keeps_last_completed_value(monkeypatch):
     ordered = ai._ordered
     root_calls = 0
 
-    def expire_on_second_root(position, moves, rng):
+    def expire_on_second_root(position, moves, rng, maiden=False):
         nonlocal root_calls
         if position is state:
             root_calls += 1
             if root_calls == 2:
                 raise ai._Deadline
-        return ordered(position, moves, rng)
+        return ordered(position, moves, rng, maiden)
 
     monkeypatch.setattr(ai, "_ordered", expire_on_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})

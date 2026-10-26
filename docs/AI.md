@@ -22,7 +22,11 @@ requires a registered model compatible with the selected battlefield.
 | Seer | Monte Carlo tree search | 5,000 simulations, exploration 1.4, rollout depth 8, temperature 0, maximum 2 seconds |
 | Trained model | Selected neural wrapper | MCTS by default; profile supplies 40 simulations and maximum 10 seconds; controls remain configurable |
 
-The static heuristic uses defender-relative material, the king's escape distance,
+Jarl and Seer reuse the Shield maiden heuristic for their model-free evaluation,
+including move ordering and the alpha-beta leaf/rollout horizon. Only the
+standalone Shield bearer baseline keeps the generic static evaluation below.
+
+That static heuristic uses defender-relative material, the king's escape distance,
 open escape rays and adjacent attackers. It uses edge escape for Tablut and corner
 escape for Brandubh/Copenhagen. Engine terminal outcomes always take precedence.
 Shield bearer checks all legal moves for immediate wins, captures and king safety
@@ -30,10 +34,10 @@ through the resulting static score. This is a useful baseline rather than a
 claim of expert strength.
 
 Alpha-beta searches alternating maximizing defender and minimizing attacker
-nodes and orders moves by terminal/static value plus the previous iteration's
-principal variation, the transposition-table move, killer moves and cutoff
-history. Iterative deepening retains the last completed result when time expires.
-An optional `model_path` replaces its nonterminal leaf evaluation with a
+nodes and orders moves by the Shield maiden child score plus the previous
+iteration's principal variation, the transposition-table move, killer moves and
+cutoff history. Iterative deepening retains the last completed result when time
+expires. An optional `model_path` replaces its nonterminal leaf evaluation with a
 compatible neural value network.
 
 Each search owns a bounded transposition table for its lifetime. Entries record
@@ -59,8 +63,8 @@ pass an optional internal `search` object to ablate individual features:
 | `table_capacity` | `100000` | Maximum resident table entries (1–5000000) |
 | `legacy` | `false` | Restore the original exact-value-cache reference search |
 
-The handcrafted evaluator is D4-invariant, so the two symmetry features are valid
-for heuristic-backed search. Trained value heads are not guaranteed
+The Shield maiden evaluator is D4-invariant, so the two symmetry features are
+valid for heuristic-backed search. Trained value heads are not guaranteed
 equivariant even after augmentation; requesting either symmetry feature with a
 neural evaluator raises instead of merging unequal predictions. Neural alpha-beta
 still uses the ordinary orientation-specific table and move ordering. Symmetry
@@ -77,7 +81,8 @@ MCTS stores defender-perspective values consistently at every node. Selection
 converts that value to the active side's perspective, adds a PUCT exploration
 bonus, expands legal moves and backs the result up the visited path. Progressive
 widening permits deeper exploration with hundreds of legal opening moves. Plain
-MCTS uses seeded random rollouts and the heuristic at the rollout horizon.
+MCTS uses seeded random rollouts and the Shield maiden evaluator at the rollout
+horizon.
 Neural search uses a masked policy prior and the model value instead of rollouts.
 An immediate one-move win is always taken even with a tiny simulation budget.
 Training additionally applies configurable Dirichlet noise at the root.
@@ -231,6 +236,7 @@ It needs no model or PyTorch. Select the named profile in games, AI versus AI,
 tournaments or advisors, or use the algorithm with a custom deadline.
 Its effective configuration includes `heuristic_version: 1`; seeds break ties
 reproducibly when the same candidates finish within the deadline.
+Jarl and Seer reuse the same Shield maiden child scoring for model-free search.
 The `baseline` algorithm and existing identities are unchanged.
 
 The evaluator combines legal king capture geometry, independent clear escape

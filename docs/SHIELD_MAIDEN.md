@@ -3,8 +3,10 @@
 [AI profiles](AI.md) · [Training evaluation](TRAINING.md) · [Performance](PERFORMANCE.md)
 
 Shield maiden (`shield_maiden`, heuristic version 1) is an Intermediate,
-model-free one-ply opponent for all three rulesets. Shield bearer (`baseline`)
-and the shared generic evaluation remain unchanged. No engine semantics changed.
+model-free one-ply opponent for all three rulesets. The standalone Shield bearer
+(`baseline`) algorithm and its generic static evaluation remain unchanged. Jarl
+and Seer now reuse the same Shield maiden child scoring for their model-free
+search, so the Jarl results below predate that default. No engine semantics changed.
 
 ## Strategy and implementation
 
@@ -152,6 +154,10 @@ for the cheapest established training benchmark. Choosing maiden explicitly opts
 into a different strength/runtime trade-off; it never starts a second evaluation.
 
 ### Bounded Jarl sanity check
+
+This historical check ran before Jarl defaulted to the Shield maiden heuristic,
+so it compared two independently evaluated alpha-beta searches. Re-running it now
+would test the Shield maiden evaluator against itself.
 
 Eight paired games per variant used the alpha-beta algorithm at depth 2 with a
 50 ms deadline, rather than the fixed Jarl depth-5/two-second preset. Maiden scored

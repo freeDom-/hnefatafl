@@ -26,7 +26,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [engine.py](hnefatafl/engine.py) | Immutable state, legal moves, captures, terminal rules; no HTTP/database/tensor dependency |
 | [symmetry.py](hnefatafl/symmetry.py) | Pure D4 geometry, full-history transforms, board/full-state stabilizers and typed canonical keys; no search or neural dependency |
 | [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS with bounded transposition tables and full-state symmetry pruning, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
-| [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; separate from generic search evaluation |
+| [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; reused by the Jarl alpha-beta and Seer MCTS model-free paths |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
 | [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and content-addressed model registry |
 | [training.py](hnefatafl/training.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
@@ -294,10 +294,12 @@ Tensor format and database schema remain unchanged. See the
 `choose_move` keeps the public contract: immutable `State` in, one legal `Move`
 out, with a monotonic deadline and a legal fallback. Iterative deepening searches
 alternating defender-maximizing and attacker-minimizing nodes over the
-defender-perspective evaluator. A search owns one `_TranspositionTable` for its
-lifetime; entries store searched depth, exact/lower/upper bounds, a preferred move
-and a generation. Replacement prefers deeper entries and exact bounds within a
-bounded capacity, and keys carry the complete repetition-aware state, so identical
+defender-perspective Shield maiden evaluator; the generic Shield bearer static
+evaluation remains only for the `baseline` algorithm. A search owns one
+`_TranspositionTable` for its lifetime; entries store searched depth,
+exact/lower/upper bounds, a preferred move and a generation. Replacement prefers
+deeper entries and exact bounds within a bounded capacity, and keys carry the
+complete repetition-aware state, so identical
 boards with different histories never alias. Bounds tighten the window, cut off
 when established and supply the preferred move; an interrupted search never
 publishes a partial exact result.
@@ -305,7 +307,7 @@ publishes a partial exact result.
 An optional internal `search` configuration selects independent optimizations for
 regression and ablation: ordinary bounded transpositions, D4-canonical
 transpositions, full-state symmetry move pruning and improved move ordering. The
-handcrafted evaluator is D4-invariant and the engine's move generation and
+Shield maiden evaluator is D4-invariant and the engine's move generation and
 terminal adjudication are equivariant, so canonical keys and move orbits may be
 shared. Neural value heads are not guaranteed D4-equivariant even after
 augmentation; requesting symmetry reuse with a neural evaluator raises instead of
@@ -332,7 +334,8 @@ remaining-move dictionary once. The first visit backs up the value;
 a later visit consumes the saved priors to widen the node without yielding a
 second request. Edge visits and totals always belong to that search. Terminal
 children use engine outcomes before inference, including history-dependent
-repetition outcomes. Heuristic rollouts remain fresh on each simulation.
+repetition outcomes. Model-free rollouts evaluate their horizon with the Shield
+maiden heuristic freshly on each simulation.
 
 Slotted nodes retain no dense logits, device tensors, parents or global tree
 references. Expanded-node priors shrink as child states are created lazily. Keeping

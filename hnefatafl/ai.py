@@ -146,13 +146,47 @@ def policy_value(
     return dict(zip(moves, probabilities)), float(value.reshape(-1)[0])
 
 
-def _ordered(state: State, moves: list[Move], rng: random.Random) -> list[tuple[Move, State]]:
-    # Terminal results first; material and king progression next. Stable seeded ties.
+def _heuristic_evaluator(algorithm: str) -> Callable[[State], float]:
+    """Leaf evaluator for model-free search.
+
+    Jarl (alpha-beta) and Seer (MCTS) reuse the Shield maiden one-ply heuristic
+    instead of the generic Shield bearer static evaluation. The standalone
+    Shield bearer baseline keeps ``evaluate``. Neural-backed search ignores this
+    evaluator and uses the model value head.
+    """
+    if algorithm in ("alpha_beta", "alphabeta", "mcts"):
+        from .shield_maiden import evaluate as shield_maiden_evaluate
+
+        return shield_maiden_evaluate
+    return evaluate
+
+
+def _ordered(
+    state: State,
+    moves: list[Move],
+    rng: random.Random,
+    maiden: bool = False,
+) -> list[tuple[Move, State, float]]:
+    """Order children by a defender-perspective heuristic value.
+
+    Returns ``(move, child, value)`` triples, where ``value`` is also the
+    Shield maiden leaf value threaded into the search. ``maiden=True`` reuses
+    the Shield maiden child scoring with one decision context per node;
+    otherwise the generic Shield bearer static evaluation is used. Terminal
+    results and material/king progression sort first with stable seeded ties.
+    """
     rng.shuffle(moves)
     sign = 1 if state.turn == "defenders" else -1
     children = [(move, apply_move(state, move)) for move in moves]
-    children.sort(key=lambda pair: sign * evaluate(pair[1]), reverse=True)
-    return children
+    if maiden:
+        from .shield_maiden import DecisionContext, normalise
+
+        context = DecisionContext(state)
+        scored = [(move, child, normalise(context.score(child, move))) for move, child in children]
+    else:
+        scored = [(move, child, evaluate(child)) for move, child in children]
+    scored.sort(key=lambda item: sign * item[2], reverse=True)
+    return scored
 
 
 class _Deadline(Exception):
@@ -282,18 +316,18 @@ def _search_settings(config: dict, model_backed: bool) -> _SearchSettings:
 
 
 def _prioritise(
-    children: list[tuple[Move, State]],
+    children: list[tuple[Move, State, float]],
     *,
     tt_move: Move | None,
     pv_move: Move | None,
     killers: tuple[Move, ...],
     history: dict[Move, int],
-) -> list[tuple[Move, State]]:
+) -> list[tuple[Move, State, float]]:
     """Move known-good moves forward while preserving the base order."""
     if not children:
         return children
-    preferred: list[tuple[Move, State]] = []
-    rest: list[tuple[Move, State]] = []
+    preferred: list[tuple[Move, State, float]] = []
+    rest: list[tuple[Move, State, float]] = []
     for item in children:
         move = item[0]
         if move == tt_move or move == pv_move or move in killers:
@@ -309,26 +343,27 @@ def _prioritise(
 
 
 def _symmetry_children(
-    position: State, children: list[tuple[Move, State]]
-) -> tuple[list[tuple[Move, State]], int]:
+    position: State, children: list[tuple[Move, State, float]]
+) -> tuple[list[tuple[Move, State, float]], int]:
     """Keep one deterministic representative per full-state move orbit."""
     if len(children) < 2:
         return children, 0
     stabilizer = state_stabilizer(position)
     if len(stabilizer) < 2:
         return children, 0
-    by_move = {move: child for move, child in children}
-    chosen: list[tuple[Move, State]] = []
+    by_move = {item[0]: item for item in children}
+    chosen: list[tuple[Move, State, float]] = []
     seen: set[Move] = set()
     skipped = 0
-    for move, child in children:
+    for item in children:
+        move = item[0]
         if move in seen:
             skipped += 1
             continue
         orbit = {transform_move(move, position.size, symmetry) for symmetry in stabilizer}
         seen |= orbit
         representative = min(orbit)
-        chosen.append((representative, by_move.get(representative, child)))
+        chosen.append(by_move.get(representative, item))
     return chosen, skipped
 
 
@@ -351,18 +386,20 @@ def _alpha_beta_legacy(
     cache: dict[tuple, float] = {}
     model_path = config.get("model_path")
     model = config.get("_model")
+    model_backed = bool(model_path) or model is not None
+    evaluator = _heuristic_evaluator(config.get("algorithm", "alpha_beta"))
     if diagnostics is None and progress is not None:
         diagnostics = {}
     if diagnostics is not None:
         diagnostics.update(
-            value=policy_value(state, model_path, model)[1]
-            if model_path or model is not None
-            else evaluate(state),
+            value=policy_value(state, model_path, model)[1] if model_backed else evaluator(state),
             completed_depth=0,
             best_move=best_move.to_dict(),
         )
 
-    def search(position: State, remaining: int, alpha: float, beta: float) -> float:
+    def search(
+        position: State, remaining: int, alpha: float, beta: float, incoming: float | None
+    ) -> float:
         if should_stop and should_stop():
             raise InterruptedError("Search cancelled")
         if time.monotonic() >= deadline:
@@ -370,11 +407,9 @@ def _alpha_beta_legacy(
         if position.winner:
             return evaluate(position)
         if remaining == 0:
-            return (
-                policy_value(position, model_path, model)[1]
-                if model_path or model is not None
-                else evaluate(position)
-            )
+            if model_backed:
+                return policy_value(position, model_path, model)[1]
+            return incoming if incoming is not None else evaluator(position)
         # Include repetition context: identical boards can have different outcomes.
         key = (position.board, position.turn, position.history, remaining)
         if key in cache:
@@ -385,8 +420,10 @@ def _alpha_beta_legacy(
         maximizing = position.turn == "defenders"
         value = -math.inf if maximizing else math.inf
         fully_searched = True
-        for _, child in _ordered(position, moves, rng):
-            score = search(child, remaining - 1, alpha, beta)
+        for _, child, maiden_value in _ordered(position, moves, rng, maiden=not model_backed):
+            score = search(
+                child, remaining - 1, alpha, beta, None if model_backed else maiden_value
+            )
             value = max(value, score) if maximizing else min(value, score)
             if maximizing:
                 alpha = max(alpha, value)
@@ -405,9 +442,15 @@ def _alpha_beta_legacy(
         iteration_best = best_move
         score_best = -math.inf
         try:
-            ordered = _ordered(state, list(root_moves), rng)
-            for move, child in ordered:
-                score = sign * search(child, current_depth - 1, -math.inf, math.inf)
+            ordered = _ordered(state, list(root_moves), rng, maiden=not model_backed)
+            for move, child, maiden_value in ordered:
+                score = sign * search(
+                    child,
+                    current_depth - 1,
+                    -math.inf,
+                    math.inf,
+                    None if model_backed else maiden_value,
+                )
                 if score > score_best:
                     score_best, iteration_best = score, move
         except _Deadline:
@@ -448,6 +491,7 @@ def _alpha_beta(
     model = config.get("_model")
     model_backed = bool(model_path) or model is not None
     settings = _search_settings(config, model_backed)
+    evaluator = _heuristic_evaluator(config.get("algorithm", "alpha_beta"))
     if settings.legacy:
         return _alpha_beta_legacy(
             state,
@@ -482,7 +526,7 @@ def _alpha_beta(
         diagnostics = {}
     if diagnostics is not None:
         diagnostics.update(
-            value=policy_value(state, model_path, model)[1] if model_backed else evaluate(state),
+            value=policy_value(state, model_path, model)[1] if model_backed else evaluator(state),
             completed_depth=0,
             best_move=best_move.to_dict(),
         )
@@ -497,9 +541,16 @@ def _alpha_beta(
 
     def leaf(position: State) -> float:
         counters["evaluations"] += 1
-        return policy_value(position, model_path, model)[1] if model_backed else evaluate(position)
+        return policy_value(position, model_path, model)[1] if model_backed else evaluator(position)
 
-    def search(position: State, remaining: int, alpha: float, beta: float, ply: int) -> float:
+    def search(
+        position: State,
+        remaining: int,
+        alpha: float,
+        beta: float,
+        ply: int,
+        incoming: float | None,
+    ) -> float:
         if should_stop and should_stop():
             raise InterruptedError("Search cancelled")
         if time.monotonic() >= deadline:
@@ -508,7 +559,10 @@ def _alpha_beta(
             counters["evaluations"] += 1
             return evaluate(position)
         if remaining == 0:
-            return leaf(position)
+            if model_backed:
+                return leaf(position)
+            counters["evaluations"] += 1
+            return incoming if incoming is not None else evaluator(position)
         counters["nodes"] += 1
         alpha_original = alpha
         key, symmetry = tt_key(position)
@@ -550,7 +604,7 @@ def _alpha_beta(
         maximizing = position.turn == "defenders"
         value = -math.inf if maximizing else math.inf
         best_child_move: Move | None = None
-        children = _ordered(position, moves, rng)
+        children = _ordered(position, moves, rng, maiden=not model_backed)
         if settings.move_ordering:
             children = _prioritise(
                 children,
@@ -562,8 +616,15 @@ def _alpha_beta(
         if settings.symmetry_pruning:
             children, skipped = _symmetry_children(position, children)
             counters["symmetry_moves_skipped"] += skipped
-        for move, child in children:
-            score = search(child, remaining - 1, alpha, beta, ply + 1)
+        for move, child, maiden_value in children:
+            score = search(
+                child,
+                remaining - 1,
+                alpha,
+                beta,
+                ply + 1,
+                None if model_backed else maiden_value,
+            )
             if maximizing:
                 if score > value:
                     value, best_child_move = score, move
@@ -597,10 +658,10 @@ def _alpha_beta(
         iteration_best = best_move
         score_best = -math.inf
         try:
-            ordered = _ordered(state, list(root_moves), rng)
+            ordered = _ordered(state, list(root_moves), rng, maiden=not model_backed)
             # Rank ties by the seeded base order so prioritising the previous
             # principal variation cannot silently change which equal move wins.
-            base_rank = {move: index for index, (move, _) in enumerate(ordered)}
+            base_rank = {item[0]: index for index, item in enumerate(ordered)}
             if settings.move_ordering and pv_move is not None:
                 ordered = _prioritise(
                     ordered,
@@ -612,8 +673,15 @@ def _alpha_beta(
             if settings.symmetry_pruning:
                 ordered, skipped = _symmetry_children(state, ordered)
                 counters["symmetry_moves_skipped"] += skipped
-            for move, child in ordered:
-                score = sign * search(child, current_depth - 1, -math.inf, math.inf, 1)
+            for move, child, maiden_value in ordered:
+                score = sign * search(
+                    child,
+                    current_depth - 1,
+                    -math.inf,
+                    math.inf,
+                    1,
+                    None if model_backed else maiden_value,
+                )
                 if score > score_best or (
                     score == score_best and base_rank[move] < base_rank[iteration_best]
                 ):
@@ -720,6 +788,7 @@ def mcts_context(
     model_path = config.get("model_path")
     model = config.get("_model")
     neural = bool(model_path) or model is not None
+    evaluator = _heuristic_evaluator(config.get("algorithm", "mcts"))
     deadline = time.monotonic() + seconds
     root = _Node(state)
 
@@ -852,7 +921,7 @@ def mcts_context(
                 if not moves:
                     break
                 rollout = apply_move(rollout, rng.choice(moves))
-            value = evaluate(rollout)
+            value = evaluator(rollout)
         for ancestor in path:
             ancestor.visits += 1
             ancestor.total += value

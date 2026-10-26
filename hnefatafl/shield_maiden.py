@@ -15,9 +15,11 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable
 
-from .engine import RULESETS, Move, State, apply_move
+from .engine import RULESETS, Move, State, apply_move, legal_moves
 
 VERSION = 1
+
+_TERMINAL = {"defenders": 1.0, "attackers": -1.0, "draw": 0.0}
 
 
 @dataclass(frozen=True)
@@ -277,6 +279,38 @@ class DecisionContext:
         return score
 
 
+def normalise(raw: float) -> float:
+    """Map a raw defender-relative score to the shared [-0.99, 0.99] range."""
+    if abs(raw) == 1_000_000:
+        return 1.0 if raw > 0 else -1.0
+    return max(-0.99, min(0.99, math.tanh(raw / 1800)))
+
+
+def evaluate(state: State) -> float:
+    """Defender-relative one-ply value in [-1, 1] for search leaf evaluation.
+
+    Reuses the same ``DecisionContext`` and scoring as :func:`choose`, but
+    returns only the strongest available value instead of a move. This is the
+    Shield maiden heuristic exposed as a static evaluator for other searches.
+    """
+    if state.winner:
+        return _TERMINAL[state.winner]
+    moves = legal_moves(state)
+    if not moves:
+        return -1.0 if state.turn == "defenders" else 1.0
+    context = DecisionContext(state)
+    sign = 1 if state.turn == "defenders" else -1
+    best = -math.inf
+    for move in moves:
+        value = sign * context.score(apply_move(state, move), move)
+        if value > best:
+            best = value
+        # An exact engine win dominates every static/tactical score.
+        if value == 1_000_000:
+            break
+    return normalise(sign * best)
+
+
 def choose(
     state: State,
     moves: list[Move],
@@ -305,14 +339,8 @@ def choose(
         if score == 1_000_000:
             break
     if diagnostics is not None:
-        raw = sign * score
-        value = (
-            (1.0 if raw > 0 else -1.0)
-            if abs(raw) == 1_000_000
-            else max(-0.99, min(0.99, math.tanh(raw / 1800)))
-        )
         diagnostics.update(
-            value=value,
+            value=normalise(sign * score),
             completed_depth=int(searched == len(moves) or score == 1_000_000),
             searched_moves=searched,
         )

@@ -6,7 +6,7 @@ import math
 import pytest
 import torch
 
-from hnefatafl import ai
+from hnefatafl import ai, shield_maiden
 from hnefatafl.engine import Move, State, apply_move, legal_moves, new_game
 from hnefatafl.models import PolicyValueNet, save_checkpoint
 
@@ -58,13 +58,13 @@ def test_alpha_beta_keeps_last_completed_search_value_if_deeper_iteration_expire
     ordered = ai._ordered
     root_calls = 0
 
-    def expiry_at_second_root(position, moves, rng):
+    def expiry_at_second_root(position, moves, rng, maiden=False):
         nonlocal root_calls
         if position is state:
             root_calls += 1
             if root_calls == 2:
                 raise ai._Deadline
-        return ordered(position, moves, rng)
+        return ordered(position, moves, rng, maiden)
 
     monkeypatch.setattr(ai, "_ordered", expiry_at_second_root)
     result = ai.analyze_position(state, {**config, "depth": 4})
@@ -75,13 +75,13 @@ def test_alpha_beta_keeps_last_completed_search_value_if_deeper_iteration_expire
 def test_alpha_beta_reports_root_evaluator_if_no_depth_can_finish(monkeypatch):
     state = new_game("brandubh")
 
-    def expired(*_args):
+    def expired(*_args, **_kwargs):
         raise ai._Deadline
 
     monkeypatch.setattr(ai, "_ordered", expired)
     result = ai.analyze_position(state, {"algorithm": "alpha_beta"})
     assert result["completed_depth"] == 0
-    assert result["value"] == ai.evaluate(state)
+    assert result["value"] == shield_maiden.evaluate(state)
     assert Move(**result["best_move"]) in legal_moves(state)
 
 
@@ -229,11 +229,11 @@ def test_alpha_beta_publishes_completed_depths_without_restarting_search(monkeyp
     root_calls = 0
     ordered = ai._ordered
 
-    def count_root(position, moves, rng):
+    def count_root(position, moves, rng, maiden=False):
         nonlocal root_calls
         if position is state:
             root_calls += 1
-        return ordered(position, moves, rng)
+        return ordered(position, moves, rng, maiden)
 
     monkeypatch.setattr(ai, "_ordered", count_root)
     snapshots = []
@@ -321,7 +321,7 @@ def test_background_search_can_be_cancelled_by_its_progress_observer():
 
 
 def test_expired_alpha_beta_still_publishes_legal_fallback(monkeypatch):
-    def expired(*_args):
+    def expired(*_args, **_kwargs):
         raise ai._Deadline
 
     monkeypatch.setattr(ai, "_ordered", expired)

@@ -26,6 +26,7 @@ from typing import Callable
 
 from .ai import choose_move, evaluate
 from .engine import RULESETS, Move, State, apply_move, legal_moves, new_game
+from .shield_maiden import DecisionContext, normalise
 
 
 DEFAULTS = {
@@ -240,18 +241,24 @@ def corpus(seed: int) -> list[tuple[str, State]]:
     return [(label, state) for label, state in positions if not state.winner and legal_moves(state)]
 
 
-def _minimax(state: State, depth: int, budget: list[int]) -> float | None:
+def _minimax(
+    state: State, depth: int, budget: list[int], incoming: float | None = None
+) -> float | None:
     if budget[0] <= 0:
         return None
     budget[0] -= 1
-    if state.winner or depth == 0:
+    if state.winner:
         return evaluate(state)
+    if depth == 0:
+        return incoming if incoming is not None else evaluate(state)
     moves = legal_moves(state)
     if not moves:
         return -1.0 if state.turn == "defenders" else 1.0
+    context = DecisionContext(state)
     values: list[float] = []
     for move in moves:
-        value = _minimax(apply_move(state, move), depth - 1, budget)
+        child = apply_move(state, move)
+        value = _minimax(child, depth - 1, budget, normalise(context.score(child, move)))
         if value is None:
             return None
         values.append(value)
@@ -398,7 +405,13 @@ def run_alpha_beta_benchmark(
         ).hexdigest(),
         "source_sha256": {
             name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-            for name in ("ai.py", "engine.py", "symmetry.py", "alpha_beta_benchmark.py")
+            for name in (
+                "ai.py",
+                "engine.py",
+                "symmetry.py",
+                "shield_maiden.py",
+                "alpha_beta_benchmark.py",
+            )
         },
         "fixed_depth": {"positions": [], "summary": {}},
         "fixed_time": {"positions": [], "summary": {}},
