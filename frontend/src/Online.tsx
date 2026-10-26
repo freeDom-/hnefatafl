@@ -341,7 +341,7 @@ export function Lobby({
     });
   };
   return (
-    <section className="online-page panel dashboard-lobby" aria-label={t('Online lobby')}>
+    <section className="panel dashboard-lobby" aria-label={t('Online lobby')}>
       <h2>{t('Online lobby')}</h2>
       {poll.phase === 'loading' && <p role="status">{t('Loading online games…')}</p>}
       {poll.phase === 'stale' && (
@@ -475,7 +475,6 @@ export function Lobby({
               </button>
             )}
             <Notice value={action.notice} />
-            <p>{t('Disconnecting, closing the browser or logging out does not pause clocks.')}</p>
           </Modal>
         )}
         <section className="online-games">

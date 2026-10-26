@@ -87,6 +87,19 @@ it('starts a distinct guest game without any account/API requests', async () => 
   expect(fetcher).not.toHaveBeenCalled();
   expect(JSON.parse(state.raw!).moves).toEqual([]);
 });
+it('has no self-link or account-game actions and leaves nothing after Clear device game', async () => {
+  await mount();
+  expect(screen.getByRole('link', { name: 'Log in' })).toHaveAttribute('href', '/login');
+  expect(
+    screen.queryByRole('link', { name: /Guest play|Account single-player|Online multiplayer/ }),
+  ).toBeNull();
+  expect(screen.queryByText(/Only the current or last guest game is kept/)).toBeNull();
+  expect(screen.queryByText(/Browser storage can be cleared or evicted/)).toBeNull();
+  expect(screen.queryByText(/Language and appearance are separate preferences/)).toBeNull();
+  const clear = screen.getByRole('button', { name: 'Clear device game' });
+  expect(clear.nextElementSibling).toBeNull();
+  expect(screen.getByRole('link', { name: 'Runtime licenses and source' })).toBeVisible();
+});
 it('requires accessible replacement confirmation and preserves the slot when cancelled', async () => {
   state.raw = JSON.stringify(fixture.computer.record);
   rpc.mockImplementation(async (r: { action: string }) =>

@@ -1,7 +1,7 @@
-import HeaderLink from './HeaderLink';
+import SiteHeader from './SiteHeader';
 import NewGame from './NewGame';
 import { localizedRules } from './locales/rules-de';
-import { t, useI18n, LanguageSelect } from './i18n';
+import { t, useI18n } from './i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate, Crown } from './Board';
@@ -10,13 +10,11 @@ import type { AIProfile, Game, Model, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
 import Tournaments from './Tournaments';
-import { AppearanceSettings } from './Appearance';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
 import Online from './Online';
 import Modal from './Modal';
-import { surfaceLink } from './surfaceNavigation';
 import PersonalDashboard from './PersonalDashboard';
 import { useAuth } from './Auth';
 import { canonicalLocation, navigate } from './navigation';
@@ -215,56 +213,7 @@ export default function App() {
 
   return (
     <>
-      <header className="site-header">
-        <a className="brand" href="/dashboard" onClick={surfaceLink}>
-          <span className="brand-emblem">
-            <Crown />
-          </span>
-          <span>
-            {t('HNEFATAFL')}
-            <small>{t('THE KING’S TABLE')}</small>
-          </span>
-        </a>
-        <nav aria-label={t('Main navigation')}>
-          {(['dashboard', 'archive', 'training', 'tournaments'] as Tab[])
-            .filter(
-              (item) =>
-                (item !== 'training' && item !== 'tournaments') || permissions.includes(item),
-            )
-            .map((item) => (
-              <button
-                type="button"
-                key={item}
-                onClick={() => navigate(`/${item}`)}
-                className={tab === item ? 'active' : ''}
-                aria-current={tab === item ? 'page' : undefined}
-              >
-                {item === 'dashboard'
-                  ? t('Dashboard')
-                  : item === 'play'
-                    ? t('Play')
-                    : item === 'online'
-                      ? t('Online')
-                      : item === 'archive'
-                        ? t('Hall of records')
-                        : item === 'training'
-                          ? t('AI workshop')
-                          : t('Tournaments')}
-              </button>
-            ))}
-        </nav>
-        <div className="header-controls">
-          <HeaderLink href="/guest">{t('Guest play')}</HeaderLink>
-          <span className="account-name" title={account?.username}>
-            {account?.username}
-          </span>
-          <button className="button small secondary" type="button" onClick={() => void logout()}>
-            {t('Log out')}
-          </button>
-          <LanguageSelect />
-          <AppearanceSettings />
-        </div>
-      </header>
+      <SiteHeader account={account} logout={logout} current={tab} />
       <main>
         {error && (
           <div role="alert" className="error-banner">

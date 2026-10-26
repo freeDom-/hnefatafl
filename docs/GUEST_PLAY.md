@@ -20,6 +20,13 @@ training collections or tournaments. Logging in does not upload or import them.
 Account single-player still requires login and saves on the server; Online still
 uses authenticated, server-authoritative multiplayer.
 
+Guest Play has no self-link. Anonymous visitors see one **Log in** action instead
+of separate account-game links. Signed-in visitors opening `/guest` directly keep
+the shared authenticated navigation and Appearance controls, without a redundant
+login action. Authenticated navigation elsewhere has no Guest Play entry; the
+route remains public. The settings card ends at **Clear device game**; runtime
+license/source information remains available above that button.
+
 ## One current or last game
 
 The owner approved the Phase 0 one-slot policy with “Yes, I approve this” in the
@@ -122,8 +129,11 @@ cache lifecycle/security/update design.
 
 ## Account and online compatibility
 
-`/guest` mounts no Auth, account-game or online adapter. Its only requests fetch
-static app/runtime assets with no game persistence endpoint. Navigation terminates
+Guest gameplay mounts no account-game or online adapter. Its header alone checks
+the existing session endpoint to choose navigation and supports explicit logout;
+it never requests account histories or server game persistence. Gameplay/runtime
+requests remain static assets. Reading the session in this header does not change
+account selection preferences or touch the device save. Navigation terminates
 the guest worker. Returning validates the saved sequence; it never uploads it.
 Account logout/switch cancels protected requests and drops protected UI state;
 responses from an old session cannot install into the new account's UI.
