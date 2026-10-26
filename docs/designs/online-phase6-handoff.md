@@ -74,3 +74,28 @@ is separate and unchanged. History visibility adds no assistance/mutation/export
 The Local players UI is removed; setup profiles/APIs and historical data remain.
 All rating-policy decisions above remain unapproved. See
 [refinement evidence](../validation/dashboard-consolidation.md).
+
+## Account setup and guest/lobby refinement
+
+Current account creation binds the human seat to the signed-in account and resolves
+Shield bearer, Shield maiden, Jarl or Seer on the server. Normal accounts create
+Human vs AI; current administrators can also create/restart AI vs AI. Creation and
+restart recheck current identity/role transactionally. Removed local-player CRUD,
+custom/neural account-creation controls and old preference fields must not become
+alternate creation paths. Historical modes, player IDs and stored model/configuration
+snapshots remain read/play compatibility data; unsupported saved setups cannot be
+cloned through restart. Authorized advisor/training/tournament controls retain the
+full catalog and their model/search configuration independently.
+
+Guest AI now advances automatically only at the live, nonterminal AI turn, including
+validated restore. Keep explicit retry, operation-generation/cancellation guards,
+accepted-move saves and the one-device-slot policy. Shared modal cleanup restores
+focus to a connected opener. Online creation accepts day/hour/minute components in
+the client while the authoritative aggregate remains 60–1209600 seconds; retained
+sub-minute requests keep exact seconds. Existing deadlines stay unchanged. Lobby
+polling resynchronizes on reconnect/focus/visible tabs and exposes stale/retry state
+without manual Refresh or a persistent connected banner.
+
+See the [refinement evidence](../validation/dashboard-consolidation.md) for exact
+source revisions, full/focused results and local timeout limitations. These UI and
+creation decisions approve no rating, deployment or production gate change.

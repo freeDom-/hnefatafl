@@ -58,4 +58,5 @@ online duration entry with unchanged aggregate limits, and automatically recover
 lobby cards. Local-player CRUD and unsupported legacy restart cloning are removed;
 stored identities/configurations remain read/play compatibility shims. The shared
 neural catalog and authorized advisor/training/tournaments remain independent.
-Additional-scope validation is still in progress in the refinement evidence.
+The refinement evidence identifies exact full/focused checks and local timeout
+limits; final validation remains in progress there.
