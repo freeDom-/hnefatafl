@@ -192,6 +192,7 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
   await login(page);
   await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
   await page.getByRole('radio', { name: /Brandubh/ }).check();
+  await page.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('attackers');
   await page.getByRole('button', { name: 'To the table', exact: true }).click();
   await expect(page).toHaveURL(/\/games\/(?!online-)[A-Za-z0-9_-]+$/);
   await expect(page.getByRole('grid')).toBeVisible();
