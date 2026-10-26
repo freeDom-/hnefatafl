@@ -758,3 +758,17 @@ def test_admin_dashboard_own_scope_precedes_mixed_category_limit(world):
     assert rows["matching"] == 5
     assert sum(r["games"] for r in rows["totals"]) == 5
     assert {r["id"] for r in rows["games"]}.isdisjoint({account["id"], others["id"]})
+
+
+def test_latest_account_records_preserve_microsecond_order_before_limit(world):
+    app, clients, _, _, _ = world
+    games = sorted([draw_account(clients["Odin"]) for _ in range(4)], key=lambda g: g["id"])
+    with app.state.store.connection() as c:
+        for index, game in enumerate(games, 1):
+            at = f"2035-01-01T00:00:00.{index:06d}+00:00"
+            c.execute(
+                "UPDATE games SET data=json_set(data,'$.ended_at',?) WHERE id=?", (at, game["id"])
+            )
+    latest = clients["Odin"].get("/api/history/games?dashboard=true").json()
+    assert [r["id"] for r in latest["games"]] == [g["id"] for g in games[::-1][:3]]
+    assert latest["matching"] == 4

@@ -15,8 +15,13 @@ class RecordedHistory:
     @staticmethod
     def _base(actor, *, admin, own):
         # Project summaries only. No boards, engine replay, config, email or audit notes.
-        account = """SELECT games.id,'account-single-player' AS category,
-            CAST((julianday(coalesce(json_extract(data,'$.ended_at'),games.created_at))-2440587.5)*86400000000 AS INTEGER) AS order_at,
+        # Current account writers use UTC datetime.isoformat(): either six
+        # fractional digits or whole seconds. Parse seconds without the fraction;
+        # julianday/strftime on fractional dates round to milliseconds.
+        at = "coalesce(json_extract(data,'$.ended_at'),games.created_at)"
+        account = f"""SELECT games.id,'account-single-player' AS category,
+            CAST(strftime('%s',substr({at},1,19)) AS INTEGER)*1000000 +
+            CASE WHEN substr({at},20,1)='.' THEN CAST(substr({at},21,6) AS INTEGER) ELSE 0 END AS order_at,
             games.created_at,coalesce(json_extract(data,'$.ended_at'),games.created_at) AS recorded_at,
             json_extract(data,'$.ruleset') AS ruleset,
             CASE WHEN json_extract(data,'$.recorded_result.winner') IS NULL THEN 'in_progress' ELSE 'completed' END AS status,
