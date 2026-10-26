@@ -6,7 +6,7 @@ import sqlite3
 import time
 
 from auth_support import AuthenticatedClient as TestClient
-from record_fixtures import historical_game, historical_response
+from record_fixtures import stored_player, retired_player, historical_game, historical_response
 
 from hnefatafl.identities import RUNES, effective_ai_config, rune_for_ordinal
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
@@ -52,8 +52,8 @@ def test_allocator_is_unique_past_single_alphabet_and_safe_across_connections(tm
 def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path):
     path = tmp_path / "history.sqlite3"
     store = Store(path)
-    store.create_player({"id": "retired", "name": "Astrid", "created_at": "2026-01-01"})
-    store.delete_player("retired", "2026-01-02")
+    stored_player(store, {"id": "retired", "name": "Astrid", "created_at": "2026-01-01"})
+    retired_player(store, "retired", "2026-01-02")
     game = {"id": "old", "created_at": "2026-01-01", "version": 7, "moves": []}
     store.create_game(game)
     with sqlite3.connect(path) as connection:
@@ -62,7 +62,7 @@ def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path)
         old_json = connection.execute("SELECT data FROM games WHERE id='old'").fetchone()[0]
     migrated = Store(path)
     retired = migrated.players(include_deleted=True)[0]
-    fresh = migrated.create_player({"id": "new", "name": "Astrid", "created_at": "2026-01-03"})
+    fresh = stored_player(migrated, {"id": "new", "name": "Astrid", "created_at": "2026-01-03"})
     assert fresh["rune"] != retired["rune"]
     assert Store(path).players(include_deleted=True)[0]["rune"] == fresh["rune"]
     assert migrated.rune("player:retired") == retired["rune"]

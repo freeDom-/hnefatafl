@@ -8,7 +8,7 @@ import time
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
-from record_fixtures import historical_player
+from record_fixtures import stored_player, retired_player, historical_player
 
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.server import create_app
@@ -368,8 +368,8 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     store = Store(database)
     game = {"id": "history", "version": 0, "created_at": "2026-01-01", "moves": []}
     store.create_game(game)
-    store.create_player({"id": "retired", "name": "Freya", "created_at": "2026-01-01"})
-    store.delete_player("retired", "2026-01-02")
+    stored_player(store, {"id": "retired", "name": "Freya", "created_at": "2026-01-01"})
+    retired_player(store, "retired", "2026-01-02")
     store.archive_model({"id": "old-model", "name": "Eir"})
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE tournaments")

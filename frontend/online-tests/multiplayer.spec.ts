@@ -229,3 +229,41 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Create game', exact: true })).toBeDisabled();
 });
+
+test('lobby automatically observes creation, join and completion and resynchronizes after reconnect and tab visibility', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'OnlineArcher');
+  const viewer = await opponent(browser, 'OnlineViewer');
+  extra.push(viewer.context);
+  const close = viewer.page
+    .getByRole('dialog', { name: 'Create an online game' })
+    .getByRole('button', { name: 'Cancel', exact: true });
+  if (await close.isVisible()) await close.click();
+  const lobby = viewer.page.getByRole('region', { name: 'Online lobby', exact: true });
+  await expect(lobby.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+  await expect(lobby.getByText('Connected · refreshes automatically')).toHaveCount(0);
+  const url = await create(page, 'single', 'attackers', '3600');
+  await expect(lobby.locator('.online-card')).toHaveCount(1);
+  await expect(lobby.locator('.online-card')).toContainText('Waiting');
+  await viewer.context.setOffline(true);
+  await expect(lobby.getByRole('alert')).toContainText('Lobby data is stale');
+  const keeper = await opponent(browser);
+  extra.push(keeper.context);
+  await join(keeper.page, url);
+  await viewer.context.setOffline(false);
+  await viewer.page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(lobby.locator('.online-card')).toContainText('Active');
+  await expect(lobby.getByRole('alert')).toHaveCount(0);
+  await viewer.page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }),
+  );
+  await concede(keeper.page);
+  await viewer.page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(lobby.locator('.online-card')).toContainText('Completed');
+  await expect(lobby.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
+});
