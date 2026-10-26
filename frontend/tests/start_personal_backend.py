@@ -141,6 +141,16 @@ class Control(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def do_POST(self):
+        if self.path != "/reset-login-attempts":
+            self.send_error(404)
+            return
+        # Each browser case gets its own login budget in this isolated fixture.
+        with app.state.store.connection() as c:
+            c.execute("DELETE FROM login_attempts")
+        self.send_response(204)
+        self.end_headers()
+
     def do_GET(self):
         if self.path != "/snapshot":
             self.send_error(404)
