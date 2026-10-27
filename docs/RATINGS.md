@@ -44,14 +44,33 @@ record the policy version that produced them.
   There is no aggregate match score.
 - Repeated-opponent games all count with no hidden weighting.
 
-## Rated/Casual selection
+## Rated-only new games
 
-The creation form offers an explicit **Rated**/**Casual** choice. The default is
-**Casual**, preserving prior behavior. The choice is stored on the match and is
-immutable after creation; the API rejects any attempt to change it and clients
-cannot forge it. A game's mode is shown in the lobby and in the game room before
-joining or playing, and completed Rated games show the authoritative per-player
-rating change.
+Every newly created online game is **rated**. There is no Casual selector and no
+obvious casual-mode UI. The API accepts an omitted `rated` field and rejects an
+explicit `false` (or any non-boolean value), so a legacy or forged request cannot
+create an unrated game. The stored `online_matches.rated` flag remains immutable.
+
+Historical casual games are never altered, reclassified or backfilled, and
+existing in-progress legacy casual games finish under their original policy with
+no invented rating changes. The internal `rated` field is retained for reading
+those records even though it is no longer a creation choice.
+
+## Start-rating snapshots
+
+Schema 12 adds `online_game_start_ratings`, one immutable `(game_id, account_id)`
+row per participant, written when a game actually activates (both participants
+established) rather than when an open challenge is created. Each leg of a
+multi-game match captures its own snapshots. The value is the participant's
+running Elo for the ruleset at that moment, or the initial `1500` for an unrated
+account. Capture is idempotent, so duplicate activation/join requests cannot
+duplicate a snapshot.
+
+Start snapshots are deliberately independent of the rating ledger: a pool rebuild
+never rewrites them, and they can differ from the pre-result rating of a
+concurrent game. They are shown in the Hall as `Name (1354)`. Older records
+without a reliable snapshot show only the name; the system never fabricates a
+snapshot from the current rating.
 
 ## Persistence, ordering and rebuilds
 

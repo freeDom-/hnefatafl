@@ -26,11 +26,11 @@ banner; the live game room retains its own refresh controls.
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode, **Casual** or **Rated** game type, and integer **Days** (0–14),
-**Hours** (0–23), **Minutes** (0–59) in a shared modal. Casual is the default and
-leaves ratings untouched. Rated games count toward the
-[leaderboard](RATINGS.md) and require an active, verified account. The choice is
-fixed when the game is created and is visible before joining. The combined **Time allowed per move** is converted to seconds
+a match mode, and integer **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
+in a shared modal. Every newly created game is **rated** and counts toward the
+[leaderboard](RATINGS.md); there is no Casual selector. Rated play requires an
+active, verified account, checked at creation and joining. Configured time per
+move uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined **Time allowed per move** is converted to seconds
 at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
 through 14 days), default three days: all-zero and 14 days plus extra hours/minutes
 are rejected, never clamped. The component ranges do not widen that aggregate policy.
@@ -136,5 +136,10 @@ a shared cursor. **Historical replay · read only** clearly marks the board.
 **Return to live board** is required before submitting moves. Live polling continues
 while viewing history and reports newly available moves.
 
-Online replay provides no seek/undo/branch mutations, exports or analysis settings.
-Administrator roles receive no active-game advice bypass.
+Online replay provides no seek/undo/branch mutations or exports. **Completed**
+online games reuse the existing post-game Analytics/Winning chances experience
+through an online-scoped adapter; ongoing online games never expose analysis,
+suggested moves, evaluation or win probabilities, and a client countdown reaching
+zero is not treated as completion. The backend enforces terminal-state
+eligibility in addition to the UI. Administrator roles receive no active-game
+advice bypass.
