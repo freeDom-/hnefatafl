@@ -10,7 +10,9 @@ read-only history. Hall visibility depends on role; see the dashboard guide.
 **Singleplayer** uses the authenticated server and account history, as described
 below. **Online** uses separate authenticated multiplayer routes; see
 [online play](ONLINE_PLAY.md). Both render the same play-screen sections, so the
-sidebar, board toolbar, armies and move list stay identical between them.
+game-details panel, armies panel, board toolbar and move list stay identical
+between them; the single-player sidebar additionally offers post-game analysis and
+the online room adds its lifecycle and replay controls.
 
 ## Choose a battlefield
 
