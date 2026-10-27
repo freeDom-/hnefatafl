@@ -11,7 +11,7 @@ lobby and playable UI described in [Playing online](ONLINE_PLAY.md). Phase 6 add
 the versioned Elo pool and authenticated leaderboard described in
 [Rated games](RATINGS.md). Anonymous access, online advice, aggregate match
 scoring, rewards and deployment remain absent.
-Account single-player, training, workers and model records keep their existing
+Singleplayer, training, workers and model records keep their existing
 tables and behavior. The old local `game_participants` scaffold references local
 `games`; online seats therefore live in the separate authoritative online tables.
 
@@ -180,6 +180,16 @@ no result. A started void retains the prior revision, replaces effective eligibi
 and removes all of that game's derived contributions. No materialized projections,
 reward consumers or generic event log are introduced.
 
+Online personal statistics group by ruleset only, summing across match modes so a
+game is never counted twice, and each ruleset heading shows the account's
+available Elo rating. AI-vs-AI account games are excluded from personal history
+and statistics; they remain stored only for administrator AI-strength analysis.
+
+A terminal king capture removes the king from the authoritative board. The safe
+projection derives the captured king's final square from the recorded moves for
+display only, so the online and replay boards can still show it without changing
+rules, occupancy, legal moves or stored history.
+
 Rated games additionally persist a versioned rating event and per-player
 application in the same transaction as the terminal result. The event sequence is
 assigned under the writer lock and never changes when a result revision is
@@ -204,7 +214,7 @@ are in [the API inventory](API_PERMISSIONS.json).
 | Method and path | Body / purpose |
 | --- | --- |
 | `POST /api/online/games` | Create waiting game/match: request UUID, ruleset, side selection, mode, optional duration |
-| `GET /api/online/games` | Authenticated listing: limit 1–100 (default 25), offset 0–100000, optional `mine=true` |
+| `GET /api/online/games` | Authenticated lobby listing: limit 1–100 (default 25), offset 0–100000, `section=all|mine|my_turn`; completed/cancelled/voided games are excluded |
 | `GET /api/online/games/{id}` | Dedicated safe authoritative projection |
 | `POST /api/online/games/{id}/join` | `version`; admit opponent and activate one/two games |
 | `POST /api/online/games/{id}/cancel` | `version`; creator while waiting |
