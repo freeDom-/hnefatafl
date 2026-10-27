@@ -92,6 +92,17 @@ it('keeps authorized single-player analytics available on the review', async () 
         show_win_chances: true,
         revision: 0,
       });
+    if (url.includes('/analysis'))
+      return respond({
+        cursor: 0,
+        ply: 0,
+        side_to_move: 'attackers',
+        position_key: 'position',
+        created_at: null,
+        evaluations: [],
+        hint: null,
+        status: 'complete',
+      });
     return respond(account);
   });
   render(

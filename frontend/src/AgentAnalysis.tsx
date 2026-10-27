@@ -261,7 +261,7 @@ export default function AgentAnalysis({
         ) : (!report || report.unavailable_reason === 'not_recorded') && !pending ? (
           <p className="subtle">{t('No evaluation was recorded for this position.')}</p>
         ) : (
-          report?.evaluations.map((agent) => (
+          (report?.evaluations ?? []).map((agent) => (
             <article className="agent-estimate" key={agent.agent_id}>
               <div className="agent-estimate-heading">
                 <div>
