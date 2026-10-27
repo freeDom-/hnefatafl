@@ -120,6 +120,7 @@ result rows are not mutated.
 | Personal production browsers | **14 passed**, desktop + mobile Chromium, 3.7 min |
 | Affected legacy production browsers | **16 passed, 2 intentional duplicate skips**, desktop + mobile Chromium, 6.8 min |
 | Advisor/replay production browsers | **6 passed**, desktop + mobile Chromium, 5.2 min |
+| Pull-request CI | **python passed** (6m11s), **browser passed** (12m12s); legacy **66 passed / 4 skips**, registration **8**, online **14**, personal **14**, guest **16** |
 
 Focused new tests cover the recorded-games table headers/order, winner
 formatting, non-winning states, accessible review links, the selected-row
