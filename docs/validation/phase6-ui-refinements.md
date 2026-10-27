@@ -75,8 +75,9 @@ The new coverage includes duration boundaries (59/60/3599/3600/86399/86400 and
 zero/expired), lobby tabs and section requests, active-game switcher/current/
 your-turn markers, captured-king prop rendering, ruleset statistics with and
 without Elo, AI-vs-AI exclusion, unified leaderboard ordering/ties/pagination and
-the absence of online assistance. Browser tests cover live capture, reload,
-reconnect and replay for the game screen.
+the absence of online assistance. Browser tests cover reload, reconnect and
+replay for the game screen; the captured-king projection and rendering are
+covered by backend and frontend unit tests rather than a browser capture.
 
 ## Not claimed
 
