@@ -75,6 +75,7 @@ export type OnlineGame = {
   participants: Record<Side, { account_id: string; name: string } | null>;
   position: OnlinePosition;
   terminal_king_square: number | null;
+  captured: { attackers: number; defenders: number };
   moves: (Move & { ply: number; accepted_at: string; side: Side })[];
   result: null | {
     game_id: string;
