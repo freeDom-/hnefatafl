@@ -54,9 +54,11 @@ engine board outcome remain separate. Guest data never enters personal statistic
 
 Ratings are a separate Elo concept from these personal statistics; see
 [Rated games](RATINGS.md). The Dashboard's compact **Leaderboard** panel shows one
-unified top-five list (provisional players carry a badge) for the selected ruleset
-and links to the full `/leaderboard` view. It requires a session and exposes only
-display names, ratings and rated-game counts.
+unified top-five list (provisional players carry a badge) for the selected
+ruleset. The ruleset selector sits in the section's top-right corner; it defaults
+to **Copenhagen** and persists the last valid choice in browser storage, restored
+after reload and navigation and ignored when storage is unavailable. It requires a
+session and exposes only display names, ratings and rated-game counts.
 
 On the Dashboard grid the embedded **Online lobby** takes the slot after the two
 statistics panels, the **Leaderboard** panel follows, and **Recorded games**
@@ -66,9 +68,14 @@ spans the final row. All cards share the same padding and section gap.
 
 Dashboard and Hall share a keyboard-accessible recorded-games table with visible
 **Status**, **Ruleset**, **Attacker**, **Defender**, **Winner** and **Date**
-headers. The Winner cell names the participant and side ("Odin (Defenders)") for a
-completed recorded result and shows **Draw** for a draw; unfinished, cancelled and
-voided rows show an em dash and never gain an invented or board-inferred winner.
+headers. The Attacker and Defender cells append the player's immutable start Elo
+in parentheses ("Odin (1354)") when a reliable snapshot exists, and show only the
+name for older records. The Winner cell names the participant and singular side
+("Odin (Attacker)") for a completed recorded result and shows **Draw** for a draw;
+unfinished, cancelled and voided rows show an em dash and never gain an invented or
+board-inferred winner. A completed rated win also shows the winner's effective
+persisted positive Elo change as a small green `+35` with an accessible label;
+draws, voids, unrated records and nonpositive changes show no gain.
 Each row is clickable: the Date cell holds the single accessible review link
 (named "Open review: … vs …") and its overlay makes the whole row activate that
 link without adding duplicate links or changing the accessibility tree. The

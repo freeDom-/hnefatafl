@@ -108,6 +108,16 @@ history and statistics, and unifies the leaderboard into one Elo-ordered list wi
 deterministic ties. See
 [refinement validation](docs/validation/phase6-ui-refinements.md).
 
+A follow-up refinement makes every newly created online game rated (explicit
+unrated requests are rejected; historical casual games are untouched), captures
+immutable per-player start-Elo snapshots at activation, shows start ratings and
+the winner's effective positive Elo delta in the shared records table, reuses the
+duration formatter for configured time per move, adds a single-player heading and
+viewport-fitted desktop play, extends the active-game switcher across single-player
+and online games, persists the leaderboard ruleset preference (default Copenhagen),
+and enables the existing post-game analytics for completed online games only. See
+[refinement validation](docs/validation/phase6-ui-refinements.md#follow-up-refinement).
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

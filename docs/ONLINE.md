@@ -137,18 +137,21 @@ compatible or weaken the account/online rollback boundary.
 
 ## Persistence, authorization and concurrency
 
-[online_migrations.py](../hnefatafl/online_migrations.py) introduces schema **11**:
+[online_migrations.py](../hnefatafl/online_migrations.py) introduces schema **12**:
 `online_matches`, `online_games`, ordered `online_moves`, append-only
 `online_results`, private `online_void_audit`, singleton `online_timeout_gate` and
-append-only `online_gate_audit`, plus the mutable `rating_events`,
-`rating_applications` and `player_ratings` tables described in
-[Rated games](RATINGS.md). Constraints protect distinct seats, one game per
+append-only `online_gate_audit`, plus the immutable `online_game_start_ratings`
+snapshots and the mutable `rating_events`, `rating_applications` and
+`player_ratings` tables described in [Rated games](RATINGS.md). Constraints protect distinct seats, one game per
 match/leg, creation-request uniqueness, duration types, lifecycle shape, activated
 identity/configuration immutability and result revision continuity. The effective
 result pointer has a deferred foreign key, permitting state/result atomic commits.
 The authoritative rated/casual flag is the immutable `online_matches.rated` column;
 `online_games.rated_intent` remains a legacy always-zero placeholder so no table
-rebuild is required.
+rebuild is required. All newly created matches are rated; historical casual
+matches keep `rated=0` and are never backfilled. `online_game_start_ratings`
+records immutable per-player start Elo at activation and is independent of rating
+rebuilds.
 
 [online_core.py](../hnefatafl/online_core.py) acquires the existing deployment gate
 and `BEGIN IMMEDIATE`, reloads the presented session and current account, loads
@@ -287,17 +290,18 @@ Disabling admission is not a substitute for pausing timeout finalization.
 ## Migration, backup and recovery
 
 Use the [full stopped-writer backup procedure](TRAINING_DATA.md#consistent-backup-and-restoration),
-including protected environment and matching code. Schema 11 adds no interpretation
+including protected environment and matching code. Schema 12 adds no interpretation
 of local histories and preserves account IDs/security, ownership, sessions, jobs,
-workers/models and files during forward migration from schemas 10/9/8/older fixtures.
-It adds the rating tables and the `online_matches.rated` column in place.
+workers/models and files during forward migration from schemas 11/10/9/8/older
+fixtures. It adds the rating and start-snapshot tables and the
+`online_matches.rated` column in place.
 Legacy normalization collision checks still run and stop ambiguous upgrades.
 No production database was inspected or migrated for development.
 
-Schema-9 code refuses schema 10; schema-10 code refuses schema 11. Additive tables
-are not a safe downgrade guarantee. The schema-11-aware updater refuses automatic
-recovery across differing online schemas/columns before replacing the live root;
-account-schema protections remain.
+Schema-9 code refuses schema 10; schema-10 code refuses schema 11; schema-11 code
+refuses schema 12. Additive tables are not a safe downgrade guarantee. The
+schema-12-aware updater refuses automatic recovery across differing online
+schemas/columns before replacing the live root; account-schema protections remain.
 An empty/pre-database snapshot also refuses replacement of a live database.
 Use a forward repair or separately reviewed manual reconciliation, retaining both
 roots and matching code snapshots. Do not use older recovery tooling over a live
