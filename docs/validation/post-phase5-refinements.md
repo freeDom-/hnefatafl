@@ -115,8 +115,8 @@ result rows are not mutated.
 
 | Check | Actual result |
 | --- | --- |
-| `make check` | **passed**, 14:56 backend + frontend + build; docs, Ruff/format, Prettier, mypy and TypeScript all passed |
-| Complete backend `pytest` | **1483 passed, 36 hardware/optional skips, 1 warning**, 896.25 s |
+| `make check` | **passed**, 13:46 backend + frontend + build; docs, Ruff/format, Prettier, mypy and TypeScript all passed |
+| Complete backend `pytest` | **1485 passed, 36 hardware/optional skips, 1 warning**, 826.75 s |
 | Complete frontend `vitest` | **44 files, 363 passed** |
 | Ruff / Ruff format / Prettier | passed (104 backend files; frontend formatting clean) |
 | mypy | passed, 48 source files |
@@ -135,7 +135,9 @@ one-move-per-second playback, Stop preserving position, end-of-game and
 empty-game Play disabling, replay from an earlier position, manual navigation
 stopping playback, unmount cleanup, the absence of analysis requests during
 playback, login identity focus, the advisor-triggered winning-chances/best-move
-display without a checkbox, and captured-king retention in the review.
+display without a checkbox, captured-king retention in the review, normal-user
+own single-player history access, owner-only account review, and the read-only
+historical analysis path (exact-cursor live contract and out-of-range rejection).
 
 ## Limits
 
