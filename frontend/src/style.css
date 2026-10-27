@@ -363,13 +363,25 @@ h1 {
 /* Keep normal desktop play within one viewport; the square board is capped by
    the shorter of its column width and the available height. The reserve covers
    the header, footer, board toolbar and the active-game switcher;
-   post-game analytics and long side panels may still scroll naturally. */
+   tall side panels retain their own scrolling. */
 @media (min-width: 1101px) {
   /* Bound tall side panels by the remaining play area; they must not force the
      document taller than the viewport after the board has reached its cap. */
+  #root:has(.play-page .game-layout),
+  #root:has(.online-page .game-layout) {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100dvh;
+  }
   main:has(.play-page .game-layout),
   main:has(.online-page .game-layout) {
-    height: calc(100dvh - var(--header-h) - var(--footer-h));
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+  }
+  #root:has(.play-page .game-layout) > .site-footer,
+  #root:has(.online-page .game-layout) > .site-footer {
+    width: 100%;
   }
   .online-root:has(.game-layout) {
     height: 100%;

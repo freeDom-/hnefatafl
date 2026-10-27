@@ -500,3 +500,36 @@ test('desktop play screens fit both viewports at every density without document 
     }
   }
 });
+
+test('Large desktop play fits a wrapped administrator header', async ({ page, request }) => {
+  const state = await snapshot(request);
+  await page.setViewportSize({ width: 1568, height: 785 });
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'hnefatafl-appearance',
+      JSON.stringify({ mode: 'wood', tokens: 'wood', board: 'walnut', density: 'large' }),
+    ),
+  );
+  await login(page, 'PersonalOdin');
+  for (const path of ['/games/' + state.ids.admin_account, '/online/games/' + state.ids.active]) {
+    await page.goto(path);
+    await expect(page.getByRole('grid')).toBeVisible();
+    for (const [width, height] of [
+      [1568, 785],
+      [1920, 1080],
+    ]) {
+      await page.setViewportSize({ width, height });
+      const fit = await page.evaluate(() => ({
+        doc: document.documentElement.scrollHeight,
+        view: innerHeight,
+        horizontal: document.documentElement.scrollWidth,
+        width: innerWidth,
+        board: document.querySelector('.battlefield')!.getBoundingClientRect().bottom,
+        footer: document.querySelector('.site-footer')!.getBoundingClientRect().top,
+      }));
+      expect(fit.doc).toBeLessThanOrEqual(fit.view + 1);
+      expect(fit.horizontal).toBeLessThanOrEqual(fit.width);
+      expect(fit.board).toBeLessThan(fit.footer);
+    }
+  }
+});

@@ -128,7 +128,7 @@
 }
 @media (max-width: 760px) {
   :root {
-    --viewport-scale: 0.8;
+    --viewport-scale: 0.9;
   }
 }
 @media (min-width: 1450px) {
