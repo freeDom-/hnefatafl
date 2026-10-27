@@ -89,9 +89,6 @@
   padding-block: 0.5rem;
   margin-block: 1rem;
 }
-.online-result {
-  font-size: 1.1rem;
-}
 .online-details ol {
   max-height: 18rem;
   overflow: auto;

@@ -177,7 +177,7 @@ describe('game flow', () => {
     await screen.findByRole('gridcell', { name: 'b3, attacker' });
     const call = fetcher.mock.calls.find(([path]) => path.endsWith('/moves'))!;
     expect(JSON.parse(String(call[1]?.body))).toEqual({ source: 0, target: 1, version: 0 });
-    expect(screen.getByText('Defenders to move')).toBeInTheDocument();
+    expect(screen.getByLabelText('Defenders to move')).toBeInTheDocument();
   });
   it('does not overwrite a new game when an old move request finishes late', async () => {
     let finish!: (response: Response) => void;

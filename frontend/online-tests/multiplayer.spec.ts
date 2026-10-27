@@ -32,7 +32,7 @@ async function create(page: Page, mode = 'single', side = 'attackers', seconds =
 async function join(page: Page, url: string) {
   await page.goto(url);
   await page.getByRole('button', { name: 'Join game', exact: true }).click();
-  await expect(page.getByText(/to move/)).toBeVisible();
+  await expect(page.getByLabel(/(Attackers|Defenders) to move/)).toBeVisible();
 }
 async function refresh(page: Page) {
   // The game room has no manual refresh control; wake the automatic poll.
@@ -60,6 +60,7 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   const other = await opponent(browser);
   extra.push(other.context);
   const url = await create(page);
+  const id = new URL(url).pathname.split('/').pop()!;
   await join(other.page, url);
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -71,6 +72,11 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
   await page.getByRole('gridcell', { name: 'b7, empty', exact: true }).click();
   await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
+  const capturedRow = page.locator('.armies .captured-row');
+  const afterMove = await (await page.request.get(`/api/online/games/${id}`)).json();
+  await expect(capturedRow).toHaveText(
+    `Captured ${afterMove.captured.attackers} ${afterMove.captured.defenders}`,
+  );
   await other.context.setOffline(true);
   await refresh(other.page);
   await expect(
@@ -84,8 +90,12 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await concede(other.page);
   await refresh(page);
   await expect(page.getByText('Attackers win · concession')).toBeVisible();
+  const afterConcession = await (await page.request.get(`/api/online/games/${id}`)).json();
+  await expect(capturedRow).toHaveText(
+    `Captured ${afterConcession.captured.attackers} ${afterConcession.captured.defenders}`,
+  );
   await page.getByRole('button', { name: 'View replay' }).click();
-  await expect(page.getByText('Historical replay · read only')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Return to live board' })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: 'd7, attacker', exact: true })).toHaveAttribute(
     'aria-disabled',
     'true',
@@ -116,7 +126,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   await concede(page);
   // The return game completed; the still-active first leg remains in the switcher.
   await switcher.locator(`[data-game-id="${id}"]`).click();
-  await expect(page.getByText(/to move/)).toBeVisible();
+  await expect(page.getByLabel(/(Attackers|Defenders) to move/)).toBeVisible();
 });
 
 test('sequential discovers the return game after the first result', async ({ page, browser }) => {

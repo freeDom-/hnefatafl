@@ -46,7 +46,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
     .getByRole('gridcell', { name: /empty, legal move/ })
     .first()
     .click();
-  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Attackers to move')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
@@ -63,7 +63,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await page.reload();
   await expect(root).toHaveAttribute('data-color-mode', 'wood');
   await expect(root).toHaveAttribute('data-board-theme', 'slate');
-  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Attackers to move')).toBeVisible();
 
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Follow device' }).check();

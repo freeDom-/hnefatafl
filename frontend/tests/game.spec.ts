@@ -15,7 +15,7 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
   const destination = board.getByRole('gridcell', { name: /empty, legal move/ }).first();
   const name = await destination.getAttribute('aria-label');
   await destination.click();
-  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Attackers to move')).toBeVisible();
   await expect(
     board.getByRole('gridcell', {
       name: name!.replace('empty, legal move', 'defender'),
@@ -23,9 +23,9 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
     }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Undo move' }).click();
-  await expect(page.getByText('Defenders to move', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Defenders to move')).toBeVisible();
   await page.getByRole('button', { name: 'Redo move' }).click();
-  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Attackers to move')).toBeVisible();
   await page.getByRole('button', { name: 'Read the rules' }).click();
   await expect(page.getByRole('dialog', { name: 'Tablut (market rules) rules' })).toBeVisible();
   await page.getByRole('button', { name: 'Close dialog' }).click();
@@ -66,12 +66,12 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await expect(page.getByRole('button', { name: /Resume AI/ })).toBeVisible();
   await page.getByRole('combobox', { name: 'AI playback speed' }).selectOption({ label: 'Fast' });
   await page.getByRole('button', { name: /Resume AI/ }).click();
-  const outcome = page.locator('.turn-banner.finished strong');
-  await expect(outcome).toHaveText(/^(Attackers win|Defenders win|An evenly matched saga)$/, {
+  const outcome = page.locator('.game-details .game-result strong');
+  await expect(outcome).toHaveText(/^(Attackers win|Defenders win|Draw)$/, {
     timeout: 60000,
   });
   const outcomeText = await outcome.innerText();
-  const archiveResult = outcomeText === 'An evenly matched saga' ? 'Draw' : outcomeText;
+  const archiveResult = outcomeText;
   const completedBoard = page.getByRole('grid', { name: 'brandubh game board' });
   await expect(completedBoard.locator('button:not(:disabled)')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
@@ -88,7 +88,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await savedGame.getByRole('link').click();
   await expect(page.getByRole('grid')).toBeVisible();
   await page.goto('/games/' + configured.id);
-  await expect(page.locator('.turn-banner.finished strong')).toHaveText(outcomeText);
+  await expect(page.locator('.game-details .game-result strong')).toHaveText(outcomeText);
   await expect(
     page.getByRole('grid', { name: 'brandubh game board' }).locator('button:not(:disabled)'),
   ).toHaveCount(0);
@@ -395,6 +395,6 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   const playable = await played.json();
   expect(playable.players.defenders.model_name).toBe(renamedName);
   await page.goto('/games/' + playable.id);
-  await expect(page.getByText('Attackers to move', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Attackers to move')).toBeVisible();
   await expect(page.locator('.army h3').nth(1)).toContainText(renamedName);
 });

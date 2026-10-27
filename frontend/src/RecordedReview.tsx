@@ -12,6 +12,7 @@ import type { OnlinePosition, OnlineReplay } from './onlineTypes';
 import type { AccountReviewData } from './personalTypes';
 import { resultName } from './RecordedGames';
 import { modeNames as onlineModeNames } from './Online';
+import { sideGlyph } from './sideGlyph';
 
 const ruleNames: Record<string, string> = {
   brandubh: 'Brandubh',
@@ -33,9 +34,6 @@ const modeNames: Record<string, string> = {
   'human-human': 'Human vs Human',
   ...onlineModeNames,
 };
-const sideGlyph = (side: Side) => (
-  <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
-);
 
 type ReviewParticipant = { name: string; kind: 'human' | 'ai' };
 type ReviewGame = {

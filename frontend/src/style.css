@@ -332,8 +332,9 @@ h1 {
   align-items: start;
 }
 /* Keep normal desktop play within one viewport; the square board is capped by
-   the shorter of its column width and the available height. Post-game analytics
-   and long side panels may still scroll naturally. */
+   the shorter of its column width and the available height. The reserve covers
+   the header, footer, page heading, board toolbar and the active-game switcher;
+   post-game analytics and long side panels may still scroll naturally. */
 @media (min-width: 1101px) {
   .play-page .battlefield,
   .online-page .battlefield {
@@ -397,6 +398,9 @@ h1 {
 .detail-row strong {
   font-weight: 500;
   color: var(--ui-copy, #697462);
+}
+.game-result {
+  font-size: 1.1rem;
 }
 .armies {
   padding: 22px 15px 14px;
@@ -547,13 +551,6 @@ h1 {
 .turn-banner.finished {
   background: var(--ui-gold-tint, #f3eedc);
   border-color: #e3d6b6;
-}
-.live-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #88a074;
-  box-shadow: 0 0 0 4px #88a07413;
 }
 .board-with-labels {
   display: grid;
@@ -2931,11 +2928,6 @@ tbody th small {
 }
 .auth-card h2 {
   margin: 0.5rem 0 0;
-}
-.auth-secondary-actions {
-  display: grid;
-  gap: 0.75rem;
-  padding-top: 0.25rem;
 }
 .auth-card .button {
   width: 100%;
