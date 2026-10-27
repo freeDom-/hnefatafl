@@ -67,7 +67,7 @@ describe('English and German localization', () => {
     });
     expect(screen.getByRole('dialog', { name: 'Beginne eine neue Saga' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'An die Tafel' })).toBeVisible();
-    expect(screen.getByText('Odin')).toBeVisible();
+    expect(screen.queryByText('Odin')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(document.documentElement.lang).toBe('de');
     expect(localStorage.getItem(LANGUAGE_KEY)).toBe('de');

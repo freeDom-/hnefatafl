@@ -80,10 +80,12 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   }
   await expect(page.getByRole('button', { name: 'Replay to move 2', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  const savedGame = page.locator('.recorded-games a').first();
+  const savedGame = page.locator('.recorded-games tbody tr').first();
   await expect(savedGame).toContainText('Brandubh');
-  await expect(savedGame).toContainText(archiveResult);
-  await savedGame.click();
+  await expect(savedGame).toContainText(
+    archiveResult === 'Draw' ? 'Draw' : archiveResult.replace(' win', ''),
+  );
+  await savedGame.getByRole('link').click();
   await expect(page.getByRole('grid')).toBeVisible();
   await page.goto('/games/' + configured.id);
   await expect(page.locator('.turn-banner.finished strong')).toHaveText(outcomeText);

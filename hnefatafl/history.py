@@ -48,12 +48,14 @@ class RecordedHistory:
                 " WHERE g.creator_id=? OR g.attackers_id=? OR g.defenders_id=? OR m.opponent_id=?"
             )
             params = (actor,) * 4
-        if admin:
-            if own:
-                account += " WHERE games.owner_account_id=?"
-                params = (*params, actor)
+        if admin and not own:
+            # Trusted current all_data sees every server record.
             return online + " UNION ALL " + account, params
-        return online, params
+        # Normal users and own-scoped administrators also see their own
+        # account single-player records, never another account's.
+        account += " WHERE games.owner_account_id=?"
+        params = (*params, actor)
+        return online + " UNION ALL " + account, params
 
     def listing(
         self,
@@ -72,7 +74,7 @@ class RecordedHistory:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
             admin = allowed(account, "all_data")
-            if not admin and (category == "account-single-player" or player):
+            if not admin and player:
                 raise OnlineError(403, "Administrator history permission is required.")
             base, params = self._base(account["id"], admin=admin, own=dashboard)
             conditions, values = [], []
@@ -139,9 +141,14 @@ class RecordedHistory:
                 if not admin:
                     self.online._participant(c, account["id"], identifier)
                 return self.online._replay(c, identifier)
-            if not admin:
-                raise OnlineError(404, "Recorded game not found.")
-            row = c.execute("SELECT data FROM games WHERE id=?", (identifier,)).fetchone()
+            # Account single-player review: owners and administrators only.
+            if admin:
+                row = c.execute("SELECT data FROM games WHERE id=?", (identifier,)).fetchone()
+            else:
+                row = c.execute(
+                    "SELECT data FROM games WHERE id=? AND owner_account_id=?",
+                    (identifier, account["id"]),
+                ).fetchone()
             if row is None:
                 raise OnlineError(404, "Recorded game not found.")
             return self.personal._single_replay(json.loads(row[0]))

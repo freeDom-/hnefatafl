@@ -341,7 +341,7 @@ test('guest survives login, logout, account switching, back navigation and onlin
   await page.goto('/games/' + owned.id);
   await expect(page.getByRole('grid')).toBeVisible();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Log in', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
   await login(page, 'GuestKeeper');
   expect(await page.evaluate(async () => (await (await fetch('/api/games')).json()).length)).toBe(
     0,

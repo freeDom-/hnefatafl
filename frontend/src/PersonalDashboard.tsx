@@ -9,6 +9,7 @@ import { surfaceLink } from './surfaceNavigation';
 import { navigate } from './navigation';
 import RecordedGames, { type RecordedPage } from './RecordedGames';
 import RecordedReview from './RecordedReview';
+import PersonalStatisticsView from './PersonalStatistics';
 import './personalDashboard.css';
 
 function DashboardHome({
@@ -67,50 +68,23 @@ function DashboardHome({
         <section className="panel personal-section" aria-labelledby="personal-account-heading">
           <h2 id="personal-account-heading">{t('Account single-player')}</h2>
           <DashboardHealth phase={account.phase} refresh={account.refresh} />
-          <dl className="personal-totals">
-            {(
-              [
-                ['total_games', 'Games'],
-                ['completed_games', 'Completed'],
-                ['in_progress', 'In progress'],
-                ['attackers_wins', 'Attacker wins'],
-                ['defenders_wins', 'Defender wins'],
-                ['draws', 'Draws'],
-              ] as const
-            ).map(([key, label]) => (
-              <div key={key}>
-                <dt>{t(label)}</dt>
-                <dd>{account.data?.totals[key] ?? '—'}</dd>
-              </div>
-            ))}
-          </dl>
-          <small>{t('Account totals describe recorded sides, not personal wins or losses.')}</small>
+          <PersonalStatisticsView statistics={account.data?.statistics} />
         </section>
         <section className="panel personal-section" aria-labelledby="personal-online-heading">
           <h2 id="personal-online-heading">{t('Online multiplayer')}</h2>
           <DashboardHealth phase={online.phase} refresh={online.refresh} />
-          <dl className="personal-totals">
-            {(
-              [
-                ['played', 'Played'],
-                ['wins', 'Wins'],
-                ['losses', 'Losses'],
-                ['draws', 'Draws'],
-                ['abandoned_games', 'Timed-out games'],
-              ] as const
-            ).map(([key, label]) => (
-              <div key={key}>
-                <dt>{t(label)}</dt>
-                <dd>{online.data?.totals[key] ?? '—'}</dd>
-              </div>
-            ))}
-          </dl>
-          <small>
-            {t(
-              'Per-game eligible results only. Cancelled and voided games do not count; concession is not abandonment.',
-            )}
-          </small>
+          <PersonalStatisticsView statistics={online.data?.statistics} online />
         </section>
+        <Lobby
+          accountId={accountId}
+          embedded
+          creationRequested={creation}
+          open={(id) => navigate(`/online/games/${id}`)}
+        />
+        <aside className="panel leaderboard-placeholder">
+          <h2>{t('Leaderboard')}</h2>
+          <p>{t('Upcoming in Phase 6')}</p>
+        </aside>
         <section className="panel dashboard-recent" aria-labelledby="recent-heading">
           <div className="section-heading">
             <h2 id="recent-heading">{t('Recorded games')}</h2>
@@ -124,16 +98,6 @@ function DashboardHome({
           )}
           <RecordedGames games={recent.data?.games ?? []} />
         </section>
-        <aside className="panel leaderboard-placeholder">
-          <h2>{t('Leaderboard')}</h2>
-          <p>{t('Upcoming in Phase 6')}</p>
-        </aside>
-        <Lobby
-          accountId={accountId}
-          embedded
-          creationRequested={creation}
-          open={(id) => navigate(`/online/games/${id}`)}
-        />
       </div>
     </section>
   );

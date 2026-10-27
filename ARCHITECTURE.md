@@ -454,9 +454,13 @@ provided. See [Phase 4 validation](docs/validation/online-phase4.md) and the
 embedded `Online.Lobby`, separate personal statistics and at most three completed
 visible own records. `navigation.ts` normalizes obsolete landing URLs while retaining
 search/selection; account gameplay has `/games/{id}` and dedicated online/replay paths
-remain. `RecordedGames` supplies compact rows to Dashboard and `Archive` (Hall).
-`RecordedReview` uses category-specific validated read adapters and viewer-local state.
-Selected review is independent of Hall filters/page and survives direct load/refresh.
+remain. `RecordedGames` supplies compact rows (named winner, locale-aware date/time with
+Timezone) to Dashboard and `Archive` (Hall). `RecordedReview` restores the full
+single-player presentation (saga move list, board replay, general game information,
+Analytics/Winning chances) using category-specific validated read adapters and
+viewer-local state. Online review shows the analysis panels as unavailable; account
+single-player review may use the existing authorized analysis. Selected review is
+independent of Hall filters/page and survives direct load/refresh.
 Authenticated headers omit the Guest link. Anonymous Guest navigation offers one
 login anchor; authenticated direct Guest visits retain shared account navigation
 without a login or self-link. Dashboard never reads device saves.
@@ -476,10 +480,13 @@ reads and all-role active-online assistance denial retain their permissions.
 
 Account totals read persisted `recorded_result` only: current writers include it,
 seeks preserve it and missing/null results are unfinished. No legacy account records
-or result reconstruction are supported. Unexpected personal/history API failures log
-fixed actions, exception types and scrubbed tracebacks with generic 503 responses.
-Online totals use only current eligible completed revisions, withdrawing voids.
-Guest saves never enter these adapters. Local players UI and Archive-only profile
+or result reconstruction are supported. Personal statistics attribute wins/losses
+to the account-bound human seat and exclude `ai-ai` and unattributed legacy records
+from personal outcomes, reporting coverage instead. Online statistics use the
+account's seat and only current eligible completed revisions, withdrawing voids and
+counting own-clock timeouts separately from opponent timeouts. Unexpected
+personal/history API failures log fixed actions, exception types and scrubbed
+tracebacks with generic 503 responses. Guest saves never enter these adapters. Local players UI and Archive-only profile
 queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the
 [dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
 [refinement evidence](docs/validation/dashboard-consolidation.md) and

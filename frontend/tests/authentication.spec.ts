@@ -4,7 +4,7 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   page,
 }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Log in' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign up / Register' }).click();
   await expect(page.getByRole('status')).toHaveText('Registration is not available yet.');
   await page.getByLabel('Username or email').fill('BrowserUser');
@@ -16,7 +16,7 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await expect(page.getByRole('button', { name: 'Tournaments', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
-  await expect(setup.getByText('BrowserUser', { exact: true })).toBeVisible();
+  await expect(setup.getByText('BrowserUser', { exact: true })).toHaveCount(0);
   await expect(setup.getByLabel('Game mode')).toHaveCount(0);
   await expect(setup.getByRole('button', { name: 'AI vs AI', exact: true })).toHaveCount(0);
   await expect(setup.getByRole('button', { name: 'Pass & play', exact: true })).toHaveCount(0);
@@ -52,6 +52,6 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Log in' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();
   expect(await page.evaluate(async () => (await fetch('/api/games')).status)).toBe(401);
 });

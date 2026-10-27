@@ -47,8 +47,8 @@ afterEach(() => {
 });
 it('uses shared dense rows, server filters/pages and has no Local players or account filters for normal users', async () => {
   render(<Archive />);
-  const rowLink = await screen.findByRole('link', { name: /Archer · Keeper/ });
-  expect(rowLink.closest('ul')).toHaveClass('recorded-games');
+  const rowLink = await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
+  expect(rowLink.closest('table')).toHaveClass('recorded-games');
   expect(screen.queryByText('Local players')).toBeNull();
   expect(screen.queryByLabelText('Game type')).toBeNull();
   expect(screen.queryByLabelText('Player name')).toBeNull();
@@ -87,7 +87,7 @@ it('keeps the exact selected review visible when it is outside the filtered page
 it('exposes administrator category/name filters without fetching setup players', async () => {
   identity.permissions = ['play', 'all_data'];
   render(<Archive />);
-  await screen.findByRole('link', { name: /Archer · Keeper/ });
+  await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
   fireEvent.change(screen.getByLabelText('Game type'), {
     target: { value: 'account-single-player' },
   });
@@ -118,5 +118,5 @@ it('clears old history and aborts a delayed read on account changes', async () =
   await screen.findByText('No games match these filters.');
   await act(async () => finish(await respond(page)));
   expect(oldSignal.aborted).toBe(true);
-  expect(screen.queryByRole('link', { name: /Archer · Keeper/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Open review: Archer vs Keeper' })).toBeNull();
 });

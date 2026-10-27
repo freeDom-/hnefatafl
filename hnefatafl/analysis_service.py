@@ -36,6 +36,8 @@ class AnalysisService:
         role: str,
         agent: dict,
         settings: dict,
+        *,
+        state=None,
     ) -> tuple:
         revision = settings["revision"] if role == "advisor" else None
         key = (game["id"], snapshot["position_key"], role, revision)
@@ -63,7 +65,7 @@ class AnalysisService:
                         and previous_key != key
                     ):
                         task.cancel()
-            task = self.executor.submit(self._run, game, snapshot, role, agent, settings)
+            task = self.executor.submit(self._run, game, snapshot, role, agent, settings, state)
             self.tasks[key] = task
             task.add_done_callback(lambda finished: self._forget(key, finished))
         return key
@@ -75,7 +77,7 @@ class AnalysisService:
             if self.latest_advisor.get(key[0]) == key:
                 self.latest_advisor.pop(key[0], None)
 
-    def _run(self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict):
+    def _run(self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, state=None):
         revision = settings["revision"] if role == "advisor" else None
 
         def check() -> None:
@@ -102,7 +104,7 @@ class AnalysisService:
 
         try:
             check()
-            entry = self.evaluate(game, role, agent, settings, progress)
+            entry = self.evaluate(game, role, agent, settings, progress, state=state)
             check()
             self.store.save_analysis_entry(
                 game,
