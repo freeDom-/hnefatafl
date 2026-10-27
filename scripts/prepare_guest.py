@@ -27,6 +27,10 @@ ASSETS = (
     "python_stdlib.zip",
     "pyodide-lock.json",
 )
+# Engine modules the guest worker loads into the Pyodide filesystem. The set must
+# cover every import the packaged modules perform at load time, so a new engine
+# dependency is shipped instead of failing inside the browser worker.
+GUEST_MODULES = ("__init__.py", "engine.py", "ai.py", "guest.py", "symmetry.py")
 
 
 def prepare():
@@ -53,10 +57,7 @@ def prepare():
             if item is None:
                 raise ValueError("Incomplete runtime archive")
             files["runtime/" + name] = item.read()
-    python = {
-        name: (ROOT / "hnefatafl" / name).read_bytes()
-        for name in ("__init__.py", "engine.py", "ai.py", "guest.py")
-    }
+    python = {name: (ROOT / "hnefatafl" / name).read_bytes() for name in GUEST_MODULES}
     bridge = (ROOT / "frontend/guest/bridge.py").read_bytes()
     engine_version = hashlib.sha256(
         VERSION.encode() + b"".join(python.values()) + bridge

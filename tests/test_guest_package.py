@@ -1,5 +1,6 @@
 """Pinned runtime packaging: explicit members, unchanged engine, bounded upgrade identity."""
 
+import ast
 import base64
 import hashlib
 import importlib.util
@@ -31,7 +32,7 @@ def test_runtime_package_integrity_sources_notices_and_update_identity(tmp_path,
         "INTEGRITY",
         base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode(),
     )
-    for name in ("__init__.py", "engine.py", "ai.py", "guest.py"):
+    for name in ("__init__.py", "engine.py", "ai.py", "guest.py", "symmetry.py"):
         p = tmp_path / "hnefatafl" / name
         p.parent.mkdir(exist_ok=True)
         p.write_text("# canonical " + name)
@@ -66,3 +67,26 @@ def test_runtime_package_integrity_sources_notices_and_update_identity(tmp_path,
     archive.write_bytes(b"corrupt cached upstream archive")
     with pytest.raises(ValueError, match="integrity mismatch"):
         module.prepare()
+
+
+def test_packaged_modules_cover_engine_load_time_imports():
+    """The guest worker loads only the packaged modules, so imports must resolve.
+
+    ``hnefatafl.ai`` gained an import-time dependency on ``hnefatafl.symmetry``;
+    without it the engine fails inside the browser worker while the API, unit and
+    packaging tests all stay green. Only module-level relative imports are
+    required: the engine keeps its optional, lazily imported evaluators.
+    """
+    root = Path(__file__).resolve().parents[1]
+    script = root / "scripts/prepare_guest.py"
+    spec = importlib.util.spec_from_file_location("prepare_guest_modules", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    packaged = {name.removesuffix(".py") for name in module.GUEST_MODULES}
+    required = set()
+    for name in packaged:
+        tree = ast.parse((root / "hnefatafl" / f"{name}.py").read_text())
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module:
+                required.add(node.module)
+    assert required <= packaged

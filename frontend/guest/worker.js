@@ -5,7 +5,7 @@ const ready = (async () => {
   python = await loadPyodide({ indexURL: new URL('./runtime/', location.href).href });
   if (python.version !== '0.27.7') throw new Error('Unsupported Python runtime.');
   python.FS.mkdirTree('/home/pyodide/hnefatafl');
-  for (const name of ['__init__.py', 'engine.py', 'ai.py', 'guest.py']) {
+  for (const name of ['__init__.py', 'engine.py', 'ai.py', 'guest.py', 'symmetry.py']) {
     const response = await fetch(`./python/${name}`);
     if (!response.ok) throw new Error('Guest engine unavailable.');
     python.FS.writeFile(`/home/pyodide/hnefatafl/${name}`, await response.text());

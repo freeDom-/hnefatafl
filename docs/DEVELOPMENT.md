@@ -212,7 +212,9 @@ using the repository `.venv`. The initial build downloads a SHA-512-pinned Pyodi
 `frontend/public/assets/guest-*` output is ignored. Keep matching
 [licenses/source notices](../frontend/guest/licenses/NOTICE.md) with every generated
 package. Runtime or engine changes require the replay/CSP checks described in the
-[guest guide](GUEST_PLAY.md). No service worker is installed.
+[guest guide](GUEST_PLAY.md). The packaged module set must cover every module the
+engine imports at load time; `tests/test_guest_package.py` enforces that coverage,
+because the worker loads only the listed modules. No service worker is installed.
 
 `npm --prefix frontend run test:guest` builds production assets and starts the real
 backend on port 8007, with a separate loopback row-count controller on 8008 and
