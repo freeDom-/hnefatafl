@@ -240,50 +240,6 @@ def test_explicit_default_search_object_gets_a_distinct_identity(client):
     assert repeat["players"]["defenders"]["variant_id"] == defenders["variant_id"]
 
 
-@pytest.mark.parametrize(
-    "search",
-    [
-        {"unknown": True},
-        {"transposition": 1},
-        {"move_ordering": "yes"},
-        {"table_capacity": 0},
-        {"table_capacity": True},
-        {"symmetry_pruning": True, "table_capacity": 1.5},
-    ],
-)
-def test_malformed_alpha_beta_search_config_is_rejected(client, search):
-    response = client.post(
-        "/api/games",
-        json={
-            "mode": "ai-ai",
-            "players": {
-                "attackers": {
-                    "config": {
-                        "algorithm": "alpha_beta",
-                        "depth": 1,
-                        "search": search,
-                    }
-                }
-            },
-        },
-    )
-    assert response.status_code == 400, response.text
-
-
-def test_search_config_is_rejected_for_non_alpha_beta_algorithms(client):
-    for algorithm in ("baseline", "shield_maiden", "mcts"):
-        response = client.post(
-            "/api/games",
-            json={
-                "mode": "ai-ai",
-                "players": {
-                    "attackers": {"config": {"algorithm": algorithm, "search": {"legacy": True}}}
-                },
-            },
-        )
-        assert response.status_code == 400, response.text
-
-
 def test_statistics_are_separated_by_identity_kind_ruleset_and_mode(client):
     profile = historical_player(client, "Astrid")
     # Seed terminal fixtures into storage to isolate counting from search strength;
@@ -858,36 +814,6 @@ def test_ai_statistics_use_effective_parameter_variants_and_stable_defaults(clie
         "time_limit": 2.0,
     }
     assert all(row["id"] == row["variant_id"] for row in stats["by_player"])
-
-
-def test_search_heuristic_is_configurable_for_alpha_beta_and_mcts(client):
-    for algorithm in ("alpha_beta", "mcts"):
-        game = create(
-            client,
-            ruleset="brandubh",
-            mode="human-ai",
-            players={
-                "attackers": {"config": {"algorithm": algorithm, "heuristic": "shield_bearer"}}
-            },
-        )
-        config = game["players"]["attackers"]["config"]
-        assert config["algorithm"] == algorithm
-        assert config["heuristic"] == "shield_bearer"
-
-    for config in (
-        {"algorithm": "baseline", "heuristic": "shield_maiden"},
-        {"algorithm": "shield_maiden", "heuristic": "shield_maiden"},
-        {"algorithm": "alpha_beta", "heuristic": "unknown"},
-    ):
-        response = client.post(
-            "/api/games",
-            json={
-                "ruleset": "brandubh",
-                "mode": "human-ai",
-                "players": {"attackers": {"config": config}},
-            },
-        )
-        assert response.status_code == 400, response.text
 
 
 def test_historical_explicit_algorithm_keeps_engine_defaults_not_profile_defaults(client):

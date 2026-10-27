@@ -146,6 +146,106 @@ def test_tournament_records_distinct_alpha_beta_search_configs(client):
     assert players[0]["agent_rune"] != players[1]["agent_rune"]
 
 
+@pytest.mark.parametrize(
+    "search",
+    [
+        {"unknown": True},
+        {"transposition": 1},
+        {"move_ordering": "yes"},
+        {"table_capacity": 0},
+        {"table_capacity": True},
+        {"symmetry_pruning": True, "table_capacity": 1.5},
+    ],
+)
+def test_tournament_rejects_malformed_alpha_beta_search_configs(client, search):
+    response = client.post(
+        "/api/tournaments",
+        json=configuration(
+            players=[
+                {
+                    "name": "Legacy",
+                    "config": {"algorithm": "alpha_beta", "depth": 1, "search": search},
+                },
+                {"name": "Shield bearer", "config": {"algorithm": "baseline", "time_limit": 0.01}},
+            ]
+        ),
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_tournament_rejects_search_config_for_non_alpha_beta_algorithms(client):
+    for algorithm in ("baseline", "shield_maiden", "mcts"):
+        response = client.post(
+            "/api/tournaments",
+            json=configuration(
+                players=[
+                    {
+                        "name": "Opponent",
+                        "config": {"algorithm": algorithm, "search": {"legacy": True}},
+                    },
+                    {
+                        "name": "Shield bearer",
+                        "config": {"algorithm": "baseline", "time_limit": 0.01},
+                    },
+                ]
+            ),
+        )
+        assert response.status_code == 400, response.text
+
+
+def test_tournament_records_the_selected_shield_evaluator(client):
+    created = launch(
+        client,
+        configuration(
+            players=[
+                {
+                    "name": "Jarl",
+                    "config": {
+                        "algorithm": "alpha_beta",
+                        "depth": 1,
+                        "time_limit": 0.05,
+                        "heuristic": "shield_bearer",
+                    },
+                },
+                {
+                    "name": "Seer",
+                    "config": {
+                        "algorithm": "mcts",
+                        "iterations": 2,
+                        "time_limit": 0.05,
+                        "heuristic": "shield_bearer",
+                    },
+                },
+            ],
+            games=2,
+            max_plies=4,
+        ),
+    )
+    record = wait_for(client, created["id"], lambda row: row["status"] == "completed")
+    assert [row["config"]["heuristic"] for row in record["config"]["players"]] == [
+        "shield_bearer",
+        "shield_bearer",
+    ]
+    for config in (
+        {"algorithm": "baseline", "heuristic": "shield_maiden"},
+        {"algorithm": "shield_maiden", "heuristic": "shield_maiden"},
+        {"algorithm": "alpha_beta", "heuristic": "unknown"},
+    ):
+        response = client.post(
+            "/api/tournaments",
+            json=configuration(
+                players=[
+                    {"name": "Opponent", "config": config},
+                    {
+                        "name": "Shield bearer",
+                        "config": {"algorithm": "baseline", "time_limit": 0.01},
+                    },
+                ]
+            ),
+        )
+        assert response.status_code == 400, response.text
+
+
 def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
     with TestClient(create_app(tmp_path)) as first:
         player = historical_player(first, "Astrid")
