@@ -69,9 +69,29 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(page).toHaveURL(url);
   await refresh(page);
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
+  // 1440x1400 keeps the grid column, not the height cap, as the binding
+  // constraint: the board column must fill its track instead of shrink-to-fit
+  // around its own toolbar content, which changes with the first move.
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  const measure = () =>
+    page.evaluate(() => {
+      const track = getComputedStyle(
+        document.querySelector('.game-layout')!,
+      ).gridTemplateColumns.split(' ')[1];
+      const width = (selector: string) =>
+        Math.round(document.querySelector(selector)!.getBoundingClientRect().width);
+      return {
+        track: Math.round(Number.parseFloat(track)),
+        battlefield: width('.battlefield'),
+        board: width('.board'),
+      };
+    });
+  const beforeMove = await measure();
+  expect(beforeMove.battlefield).toBe(beforeMove.track);
   await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
   await page.getByRole('gridcell', { name: 'b7, empty', exact: true }).click();
   await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
+  expect((await measure()).board).toBe(beforeMove.board);
   const capturedRow = page.locator('.armies .captured-row');
   const afterMove = await (await page.request.get(`/api/online/games/${id}`)).json();
   await expect(capturedRow).toHaveText(
@@ -90,6 +110,7 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await concede(other.page);
   await refresh(page);
   await expect(page.getByText('Attackers win · concession')).toBeVisible();
+  expect((await measure()).board).toBe(beforeMove.board);
   const afterConcession = await (await page.request.get(`/api/online/games/${id}`)).json();
   await expect(capturedRow).toHaveText(
     `Captured ${afterConcession.captured.attackers} ${afterConcession.captured.defenders}`,

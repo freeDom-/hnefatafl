@@ -338,8 +338,9 @@ h1 {
 @media (min-width: 1101px) {
   .play-page .battlefield,
   .online-page .battlefield {
-    max-width: min(100%, calc(100vh - 420px));
-    justify-self: center;
+    max-width: min(100%, calc(100vh - 460px));
+    width: 100%;
+    margin-inline: auto;
   }
 }
 .game-sidebar {
