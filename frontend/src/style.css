@@ -320,6 +320,11 @@ h1 {
   font-weight: 700;
   background: var(--ui-gold-tint);
 }
+/* Reserve the vertical scrollbar so the board column cannot change width when a
+   page grows past the viewport. */
+:root {
+  scrollbar-gutter: stable;
+}
 .play-page {
   max-width: 1440px;
   margin: auto;
