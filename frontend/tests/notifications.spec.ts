@@ -14,7 +14,7 @@ test('a failed new-game creation keeps the snackbar visible above the scrolled d
       body: JSON.stringify({ detail: 'The table is full.' }),
     });
   });
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();

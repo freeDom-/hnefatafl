@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import NewGame, { GAME_SETUP_KEY } from './NewGame';
+import { NotificationProvider, clearNotifications } from './notifications';
 import type { AIProfile, Ruleset } from './types';
 const identity = vi.hoisted(() => ({ admin: false }));
 vi.mock('./Auth', () => ({
@@ -45,10 +46,13 @@ const json = (value: unknown, ok = true) =>
 const fetcher = vi.fn((_path: string, _init?: RequestInit) => json({ id: 'created' }));
 const show = (onCreated = vi.fn(), onClose = vi.fn()) =>
   render(
-    <NewGame rulesets={rulesets} profiles={profiles} onCreated={onCreated} onClose={onClose} />,
+    <NotificationProvider>
+      <NewGame rulesets={rulesets} profiles={profiles} onCreated={onCreated} onClose={onClose} />
+    </NotificationProvider>,
   );
 beforeEach(() => {
   identity.admin = false;
+  clearNotifications();
   localStorage.clear();
   fetcher.mockReset().mockImplementation(() => json({ id: 'created' }));
   vi.stubGlobal('fetch', fetcher);

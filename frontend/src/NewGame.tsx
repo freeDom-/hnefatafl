@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, errorMessage } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import Modal from './Modal';
+import { notify } from './notifications';
 import { sortRulesets } from './sortRulesets';
 import type { AIProfile, Game, Ruleset, Side } from './types';
 
@@ -70,7 +71,6 @@ export default function NewGame({
   const admin = account?.permissions.includes('all_data') ?? false;
   const [setup, setSetup] = useState(() => restore(rulesets, admin, initialRuleset));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const mode = admin ? setup.mode : 'human-ai';
   const choose = (key: 'ruleset' | 'mode' | 'humanSide', value: string) =>
     setSetup((previous) => ({ ...previous, [key]: value }));
@@ -78,7 +78,6 @@ export default function NewGame({
     event.preventDefault();
     if (busy) return;
     setBusy(true);
-    setError('');
     try {
       const players = Object.fromEntries(
         (['attackers', 'defenders'] as Side[])
@@ -98,7 +97,7 @@ export default function NewGame({
       }
       onCreated(game);
     } catch (failure) {
-      setError((failure as Error).message);
+      notify.error(errorMessage(failure));
     } finally {
       setBusy(false);
     }
@@ -203,11 +202,6 @@ export default function NewGame({
               })}
           </div>
         </fieldset>
-        {error && (
-          <p className="form-error" role="alert">
-            {t(error)}
-          </p>
-        )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             {t('Cancel')}
