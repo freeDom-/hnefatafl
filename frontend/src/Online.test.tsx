@@ -110,7 +110,7 @@ it.each(
     side_selection: side,
     mode,
     time_per_move: 3600,
-    rated: false,
+    rated: true,
   });
 });
 it('retains a creation UUID through uncertain outcomes and reload; recovery never automatically retries', async () => {
@@ -292,7 +292,10 @@ it.each(['simultaneous', 'sequential'] as const)(
   async (mode) => {
     const game = fixture[mode] as OnlineGame;
     const sibling = fixture[`${mode}_return`] as OnlineGame;
-    switcherGames = [sibling];
+    // A completed first sequential leg leaves only one active game; add another
+    // so the >1-active switcher rule is exercised.
+    switcherGames =
+      mode === 'sequential' ? [sibling, { ...sibling, id: 'online-' + 'c'.repeat(32) }] : [sibling];
     room(game);
     const button = await waitFor(() => {
       const found = document.querySelector(`[data-game-id="${sibling.id}"]`);
@@ -469,18 +472,18 @@ it('retries a retained 61-second creation intent exactly without truncation to a
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
-  expect(screen.getByText(/uses exactly 61 seconds per move/)).toBeVisible();
+  expect(screen.getByText(/uses exactly 1m 01s per move/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
   await screen.findByRole('heading', { name: 'Online game' });
   expect(
     JSON.parse(String(fetcher.mock.calls.find(([, o]) => o?.method === 'POST')![1]?.body)),
-  ).toEqual({ ...payload, rated: false });
+  ).toEqual({ ...payload, rated: true });
 });
-it('creates a rated game when the eligible player selects it', async () => {
+it('creates every new online game as rated with no casual selector', async () => {
   lobby();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
-  fireEvent.change(screen.getByLabelText('Game type'), { target: { value: 'rated' } });
-  expect(screen.getByText(/Rated games count toward the leaderboard/)).toBeVisible();
+  expect(screen.queryByLabelText('Game type')).toBeNull();
+  expect(screen.queryByText(/Casual games do not affect ratings/)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
   await screen.findByRole('heading', { name: 'Online game' });
   const post = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')!;

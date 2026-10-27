@@ -3,11 +3,14 @@
   margin: 1rem auto;
   padding: 1.1rem;
 }
+.leaderboard-heading-row {
+  align-items: center;
+}
 .leaderboard-filter {
   display: inline-flex;
   gap: 0.5rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0;
 }
 .leaderboard .leaderboard-provisional {
   margin-left: 0.4rem;

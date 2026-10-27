@@ -139,6 +139,12 @@
   color: inherit;
   text-decoration: none;
 }
+.recorded-games .winner-delta {
+  color: #2f7d32;
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-left: 0.35rem;
+}
 /* One link per row; its overlay makes the whole row clickable without adding
    duplicate links or changing the accessibility tree. The selected/focused row
    itself carries the highlight, so the date link has no separate focus ring. */

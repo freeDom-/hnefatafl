@@ -34,7 +34,12 @@ beforeEach(() => {
   identity.id = 'archer';
   setLanguage('en', false);
   fetcher.mockClear();
-  serve = (url) => respond(board(url.includes('brandubh') ? 'brandubh' : 'tablut'));
+  serve = (url) => respond(board(/ruleset=([a-z]+)/.exec(url)?.[1] ?? 'copenhagen'));
+  try {
+    localStorage.removeItem('hnefatafl-leaderboard-ruleset');
+  } catch {
+    /* storage unavailable */
+  }
   vi.stubGlobal('fetch', fetcher);
 });
 afterEach(() => {
@@ -82,14 +87,28 @@ it('shows a stale error with retry', async () => {
   await screen.findByText(/Archer/);
 });
 
-it('compact mode links to the full leaderboard without pagination', async () => {
+it('defaults to Copenhagen, keeps the selector in the heading and omits the full-view link', async () => {
   render(<Leaderboard compact />);
   await screen.findByText(/Archer/);
-  expect(screen.getByRole('link', { name: 'View full leaderboard' })).toHaveAttribute(
-    'href',
-    '/leaderboard',
-  );
+  expect(screen.getByLabelText('Ruleset')).toHaveValue('copenhagen');
+  expect(screen.queryByRole('link', { name: 'View full leaderboard' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
+});
+
+it('persists a valid ruleset and ignores an invalid stored value', async () => {
+  localStorage.setItem('hnefatafl-leaderboard-ruleset', 'tablut');
+  const first = render(<Leaderboard compact />);
+  await screen.findByText(/Archer/);
+  expect(screen.getByLabelText('Ruleset')).toHaveValue('tablut');
+  fireEvent.change(screen.getByLabelText('Ruleset'), { target: { value: 'brandubh' } });
+  expect(localStorage.getItem('hnefatafl-leaderboard-ruleset')).toBe('brandubh');
+  first.unmount();
+  render(<Leaderboard compact />);
+  expect(screen.getByLabelText('Ruleset')).toHaveValue('brandubh');
+  cleanup();
+  localStorage.setItem('hnefatafl-leaderboard-ruleset', 'not-a-ruleset');
+  render(<Leaderboard compact />);
+  expect(screen.getByLabelText('Ruleset')).toHaveValue('copenhagen');
 });
 
 it('paginates the unified standings in the full view', async () => {

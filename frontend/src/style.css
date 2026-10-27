@@ -320,11 +320,26 @@ h1 {
   font-weight: 700;
   background: var(--ui-gold-tint);
 }
+.play-page {
+  max-width: 1440px;
+  margin: auto;
+  padding: 0.25rem 0;
+}
 .game-layout {
   display: grid;
   grid-template-columns: minmax(195px, 235px) minmax(330px, 1fr) minmax(190px, 235px);
   gap: 26px;
   align-items: start;
+}
+/* Keep normal desktop play within one viewport; the square board is capped by
+   the shorter of its column width and the available height. Post-game analytics
+   and long side panels may still scroll naturally. */
+@media (min-width: 1101px) {
+  .play-page .battlefield,
+  .online-page .battlefield {
+    max-width: min(100%, calc(100vh - 420px));
+    justify-self: center;
+  }
 }
 .game-sidebar {
   display: flex;
