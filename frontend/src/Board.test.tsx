@@ -92,6 +92,20 @@ describe('accessible game board', () => {
     expect(screen.getAllByRole('gridcell', { name: /king/ })).toHaveLength(1);
     expect(screen.getByRole('gridcell', { name: 'b2, king' })).toBeDisabled();
   });
+  it('draws a trusted advisor hint on a read-only review without a client legal-move list', () => {
+    render(
+      <Board
+        game={{ ...game, legal_moves: [] }}
+        selected={null}
+        onSelect={vi.fn()}
+        readOnly
+        hint={{ source: 0, target: 1 }}
+      />,
+    );
+    expect(document.querySelector('.hint-overlay')).not.toBeNull();
+    expect(screen.getByRole('gridcell', { name: /suggested source/ })).toBeVisible();
+    expect(screen.getByRole('gridcell', { name: /suggested target/ })).toBeVisible();
+  });
   it('does not restore ordinary captures or a king from a different replay turn', () => {
     render(
       <Board
