@@ -38,6 +38,23 @@
 .online-health > .online-notice {
   flex-basis: 100%;
 }
+.active-game-switcher {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+.active-game-switcher button {
+  max-width: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.active-game-switcher button[aria-current='page'] {
+  outline: 2px solid var(--accent, #a5703c);
+  outline-offset: 2px;
+}
 .online-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));

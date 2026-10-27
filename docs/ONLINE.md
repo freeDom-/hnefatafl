@@ -7,9 +7,11 @@
 
 Phase 2 provides authenticated backend gameplay. It reuses the existing engine,
 pure lifecycle, accounts and SQLite transactions. Phase 3 adds the authenticated
-lobby and playable UI described in [Playing online](ONLINE_PLAY.md). Anonymous
-access, online advice, Elo, aggregate match scoring and deployment remain absent.
-Account single-player, training, workers and model records keep their existing
+lobby and playable UI described in [Playing online](ONLINE_PLAY.md). Phase 6 adds
+the versioned Elo pool and authenticated leaderboard described in
+[Rated games](RATINGS.md). Anonymous access, online advice, aggregate match
+scoring, rewards and deployment remain absent.
+Singleplayer, training, workers and model records keep their existing
 tables and behavior. The old local `game_participants` scaffold references local
 `games`; online seats therefore live in the separate authoritative online tables.
 
@@ -135,13 +137,21 @@ compatible or weaken the account/online rollback boundary.
 
 ## Persistence, authorization and concurrency
 
-[online_migrations.py](../hnefatafl/online_migrations.py) introduces schema **10**:
+[online_migrations.py](../hnefatafl/online_migrations.py) introduces schema **12**:
 `online_matches`, `online_games`, ordered `online_moves`, append-only
 `online_results`, private `online_void_audit`, singleton `online_timeout_gate` and
-append-only `online_gate_audit`. Constraints protect distinct seats, one game per
+append-only `online_gate_audit`, plus the immutable `online_game_start_ratings`
+snapshots and the mutable `rating_events`, `rating_applications` and
+`player_ratings` tables described in [Rated games](RATINGS.md). Constraints protect distinct seats, one game per
 match/leg, creation-request uniqueness, duration types, lifecycle shape, activated
 identity/configuration immutability and result revision continuity. The effective
 result pointer has a deferred foreign key, permitting state/result atomic commits.
+The authoritative rated/casual flag is the immutable `online_matches.rated` column;
+`online_games.rated_intent` remains a legacy always-zero placeholder so no table
+rebuild is required. All newly created matches are rated; historical casual
+matches keep `rated=0` and are never backfilled. `online_game_start_ratings`
+records immutable per-player start Elo at activation and is independent of rating
+rebuilds.
 
 [online_core.py](../hnefatafl/online_core.py) acquires the existing deployment gate
 and `BEGIN IMMEDIATE`, reloads the presented session and current account, loads
@@ -173,6 +183,23 @@ no result. A started void retains the prior revision, replaces effective eligibi
 and removes all of that game's derived contributions. No materialized projections,
 reward consumers or generic event log are introduced.
 
+Online personal statistics group by ruleset only, summing across match modes so a
+game is never counted twice, and each ruleset heading shows the account's
+available Elo rating. AI-vs-AI account games are excluded from personal history
+and statistics; they remain stored only for administrator AI-strength analysis.
+
+A terminal king capture removes the king from the authoritative board. The safe
+projection derives the captured king's final square from the recorded moves for
+display only, so the online and replay boards can still show it without changing
+rules, occupancy, legal moves or stored history.
+
+Rated games additionally persist a versioned rating event and per-player
+application in the same transaction as the terminal result. The event sequence is
+assigned under the writer lock and never changes when a result revision is
+corrected; a void withdraws the event and deterministically rebuilds the pool from
+the remaining applied events. See [Rated games](RATINGS.md) for the exact Elo,
+provisional, eligibility, leaderboard, ordering and reconciliation policy.
+
 Ruleset/version is pinned before any engine state loads or replay executes.
 Unsupported stored versions fail with 503 and require compatible code/operator
 review. They are never silently replayed under current rules. Rule-semantic changes
@@ -190,7 +217,7 @@ are in [the API inventory](API_PERMISSIONS.json).
 | Method and path | Body / purpose |
 | --- | --- |
 | `POST /api/online/games` | Create waiting game/match: request UUID, ruleset, side selection, mode, optional duration |
-| `GET /api/online/games` | Authenticated listing: limit 1–100 (default 25), offset 0–100000, optional `mine=true` |
+| `GET /api/online/games` | Authenticated lobby listing: limit 1–100 (default 25), offset 0–100000, `section=all|mine|my_turn`; completed/cancelled/voided games are excluded |
 | `GET /api/online/games/{id}` | Dedicated safe authoritative projection |
 | `POST /api/online/games/{id}/join` | `version`; admit opponent and activate one/two games |
 | `POST /api/online/games/{id}/cancel` | `version`; creator while waiting |
@@ -199,6 +226,8 @@ are in [the API inventory](API_PERMISSIONS.json).
 | `POST /api/online/games/{id}/void` | `version`, private `note` of 1–1000 nonblank characters; administrator |
 | `GET /api/online/games/{id}/replay` | Deterministically validated read-only states; no shared cursor |
 | `GET /api/online/stats` | Own effective online counts, separate from single-player |
+| `GET /api/leaderboard` | Authenticated qualified/provisional standings, own standing and policy |
+| `POST /api/online/ratings/rebuild` | Administrator-only deterministic rating rebuild (optional `ruleset`) |
 | `GET /api/online/monitoring` | Administrator-only quota denials, aggregate counts and database/WAL growth |
 | `GET /api/online/timeout-gate` | Administrator-only current/effective gate and latest 50 private audit entries |
 | `PATCH /api/online/timeout-gate` | Administrator: current gate `version`, boolean `enabled`, private `note` |
@@ -261,14 +290,17 @@ Disabling admission is not a substitute for pausing timeout finalization.
 ## Migration, backup and recovery
 
 Use the [full stopped-writer backup procedure](TRAINING_DATA.md#consistent-backup-and-restoration),
-including protected environment and matching code. Schema 10 adds no interpretation
+including protected environment and matching code. Schema 12 adds no interpretation
 of local histories and preserves account IDs/security, ownership, sessions, jobs,
-workers/models and files during forward migration from schemas 9/8/older fixtures.
+workers/models and files during forward migration from schemas 11/10/9/8/older
+fixtures. It adds the rating and start-snapshot tables and the
+`online_matches.rated` column in place.
 Legacy normalization collision checks still run and stop ambiguous upgrades.
 No production database was inspected or migrated for development.
 
-Schema-9 code refuses schema 10. Additive tables are not a safe downgrade guarantee.
-The schema-10-aware updater refuses automatic recovery across differing online
+Schema-9 code refuses schema 10; schema-10 code refuses schema 11; schema-11 code
+refuses schema 12. Additive tables are not a safe downgrade guarantee. The
+schema-12-aware updater refuses automatic recovery across differing online
 schemas/columns before replacing the live root; account-schema protections remain.
 An empty/pre-database snapshot also refuses replacement of a live database.
 Use a forward repair or separately reviewed manual reconciliation, retaining both
@@ -277,7 +309,7 @@ schema-10 installation or silently discard accepted online moves/results.
 
 For a compatible stopped-writer restore with a live database, the restore candidate
 retains **current live** accounts, limiter state and all authoritative online match,
-game, move, result and audit rows. It restores other snapshot data, revokes all
+game, move, result, audit and rating rows. It restores other snapshot data, revokes all
 sessions/verification-reset tokens/mail and worker credentials, then pauses timeout
 finalization with a new private restore audit. Online deadlines/results are retained,
 not rewound or extended. Append-only guards are reinstated before commit/cutover.

@@ -12,7 +12,12 @@ import Rune from './Rune';
 import './analysis.css';
 
 /** Background requests are tied to both the position and the advisor revision. */
-export function useGameAnalysis(game: Game | null, visible: boolean, historical = false) {
+export function useGameAnalysis(
+  game: Game | null,
+  visible: boolean,
+  historical = false,
+  basePath = '/games',
+) {
   const gameId = game?.id ?? '';
   const currentGame = useRef(gameId);
   currentGame.current = gameId;
@@ -37,7 +42,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
       return;
     }
     setPreferences({ gameId, value: defaultAnalyticsSettings, pending: true, confirmed: false });
-    void api<AnalyticsSettings>(`/games/${gameId}/analytics`)
+    void api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`)
       .then((value) => {
         if (alive && settingsSequence.current === sequence) {
           confirmedSettings.current = { gameId, value };
@@ -59,7 +64,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
     };
     // A settings update is independent of subsequent gameplay responses.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId]);
+  }, [gameId, basePath]);
   const settings =
     preferences?.gameId === gameId
       ? preferences.value
@@ -77,7 +82,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
         .catch(() => undefined)
         .then(() =>
           api<AnalyticsSettings>(
-            `/games/${gameId}/analytics`,
+            `${basePath}/${gameId}/analytics`,
             {
               advisor: next.advisor && {
                 name: next.advisor.name,
@@ -104,7 +109,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
         // A failed response may still have committed. Read the server's effective
         // preferences before showing results or enabling a new analysis request.
         try {
-          const value = await api<AnalyticsSettings>(`/games/${gameId}/analytics`);
+          const value = await api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`);
           if (currentGame.current === gameId && settingsSequence.current === sequence) {
             confirmedSettings.current = { gameId, value };
             setPreferences({ gameId, value, pending: false, confirmed: true, error: message });
@@ -120,7 +125,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
         }
       }
     },
-    [gameId],
+    [gameId, basePath],
   );
   const key = game
     ? `${game.id}:${game.version}:${game.cursor}:${settings.revision}:${JSON.stringify([settings.advisor, settings.time_limit, settings.show_win_chances])}`
@@ -155,7 +160,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
     setRequest({ key, status: 'pending', report: stored ?? undefined });
     const poll = async () => {
       try {
-        const report = await api<PositionAnalysis>(`/games/${game.id}/analysis`, {
+        const report = await api<PositionAnalysis>(`${basePath}/${game.id}/analysis`, {
           version: game.version,
           cursor: game.cursor,
           background: true,
@@ -164,7 +169,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean, historical 
         if (!alive) return;
         // A response from before an advisor edit must never redraw its arrow.
         if ((report.advisor_revision ?? 0) !== settings.revision) {
-          const value = await api<AnalyticsSettings>(`/games/${game.id}/analytics`);
+          const value = await api<AnalyticsSettings>(`${basePath}/${game.id}/analytics`);
           if (alive && settingsSequence.current === sequence) {
             confirmedSettings.current = { gameId, value };
             setPreferences({ gameId, value, pending: false, confirmed: true });

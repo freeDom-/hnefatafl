@@ -352,7 +352,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
     with pytest.raises(ValueError, match="Online schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
 
 
@@ -386,7 +386,7 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
 
 
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])

@@ -69,6 +69,37 @@ const row = {
   recorded_at: '2035-01-01T00:00:00Z',
 };
 const recent = { games: [row], matching: 1, totals: [], next_cursor: null, limit: 3 };
+const leaderboard = {
+  ruleset: 'tablut',
+  policy: { version: 1, initial_rating: 1500, k_factor: 32, provisional_games: 10 },
+  entries: [
+    {
+      account_id: 'archer',
+      name: 'Archer',
+      rating: 1516,
+      rated_games: 12,
+      wins: 7,
+      losses: 5,
+      draws: 0,
+      rank: 1,
+      provisional: false,
+    },
+  ],
+  total: 1,
+  limit: 5,
+  offset: 0,
+  me: {
+    account_id: 'archer',
+    name: 'Archer',
+    rating: 1516,
+    rated_games: 12,
+    wins: 7,
+    losses: 5,
+    draws: 0,
+    rank: 1,
+    provisional: false,
+  },
+};
 const respond = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status === 200, status, json: async () => body } as Response);
 let serve: (url: string) => Promise<Response>;
@@ -92,11 +123,13 @@ beforeEach(() => {
           ? online
           : url.includes('/history/')
             ? recent
-            : url.includes('/online/games?')
-              ? { games: [], limit: 25, offset: 0 }
-              : url.includes('/availability')
-                ? { enabled: false, eligible: false }
-                : [],
+            : url.includes('/leaderboard')
+              ? leaderboard
+              : url.includes('/online/games?')
+                ? { games: [], limit: 25, offset: 0 }
+                : url.includes('/availability')
+                  ? { enabled: false, eligible: false }
+                  : [],
     );
   vi.stubGlobal('fetch', fetcher);
 });
@@ -114,9 +147,11 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
   expect(link.closest('table')).toHaveClass('recorded-games');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
-  expect(screen.getByText('Upcoming in Phase 6')).toBeVisible();
-  // Personal statistics replace side-result totals, grouped by ruleset and matchup.
-  expect(screen.getByRole('heading', { name: 'Human vs AI' })).toBeVisible();
+  await screen.findByText('1516');
+  // Personal statistics replace side-result totals and no longer label the mode.
+  // Both the account and online panels show a Brandubh ruleset heading.
+  expect(screen.getAllByRole('heading', { name: 'Brandubh' })).toHaveLength(2);
+  expect(screen.queryByRole('heading', { name: 'Human vs AI' })).toBeNull();
   expect(screen.getByText('66.7%')).toBeVisible();
   expect(screen.getByText('Timed-out games')).toBeVisible();
   expect(screen.getByText(/historical games have no authoritative account seat/)).toBeVisible();
@@ -124,9 +159,9 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   const overview = document.querySelector('.dashboard-overview')!;
   const order = Array.from(overview.children).map((node) => node.className);
   expect(order.findIndex((value) => value.includes('dashboard-lobby'))).toBeLessThan(
-    order.findIndex((value) => value.includes('leaderboard-placeholder')),
+    order.findIndex((value) => value.includes('leaderboard-compact')),
   );
-  expect(order.findIndex((value) => value.includes('leaderboard-placeholder'))).toBeLessThan(
+  expect(order.findIndex((value) => value.includes('leaderboard-compact'))).toBeLessThan(
     order.findIndex((value) => value.includes('dashboard-recent')),
   );
   expect(screen.queryByText(/Guest games stay/)).toBeNull();

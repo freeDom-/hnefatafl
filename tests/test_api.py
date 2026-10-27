@@ -633,7 +633,7 @@ def test_schema_one_migrates_profiles_without_losing_rows(tmp_path):
     assert reopened.players() == []
     assert reopened.players(include_deleted=True)[0]["name"] == "Freya"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
 
 
 def complete_human_game(client, game):

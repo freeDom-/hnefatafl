@@ -324,6 +324,7 @@ grant(
     "/api/personal/online/{game_id}/replay",
     "/api/history/games",
     "/api/history/{category}/{game_id}/replay",
+    "/api/history/online/{game_id}/analytics",
     "/api/games/{game_id}",
     "/api/games/{game_id}/analytics",
     "/api/games/{game_id}/replay",
@@ -338,6 +339,8 @@ grant(
     ),
 )
 grant("play", "PUT", "/api/games/{game_id}/analytics")
+grant("play", "PUT", "/api/history/online/{game_id}/analytics")
+grant("play", "POST", "/api/history/online/{game_id}/analysis")
 grant(
     "play",
     "GET",
@@ -355,7 +358,9 @@ grant(
         for action in ("join", "cancel", "moves", "concede")
     ),
 )
+grant("play", "GET", "/api/leaderboard")
 grant("accounts", "POST", "/api/online/games/{game_id}/void")
+grant("accounts", "POST", "/api/online/ratings/rebuild")
 grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
 grant("play", "GET", "/api/online/availability")

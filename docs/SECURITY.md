@@ -107,7 +107,8 @@ Schema 9 adds unknown/unverified legacy email state, version/address-bound token
 digests, leased mail intents and limiter state. IDs, ownership and existing sessions
 survive forward migration; safe rollback has an explicit account-schema boundary.
 
-Schema 10 adds independent [online match/game/result/gate records](ONLINE.md).
+Schema 11 adds independent [online match/game/result/gate records](ONLINE.md) and
+the [versioned rating pool](RATINGS.md).
 Create/join require active, verified accounts, including administrators; an admitted
 seat retains play after verification changes with an active account/current session.
 Online mutations reload the session, role/status and participants inside their

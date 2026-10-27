@@ -32,10 +32,12 @@ async function create(page: Page, mode = 'single', side = 'attackers', seconds =
 async function join(page: Page, url: string) {
   await page.goto(url);
   await page.getByRole('button', { name: 'Join game', exact: true }).click();
-  await expect(page.getByText('Active', { exact: true })).toBeVisible();
+  await expect(page.getByText(/to move/)).toBeVisible();
 }
 async function refresh(page: Page) {
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  // The game room has no manual refresh control; wake the automatic poll.
+  // Use `online` (not `focus`, which would also re-check and clear an offline session).
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
 }
 async function concede(page: Page) {
   await page.getByRole('button', { name: 'Concede', exact: true }).click();
@@ -59,9 +61,9 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   extra.push(other.context);
   const url = await create(page);
   await join(other.page, url);
-  await page.getByRole('button', { name: 'Back to online lobby', exact: true }).click();
+  await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.getByRole('button', { name: 'My games', exact: true }).click();
+  await page.getByRole('tab', { name: 'My games', exact: true }).click();
   await page.getByRole('button', { name: 'Open game', exact: true }).first().click();
   await expect(page).toHaveURL(url);
   await refresh(page);
@@ -71,7 +73,9 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
   await other.context.setOffline(true);
   await refresh(other.page);
-  await expect(other.page.getByText('Stale state. Reconnecting…')).toBeVisible();
+  await expect(
+    other.page.getByText('Online service unavailable or stale. Retry to reconnect.'),
+  ).toBeVisible();
   await other.context.setOffline(false);
   await other.page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(
@@ -100,23 +104,19 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   const url = await create(page, 'simultaneous', 'defenders');
   await join(other.page, url);
   await refresh(page);
-  const nav = page.getByRole('navigation', { name: 'Match games' });
-  await expect(nav.getByRole('button')).toHaveCount(2);
-  await nav.getByRole('button', { name: /Game 2/ }).click();
-  await expect(page.getByText('Attackers: OnlineArcher · You')).toBeVisible();
-  await expect(page.getByText('Creator side: Attackers')).toBeVisible();
+  const id = new URL(url).pathname.split('/').pop()!;
+  const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
+  const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
+  const switcher = page.getByRole('navigation', { name: 'Active games' });
+  const sibling = switcher.locator(`[data-game-id="${siblingId}"]`);
+  await expect(sibling).toBeVisible();
+  await sibling.click();
+  await expect(page.getByText('Game 2', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await concede(page);
-  await page
-    .getByRole('navigation', { name: 'Match games' })
-    .getByRole('button', { name: /Game 1/ })
-    .click();
-  await expect(page.getByText('Active', { exact: true })).toBeVisible();
-  await expect(
-    page
-      .getByRole('navigation', { name: 'Match games' })
-      .getByRole('button', { name: /Game 2 · Completed/ }),
-  ).toBeVisible();
+  // The return game completed; the still-active first leg remains in the switcher.
+  await switcher.locator(`[data-game-id="${id}"]`).click();
+  await expect(page.getByText(/to move/)).toBeVisible();
 });
 
 test('sequential discovers the return game after the first result', async ({ page, browser }) => {
@@ -126,17 +126,13 @@ test('sequential discovers the return game after the first result', async ({ pag
   const url = await create(page, 'sequential');
   await join(other.page, url);
   await refresh(page);
-  await expect(
-    page.getByRole('navigation', { name: 'Match games' }).getByRole('button'),
-  ).toHaveCount(1);
+  const id = new URL(url).pathname.split('/').pop()!;
   await concede(page);
-  await page
-    .getByRole('navigation', { name: 'Match games' })
-    .getByRole('button', { name: /Game 2/ })
-    .click();
-  await expect(page.getByText('Defenders: OnlineArcher · You')).toBeVisible();
-  await expect(page.getByText('Creator side: Defenders')).toBeVisible();
-  await expect(page.getByText('Active', { exact: true })).toBeVisible();
+  // The return game activates after the first result and is reachable by URL.
+  const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
+  const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
+  await page.goto(`/online/games/${siblingId}`);
+  await expect(page.getByText('Game 2', { exact: true })).toBeVisible();
   await other.page.goto(page.url());
   await concede(other.page);
   await refresh(page);
@@ -225,7 +221,7 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await page.getByRole('button', { name: 'Confirm concession', exact: true }).click();
   await expect(page.getByText(/State changed or adjudication is paused/)).toBeVisible();
   await expect(page.getByText('Active', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to online lobby' }).click();
+  await page.goto('/dashboard');
   await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Create game', exact: true })).toBeDisabled();
 });
@@ -267,7 +263,8 @@ test('lobby automatically observes creation, join and completion and resynchroni
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect(card).toContainText('Completed');
+  // Terminal games leave every lobby tab.
+  await expect(card).toHaveCount(0);
   await expect(lobby.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
 });
 

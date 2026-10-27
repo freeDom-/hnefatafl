@@ -18,10 +18,12 @@ import Rune, { participantName } from './Rune';
 import Online from './Online';
 import Modal from './Modal';
 import PersonalDashboard from './PersonalDashboard';
+import Leaderboard from './Leaderboard';
+import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { useAuth } from './Auth';
 import { canonicalLocation, navigate } from './navigation';
 
-type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'training' | 'tournaments';
+type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'leaderboard' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const sideGlyph = (side: Side) => (
   <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
@@ -38,11 +40,13 @@ export default function App() {
       ? 'play'
       : path.split('?')[0] === '/archive'
         ? 'archive'
-        : path.startsWith('/training') && permissions.includes('training')
-          ? 'training'
-          : path.startsWith('/tournaments') && permissions.includes('tournaments')
-            ? 'tournaments'
-            : 'dashboard';
+        : path.split('?')[0] === '/leaderboard'
+          ? 'leaderboard'
+          : path.startsWith('/training') && permissions.includes('training')
+            ? 'training'
+            : path.startsWith('/tournaments') && permissions.includes('tournaments')
+              ? 'tournaments'
+              : 'dashboard';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
     window.addEventListener('popstate', changed);
@@ -221,24 +225,19 @@ export default function App() {
       <main>
         {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
         {tab === 'play' && (
-          <>
-            <section className="page-intro">
-              <div>
-                <h1>{t('Every move tells a saga.')}</h1>
-                <p>{t('Account single-player · saved to your account')}</p>
-                <p>{t('One king. Two armies. A thousand ways to outwit your opponent.')}</p>
-              </div>
-              <button
-                className="button primary"
-                onClick={() => {
-                  setNewOpen(true);
-                  void refreshOptions().catch((e) => reportError(e));
-                }}
-                disabled={initializing}
-              >
-                <span aria-hidden="true">＋</span> {t('New game')}
-              </button>
-            </section>
+          <section className="play-page">
+            <h1 tabIndex={-1}>{t('Single player game')}</h1>
+            {account && (
+              <ActiveGameSwitcher
+                accountId={account.id}
+                currentId={game?.id ?? ''}
+                open={(entry) =>
+                  navigate(
+                    entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`,
+                  )
+                }
+              />
+            )}
             {initializing ? (
               <div className="empty-state">
                 <div className="spinner" />
@@ -293,6 +292,16 @@ export default function App() {
                     <button className="text-button" onClick={() => setRulesOpen(true)}>
                       {t('Read the rules')}
                       <span aria-hidden="true">↗</span>
+                    </button>
+                    <button
+                      className="button secondary"
+                      onClick={() => {
+                        setNewOpen(true);
+                        void refreshOptions().catch((e) => reportError(e));
+                      }}
+                      disabled={initializing}
+                    >
+                      {t('New game')}
                     </button>
                     <div className="divider" />
                     <div className="detail-row">
@@ -565,9 +574,10 @@ export default function App() {
                 </aside>
               </div>
             )}
-          </>
+          </section>
         )}
         {tab === 'online' && <Online />}
+        {tab === 'leaderboard' && <Leaderboard />}
         {tab === 'archive' && <Archive />}
         {tab === 'tournaments' && permissions.includes('tournaments') && (
           <Tournaments

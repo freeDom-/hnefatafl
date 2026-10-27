@@ -1,5 +1,9 @@
 # Phase 6 handoff
 
+> **Resolved:** the owner approved the rating policy and Phase 6 implemented it.
+> The authoritative current policy is [Rated games](../RATINGS.md); the decision
+> list below records the original handoff and is no longer open.
+
 [Documentation index](../README.md) · [Phase 5 contract](personal-dashboard-phase5.md) ·
 [Dashboard guide](../DASHBOARD.md) · [Phase 5 evidence](../validation/online-phase5.md)
 

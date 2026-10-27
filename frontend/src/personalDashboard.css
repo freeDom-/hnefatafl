@@ -24,21 +24,18 @@
 }
 .personal-section,
 .dashboard-recent,
-.leaderboard-placeholder,
+.leaderboard-compact,
 .dashboard-lobby,
 .recorded-review {
   min-width: 0;
   padding: 1.1rem;
 }
 .personal-section h2,
-.leaderboard-placeholder h2 {
+.leaderboard-compact h2 {
   margin-top: 0;
 }
-.leaderboard-placeholder {
+.leaderboard-compact {
   align-self: start;
-}
-.leaderboard-placeholder p {
-  margin-bottom: 0;
 }
 .personal-statistics {
   display: grid;
@@ -141,6 +138,12 @@
   min-height: 44px;
   color: inherit;
   text-decoration: none;
+}
+.recorded-games .winner-delta {
+  color: #2f7d32;
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-left: 0.35rem;
 }
 /* One link per row; its overlay makes the whole row clickable without adding
    duplicate links or changing the accessibility tree. The selected/focused row
