@@ -30,8 +30,7 @@ class RecordedHistory:
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attackers,
             substr(json_extract(data,'$.players.defenders.name'),1,80) AS defenders,
             substr(coalesce(a.display_name,a.username),1,80) AS owner
-            FROM games JOIN accounts a ON a.id=games.owner_account_id
-              AND coalesce(json_extract(games.data,'$.mode'),'') <> 'ai-ai'"""
+            FROM games JOIN accounts a ON a.id=games.owner_account_id"""
         online = """SELECT g.id,'online' AS category,g.updated_at AS order_at,
             g.created_at,g.updated_at AS recorded_at,g.ruleset,g.status,
             json_extract(r.payload,'$.winner') AS winner,
@@ -53,8 +52,13 @@ class RecordedHistory:
             # Trusted current all_data sees every server record.
             return online + " UNION ALL " + account, params
         # Normal users and own-scoped administrators also see their own
-        # account single-player records, never another account's.
-        account += " WHERE games.owner_account_id=?"
+        # account single-player records, never another account's. AI-vs-AI games
+        # are admin analysis artifacts and stay out of personal history; the
+        # trusted all_data Hall still exposes them.
+        account += (
+            " WHERE games.owner_account_id=?"
+            " AND coalesce(json_extract(games.data,'$.mode'),'') <> 'ai-ai'"
+        )
         params = (*params, actor)
         return online + " UNION ALL " + account, params
 
