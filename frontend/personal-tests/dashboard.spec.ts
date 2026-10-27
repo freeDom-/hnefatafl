@@ -176,8 +176,8 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   );
   await page.goto('/online?mine=true&selected=kept');
   await expect(page).toHaveURL(/\/dashboard\?mine=true&selected=kept&setup=online$/);
-  await expect(page.getByRole('button', { name: 'My games', exact: true })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
   await page.goto('/play?ruleset=brandubh');
@@ -420,16 +420,17 @@ test('Hall account review runs the advisor and shows winning chances', async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('compact and full leaderboards separate qualified players and support ruleset browsing', async ({
+test('compact and full leaderboards show one unified table and support ruleset browsing', async ({
   page,
 }) => {
   await login(page);
   const board = page.locator('.leaderboard-compact');
   await expect(board.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
-  await expect(board.getByRole('heading', { name: 'Qualified standings' })).toBeVisible();
   await expect(board.getByText(/PersonalArcher/)).toBeVisible();
   await expect(board.getByText(/PersonalKeeper/)).toBeVisible();
-  await expect(board.getByText(/Your standing/)).toBeVisible();
+  await expect(board.locator('table.leaderboard')).toHaveCount(1);
+  await expect(board.getByText('Qualified standings')).toHaveCount(0);
+  await expect(board.getByText(/Your standing/)).toHaveCount(0);
   await board.screenshot({ path: test.info().outputPath('leaderboard-compact.png') });
   await board.getByRole('link', { name: 'View full leaderboard' }).click();
   await expect(page).toHaveURL(/\/leaderboard$/);

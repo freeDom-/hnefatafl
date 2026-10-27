@@ -26,6 +26,8 @@ export interface BoardView {
   cursor: number;
   total_moves?: number;
   legal_moves?: Move[];
+  /** Display-only square for a king captured on the terminal move. */
+  capturedKingSquare?: number | null;
 }
 interface Props {
   game: BoardView;
@@ -65,14 +67,17 @@ export default function Board({
     legalMoves.filter((move) => move.source === selected).map((move) => move.target),
   );
   const lastMove = game.cursor > 0 ? game.moves[game.cursor - 1] : undefined;
-  // Retain the final capture arrangement for display without changing the rules state.
+  // Retain the final capture arrangement for display without changing the rules
+  // state. Online games supply the derived square because their move records do
+  // not carry per-move captures.
   const capturedKingSquare =
-    game.winner === 'attackers' &&
+    game.capturedKingSquare ??
+    (game.winner === 'attackers' &&
     game.reason === 'king_captured' &&
     !game.board.includes('K') &&
     Array.isArray(lastMove?.captured)
       ? lastMove.captured.find((capture) => capture.piece === 'K')?.square
-      : undefined;
+      : undefined);
   const keydown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
     if (event.key === 'ArrowRight') next = Math.min(index + 1, game.board.length - 1);

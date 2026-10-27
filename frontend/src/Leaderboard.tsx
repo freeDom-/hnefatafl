@@ -8,10 +8,11 @@ import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineT
 import './leaderboard.css';
 
 const rulesets = ['brandubh', 'tablut', 'copenhagen'] as const;
-
-function formatRating(value: number) {
-  return String(Math.round(value));
-}
+const ruleNames: Record<string, string> = {
+  brandubh: 'Brandubh',
+  tablut: 'Tablut',
+  copenhagen: 'Copenhagen',
+};
 
 function Entries({
   entries,
@@ -42,8 +43,11 @@ function Entries({
               <td>
                 {entry.name}
                 {entry.account_id === ownId ? ` · ${t('You')}` : ''}
+                {entry.provisional ? (
+                  <span className="badge leaderboard-provisional">{t('Provisional')}</span>
+                ) : null}
               </td>
-              <td>{formatRating(entry.rating)}</td>
+              <td>{Math.round(entry.rating)}</td>
               <td>{entry.rated_games}</td>
             </tr>
           ))}
@@ -74,9 +78,8 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
     load,
   );
   const data = poll.data;
-  const qualified = data?.qualified?.entries ?? [];
-  const provisional = data?.provisional?.entries ?? [];
-  const empty = !!data && !qualified.length && !provisional.length;
+  const entries = data?.entries ?? [];
+  const total = data?.total ?? 0;
   return (
     <section
       className={compact ? 'panel leaderboard-compact' : 'leaderboard-page'}
@@ -103,7 +106,7 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
         >
           {rulesets.map((value) => (
             <option value={value} key={value}>
-              {t(value === 'brandubh' ? 'Brandubh' : value === 'tablut' ? 'Tablut' : 'Copenhagen')}
+              {t(ruleNames[value])}
             </option>
           ))}
         </select>
@@ -117,36 +120,10 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
           </button>
         </p>
       )}
-      {data && empty && <p>{t('No rated games in this pool yet.')}</p>}
-      {data && !empty && (
+      {data && total === 0 && <p>{t('No rated games in this pool yet.')}</p>}
+      {data && total > 0 && (
         <>
-          {data.me && (
-            <p className="leaderboard-me" role="status">
-              {t('Your standing')}: {data.me.rank} · {formatRating(data.me.rating)} ·{' '}
-              {t('{count} rated games', { count: data.me.rated_games })}
-              {data.me.provisional ? ` · ${t('Provisional')}` : ''}
-            </p>
-          )}
-          {!data.me && (
-            <p className="leaderboard-me">{t('You are not ranked in this pool yet.')}</p>
-          )}
-          <h3>{t('Qualified standings')}</h3>
-          {qualified.length ? (
-            <Entries entries={qualified} ownId={account?.id} caption="Qualified standings" />
-          ) : (
-            <p>{t('No qualified players in this pool yet.')}</p>
-          )}
-          {provisional.length > 0 && (
-            <>
-              <h3>{t('Provisional players')}</h3>
-              <p className="subtle">
-                {t('Provisional until {count} rated games.', {
-                  count: data.policy.provisional_games,
-                })}
-              </p>
-              <Entries entries={provisional} ownId={account?.id} caption="Provisional players" />
-            </>
-          )}
+          <Entries entries={entries} ownId={account?.id} caption="Leaderboard" />
           {!compact && (
             <nav className="leaderboard-pages" aria-label={t('Leaderboard pages')}>
               <button
@@ -159,7 +136,7 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
               <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
               <button
                 className="button secondary"
-                disabled={qualified.length < pageSize || offset + pageSize > 100000}
+                disabled={entries.length < pageSize || offset + pageSize > 100000}
                 onClick={() => setOffset(offset + pageSize)}
               >
                 {t('Next page')}

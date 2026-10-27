@@ -8,14 +8,14 @@ afterEach(() => {
   setLanguage('en', false);
 });
 
-it('groups by ruleset and matchup type and shows personal outcomes', () => {
+it('groups by ruleset and shows personal outcomes without a mode label', () => {
   render(
     <PersonalStatisticsView
       statistics={{
         groups: [
           {
             ruleset: 'brandubh',
-            mode: 'human-ai',
+            mode: null,
             played: 3,
             wins: 2,
             losses: 1,
@@ -26,35 +26,67 @@ it('groups by ruleset and matchup type and shows personal outcomes', () => {
             average_game_length: 30,
             average_game_length_unit: 'moves',
           },
-          {
-            ruleset: 'tablut',
-            mode: 'ai-ai',
-            played: 2,
-            wins: null,
-            losses: null,
-            draws: null,
-            win_rate: null,
-            win_rate_attackers: null,
-            win_rate_defenders: null,
-            average_game_length: 20,
-            average_game_length_unit: 'moves',
-          },
         ],
         coverage: { unattributed_games: 1 },
       }}
     />,
   );
   expect(screen.getByRole('heading', { name: 'Brandubh' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Human vs AI' })).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Human vs AI' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'AI vs AI' })).toBeNull();
   expect(screen.getByText('66.7%')).toBeVisible();
   expect(screen.getByText('30 moves')).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'AI vs AI' })).toBeVisible();
-  expect(screen.getByText('AI vs AI games have no personal result.')).toBeVisible();
   expect(
     screen.getByText(
       '1 historical games have no authoritative account seat and are not counted here.',
     ),
   ).toBeVisible();
+});
+
+it('shows the available Elo rating in each online ruleset heading', () => {
+  render(
+    <PersonalStatisticsView
+      online
+      statistics={{
+        groups: [
+          {
+            ruleset: 'brandubh',
+            mode: null,
+            rating: 1537.4,
+            played: 2,
+            wins: 1,
+            losses: 1,
+            draws: 0,
+            timed_out: 0,
+            win_rate: 0.5,
+            win_rate_attackers: 0.5,
+            win_rate_defenders: null,
+            average_game_length: 12,
+            average_game_length_unit: 'moves',
+          },
+          {
+            ruleset: 'tablut',
+            mode: null,
+            rating: null,
+            played: 1,
+            wins: 0,
+            losses: 1,
+            draws: 0,
+            timed_out: 0,
+            win_rate: 0,
+            win_rate_attackers: null,
+            win_rate_defenders: 0,
+            average_game_length: 10,
+            average_game_length_unit: 'moves',
+          },
+        ],
+        coverage: { unattributed_games: 0 },
+      }}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Brandubh (1537)' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Tablut' })).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Tablut (1500)' })).toBeNull();
 });
 
 it('shows online timeouts and em dashes without eligible games', () => {

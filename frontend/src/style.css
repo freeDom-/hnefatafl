@@ -296,6 +296,30 @@ h1 {
   border-radius: 9px;
   box-shadow: 0 3px 9px #41472a02;
 }
+/* Shared tab list: the jobs view and the online lobby use the same component. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-block: 12px 18px;
+}
+.tabs > button {
+  flex: 1;
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 12px 8px;
+  color: var(--ui-copy);
+  font-size: 14px;
+  min-height: 44px;
+}
+.tabs > button[aria-selected='true'] {
+  color: var(--text);
+  border-color: var(--gold);
+  font-weight: 700;
+  background: var(--ui-gold-tint);
+}
 .game-layout {
   display: grid;
   grid-template-columns: minmax(195px, 235px) minmax(330px, 1fr) minmax(190px, 235px);

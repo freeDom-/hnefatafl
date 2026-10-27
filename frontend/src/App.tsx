@@ -232,7 +232,7 @@ export default function App() {
             <section className="page-intro">
               <div>
                 <h1>{t('Every move tells a saga.')}</h1>
-                <p>{t('Account single-player · saved to your account')}</p>
+                <p>{t('Singleplayer · saved to your account')}</p>
                 <p>{t('One king. Two armies. A thousand ways to outwit your opponent.')}</p>
               </div>
               <button
