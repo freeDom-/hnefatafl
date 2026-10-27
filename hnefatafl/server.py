@@ -947,6 +947,111 @@ def create_app(
         except ConflictError as exc:
             fail(str(exc), 409)
 
+    def online_analysis_game(identifier: str) -> dict:
+        """Read-only analysis view of a completed online game.
+
+        Only terminal games are eligible. Ongoing online games never expose
+        analysis, suggestions, evaluations or win probabilities, and a client
+        countdown reaching zero is never treated as completion.
+        """
+        from .online_core import OnlineError
+        from .security_context import allowed, session_identity
+
+        try:
+            with store.connection() as c:
+                c.execute("BEGIN")
+                account = online._identity(c, session_identity.get())
+                if not allowed(account, "all_data"):
+                    online._participant(c, account["id"], identifier)
+                row, game = online._load(c, identifier)
+                if game.status.value != "completed" or game.result is None:
+                    fail("Analysis is available only for completed online games.", 403)
+                players = {}
+                for side in SIDES:
+                    record = c.execute(
+                        "SELECT username,display_name FROM accounts WHERE id=?",
+                        (row[side + "_id"],),
+                    ).fetchone()
+                    players[side] = {
+                        "name": str(record["display_name"] or record["username"])[:80],
+                        "kind": "human",
+                        "config": {},
+                    }
+                moves = [
+                    {"source": item["source"], "target": item["target"]}
+                    for item in c.execute(
+                        "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
+                        (identifier,),
+                    )
+                ]
+        except OnlineError as error:
+            fail(str(error), error.status)
+        return {
+            "id": identifier,
+            "online": True,
+            "ruleset": row["ruleset"],
+            "mode": "human-human",
+            "players": players,
+            "moves": moves,
+            "cursor": len(moves),
+            "state": game.position.to_dict(),
+            "analysis_enabled": True,
+            "advisor": None,
+            "recorded_result": {
+                "winner": game.result.winner,
+                "reason": game.result.termination_reason,
+                "plies": len(moves),
+            },
+        }
+
+    @app.get("/api/history/online/{game_id}/analytics")
+    def online_analytics(game_id: str):
+        return analytics_settings(online_analysis_game(game_id))
+
+    @app.put("/api/history/online/{game_id}/analytics")
+    def set_online_analytics(game_id: str, request: AnalyticsRequest):
+        with catalog_lock:
+            game = online_analysis_game(game_id)
+            existing = analytics_settings(game)["advisor"]
+            same_advisor = bool(
+                existing
+                and request.advisor
+                and request.advisor.model_dump()
+                == {
+                    "name": existing["name"],
+                    "profile_id": existing.get("profile_id"),
+                    "config": existing["config"],
+                }
+            )
+            advisor = (
+                existing if same_advisor else normalise_advisor(request.advisor, game["ruleset"], 0)
+            )
+            try:
+                return store.save_analytics(
+                    game_id,
+                    {
+                        "advisor": advisor,
+                        "time_limit": request.time_limit,
+                        "show_win_chances": request.show_win_chances,
+                    },
+                    allow_online=True,
+                )
+            except ConflictError as exc:
+                fail(str(exc), 409)
+
+    @app.post("/api/history/online/{game_id}/analysis")
+    def analyze_online_game(game_id: str, request: AnalysisRequest):
+        game = online_analysis_game(game_id)
+        if not 0 <= request.cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        state = state_at(game, request.cursor)
+        if request.background:
+            return background_analysis(game, state=state, cursor=request.cursor)
+        settings = analytics_settings(game)
+        return analysis_response(
+            current_analysis(game, settings, state=state) or missing_analysis(game)
+        )
+
     @app.delete("/api/games/{game_id}")
     def delete_game(
         game_id: str, version: str = Query(pattern=r"^(0|[1-9][0-9]*)$", max_length=16)

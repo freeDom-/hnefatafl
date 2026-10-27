@@ -19,7 +19,9 @@ class CreationRequest(BaseModel):
     side_selection: Literal["attackers", "defenders", "random"]
     mode: Literal["single", "simultaneous", "sequential"] = "single"
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
-    rated: StrictBool = False
+    # Rated-only policy: omitted requests default to rated; explicit false is
+    # rejected by the service so legacy or forged fields cannot create casual games.
+    rated: StrictBool = True
 
 
 class ExpectedVersion(BaseModel):

@@ -1,9 +1,9 @@
-"""Schema 11: durable online records plus versioned Elo rating state."""
+"""Schema 12: durable online records, rating state and start-rating snapshots."""
 
 import sqlite3
 import time
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -12,6 +12,9 @@ ONLINE_TABLES = (
     "online_void_audit",
     "online_timeout_gate",
     "online_gate_audit",
+    # Immutable per-game start ratings are captured at activation and are
+    # deliberately independent of the mutable rating ledger below.
+    "online_game_start_ratings",
     # Rating state is mutable (deterministic rebuilds), so it is retained on
     # restore but never append-only. Children follow their parents.
     "rating_events",
@@ -81,6 +84,15 @@ def migrate_online(c: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS online_defenders ON online_games(defenders_id)",
         "CREATE INDEX IF NOT EXISTS online_waiting_creator ON online_games(creator_id) WHERE status='waiting'",
         "CREATE INDEX IF NOT EXISTS online_creation_window ON online_matches(creator_id,created_at)",
+        """CREATE TABLE IF NOT EXISTS online_game_start_ratings (
+            game_id TEXT NOT NULL REFERENCES online_games(id),
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            pool TEXT NOT NULL,
+            rating REAL NOT NULL,
+            captured_at BLOB NOT NULL CHECK(typeof(captured_at)='integer'),
+            PRIMARY KEY(game_id,account_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS online_start_ratings_account ON online_game_start_ratings(account_id,pool)",
         """CREATE TABLE IF NOT EXISTS online_creation_metrics (
             reason TEXT PRIMARY KEY NOT NULL CHECK(reason IN ('waiting_limit','creation_rate')),
             denials INTEGER NOT NULL CHECK(denials>=0),

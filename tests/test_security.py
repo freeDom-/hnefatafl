@@ -340,7 +340,7 @@ def test_legacy_migration_preserves_data_and_has_no_invented_ownership(tmp_path)
     assert migrated.players()[0]["id"] == "historical"
     assert migrated.players()[0]["owner_account_id"] is None
     with migrated.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
 
 

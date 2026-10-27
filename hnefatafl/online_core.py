@@ -196,7 +196,7 @@ class OnlineCore:
         seconds: int,
         request_id: str,
         mode: str = "single",
-        rated: bool = False,
+        rated: bool = True,
     ) -> dict:
         self._admission()
         try:
@@ -206,11 +206,14 @@ class OnlineCore:
             raise OnlineError(
                 422, "A valid duration and creation request UUID are required."
             ) from None
+        # Rated-only policy: every newly created game is rated. Historical games
+        # keep their original flag; explicit unrated requests are rejected.
+        if rated is not True:
+            raise OnlineError(422, "All new online games are rated.")
         if (
             ruleset not in RULESETS
             or side not in {"attackers", "defenders", "random"}
             or mode not in {"single", "simultaneous", "sequential"}
-            or type(rated) is not bool
         ):
             raise OnlineError(422, "A supported ruleset and side are required.")
         with self._write() as c:
@@ -393,6 +396,14 @@ class OnlineCore:
             now,
             assigned_side=side,
         )
+        self._capture_start_ratings(c, return_game, now)
+
+    def _capture_start_ratings(self, c, game, now):
+        attackers = game.creator if game.creator_side == "attackers" else game.opponent
+        defenders = game.creator if game.creator_side == "defenders" else game.opponent
+        if not attackers or not defenders:
+            return
+        self.ratings.capture_start(c, game.id, game.position.ruleset, attackers, defenders, now)
 
     def _gate_enabled(self, c, now) -> bool:
         gate = c.execute("SELECT * FROM online_timeout_gate WHERE id=1").fetchone()
@@ -437,6 +448,8 @@ class OnlineCore:
         )
         if c.execute("SELECT changes()").fetchone()[0] != 1:
             raise OnlineError(409, "This game changed. Reload before retrying.")
+        if row["status"] == "waiting" and game.status == lifecycle.Status.ACTIVE:
+            self._capture_start_ratings(c, game, now)
         if move is not None:
             c.execute(
                 "INSERT INTO online_moves VALUES(?,?,?,?,?,?)",
