@@ -30,7 +30,8 @@ class RecordedHistory:
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attackers,
             substr(json_extract(data,'$.players.defenders.name'),1,80) AS defenders,
             substr(coalesce(a.display_name,a.username),1,80) AS owner
-            FROM games JOIN accounts a ON a.id=games.owner_account_id"""
+            FROM games JOIN accounts a ON a.id=games.owner_account_id
+              AND coalesce(json_extract(games.data,'$.mode'),'') <> 'ai-ai'"""
         online = """SELECT g.id,'online' AS category,g.updated_at AS order_at,
             g.created_at,g.updated_at AS recorded_at,g.ruleset,g.status,
             json_extract(r.payload,'$.winner') AS winner,

@@ -86,7 +86,8 @@ class PersonalHistory:
             json_extract(data,'$.players.defenders.kind') AS defender_kind,
             json_extract(data,'$.players.attackers.account_id') AS attacker_account_id,
             json_extract(data,'$.players.defenders.account_id') AS defender_account_id
-            FROM games WHERE owner_account_id=?"""
+            FROM games WHERE owner_account_id=?
+              AND coalesce(json_extract(data,'$.mode'),'') <> 'ai-ai'"""
 
     @staticmethod
     def _personal_side_case():
@@ -111,33 +112,26 @@ class PersonalHistory:
 
     @classmethod
     def _account_statistics(cls, c, account_id):
-        """Personal outcomes from persisted results, never attacker/defender totals."""
+        """Personal human-vs-AI outcomes from persisted results, by ruleset.
+
+        AI-vs-AI games are excluded from personal history and statistics; they
+        exist only for administrator AI-strength analysis. Each game has exactly
+        one mode, so grouping by ruleset cannot double-count.
+        """
         rows = c.execute(
             f"""WITH records AS ({cls._account_base()})
-            SELECT ruleset,mode,winner,plies,{cls._personal_side_case()} AS personal_side
+            SELECT ruleset,winner,plies,{cls._personal_side_case()} AS personal_side
             FROM records""",
             (account_id, account_id, account_id, account_id, account_id),
         ).fetchall()
-        groups: dict[tuple[str, str], dict] = {}
+        groups: dict[str, dict] = {}
         unattributed = 0
         for row in rows:
-            mode = row["mode"]
             side = row["personal_side"]
-            if mode == "ai-ai":
-                group = groups.setdefault(
-                    (row["ruleset"], mode), cls._empty_group(row["ruleset"], mode)
-                )
-                group["played"] += 1
-                if row["winner"] is not None:
-                    group["completed"] += 1
-                    group["length_sum"] += row["plies"] or 0
-                continue
             if side is None:
                 unattributed += 1
                 continue
-            group = groups.setdefault(
-                (row["ruleset"], mode), cls._empty_group(row["ruleset"], mode)
-            )
+            group = groups.setdefault(row["ruleset"], cls._empty_group(row["ruleset"]))
             group["played"] += 1
             winner = row["winner"]
             if winner is None:
@@ -159,15 +153,15 @@ class PersonalHistory:
                 if winner == side:
                     group["wins_defenders"] += 1
         return {
-            "groups": [cls._group_result(groups[key]) for key in sorted(groups)],
+            "groups": [cls._group_result(groups[ruleset]) for ruleset in sorted(groups)],
             "coverage": {"unattributed_games": unattributed},
         }
 
     @staticmethod
-    def _empty_group(ruleset, mode):
+    def _empty_group(ruleset):
         return {
             "ruleset": ruleset,
-            "mode": mode,
+            "mode": None,
             "played": 0,
             "completed": 0,
             "wins": 0,
@@ -182,26 +176,17 @@ class PersonalHistory:
 
     @classmethod
     def _group_result(cls, group):
-        personal = group["mode"] != "ai-ai"
         completed = group["completed"]
         return {
             "ruleset": group["ruleset"],
-            "mode": group["mode"],
+            "mode": None,
             "played": group["played"],
-            "wins": group["wins"] if personal else None,
-            "losses": group["losses"] if personal else None,
-            "draws": group["draws"] if personal else None,
-            "win_rate": (
-                cls._rate(group["wins"], group["wins"] + group["losses"] + group["draws"])
-                if personal
-                else None
-            ),
-            "win_rate_attackers": (
-                cls._rate(group["wins_attackers"], group["decided_attackers"]) if personal else None
-            ),
-            "win_rate_defenders": (
-                cls._rate(group["wins_defenders"], group["decided_defenders"]) if personal else None
-            ),
+            "wins": group["wins"],
+            "losses": group["losses"],
+            "draws": group["draws"],
+            "win_rate": cls._rate(group["wins"], group["wins"] + group["losses"] + group["draws"]),
+            "win_rate_attackers": cls._rate(group["wins_attackers"], group["decided_attackers"]),
+            "win_rate_defenders": cls._rate(group["wins_defenders"], group["decided_defenders"]),
             "average_game_length": (group["length_sum"] / completed) if completed else None,
             "average_game_length_unit": "moves",
         }
@@ -317,27 +302,32 @@ class PersonalHistory:
 
     @classmethod
     def _online_statistics(cls, c, account_id):
-        """Current effective eligible results grouped by ruleset and match mode."""
+        """Current effective eligible results grouped only by ruleset.
+
+        Each online game has exactly one match mode, so summing across modes per
+        ruleset never double-counts a game. The optional rating comes from the
+        separate rated-game pool and is omitted while the account is unrated.
+        """
         rows = c.execute(
-            """SELECT g.ruleset,m.mode,
+            """SELECT g.ruleset,pr.rating AS rating,
               json_extract(r.payload,'$.winner') AS winner,
               CASE WHEN g.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side,
               r.abandoned_account_id,
               coalesce(json_extract(r.payload,'$.move_count'),0) AS move_count
             FROM online_games g
-            JOIN online_matches m ON m.id=g.match_id
             JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision
+            LEFT JOIN player_ratings pr ON pr.account_id=? AND pr.pool=g.ruleset
             WHERE g.status='completed' AND r.competitive_eligible=1
               AND (g.attackers_id=? OR g.defenders_id=?)""",
-            (account_id, account_id, account_id),
+            (account_id, account_id, account_id, account_id),
         ).fetchall()
-        groups: dict[tuple[str, str], dict] = {}
+        groups: dict[str, dict] = {}
         for row in rows:
             group = groups.setdefault(
-                (row["ruleset"], row["mode"]),
+                row["ruleset"],
                 {
                     "ruleset": row["ruleset"],
-                    "mode": row["mode"],
+                    "rating": row["rating"],
                     "played": 0,
                     "wins": 0,
                     "losses": 0,
@@ -370,13 +360,13 @@ class PersonalHistory:
                 if winner == side:
                     group["wins_defenders"] += 1
         result = []
-        for key in sorted(groups):
-            group = groups[key]
+        for ruleset in sorted(groups):
+            group = groups[ruleset]
             played = group["played"]
             result.append(
                 {
-                    "ruleset": group["ruleset"],
-                    "mode": group["mode"],
+                    "ruleset": ruleset,
+                    "mode": None,
                     "played": played,
                     "wins": group["wins"],
                     "losses": group["losses"],
@@ -391,6 +381,7 @@ class PersonalHistory:
                     ),
                     "average_game_length": group["length_sum"] / played if played else None,
                     "average_game_length_unit": "moves",
+                    "rating": group["rating"],
                 }
             )
         return {"groups": result, "coverage": {"unattributed_games": 0}}
