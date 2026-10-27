@@ -19,17 +19,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('restores the full read-only online review with unavailable analytics', async () => {
+it('restores the full read-only online review with completed-game analytics', async () => {
   fetcher.mockImplementation(() => respond(fixture.replay));
   render(<RecordedReview id={fixture.replay.game.id} category="online" accountId="archer" />);
   await screen.findByRole('grid');
   expect(screen.getByRole('heading', { name: 'The saga so far' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Winning chances' })).toBeVisible();
-  expect(
-    screen.getByText(/Winning chances are unavailable for recorded online games/),
-  ).toBeVisible();
+  // Completed online reviews reuse the analytics experience instead of a denial.
+  expect(screen.queryByText(/Winning chances are unavailable/)).toBeNull();
   expect(screen.getByRole('heading', { name: 'Analytics' })).toBeVisible();
-  expect(screen.getByText('Analysis is unavailable for recorded online games.')).toBeVisible();
+  expect(screen.queryByText('Analysis is unavailable for recorded online games.')).toBeNull();
   expect(screen.getByText('Single game')).toBeVisible();
   expect(screen.getByText('Archer')).toBeVisible();
   expect(screen.getByText('Keeper')).toBeVisible();

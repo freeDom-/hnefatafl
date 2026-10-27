@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
-import { surfaceLink } from './surfaceNavigation';
 import { useOnlinePoll } from './useOnlinePoll';
 import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineTypes';
 import './leaderboard.css';
@@ -13,6 +12,27 @@ const ruleNames: Record<string, string> = {
   tablut: 'Tablut',
   copenhagen: 'Copenhagen',
 };
+const RULESET_KEY = 'hnefatafl-leaderboard-ruleset';
+const isRuleset = (value: string | null): value is (typeof rulesets)[number] =>
+  value !== null && (rulesets as readonly string[]).includes(value);
+/** Default Copenhagen; ignore invalid values and unavailable storage. */
+export function readStoredRuleset(): string {
+  try {
+    const value = localStorage.getItem(RULESET_KEY);
+    if (isRuleset(value)) return value;
+  } catch {
+    /* Browser storage may be unavailable. */
+  }
+  return 'copenhagen';
+}
+export function persistRuleset(value: string) {
+  if (!isRuleset(value)) return;
+  try {
+    localStorage.setItem(RULESET_KEY, value);
+  } catch {
+    /* Keep the in-memory selection. */
+  }
+}
 
 function Entries({
   entries,
@@ -60,7 +80,7 @@ function Entries({
 export default function Leaderboard({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
   const { account } = useAuth();
-  const [ruleset, setRuleset] = useState<string>('tablut');
+  const [ruleset, setRuleset] = useState<string>(readStoredRuleset);
   const [offset, setOffset] = useState(0);
   const pageSize = compact ? 5 : 25;
   const load = useCallback(
@@ -85,32 +105,28 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
       className={compact ? 'panel leaderboard-compact' : 'leaderboard-page'}
       aria-labelledby={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}
     >
-      <div className="section-heading">
+      <div className="section-heading leaderboard-heading-row">
         <h2 id={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}>
           {t('Leaderboard')}
         </h2>
-        {compact && (
-          <a href="/leaderboard" onClick={surfaceLink}>
-            {t('View full leaderboard')}
-          </a>
-        )}
+        <label className="leaderboard-filter">
+          {t('Ruleset')}
+          <select
+            value={ruleset}
+            onChange={(event) => {
+              setRuleset(event.target.value);
+              persistRuleset(event.target.value);
+              setOffset(0);
+            }}
+          >
+            {rulesets.map((value) => (
+              <option value={value} key={value}>
+                {t(ruleNames[value])}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
-      <label className="leaderboard-filter">
-        {t('Ruleset')}
-        <select
-          value={ruleset}
-          onChange={(event) => {
-            setRuleset(event.target.value);
-            setOffset(0);
-          }}
-        >
-          {rulesets.map((value) => (
-            <option value={value} key={value}>
-              {t(ruleNames[value])}
-            </option>
-          ))}
-        </select>
-      </label>
       {poll.phase === 'loading' && <p role="status">{t('Loading leaderboard…')}</p>}
       {poll.phase === 'stale' && (
         <p role="alert">

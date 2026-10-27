@@ -173,6 +173,12 @@ const personal: Record<string, string> = {
   Casual: 'Freundschaftlich',
   Singleplayer: 'Einzelspieler',
   'Singleplayer · saved to your account': 'Einzelspieler · im Konto gespeichert',
+  'Single player game': 'Einzelspiel',
+  'Active games': 'Aktive Spiele',
+  '{value} rating gain': '{value} Wertungsgewinn',
+  'Time per move: {duration}': 'Zeit pro Zug: {duration}',
+  'This retained request uses exactly {duration} per move. Retrying keeps that value.':
+    'Diese gespeicherte Anfrage verwendet genau {duration} pro Zug. Ein erneuter Versuch behält diesen Wert bei.',
   'My turn': 'Mein Zug',
   'Online games': 'Onlinespiele',
   'No games await your move.': 'Keine Spiele warten auf deinen Zug.',

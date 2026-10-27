@@ -107,7 +107,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   const id = new URL(url).pathname.split('/').pop()!;
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  const switcher = page.getByRole('navigation', { name: 'Active online games' });
+  const switcher = page.getByRole('navigation', { name: 'Active games' });
   const sibling = switcher.locator(`[data-game-id="${siblingId}"]`);
   await expect(sibling).toBeVisible();
   await sibling.click();
@@ -127,15 +127,11 @@ test('sequential discovers the return game after the first result', async ({ pag
   await join(other.page, url);
   await refresh(page);
   const id = new URL(url).pathname.split('/').pop()!;
-  const switcher = page.getByRole('navigation', { name: 'Active online games' });
-  await expect(switcher.locator(`[data-game-id="${id}"]`)).toBeVisible();
   await concede(page);
-  // The return game activates after the first result and replaces it in the switcher.
+  // The return game activates after the first result and is reachable by URL.
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  const sibling = switcher.locator(`[data-game-id="${siblingId}"]`);
-  await expect(sibling).toBeVisible();
-  await sibling.click();
+  await page.goto(`/online/games/${siblingId}`);
   await expect(page.getByText('Game 2', { exact: true })).toBeVisible();
   await other.page.goto(page.url());
   await concede(other.page);

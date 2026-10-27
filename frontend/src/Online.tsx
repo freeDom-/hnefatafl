@@ -19,7 +19,8 @@ import ReplayControls from './ReplayControls';
 import Modal from './Modal';
 import Tabs, { type TabItem } from './Tabs';
 import { durationParts, moveSeconds } from './moveDuration';
-import { remainingSeconds, RemainingTime, useNow } from './remainingTime';
+import { formatRemaining, remainingSeconds, RemainingTime, useNow } from './remainingTime';
+import ActiveGameSwitcher, { type ActiveGameEntry } from './ActiveGameSwitcher';
 import './online.css';
 
 export const modeNames: Record<MatchMode, string> = {
@@ -68,7 +69,8 @@ function restoreIntent(accountId: string): CreationIntent | null {
         side_selection: p.side_selection,
         mode: p.mode,
         time_per_move: p.time_per_move,
-        rated: p.rated === true,
+        // Rated-only policy: a retained legacy intent is replayed as rated.
+        rated: true,
       };
   } catch {
     /* Recovery still works through My games without browser storage. */
@@ -204,13 +206,12 @@ function GameSummary({
         {t('Defenders')}: {game.participants.defenders?.name ?? t('Unassigned')}
       </p>
       <p>
-        {game.rated ? t('Rated') : t('Casual')} ·{' '}
         {game.status === 'active' && game.deadline ? (
           <>
             {t('Remaining')} <RemainingTime seconds={remainingSeconds(game.deadline, now)} />
           </>
         ) : (
-          t('Time per move: {seconds} seconds', { seconds: game.time_per_move })
+          t('Time per move: {duration}', { duration: formatRemaining(game.time_per_move) })
         )}
       </p>
       <button className="button" onClick={() => open(game.id)}>
@@ -276,7 +277,6 @@ export function Lobby({
   );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
-  const [rated, setRated] = useState(intent?.rated ?? false);
   const [parts] = useState(() => durationParts(intent?.time_per_move ?? 259200));
   const [days, setDays] = useState(parts.days);
   const [hours, setHours] = useState(parts.hours);
@@ -336,7 +336,7 @@ export function Lobby({
       side_selection: side,
       mode,
       time_per_move: seconds,
-      rated,
+      rated: true,
     };
     intentRef.current = payload;
     setIntent(payload);
@@ -411,23 +411,6 @@ export function Lobby({
                     ))}
                   </select>
                 </label>
-                <label>
-                  {t('Game type')}
-                  <select
-                    value={rated ? 'rated' : 'casual'}
-                    onChange={(e) => setRated(e.target.value === 'rated')}
-                  >
-                    <option value="casual">{t('Casual')}</option>
-                    <option value="rated">{t('Rated')}</option>
-                  </select>
-                </label>
-                <p>
-                  {rated
-                    ? t(
-                        'Rated games count toward the leaderboard for verified accounts. The choice is fixed when the game is created.',
-                      )
-                    : t('Casual games do not affect ratings.')}
-                </p>
                 <fieldset className="move-duration">
                   <legend>{t('Time allowed per move')}</legend>
                   <div className="form-grid">
@@ -464,8 +447,8 @@ export function Lobby({
               {intent && intent.time_per_move % 60 !== 0 && (
                 <p role="status">
                   {t(
-                    'This retained request uses exactly {seconds} seconds per move. Retrying keeps that value.',
-                    { seconds: intent.time_per_move },
+                    'This retained request uses exactly {duration} per move. Retrying keeps that value.',
+                    { duration: formatRemaining(intent.time_per_move) },
                   )}
                 </p>
               )}
@@ -552,55 +535,6 @@ export function Lobby({
     </section>
   );
 }
-function OnlineSwitcher({
-  accountId,
-  currentId,
-  open,
-}: {
-  accountId: string;
-  currentId: string;
-  open: (id: string) => void;
-}) {
-  const { t } = useI18n();
-  const load = useCallback(
-    (signal: AbortSignal) =>
-      api<OnlineListing>(
-        '/online/games?section=mine&limit=50&offset=0',
-        undefined,
-        undefined,
-        signal,
-      ),
-    [],
-  );
-  const poll = useOnlinePoll(`switcher:${accountId}`, load);
-  const active = (poll.data?.games ?? []).filter((game) => game.status === 'active');
-  if (!active.length) return null;
-  return (
-    <nav className="online-switcher" aria-label={t('Active online games')}>
-      {active.map((game) => {
-        const yourTurn = game.participants[game.position.turn]?.account_id === accountId;
-        const opponent =
-          game.participants[game.position.turn === 'attackers' ? 'defenders' : 'attackers'];
-        return (
-          <button
-            type="button"
-            key={game.id}
-            data-game-id={game.id}
-            className="button secondary small"
-            aria-current={game.id === currentId ? 'page' : undefined}
-            onClick={() => open(game.id)}
-          >
-            {t(game.ruleset)}
-            {game.match.mode !== 'single' ? ` · ${t('Game {leg}', { leg: game.match.leg })}` : ''}
-            {' · '}
-            {opponent?.name ?? t('Unassigned')}
-            {yourTurn ? ` · ${t('Your turn')}` : ''}
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
 function Result({ game }: { game: OnlineGame }) {
   const { t } = useI18n();
   // A div, not a p: the shared game-details mobile layout hides direct p children.
@@ -621,7 +555,7 @@ function Result({ game }: { game: OnlineGame }) {
 function RatingChanges({ game }: { game: OnlineGame }) {
   const { t } = useI18n();
   const applications = game.result?.rating;
-  if (!game.rated || !applications?.length) return null;
+  if (!applications?.length) return null;
   const nameFor = (accountId: string) =>
     game.participants.attackers?.account_id === accountId
       ? game.participants.attackers?.name
@@ -642,13 +576,13 @@ function RatingChanges({ game }: { game: OnlineGame }) {
 function GameRoom({
   id,
   accountId,
-  open,
+  openActive,
   lobby,
   reviewOnly = false,
 }: {
   id: string;
   accountId: string;
-  open: (id: string) => void;
+  openActive: (entry: ActiveGameEntry) => void;
   lobby: () => void;
   reviewOnly?: boolean;
 }) {
@@ -782,7 +716,7 @@ function GameRoom({
     game?.status === 'active' && game.deadline ? remainingSeconds(game.deadline, now) : null;
   return (
     <section className="online-page">
-      {!reviewOnly && <OnlineSwitcher accountId={accountId} currentId={id} open={open} />}
+      {!reviewOnly && <ActiveGameSwitcher accountId={accountId} currentId={id} open={openActive} />}
       {reviewOnly && (
         <button className="button" onClick={lobby}>
           {t('Back to dashboard')}
@@ -793,6 +727,12 @@ function GameRoom({
       {poll.phase === 'stale' && (
         <div role="alert" className="online-notice">
           <p>{t('Online service unavailable or stale. Retry to reconnect.')}</p>
+          {poll.error && (
+            <p>
+              {t(errorMessage(poll.error).text)}
+              {errorMessage(poll.error).detail ? ` ${errorMessage(poll.error).detail}` : ''}
+            </p>
+          )}
           <button className="button secondary" onClick={() => void poll.refresh()}>
             {t('Retry')}
           </button>
@@ -816,7 +756,11 @@ function GameRoom({
                 </div>
                 <div className="detail-row">
                   <span>{t('Game {leg}', { leg: game.match.leg })}</span>
-                  <strong>{game.rated ? t('Rated') : t('Casual')}</strong>
+                  <strong>{t('Rated')}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{t('Time per move')}</span>
+                  <strong>{formatRemaining(game.time_per_move)}</strong>
                 </div>
                 <div className="detail-row">
                   <span>{t('Remaining time')}</span>
@@ -1092,7 +1036,9 @@ export default function Online() {
           id={match[1]}
           accountId={account.id}
           reviewOnly={!!match[2]}
-          open={(id) => navigate(`/online/games/${id}${match[2] ? '/review' : ''}`)}
+          openActive={(entry) =>
+            navigate(entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`)
+          }
           lobby={() => navigate('/dashboard')}
         />
       ) : (
