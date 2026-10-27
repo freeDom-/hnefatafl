@@ -44,9 +44,12 @@ advisor keeps the persisted winning-chance gate enabled; deselecting it closes
 the analysis section. Searching necessarily uses internal evaluation scores.
 
 Explicit advisor analysis also works in past replay positions and completed
-games. It is stored separately from original playing-agent evidence. A new
-advisor opinion is an analysis of the replay, rather than a claim that the
-original player produced that opinion during the game.
+games. The Hall of Records review sends a read-only historical request that
+analyzes the selected recorded cursor without seeking or mutating the
+authoritative game; the exact-cursor live contract is unchanged. The result is
+stored separately from original playing-agent evidence. A new advisor opinion is
+an analysis of the replay, rather than a claim that the original player produced
+that opinion during the game.
 
 ## Interpreting the numbers
 

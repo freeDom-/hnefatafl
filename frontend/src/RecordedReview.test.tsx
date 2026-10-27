@@ -103,6 +103,18 @@ it('keeps authorized single-player analytics available on the review', async () 
   expect(screen.getByRole('heading', { name: 'Analytics' })).toBeVisible();
   expect(screen.getByText('Human vs AI')).toBeVisible();
   expect(screen.getByText('Recorded result').closest('.detail-row')).toHaveTextContent('Draw');
+  // History review analyzes any recorded cursor read-only.
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(
+        ([url, opts]) => url.includes('/analysis') && opts?.method === 'POST',
+      ),
+    ).toBe(true),
+  );
+  const analysisCall = fetcher.mock.calls.find(
+    ([url, opts]) => url.includes('/analysis') && opts?.method === 'POST',
+  );
+  expect(JSON.parse(String(analysisCall![1]?.body))).toMatchObject({ historical: true });
 });
 
 it('does not request analysis while playing a recorded account game', async () => {

@@ -256,3 +256,22 @@ authoritative games or results. The active online spectator controls in
 - Recorded review reconstructs captured pieces by diffing adjacent validated
   states, so a captured king stays visible at its final square exactly as in the
   live game. It does not trust move metadata for the overlay.
+
+### Hall access and read-only historical analysis
+
+`GET /api/history/games` now includes each account's own single-player records for
+normal users as well as administrators. Normal users see their participating online
+games plus their own account records, never another account's; the administrator
+`player` name filter stays restricted to trusted current `all_data`. The
+`category=account-single-player` filter is available to normal users because it is
+scoped to their own account. `GET /api/history/account-single-player/{id}/replay`
+authorizes the owner or an administrator.
+
+`POST /api/games/{id}/analysis` accepts an optional `historical: true` flag. Live
+gameplay keeps the exact-cursor contract. A historical request validates the
+cursor against the recorded move count, analyzes `state_at(game, cursor)` and
+schedules only the advisor (playing-agent evidence is never fabricated for a past
+position). The report is stored in the separate advisor table keyed by the
+position; the authoritative game cursor, version and result are not touched.
+Online IDs remain rejected by `game_or_404`, so the read-only path cannot expose
+online analysis.

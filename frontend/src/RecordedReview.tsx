@@ -232,7 +232,11 @@ export default function RecordedReview({
   }, [normalized, position, index, accountReview]);
 
   // Playback must not trigger analysis requests; the advisor resumes when stopped.
-  const analysis = useGameAnalysis(accountReview ? game : null, accountReview && !playback.playing);
+  const analysis = useGameAnalysis(
+    accountReview ? game : null,
+    accountReview && !playback.playing,
+    accountReview,
+  );
 
   if (poll.phase === 'loading') {
     return (

@@ -605,19 +605,17 @@ def test_hall_role_scope_and_independent_typed_review(world):
     live = online(world)
     for name in ("Archer", "Keeper"):
         rows = clients[name].get("/api/history/games").json()
-        assert [r["id"] for r in rows["games"]] == [live["id"]]
-        assert rows["matching"] == 1
-        assert rows["totals"][0]["games"] == 1
-        assert (
-            clients[name].get("/api/history/games?category=account-single-player").status_code
-            == 403
-        )
+        # A normal user sees their participating online games and their own
+        # account single-player records, but never another account's.
+        expected = {live["id"], game["id"]} if name == "Archer" else {live["id"]}
+        assert {r["id"] for r in rows["games"]} == expected
+        assert rows["matching"] == len(expected)
+        account_rows = clients[name].get("/api/history/games?category=account-single-player")
+        assert account_rows.status_code == 200
+        assert account_rows.json()["matching"] == (1 if name == "Archer" else 0)
         assert clients[name].get("/api/history/games?player=Archer").status_code == 403
-        # Hiding account records in Hall must not remove owner gameplay or personal review.
-        assert (
-            clients[name].get(f"/api/history/account-single-player/{game['id']}/replay").status_code
-            == 404
-        )
+        owner_review = clients[name].get(f"/api/history/account-single-player/{game['id']}/replay")
+        assert owner_review.status_code == (200 if name == "Archer" else 404)
         assert clients[name].get(f"/api/history/online/{game['id']}/replay").status_code == 404
         assert (
             clients[name].get(f"/api/history/account-single-player/{live['id']}/replay").status_code
@@ -661,7 +659,7 @@ def test_hall_role_scope_and_independent_typed_review(world):
 def test_dashboard_latest_three_filters_before_limit_and_stable_pages(world):
     app, clients, credentials, _, clock = world
     own_account = draw_account(clients["Odin"])
-    draw_account(clients["Archer"])
+    others = draw_account(clients["Archer"])
     completed = []
     for _ in range(5):
         active = online(world)
@@ -679,7 +677,8 @@ def test_dashboard_latest_three_filters_before_limit_and_stable_pages(world):
     expected = sorted(completed[:-1])
     dashboard = clients["Archer"].get("/api/history/games?dashboard=true&limit=100").json()
     assert [r["id"] for r in dashboard["games"]] == expected[:3]
-    assert dashboard["limit"] == 3 and dashboard["matching"] == 4
+    # Archer's own account game joins the four eligible online completions.
+    assert dashboard["limit"] == 3 and dashboard["matching"] == 5
     assert all(r["category"] == "online" and r["eligible"] for r in dashboard["games"])
     # Own-only remains true for administrators, with their own account category eligible.
     assert [
@@ -695,7 +694,8 @@ def test_dashboard_latest_three_filters_before_limit_and_stable_pages(world):
         .json()
     )
     assert [r["id"] for r in first["games"] + second["games"]] == expected
-    assert first["matching"] == second["matching"] == first["totals"][0]["completed"] == 4
+    assert first["matching"] == second["matching"] == 5
+    assert sum(total["completed"] for total in first["totals"]) == 5
     assert (
         clients["Keeper"]
         .get("/api/history/games", params={"status": "completed", "cursor": first["next_cursor"]})
@@ -714,13 +714,17 @@ def test_dashboard_latest_three_filters_before_limit_and_stable_pages(world):
     # Revocation is reloaded by the history domain, not trusted from a supplied flag.
     with app.state.store.connection() as c:
         c.execute("UPDATE accounts SET role='USER' WHERE username='Odin'")
-    assert (
-        clients["Odin"].get("/api/history/games?category=account-single-player").status_code == 403
-    )
+    # Revocation is reloaded: the former administrator keeps their own record
+    # review but loses the all-account scope and name filter.
+    assert clients["Odin"].get("/api/history/games?player=Archer").status_code == 403
     assert (
         clients["Odin"]
         .get(f"/api/history/account-single-player/{own_account['id']}/replay")
         .status_code
+        == 200
+    )
+    assert (
+        clients["Odin"].get(f"/api/history/account-single-player/{others['id']}/replay").status_code
         == 404
     )
 

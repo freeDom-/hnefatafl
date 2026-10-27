@@ -12,7 +12,7 @@ import Rune from './Rune';
 import './analysis.css';
 
 /** Background requests are tied to both the position and the advisor revision. */
-export function useGameAnalysis(game: Game | null, visible: boolean) {
+export function useGameAnalysis(game: Game | null, visible: boolean, historical = false) {
   const gameId = game?.id ?? '';
   const currentGame = useRef(gameId);
   currentGame.current = gameId;
@@ -159,6 +159,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
           version: game.version,
           cursor: game.cursor,
           background: true,
+          historical,
         });
         if (!alive) return;
         // A response from before an advisor edit must never redraw its arrow.
@@ -189,7 +190,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
     };
     // Stored reports arrive with gameplay responses; requests are keyed explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, visible, needed, settingsPending, settingsConfirmed, attempt]);
+  }, [key, visible, needed, settingsPending, settingsConfirmed, attempt, historical]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;
   return {
