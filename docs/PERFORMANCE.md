@@ -649,8 +649,9 @@ The two findings that changed the code are:
 - The root passed a full `(-inf, +inf)` window to every child, so the widest part
   of the tree was a minimax fan-out and move ordering could not prune there. The
   optimized search now narrows the root window with the best value so far. An
-  isolated A/B on eleven positions cut interior nodes 4.4×, leaf evaluations 4.5×
-  and total wall time 2.5×, with identical values.
+  isolated A/B on the 37-position corpus cut median interior nodes 1.9× and
+  median leaf evaluations 7.3× (median wall time 1.3×), with identical values;
+  reproduce it with `configs/benchmarks/alpha-beta-root-window.json`.
 - The ordinary transposition key was the full ordered history. It is now a
   compact, order-independent repetition signature. The key is correct and does
   find entries, but every hit was depth-incompatible under iterative deepening
@@ -660,7 +661,7 @@ The two findings that changed the code are:
 Move ordering was benchmarked as seven isolated strategies. The principal
 variation is the only priority that measurably reduces successors; killer,
 history and transposition-move priorities were indistinguishable from noise, and
-the sort itself costs under 1.5 ms. Eager successor construction in `_ordered`
+the sort itself costs ~3 ms. Eager successor construction in `_ordered`
 dominates the remaining wall time and is shared with the legacy search. D4
 symmetry is verified value-safe but helps only genuinely symmetric positions, so
 the symmetry features stay optional and off by default. The legacy search stays

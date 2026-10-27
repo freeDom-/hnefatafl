@@ -49,6 +49,12 @@ raw report are recorded in
 remain optional defaults; the report distinguishes fixed-depth speedups from
 fixed-time strength and names any per-ruleset regression.
 
+The follow-up profiling and ordering summaries are written by the same
+`benchmark-alpha-beta` invocation through `--summary-output`, so each summary's
+`source_sha256` names the exact revision that produced its numbers; the
+root-window A/B has its own checked-in configuration and summary. See
+[alpha-beta profiling](benchmarks/alpha-beta-profiling.md#reproduction).
+
 ## Remote worker application compatibility (`0.26.0`)
 
 The [0.26.0 validation record](releases/0.26.0.md#validation) records exact-version

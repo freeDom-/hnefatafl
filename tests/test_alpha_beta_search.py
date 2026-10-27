@@ -657,6 +657,61 @@ def test_alpha_beta_benchmark_cli_dispatches_config_and_output(tmp_path, monkeyp
     assert json.loads(output.read_text(encoding="utf-8")) == {"status": "ok"}
 
 
+def test_alpha_beta_benchmark_summary_keeps_provenance_and_aggregates():
+    from hnefatafl.alpha_beta_benchmark import summarise_report
+
+    raw = {
+        "config": {"seed": 1},
+        "host": {"python": "3.12"},
+        "corpus_sha256": "abc",
+        "source_sha256": {"ai.py": "def"},
+        "scenarios": {"legacy": {}},
+        "fixed_depth": {"positions": [{"position": "x"}], "summary": {"minimax_mismatches": []}},
+        "fixed_time": {"positions": [], "summary": {"legacy": {}}},
+        "oracle": {"positions": [], "summary": {"legacy": {"positions": 1}}},
+    }
+    summary = summarise_report(raw)
+    # Provenance is copied verbatim and per-position records are dropped.
+    assert summary["source_sha256"] == {"ai.py": "def"}
+    assert summary["fixed_depth_summary"] == {"minimax_mismatches": []}
+    assert summary["fixed_time_summary"] == {"legacy": {}}
+    assert summary["oracle_summary"] == {"legacy": {"positions": 1}}
+    assert "fixed_depth" not in summary and "scenarios" not in summary
+    with pytest.raises(ValueError, match="fixed_depth"):
+        summarise_report({"config": {}})
+
+
+def test_alpha_beta_benchmark_cli_writes_summary(tmp_path, monkeypatch):
+    from hnefatafl import alpha_beta_benchmark, cli
+
+    raw = {
+        "config": {},
+        "host": {},
+        "corpus_sha256": "abc",
+        "source_sha256": {"ai.py": "def"},
+        "fixed_depth": {"positions": [], "summary": {}},
+        "fixed_time": {"positions": [], "summary": {}},
+        "oracle": {"positions": [], "summary": {}},
+    }
+    monkeypatch.setattr(alpha_beta_benchmark, "run_alpha_beta_benchmark", lambda *a, **k: raw)
+    summary_output = tmp_path / "summary.json"
+    assert cli.main(["benchmark-alpha-beta", "--summary-output", str(summary_output)]) == 0
+    written = json.loads(summary_output.read_text(encoding="utf-8"))
+    assert written["source_sha256"] == {"ai.py": "def"}
+    assert "fixed_depth_summary" in written
+
+
+@pytest.mark.parametrize("scenario", ["root_window_full", "root_window_narrow"])
+def test_benchmark_root_window_scenarios_run_production_search(scenario):
+    from hnefatafl.alpha_beta_benchmark import SCENARIOS, _run
+
+    state = new_game("brandubh")
+    # ``_run`` must strip the internal root-window hook before validation, or the
+    # server would reject the nested ``search`` object.
+    row = _run(state, SCENARIOS[scenario], depth=1, time_limit=60, seed=1, table_capacity=1000)
+    assert row["legal"] is True
+
+
 def test_benchmark_corpus_is_deterministic_and_oracle_matches_minimax():
     from hnefatafl.alpha_beta_benchmark import corpus, oracle_value
 

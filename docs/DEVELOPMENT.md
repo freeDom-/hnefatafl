@@ -105,7 +105,7 @@ configuration paths.
 | `tune --config FILE` | Local Optuna study/trials; [optimization](TRAINING.md#hyperparameter-optimization) |
 | `tournament --config FILE` | JSON round robin, final report to stdout; [tournaments](TOURNAMENTS.md) |
 | `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](SHIELD_MAIDEN.md) |
-| `benchmark-alpha-beta [--config FILE] [--output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; [evidence](PERFORMANCE.md#phase-4-alpha-beta-symmetry-search) |
+| `benchmark-alpha-beta [--config FILE] [--output FILE] [--summary-output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; `--summary-output` writes the compact evidence with the run's source hashes; [evidence](PERFORMANCE.md#alpha-beta-profiling-and-root-window-pruning) |
 | `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](OPENVINO.md#full-training-benchmark) |
 | `benchmark [--config FILE] [--output FILE]` | Fixed-model self-play, optional checkpoint/device/mode selection, no optimizer/model registration; [benchmark protocol](PERFORMANCE.md#benchmark-protocol-and-evidence) |
 | `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](TRAINING_DATA.md#checkpoints-registry-import-and-export) |

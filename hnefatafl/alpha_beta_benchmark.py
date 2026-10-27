@@ -71,6 +71,11 @@ SCENARIOS: dict[str, dict] = {
         "symmetry_pruning": True,
         "move_ordering": True,
     },
+    # Benchmark-only root-window A/B. Both scenarios use the production search;
+    # ``_root_window`` only switches the historical full-window root fan-out on
+    # or off, so the pair isolates that single change.
+    "root_window_full": {"transposition": True, "move_ordering": True, "_root_window": False},
+    "root_window_narrow": {"transposition": True, "move_ordering": True, "_root_window": True},
 }
 
 # The production ablation keeps the original six scenarios. A dedicated
@@ -309,7 +314,10 @@ def _run(
     table_capacity: int,
     measure_memory: bool = False,
 ) -> dict:
-    search = {key: value for key, value in scenario.items() if key != "_ordering"}
+    # ``_ordering`` and ``_root_window`` are internal, benchmark-only hooks and
+    # must not leak into the public ``search`` object the server validates.
+    internal = {"_ordering", "_root_window"}
+    search = {key: value for key, value in scenario.items() if key not in internal}
     config = {
         "algorithm": "alpha_beta",
         "depth": depth,
@@ -317,8 +325,9 @@ def _run(
         "seed": seed,
         "search": {**search, "table_capacity": table_capacity},
     }
-    if "_ordering" in scenario:
-        config["_ordering"] = scenario["_ordering"]
+    for key in internal:
+        if key in scenario:
+            config[key] = scenario[key]
     # Enable the per-node timing breakdown; integer counters are always kept.
     config["_profile"] = True
     details: dict = {}
@@ -417,6 +426,27 @@ def _aggregate(rows: list[dict]) -> dict:
 
 def _scenario_order(names: list[str], repetition: int) -> list[str]:
     return names if repetition % 2 == 0 else list(reversed(names))
+
+
+SUMMARY_KEYS = ("config", "host", "corpus_sha256", "source_sha256")
+SUMMARY_SECTIONS = ("fixed_depth", "fixed_time", "oracle")
+
+
+def summarise_report(report: dict) -> dict:
+    """Reduce a raw benchmark report to the compact checked-in summary.
+
+    The raw report keeps every per-position record; the checked-in evidence only
+    needs the aggregates plus provenance. ``source_sha256`` is copied verbatim
+    from the raw report, which computed it from the source files on disk at run
+    time, so a committed summary always names the exact revision that produced
+    its numbers. Use ``--summary-output`` on ``benchmark-alpha-beta`` to write it.
+    """
+    summary = {key: report[key] for key in SUMMARY_KEYS if key in report}
+    for section in SUMMARY_SECTIONS:
+        if section not in report or "summary" not in report[section]:
+            raise ValueError(f"Raw report is missing the {section} summary")
+        summary[f"{section}_summary"] = report[section]["summary"]
+    return summary
 
 
 def run_alpha_beta_benchmark(
