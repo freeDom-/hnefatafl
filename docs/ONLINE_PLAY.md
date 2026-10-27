@@ -10,8 +10,7 @@ requires the backend's current active/verified/play eligibility. An existing sea
 can keep playing after verification is removed, while its account/session remains
 valid. Visibility is authenticated: this is not an anonymous spectator service.
 
-Guest single-player is a separate public browser surface with one device slot;
-see [guest play and storage](GUEST_PLAY.md). It never uploads games or feeds online
+Single-player is a separate authenticated surface; it never feeds online
 results, and online IDs never enter its replay/AI adapter.
 
 The authenticated [personal dashboard](DASHBOARD.md) combines the existing lobby with personal statistics and compact recent records.

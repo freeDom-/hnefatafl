@@ -53,18 +53,18 @@ skips, plus all registration/online checks. This is integration evidence, not a
 release or production rollout.
 
 Phase 3 PR #13 was merged before Phase 4 branched. The owner approved the Phase 0
-single-slot policy explicitly. Phase 4 separates public browser-local guest play
-from preserved account single-player and server-authoritative Online. It reuses
-the Python engine/AI through pinned Pyodide, saves only a bounded move envelope,
-restores via validated replay, and requires replacement/clear confirmation. It adds
-no archive/upload, competitive/training accounting, service worker or full offline
-startup. Existing account keys/history and online authorization remain independent.
-See [guest/storage behavior](docs/GUEST_PLAY.md), [Phase 4 evidence](docs/validation/online-phase4.md)
-and the [Phase 5 handoff](docs/designs/online-phase5-handoff.md).
+single-slot policy explicitly. Phase 4 separated public browser-local guest play
+from preserved account single-player and server-authoritative Online: the Python
+engine/AI ran through pinned Pyodide, only a bounded move envelope was saved,
+restores went through validated replay, and replacement/clear required confirmation.
+It added no archive/upload, competitive/training accounting, service worker or full
+offline startup. Existing account keys/history and online authorization stayed
+independent. That browser surface and its worker were later removed entirely; the
+evidence remains in [Phase 4 validation](docs/validation/online-phase4.md) and the
+[Phase 5 handoff](docs/designs/online-phase5-handoff.md).
 Local `make check` passed 1440 backend tests / 36 optional or hardware skips and
 305 frontend tests. The final production-CSP startup/account-separation rerun
-passed 4 checks; CI passed the complete 14-check guest suite and the existing
-account/registration/online suites. Exact commit-scoped counts and the observed
+passed 4 checks; CI passed the complete account/registration/online suites. Exact commit-scoped counts and the observed
 local asset-transfer stall are retained in the validation record.
 
 Phase 4 PR #15 has merged into `feat/online-multiplayer`; Phase 5 was rebased onto
@@ -73,14 +73,14 @@ personal dashboard separates owned account single-player and participant online
 records, adds bounded server filters/keyset pages and read-only viewer-local
 replay, and keeps category totals independent. Current eligible online revisions
 supply per-game W/L/D/timeout counts; cancellations/voids do not count. Five scoped
-GET grants add no migration, guest reads/uploads, online assistance, public history
-or rating policy. Legacy Hall/spectator permissions and guest keys/slot remain
-unchanged. See [dashboard use](docs/DASHBOARD.md),
+GET grants add no migration, uploads, online assistance, public history
+or rating policy. Legacy Hall/spectator permissions remained unchanged. See
+[dashboard use](docs/DASHBOARD.md),
 [Phase 5 validation](docs/validation/online-phase5.md) and the
 [Phase 6 policy handoff](docs/designs/online-phase6-handoff.md).
 Functional CI passed 1491 backend tests / 6 hardware skips, 312 frontend tests,
 66 legacy browsers / 4 intentional duplicate skips, and all 6 registration,
-10 online, 10 personal and 14 guest browser checks. Local `make check` hit one
+10 online and 10 personal browser checks. Local `make check` hit one
 existing 60-second training smoke deadline (1460 passed / 36 optional/hardware
 skips); the evidence records its isolated recheck and separately completed frontend
 validation without claiming a green local aggregate run.
@@ -681,8 +681,8 @@ Owner-authorized refinement remains on `feat/phase5-personal-dashboard`, PR #17 
 lobby. Shared compact history rows link to independently selected read-only Hall
 reviews. Normal Hall scope is participating online; trusted administrators can
 filter all server records while Dashboard stays personal. Local players UI is
-removed without deleting profiles/history. Guest header uses shared link controls;
-guest storage, gameplay/AI, online gates/quotas/results and analysis denial remain.
+removed without deleting profiles/history. Online gates, quotas, results and
+analysis denial remained unchanged.
 Leaderboard is an upcoming placeholder with no approved rating policy. See
 [refinement evidence](docs/validation/dashboard-consolidation.md) for actual checks.
 No version, release, schema, production gates, merge or deployment changed.

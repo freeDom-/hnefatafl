@@ -1,7 +1,6 @@
 # Phase 4 guest separation validation
 
-[Documentation index](../README.md) · [Guest/storage guide](../GUEST_PLAY.md) ·
-[Phase 5 handoff](../designs/online-phase5-handoff.md)
+[Documentation index](../README.md) · [Phase 5 handoff](../designs/online-phase5-handoff.md)
 
 The owner explicitly approved “Yes, I approve this” after the explanation of the
 single-slot retention/replacement and engine-replay policy, on 2026-10-25 UTC.
@@ -109,5 +108,5 @@ fetched. Runtime binaries are generated/ignored build output. No production
 service worker or persistent runtime cache is installed. Content-addressed assets
 plus a no-store manifest and server responses avoid retaining an app-managed old
 runtime cache. Replay compatibility changes fail closed and require explicit
-recovery; the [guest guide](../GUEST_PLAY.md) defines the exact limits and upgrade
+recovery; the removed guest guide defined the exact limits and upgrade
 behavior. The repository's own distribution license is not newly assigned here.

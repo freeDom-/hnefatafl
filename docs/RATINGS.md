@@ -34,7 +34,7 @@ record the policy version that produced them.
 - Only a verified, active account (`online_eligible`) may create or join a Rated
   game. Creation and joining already require this; Rated creation rechecks it and
   returns a useful `403` when it fails.
-- Only human-vs-human online games are rated. Guests, AI games, local
+- Only human-vs-human online games are rated. AI games, local
   single-player, self-play and training never enter a pool.
 - A Rated game that reaches an eligible terminal result while either participant
   is unverified is recorded as not rated. It is not retried later.

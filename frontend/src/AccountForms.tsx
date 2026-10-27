@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { surfaceLink } from './surfaceNavigation';
 import { api } from './api';
 import { LanguageSelect, useI18n } from './i18n';
 
@@ -294,11 +293,6 @@ export default function AccountForms({
             )}
           </p>
         )}
-        <div className="auth-secondary-actions">
-          <a className="button secondary" href="/guest" onClick={surfaceLink}>
-            {t('Play as guest on this device')}
-          </a>
-        </div>
         {view === 'login' && (
           <>
             <button

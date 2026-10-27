@@ -7,7 +7,6 @@ Commands assume the repository root unless a different directory is shown.
 ## Getting started and gameplay
 
 - [Repository introduction and quick start](../README.md)
-- [Guest play, device storage, recovery and connection limits](GUEST_PLAY.md)
 - [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
 - [Personal dashboard and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)

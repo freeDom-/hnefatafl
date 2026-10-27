@@ -78,7 +78,7 @@ Only successful permitted setup preferences are saved at
 Older preferences contribute only this allowlisted subset; saved identities,
 models, custom settings and fixed seeds cannot restore removed creation options.
 Cancel/failure does not replace a successful preference, and unavailable browser
-storage does not prevent creation. Account/guest storage remains separate.
+storage does not prevent creation. Stored preferences stay account-scoped.
 
 ## Persistent runes and tournament names
 

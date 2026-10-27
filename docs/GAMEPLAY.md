@@ -7,12 +7,10 @@ read-only history. Hall visibility depends on role; see the dashboard guide.
 
 ## Choose where to play
 
-**Guest play** at `/guest` needs no login and runs single-player in this browser.
-It keeps one device slot with confirmed replacement and validated move replay; see
-[guest play and storage](GUEST_PLAY.md) for clearing, eviction and startup limits.
-**Singleplayer** uses the authenticated server and account history, as
-described below. **Online** uses separate authenticated multiplayer routes; see
-[online play](ONLINE_PLAY.md). Guest games never upload or enter account results.
+**Singleplayer** uses the authenticated server and account history, as described
+below. **Online** uses separate authenticated multiplayer routes; see
+[online play](ONLINE_PLAY.md). Both render the same play-screen sections, so the
+sidebar, board toolbar, armies and move list stay identical between them.
 
 ## Choose a battlefield
 

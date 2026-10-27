@@ -1,7 +1,7 @@
 # Phase 5 handoff
 
-[Documentation index](../README.md) · [Guest/storage guide](../GUEST_PLAY.md) ·
-[Phase 4 evidence](../validation/online-phase4.md) · [Online operations](../ONLINE.md)
+[Documentation index](../README.md) · [Phase 4 evidence](../validation/online-phase4.md) ·
+[Online operations](../ONLINE.md)
 
 Phase 4 adds a public `/guest` surface outside Auth. `guestTypes.ts`,
 `guestStore.ts` and `guestEngine.ts` own only the bounded device slot and worker

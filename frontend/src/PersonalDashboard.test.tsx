@@ -138,7 +138,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   setLanguage('en', false);
 });
-it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without guest reads', async () => {
+it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without device-local reads', async () => {
   const open = vi.fn();
   vi.stubGlobal('indexedDB', { open });
   const start = vi.fn();
@@ -164,9 +164,7 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(order.findIndex((value) => value.includes('leaderboard-compact'))).toBeLessThan(
     order.findIndex((value) => value.includes('dashboard-recent')),
   );
-  expect(screen.queryByText(/Guest games stay/)).toBeNull();
   expect(screen.queryByText('Local players')).toBeNull();
-  expect(screen.queryByRole('link', { name: 'Guest play on this device' })).toBeNull();
   expect(fetcher.mock.calls.some(([url]) => url === '/api/history/games?dashboard=true')).toBe(
     true,
   );

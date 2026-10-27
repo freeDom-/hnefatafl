@@ -31,8 +31,6 @@ test('default landing, shared latest three and exact review survive filtering an
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(nav.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
   await expect(nav.getByRole('button', { name: 'Online', exact: true })).toHaveCount(0);
-  await expect(page.getByText(/Guest games stay/)).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Guest play', exact: true })).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
@@ -426,6 +424,9 @@ test('compact and full leaderboards default to Copenhagen and persist ruleset br
   await login(page);
   const board = page.locator('.leaderboard-compact');
   await expect(board.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  // The leaderboard's visible "Ruleset" label is gone; the selector keeps it as
+  // its accessible name. (The embedded online lobby has its own label.)
+  await expect(board.getByText('Ruleset', { exact: true })).toHaveCount(0);
   // Default is Copenhagen; the fixture only has rated Tablut games.
   await expect(board.getByLabel('Ruleset')).toHaveValue('copenhagen');
   await expect(board.getByText('No rated games in this pool yet.')).toBeVisible();
