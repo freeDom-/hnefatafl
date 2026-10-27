@@ -80,9 +80,9 @@ def attach_online(app, auth, *, settings=None, clock=None):
     def listing(
         limit: int = Query(default=25, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=100000),
-        mine: bool = False,
+        section: Literal["all", "mine", "my_turn"] = "all",
     ):
-        return execute(lambda credential: core.listing(credential, limit, offset, mine=mine))
+        return execute(lambda credential: core.listing(credential, limit, offset, section=section))
 
     @app.get("/api/online/availability")
     def availability():
