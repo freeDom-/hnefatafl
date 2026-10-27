@@ -44,14 +44,33 @@ record the policy version that produced them.
   There is no aggregate match score.
 - Repeated-opponent games all count with no hidden weighting.
 
-## Rated/Casual selection
+## Rated-only new games
 
-The creation form offers an explicit **Rated**/**Casual** choice. The default is
-**Casual**, preserving prior behavior. The choice is stored on the match and is
-immutable after creation; the API rejects any attempt to change it and clients
-cannot forge it. A game's mode is shown in the lobby and in the game room before
-joining or playing, and completed Rated games show the authoritative per-player
-rating change.
+Every newly created online game is **rated**. There is no Casual selector and no
+obvious casual-mode UI. The API accepts an omitted `rated` field and rejects an
+explicit `false` (or any non-boolean value), so a legacy or forged request cannot
+create an unrated game. The stored `online_matches.rated` flag remains immutable.
+
+Historical casual games are never altered, reclassified or backfilled, and
+existing in-progress legacy casual games finish under their original policy with
+no invented rating changes. The internal `rated` field is retained for reading
+those records even though it is no longer a creation choice.
+
+## Start-rating snapshots
+
+Schema 12 adds `online_game_start_ratings`, one immutable `(game_id, account_id)`
+row per participant, written when a game actually activates (both participants
+established) rather than when an open challenge is created. Each leg of a
+multi-game match captures its own snapshots. The value is the participant's
+running Elo for the ruleset at that moment, or the initial `1500` for an unrated
+account. Capture is idempotent, so duplicate activation/join requests cannot
+duplicate a snapshot.
+
+Start snapshots are deliberately independent of the rating ledger: a pool rebuild
+never rewrites them, and they can differ from the pre-result rating of a
+concurrent game. They are shown in the Hall as `Name (1354)`. Older records
+without a reliable snapshot show only the name; the system never fabricates a
+snapshot from the current rating.
 
 ## Persistence, ordering and rebuilds
 
@@ -82,19 +101,25 @@ never a partially rebuilt pool.
 ## Leaderboard
 
 `GET /api/leaderboard?ruleset=…&limit=…&offset=…` requires authentication and
-returns the qualified standings, provisional players, the signed-in player's own
-standing and the effective policy. Display names use `display_name` with the
-username as a fallback; no private account data is exposed.
+returns one unified standings list plus the effective policy. Display names use
+`display_name` with the username as a fallback; no private account data is
+exposed.
 
-- **Qualified** players have completed at least `10` eligible rated games in the
-  pool and are paginated (limit `1–100`, offset `0–100000`).
-- **Provisional** players are listed separately, bounded to the top 50.
-- Tie handling is deterministic: rating descending, then rated-game count
-  descending, then opaque account id ascending. Ranks follow that order.
-- The Dashboard embeds a compact leaderboard (top five qualified, provisional
-  and the viewer's standing). The full `/leaderboard` view adds ruleset selection
-  and pagination.
-- Loading, stale/error, empty and unranked states are explicit.
+- One list contains both provisional and nonprovisional players. Provisional
+  players are **not** excluded or placed in a separate ranking section; each row
+  carries a `provisional` flag (`fewer than 10` eligible rated games).
+- Ordering is Elo descending, then more completed rated games in that ruleset,
+  then the immutable account id ascending. Casual games and aggregate two-game
+  matches never affect the order. Ordering is applied before pagination.
+- **Precision:** ranking and presentation both use Elo rounded to the nearest
+  integer, so the displayed value and the order can never disagree. Equal
+  displayed Elo is broken by the rated-game count, then the account id.
+- The list is paginated (limit `1–100`, offset `0–100000`) with a `total` count.
+- The Dashboard embeds a compact leaderboard (top five) and links to the full
+  `/leaderboard` view, which adds ruleset selection and pagination. The separate
+  "your standing" paragraph was removed; the signed-in player's row is marked in
+  place when it is on the page.
+- Loading, stale/error and empty states are explicit.
 
 ## Reconciliation and recovery
 

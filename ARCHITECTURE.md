@@ -129,14 +129,23 @@ survive restart; administrator-only monitoring reports these and database/WAL
 growth. Optional schema-10 monitoring state is initialized on compatible restore
 without changing authoritative game rows or resetting the live creation budget.
 
-Schema 11 adds the Phase 6 rating pool. `rating.py` owns the pure Elo formula and
+Schema 12 adds the Phase 6 rating pool. `rating.py` owns the pure Elo formula and
 deterministic replay; `online_ratings.py` persists one event per applied or
 withdrawn Rated game with a stable sequence, per-player applications and running
 `player_ratings`. Result revision, event, applications and running ratings commit
 in the same write transaction. A void withdraws the event and rebuilds the pool
 from applied events in sequence order inside one transaction, so standings are
-never partially visible. Leaderboard reads require a session and separate
-qualified from provisional players. See [Rated games](docs/RATINGS.md).
+never partially visible. `online_game_start_ratings` captures immutable per-player
+start Elo at activation, independently of pool rebuilds. All newly created games
+are rated; historical casual games keep their flag. Leaderboard reads require a
+session and return one Elo-ordered list (provisional players carry a badge). See
+[Rated games](docs/RATINGS.md).
+
+Completed online games reuse the local analysis engine through an online-scoped
+adapter: `server.py` reconstructs a terminal game from `online_games`/`online_moves`,
+`analysis_service.py` and `storage.py` accept the online identity, and the advisor
+reports persist in the existing `advisor_analysis`/`game_analytics` tables. Ongoing
+online games are rejected by the backend and never expose assistance.
 
 ## Training execution and inference
 

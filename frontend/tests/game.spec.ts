@@ -83,7 +83,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   const savedGame = page.locator('.recorded-games tbody tr').first();
   await expect(savedGame).toContainText('Brandubh');
   await expect(savedGame).toContainText(
-    archiveResult === 'Draw' ? 'Draw' : archiveResult.replace(' win', ''),
+    archiveResult === 'Draw' ? 'Draw' : archiveResult.replace(' win', '').replace(/s$/, ''),
   );
   await savedGame.getByRole('link').click();
   await expect(page.getByRole('grid')).toBeVisible();

@@ -64,7 +64,7 @@ export default function Archive() {
               >
                 <option value="">{t('All server games')}</option>
                 <option value="online">{t('Online multiplayer')}</option>
-                <option value="account-single-player">{t('Account single-player')}</option>
+                <option value="account-single-player">{t('Singleplayer')}</option>
               </select>
             </label>
             <label>
@@ -146,7 +146,7 @@ export default function Archive() {
         {poll.data?.totals.map((total) => (
           <p key={total.category}>
             <strong>
-              {t(total.category === 'online' ? 'Online multiplayer' : 'Account single-player')}
+              {t(total.category === 'online' ? 'Online multiplayer' : 'Singleplayer')}
             </strong>
             : {total.games} {t('Games')} · {total.completed} {t('Completed')} ·{' '}
             {total.attackers_wins} {t('Attacker wins')} · {total.defenders_wins}{' '}

@@ -16,7 +16,8 @@ export type AccountSummary = {
 export type Paging = { limit: number; matching: number; next_cursor: string | null };
 export type PersonalStatisticGroup = {
   ruleset: string;
-  mode: string;
+  mode: string | null;
+  rating?: number | null;
   played: number;
   wins: number | null;
   losses: number | null;

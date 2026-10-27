@@ -77,15 +77,23 @@ def credential_for(rig, game, side):
     return next(c for name, c in rig.credentials.items() if rig.accounts[name]["id"] == account_id)
 
 
-def waiting(rig, ruleset="brandubh", rated=False):
+def waiting(rig, ruleset="brandubh", rated=True):
     return rig.core.create(
         rig.credentials["Archer"], ruleset, "attackers", 60, uuid4().hex, rated=rated
     )["game"]
 
 
-def active(rig, ruleset="brandubh", rated=False):
+def active(rig, ruleset="brandubh", rated=True):
     game = waiting(rig, ruleset, rated)
     return rig.core.mutate(rig.credentials["Keeper"], game["id"], 0, "join")["game"]
+
+
+def make_historical_casual(rig, game):
+    """Mark a new game casual to exercise historical casual compatibility."""
+    with rig.store.connection() as c:
+        c.execute("DROP TRIGGER IF EXISTS online_match_immutable")
+        c.execute("UPDATE online_matches SET rated=0 WHERE id=?", (game["match"]["id"],))
+    return rig.core.read(rig.credentials["Archer"], game["id"])
 
 
 def finish(rig, game, winner):
@@ -233,7 +241,7 @@ def test_rated_game_applies_both_sides_casual_does_not(rig):
     assert keeper["rating"] == 1484.0 and keeper["losses"] == 1
     assert archer["rated_games"] == keeper["rated_games"] == 1
 
-    casual = active(rig, rated=False)
+    casual = make_historical_casual(rig, active(rig))
     assert casual["rated"] is False
     casual = finish(rig, casual, "attackers")
     assert casual["result"]["rated_eligible"] is False
@@ -400,15 +408,17 @@ def test_concurrent_completion_serializes_and_applies_each_once(rig):
 
 
 def test_rated_flag_is_immutable_and_client_cannot_forge(rig):
-    game = active(rig, rated=False)
+    game = active(rig)
+    assert game["rated"] is True
     with rig.store.connection() as c:
         with pytest.raises(sqlite3.IntegrityError):
-            c.execute("UPDATE online_matches SET rated=1 WHERE id=?", (game["match"]["id"],))
-    assert game["rated"] is False
-    with pytest.raises(OnlineError):
-        rig.core.create(
-            rig.credentials["Archer"], "brandubh", "attackers", 60, uuid4().hex, rated=1
-        )
+            c.execute("UPDATE online_matches SET rated=0 WHERE id=?", (game["match"]["id"],))
+    # Explicit unrated and non-boolean values are rejected; omission is rated.
+    for forged in (False, 1):
+        with pytest.raises(OnlineError):
+            rig.core.create(
+                rig.credentials["Archer"], "brandubh", "attackers", 60, uuid4().hex, rated=forged
+            )
 
 
 def test_admin_rebuild_is_deterministic_and_permission_checked(rig):
@@ -425,30 +435,29 @@ def test_admin_rebuild_is_deterministic_and_permission_checked(rig):
 # --- Leaderboard ---------------------------------------------------------------
 
 
-def test_leaderboard_separates_provisional_and_qualified_and_reports_standing(rig):
+def test_leaderboard_unifies_provisional_and_qualified_and_reports_standing(rig):
     for _ in range(10):
         finish(rig, active(rig, rated=True), "attackers")
     board = rig.core.leaderboard(rig.credentials["Archer"], "brandubh", limit=25, offset=0)
     assert board["policy"]["provisional_games"] == 10
-    assert [entry["name"] for entry in board["qualified"]["entries"]] == ["Archer", "Keeper"]
-    assert board["qualified"]["total"] == 2
-    assert board["qualified"]["entries"][0]["rank"] == 1
-    assert board["provisional"]["entries"] == []
+    assert [entry["name"] for entry in board["entries"]] == ["Archer", "Keeper"]
+    assert board["total"] == 2
+    assert board["entries"][0]["rank"] == 1
+    assert all(entry["provisional"] is False for entry in board["entries"])
     assert board["me"]["provisional"] is False and board["me"]["rank"] == 1
     assert board["me"]["rated_games"] == 10
 
 
-def test_leaderboard_provisional_entries_and_unranked_state(rig):
+def test_leaderboard_includes_provisional_players_without_separate_section(rig):
     finish(rig, active(rig, rated=True), "attackers")
     board = rig.core.leaderboard(rig.credentials["Archer"], "brandubh")
-    assert board["qualified"]["entries"] == []
-    provisional = {entry["name"] for entry in board["provisional"]["entries"]}
-    assert provisional == {"Archer", "Keeper"}
+    assert {entry["name"] for entry in board["entries"]} == {"Archer", "Keeper"}
+    assert all(entry["provisional"] is True for entry in board["entries"])
     assert board["me"]["provisional"] is True
     # A different ruleset pool has no standing yet.
     empty = rig.core.leaderboard(rig.credentials["Archer"], "tablut")
     assert empty["me"] is None
-    assert empty["qualified"]["entries"] == [] and empty["provisional"]["entries"] == []
+    assert empty["entries"] == [] and empty["total"] == 0
 
 
 def test_leaderboard_pagination_and_deterministic_ties(rig):
@@ -456,14 +465,42 @@ def test_leaderboard_pagination_and_deterministic_ties(rig):
     for _ in range(10):
         fabricate_draw(rig, active(rig, rated=True))
     board = rig.core.leaderboard(rig.credentials["Archer"], "brandubh", limit=1, offset=0)
-    assert board["qualified"]["total"] == 2
-    assert len(board["qualified"]["entries"]) == 1
+    assert board["total"] == 2
+    assert len(board["entries"]) == 1
     second = rig.core.leaderboard(rig.credentials["Archer"], "brandubh", limit=1, offset=1)
-    assert second["qualified"]["entries"][0]["rank"] == 2
-    ordered = [board["qualified"]["entries"][0], second["qualified"]["entries"][0]]
+    assert second["entries"][0]["rank"] == 2
+    ordered = [board["entries"][0], second["entries"][0]]
     assert [entry["account_id"] for entry in ordered] == sorted(
         entry["account_id"] for entry in ordered
     )
+
+
+def _seed_rating(rig, name, rating, games):
+    with rig.store.connection() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO player_ratings VALUES(?,?,?,?,?,?,?,?,?)",
+            (rig.accounts[name]["id"], "brandubh", rating, games, 1, 1, 1, 1, 1),
+        )
+
+
+def test_leaderboard_equal_elo_orders_by_games_then_account_id(rig):
+    _seed_rating(rig, "Keeper", 1500.0, 5)
+    _seed_rating(rig, "Archer", 1500.0, 9)
+    _seed_rating(rig, "Visitor", 1500.0, 9)
+    board = rig.core.leaderboard(rig.credentials["Archer"], "brandubh", limit=25, offset=0)
+    assert [entry["rated_games"] for entry in board["entries"]] == [9, 9, 5]
+    # Equal rating and games fall back to the immutable account id.
+    assert [entry["account_id"] for entry in board["entries"][:2]] == sorted(
+        entry["account_id"] for entry in board["entries"][:2]
+    )
+
+
+def test_leaderboard_ranks_by_rounded_elo(rig):
+    _seed_rating(rig, "Archer", 1500.4, 9)
+    _seed_rating(rig, "Keeper", 1500.6, 5)
+    board = rig.core.leaderboard(rig.credentials["Archer"], "brandubh")
+    assert [entry["name"] for entry in board["entries"]] == ["Keeper", "Archer"]
+    assert [round(entry["rating"]) for entry in board["entries"]] == [1501, 1500]
 
 
 def test_leaderboard_rejects_invalid_pagination_and_ruleset(rig):
@@ -528,7 +565,7 @@ def test_leaderboard_api_requires_authentication_and_returns_policy(tmp_path):
         board = client.get("/api/leaderboard?ruleset=tablut").json()
         assert board["ruleset"] == "tablut"
         assert board["policy"]["provisional_games"] == 10
-        assert board["qualified"]["entries"] == []
+        assert board["entries"] == [] and board["total"] == 0
         assert board["me"] is None
         assert client.get("/api/leaderboard?ruleset=unknown").status_code == 422
         assert client.get("/api/leaderboard?limit=0").status_code == 422
@@ -571,3 +608,273 @@ def test_rating_rebuild_endpoint_requires_administrator(tmp_path):
         response = client.post("/api/online/ratings/rebuild", json={"ruleset": "brandubh"})
         assert response.status_code == 200, response.text
         assert response.json()["rebuilt"] == ["brandubh"]
+
+
+# --- Phase 6 UI refinement backend contracts -----------------------------------
+
+
+def test_lobby_sections_exclude_terminal_and_filter_participation(rig):
+    archer_waiting = waiting(rig)
+    archer_active = active(rig)  # Brandubh attackers (Archer) move first.
+    keeper_waiting = rig.core.create(
+        rig.credentials["Keeper"], "brandubh", "attackers", 60, uuid4().hex
+    )["game"]
+    finished = finish(rig, active(rig), "attackers")
+
+    all_ids = {g["id"] for g in rig.core.listing(rig.credentials["Archer"], section="all")["games"]}
+    assert all_ids == {archer_waiting["id"], archer_active["id"], keeper_waiting["id"]}
+    assert finished["id"] not in all_ids
+
+    mine = {g["id"] for g in rig.core.listing(rig.credentials["Archer"], section="mine")["games"]}
+    assert mine == {archer_waiting["id"], archer_active["id"]}
+
+    my_turn = [
+        g["id"] for g in rig.core.listing(rig.credentials["Archer"], section="my_turn")["games"]
+    ]
+    assert my_turn == [archer_active["id"]]
+    assert rig.core.listing(rig.credentials["Keeper"], section="my_turn")["games"] == []
+    with pytest.raises(OnlineError):
+        rig.core.listing(rig.credentials["Archer"], section="unknown")
+
+
+def test_terminal_king_square_tracks_recorded_king_moves():
+    assert OnlineCore._terminal_king_square("brandubh", []) == 24
+    moves = [{"source": 24, "target": 23}]
+    assert OnlineCore._terminal_king_square("brandubh", moves) == 23
+    # A later non-king move from the king's old square must not move the marker.
+    moves.append({"source": 24, "target": 17})
+    assert OnlineCore._terminal_king_square("brandubh", moves) == 23
+
+
+def test_projection_exposes_terminal_king_square_only_for_king_capture(rig):
+    conceded = finish(rig, active(rig), "attackers")
+    assert rig.core.read(rig.credentials["Archer"], conceded["id"])["terminal_king_square"] is None
+
+    captured = active(rig)
+    with rig.core._write() as c:
+        row = c.execute("SELECT * FROM online_games WHERE id=?", (captured["id"],)).fetchone()
+        now = rig.clock.value
+        position = json.loads(row["position"])
+        position["board"] = ["." if piece == "K" else piece for piece in position["board"]]
+        position["winner"] = "attackers"
+        position["reason"] = "king_captured"
+        result = lifecycle.Result(
+            game_id=captured["id"],
+            revision=1,
+            supersedes=None,
+            category="online",
+            ruleset=row["ruleset"],
+            ruleset_version=row["ruleset_version"],
+            attackers=row["attackers_id"],
+            defenders=row["defenders_id"],
+            started_at=now,
+            completed_at=now,
+            revised_at=now,
+            winner="attackers",
+            termination_reason="king_captured",
+            move_count=0,
+            competitive_eligible=True,
+            abandoned_account_id=None,
+        )
+        c.execute(
+            "INSERT INTO online_results VALUES(?,?,?,?,?,?,?,?)",
+            (
+                captured["id"],
+                1,
+                None,
+                1,
+                None,
+                micros(now),
+                micros(now),
+                json.dumps(result_payload(result)),
+            ),
+        )
+        c.execute(
+            "UPDATE online_games SET status='completed',deadline=NULL,result_revision=1,completed_at=?,position=?,version=version+1 WHERE id=?",
+            (micros(now), json.dumps(position), captured["id"]),
+        )
+    read = rig.core.read(rig.credentials["Archer"], captured["id"])
+    assert read["terminal_king_square"] == 24
+    assert "K" not in read["position"]["board"]
+
+
+def test_online_statistics_group_by_ruleset_and_include_rating(rig):
+    from hnefatafl.personal import PersonalHistory
+
+    finish(rig, active(rig, "brandubh"), "attackers")
+    finish(rig, active(rig, "brandubh"), "defenders")
+    casual = make_historical_casual(rig, active(rig, "tablut"))
+    finish(rig, casual, "attackers")
+    with rig.store.connection() as c:
+        stats = PersonalHistory._online_statistics(c, rig.accounts["Archer"]["id"])
+    groups = {group["ruleset"]: group for group in stats["groups"]}
+    assert set(groups) == {"brandubh", "tablut"}
+    assert all(group["mode"] is None for group in groups.values())
+    assert groups["brandubh"]["played"] == 2
+    assert groups["brandubh"]["rating"] is not None
+    assert groups["tablut"]["played"] == 1
+    assert groups["tablut"]["rating"] is None
+
+
+# --- Start-rating snapshots, winner delta and completed-game analysis ----------
+
+
+def test_start_rating_snapshots_are_captured_at_activation(rig):
+    finish(rig, active(rig), "attackers")
+    game = active(rig)
+    with rig.store.connection() as c:
+        captured = {
+            row["account_id"]: row["rating"]
+            for row in c.execute(
+                "SELECT account_id,rating FROM online_game_start_ratings WHERE game_id=?",
+                (game["id"],),
+            )
+        }
+    assert captured[rig.accounts["Archer"]["id"]] == 1516.0
+    assert captured[rig.accounts["Keeper"]["id"]] == 1484.0
+    # A pool rebuild must not rewrite immutable start snapshots.
+    rig.core.rebuild_ratings(rig.credentials["Archer"], "brandubh")
+    with rig.store.connection() as c:
+        again = {
+            row["account_id"]: row["rating"]
+            for row in c.execute(
+                "SELECT account_id,rating FROM online_game_start_ratings WHERE game_id=?",
+                (game["id"],),
+            )
+        }
+    assert again == captured
+
+
+def test_start_rating_snapshots_are_idempotent(rig):
+    game = active(rig)
+    with rig.store.connection() as c:
+        rig.core.ratings.capture_start(
+            c,
+            game["id"],
+            "brandubh",
+            rig.accounts["Archer"]["id"],
+            rig.accounts["Keeper"]["id"],
+            rig.clock.value,
+        )
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_game_start_ratings WHERE game_id=?", (game["id"],)
+            ).fetchone()[0]
+            == 2
+        )
+
+
+def test_multi_game_match_snapshots_each_leg_separately(rig):
+    match = rig.core.create(
+        rig.credentials["Archer"],
+        "brandubh",
+        "attackers",
+        60,
+        uuid4().hex,
+        mode="sequential",
+        rated=True,
+    )["game"]
+    match = rig.core.mutate(rig.credentials["Keeper"], match["id"], 0, "join")["game"]
+    finished = finish(rig, match, "attackers")
+    return_game = rig.core.read(rig.credentials["Archer"], finished["match"]["games"][1]["id"])
+    with rig.store.connection() as c:
+        for identifier in (match["id"], return_game["id"]):
+            assert (
+                c.execute(
+                    "SELECT COUNT(*) FROM online_game_start_ratings WHERE game_id=?", (identifier,)
+                ).fetchone()[0]
+                == 2
+            )
+
+
+def test_history_exposes_start_ratings_and_winner_delta(tmp_path):
+    from fastapi.testclient import TestClient
+
+    app, archer = api_client(tmp_path)
+    with archer:
+        verified_login(app, archer, "Archer")
+        keeper = TestClient(app)
+        with keeper:
+            verified_login(app, keeper, "Keeper")
+            created = archer.post(
+                "/api/online/games",
+                json={
+                    "request_id": str(uuid4()),
+                    "ruleset": "brandubh",
+                    "side_selection": "attackers",
+                    "time_per_move": 60,
+                },
+            ).json()["game"]
+            active = keeper.post(
+                f"/api/online/games/{created['id']}/join", json={"version": 0}
+            ).json()["game"]
+            # Archer (to move) concedes; Keeper wins and gains Elo.
+            archer.post(
+                f"/api/online/games/{created['id']}/concede",
+                json={"version": active["version"]},
+            )
+            hall = archer.get("/api/history/games").json()["games"]
+            row = next(item for item in hall if item["id"] == created["id"])
+            assert row["attacker_rating"] == 1500.0
+            assert row["defender_rating"] == 1500.0
+            assert row["winner_delta"] == 16.0
+            # A local record without a snapshot never invents a start rating.
+            local = archer.post("/api/games", json={"ruleset": "brandubh"}).json()
+            local_row = next(
+                item
+                for item in archer.get("/api/history/games").json()["games"]
+                if item["id"] == local["id"]
+            )
+            assert local_row["attacker_rating"] is None
+            assert local_row["winner_delta"] is None
+
+
+def test_completed_online_analysis_is_authorized_and_ongoing_is_rejected(tmp_path):
+    from fastapi.testclient import TestClient
+
+    app, archer = api_client(tmp_path)
+    with archer:
+        verified_login(app, archer, "Archer")
+        keeper = TestClient(app)
+        with keeper:
+            verified_login(app, keeper, "Keeper")
+            created = archer.post(
+                "/api/online/games",
+                json={
+                    "request_id": str(uuid4()),
+                    "ruleset": "brandubh",
+                    "side_selection": "attackers",
+                    "time_per_move": 60,
+                },
+            ).json()["game"]
+            active = keeper.post(
+                f"/api/online/games/{created['id']}/join", json={"version": 0}
+            ).json()["game"]
+            ongoing = archer.post(
+                f"/api/history/online/{created['id']}/analysis",
+                json={"version": active["version"], "cursor": 0, "background": True},
+            )
+            assert ongoing.status_code == 403
+            completed = archer.post(
+                f"/api/online/games/{created['id']}/concede",
+                json={"version": active["version"]},
+            ).json()["game"]
+            allowed = archer.post(
+                f"/api/history/online/{created['id']}/analysis",
+                json={
+                    "version": completed["version"],
+                    "cursor": len(completed["moves"]),
+                    "background": True,
+                },
+            )
+            assert allowed.status_code == 200
+            assert allowed.json()["status"] in {"pending", "complete"}
+            # A non-participant cannot read the completed game's analysis.
+            visitor = TestClient(app)
+            with visitor:
+                verified_login(app, visitor, "Visitor")
+                denied = visitor.post(
+                    f"/api/history/online/{created['id']}/analysis",
+                    json={"version": completed["version"], "cursor": 0, "background": True},
+                )
+                assert denied.status_code == 404

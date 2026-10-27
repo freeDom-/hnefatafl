@@ -17,7 +17,10 @@ import type {
 import { useOnlinePoll } from './useOnlinePoll';
 import ReplayControls from './ReplayControls';
 import Modal from './Modal';
+import Tabs, { type TabItem } from './Tabs';
 import { durationParts, moveSeconds } from './moveDuration';
+import { formatRemaining, remainingSeconds, RemainingTime, useNow } from './remainingTime';
+import ActiveGameSwitcher, { type ActiveGameEntry } from './ActiveGameSwitcher';
 import './online.css';
 
 export const modeNames: Record<MatchMode, string> = {
@@ -66,7 +69,8 @@ function restoreIntent(accountId: string): CreationIntent | null {
         side_selection: p.side_selection,
         mode: p.mode,
         time_per_move: p.time_per_move,
-        rated: p.rated === true,
+        // Rated-only policy: a retained legacy intent is replayed as rated.
+        rated: true,
       };
   } catch {
     /* Recovery still works through My games without browser storage. */
@@ -157,39 +161,12 @@ function useOnlineAction<T>(poll: ReturnType<typeof useOnlinePoll<T>>) {
 }
 function Notice({ value }: { value: { text: string; detail: string } | null }) {
   const { t } = useI18n();
+  // A div, not a p: the shared game-details mobile layout hides direct p children.
   return value ? (
-    <p className="online-notice" role="status">
+    <div className="online-notice" role="status">
       {t(value.text)} {value.detail && <span>{t(value.detail)}</span>}
-    </p>
-  ) : null;
-}
-function Health({
-  phase,
-  error,
-  refresh,
-}: {
-  phase: string;
-  error: Error | null;
-  refresh: () => unknown;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="online-health">
-      <span role="status">
-        {t(
-          phase === 'loading'
-            ? 'Loading online games…'
-            : phase === 'stale'
-              ? 'Stale state. Reconnecting…'
-              : 'Connected · refreshes automatically',
-        )}
-      </span>
-      <button className="button secondary" onClick={() => void refresh()}>
-        {t('Refresh')}
-      </button>
-      {error && <Notice value={errorMessage(error)} />}
     </div>
-  );
+  ) : null;
 }
 function Admission({ availability }: { availability: Availability }) {
   const { t } = useI18n();
@@ -205,7 +182,15 @@ function Admission({ availability }: { availability: Availability }) {
     </p>
   ) : null;
 }
-function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => void }) {
+function GameSummary({
+  game,
+  open,
+  now,
+}: {
+  game: OnlineGame;
+  open: (id: string) => void;
+  now: number;
+}) {
   const { t } = useI18n();
   return (
     <article className="online-card" data-game-id={game.id}>
@@ -221,14 +206,32 @@ function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => v
         {t('Defenders')}: {game.participants.defenders?.name ?? t('Unassigned')}
       </p>
       <p>
-        {game.rated ? t('Rated') : t('Casual')} ·{' '}
-        {t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}
+        {game.status === 'active' && game.deadline ? (
+          <>
+            {t('Remaining')} <RemainingTime seconds={remainingSeconds(game.deadline, now)} />
+          </>
+        ) : (
+          t('Time per move: {duration}', { duration: formatRemaining(game.time_per_move) })
+        )}
       </p>
       <button className="button" onClick={() => open(game.id)}>
         {t('Open game')}
       </button>
     </article>
   );
+}
+type LobbyTab = 'all' | 'mine' | 'my_turn';
+const lobbyTabs: readonly TabItem[] = [
+  { id: 'all', label: 'All games' },
+  { id: 'mine', label: 'My games' },
+  { id: 'my_turn', label: 'My turn' },
+];
+function initialLobbyTab(): LobbyTab {
+  const params = new URLSearchParams(location.search);
+  const section = params.get('section');
+  if (section === 'my_turn') return 'my_turn';
+  if (section === 'mine' || params.get('mine') === 'true') return 'mine';
+  return 'all';
 }
 export function Lobby({
   accountId,
@@ -257,8 +260,9 @@ export function Lobby({
       setCreateOpen(true);
     }
   }, [creationRequested]);
-  const [mine, setMine] = useState(new URLSearchParams(location.search).get('mine') === 'true');
+  const [tab, setTab] = useState<LobbyTab>(initialLobbyTab);
   const [offset, setOffset] = useState(0);
+  const now = useNow();
   const [intent, setIntent] = useState<CreationIntent | null>(() => restoreIntent(accountId));
   const intentRef = useRef(intent);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
@@ -273,7 +277,6 @@ export function Lobby({
   );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
-  const [rated, setRated] = useState(intent?.rated ?? false);
   const [parts] = useState(() => durationParts(intent?.time_per_move ?? 259200));
   const [days, setDays] = useState(parts.days);
   const [hours, setHours] = useState(parts.hours);
@@ -302,7 +305,7 @@ export function Lobby({
       const [availability, listing] = await Promise.all([
         api<Availability>('/online/availability', undefined, undefined, signal),
         api<OnlineListing>(
-          `/online/games?limit=${pageSize}&offset=${offset}&mine=${mine}`,
+          `/online/games?section=${tab}&limit=${pageSize}&offset=${offset}`,
           undefined,
           undefined,
           signal,
@@ -310,9 +313,9 @@ export function Lobby({
       ]);
       return { availability, listing };
     },
-    [mine, offset, pageSize],
+    [tab, offset, pageSize],
   );
-  const poll = useOnlinePoll(`lobby:${accountId}:${mine}:${offset}`, load);
+  const poll = useOnlinePoll(`lobby:${accountId}:${tab}:${offset}`, load);
   const action = useOnlineAction(poll);
   const available =
     poll.phase === 'ready' && poll.data?.availability.enabled && poll.data.availability.eligible;
@@ -333,7 +336,7 @@ export function Lobby({
       side_selection: side,
       mode,
       time_per_move: seconds,
-      rated,
+      rated: true,
     };
     intentRef.current = payload;
     setIntent(payload);
@@ -408,23 +411,6 @@ export function Lobby({
                     ))}
                   </select>
                 </label>
-                <label>
-                  {t('Game type')}
-                  <select
-                    value={rated ? 'rated' : 'casual'}
-                    onChange={(e) => setRated(e.target.value === 'rated')}
-                  >
-                    <option value="casual">{t('Casual')}</option>
-                    <option value="rated">{t('Rated')}</option>
-                  </select>
-                </label>
-                <p>
-                  {rated
-                    ? t(
-                        'Rated games count toward the leaderboard for verified accounts. The choice is fixed when the game is created.',
-                      )
-                    : t('Casual games do not affect ratings.')}
-                </p>
                 <fieldset className="move-duration">
                   <legend>{t('Time allowed per move')}</legend>
                   <div className="form-grid">
@@ -461,8 +447,8 @@ export function Lobby({
               {intent && intent.time_per_move % 60 !== 0 && (
                 <p role="status">
                   {t(
-                    'This retained request uses exactly {seconds} seconds per move. Retrying keeps that value.',
-                    { seconds: intent.time_per_move },
+                    'This retained request uses exactly {duration} per move. Retrying keeps that value.',
+                    { duration: formatRemaining(intent.time_per_move) },
                   )}
                 </p>
               )}
@@ -502,35 +488,24 @@ export function Lobby({
           </Modal>
         )}
         <section className="online-games">
-          <h2>{t(mine ? 'My games' : 'Visible games')}</h2>
-          <div className="online-toolbar">
-            <button
-              className="button secondary"
-              aria-pressed={!mine}
-              disabled={action.busy}
-              onClick={() => {
-                setMine(false);
-                setOffset(0);
-              }}
-            >
-              {t('All games')}
-            </button>
-            <button
-              className="button secondary"
-              aria-pressed={mine}
-              disabled={action.busy}
-              onClick={() => {
-                setMine(true);
-                setOffset(0);
-              }}
-            >
-              {t('My games')}
-            </button>
-          </div>
-          {poll.data?.listing.games.length === 0 && <p>{t('No games on this page.')}</p>}
+          <h2>{t('Online games')}</h2>
+          <Tabs
+            id="online-lobby"
+            items={lobbyTabs}
+            active={tab}
+            onChange={(value) => {
+              setTab(value as LobbyTab);
+              setOffset(0);
+            }}
+            label="Online lobby games"
+            className="online-tabs"
+          />
+          {poll.data?.listing.games.length === 0 && (
+            <p>{t(tab === 'my_turn' ? 'No games await your move.' : 'No games on this page.')}</p>
+          )}
           <div className="online-cards">
             {poll.data?.listing.games.map((game) => (
-              <GameSummary key={game.id} game={game} open={open} />
+              <GameSummary key={game.id} game={game} open={open} now={now} />
             ))}
           </div>
           <nav className="online-toolbar" aria-label={t('Game pages')}>
@@ -560,41 +535,12 @@ export function Lobby({
     </section>
   );
 }
-function Deadline({ game }: { game: OnlineGame }) {
-  const { t, locale } = useI18n();
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  if (!game.deadline || game.status !== 'active') return null;
-  const remaining = Math.ceil((Date.parse(game.deadline) - now) / 1000);
-  return (
-    <div className="online-deadline">
-      <p>
-        {t('Move deadline')}:{' '}
-        <time dateTime={game.deadline}>
-          {new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'long' }).format(
-            new Date(game.deadline),
-          )}
-        </time>
-      </p>
-      <p role="status">
-        {remaining <= 0
-          ? t('Awaiting adjudication. The server still reports this game as Active.')
-          : t('Approximately {seconds} seconds remaining', { seconds: remaining })}
-      </p>
-      <small>
-        {t('Countdown uses your device clock. Only the server decides deadlines and results.')}
-      </small>
-    </div>
-  );
-}
 function Result({ game }: { game: OnlineGame }) {
   const { t } = useI18n();
-  if (!game.result) return <p>{t(statuses[game.status])}</p>;
+  // A div, not a p: the shared game-details mobile layout hides direct p children.
+  if (!game.result) return <div>{t(statuses[game.status])}</div>;
   return (
-    <p className="online-result" role="status">
+    <div className="online-result" role="status">
       <strong>
         {game.result.winner === 'draw'
           ? t('Draw')
@@ -603,13 +549,13 @@ function Result({ game }: { game: OnlineGame }) {
             : t('No winner')}
       </strong>{' '}
       · {t(game.result.termination_reason.replaceAll('_', ' '))}
-    </p>
+    </div>
   );
 }
 function RatingChanges({ game }: { game: OnlineGame }) {
   const { t } = useI18n();
   const applications = game.result?.rating;
-  if (!game.rated || !applications?.length) return null;
+  if (!applications?.length) return null;
   const nameFor = (accountId: string) =>
     game.participants.attackers?.account_id === accountId
       ? game.participants.attackers?.name
@@ -630,17 +576,17 @@ function RatingChanges({ game }: { game: OnlineGame }) {
 function GameRoom({
   id,
   accountId,
-  open,
+  openActive,
   lobby,
   reviewOnly = false,
 }: {
   id: string;
   accountId: string;
-  open: (id: string) => void;
+  openActive: (entry: ActiveGameEntry) => void;
   lobby: () => void;
   reviewOnly?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { account } = useAuth();
   const prefix = reviewOnly ? '/personal/online' : '/online/games';
   const load = useCallback(
@@ -651,12 +597,7 @@ function GameRoom({
           ? Promise.resolve({ enabled: false, eligible: false } as Availability)
           : api<Availability>('/online/availability', undefined, undefined, signal),
       ]);
-      const siblings = await Promise.all(
-        game.match.games
-          .filter((item) => item.id !== id)
-          .map((item) => api<OnlineGame>(`${prefix}/${item.id}`, undefined, undefined, signal)),
-      );
-      return { game, availability, siblings };
+      return { game, availability };
     },
     [id, prefix, reviewOnly],
   );
@@ -725,7 +666,7 @@ function GameRoom({
     const ownPiece = ownSide === 'attackers' ? piece === 'A' : piece === 'D' || piece === 'K';
     setSelected(ownPiece && selected?.square !== square ? { square, version: game.version } : null);
   };
-  const viewReplay = async () => {
+  const viewReplay = async (seekTo = 0) => {
     if (replayRequest.current || action.busy) return;
     const controller = new AbortController();
     replayRequest.current = controller;
@@ -742,7 +683,7 @@ function GameRoom({
       if (!controller.signal.aborted) {
         if (!value.validated || !value.states.length) throw new Error('Replay unavailable.');
         setReplay(value);
-        setCursor(0);
+        setCursor(Math.max(0, Math.min(seekTo, value.states.length - 1)));
         setSelected(null);
         setConfirm(false);
       }
@@ -756,54 +697,163 @@ function GameRoom({
       }
     }
   };
+  const showReplayAt = (ply: number) => {
+    if (replay) {
+      setCursor(Math.max(0, Math.min(ply, replay.states.length - 1)));
+      setSelected(null);
+      setConfirm(false);
+      return;
+    }
+    void viewReplay(ply);
+  };
   useEffect(() => {
     if (reviewOnly && game) void viewReplay();
   }, [reviewOnly, game?.id]);
   const position = cursor !== null && replay ? replay.states[cursor] : game?.position;
+  const now = useNow();
+  const size = game ? Math.sqrt(game.position.board.length) : 0;
+  const remaining =
+    game?.status === 'active' && game.deadline ? remainingSeconds(game.deadline, now) : null;
   return (
     <section className="online-page">
-      <button className="button" onClick={lobby}>
-        {t(reviewOnly ? 'Back to dashboard' : 'Back to online lobby')}
-      </button>
+      {!reviewOnly && <ActiveGameSwitcher accountId={accountId} currentId={id} open={openActive} />}
+      {reviewOnly && (
+        <button className="button" onClick={lobby}>
+          {t('Back to dashboard')}
+        </button>
+      )}
       <h1 tabIndex={-1}>{t(reviewOnly ? 'Online game review' : 'Online game')}</h1>
       {reviewOnly && <p>{t('Read-only review. Replay controls change only your view.')}</p>}
-      <Health phase={poll.phase} error={poll.error} refresh={poll.refresh} />
+      {poll.phase === 'stale' && (
+        <div role="alert" className="online-notice">
+          <p>{t('Online service unavailable or stale. Retry to reconnect.')}</p>
+          {poll.error && (
+            <p>
+              {t(errorMessage(poll.error).text)}
+              {errorMessage(poll.error).detail ? ` ${errorMessage(poll.error).detail}` : ''}
+            </p>
+          )}
+          <button className="button secondary" onClick={() => void poll.refresh()}>
+            {t('Retry')}
+          </button>
+        </div>
+      )}
       {game && position && (
         <>
           {!reviewOnly && <Admission availability={poll.data!.availability} />}
-          <div className="online-toolbar">
-            <span>{t(modeNames[game.match.mode])}</span>
-            <span>
-              {t('Creator side')}: {t(sideNames[game.creator_side ?? game.match.side_selection])}
-            </span>
-            <span>{t('Game {leg}', { leg: game.match.leg })}</span>
-            <span>
-              {t(game.ruleset)} · {t('Rules version')} {game.ruleset_version}
-            </span>
-            <span>{game.rated ? t('Rated') : t('Casual')}</span>
-            <span>{t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}</span>
-          </div>
-          <nav className="online-toolbar" aria-label={t('Match games')}>
-            {[game, ...poll.data!.siblings]
-              .sort((a, b) => a.match.leg - b.match.leg)
-              .map((item) => (
-                <button
-                  className="button secondary"
-                  key={item.id}
-                  aria-current={item.id === id ? 'page' : undefined}
-                  onClick={() => open(item.id)}
-                >
-                  {t('Game {leg}', { leg: item.match.leg })} · {t(statuses[item.status])} ·{' '}
-                  {t('Version {version}', { version: item.version })}
-                  {item.result?.winner
-                    ? ` · ${t(item.result.winner === 'draw' ? 'Draw' : sideNames[item.result.winner])}`
-                    : ''}
-                </button>
-              ))}
-          </nav>
-          <div className="online-game-layout">
+          <div className="game-layout">
+            <aside className="game-sidebar">
+              <section className="panel game-details">
+                <div className="variant-heading">
+                  <h2>{t(game.ruleset)}</h2>
+                  <span className="badge">
+                    {size} × {size}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span>{t('Game mode')}</span>
+                  <strong>{t(modeNames[game.match.mode])}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{t('Game {leg}', { leg: game.match.leg })}</span>
+                  <strong>{t('Rated')}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{t('Time per move')}</span>
+                  <strong>{formatRemaining(game.time_per_move)}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{t('Remaining time')}</span>
+                  <strong>
+                    {remaining === null ? (
+                      '—'
+                    ) : remaining > 0 ? (
+                      <RemainingTime seconds={remaining} />
+                    ) : (
+                      t('Awaiting adjudication')
+                    )}
+                  </strong>
+                </div>
+                {game.status === 'active' && game.deadline && (
+                  <p className="subtle">
+                    <time dateTime={game.deadline}>
+                      {new Intl.DateTimeFormat(locale, {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      }).format(new Date(game.deadline))}
+                    </time>
+                  </p>
+                )}
+                {game.status === 'waiting' && (
+                  <div>
+                    {t(
+                      'Waiting for a second player. Random sides are assigned when they join. To change settings, cancel and create again.',
+                    )}
+                  </div>
+                )}
+                {reviewOnly && (
+                  <div>
+                    {t('Lifecycle')}: {t(statuses[game.status])}
+                  </div>
+                )}
+                <Result game={game} />
+                <RatingChanges game={game} />
+                {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
+                  <button
+                    className="button primary"
+                    disabled={
+                      !ready ||
+                      !poll.data!.availability.enabled ||
+                      !poll.data!.availability.eligible
+                    }
+                    onClick={() => submit('join')}
+                  >
+                    {t('Join game')}
+                  </button>
+                )}
+                {!reviewOnly && game.status === 'waiting' && game.creator_id === accountId && (
+                  <button className="button" disabled={!ready} onClick={() => submit('cancel')}>
+                    {t('Cancel waiting game')}
+                  </button>
+                )}
+                <Notice value={action.notice} />
+                <div className="subtle">
+                  {t('Disconnecting, closing the browser or logging out does not pause clocks.')}
+                </div>
+              </section>
+              <section className="panel armies" aria-label={t('Players and result')}>
+                {(['attackers', 'defenders'] as Side[]).map((side) => (
+                  <div
+                    key={side}
+                    className={`army ${
+                      game.status === 'active' && game.position.turn === side ? 'to-move' : ''
+                    }`}
+                  >
+                    <div className="army-symbol">
+                      <span
+                        className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`}
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <div>
+                      <h3>{game.participants[side]?.name ?? t('Unassigned')}</h3>
+                      <p>
+                        {t(sideNames[side])}
+                        {ownSide === side ? ` · ${t('You')}` : ''}
+                      </p>
+                    </div>
+                    {game.status === 'active' && game.position.turn === side && (
+                      <span className="turn-light" aria-label={t('Current turn')} />
+                    )}
+                  </div>
+                ))}
+              </section>
+            </aside>
             <section className="battlefield">
-              <div className="turn-banner" aria-live="polite">
+              <div
+                className={`turn-banner ${game.status === 'completed' ? 'finished' : ''}`}
+                aria-live="polite"
+              >
                 <div>
                   <strong>
                     {cursor !== null
@@ -812,19 +862,17 @@ function GameRoom({
                         ? t('{side} to move', { side: t(sideNames[game.position.turn]) })
                         : t(statuses[game.status])}
                   </strong>
-                  <span>
-                    {cursor !== null
-                      ? t('Replay move {ply}', { ply: cursor })
-                      : t('Version {version}', { version: game.version })}
-                  </span>
+                  {cursor !== null && <span>{t('Replay move {ply}', { ply: cursor })}</span>}
                 </div>
+                {game.status === 'active' && cursor === null && <span className="live-dot" />}
               </div>
               <Board
                 game={{
                   ...position,
-                  size: Math.sqrt(position.board.length),
+                  size,
                   moves: cursor !== null && replay ? replay.game.moves : game.moves,
                   cursor: position.ply,
+                  capturedKingSquare: game.terminal_king_square,
                 }}
                 selected={
                   selected?.version === game.version && cursor === null ? selected.square : null
@@ -832,123 +880,128 @@ function GameRoom({
                 onSelect={select}
                 readOnly={!mayAct}
               />
-              <p>
-                {t(
-                  reviewOnly
-                    ? 'Read-only review. Replay controls change only your view.'
-                    : mayAct
-                      ? 'Select your piece, then an empty destination. The server checks the move.'
-                      : ownSide
-                        ? 'Waiting for your turn or server confirmation.'
-                        : 'You are viewing this game. Only the seated player whose turn it is may act.',
-                )}
-              </p>
-              <div className="online-toolbar">
+              <div className="board-toolbar">
+                <div className="button-group">
+                  {!reviewOnly && mayAct && !confirm && (
+                    <button className="button small" onClick={() => setConfirm(true)}>
+                      {t('Concede')}
+                    </button>
+                  )}
+                  {confirm && mayAct && (
+                    <>
+                      <button
+                        className="button secondary small"
+                        ref={confirmButton}
+                        onClick={() => submit('concede')}
+                      >
+                        {t('Confirm concession')}
+                      </button>
+                      <button className="button secondary small" onClick={() => setConfirm(false)}>
+                        {t('Keep playing')}
+                      </button>
+                    </>
+                  )}
+                </div>
+                <span className="board-help">
+                  {t(
+                    reviewOnly
+                      ? 'Read-only review. Replay controls change only your view.'
+                      : mayAct
+                        ? 'Select your piece, then an empty destination. The server checks the move.'
+                        : ownSide
+                          ? 'Waiting for your turn or server confirmation.'
+                          : 'You are viewing this game. Only the seated player whose turn it is may act.',
+                  )}
+                </span>
                 <button
-                  className="button secondary"
+                  className="button secondary small"
                   disabled={replayBusy || action.busy}
                   onClick={() => void viewReplay()}
                 >
                   {t('View replay')}
                 </button>
-                {cursor !== null && replay && (
-                  <>
-                    <ReplayControls
-                      cursor={cursor}
-                      length={replay.states.length}
-                      onChange={setCursor}
-                    />
-                    {!reviewOnly && (
-                      <button
-                        className="button secondary"
-                        onClick={() => {
-                          setCursor(null);
-                          setSelected(null);
-                        }}
-                      >
-                        {t('Return to live board')}
-                      </button>
-                    )}
-                  </>
-                )}
               </div>
+              {confirm && mayAct && (
+                <p role="status">
+                  {t('Concede this game? This ends your game if the server accepts it.')}
+                </p>
+              )}
+              {cursor !== null && replay && (
+                <div className="online-toolbar">
+                  <ReplayControls
+                    cursor={cursor}
+                    length={replay.states.length}
+                    onChange={setCursor}
+                  />
+                  {!reviewOnly && (
+                    <button
+                      className="button secondary"
+                      onClick={() => {
+                        setCursor(null);
+                        setSelected(null);
+                      }}
+                    >
+                      {t('Return to live board')}
+                    </button>
+                  )}
+                </div>
+              )}
               {cursor !== null && replay && game.position.ply > replay.game.position.ply && (
                 <p role="status">{t('New moves are available on the live board.')}</p>
               )}
               {replayError && <p role="alert">{t(replayError)}</p>}
-            </section>
-            <aside className="panel online-details">
-              <h2>{t('Players and result')}</h2>
-              {(['attackers', 'defenders'] as Side[]).map((side) => (
-                <p key={side}>
-                  <strong>{t(sideNames[side])}</strong>:{' '}
-                  {game.participants[side]?.name ?? t('Unassigned')}
-                  {ownSide === side ? ` · ${t('You')}` : ''}
-                </p>
-              ))}
-              {game.status === 'waiting' && (
-                <p>
-                  {t(
-                    'Waiting for a second player. Random sides are assigned when they join. To change settings, cancel and create again.',
-                  )}
-                </p>
-              )}
-              {reviewOnly && (
-                <p>
-                  {t('Lifecycle')}: {t(statuses[game.status])}
-                </p>
-              )}
-              <Result game={game} />
-              <RatingChanges game={game} />
-              <Deadline game={game} />
-              {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
-                <button
-                  className="button primary"
-                  disabled={
-                    !ready || !poll.data!.availability.enabled || !poll.data!.availability.eligible
-                  }
-                  onClick={() => submit('join')}
-                >
-                  {t('Join game')}
-                </button>
-              )}
-              {!reviewOnly && game.status === 'waiting' && game.creator_id === accountId && (
-                <button className="button" disabled={!ready} onClick={() => submit('cancel')}>
-                  {t('Cancel waiting game')}
-                </button>
-              )}
-              {mayAct && !confirm && (
-                <button className="button" onClick={() => setConfirm(true)}>
-                  {t('Concede')}
-                </button>
-              )}
-              {confirm && mayAct && (
-                <div role="group" aria-label={t('Confirm concession')}>
-                  <p>{t('Concede this game? This ends your game if the server accepts it.')}</p>
-                  <button
-                    className="button secondary"
-                    ref={confirmButton}
-                    onClick={() => submit('concede')}
-                  >
-                    {t('Confirm concession')}
-                  </button>
-                  <button className="button secondary" onClick={() => setConfirm(false)}>
-                    {t('Keep playing')}
-                  </button>
-                </div>
-              )}
               {action.busy && <p role="status">{t('Waiting for server confirmation…')}</p>}
-              <Notice value={action.notice} />
-              <p>{t('Disconnecting, closing the browser or logging out does not pause clocks.')}</p>
-              <h3>{t('Accepted moves')}</h3>
-              <ol>
-                {game.moves.map((move) => (
-                  <li key={move.ply}>
-                    {coordinate(move.source, Math.sqrt(game.position.board.length))} →{' '}
-                    {coordinate(move.target, Math.sqrt(game.position.board.length))}
+            </section>
+            <aside className="panel history-panel">
+              <div className="panel-title">
+                <h2>{t('The saga so far')}</h2>
+                <span className="badge">{game.moves.length}</span>
+              </div>
+              <p className="subtle">{t('A record of every move')}</p>
+              <div className="history-columns">
+                <span>{t('MOVE')}</span>
+                <span>{t('JOURNEY')}</span>
+                <span>{t('SIDE')}</span>
+              </div>
+              <ol className="move-list">
+                {game.moves.map((move, index) => (
+                  <li
+                    key={move.ply}
+                    className={
+                      cursor === index + 1
+                        ? 'current'
+                        : cursor !== null && index + 1 > cursor
+                          ? 'future'
+                          : ''
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={() => showReplayAt(index + 1)}
+                      aria-label={t('Replay to move {move}', { move: move.ply })}
+                    >
+                      <span>{String(move.ply).padStart(2, '0')}</span>
+                      <strong>
+                        {coordinate(move.source, size)} → {coordinate(move.target, size)}
+                      </strong>
+                      <span
+                        className={`mini-piece ${move.side === 'attackers' ? 'black' : 'ivory'}`}
+                        aria-hidden="true"
+                      />
+                    </button>
                   </li>
                 ))}
               </ol>
+              {game.moves.length === 0 && (
+                <div className="history-empty">
+                  <span aria-hidden="true">ᛝ</span>
+                  <p>
+                    {t('Every saga starts')}
+                    <br />
+                    {t('with a first move.')}
+                  </p>
+                </div>
+              )}
             </aside>
           </div>
         </>
@@ -983,7 +1036,9 @@ export default function Online() {
           id={match[1]}
           accountId={account.id}
           reviewOnly={!!match[2]}
-          open={(id) => navigate(`/online/games/${id}${match[2] ? '/review' : ''}`)}
+          openActive={(entry) =>
+            navigate(entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`)
+          }
           lobby={() => navigate('/dashboard')}
         />
       ) : (

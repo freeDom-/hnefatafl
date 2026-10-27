@@ -171,6 +171,24 @@ const personal: Record<string, string> = {
   'Previous page': 'Vorherige Seite',
   Rated: 'Gewertet',
   Casual: 'Freundschaftlich',
+  Singleplayer: 'Einzelspieler',
+  'Singleplayer · saved to your account': 'Einzelspieler · im Konto gespeichert',
+  'Single player game': 'Einzelspiel',
+  'Active games': 'Aktive Spiele',
+  '{value} rating gain': '{value} Wertungsgewinn',
+  'Time per move: {duration}': 'Zeit pro Zug: {duration}',
+  'This retained request uses exactly {duration} per move. Retrying keeps that value.':
+    'Diese gespeicherte Anfrage verwendet genau {duration} pro Zug. Ein erneuter Versuch behält diesen Wert bei.',
+  'My turn': 'Mein Zug',
+  'Online games': 'Onlinespiele',
+  'No games await your move.': 'Keine Spiele warten auf deinen Zug.',
+  Remaining: 'Verbleibend',
+  'Remaining time': 'Verbleibende Zeit',
+  '{value} remaining': 'Noch {value}',
+  'Active online games': 'Aktive Onlinespiele',
+  'Replay to move {move}': 'Zug {move} wiedergeben',
+  'Online service unavailable or stale. Retry to reconnect.':
+    'Der Onlinedienst ist nicht verfügbar oder veraltet. Erneut versuchen, um die Verbindung wiederherzustellen.',
   'Rated games count toward the leaderboard for verified accounts. The choice is fixed when the game is created.':
     'Gewertete Spiele zählen für verifizierte Konten zur Rangliste. Die Wahl ist bei der Spielerstellung festgelegt.',
   'Casual games do not affect ratings.':

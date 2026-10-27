@@ -26,11 +26,11 @@ banner; the live game room retains its own refresh controls.
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode, **Casual** or **Rated** game type, and integer **Days** (0–14),
-**Hours** (0–23), **Minutes** (0–59) in a shared modal. Casual is the default and
-leaves ratings untouched. Rated games count toward the
-[leaderboard](RATINGS.md) and require an active, verified account. The choice is
-fixed when the game is created and is visible before joining. The combined **Time allowed per move** is converted to seconds
+a match mode, and integer **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
+in a shared modal. Every newly created game is **rated** and counts toward the
+[leaderboard](RATINGS.md); there is no Casual selector. Rated play requires an
+active, verified account, checked at creation and joining. Configured time per
+move uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined **Time allowed per move** is converted to seconds
 at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
 through 14 days), default three days: all-zero and 14 days plus extra hours/minutes
 are rejected, never clamped. The component ranges do not widen that aggregate policy.
@@ -48,10 +48,14 @@ at creation. To change them, cancel the waiting game and create another.
 Random sides stay unassigned until the second player joins. The rules determine
 who moves first; creator identity does not determine the first mover.
 
-**All games** shows games visible to your authenticated account. **My games**
-includes games you created or in which you have a seat. Previous/next page buttons
-use bounded server pagination. Open a waiting game to join it; creators can cancel
-their own waiting game. Players cannot edit its settings in place.
+The lobby uses three tabs: **All games** shows every nonterminal game visible to
+your authenticated account, **My games** includes nonterminal games you created or
+in which you have a seat, and **My turn** shows active games where you are the
+participant whose move is required. Completed, cancelled and voided games never
+appear in any tab. Previous/next page buttons use bounded server pagination. Open
+a waiting game to join it; creators can cancel their own waiting game. Players
+cannot edit its settings in place. Active cards show the remaining time from the
+authoritative deadline using the shared formatter.
 
 If creating reports an uncertain outcome, check **My games** before trying again.
 The browser retains that creation request and its frozen settings for the signed-in
@@ -70,10 +74,23 @@ operator's quota values.
 
 ## Play and finish
 
+The online game screen uses the same overall layout and shared board/replay
+components as single-player: game details and players on the left, the board in
+the centre, and the move list on the right. Online-specific differences are
+deliberate: there are no move helpers, suggested moves, analysis, win
+probabilities, version labels, manual refresh buttons, connection-state label or
+"Back to online lobby" button. Remaining time to move is shown in the game
+details. A compact switcher lists active online games in which you participate,
+marks the current game and flags games awaiting your move; the switcher replaces
+the per-match version navigation.
+
 The board always shows the last server-confirmed position. On your turn, select
 your piece, then an empty destination. Arrow keys move keyboard focus; Enter or
 Space selects a square and Escape clears selection. The server checks the move;
 there are no hints, legal-move assistance, AI or evaluation controls online.
+When attackers capture the king, the terminal board still shows the king on its
+final square; this is a display-only overlay derived from the recorded moves and
+never changes the authoritative board, legal moves or stored history.
 
 Pending actions disable duplicate submission. Only the seated player whose turn it
 is can move or concede. **Concede** asks for confirmation. The effective result is
@@ -91,9 +108,11 @@ per-player rating change. A void does not imply that the sibling is voided.
 
 The page refreshes automatically, normally five seconds after a successful read.
 It does not stack overlapping refresh cycles. Failures back off up to 30 seconds;
-focus, reconnect or **Refresh** requests a fresh read. Unavailable responses keep
-the last confirmed board, mark it stale and disable game actions until recovery.
-Navigation/logout abort pending work and discard protected online view state.
+focus, reconnect or tab visibility requests a fresh read. There is no manual
+refresh button or persistent connection label. Unavailable responses keep the
+last confirmed board, show an actionable retry notice and disable game actions
+until recovery. Navigation/logout abort pending work and discard protected online
+view state.
 
 A version conflict reloads the game without replaying the action. An uncertain
 move/concession outcome also reloads: inspect the board and result before deciding
@@ -117,5 +136,10 @@ a shared cursor. **Historical replay · read only** clearly marks the board.
 **Return to live board** is required before submitting moves. Live polling continues
 while viewing history and reports newly available moves.
 
-Online replay provides no seek/undo/branch mutations, exports or analysis settings.
-Administrator roles receive no active-game advice bypass.
+Online replay provides no seek/undo/branch mutations or exports. **Completed**
+online games reuse the existing post-game Analytics/Winning chances experience
+through an online-scoped adapter; ongoing online games never expose analysis,
+suggested moves, evaluation or win probabilities, and a client countdown reaching
+zero is not treated as completion. The backend enforces terminal-state
+eligibility in addition to the UI. Administrator roles receive no active-game
+advice bypass.

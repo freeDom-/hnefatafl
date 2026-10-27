@@ -176,8 +176,8 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   );
   await page.goto('/online?mine=true&selected=kept');
   await expect(page).toHaveURL(/\/dashboard\?mine=true&selected=kept&setup=online$/);
-  await expect(page.getByRole('button', { name: 'My games', exact: true })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
   await page.goto('/play?ruleset=brandubh');
@@ -420,26 +420,58 @@ test('Hall account review runs the advisor and shows winning chances', async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('compact and full leaderboards separate qualified players and support ruleset browsing', async ({
+test('compact and full leaderboards default to Copenhagen and persist ruleset browsing', async ({
   page,
 }) => {
   await login(page);
   const board = page.locator('.leaderboard-compact');
   await expect(board.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
-  await expect(board.getByRole('heading', { name: 'Qualified standings' })).toBeVisible();
+  // Default is Copenhagen; the fixture only has rated Tablut games.
+  await expect(board.getByLabel('Ruleset')).toHaveValue('copenhagen');
+  await expect(board.getByText('No rated games in this pool yet.')).toBeVisible();
+  await board.getByLabel('Ruleset').selectOption('tablut');
   await expect(board.getByText(/PersonalArcher/)).toBeVisible();
   await expect(board.getByText(/PersonalKeeper/)).toBeVisible();
-  await expect(board.getByText(/Your standing/)).toBeVisible();
+  await expect(board.locator('table.leaderboard')).toHaveCount(1);
+  await expect(board.getByText('Qualified standings')).toHaveCount(0);
+  await expect(board.getByText(/Your standing/)).toHaveCount(0);
   await board.screenshot({ path: test.info().outputPath('leaderboard-compact.png') });
-  await board.getByRole('link', { name: 'View full leaderboard' }).click();
-  await expect(page).toHaveURL(/\/leaderboard$/);
+  // The same selection persists to the full view and across reload.
+  await page.goto('/leaderboard');
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  await expect(page.getByLabel('Ruleset')).toHaveValue('tablut');
   await expect(page.getByRole('cell', { name: /PersonalArcher/ })).toBeVisible();
-  await page.getByLabel('Ruleset').selectOption('brandubh');
+  await page.getByLabel('Ruleset').selectOption('copenhagen');
   await expect(page.getByText('No rated games in this pool yet.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Ruleset')).toHaveValue('copenhagen');
   await page.screenshot({
     path: test.info().outputPath('leaderboard-full.png'),
     fullPage: true,
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('desktop play screens fit 1920x1080 without document scrolling', async ({ page, request }) => {
+  const state = await snapshot(request);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await login(page);
+  const fits = () =>
+    page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    }));
+  // Online active game uses the shared layout and a viewport-capped board.
+  await page.goto('/online/games/' + state.ids.active);
+  await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  const online = await fits();
+  expect(online.scrollHeight).toBeLessThanOrEqual(online.innerHeight + 1);
+  // Single-player unfinished game shares the same wrapper and heading.
+  await page.goto('/games/' + state.ids.unfinished_account);
+  await expect(page.getByRole('heading', { name: 'Single player game' })).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByText('Every move tells a saga.')).toHaveCount(0);
+  const single = await fits();
+  expect(single.scrollHeight).toBeLessThanOrEqual(single.innerHeight + 1);
 });

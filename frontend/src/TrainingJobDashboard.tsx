@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useI18n } from './i18n';
+import Tabs from './Tabs';
 import type { Job } from './types';
 import { jobGameCounts } from './trainingGameCounts';
 import {
@@ -21,6 +22,7 @@ import {
 } from './TrainingAnalysisViews';
 
 const tabs = ['Overview', 'Learning', 'Evaluation', 'Performance', 'Details'] as const;
+const tabItems = tabs.map((name) => ({ id: name, label: name }));
 type Tab = (typeof tabs)[number];
 interface Props {
   job: Job;
@@ -50,7 +52,6 @@ export default function TrainingJobDashboard({
 }: Props) {
   const { t, locale } = useI18n();
   const id = useId();
-  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const [tab, setTab] = useState<Tab>('Overview');
   const [range, setRange] = useState(0);
   useEffect(() => {
@@ -175,36 +176,14 @@ export default function TrainingJobDashboard({
           </p>
         )}
       </header>
-      <div className="training-tabs" role="tablist" aria-label={t('Training analysis')}>
-        {tabs.map((name, index) => (
-          <button
-            key={name}
-            ref={(element) => {
-              buttons.current[index] = element;
-            }}
-            id={`${id}-tab-${name}`}
-            role="tab"
-            aria-selected={tab === name}
-            aria-controls={`${id}-panel`}
-            tabIndex={tab === name ? 0 : -1}
-            onClick={() => setTab(name)}
-            onKeyDown={(event) => {
-              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-              event.preventDefault();
-              const next =
-                event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? tabs.length - 1
-                    : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
-              setTab(tabs[next]);
-              buttons.current[next]?.focus();
-            }}
-          >
-            {t(name)}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        id={id}
+        items={tabItems}
+        active={tab}
+        onChange={(name) => setTab(name as Tab)}
+        label="Training analysis"
+        className="training-tabs"
+      />
       <section
         role="tabpanel"
         id={`${id}-panel`}

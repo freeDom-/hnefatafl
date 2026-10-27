@@ -81,7 +81,12 @@ class AnalysisService:
         revision = settings["revision"] if role == "advisor" else None
 
         def check() -> None:
-            if self.closed or self.store.get_game(game["id"]) is None:
+            if self.closed:
+                raise SupersededAnalysis()
+            if game.get("online"):
+                if not self.store.online_game_exists(game["id"]):
+                    raise SupersededAnalysis()
+            elif self.store.get_game(game["id"]) is None:
                 raise SupersededAnalysis()
             if revision is not None:
                 key = (game["id"], snapshot["position_key"], role, revision)
@@ -100,6 +105,7 @@ class AnalysisService:
                     entry,
                     advisor_revision=revision,
                     partial=True,
+                    online=bool(game.get("online")),
                 )
 
         try:
@@ -111,6 +117,7 @@ class AnalysisService:
                 snapshot,
                 entry,
                 advisor_revision=revision,
+                online=bool(game.get("online")),
             )
         except (ConflictError, SupersededAnalysis):
             # Cancellation is expected: a late opinion must not revive a game,
@@ -129,7 +136,13 @@ class AnalysisService:
                 "unavailable_reason": "evaluation_failed",
             }
             try:
-                self.store.save_analysis_entry(game, snapshot, entry, advisor_revision=revision)
+                self.store.save_analysis_entry(
+                    game,
+                    snapshot,
+                    entry,
+                    advisor_revision=revision,
+                    online=bool(game.get("online")),
+                )
             except ConflictError:
                 pass
 

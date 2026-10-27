@@ -39,7 +39,7 @@ def test_schema9_upgrade_preserves_account_security_sessions_and_local_data(tmp_
         )
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
         assert tuple(
             c.execute(
                 "SELECT password_hash,email_verified_at,email_version FROM accounts"
@@ -62,7 +62,7 @@ def test_representative_schema8_and_normalization_collision_upgrade(tmp_path):
     legacy(path)
     Store(path)
     with sqlite3.connect(path) as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
         assert c.execute("SELECT owner_account_id FROM games").fetchone()[0] == "one"
         assert c.execute("SELECT email_verified_at FROM accounts").fetchone()[0] is None
     colliding = tmp_path / "collision.sqlite3"
@@ -81,6 +81,6 @@ def test_online_downgrade_and_unknown_future_restore_are_refused(tmp_path):
         with pytest.raises(ValueError, match="Online schema changed"):
             retain_online_on_restore(source, target)
     with live.connection() as c:
-        c.execute("PRAGMA user_version=12")
+        c.execute("PRAGMA user_version=13")
     with pytest.raises(ValueError, match="newer unsupported"):
         Store(live.path)

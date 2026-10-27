@@ -17,7 +17,7 @@ is involved.
 Guest games are local, noncompetitive single-player. They never create server
 games or enter account statistics, online results, ratings, leaderboards, rewards,
 training collections or tournaments. Logging in does not upload or import them.
-Account single-player still requires login and saves on the server; Online still
+Singleplayer still requires login and saves on the server; Online still
 uses authenticated, server-authoritative multiplayer.
 
 Guest Play has no self-link. Anonymous visitors see one **Log in** action instead

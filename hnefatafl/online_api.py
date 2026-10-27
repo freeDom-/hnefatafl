@@ -19,7 +19,9 @@ class CreationRequest(BaseModel):
     side_selection: Literal["attackers", "defenders", "random"]
     mode: Literal["single", "simultaneous", "sequential"] = "single"
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
-    rated: StrictBool = False
+    # Rated-only policy: omitted requests default to rated; explicit false is
+    # rejected by the service so legacy or forged fields cannot create casual games.
+    rated: StrictBool = True
 
 
 class ExpectedVersion(BaseModel):
@@ -80,9 +82,9 @@ def attach_online(app, auth, *, settings=None, clock=None):
     def listing(
         limit: int = Query(default=25, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=100000),
-        mine: bool = False,
+        section: Literal["all", "mine", "my_turn"] = "all",
     ):
-        return execute(lambda credential: core.listing(credential, limit, offset, mine=mine))
+        return execute(lambda credential: core.listing(credential, limit, offset, section=section))
 
     @app.get("/api/online/availability")
     def availability():

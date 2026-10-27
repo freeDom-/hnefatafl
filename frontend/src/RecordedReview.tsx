@@ -164,11 +164,12 @@ export default function RecordedReview({
   const index = playback.cursor;
   const position = normalized?.states[index];
   const accountReview = normalized?.game.category === 'account-single-player';
+  const onlineReview = normalized?.game.category === 'online';
 
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   useEffect(() => {
-    if (!accountReview) return;
+    if (!accountReview && !onlineReview) return;
     const controller = new AbortController();
     void Promise.all([
       api<AIProfile[]>('/ai/profiles', undefined, undefined, controller.signal),
@@ -176,13 +177,13 @@ export default function RecordedReview({
     ])
       .then(([nextProfiles, nextModels]) => {
         if (!controller.signal.aborted) {
-          setProfiles(nextProfiles);
-          setModels(nextModels);
+          setProfiles(Array.isArray(nextProfiles) ? nextProfiles : []);
+          setModels(Array.isArray(nextModels) ? nextModels : []);
         }
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [accountReview]);
+  }, [accountReview, onlineReview]);
 
   const game = useMemo<Game | null>(() => {
     if (!normalized || !position) return null;
@@ -232,10 +233,13 @@ export default function RecordedReview({
   }, [normalized, position, index, accountReview]);
 
   // Playback must not trigger analysis requests; the advisor resumes when stopped.
+  // Completed online reviews reuse the same analysis engine through the
+  // online-scoped adapter; ongoing online games never reach this component.
   const analysis = useGameAnalysis(
-    accountReview ? game : null,
-    accountReview && !playback.playing,
+    accountReview || onlineReview ? game : null,
+    (accountReview || onlineReview) && !playback.playing,
     accountReview,
+    onlineReview ? '/history/online' : '/games',
   );
 
   if (poll.phase === 'loading') {
@@ -315,18 +319,7 @@ export default function RecordedReview({
               </span>
             </div>
           </section>
-          {accountReview ? (
-            <AgentAnalysis game={game} {...analysis} />
-          ) : (
-            <section className="panel agent-analysis" aria-label={t('Agent evaluations')}>
-              <h2>{t('Winning chances')}</h2>
-              <p className="subtle">
-                {t(
-                  'Winning chances are unavailable for recorded online games. Online analysis stays disabled for every role.',
-                )}
-              </p>
-            </section>
-          )}
+          <AgentAnalysis game={game} {...analysis} />
         </aside>
         <section className="battlefield" aria-label={t('Game')}>
           <div className={`turn-banner ${position.winner ? 'finished' : ''}`} aria-live="polite">
@@ -415,22 +408,15 @@ export default function RecordedReview({
           <div className="history-footer">
             <span className="status-dot" /> {t('Read-only replay')}
           </div>
-          {accountReview ? (
-            <AnalyticsSettingsPanel
-              game={game}
-              profiles={profiles}
-              models={models}
-              settings={analysis.settings}
-              onChange={analysis.updateSettings}
-              pending={analysis.settingsPending}
-              error={analysis.settingsError}
-            />
-          ) : (
-            <section className="panel analytics-settings" aria-label={t('Analytics')}>
-              <h2>{t('Analytics')}</h2>
-              <p className="subtle">{t('Analysis is unavailable for recorded online games.')}</p>
-            </section>
-          )}
+          <AnalyticsSettingsPanel
+            game={game}
+            profiles={profiles}
+            models={models}
+            settings={analysis.settings}
+            onChange={analysis.updateSettings}
+            pending={analysis.settingsPending}
+            error={analysis.settingsError}
+          />
         </aside>
       </div>
     </section>
