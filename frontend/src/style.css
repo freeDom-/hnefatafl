@@ -2790,7 +2790,7 @@ tbody th small {
   background: var(--surface);
   color: var(--ui-heading, #26352e);
   display: grid;
-  gap: var(--gap-stack);
+  gap: var(--gap-card);
   box-shadow: 0 12px 40px #00000018;
 }
 .auth-card form,
