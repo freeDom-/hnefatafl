@@ -190,7 +190,7 @@ export default function NewGame({
                     <p>{t(explanations[setup.profiles[side]])}</p>
                     {selected && (
                       <p className="subtle">
-                        {t('Time limit (seconds)')}: {selected.parameters.time_limit}
+                        {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
                         {selected.id === 'alpha_beta'
                           ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
                           : selected.id === 'mcts'

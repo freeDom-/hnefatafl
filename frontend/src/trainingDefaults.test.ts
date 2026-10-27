@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { changeTrainingPlan, trainingConfig, type TrainingPreset } from './trainingPresets';
 import { evaluationDefaults } from './EvaluationSettings';
-import { profileConfiguration } from './gameSetupPreference';
+import { profileConfiguration } from './profileConfiguration';
 import type { AIProfile } from './types';
 
 const rulesets = ['brandubh', 'tablut', 'copenhagen'];

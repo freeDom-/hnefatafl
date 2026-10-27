@@ -1,4 +1,4 @@
-import { profileConfiguration } from './gameSetupPreference';
+import { profileConfiguration } from './profileConfiguration';
 import {
   DEFAULT_ALPHA_BETA_SEARCH,
   TABLE_CAPACITY_MAX,

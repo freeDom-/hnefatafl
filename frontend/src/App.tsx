@@ -88,8 +88,8 @@ export default function App() {
         setProfiles(ais);
         setNewOpen(true);
       })
-      .catch((e) => setError(e.message));
-  }, []);
+      .catch((e) => reportError(e));
+  }, [reportError]);
   useEffect(() => {
     if (
       tab === 'dashboard' &&
@@ -99,7 +99,7 @@ export default function App() {
   }, [path, tab, startSinglePlayer]);
   useEffect(() => {
     if (tab === 'training' || tab === 'tournaments')
-      void refreshOptions().catch((e) => setError(e.message));
+      void refreshOptions().catch((e) => reportError(e));
   }, [tab, refreshOptions]);
   useEffect(() => {
     const match = /^\/games\/((?!online-)[A-Za-z0-9_-]{1,100})$/.exec(path.split('?')[0]);
@@ -125,7 +125,7 @@ export default function App() {
         }
       })
       .catch((e) => {
-        if (alive) setError(e.message);
+        if (alive) reportError(e);
       })
       .finally(() => {
         if (alive) setInitializing(false);
@@ -219,14 +219,6 @@ export default function App() {
     <>
       <SiteHeader account={account} logout={logout} current={tab} />
       <main>
-        {error && (
-          <div role="alert" className="error-banner">
-            <span>{t(error)}</span>
-            <button onClick={() => setError('')} aria-label={t('Dismiss error')}>
-              ×
-            </button>
-          </div>
-        )}
         {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
         {tab === 'play' && (
           <>
@@ -618,7 +610,6 @@ export default function App() {
             setNewOpen(false);
             setInitializing(false);
             navigate(`/games/${next.id}`);
-            setError('');
           }}
         />
       )}
