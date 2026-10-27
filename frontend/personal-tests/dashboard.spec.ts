@@ -130,11 +130,13 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
       await page.getByRole('button', { name: 'Next move', exact: true }).click();
       await expect(page.getByText('Move 1 of 8')).toBeVisible();
     } else {
-      expect(
-        (
-          await context.request.get('/api/history/games?category=account-single-player&admin=true')
-        ).status(),
-      ).toBe(403);
+      // A normal user may filter their own account records (empty here) but
+      // never use the all-account name filter.
+      const ownAccount = await context.request.get(
+        '/api/history/games?category=account-single-player',
+      );
+      expect(ownAccount.status()).toBe(200);
+      expect((await ownAccount.json()).games).toEqual([]);
       expect((await context.request.get('/api/history/games?player=PersonalArcher')).status()).toBe(
         403,
       );
@@ -392,4 +394,29 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
   await expect(
     dialog.getByText('Disconnecting, closing the browser or logging out does not pause clocks.'),
   ).toHaveCount(0);
+});
+
+test('Hall account review runs the advisor and shows winning chances', async ({
+  page,
+  request,
+}) => {
+  const state = await snapshot(request);
+  await login(
+    page,
+    'PersonalArcher',
+    `/archive?review=account-single-player&selected=${state.ids.account}`,
+  );
+  await expect(page.getByRole('grid')).toBeVisible();
+  const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
+  await analytics
+    .getByRole('combobox', { name: 'Move advisor', exact: true })
+    .selectOption('profile:baseline');
+  const panel = page.getByRole('region', { name: 'Agent evaluations' });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole('meter').first()).toBeVisible();
+  await expect(
+    page.getByRole('grid', { name: 'brandubh game board' }).locator('.hint-overlay'),
+  ).toBeVisible();
+  // The review stays read-only while the historical advisor runs.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
