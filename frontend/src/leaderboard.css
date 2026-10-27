@@ -9,11 +9,9 @@
   align-items: center;
   margin-bottom: 0.75rem;
 }
-.leaderboard-me {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 0.4rem;
-  background: var(--surface-muted, transparent);
+.leaderboard .leaderboard-provisional {
+  margin-left: 0.4rem;
+  vertical-align: middle;
 }
 .leaderboard-table {
   overflow-x: auto;

@@ -32,8 +32,8 @@ export type LeaderboardEntry = {
   losses: number;
   draws: number;
   rank: number;
+  provisional: boolean;
 };
-export type LeaderboardStanding = LeaderboardEntry & { provisional: boolean };
 export type Leaderboard = {
   ruleset: string;
   policy: {
@@ -42,14 +42,11 @@ export type Leaderboard = {
     k_factor: number;
     provisional_games: number;
   };
-  qualified: {
-    entries: LeaderboardEntry[];
-    total: number;
-    limit: number;
-    offset: number;
-  };
-  provisional: { entries: LeaderboardEntry[] };
-  me: LeaderboardStanding | null;
+  entries: LeaderboardEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  me: LeaderboardEntry | null;
 };
 export type OnlineGame = {
   id: string;
@@ -77,7 +74,8 @@ export type OnlineGame = {
   completed_at: string | null;
   participants: Record<Side, { account_id: string; name: string } | null>;
   position: OnlinePosition;
-  moves: (Move & { ply: number; accepted_at: string })[];
+  terminal_king_square: number | null;
+  moves: (Move & { ply: number; accepted_at: string; side: Side })[];
   result: null | {
     game_id: string;
     revision: number;
@@ -100,7 +98,12 @@ export type OnlineGame = {
     rating: RatingApplication[] | null;
   };
 };
-export type OnlineListing = { games: OnlineGame[]; limit: number; offset: number };
+export type OnlineListing = {
+  games: OnlineGame[];
+  limit: number;
+  offset: number;
+  section: 'all' | 'mine' | 'my_turn';
+};
 export type OnlineTransition = {
   game: OnlineGame;
   transition: 'created' | 'join' | 'cancel' | 'move' | 'concede' | 'timeout' | 'none' | 'void';

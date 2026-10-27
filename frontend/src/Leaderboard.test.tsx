@@ -9,61 +9,23 @@ vi.mock('./Auth', () => ({ useAuth: () => ({ account: { id: identity.id } }) }))
 const respond = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status < 400, status, json: async () => body } as Response);
 
+const entry = (
+  account_id: string,
+  name: string,
+  rating: number,
+  rated_games: number,
+  rank: number,
+  provisional = false,
+) => ({ account_id, name, rating, rated_games, wins: 1, losses: 1, draws: 1, rank, provisional });
+
 const board = (ruleset = 'tablut') => ({
   ruleset,
   policy: { version: 1, initial_rating: 1500, k_factor: 32, provisional_games: 10 },
-  qualified: {
-    entries: [
-      {
-        account_id: 'archer',
-        name: 'Archer',
-        rating: 1516,
-        rated_games: 12,
-        wins: 7,
-        losses: 5,
-        draws: 0,
-        rank: 1,
-      },
-      {
-        account_id: 'keeper',
-        name: 'Keeper',
-        rating: 1484,
-        rated_games: 12,
-        wins: 5,
-        losses: 7,
-        draws: 0,
-        rank: 2,
-      },
-    ],
-    total: 2,
-    limit: 25,
-    offset: 0,
-  },
-  provisional: {
-    entries: [
-      {
-        account_id: 'visitor',
-        name: 'Visitor',
-        rating: 1500,
-        rated_games: 3,
-        wins: 1,
-        losses: 1,
-        draws: 1,
-        rank: 1,
-      },
-    ],
-  },
-  me: {
-    account_id: 'archer',
-    name: 'Archer',
-    rating: 1516,
-    rated_games: 12,
-    wins: 7,
-    losses: 5,
-    draws: 0,
-    rank: 1,
-    provisional: false,
-  },
+  entries: [entry('archer', 'Archer', 1516, 12, 1), entry('keeper', 'Keeper', 1500, 3, 2, true)],
+  total: 2,
+  limit: 25,
+  offset: 0,
+  me: entry('archer', 'Archer', 1516, 12, 1),
 });
 
 let serve: (url: string) => Promise<Response>;
@@ -81,16 +43,17 @@ afterEach(() => {
   setLanguage('en', false);
 });
 
-it('shows qualified, provisional and the signed-in player standing', async () => {
+it('shows one unified list with provisional players and the signed-in row', async () => {
   render(<Leaderboard />);
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   await screen.findByText(/Archer/);
   expect(screen.getByText('Keeper')).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Qualified standings' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Provisional players' })).toBeVisible();
-  expect(screen.getByText(/Your standing/)).toBeVisible();
-  expect(screen.getByText(/Provisional until 10 rated games/)).toBeVisible();
-  // The signed-in row is marked.
+  // One table, no separate provisional section or standing paragraph.
+  expect(document.querySelectorAll('table.leaderboard')).toHaveLength(1);
+  expect(screen.queryByText('Qualified standings')).toBeNull();
+  expect(screen.queryByText('Provisional players')).toBeNull();
+  expect(screen.queryByText(/Your standing/)).toBeNull();
+  expect(screen.getByText('Provisional')).toBeVisible();
   expect(screen.getByText(/Archer/).closest('tr')).toHaveClass('you');
 });
 
@@ -104,26 +67,9 @@ it('refetches when the ruleset changes', async () => {
 });
 
 it('shows an empty pool state', async () => {
-  serve = () =>
-    respond({
-      ...board(),
-      qualified: { entries: [], total: 0, limit: 25, offset: 0 },
-      provisional: { entries: [] },
-      me: null,
-    });
+  serve = () => respond({ ...board(), entries: [], total: 0, me: null });
   render(<Leaderboard />);
   await screen.findByText('No rated games in this pool yet.');
-});
-
-it('shows an unranked state for an empty personal pool', async () => {
-  serve = () =>
-    respond({
-      ...board(),
-      provisional: { entries: [] },
-      me: null,
-    });
-  render(<Leaderboard />);
-  await screen.findByText('You are not ranked in this pool yet.');
 });
 
 it('shows a stale error with retry', async () => {
@@ -146,22 +92,17 @@ it('compact mode links to the full leaderboard without pagination', async () => 
   expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
 });
 
-it('paginates the qualified standings in the full view', async () => {
-  const entries = Array.from({ length: 30 }, (_, index) => ({
-    account_id: `account-${index}`,
-    name: `Player ${index}`,
-    rating: 2000 - index,
-    rated_games: 20,
-    wins: 10,
-    losses: 10,
-    draws: 0,
-    rank: index + 1,
-  }));
+it('paginates the unified standings in the full view', async () => {
+  const entries = Array.from({ length: 30 }, (_, index) =>
+    entry(`account-${index}`, `Player ${index}`, 2000 - index, 20, index + 1),
+  );
   serve = (url) => {
     const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? '0');
     return respond({
       ...board(),
-      qualified: { entries: entries.slice(offset, offset + 25), total: 30, limit: 25, offset },
+      entries: entries.slice(offset, offset + 25),
+      total: 30,
+      offset,
       me: null,
     });
   };
@@ -176,6 +117,7 @@ it('paginates the qualified standings in the full view', async () => {
 it('translates the leaderboard in German', async () => {
   setLanguage('de', false);
   render(<Leaderboard />);
-  await screen.findByRole('heading', { name: 'Qualifizierte Platzierungen' });
+  await screen.findByText(/Archer/);
   expect(screen.getByRole('heading', { name: 'Rangliste' })).toBeVisible();
+  expect(screen.getByText('Vorläufig')).toBeVisible();
 });

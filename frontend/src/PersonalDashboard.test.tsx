@@ -72,24 +72,22 @@ const recent = { games: [row], matching: 1, totals: [], next_cursor: null, limit
 const leaderboard = {
   ruleset: 'tablut',
   policy: { version: 1, initial_rating: 1500, k_factor: 32, provisional_games: 10 },
-  qualified: {
-    entries: [
-      {
-        account_id: 'archer',
-        name: 'Archer',
-        rating: 1516,
-        rated_games: 12,
-        wins: 7,
-        losses: 5,
-        draws: 0,
-        rank: 1,
-      },
-    ],
-    total: 1,
-    limit: 5,
-    offset: 0,
-  },
-  provisional: { entries: [] },
+  entries: [
+    {
+      account_id: 'archer',
+      name: 'Archer',
+      rating: 1516,
+      rated_games: 12,
+      wins: 7,
+      losses: 5,
+      draws: 0,
+      rank: 1,
+      provisional: false,
+    },
+  ],
+  total: 1,
+  limit: 5,
+  offset: 0,
   me: {
     account_id: 'archer',
     name: 'Archer',
@@ -150,8 +148,10 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(link.closest('table')).toHaveClass('recorded-games');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   await screen.findByText('1516');
-  // Personal statistics replace side-result totals, grouped by ruleset and matchup.
-  expect(screen.getByRole('heading', { name: 'Human vs AI' })).toBeVisible();
+  // Personal statistics replace side-result totals and no longer label the mode.
+  // Both the account and online panels show a Brandubh ruleset heading.
+  expect(screen.getAllByRole('heading', { name: 'Brandubh' })).toHaveLength(2);
+  expect(screen.queryByRole('heading', { name: 'Human vs AI' })).toBeNull();
   expect(screen.getByText('66.7%')).toBeVisible();
   expect(screen.getByText('Timed-out games')).toBeVisible();
   expect(screen.getByText(/historical games have no authoritative account seat/)).toBeVisible();
