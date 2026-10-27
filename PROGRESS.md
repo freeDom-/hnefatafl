@@ -118,6 +118,25 @@ and online games, persists the leaderboard ruleset preference (default Copenhage
 and enables the existing post-game analytics for completed online games only. See
 [refinement validation](docs/validation/phase6-ui-refinements.md#follow-up-refinement).
 
+The integration branch was then rebased onto `main` (`0.31.0`) with the Phase 6 pull
+requests #23 and #24 replayed on top, so the Phase 6 baselines recorded above
+(`0702ea9`, `41052bf`, `d373005`) are pre-rebase merges rather than ancestors of the
+branch. The two conflicts kept main's newer behavior: the training job tab strip uses
+the shared `Tabs` component while the parent still owns the active tab, and the play
+page keeps the shared `play-page` wrapper, `ActiveGameSwitcher` and the shared
+notification channel instead of the per-page error banner removed in `0.30.0`. The
+shared integration branch was force-pushed after that reconciliation; the pre-rebase
+tips remain in the local `backup/online-multiplayer-*` branches.
+
+Combining main's alpha-beta work with the browser guest runtime needed one repair:
+the newer `hnefatafl/ai.py` imports `hnefatafl.symmetry` at load time, while the
+pinned Pyodide package shipped only `__init__.py`, `engine.py`, `ai.py` and
+`guest.py`. The worker therefore failed to start and every guest browser check
+reported the engine as unavailable, with unit, API and packaging tests all green.
+`scripts/prepare_guest.py` and the worker now also ship `symmetry.py`, and
+`tests/test_guest_package.py` asserts that the packaged modules cover the engine's
+module-level relative imports.
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)
