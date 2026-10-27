@@ -93,12 +93,20 @@ match leg is rated independently, and concessions/finalized timeouts count while
 cancellations/voids do not. Result revision, rating event, per-player application
 and running ratings commit in one writer transaction; voids withdraw the event and
 deterministically rebuild the pool in stable sequence order. The authenticated
-leaderboard separates qualified and provisional players, uses display names, and
-the Dashboard placeholder is replaced by a compact leaderboard with a full
-`/leaderboard` view. No historical backfill, decay, rewards, aggregate match score,
-public leaderboard or production activation is included. See
-[Rated games](docs/RATINGS.md) and the
+leaderboard uses display names, and the Dashboard placeholder is replaced by a
+compact leaderboard with a full `/leaderboard` view. No historical backfill, decay,
+rewards, aggregate match score, public leaderboard or production activation is
+included. See [Rated games](docs/RATINGS.md) and the
 [Phase 6 validation](docs/validation/online-phase6.md).
+
+The Phase 6 UI refinement reuses the single-player game layout for online play
+(no assistance, version labels, manual refresh or back button; remaining time in
+the game details; a compact active-game switcher), adds All games/My games/My turn
+lobby tabs that exclude terminal games, groups online statistics by ruleset with
+the account's Elo in each heading, excludes AI-vs-AI account games from personal
+history and statistics, and unifies the leaderboard into one Elo-ordered list with
+deterministic ties. See
+[refinement validation](docs/validation/phase6-ui-refinements.md).
 
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)

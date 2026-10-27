@@ -82,19 +82,25 @@ never a partially rebuilt pool.
 ## Leaderboard
 
 `GET /api/leaderboard?ruleset=…&limit=…&offset=…` requires authentication and
-returns the qualified standings, provisional players, the signed-in player's own
-standing and the effective policy. Display names use `display_name` with the
-username as a fallback; no private account data is exposed.
+returns one unified standings list plus the effective policy. Display names use
+`display_name` with the username as a fallback; no private account data is
+exposed.
 
-- **Qualified** players have completed at least `10` eligible rated games in the
-  pool and are paginated (limit `1–100`, offset `0–100000`).
-- **Provisional** players are listed separately, bounded to the top 50.
-- Tie handling is deterministic: rating descending, then rated-game count
-  descending, then opaque account id ascending. Ranks follow that order.
-- The Dashboard embeds a compact leaderboard (top five qualified, provisional
-  and the viewer's standing). The full `/leaderboard` view adds ruleset selection
-  and pagination.
-- Loading, stale/error, empty and unranked states are explicit.
+- One list contains both provisional and nonprovisional players. Provisional
+  players are **not** excluded or placed in a separate ranking section; each row
+  carries a `provisional` flag (`fewer than 10` eligible rated games).
+- Ordering is Elo descending, then more completed rated games in that ruleset,
+  then the immutable account id ascending. Casual games and aggregate two-game
+  matches never affect the order. Ordering is applied before pagination.
+- **Precision:** ranking and presentation both use Elo rounded to the nearest
+  integer, so the displayed value and the order can never disagree. Equal
+  displayed Elo is broken by the rated-game count, then the account id.
+- The list is paginated (limit `1–100`, offset `0–100000`) with a `total` count.
+- The Dashboard embeds a compact leaderboard (top five) and links to the full
+  `/leaderboard` view, which adds ruleset selection and pagination. The separate
+  "your standing" paragraph was removed; the signed-in player's row is marked in
+  place when it is on the page.
+- Loading, stale/error and empty states are explicit.
 
 ## Reconciliation and recovery
 

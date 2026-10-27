@@ -18,29 +18,32 @@ opens your latest unfinished account record. Server-backed single-player gamepla
 AI, analysis, setup preferences and optimistic versions retain their semantics.
 
 **New online game** opens the existing lobby configuration. Dashboard embeds its
-All games/My games discovery, pagination and retained-request recovery. Open a
-waiting game to join, your game to resume, or a visible game to watch under existing
-permissions. `/online/games/{id}` remains the dedicated gameplay/reconnect URL.
+All games/My games/My turn tabs, pagination and retained-request recovery. Every
+tab excludes completed, cancelled and voided games. Open a waiting game to join,
+your game to resume, or a visible game to watch under existing permissions. `/online/games/{id}` remains the dedicated gameplay/reconnect URL.
 The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
 
 Dashboard statistics are personal and relative to the signed-in account's
-authoritative seat. Each panel groups by ruleset and matchup/game mode:
+authoritative seat. Both panels group by ruleset only:
 
-- **Account single-player** uses the account-bound human seat and the persisted
-  `recorded_result`. `Human vs AI` groups show played games, wins, losses, draws,
-  win rate, side-specific win rates and average length. `AI vs AI` groups have no
-  personal human result: they show played games and average length but no
-  wins/losses/draws or win rates. Legacy records without an account-bound seat are
-  excluded from personal statistics; the panel reports how many records are
+- **Singleplayer** uses the account-bound human seat and the persisted
+  `recorded_result`. Each ruleset shows played games, wins, losses, draws, win
+  rate, side-specific win rates and average length. AI-vs-AI games are not recorded
+  in personal history or statistics and never appear here; they exist only for
+  administrator AI-strength analysis. Legacy records without an account-bound seat
+  are excluded from personal statistics; the panel reports how many records are
   unattributed. Missing/null `recorded_result` is unfinished and never
   reconstructed.
 - **Online multiplayer** uses the current effective eligible result revision and
-  the account's seat. Cancelled, waiting and voided games do not contribute; voids
-  withdraw prior contributions and concession is a loss. `Timed-out games` counts
-  only games the account lost because its own clock expired, never wins caused by
-  an opponent's timeout.
+  the account's seat, aggregated across match modes per ruleset. Each ruleset
+  heading appends the account's available Elo rating (for example
+  `Brandubh (1537)`); the rating is omitted when the account has no rated-game
+  pool for that ruleset. Cancelled, waiting and voided games do not contribute;
+  voids withdraw prior contributions and concession is a loss. `Timed-out games`
+  counts only games the account lost because its own clock expired, never wins
+  caused by an opponent's timeout.
 
 Win rate is `wins / (wins + losses + draws)`. Side-specific win rates use the same
 denominator restricted to games played on that side. Average length uses the same
@@ -50,10 +53,10 @@ stay out of completed-result denominators. Lifecycle, effective result and the
 engine board outcome remain separate. Guest data never enters personal statistics.
 
 Ratings are a separate Elo concept from these personal statistics; see
-[Rated games](RATINGS.md). The Dashboard's compact **Leaderboard** panel shows the
-top qualified players, provisional players and the signed-in player's standing for
-the selected ruleset, and links to the full `/leaderboard` view. It requires a
-session and exposes only display names, ratings and rated-game counts.
+[Rated games](RATINGS.md). The Dashboard's compact **Leaderboard** panel shows one
+unified top-five list (provisional players carry a badge) for the selected ruleset
+and links to the full `/leaderboard` view. It requires a session and exposes only
+display names, ratings and rated-game counts.
 
 On the Dashboard grid the embedded **Online lobby** takes the slot after the two
 statistics panels, the **Leaderboard** panel follows, and **Recorded games**
@@ -110,7 +113,7 @@ assistance or exports. Online IDs always use online adapters.
 The review restores the single-player presentation: the complete "The saga so far"
 move list with move selection, board replay navigation, general game information
 (ruleset, matchup mode, participants and lifecycle) and the Analytics/Winning
-chances panels. Account single-player review may use the existing authorized
+chances panels. Singleplayer review may use the existing authorized
 analysis through a read-only historical path that analyzes the selected recorded
 cursor without seeking the authoritative game. Recorded online review keeps those
 panels visible but shows them as unavailable, because online analysis stays denied
