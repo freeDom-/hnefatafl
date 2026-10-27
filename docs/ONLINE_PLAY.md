@@ -26,8 +26,11 @@ banner; the live game room retains its own refresh controls.
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode and integer **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
-in a shared modal. The combined **Time allowed per move** is converted to seconds
+a match mode, **Casual** or **Rated** game type, and integer **Days** (0–14),
+**Hours** (0–23), **Minutes** (0–59) in a shared modal. Casual is the default and
+leaves ratings untouched. Rated games count toward the
+[leaderboard](RATINGS.md) and require an active, verified account. The choice is
+fixed when the game is created and is visible before joining. The combined **Time allowed per move** is converted to seconds
 at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
 through 14 days), default three days: all-zero and 14 days plus extra hours/minutes
 are rejected, never clamped. The component ranges do not widen that aggregate policy.
@@ -80,8 +83,9 @@ concession; the UI reports that distinction explicitly.
 
 Match links identify each game's own status/version and navigate to its board.
 Both simultaneous games are refreshed. Each has a separate turn, deadline and
-result. There is no aggregate score, match winner or rating. A void does not imply
-that the sibling is voided.
+result. There is no aggregate score or match winner. In a Rated match each game
+is rated independently, and a completed Rated game shows the authoritative
+per-player rating change. A void does not imply that the sibling is voided.
 
 ## Connection and time
 
