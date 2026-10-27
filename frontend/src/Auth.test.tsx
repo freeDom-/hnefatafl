@@ -71,7 +71,7 @@ describe('authenticated application boundary', () => {
     );
     expect(await screen.findByText('Protected gameplay for Odin')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();
     expect(screen.queryByText('Protected gameplay for Odin')).toBeNull();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Sign up / Register' })).toBeEnabled(),
@@ -92,7 +92,7 @@ describe('authenticated application boundary', () => {
         <Protected />
       </Auth>,
     );
-    await screen.findByRole('heading', { name: 'Log in' });
+    await screen.findByRole('heading', { name: 'HNEFATAFL' });
     expect(screen.queryByText(/Protected gameplay/)).toBeNull();
     fireEvent.change(screen.getByLabelText('Username or email'), { target: { value: 'Raven' } });
     const password = screen.getByLabelText('Password');
@@ -149,6 +149,6 @@ it('does not restore an old session response after logout and clears the retaine
     finishRefresh(await response(first));
     finishLogout(await response({ logged_out: true }));
   });
-  await screen.findByRole('heading', { name: 'Log in' });
+  await screen.findByRole('heading', { name: 'HNEFATAFL' });
   expect(screen.queryByText('Protected gameplay for First')).toBeNull();
 });

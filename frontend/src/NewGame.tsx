@@ -140,22 +140,16 @@ export default function NewGame({
             </div>
           )}
           {mode === 'human-ai' && (
-            <>
-              <div className="account-player-card">
-                <strong>{account?.username}</strong>
-                <span>{t('Playing as your account')}</span>
-              </div>
-              <label>
-                {t('Your side')}
-                <select
-                  value={setup.humanSide}
-                  onChange={(event) => choose('humanSide', event.target.value)}
-                >
-                  <option value="defenders">{t('Defenders · help the king escape')}</option>
-                  <option value="attackers">{t('Attackers · capture the king')}</option>
-                </select>
-              </label>
-            </>
+            <label>
+              {t('Your side')}
+              <select
+                value={setup.humanSide}
+                onChange={(event) => choose('humanSide', event.target.value)}
+              >
+                <option value="defenders">{t('Defenders · help the king escape')}</option>
+                <option value="attackers">{t('Attackers · capture the king')}</option>
+              </select>
+            </label>
           )}
           <div className="player-configs">
             {(['attackers', 'defenders'] as Side[])

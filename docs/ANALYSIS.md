@@ -3,9 +3,10 @@
 [Documentation index](README.md) · [AI settings and wrappers](AI.md)
 
 Winning chances are independent agent estimates for the **current side to move**.
-The **Show winning chances** checkbox hides or reveals them. Estimates use the
-agent's configured search and are saved for replay; background work never locks
-board input or delays an AI move request.
+They appear together with the best-move hint when a **move advisor** is selected;
+without an advisor the analysis section stays closed. Estimates use the agent's
+configured search and are saved for replay; background work never locks board
+input or delays an AI move request.
 
 ## Playing agents
 
@@ -37,15 +38,18 @@ New-game setup no longer contains advisor settings.
 
 Advisor search runs on a bounded background executor, separate from gameplay
 requests. Completed alpha-beta depths and MCTS checkpoints update the suggested
-move and, when enabled, its winning-chance estimate. Changing advisor settings
-starts a new settings revision and discards superseded results from the display.
-With winning chances hidden, the advisor still searches for a move, but does not
-publish a probability. Searching necessarily uses internal evaluation scores.
+move and its winning-chance estimate. Changing advisor settings starts a new
+settings revision and discards superseded results from the display. Selecting an
+advisor keeps the persisted winning-chance gate enabled; deselecting it closes
+the analysis section. Searching necessarily uses internal evaluation scores.
 
 Explicit advisor analysis also works in past replay positions and completed
-games. It is stored separately from original playing-agent evidence. A new
-advisor opinion is an analysis of the replay, rather than a claim that the
-original player produced that opinion during the game.
+games. The Hall of Records review sends a read-only historical request that
+analyzes the selected recorded cursor without seeking or mutating the
+authoritative game; the exact-cursor live contract is unchanged. The result is
+stored separately from original playing-agent evidence. A new advisor opinion is
+an analysis of the replay, rather than a claim that the original player produced
+that opinion during the game.
 
 ## Interpreting the numbers
 

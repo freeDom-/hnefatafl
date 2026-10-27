@@ -61,6 +61,9 @@ class SeekRequest(VersionRequest):
 
 class AnalysisRequest(SeekRequest):
     background: bool = False
+    # Read-only history review analyzes any recorded cursor without seeking the
+    # authoritative game; live gameplay keeps the exact-cursor contract.
+    historical: bool = False
 
 
 class AdvisorRequest(BaseModel):
@@ -634,10 +637,12 @@ def create_app(
     def get_game(game_id: str):
         return response(game_or_404(game_id))
 
-    def position_snapshot(game: dict) -> dict:
-        state = state_of(game)
+    def position_snapshot(
+        game: dict, *, state: State | None = None, cursor: int | None = None
+    ) -> dict:
+        state = state or state_of(game)
         return {
-            "cursor": game["cursor"],
+            "cursor": game["cursor"] if cursor is None else cursor,
             "ply": state.ply,
             "side_to_move": state.turn,
             "position_key": position_key(state),
@@ -646,9 +651,11 @@ def create_app(
             "hint": None,
         }
 
-    def current_analysis(game: dict, settings: dict | None = None) -> dict | None:
+    def current_analysis(
+        game: dict, settings: dict | None = None, *, state: State | None = None
+    ) -> dict | None:
         settings = settings or analytics_settings(game)
-        key = position_key(state_of(game))
+        key = position_key(state or state_of(game))
         recorded = store.game_analysis(game["id"], key)
         advisor = store.advisor_analysis(game["id"], key, settings["revision"])
         # Before the first preference change, legacy advisor reports keep their
@@ -671,9 +678,15 @@ def create_app(
         return result
 
     def evaluation_entry(
-        game: dict, role: str, agent: dict, settings: dict, report: dict | None = None
+        game: dict,
+        role: str,
+        agent: dict,
+        settings: dict,
+        report: dict | None = None,
+        *,
+        state: State | None = None,
     ) -> dict:
-        state = state_of(game)
+        state = state or state_of(game)
         configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
         if role == "advisor":
             configuration["time_limit"] = settings["time_limit"]
@@ -707,16 +720,18 @@ def create_app(
             )
         return entry
 
-    def evaluate_background(game: dict, role: str, agent: dict, settings: dict, progress):
+    def evaluate_background(
+        game: dict, role: str, agent: dict, settings: dict, progress, *, state: State | None = None
+    ):
         from .ai import analyze_position
 
-        state = state_of(game)
+        state = state or state_of(game)
         configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
         if role == "advisor":
             configuration["time_limit"] = settings["time_limit"]
         if "seed" in game:
             configuration["seed"] = (configuration["seed"] + state.ply) % 2**32
-        entry = evaluation_entry(game, role, agent, settings)
+        entry = evaluation_entry(game, role, agent, settings, state=state)
         try:
             if configuration.get("model_id") and not state.winner:
                 with catalog_lock:
@@ -783,15 +798,19 @@ def create_app(
             except ConflictError as exc:
                 fail(str(exc), 409)
 
-    def background_analysis(game: dict) -> dict:
-        state, settings = state_of(game), analytics_settings(game)
-        snapshot = position_snapshot(game)
-        recorded = current_analysis(game, settings)
+    def background_analysis(
+        game: dict, *, state: State | None = None, cursor: int | None = None
+    ) -> dict:
+        state = state or state_of(game)
+        settings = analytics_settings(game)
+        snapshot = position_snapshot(game, state=state, cursor=cursor)
+        recorded = current_analysis(game, settings, state=state)
         existing = {entry["agent_id"] for entry in (recorded or {}).get("evaluations", [])}
         tasks = []
         # Actual AI turns produce their own evidence in /ai-move. Historical
         # player evidence is never invented later using changed model weights.
-        frontier = game["cursor"] == len(game["moves"])
+        position = game["cursor"] if cursor is None else cursor
+        frontier = position == len(game["moves"])
         human_turn = game["players"][state.turn]["kind"] == "human"
         if settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
             for role, agent in game["players"].items():
@@ -800,7 +819,9 @@ def create_app(
                     and role not in existing
                     and (human_turn or state.winner or role != state.turn)
                 ):
-                    tasks.append(analyses.schedule(game, snapshot, role, agent, settings))
+                    tasks.append(
+                        analyses.schedule(game, snapshot, role, agent, settings, state=state)
+                    )
         if settings["advisor"]:
             advisor_report = store.advisor_analysis(
                 game["id"], snapshot["position_key"], settings["revision"]
@@ -813,13 +834,15 @@ def create_app(
                 pass  # An immutable legacy advisor report is already retained.
             elif advisor_report is None or advisor_report.get("partial"):
                 tasks.append(
-                    analyses.schedule(game, snapshot, "advisor", settings["advisor"], settings)
+                    analyses.schedule(
+                        game, snapshot, "advisor", settings["advisor"], settings, state=state
+                    )
                 )
         # Read activity before data: a worker can commit between these reads.
         # A stale "pending" only causes another poll; stale "complete" could
         # otherwise hide the newly committed result indefinitely.
         pending = any(analyses.active(key) for key in tasks)
-        result = current_analysis(game, settings) or missing_analysis(game)
+        result = current_analysis(game, settings, state=state) or missing_analysis(game)
         rendered = analysis_response(
             {
                 **result,
@@ -835,6 +858,16 @@ def create_app(
         from .ai import analyze_position
 
         game = game_or_404(game_id, request.version)
+        if request.historical:
+            if not 0 <= request.cursor <= len(game["moves"]):
+                fail("The requested position is outside this recorded game.", 422)
+            state = state_at(game, request.cursor)
+            if request.background:
+                return background_analysis(game, state=state, cursor=request.cursor)
+            settings = analytics_settings(game)
+            return analysis_response(
+                current_analysis(game, settings, state=state) or missing_analysis(game)
+            )
         if request.cursor != game["cursor"]:
             fail("This game changed. Reload it before analyzing again.", 409)
         if request.background:

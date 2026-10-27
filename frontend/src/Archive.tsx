@@ -50,7 +50,7 @@ export default function Archive() {
         {t(
           admin
             ? 'All server-recorded games. Guest saves stay on their device.'
-            : 'Your participating online games.',
+            : 'Your participating online games and single-player records.',
         )}
       </p>
       <div className="personal-filters">

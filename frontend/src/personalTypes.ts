@@ -14,6 +14,24 @@ export type AccountSummary = {
   players: Record<Side, { name: string; kind: 'human' | 'ai' }>;
 };
 export type Paging = { limit: number; matching: number; next_cursor: string | null };
+export type PersonalStatisticGroup = {
+  ruleset: string;
+  mode: string;
+  played: number;
+  wins: number | null;
+  losses: number | null;
+  draws: number | null;
+  timed_out?: number;
+  win_rate: number | null;
+  win_rate_attackers: number | null;
+  win_rate_defenders: number | null;
+  average_game_length: number | null;
+  average_game_length_unit: string;
+};
+export type PersonalStatistics = {
+  groups: PersonalStatisticGroup[];
+  coverage: { unattributed_games: number };
+};
 export type AccountHistory = Paging & {
   category: 'account-single-player';
   games: AccountSummary[];
@@ -26,6 +44,7 @@ export type AccountHistory = Paging & {
     draws: number;
     average_game_length: number;
   };
+  statistics: PersonalStatistics;
 };
 export type PersonalOnline = {
   id: string;
@@ -72,6 +91,7 @@ export type PersonalOnlineHistory = Paging & {
     draws: number;
     abandoned_games: number;
   };
+  statistics: PersonalStatistics;
 };
 export type AccountReviewData = {
   game: AccountSummary;

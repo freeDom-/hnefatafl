@@ -164,7 +164,7 @@ test('historical trained opponents retain names, runes and legal play while new 
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });
   await expect(ulfCard.locator('[data-rune]')).toHaveAttribute('data-rune', ulf.rune);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  const row = page.locator('.recorded-games a').filter({ hasText: ulf.name });
+  const row = page.locator('.recorded-games tbody tr').filter({ hasText: ulf.name });
   await expect(row).toContainText(freydis.name);
   expect(game.players.attackers.rune).toBe(ulf.rune);
   expect(game.players.defenders.rune).toBe(freydis.rune);

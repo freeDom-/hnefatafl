@@ -52,6 +52,7 @@ export default function AccountForms({
   const [notice, setNotice] = useState('');
   const [complete, setComplete] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const identity = useRef<HTMLInputElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     const changed = () => {
@@ -85,7 +86,8 @@ export default function AccountForms({
     };
   }, []);
   useEffect(() => {
-    heading.current?.focus();
+    // Login starts in the identity field; other views announce their heading.
+    (view === 'login' ? identity.current : heading.current)?.focus();
   }, [view]);
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
@@ -192,14 +194,22 @@ export default function AccountForms({
         <LanguageSelect />
         <h1>HNEFATAFL</h1>
         <p>{t('The King’s Table')}</p>
-        <h2 ref={heading} tabIndex={-1}>
-          {t(titles[view])}
-        </h2>
+        {view !== 'login' && (
+          <h2 ref={heading} tabIndex={-1}>
+            {t(titles[view])}
+          </h2>
+        )}
         {view === 'login' ? (
           <form onSubmit={(event) => void onLogin(event)}>
             <label>
               {t('Username or email')}
-              <input name="identity" autoComplete="username" required maxLength={254} />
+              <input
+                ref={identity}
+                name="identity"
+                autoComplete="username"
+                required
+                maxLength={254}
+              />
             </label>
             <label>
               {t('Password')}

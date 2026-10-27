@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 import threading
+import time
 
 from auth_support import AuthenticatedClient as TestClient
 from record_fixtures import historical_game
@@ -510,3 +511,41 @@ def test_custom_shield_bearer_algorithm_keeps_its_budget(client):
     )
     assert game["players"]["attackers"]["config"]["algorithm"] == "baseline"
     assert game["players"]["attackers"]["config"]["time_limit"] == 0.03
+
+
+def test_historical_analysis_reads_requested_cursor_without_seeking(client):
+    game = create(client, advisor={"profile_id": "baseline", "config": {"time_limit": 0.1}})
+    first = move(client, game)
+    second = move(client, first)
+    before = client.get(f"/api/games/{game['id']}").json()
+    path = f"/api/games/{game['id']}/analysis"
+    report = None
+    for _ in range(40):
+        result = client.post(
+            path,
+            json={
+                "version": second["version"],
+                "cursor": 0,
+                "background": True,
+                "historical": True,
+            },
+        )
+        assert result.status_code == 200, result.text
+        report = result.json()
+        if report["status"] == "complete":
+            break
+        time.sleep(0.05)
+    assert report is not None and report["status"] == "complete"
+    assert report["cursor"] == 0 and report["ply"] == 0
+    assert any(entry["agent_id"] == "advisor" for entry in report["evaluations"])
+    # Read-only: the authoritative cursor, version and stored result are unchanged.
+    assert client.get(f"/api/games/{game['id']}").json() == before
+
+
+def test_historical_analysis_rejects_out_of_range_cursor(client):
+    game = create(client, advisor={"profile_id": "baseline"})
+    result = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": 1, "background": True, "historical": True},
+    )
+    assert result.status_code == 422

@@ -66,7 +66,9 @@ afterEach(() => {
 });
 it('binds normal play to the account, hides mode/identity/config controls and sends only a preset', async () => {
   show();
-  expect(screen.getByText('Odin')).toBeVisible();
+  // Account identity stays server-enforced; the redundant card is gone.
+  expect(screen.queryByText('Odin')).toBeNull();
+  expect(screen.queryByText('Playing as your account')).toBeNull();
   expect(screen.queryByLabelText('Game mode')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Pass & play' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'AI vs AI' })).toBeNull();

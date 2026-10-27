@@ -44,7 +44,7 @@ test('account-bound setup and historical custom AI variants preserve records', a
     'Tablut (market rules)',
     'Copenhagen Hnefatafl',
   ]);
-  await expect(page.getByText('Playing as your account')).toBeVisible();
+  await expect(page.getByText('Playing as your account')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: /player name/ })).toHaveCount(0);
   const createdGame = page.waitForResponse(
     (r) => r.url().endsWith('/api/games') && r.request().method() === 'POST',
@@ -59,7 +59,7 @@ test('account-bound setup and historical custom AI variants preserve records', a
   await finishVariant(request, aiName, 2);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
   await page.getByLabel('Player name').fill(aiName);
-  await expect(page.locator('.recorded-games li')).toHaveCount(2);
+  await expect(page.locator('.recorded-games tbody tr')).toHaveCount(2);
   const stats = await (await request.get('http://127.0.0.1:8001/api/stats')).json();
   const variants = stats.by_player.filter((row: { name: string }) => row.name === aiName);
   expect(variants).toHaveLength(2);

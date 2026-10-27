@@ -48,10 +48,13 @@ export default function Board({
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const markerId = useId().replaceAll(':', '');
   const legalMoves = game.legal_moves ?? [];
+  // A read-only review has no client legal-move list; its hint comes from the
+  // trusted advisor analysis for this exact position, so draw it directly.
   const suggestion =
     hint &&
     !game.winner &&
-    legalMoves.some((move) => move.source === hint.source && move.target === hint.target)
+    (readOnly ||
+      legalMoves.some((move) => move.source === hint.source && move.target === hint.target))
       ? hint
       : null;
   const center = (index: number) => ({

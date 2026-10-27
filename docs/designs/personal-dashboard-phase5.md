@@ -171,3 +171,107 @@ or name filters. Counts and side-result totals use the same authorized filter.
 online or administrator record access, then canonically validates in that read
 transaction. There are no history writes, exports or analysis routes. See
 [refinement validation](../validation/dashboard-consolidation.md).
+
+## Post-Phase 5 personal statistics and review refinement
+
+This refinement keeps schema 10, all grants and the server-authoritative identity
+boundary unchanged. It adds derived personal statistics and restores the recorded
+review presentation.
+
+### Statistics definitions
+
+`GET /api/personal/single-player` and `GET /api/personal/online` each return a
+`statistics` object in addition to their existing `totals`:
+
+- `groups` is a list keyed by `ruleset` (`brandubh`, `tablut`, `copenhagen`) and
+  `mode`. Account modes are `human-ai` and `ai-ai`; online modes are the match
+  modes `single`, `simultaneous` and `sequential`.
+- `played`, `wins`, `losses`, `draws` and, online, `timed_out` are integer counts.
+- `win_rate = wins / (wins + losses + draws)`;
+  `win_rate_attackers` and `win_rate_defenders` use the same denominator
+  restricted to attributed completed games played on that side.
+- `average_game_length` is the mean accepted-ply count (`moves`) over the same
+  completed population, and `average_game_length_unit` names the unit.
+- A null rate or average is rendered as an em dash.
+
+Account attribution uses only an account-bound human seat: the stored
+`human_side` must identify a `kind: "human"` player whose `account_id` matches the
+current account. `ai-ai` games have no personal human result, so their outcome
+fields are null even though `played` and `average_game_length` remain. Legacy
+`human-human` records and any record without an account-bound seat are excluded
+from personal outcomes and reported through `coverage.unattributed_games`. No
+ownership or seat is guessed and no stored data is rewritten.
+
+Online attribution uses `online_games.attackers_id`/`defenders_id` and the current
+effective eligible `online_results` revision. Waiting, cancelled and superseded
+results do not contribute; a void revision withdraws the contribution.
+`timed_out` counts only `abandoned_account_id` equal to the current account, so an
+opponent's timeout victory is not counted as the account timing out.
+
+### Review presentation
+
+Selecting a Dashboard or Hall row opens the full read-only review. It reuses the
+single-player layout: "The saga so far" with the complete move list and move
+selection, board replay navigation, general game information (ruleset, matchup
+mode, participants and lifecycle) and the Analytics/Winning chances panels.
+Account single-player review may use the existing authorized analysis; recorded
+online review keeps the panels but shows them as unavailable because all-role
+online analysis remains denied. The review remains viewer-local and does not
+write authoritative games or results. Canonical `/archive?review=…&selected=…`,
+`/dashboard/single-player/{id}` and refresh/back-forward behavior are preserved.
+
+### Recorded-games table and replay playback
+
+`RecordedGames` renders one shared table for Dashboard and Hall with visible
+`Status | Ruleset | Attacker | Defender | Winner | Date` headers. The Winner cell
+is `Name (Side)` for a completed recorded result, `Draw` for a draw, and an em
+dash for unfinished, cancelled and voided rows; a stale winner on a non-completed
+record is never shown. The Date cell holds the single review link, named
+`Open review: {attacker} vs {defender}`, and its overlay makes the whole row
+clickable without duplicate links; navigation stays keyboard-accessible without a
+visible Review label. The date is formatted in the viewer's resolved local
+timezone, while the backend keeps the stored instant. The table scrolls inside its
+card on narrow screens.
+
+`useReplayPlayback` owns a viewer-local cursor and a bounded one-second timer;
+`ReplayControls` renders Play/Stop when playback is enabled. Manual move selection
+and previous/next/start stop playback before changing position, the final position
+stops automatically and disables Play, and the timer is cleared on dependency
+change and unmount. Playback never requests AI moves or analysis and never writes
+authoritative games or results. The active online spectator controls in
+`Online.tsx` do not enable playback.
+
+### Focus, selection and analysis refinements
+
+- The login view focuses the username/email field on mount; the `HNEFATAFL`
+  heading remains the accessible page heading and other auth views still focus
+  their own heading.
+- The selected or keyboard-focused recorded-games row is highlighted as a whole.
+  The date link has no separate focus ring or hover underline; the row highlight
+  is the visible focus indicator.
+- The "Show winning chances" checkbox and label are removed. Selecting a move
+  advisor is the single trigger for calculating and displaying winning chances and
+  the best-move hint; the frontend keeps the persisted winning-chance gate enabled
+  when an advisor is chosen. Deselecting the advisor closes the analysis section.
+- Recorded review reconstructs captured pieces by diffing adjacent validated
+  states, so a captured king stays visible at its final square exactly as in the
+  live game. It does not trust move metadata for the overlay.
+
+### Hall access and read-only historical analysis
+
+`GET /api/history/games` now includes each account's own single-player records for
+normal users as well as administrators. Normal users see their participating online
+games plus their own account records, never another account's; the administrator
+`player` name filter stays restricted to trusted current `all_data`. The
+`category=account-single-player` filter is available to normal users because it is
+scoped to their own account. `GET /api/history/account-single-player/{id}/replay`
+authorizes the owner or an administrator.
+
+`POST /api/games/{id}/analysis` accepts an optional `historical: true` flag. Live
+gameplay keeps the exact-cursor contract. A historical request validates the
+cursor against the recorded move count, analyzes `state_at(game, cursor)` and
+schedules only the advisor (playing-agent evidence is never fabricated for a past
+position). The report is stored in the separate advisor table keyed by the
+position; the authoritative game cursor, version and result are not touched.
+Online IDs remain rejected by `game_or_404`, so the read-only path cannot expose
+online analysis.
