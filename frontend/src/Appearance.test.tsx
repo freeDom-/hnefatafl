@@ -84,6 +84,8 @@ describe('appearance preferences', () => {
     expect(screen.getByRole('radio', { name: 'Old walnut' })).toBeChecked();
     expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
     expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
+    expect(document.documentElement).toHaveAttribute('data-density', 'default');
+    expect(screen.getByRole('radio', { name: 'Default' })).toBeChecked();
     expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#b69570');
     expect(
       screen.getByRole('gridcell', { name: 'a3, attacker' }).querySelector('.token-wood'),
@@ -97,12 +99,14 @@ describe('appearance preferences', () => {
   });
 
   it('preserves saved classic/oak choices and defaults only missing or invalid fields', () => {
-    const saved = { mode: 'light', tokens: 'classic', board: 'oak' };
+    const saved = { mode: 'light', tokens: 'classic', board: 'oak', density: 'compact' };
     localStorage.setItem(APPEARANCE_KEY, JSON.stringify(saved));
     renderTable();
     openSettings();
     expect(screen.getByRole('radio', { name: 'Classic stones' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Golden oak' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+    expect(document.documentElement).toHaveAttribute('data-density', 'compact');
     expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#e4d3ac');
     expect(
       screen
@@ -111,6 +115,13 @@ describe('appearance preferences', () => {
     ).toBeNull();
     expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(saved);
     expect(parseAppearance({ mode: 'dark' })).toEqual({ ...DEFAULT_APPEARANCE, mode: 'dark' });
+    expect(parseAppearance({ density: 'invalid' }).density).toBe('default');
+    expect(parseAppearance({ mode: 'light', tokens: 'classic', board: 'oak' })).toEqual({
+      mode: 'light',
+      tokens: 'classic',
+      board: 'oak',
+      density: 'default',
+    });
     expect(parseAppearance({ tokens: 'classic', board: 'invalid' })).toEqual({
       ...DEFAULT_APPEARANCE,
       tokens: 'classic',
@@ -133,6 +144,7 @@ describe('appearance preferences', () => {
       mode: 'dark',
       tokens: 'viking',
       board: 'slate',
+      density: 'default',
     });
     view.unmount();
     renderTable();
@@ -149,6 +161,29 @@ describe('appearance preferences', () => {
     expect(
       screen.getByRole('gridcell', { name: 'b2, king' }).querySelector('.wood-carving'),
     ).toBeInTheDocument();
+  });
+
+  it('changes and restores interface scale independently of the themes', () => {
+    const view = renderTable();
+    openSettings();
+    for (const density of ['compact', 'large', 'default'] as const) {
+      fireEvent.click(
+        screen.getByRole('radio', {
+          name: density[0].toUpperCase() + density.slice(1),
+        }),
+      );
+      expect(document.documentElement).toHaveAttribute('data-density', density);
+      expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
+        ...DEFAULT_APPEARANCE,
+        density,
+      });
+    }
+    fireEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+    view.unmount();
+    renderTable();
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+    expect(document.documentElement).toHaveAttribute('data-density', 'compact');
   });
 
   it('follows changes to the device color scheme while respecting an explicit override', () => {
@@ -196,6 +231,10 @@ describe('appearance preferences', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Darstellungseinstellungen' }));
     expect(screen.getByRole('radio', { name: 'Geschnitztes Holz' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Alter Nussbaum' })).toBeChecked();
+    expect(screen.getByText('Oberflächengröße')).toBeVisible();
+    expect(screen.getByRole('radio', { name: 'Kompakt' })).toBeVisible();
+    expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Groß' })).toBeVisible();
     fireEvent.click(screen.getByRole('radio', { name: 'Holz' }));
     expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
       ...DEFAULT_APPEARANCE,

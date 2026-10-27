@@ -1,13 +1,54 @@
 import { expect, test } from './auth-fixture';
+import { historicalGame } from './historical-fixture';
+
+test('interface scale changes spacing and text, persists and composes with responsive spacing', async ({
+  page,
+}) => {
+  await page.goto('/dashboard?setup=single-player');
+  await page.getByRole('button', { name: 'To the table' }).click();
+  const root = page.locator('html');
+  await expect(root).toHaveAttribute('data-density', 'default');
+  const measure = () =>
+    page.locator('.game-details').evaluate((node) => ({
+      padding: parseFloat(getComputedStyle(node).paddingLeft),
+      font: parseFloat(getComputedStyle(node.querySelector('h2')!).fontSize),
+    }));
+  const initial = await measure();
+  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await page.getByRole('radio', { name: 'Compact', exact: true }).check();
+  await expect(root).toHaveAttribute('data-density', 'compact');
+  const compact = await measure();
+  expect(compact.padding).toBeLessThan(initial.padding);
+  expect(compact.font).toBeLessThan(initial.font);
+  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await page.reload();
+  await expect(root).toHaveAttribute('data-density', 'compact');
+  expect(await measure()).toEqual(compact);
+  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await expect(page.getByRole('radio', { name: 'Compact', exact: true })).toBeChecked();
+  await page.getByRole('radio', { name: 'Large', exact: true }).check();
+  await expect(root).toHaveAttribute('data-density', 'large');
+  const large = await measure();
+  expect(large.padding).toBeGreaterThan(initial.padding);
+  expect(large.font).toBeGreaterThan(initial.font);
+  await page.getByRole('button', { name: 'Back to the table' }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
 
 test('appearance changes real artwork and colors, persists, and preserves touch gameplay', async ({
   page,
+  request,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto('/dashboard?setup=single-player');
-  await page.getByRole('button', { name: 'To the table' }).click();
+  // Keep the artwork count and saved turn stable while exercising real moves.
+  const response = await historicalGame(request, {
+    data: { ruleset: 'tablut', mode: 'human-human' },
+  });
+  expect(response.ok()).toBe(true);
+  const game = await response.json();
+  await page.goto(`/games/${game.id}`);
   const root = page.locator('html');
   const board = page.getByRole('grid', { name: 'tablut game board' });
   await expect(root).toHaveAttribute('data-color-mode', 'dark');

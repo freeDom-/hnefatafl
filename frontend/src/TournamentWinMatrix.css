@@ -1,6 +1,6 @@
 .tournament-win-matrix-section {
   min-width: 0;
-  margin-top: 16px;
+  margin-top: var(--gap-stack);
 }
 .tournament-win-matrix-scroll {
   max-width: 100%;
@@ -20,19 +20,19 @@
   margin: 0;
 }
 .tournament-win-matrix-title {
-  padding: 12px 14px;
+  padding: var(--pad-panel-sm);
   border: 1px solid var(--line);
   border-bottom: 0;
   border-radius: 6px 6px 0 0;
   text-align: left;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 650;
   color: var(--text);
   background: var(--surface);
 }
 .tournament-win-matrix th,
 .tournament-win-matrix td {
-  padding: 11px 10px;
+  padding: var(--pad-row);
   border-top: 1px solid var(--line);
   border-bottom: 0;
   text-align: center;
@@ -46,7 +46,7 @@
   border-top: 0;
 }
 .tournament-win-matrix th {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
@@ -68,14 +68,14 @@
 }
 .tournament-win-matrix th small {
   margin: 0 0 5px;
-  font-size: 8px;
+  font-size: 0.5rem;
   color: var(--muted);
   font-weight: 400;
 }
 .tournament-win-matrix td {
   color: var(--muted);
   background: var(--surface);
-  font-size: 16px;
+  font-size: 1rem;
   font-variant-numeric: tabular-nums;
 }
 .tournament-win-matrix td.has-wins {
@@ -89,15 +89,15 @@
 }
 .tournament-win-matrix .identity-rune {
   margin: 0;
-  font-size: 25px;
+  font-size: 1.5625rem;
   line-height: 1;
 }
 .tournament-win-matrix .identity-rune[data-rune-size='compound'] {
-  font-size: 18px;
+  font-size: 1.125rem;
   letter-spacing: 0;
 }
 .tournament-battlefields .tournament-win-matrix-help {
   margin: 10px 0 0;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.6;
 }

@@ -1,14 +1,14 @@
 .leaderboard-page {
   max-width: 900px;
-  margin: 1rem auto;
-  padding: 1.1rem;
+  margin: var(--gap-stack) auto;
+  padding: var(--pad-page);
 }
 .leaderboard-heading-row {
   align-items: center;
 }
 .leaderboard-filter {
   display: inline-flex;
-  gap: 0.5rem;
+  gap: var(--gap-inline);
   align-items: center;
   margin-bottom: 0;
 }
@@ -25,7 +25,7 @@ table.leaderboard {
 }
 table.leaderboard th,
 table.leaderboard td {
-  padding: 0.4rem 0.6rem;
+  padding: var(--pad-row);
   text-align: left;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
@@ -40,12 +40,12 @@ table.leaderboard tr.you {
 }
 .leaderboard-pages {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--gap-stack);
   align-items: center;
   justify-content: center;
-  margin-top: 1rem;
+  margin-top: var(--gap-stack);
 }
 .leaderboard-compact table.leaderboard th,
 .leaderboard-compact table.leaderboard td {
-  padding: 0.3rem 0.45rem;
+  padding: var(--pad-row);
 }

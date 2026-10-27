@@ -33,6 +33,13 @@ const appearance: Record<string, string> = {
   'Your browser could not save these choices. They will apply for this visit.':
     'Dein Browser konnte die Auswahl nicht speichern. Sie gilt für diesen Besuch.',
   'Back to the table': 'Zurück zum Spieltisch',
+  'Interface scale': 'Oberflächengröße',
+  Compact: 'Kompakt',
+  Default: 'Standard',
+  Large: 'Groß',
+  'Tighter spacing for more on screen': 'Engere Abstände für mehr Inhalt auf dem Bildschirm',
+  'Balanced spacing and text': 'Ausgewogene Abstände und Schriftgröße',
+  'Roomier spacing for relaxed reading': 'Großzügigere Abstände für entspanntes Lesen',
 };
 
 export default appearance;

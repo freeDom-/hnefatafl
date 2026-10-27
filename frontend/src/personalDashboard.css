@@ -1,15 +1,15 @@
 .personal-dashboard,
 .hall-page {
   max-width: 1320px;
-  margin: 1rem auto;
+  margin: var(--gap-stack) auto;
 }
 .dashboard-actions,
 .section-heading {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--gap-stack);
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
+  margin-bottom: var(--gap-stack);
 }
 .section-heading {
   justify-content: space-between;
@@ -20,7 +20,7 @@
 .dashboard-overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: var(--gap-stack);
 }
 .personal-section,
 .dashboard-recent,
@@ -28,22 +28,44 @@
 .dashboard-lobby,
 .recorded-review {
   min-width: 0;
-  padding: 1.1rem;
+  padding: var(--pad-panel);
 }
 .personal-section h2,
 .leaderboard-compact h2 {
   margin-top: 0;
+}
+.personal-section .disclosure-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.personal-section .disclosure-heading::before {
+  /* Empty alternative text keeps the marker out of the accessible heading name. */
+  content: '−' / '';
+  color: var(--gold);
+  font-size: 0.9em;
+}
+.personal-section .disclosure-heading[aria-expanded='false']::before {
+  content: '＋' / '';
 }
 .leaderboard-compact {
   align-self: start;
 }
 .personal-statistics {
   display: grid;
-  gap: 1rem;
+  gap: var(--gap-stack);
 }
 .statistics-ruleset {
   display: grid;
-  gap: 0.6rem;
+  gap: var(--gap-inline);
 }
 .statistics-ruleset > h3 {
   margin: 0;
@@ -51,7 +73,7 @@
 }
 .statistics-group {
   border-top: 1px solid var(--line);
-  padding-top: 0.5rem;
+  padding-top: var(--pad-panel-sm);
 }
 .statistics-group > h4 {
   margin: 0 0 0.4rem;
@@ -61,7 +83,7 @@
 .statistics-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-  gap: 0.4rem 0.75rem;
+  gap: var(--gap-inline) var(--gap-stack);
   margin: 0;
 }
 .statistics-metrics > div {
@@ -80,8 +102,8 @@
 .personal-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-block: 1rem;
+  gap: var(--gap-stack);
+  margin-block: var(--gap-stack);
 }
 .personal-filters label {
   display: grid;
@@ -102,7 +124,7 @@
 .recorded-games {
   width: 100%;
   border-collapse: collapse;
-  margin-block: 0.75rem;
+  margin-block: var(--gap-stack);
   font-size: 0.9rem;
 }
 .recorded-games tbody tr {
@@ -121,7 +143,7 @@
 .recorded-games th,
 .recorded-games td {
   text-align: left;
-  padding: 0.55rem 0.6rem;
+  padding: var(--pad-row);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   vertical-align: middle;
@@ -165,17 +187,17 @@
 }
 .hall-totals {
   font-size: 0.9rem;
-  margin-block: 1rem;
+  margin-block: var(--gap-stack);
 }
 .personal-review-board {
   max-width: 650px;
-  margin: 1rem 0;
+  margin: var(--gap-stack) 0;
 }
 .personal-review-board .board-with-labels {
   margin-left: 0;
 }
 .recorded-review {
-  margin-top: 1.5rem;
+  margin-top: var(--gap-card);
   overflow-wrap: anywhere;
 }
 .personal-dashboard .online-lobby-layout.lobby-discovery {
@@ -188,12 +210,12 @@
 .personal-dashboard .online-card {
   display: grid;
   grid-template-columns: minmax(150px, 0.65fr) minmax(0, 1fr) minmax(130px, 0.6fr) auto;
-  gap: 0.35rem 1rem;
+  gap: var(--gap-inline) var(--gap-stack);
   align-items: center;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
-  padding: 0.65rem 0.25rem;
+  padding: var(--pad-panel-sm);
 }
 .personal-dashboard .online-card h3,
 .personal-dashboard .online-card p {
@@ -224,10 +246,6 @@
 @media (max-width: 800px) {
   .dashboard-overview {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .recorded-games th,
-  .recorded-games td {
-    padding: 0.5rem 0.45rem;
   }
   .personal-dashboard .online-card {
     grid-template-columns: minmax(0, 1fr) auto;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -12,6 +12,37 @@ import RecordedReview from './RecordedReview';
 import PersonalStatisticsView from './PersonalStatistics';
 import Leaderboard from './Leaderboard';
 import './personalDashboard.css';
+
+function CollapsiblePanel({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="panel personal-section" aria-labelledby={`${id}-heading`}>
+      <h2 id={`${id}-heading`}>
+        <button
+          type="button"
+          className="disclosure-heading"
+          aria-expanded={open}
+          aria-controls={`${id}-body`}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {t(title)}
+        </button>
+      </h2>
+      <div id={`${id}-body`} hidden={!open}>
+        {children}
+      </div>
+    </section>
+  );
+}
 
 function DashboardHome({
   accountId,
@@ -66,16 +97,14 @@ function DashboardHome({
         )}
       </div>
       <div className="dashboard-overview">
-        <section className="panel personal-section" aria-labelledby="personal-account-heading">
-          <h2 id="personal-account-heading">{t('Singleplayer')}</h2>
+        <CollapsiblePanel id="personal-account" title="Singleplayer">
           <DashboardHealth phase={account.phase} refresh={account.refresh} />
           <PersonalStatisticsView statistics={account.data?.statistics} />
-        </section>
-        <section className="panel personal-section" aria-labelledby="personal-online-heading">
-          <h2 id="personal-online-heading">{t('Online multiplayer')}</h2>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="personal-online" title="Online multiplayer">
           <DashboardHealth phase={online.phase} refresh={online.refresh} />
           <PersonalStatisticsView statistics={online.data?.statistics} online />
-        </section>
+        </CollapsiblePanel>
         <Lobby
           accountId={accountId}
           embedded

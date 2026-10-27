@@ -2,30 +2,30 @@
   display: grid;
   grid-template-columns: minmax(230px, 0.8fr) minmax(0, 2.4fr);
   align-items: start;
-  gap: 25px;
+  gap: var(--gap-card);
 }
 .tournament-history {
-  padding: 23px 18px;
+  padding: var(--pad-panel);
   min-width: 0;
 }
 .tournament-history h2 {
-  font-size: 23px;
+  font-size: 1.4375rem;
 }
 .tournament-history > .subtle {
-  font-size: 10px;
+  font-size: 0.625rem;
   margin: 4px 0 18px;
 }
 .tournament-saved-list {
   display: grid;
-  gap: 10px;
+  gap: var(--gap-inline);
 }
 .tournament-saved {
   display: flex;
   flex-direction: column;
   text-align: left;
-  gap: 9px;
+  gap: var(--gap-inline);
   min-width: 0;
-  padding: 16px;
+  padding: var(--pad-panel-sm);
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line);
@@ -41,29 +41,29 @@
 }
 .tournament-saved strong {
   font-family: Georgia, serif;
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .tournament-saved small {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .tournament-saved-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: var(--gap-inline);
   justify-content: space-between;
-  margin-top: 4px;
+  margin-top: var(--gap-inline);
 }
 .tournament-status {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gap-inline);
   width: fit-content;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-transform: uppercase;
   letter-spacing: 0.8px;
   font-weight: 650;
@@ -85,23 +85,23 @@
 }
 .tournament-history-empty {
   text-align: center;
-  padding: 40px 2px;
+  padding: var(--pad-hero);
   color: var(--muted);
 }
 .tournament-history-empty > span {
   display: block;
-  font-size: 35px;
+  font-size: 2.1875rem;
   color: var(--gold);
   margin-bottom: 18px;
 }
 .tournament-history-empty p {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text);
 }
 .tournament-history-empty small {
   display: block;
   margin-top: 7px;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .tournament-main {
   min-width: 0;
@@ -109,7 +109,7 @@
 .tournament-welcome {
   min-height: 475px;
   text-align: center;
-  padding: 50px 35px;
+  padding: var(--pad-hero);
   display: flex;
   align-items: center;
   flex-direction: column;
@@ -129,78 +129,78 @@
   width: 40px;
 }
 .tournament-welcome h2 {
-  font-size: 31px;
+  font-size: 1.9375rem;
   margin: 12px 0;
 }
 .tournament-welcome > p:not(.eyebrow) {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--muted);
   max-width: 430px;
 }
 .tournament-welcome > small {
   margin-top: 15px;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
 }
 .tournament-promise {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 25px;
-  margin: 32px 0;
+  gap: var(--gap-card);
+  margin: var(--gap-card) 0;
 }
 .tournament-promise span {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
 }
 .tournament-promise strong {
   color: var(--gold);
   font-family: Georgia, serif;
   font-weight: 400;
-  font-size: 21px;
+  font-size: 1.3125rem;
 }
 .tournament-detail {
-  padding: 28px;
+  padding: var(--pad-panel);
 }
 .tournament-detail-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gap-stack);
 }
 .tournament-detail-heading h2 {
   margin: 12px 0 8px;
-  font-size: 31px;
+  font-size: 1.9375rem;
   overflow-wrap: anywhere;
 }
 .tournament-detail-heading .subtle {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .tournament-actions {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--gap-inline);
 }
 .tournament-actions .button {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .tournament-progress {
-  padding: 20px 0 25px;
-  margin: 20px 0 4px;
+  padding: var(--pad-panel) 0 var(--pad-panel);
+  margin: var(--gap-card) 0 var(--gap-card);
   border-top: 1px solid var(--line);
 }
 .tournament-progress > div {
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 10px;
+  gap: var(--gap-inline);
+  margin-bottom: var(--gap-inline);
+  font-size: 0.625rem;
 }
 .tournament-progress > div span {
   color: var(--muted);
@@ -233,14 +233,14 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 16px;
+  gap: var(--gap-inline);
+  margin: 0 0 var(--gap-stack);
 }
 .tournament-section-title h3 {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .tournament-section-title > span {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
   text-align: right;
   overflow-wrap: anywhere;
@@ -261,11 +261,11 @@
 .tournament-opponents {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--gap-stack);
 }
 .tournament-standing {
   min-width: 0;
-  padding: 18px 16px 8px;
+  padding: var(--pad-panel);
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-raised);
@@ -273,7 +273,7 @@
 .tournament-standing-top {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--gap-stack);
 }
 .tournament-avatar {
   flex: 0 0 33px;
@@ -284,7 +284,7 @@
   place-items: center;
   color: var(--green);
   background: var(--surface);
-  font-size: 23px;
+  font-size: 1.4375rem;
 }
 .rival-2 .tournament-avatar {
   color: var(--gold);
@@ -303,16 +303,16 @@
 }
 .tournament-battlefield-wins {
   display: grid;
-  gap: 6px;
+  gap: var(--gap-inline);
   padding: 0;
-  margin: 10px 0;
+  margin: var(--gap-inline) 0;
   list-style: none;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .tournament-battlefield-wins li {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
+  gap: var(--gap-inline) var(--gap-card);
   justify-content: space-between;
 }
 .tournament-battlefield-wins li strong {
@@ -324,12 +324,12 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: -8px 0 25px;
+  gap: var(--gap-stack);
+  margin: -8px 0 var(--gap-card);
 }
 .tournament-add-opponent > span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .tournament-player {
   position: relative;
@@ -346,22 +346,22 @@
   min-width: 0;
 }
 .tournament-standing-top > div > small {
-  font-size: 7px;
+  font-size: 0.4375rem;
   letter-spacing: 1.2px;
   color: var(--muted);
 }
 .tournament-standing h3 {
-  font-size: 15px;
+  font-size: 0.9375rem;
   margin: 4px 0;
   overflow-wrap: anywhere;
 }
 .tournament-standing-top p {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .tournament-points {
-  font-size: 30px;
+  font-size: 1.875rem;
   font-family: Georgia, serif;
   font-weight: 500;
   color: var(--green);
@@ -369,7 +369,7 @@
 }
 .tournament-points small {
   display: block;
-  font-size: 8px;
+  font-size: 0.5rem;
   font-family: Inter, sans-serif;
   color: var(--muted);
   font-weight: 400;
@@ -393,34 +393,34 @@
 .tournament-score-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin: 0 0 16px;
+  gap: var(--gap-inline);
+  margin: 0 0 var(--gap-stack);
 }
 .tournament-score-stats dt {
-  font-size: 8px;
+  font-size: 0.5rem;
   color: var(--muted);
 }
 .tournament-score-stats dd {
   margin: 7px 0 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
 }
 .tournament-standing .record-parameters {
-  padding-top: 10px;
+  padding-top: var(--pad-panel-sm);
   border-top: 1px solid var(--line);
 }
 .tournament-standing .record-parameters summary {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .tournament-standing .record-parameters summary span {
-  font-size: 9px;
+  font-size: 0.5625rem;
   margin-top: 3px;
 }
 .tournament-standing .record-parameters dl {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .tournament-scoring {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
   line-height: 1.8;
   margin: 16px 0 25px;
@@ -428,19 +428,19 @@
 .tournament-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 15px;
-  padding: 18px 0;
+  gap: var(--gap-stack);
+  padding: var(--pad-panel) 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  margin-bottom: 25px;
+  margin-bottom: var(--gap-card);
 }
 .tournament-summary > span {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: var(--muted);
 }
 .tournament-summary strong {
   display: block;
-  font-size: 22px;
+  font-size: 1.375rem;
   font-family: Georgia, serif;
   font-weight: 500;
   color: var(--text);
@@ -448,19 +448,19 @@
 }
 .tournament-battlefields {
   display: grid;
-  gap: 10px;
-  margin: 0 0 28px;
+  gap: var(--gap-inline);
+  margin: 0 0 var(--gap-card);
 }
 .tournament-battlefields article {
   min-width: 0;
-  padding: 12px;
+  padding: var(--pad-panel-sm);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
 .tournament-battlefield-summary {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: var(--gap-stack);
 }
 .tournament-board-size {
   width: 40px;
@@ -473,24 +473,24 @@
   justify-content: center;
   font-family: Georgia, serif;
   color: var(--gold);
-  font-size: 19px;
+  font-size: 1.1875rem;
   background: var(--surface-raised);
 }
 .tournament-board-size small {
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 .tournament-battlefield-summary > div {
   display: grid;
-  gap: 5px;
+  gap: var(--gap-inline);
   min-width: 0;
   flex: 1;
 }
 .tournament-battlefields strong {
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .tournament-battlefields small,
 .tournament-battlefields p {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: var(--muted);
 }
 .tournament-matches {
@@ -499,13 +499,13 @@
 .tournament-match {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: var(--gap-stack);
   border-top: 1px solid var(--line);
-  padding: 16px 0;
+  padding: var(--pad-row);
 }
 .tournament-match-number {
   font-family: Georgia, serif;
-  font-size: 20px;
+  font-size: 1.25rem;
   color: var(--gold);
 }
 .tournament-match > div {
@@ -514,20 +514,20 @@
 }
 .tournament-match strong {
   display: block;
-  font-size: 12px;
+  font-size: 0.75rem;
   margin-bottom: 5px;
   overflow-wrap: anywhere;
 }
 .tournament-match small {
   display: block;
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: var(--muted);
 }
 .tournament-match p {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 0.625rem;
   margin: 8px 0 3px;
   overflow-wrap: anywhere;
   flex-wrap: wrap;
@@ -539,16 +539,16 @@
 }
 .tournament-versus {
   color: var(--muted);
-  padding: 0 2px;
+  padding: 0 var(--pad-panel-sm);
 }
 .tournament-match .tournament-match-reason {
-  font-size: 8px;
+  font-size: 0.5rem;
   font-style: italic;
 }
 .tournament-match > button {
   flex: 0 0 auto;
-  padding: 8px 11px;
-  font-size: 9px;
+  padding: var(--pad-control);
+  font-size: 0.5625rem;
   min-height: 34px;
 }
 .tournament-notice {
@@ -563,7 +563,7 @@
   margin-top: 7px;
 }
 .tournament-setup-copy {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--muted);
   margin: -4px 0 22px;
 }
@@ -571,33 +571,33 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--gap-stack);
+  margin-bottom: var(--gap-card);
 }
 .tournament-setup .name-suggestion-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 24px;
+  gap: var(--gap-inline);
+  margin-bottom: var(--gap-card);
 }
 .tournament-setup label {
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .tournament-setup fieldset {
   border: 0;
   padding: 0;
   min-width: 0;
-  margin: 24px 0;
+  margin: var(--gap-card) 0;
 }
 .tournament-setup legend {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   margin-bottom: 14px;
 }
 .tournament-rulesets {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gap-inline);
 }
 .tournament-rulesets label {
   position: relative;
@@ -620,24 +620,24 @@
   height: 12px;
 }
 .tournament-rulesets strong {
-  font-size: 10px;
+  font-size: 0.625rem;
   padding-right: 15px;
 }
 .tournament-rulesets small {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
   font-weight: 400;
 }
 .tournament-setup-opponents {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: var(--gap-card);
 }
 .tournament-setup .tournament-player {
   border: 1px solid var(--line);
-  padding: 18px 16px 5px;
+  padding: var(--pad-panel);
   border-radius: 7px;
-  margin: 3px 0 25px;
+  margin: var(--gap-card) 0 var(--gap-card);
 }
 .tournament-player legend {
   margin: 0 0 0 -5px;
@@ -649,39 +649,39 @@
 }
 .tournament-player select,
 .tournament-player input {
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .tournament-player label small {
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 400;
   color: var(--muted);
 }
 .tournament-advanced {
-  font-size: 10px;
-  margin: 8px 0 15px;
+  font-size: 0.625rem;
+  margin: var(--gap-stack) 0 var(--gap-stack);
 }
 .tournament-advanced summary {
   cursor: pointer;
   color: var(--green);
 }
 .tournament-advanced .form-grid {
-  margin-top: 18px;
-  gap: 0 10px;
+  margin-top: var(--gap-card);
+  gap: 0 var(--gap-inline);
 }
 .tournament-advanced .subtle {
   grid-column: 1/-1;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .tournament-search-optimizations {
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 10px 12px 4px;
-  margin: 0 0 15px;
+  padding: var(--pad-panel-sm);
+  margin: 0 0 var(--gap-stack);
 }
 .tournament-search-optimizations legend {
   padding: 0 5px;
   color: var(--green);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .tournament-search-optimizations label {
   margin-bottom: 12px;
@@ -693,54 +693,54 @@
   font-weight: 400;
 }
 .tournament-search-optimizations .tournament-search-flags {
-  gap: 0 12px;
-  margin-bottom: 4px;
+  gap: 0 var(--gap-stack);
+  margin-bottom: var(--gap-inline);
 }
 .tournament-run-settings {
-  gap: 18px;
+  gap: var(--gap-card);
 }
 .tournament-run-count {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--gap-stack);
   align-self: end;
   height: 42px;
-  padding: 0 12px;
+  padding: 0 var(--pad-panel-sm);
   background: var(--surface-raised);
   border-radius: 6px;
 }
 .tournament-run-count strong {
-  font-size: 24px;
+  font-size: 1.5rem;
   font-family: Georgia, serif;
   font-weight: 400;
   color: var(--green);
 }
 .tournament-run-count span {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
 }
 .tournament-setup .modal-actions {
-  margin-top: 22px;
+  margin-top: var(--gap-card);
 }
 .tournament-replay {
   max-width: 620px;
   width: calc(100vw - 24px);
   max-height: calc(100dvh - 24px);
-  padding: 24px;
+  padding: var(--pad-panel);
 }
 .tournament-replay .modal-top h2 {
-  font-size: 25px;
+  font-size: 1.5625rem;
   margin-top: 8px;
 }
 .tournament-replay-result {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--muted);
   margin: -3px 0 20px;
 }
 .tournament-replay-players {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--text);
-  margin-bottom: 16px;
+  margin-bottom: var(--gap-stack);
   overflow-wrap: anywhere;
 }
 .tournament-replay-players span {
@@ -755,16 +755,16 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 12px;
-  margin: 16px 0 10px;
+  gap: var(--gap-stack);
+  margin: var(--gap-stack) 0 var(--gap-stack);
 }
 .tournament-replay-controls > span {
-  font-size: 11px;
+  font-size: 0.6875rem;
   min-width: 80px;
   text-align: center;
 }
 .tournament-replay-range {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
 }
 .tournament-replay-range input {
@@ -774,7 +774,7 @@
 }
 .tournament-replay > .subtle {
   text-align: center;
-  font-size: 10px;
+  font-size: 0.625rem;
   margin-top: 14px;
 }
 @media (min-width: 1000px) {
@@ -791,31 +791,22 @@
 @media (max-width: 1000px) {
   .tournament-layout {
     grid-template-columns: minmax(190px, 1fr) minmax(0, 2.4fr);
-    gap: 16px;
-  }
-  .tournament-history {
-    padding: 20px 13px;
-  }
-  .tournament-detail {
-    padding: 22px 18px;
+    gap: var(--gap-stack);
   }
   .tournament-opponents {
     grid-template-columns: 1fr;
   }
   .tournament-standing-top h3 {
-    font-size: 16px;
+    font-size: 1rem;
   }
   .tournament-detail-heading {
     flex-wrap: wrap;
   }
   .tournament-section-title > span {
-    font-size: 9px;
+    font-size: 0.5625rem;
   }
 }
 @media (max-width: 760px) {
-  .site-header nav {
-    gap: 20px;
-  }
   .tournament-layout {
     display: flex;
     flex-direction: column;
@@ -824,14 +815,11 @@
   .tournament-main {
     width: 100%;
   }
-  .tournament-history {
-    padding: 18px;
-  }
   .tournament-saved-list {
     display: flex;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
-    padding: 2px 0 7px;
+    padding: var(--pad-panel-sm) 0 var(--pad-panel-sm);
   }
   .tournament-saved {
     min-width: 230px;
@@ -839,77 +827,60 @@
     scroll-snap-align: start;
     flex-shrink: 0;
   }
-  .tournament-history-empty {
-    padding: 16px;
-  }
   .tournament-history-empty > span {
     display: none;
   }
-  .tournament-detail {
-    padding: 22px 20px;
-  }
   .tournament-opponents {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .tournament-standing {
-    padding: 14px 12px 7px;
   }
   .tournament-avatar {
     display: none;
   }
   .tournament-detail-heading h2 {
-    font-size: 28px;
+    font-size: 1.75rem;
   }
 }
 @media (max-width: 540px) {
   .site-header nav {
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--gap-stack);
   }
   .site-header nav button {
-    font-size: 10px;
+    font-size: 0.625rem;
     letter-spacing: 0;
   }
   .tournament-intro {
     align-items: flex-start;
   }
   .tournament-intro .button {
-    padding: 11px 12px;
-    font-size: 10px;
-    gap: 6px;
+    font-size: 0.625rem;
   }
   .tournament-intro h1 {
-    font-size: 30px;
+    font-size: 1.875rem;
   }
   .tournament-welcome {
-    padding: 35px 22px;
+    padding: var(--pad-hero);
     min-height: 430px;
   }
   .tournament-welcome h2 {
-    font-size: 28px;
-  }
-  .tournament-promise {
-    gap: 18px;
+    font-size: 1.75rem;
   }
   .tournament-promise span {
     max-width: 75px;
-    font-size: 9px;
-  }
-  .tournament-detail {
-    padding: 22px 15px;
+    font-size: 0.5625rem;
   }
   .tournament-opponents {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: var(--gap-stack);
   }
   .tournament-avatar {
     display: grid;
   }
   .tournament-score-stats dt {
-    font-size: 9px;
+    font-size: 0.5625rem;
   }
   .tournament-score-stats dd {
-    font-size: 17px;
+    font-size: 1.0625rem;
   }
   .tournament-section-title {
     align-items: flex-start;
@@ -917,45 +888,32 @@
   .tournament-section-title span {
     max-width: 53%;
   }
-  .tournament-summary {
-    gap: 12px;
-  }
   .tournament-summary strong {
-    font-size: 20px;
+    font-size: 1.25rem;
   }
   .tournament-summary > span {
-    font-size: 8px;
-  }
-  .tournament-match {
-    gap: 10px;
+    font-size: 0.5rem;
   }
   .tournament-match strong {
-    font-size: 11px;
+    font-size: 0.6875rem;
   }
   .tournament-match-number {
-    font-size: 17px;
+    font-size: 1.0625rem;
   }
   .tournament-match > button {
-    padding: 8px;
-    font-size: 8px;
+    font-size: 0.5rem;
   }
   .tournament-match p {
-    font-size: 9px;
-  }
-  .tournament-setup {
-    padding: 22px 16px;
+    font-size: 0.5625rem;
   }
   .tournament-setup .modal-top h2 {
-    font-size: 27px;
-  }
-  .tournament-rulesets {
-    gap: 7px;
+    font-size: 1.6875rem;
   }
   .tournament-rulesets label {
     padding: 14px 8px;
   }
   .tournament-rulesets strong {
-    font-size: 9px;
+    font-size: 0.5625rem;
   }
   .tournament-rulesets input {
     right: 7px;
@@ -967,22 +925,13 @@
     grid-template-columns: 1fr;
     gap: 0;
   }
-  .tournament-player {
-    padding: 18px 13px 5px;
-  }
   .tournament-player > label {
     margin-bottom: 15px;
-  }
-  .tournament-replay {
-    padding: 22px 14px;
   }
   .tournament-search-optimizations .tournament-search-flags {
     grid-template-columns: 1fr;
   }
   .tournament-replay .modal-top h2 {
-    font-size: 23px;
-  }
-  .tournament-replay-controls {
-    gap: 6px;
+    font-size: 1.4375rem;
   }
 }

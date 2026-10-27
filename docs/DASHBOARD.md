@@ -24,6 +24,10 @@ The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
 
+The **Singleplayer** and **Online multiplayer** statistics cards start collapsed.
+Click a heading, or focus it and press Enter/Space, to expand or collapse that card.
+The cards reset to collapsed when Dashboard reloads; expansion is not saved.
+
 Dashboard statistics are personal and relative to the signed-in account's
 authoritative seat. Both panels group by ruleset only:
 

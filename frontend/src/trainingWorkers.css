@@ -1,9 +1,9 @@
 .training-workers {
-  padding: 25px;
-  margin-bottom: 24px;
+  padding: var(--pad-panel);
+  margin-bottom: var(--gap-card);
 }
 .training-workers .panel-title {
-  gap: 16px;
+  gap: var(--gap-stack);
   flex-wrap: wrap;
   align-items: flex-start;
 }
@@ -17,12 +17,12 @@
 .workers-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-  gap: 14px;
-  margin-top: 18px;
+  gap: var(--gap-stack);
+  margin-top: var(--gap-card);
 }
 .worker-card {
   min-width: 0;
-  padding: 16px;
+  padding: var(--pad-panel-sm);
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-raised);
@@ -31,15 +31,15 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--gap-stack);
 }
 .worker-heading h3 {
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .worker-status {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .worker-status.online {
   color: var(--ui-copy, #437347);
@@ -63,15 +63,15 @@
 .worker-card small {
   display: block;
   margin: 9px 0 0;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .worker-card .text-button {
-  margin-top: 12px;
+  margin-top: var(--gap-stack);
 }
 .worker-setup-dialog .form-grid {
-  margin-top: 20px;
+  margin-top: var(--gap-card);
 }
 .worker-instructions > p {
   margin: 16px 0;
@@ -81,25 +81,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
+  gap: var(--gap-stack);
+  margin-top: var(--gap-inline);
 }
 .worker-command {
   max-height: none;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .job-worker {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.6;
   margin: 8px 0 15px;
   overflow-wrap: anywhere;
 }
 .job-status.queued {
   background: var(--ui-tint, #edf3e4);
-}
-@media (max-width: 540px) {
-  .training-workers {
-    padding: 20px 16px;
-  }
 }

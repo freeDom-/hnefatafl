@@ -3,8 +3,8 @@
   --chart-value: #3987a6;
   --chart-evaluation: #508b51;
   display: grid;
-  gap: 16px;
-  margin-block: 20px;
+  gap: var(--gap-stack);
+  margin-block: var(--gap-card);
 }
 .training-chart {
   margin: 0;
@@ -13,7 +13,7 @@
 .training-chart figcaption {
   overflow-wrap: anywhere;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.8125rem;
   margin-bottom: 6px;
 }
 .training-chart svg {
@@ -23,7 +23,7 @@
 }
 .training-chart svg text {
   fill: var(--text-secondary, currentColor);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .chart-gridline {
   stroke: currentColor;
@@ -32,8 +32,8 @@
 .training-chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  font-size: 11px;
+  gap: var(--gap-stack);
+  font-size: 0.6875rem;
 }
 .training-chart-legend span {
   display: inline-flex;
@@ -50,16 +50,16 @@
   margin: 0;
 }
 .training-plan-note {
-  padding: 12px;
+  padding: var(--pad-panel-sm);
   border: 1px solid var(--line, #d9dacd);
   border-radius: 8px;
 }
 .training-retain-best {
-  margin-top: 16px;
+  margin-top: var(--gap-stack);
 }
 .training-evaluation {
-  margin-block: 16px;
-  padding: 12px;
+  margin-block: var(--gap-stack);
+  padding: var(--pad-panel-sm);
   min-width: 0;
   border: 1px solid var(--line, #d9dacd);
   border-radius: 8px;
@@ -76,11 +76,11 @@
 }
 .training-evaluation-status dt {
   color: var(--ui-subtle);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .training-evaluation-status dd {
   margin: 6px 0 0;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -100,7 +100,7 @@
   --chart-evaluation: #a2ce8a;
 }
 .training-chart figcaption {
-  font-size: 15px;
+  font-size: 0.9375rem;
   margin-bottom: 8px;
 }
 .training-chart svg {
@@ -110,18 +110,18 @@
 }
 .training-chart svg text {
   fill: var(--ui-copy, #56604d);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .training-chart-legend {
-  font-size: 12px;
-  gap: 10px 16px;
+  font-size: 0.75rem;
+  gap: var(--gap-inline) var(--gap-stack);
 }
 .chart-tooltip {
   display: block;
   min-height: 36px;
   padding-top: 8px;
   color: var(--ui-copy);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 .chart-crosshair {
