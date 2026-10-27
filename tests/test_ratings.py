@@ -77,15 +77,23 @@ def credential_for(rig, game, side):
     return next(c for name, c in rig.credentials.items() if rig.accounts[name]["id"] == account_id)
 
 
-def waiting(rig, ruleset="brandubh", rated=False):
+def waiting(rig, ruleset="brandubh", rated=True):
     return rig.core.create(
         rig.credentials["Archer"], ruleset, "attackers", 60, uuid4().hex, rated=rated
     )["game"]
 
 
-def active(rig, ruleset="brandubh", rated=False):
+def active(rig, ruleset="brandubh", rated=True):
     game = waiting(rig, ruleset, rated)
     return rig.core.mutate(rig.credentials["Keeper"], game["id"], 0, "join")["game"]
+
+
+def make_historical_casual(rig, game):
+    """Mark a new game casual to exercise historical casual compatibility."""
+    with rig.store.connection() as c:
+        c.execute("DROP TRIGGER IF EXISTS online_match_immutable")
+        c.execute("UPDATE online_matches SET rated=0 WHERE id=?", (game["match"]["id"],))
+    return rig.core.read(rig.credentials["Archer"], game["id"])
 
 
 def finish(rig, game, winner):
@@ -233,7 +241,7 @@ def test_rated_game_applies_both_sides_casual_does_not(rig):
     assert keeper["rating"] == 1484.0 and keeper["losses"] == 1
     assert archer["rated_games"] == keeper["rated_games"] == 1
 
-    casual = active(rig, rated=False)
+    casual = make_historical_casual(rig, active(rig))
     assert casual["rated"] is False
     casual = finish(rig, casual, "attackers")
     assert casual["result"]["rated_eligible"] is False
@@ -400,15 +408,17 @@ def test_concurrent_completion_serializes_and_applies_each_once(rig):
 
 
 def test_rated_flag_is_immutable_and_client_cannot_forge(rig):
-    game = active(rig, rated=False)
+    game = active(rig)
+    assert game["rated"] is True
     with rig.store.connection() as c:
         with pytest.raises(sqlite3.IntegrityError):
-            c.execute("UPDATE online_matches SET rated=1 WHERE id=?", (game["match"]["id"],))
-    assert game["rated"] is False
-    with pytest.raises(OnlineError):
-        rig.core.create(
-            rig.credentials["Archer"], "brandubh", "attackers", 60, uuid4().hex, rated=1
-        )
+            c.execute("UPDATE online_matches SET rated=0 WHERE id=?", (game["match"]["id"],))
+    # Explicit unrated and non-boolean values are rejected; omission is rated.
+    for forged in (False, 1):
+        with pytest.raises(OnlineError):
+            rig.core.create(
+                rig.credentials["Archer"], "brandubh", "attackers", 60, uuid4().hex, rated=forged
+            )
 
 
 def test_admin_rebuild_is_deterministic_and_permission_checked(rig):
@@ -691,9 +701,10 @@ def test_projection_exposes_terminal_king_square_only_for_king_capture(rig):
 def test_online_statistics_group_by_ruleset_and_include_rating(rig):
     from hnefatafl.personal import PersonalHistory
 
-    finish(rig, active(rig, "brandubh", rated=True), "attackers")
-    finish(rig, active(rig, "brandubh", rated=True), "defenders")
-    finish(rig, active(rig, "tablut", rated=False), "attackers")
+    finish(rig, active(rig, "brandubh"), "attackers")
+    finish(rig, active(rig, "brandubh"), "defenders")
+    casual = make_historical_casual(rig, active(rig, "tablut"))
+    finish(rig, casual, "attackers")
     with rig.store.connection() as c:
         stats = PersonalHistory._online_statistics(c, rig.accounts["Archer"]["id"])
     groups = {group["ruleset"]: group for group in stats["groups"]}
@@ -703,3 +714,167 @@ def test_online_statistics_group_by_ruleset_and_include_rating(rig):
     assert groups["brandubh"]["rating"] is not None
     assert groups["tablut"]["played"] == 1
     assert groups["tablut"]["rating"] is None
+
+
+# --- Start-rating snapshots, winner delta and completed-game analysis ----------
+
+
+def test_start_rating_snapshots_are_captured_at_activation(rig):
+    finish(rig, active(rig), "attackers")
+    game = active(rig)
+    with rig.store.connection() as c:
+        captured = {
+            row["account_id"]: row["rating"]
+            for row in c.execute(
+                "SELECT account_id,rating FROM online_game_start_ratings WHERE game_id=?",
+                (game["id"],),
+            )
+        }
+    assert captured[rig.accounts["Archer"]["id"]] == 1516.0
+    assert captured[rig.accounts["Keeper"]["id"]] == 1484.0
+    # A pool rebuild must not rewrite immutable start snapshots.
+    rig.core.rebuild_ratings(rig.credentials["Archer"], "brandubh")
+    with rig.store.connection() as c:
+        again = {
+            row["account_id"]: row["rating"]
+            for row in c.execute(
+                "SELECT account_id,rating FROM online_game_start_ratings WHERE game_id=?",
+                (game["id"],),
+            )
+        }
+    assert again == captured
+
+
+def test_start_rating_snapshots_are_idempotent(rig):
+    game = active(rig)
+    with rig.store.connection() as c:
+        rig.core.ratings.capture_start(
+            c,
+            game["id"],
+            "brandubh",
+            rig.accounts["Archer"]["id"],
+            rig.accounts["Keeper"]["id"],
+            rig.clock.value,
+        )
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_game_start_ratings WHERE game_id=?", (game["id"],)
+            ).fetchone()[0]
+            == 2
+        )
+
+
+def test_multi_game_match_snapshots_each_leg_separately(rig):
+    match = rig.core.create(
+        rig.credentials["Archer"],
+        "brandubh",
+        "attackers",
+        60,
+        uuid4().hex,
+        mode="sequential",
+        rated=True,
+    )["game"]
+    match = rig.core.mutate(rig.credentials["Keeper"], match["id"], 0, "join")["game"]
+    finished = finish(rig, match, "attackers")
+    return_game = rig.core.read(rig.credentials["Archer"], finished["match"]["games"][1]["id"])
+    with rig.store.connection() as c:
+        for identifier in (match["id"], return_game["id"]):
+            assert (
+                c.execute(
+                    "SELECT COUNT(*) FROM online_game_start_ratings WHERE game_id=?", (identifier,)
+                ).fetchone()[0]
+                == 2
+            )
+
+
+def test_history_exposes_start_ratings_and_winner_delta(tmp_path):
+    from fastapi.testclient import TestClient
+
+    app, archer = api_client(tmp_path)
+    with archer:
+        verified_login(app, archer, "Archer")
+        keeper = TestClient(app)
+        with keeper:
+            verified_login(app, keeper, "Keeper")
+            created = archer.post(
+                "/api/online/games",
+                json={
+                    "request_id": str(uuid4()),
+                    "ruleset": "brandubh",
+                    "side_selection": "attackers",
+                    "time_per_move": 60,
+                },
+            ).json()["game"]
+            active = keeper.post(
+                f"/api/online/games/{created['id']}/join", json={"version": 0}
+            ).json()["game"]
+            # Archer (to move) concedes; Keeper wins and gains Elo.
+            archer.post(
+                f"/api/online/games/{created['id']}/concede",
+                json={"version": active["version"]},
+            )
+            hall = archer.get("/api/history/games").json()["games"]
+            row = next(item for item in hall if item["id"] == created["id"])
+            assert row["attacker_rating"] == 1500.0
+            assert row["defender_rating"] == 1500.0
+            assert row["winner_delta"] == 16.0
+            # A local record without a snapshot never invents a start rating.
+            local = archer.post("/api/games", json={"ruleset": "brandubh"}).json()
+            local_row = next(
+                item
+                for item in archer.get("/api/history/games").json()["games"]
+                if item["id"] == local["id"]
+            )
+            assert local_row["attacker_rating"] is None
+            assert local_row["winner_delta"] is None
+
+
+def test_completed_online_analysis_is_authorized_and_ongoing_is_rejected(tmp_path):
+    from fastapi.testclient import TestClient
+
+    app, archer = api_client(tmp_path)
+    with archer:
+        verified_login(app, archer, "Archer")
+        keeper = TestClient(app)
+        with keeper:
+            verified_login(app, keeper, "Keeper")
+            created = archer.post(
+                "/api/online/games",
+                json={
+                    "request_id": str(uuid4()),
+                    "ruleset": "brandubh",
+                    "side_selection": "attackers",
+                    "time_per_move": 60,
+                },
+            ).json()["game"]
+            active = keeper.post(
+                f"/api/online/games/{created['id']}/join", json={"version": 0}
+            ).json()["game"]
+            ongoing = archer.post(
+                f"/api/history/online/{created['id']}/analysis",
+                json={"version": active["version"], "cursor": 0, "background": True},
+            )
+            assert ongoing.status_code == 403
+            completed = archer.post(
+                f"/api/online/games/{created['id']}/concede",
+                json={"version": active["version"]},
+            ).json()["game"]
+            allowed = archer.post(
+                f"/api/history/online/{created['id']}/analysis",
+                json={
+                    "version": completed["version"],
+                    "cursor": len(completed["moves"]),
+                    "background": True,
+                },
+            )
+            assert allowed.status_code == 200
+            assert allowed.json()["status"] in {"pending", "complete"}
+            # A non-participant cannot read the completed game's analysis.
+            visitor = TestClient(app)
+            with visitor:
+                verified_login(app, visitor, "Visitor")
+                denied = visitor.post(
+                    f"/api/history/online/{created['id']}/analysis",
+                    json={"version": completed["version"], "cursor": 0, "background": True},
+                )
+                assert denied.status_code == 404

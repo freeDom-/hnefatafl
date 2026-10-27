@@ -113,6 +113,28 @@ class Ratings:
         for pool in _POOLS:
             self.rebuild_pool(c, pool, now)
 
+    def capture_start(
+        self, c, game_id: str, pool: str, attackers_id: str, defenders_id: str, now: datetime
+    ) -> None:
+        """Persist immutable per-player start ratings when a game activates.
+
+        Idempotent: duplicate activation requests keep the first snapshot. These
+        values are read from the current running ratings (or the initial rating
+        for an unrated account) and are never rewritten by a pool rebuild.
+        """
+        at = _micros(now)
+        for account in (attackers_id, defenders_id):
+            row = c.execute(
+                "SELECT rating FROM player_ratings WHERE account_id=? AND pool=?",
+                (account, pool),
+            ).fetchone()
+            value = row["rating"] if row else rating.INITIAL_RATING
+            c.execute(
+                """INSERT OR IGNORE INTO online_game_start_ratings(
+                     game_id,account_id,pool,rating,captured_at) VALUES(?,?,?,?,?)""",
+                (game_id, account, pool, value, at),
+            )
+
     def apply(self, c, match_id: str, game_id: str, result, now: datetime) -> None:
         """Apply or withdraw the rating event for one terminal result revision.
 

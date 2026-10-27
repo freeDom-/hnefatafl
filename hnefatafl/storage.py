@@ -280,11 +280,16 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
-    def save_analytics(self, game_id: str, settings: dict) -> dict:
+    def save_analytics(self, game_id: str, settings: dict, *, allow_online=False) -> dict:
         """Preferences use their own revision, independently of gameplay moves."""
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute("SELECT 1 FROM games WHERE id=?", (game_id,)).fetchone() is None:
+            exists = connection.execute("SELECT 1 FROM games WHERE id=?", (game_id,)).fetchone()
+            if exists is None and allow_online:
+                exists = connection.execute(
+                    "SELECT 1 FROM online_games WHERE id=?", (game_id,)
+                ).fetchone()
+            if exists is None:
                 raise ConflictError("Game not found.")
             row = connection.execute(
                 "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
@@ -320,6 +325,7 @@ class Store:
         *,
         advisor_revision: int | None = None,
         partial: bool = False,
+        online: bool = False,
     ) -> dict:
         """Save late work only while the exact searched line remains retained.
 
@@ -331,17 +337,28 @@ class Store:
         game_id, key, cursor = original["id"], snapshot["position_key"], snapshot["cursor"]
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT data FROM games WHERE id=?", (game_id,)).fetchone()
-            if row is None:
-                raise ConflictError("Game no longer exists.")
-            current = json.loads(row["data"])
-            if (
-                current.get("seed") != original.get("seed")
-                or current.get("ruleset") != original.get("ruleset")
-                or len(current["moves"]) < cursor
-                or current["moves"][:cursor] != original["moves"][:cursor]
-            ):
-                raise ConflictError("The analyzed line is no longer retained.")
+            if online:
+                # Online games are terminal and immutable here, so the retained
+                # line cannot change; only confirm the record still exists.
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM online_games WHERE id=?", (game_id,)
+                    ).fetchone()
+                    is None
+                ):
+                    raise ConflictError("Game no longer exists.")
+            else:
+                row = connection.execute("SELECT data FROM games WHERE id=?", (game_id,)).fetchone()
+                if row is None:
+                    raise ConflictError("Game no longer exists.")
+                current = json.loads(row["data"])
+                if (
+                    current.get("seed") != original.get("seed")
+                    or current.get("ruleset") != original.get("ruleset")
+                    or len(current["moves"]) < cursor
+                    or current["moves"][:cursor] != original["moves"][:cursor]
+                ):
+                    raise ConflictError("The analyzed line is no longer retained.")
             if advisor_revision is not None:
                 preferences = connection.execute(
                     "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)

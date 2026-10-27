@@ -324,6 +324,7 @@ grant(
     "/api/personal/online/{game_id}/replay",
     "/api/history/games",
     "/api/history/{category}/{game_id}/replay",
+    "/api/history/online/{game_id}/analytics",
     "/api/games/{game_id}",
     "/api/games/{game_id}/analytics",
     "/api/games/{game_id}/replay",
@@ -338,6 +339,8 @@ grant(
     ),
 )
 grant("play", "PUT", "/api/games/{game_id}/analytics")
+grant("play", "PUT", "/api/history/online/{game_id}/analytics")
+grant("play", "POST", "/api/history/online/{game_id}/analysis")
 grant(
     "play",
     "GET",
