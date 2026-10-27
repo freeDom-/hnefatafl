@@ -413,7 +413,7 @@ class PersonalHistory:
             actor = account["id"]
             now = micros(self.online.clock())
             base = """SELECT g.id,g.match_id,g.leg,g.creator_id,g.attackers_id,g.defenders_id,
-                g.ruleset,g.status,g.version,g.created_at,g.updated_at,g.deadline,m.mode,
+                g.ruleset,g.status,g.version,g.created_at,g.updated_at,g.deadline,m.mode,m.rated,
                 CASE WHEN g.status IN ('completed','cancelled','voided') THEN g.updated_at ELSE g.created_at END AS order_at,
                 json_extract(g.position,'$.turn') AS turn,
                 (g.status='active' AND g.deadline>? AND
@@ -504,6 +504,7 @@ class PersonalHistory:
                         "ruleset": row["ruleset"],
                         "status": row["status"],
                         "version": row["version"],
+                        "rated": bool(row["rated"]),
                         "turn": row["turn"],
                         "own_side": side,
                         "your_turn": bool(row["your_turn"]),

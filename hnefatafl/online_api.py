@@ -19,6 +19,7 @@ class CreationRequest(BaseModel):
     side_selection: Literal["attackers", "defenders", "random"]
     mode: Literal["single", "simultaneous", "sequential"] = "single"
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
+    rated: StrictBool = False
 
 
 class ExpectedVersion(BaseModel):
@@ -37,6 +38,11 @@ class VoidRequest(ExpectedVersion):
 
 class GateRequest(VoidRequest):
     enabled: StrictBool
+
+
+class RebuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ruleset: Literal["brandubh", "tablut", "copenhagen"] | None = None
 
 
 def attach_online(app, auth, *, settings=None, clock=None):
@@ -66,6 +72,7 @@ def attach_online(app, auth, *, settings=None, clock=None):
                 body.time_per_move,
                 str(body.request_id),
                 body.mode,
+                body.rated,
             )
         )
 
@@ -120,6 +127,18 @@ def attach_online(app, auth, *, settings=None, clock=None):
     @app.get("/api/online/stats")
     def statistics():
         return execute(core.statistics)
+
+    @app.get("/api/leaderboard")
+    def leaderboard(
+        ruleset: Literal["brandubh", "tablut", "copenhagen"] = "tablut",
+        limit: int = Query(default=25, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=100000),
+    ):
+        return execute(lambda credential: core.leaderboard(credential, ruleset, limit, offset))
+
+    @app.post("/api/online/ratings/rebuild")
+    def rebuild_ratings(body: RebuildRequest):
+        return execute(lambda credential: core.rebuild_ratings(credential, body.ruleset))
 
     @app.get("/api/online/timeout-gate")
     def gate():

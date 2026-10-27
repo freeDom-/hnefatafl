@@ -67,7 +67,7 @@ def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path)
     assert Store(path).players(include_deleted=True)[0]["rune"] == fresh["rune"]
     assert migrated.rune("player:retired") == retired["rune"]
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert connection.execute("SELECT data FROM games WHERE id='old'").fetchone()[0] == old_json
 
 

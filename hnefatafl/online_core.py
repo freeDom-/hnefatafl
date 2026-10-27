@@ -16,8 +16,9 @@ import threading
 import time
 from uuid import UUID, uuid4
 
-from . import lifecycle
+from . import lifecycle, rating
 from .engine import RULESETS, Move, State, apply_move, new_game
+from .online_ratings import Ratings
 from .online_settings import OnlineSettings
 from .security_context import allowed, online_eligible
 
@@ -72,6 +73,7 @@ class OnlineCore:
     def __init__(self, auth, settings: OnlineSettings, clock=None):
         self.auth, self.store, self.settings = auth, auth.store, settings
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.ratings = Ratings()
         self.stop = threading.Event()
         self.thread: threading.Thread | None = None
 
@@ -194,6 +196,7 @@ class OnlineCore:
         seconds: int,
         request_id: str,
         mode: str = "single",
+        rated: bool = False,
     ) -> dict:
         self._admission()
         try:
@@ -207,10 +210,13 @@ class OnlineCore:
             ruleset not in RULESETS
             or side not in {"attackers", "defenders", "random"}
             or mode not in {"single", "simultaneous", "sequential"}
+            or type(rated) is not bool
         ):
             raise OnlineError(422, "A supported ruleset and side are required.")
         with self._write() as c:
             account = self._identity(c, credential, admission=True)
+            if rated and not online_eligible(account):
+                raise OnlineError(403, "Rated games require an active, verified account.")
             if c.execute(
                 "SELECT 1 FROM online_games WHERE creator_id=? AND creation_request=?",
                 (account["id"], request_id),
@@ -230,7 +236,7 @@ class OnlineCore:
                 )
                 match_id = "match-" + uuid4().hex
                 c.execute(
-                    "INSERT INTO online_matches VALUES(?,?,NULL,?,?,?,?,?,?,NULL,NULL)",
+                    "INSERT INTO online_matches(id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,activated_at,first_creator_side,rated) VALUES(?,?,NULL,?,?,?,?,?,?,NULL,NULL,?)",
                     (
                         match_id,
                         account["id"],
@@ -240,6 +246,7 @@ class OnlineCore:
                         RULESETS[ruleset].version,
                         seconds,
                         micros(now),
+                        int(rated),
                     ),
                 )
                 self._insert_game(
@@ -449,6 +456,7 @@ class OnlineCore:
                     json.dumps(result_payload(result)),
                 ),
             )
+            self.ratings.apply(c, row["match_id"], game.id, result, now)
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(
@@ -584,12 +592,14 @@ class OnlineCore:
                 if account
                 else None
             )
+        rated = bool(match["rated"])
         result = None
         if game.result:
             result = result_payload(game.result)
             for private in ("correction_note", "corrected_by"):
                 result.pop(private)
-            result.update(rated_eligible=False, rated_reason="policy_not_approved")
+            eligible, reason, applications = self._rating_projection(c, game.id, rated, game.result)
+            result.update(rated_eligible=eligible, rated_reason=reason, rating=applications)
         return {
             "id": game.id,
             "category": "online",
@@ -614,7 +624,7 @@ class OnlineCore:
             "ruleset": row["ruleset"],
             "ruleset_version": row["ruleset_version"],
             "time_per_move": game.control.seconds,
-            "rated_intent": False,
+            "rated": rated,
             "created_at": stamp(instant(row["created_at"])),
             "updated_at": stamp(game.updated_at),
             "started_at": stamp(game.started_at),
@@ -637,6 +647,44 @@ class OnlineCore:
         }
 
     @staticmethod
+    def _rating_projection(c, game_id, rated, result):
+        """Authoritative rating view for a completed game; never a client claim."""
+        if not rated:
+            return False, "casual", None
+        event = c.execute("SELECT state FROM rating_events WHERE game_id=?", (game_id,)).fetchone()
+        if event is not None and event["state"] == "applied":
+            applications = c.execute(
+                """SELECT account_id,rating_before,rating_after,delta,opponent_rating,expected,
+                          score,rated_games_after,policy_version
+                   FROM rating_applications WHERE game_id=? ORDER BY account_id""",
+                (game_id,),
+            ).fetchall()
+            return (
+                True,
+                None,
+                [
+                    {
+                        "account_id": app["account_id"],
+                        "rating_before": app["rating_before"],
+                        "rating_after": app["rating_after"],
+                        "delta": app["delta"],
+                        "opponent_rating": app["opponent_rating"],
+                        "expected": app["expected"],
+                        "score": app["score"],
+                        "provisional": app["rated_games_after"] < rating.PROVISIONAL_GAMES,
+                        "policy_version": app["policy_version"],
+                    }
+                    for app in applications
+                ]
+                or None,
+            )
+        if (event is not None and event["state"] == "withdrawn") or (
+            result.termination_reason == "administrative_void"
+        ):
+            return False, "voided", None
+        return False, "ineligible", None
+
+    @staticmethod
     def _participant(c, account_id, identifier):
         if not c.execute(
             """SELECT 1 FROM online_games g JOIN online_matches m ON m.id=g.match_id
@@ -652,6 +700,37 @@ class OnlineCore:
             if participant_only:
                 self._participant(c, account["id"], identifier)
             return self._projection(c, *self._load(c, identifier))
+
+    def leaderboard(self, credential: str, pool: str, limit: int = 25, offset: int = 0) -> dict:
+        if pool not in RULESETS:
+            raise OnlineError(422, "A supported ruleset is required.")
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 100
+            or type(offset) is not int
+            or not 0 <= offset <= 100000
+        ):
+            raise OnlineError(422, "Invalid pagination.")
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self._identity(c, credential)
+            return self.ratings.leaderboard(c, account["id"], pool, limit, offset)
+
+    def rebuild_ratings(self, credential: str, pool: str | None = None) -> dict:
+        """Administrative reconciliation: deterministic, idempotent replay."""
+        if pool is not None and pool not in RULESETS:
+            raise OnlineError(422, "A supported ruleset is required.")
+        with self._write() as c:
+            self._identity(c, credential, admin=True)
+            now = self._now()
+            if pool is None:
+                self.ratings.rebuild_all(c, now)
+            else:
+                self.ratings.rebuild_pool(c, pool, now)
+        return {
+            "rebuilt": sorted(RULESETS) if pool is None else [pool],
+            "policy_version": rating.RATING_POLICY_VERSION,
+        }
 
     def availability(self, credential: str) -> dict:
         """Own admission eligibility/configuration, independent of existing seats."""

@@ -288,7 +288,7 @@ def test_existing_schema10_adds_monitoring_without_rewriting_authority(rig):
         c.execute("DROP INDEX online_waiting_creator")
     reopened = Store(rig.store.path)
     with reopened.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 11
         assert tuple(c.execute("SELECT * FROM online_games").fetchone()) == before
         assert c.execute("SELECT COUNT(*) FROM online_creation_metrics").fetchone()[0] == 2
     assert rig.core.read(rig.credentials["Archer"], game["id"])["status"] == "waiting"
