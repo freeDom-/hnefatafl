@@ -2,15 +2,36 @@ import { useCallback, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
-import { surfaceLink } from './surfaceNavigation';
 import { useOnlinePoll } from './useOnlinePoll';
 import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineTypes';
 import './leaderboard.css';
 
 const rulesets = ['brandubh', 'tablut', 'copenhagen'] as const;
-
-function formatRating(value: number) {
-  return String(Math.round(value));
+const ruleNames: Record<string, string> = {
+  brandubh: 'Brandubh',
+  tablut: 'Tablut',
+  copenhagen: 'Copenhagen',
+};
+const RULESET_KEY = 'hnefatafl-leaderboard-ruleset';
+const isRuleset = (value: string | null): value is (typeof rulesets)[number] =>
+  value !== null && (rulesets as readonly string[]).includes(value);
+/** Default Copenhagen; ignore invalid values and unavailable storage. */
+export function readStoredRuleset(): string {
+  try {
+    const value = localStorage.getItem(RULESET_KEY);
+    if (isRuleset(value)) return value;
+  } catch {
+    /* Browser storage may be unavailable. */
+  }
+  return 'copenhagen';
+}
+export function persistRuleset(value: string) {
+  if (!isRuleset(value)) return;
+  try {
+    localStorage.setItem(RULESET_KEY, value);
+  } catch {
+    /* Keep the in-memory selection. */
+  }
 }
 
 function Entries({
@@ -42,8 +63,11 @@ function Entries({
               <td>
                 {entry.name}
                 {entry.account_id === ownId ? ` · ${t('You')}` : ''}
+                {entry.provisional ? (
+                  <span className="badge leaderboard-provisional">{t('Provisional')}</span>
+                ) : null}
               </td>
-              <td>{formatRating(entry.rating)}</td>
+              <td>{Math.round(entry.rating)}</td>
               <td>{entry.rated_games}</td>
             </tr>
           ))}
@@ -56,7 +80,7 @@ function Entries({
 export default function Leaderboard({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
   const { account } = useAuth();
-  const [ruleset, setRuleset] = useState<string>('tablut');
+  const [ruleset, setRuleset] = useState<string>(readStoredRuleset);
   const [offset, setOffset] = useState(0);
   const pageSize = compact ? 5 : 25;
   const load = useCallback(
@@ -74,40 +98,35 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
     load,
   );
   const data = poll.data;
-  const qualified = data?.qualified?.entries ?? [];
-  const provisional = data?.provisional?.entries ?? [];
-  const empty = !!data && !qualified.length && !provisional.length;
+  const entries = data?.entries ?? [];
+  const total = data?.total ?? 0;
   return (
     <section
       className={compact ? 'panel leaderboard-compact' : 'leaderboard-page'}
       aria-labelledby={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}
     >
-      <div className="section-heading">
+      <div className="section-heading leaderboard-heading-row">
         <h2 id={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}>
           {t('Leaderboard')}
         </h2>
-        {compact && (
-          <a href="/leaderboard" onClick={surfaceLink}>
-            {t('View full leaderboard')}
-          </a>
-        )}
+        <label className="leaderboard-filter">
+          {t('Ruleset')}
+          <select
+            value={ruleset}
+            onChange={(event) => {
+              setRuleset(event.target.value);
+              persistRuleset(event.target.value);
+              setOffset(0);
+            }}
+          >
+            {rulesets.map((value) => (
+              <option value={value} key={value}>
+                {t(ruleNames[value])}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
-      <label className="leaderboard-filter">
-        {t('Ruleset')}
-        <select
-          value={ruleset}
-          onChange={(event) => {
-            setRuleset(event.target.value);
-            setOffset(0);
-          }}
-        >
-          {rulesets.map((value) => (
-            <option value={value} key={value}>
-              {t(value === 'brandubh' ? 'Brandubh' : value === 'tablut' ? 'Tablut' : 'Copenhagen')}
-            </option>
-          ))}
-        </select>
-      </label>
       {poll.phase === 'loading' && <p role="status">{t('Loading leaderboard…')}</p>}
       {poll.phase === 'stale' && (
         <p role="alert">
@@ -117,36 +136,10 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
           </button>
         </p>
       )}
-      {data && empty && <p>{t('No rated games in this pool yet.')}</p>}
-      {data && !empty && (
+      {data && total === 0 && <p>{t('No rated games in this pool yet.')}</p>}
+      {data && total > 0 && (
         <>
-          {data.me && (
-            <p className="leaderboard-me" role="status">
-              {t('Your standing')}: {data.me.rank} · {formatRating(data.me.rating)} ·{' '}
-              {t('{count} rated games', { count: data.me.rated_games })}
-              {data.me.provisional ? ` · ${t('Provisional')}` : ''}
-            </p>
-          )}
-          {!data.me && (
-            <p className="leaderboard-me">{t('You are not ranked in this pool yet.')}</p>
-          )}
-          <h3>{t('Qualified standings')}</h3>
-          {qualified.length ? (
-            <Entries entries={qualified} ownId={account?.id} caption="Qualified standings" />
-          ) : (
-            <p>{t('No qualified players in this pool yet.')}</p>
-          )}
-          {provisional.length > 0 && (
-            <>
-              <h3>{t('Provisional players')}</h3>
-              <p className="subtle">
-                {t('Provisional until {count} rated games.', {
-                  count: data.policy.provisional_games,
-                })}
-              </p>
-              <Entries entries={provisional} ownId={account?.id} caption="Provisional players" />
-            </>
-          )}
+          <Entries entries={entries} ownId={account?.id} caption="Leaderboard" />
           {!compact && (
             <nav className="leaderboard-pages" aria-label={t('Leaderboard pages')}>
               <button
@@ -159,7 +152,7 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
               <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
               <button
                 className="button secondary"
-                disabled={qualified.length < pageSize || offset + pageSize > 100000}
+                disabled={entries.length < pageSize || offset + pageSize > 100000}
                 onClick={() => setOffset(offset + pageSize)}
               >
                 {t('Next page')}

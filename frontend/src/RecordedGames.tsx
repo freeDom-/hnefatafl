@@ -13,6 +13,11 @@ export type RecordedGame = {
   attackers: string | null;
   defenders: string | null;
   owner: string | null;
+  /** Immutable start-rating snapshots; null for older records or local games. */
+  attacker_rating?: number | null;
+  defender_rating?: number | null;
+  /** Effective persisted Elo delta for the winner; null when unrated or voided. */
+  winner_delta?: number | null;
 };
 export type RecordedPage = {
   games: RecordedGame[];
@@ -67,6 +72,22 @@ const dateTimeFormat = (locale: string) =>
   });
 export const participantLabel = (name: string | null, t: (key: string) => string) =>
   name ?? t('Unassigned');
+/** Start Elo is shown only when a reliable snapshot exists; never backfilled. */
+export const ratedParticipantLabel = (
+  name: string | null,
+  rating: number | null | undefined,
+  t: (key: string, values?: Record<string, string | number>) => string,
+) =>
+  rating === null || rating === undefined
+    ? participantLabel(name, t)
+    : `${participantLabel(name, t)} (${Math.round(rating)})`;
+/** A positive winner delta only; draws, voids and unrated records return null. */
+export const winnerDelta = (game: RecordedGame): number | null => {
+  if (game.status !== 'completed') return null;
+  if (game.winner !== 'attackers' && game.winner !== 'defenders') return null;
+  if (game.winner_delta === null || game.winner_delta === undefined) return null;
+  return game.winner_delta > 0 ? game.winner_delta : null;
+};
 /**
  * Only a completed recorded result names a winner. Draws, unfinished,
  * cancelled and voided games never gain an invented or board-inferred winner.
@@ -78,9 +99,9 @@ export function winnerLabel(
   if (game.status !== 'completed') return '—';
   if (game.winner === 'draw') return t('Draw');
   if (game.winner === 'attackers')
-    return `${participantLabel(game.attackers, t)} (${t('Attackers')})`;
+    return `${participantLabel(game.attackers, t)} (${t('Attacker')})`;
   if (game.winner === 'defenders')
-    return `${participantLabel(game.defenders, t)} (${t('Defenders')})`;
+    return `${participantLabel(game.defenders, t)} (${t('Defender')})`;
   return '—';
 }
 export default function RecordedGames({
@@ -116,9 +137,25 @@ export default function RecordedGames({
             >
               <td>{t(statusNames[game.status] ?? game.status)}</td>
               <td>{t(ruleNames[game.ruleset] ?? game.ruleset)}</td>
-              <td>{participantLabel(game.attackers, t)}</td>
-              <td>{participantLabel(game.defenders, t)}</td>
-              <td>{winnerLabel(game, t)}</td>
+              <td>{ratedParticipantLabel(game.attackers, game.attacker_rating, t)}</td>
+              <td>{ratedParticipantLabel(game.defenders, game.defender_rating, t)}</td>
+              <td>
+                {winnerLabel(game, t)}
+                {(() => {
+                  const delta = winnerDelta(game);
+                  if (delta === null) return null;
+                  const text = `+${Math.round(delta)}`;
+                  return (
+                    <span
+                      className="winner-delta"
+                      aria-label={t('{value} rating gain', { value: text })}
+                    >
+                      {' '}
+                      {text}
+                    </span>
+                  );
+                })()}
+              </td>
               <td>
                 <a
                   href={link(game)}

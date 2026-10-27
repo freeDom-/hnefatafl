@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useI18n } from './i18n';
+import Tabs from './Tabs';
 import type { Job } from './types';
 import { jobGameCounts } from './trainingGameCounts';
 import {
@@ -55,7 +56,6 @@ export default function TrainingJobDashboard({
 }: Props) {
   const { t, locale } = useI18n();
   const id = useId();
-  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const [range, setRange] = useState(0);
   const availableTabs = availableJobTabs(job);
   // The active tab is owned by the parent so it survives switching jobs. The
@@ -184,37 +184,14 @@ export default function TrainingJobDashboard({
           </p>
         )}
       </header>
-      <div className="training-tabs" role="tablist" aria-label={t('Training analysis')}>
-        {availableTabs.map((name, index) => (
-          <button
-            key={name}
-            ref={(element) => {
-              buttons.current[index] = element;
-            }}
-            id={`${id}-tab-${name}`}
-            role="tab"
-            aria-selected={tab === name}
-            aria-controls={`${id}-panel`}
-            tabIndex={tab === name ? 0 : -1}
-            onClick={() => onTabChange(name)}
-            onKeyDown={(event) => {
-              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-              event.preventDefault();
-              const next =
-                event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? availableTabs.length - 1
-                    : (index + (event.key === 'ArrowRight' ? 1 : availableTabs.length - 1)) %
-                      availableTabs.length;
-              onTabChange(availableTabs[next]);
-              buttons.current[next]?.focus();
-            }}
-          >
-            {t(name)}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        id={id}
+        items={availableTabs.map((name) => ({ id: name, label: name }))}
+        active={tab}
+        onChange={(name) => onTabChange(name as JobTab)}
+        label="Training analysis"
+        className="training-tabs"
+      />
       <section
         role="tabpanel"
         id={`${id}-panel`}

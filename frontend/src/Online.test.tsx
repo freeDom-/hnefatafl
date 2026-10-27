@@ -13,6 +13,7 @@ vi.mock('./Auth', () => ({
 }));
 let current: OnlineGame;
 let simultaneousReturn: OnlineGame;
+let switcherGames: OnlineGame[] = [];
 let eligible = true;
 let enabled = true;
 let unavailable = false;
@@ -29,7 +30,8 @@ const fetcher = vi.fn((path: string, options?: RequestInit): Promise<Response> =
     ]);
   if (unavailable) return respond({ detail: 'Online state unavailable.' }, 503);
   if (path === '/api/online/availability') return respond({ eligible, enabled });
-  if (path.includes('?limit=')) return respond({ games: [current], limit: 25, offset: 0 });
+  if (path.includes('/online/games?'))
+    return respond({ games: [current, ...switcherGames], limit: 25, offset: 0, section: 'all' });
   if (path.endsWith('/replay')) return respond(fixture.replay);
   if (path.endsWith(fixture.simultaneous_return.id)) return respond(simultaneousReturn);
   if (path.endsWith(fixture.sequential_return.id)) return respond(fixture.sequential_return);
@@ -61,6 +63,7 @@ beforeEach(() => {
   enabled = true;
   unavailable = false;
   current = structuredClone(fixture.waiting) as OnlineGame;
+  switcherGames = [];
   mutation = async () =>
     respond({ game: current, transition: 'created', action_accepted: true }, 201);
   sessionStorage.clear();
@@ -107,7 +110,7 @@ it.each(
     side_selection: side,
     mode,
     time_per_move: 3600,
-    rated: false,
+    rated: true,
   });
 });
 it('retains a creation UUID through uncertain outcomes and reload; recovery never automatically retries', async () => {
@@ -129,9 +132,9 @@ it('retains a creation UUID through uncertain outcomes and reload; recovery neve
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
   mutation = async () => respond({ detail: 'Creation request already exists.' }, 409);
-  fireEvent.click(screen.getByRole('button', { name: 'My games' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'My games' }));
   await waitFor(() =>
-    expect(fetcher.mock.calls.some(([path]) => path.includes('mine=true'))).toBe(true),
+    expect(fetcher.mock.calls.some(([path]) => path.includes('section=mine'))).toBe(true),
   );
   fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
   await screen.findByText(/State changed or adjudication/);
@@ -219,7 +222,7 @@ it('retains the last confirmed board as stale on unavailable recovery', async ()
   };
   room();
   await move();
-  await screen.findByText('Stale state. Reconnecting…');
+  await screen.findByText('Online service unavailable or stale. Retry to reconnect.');
   expect(screen.getByRole('grid')).toBeVisible();
   expect(
     screen.getAllByRole('gridcell').every((cell) => cell.getAttribute('aria-disabled') === 'true'),
@@ -285,16 +288,23 @@ it('replay navigation stays local and prevents historical moves, with no assista
   ).toBe(true);
 });
 it.each(['simultaneous', 'sequential'] as const)(
-  'discovers %s siblings and reads each independent game',
+  'discovers %s siblings in the active-game switcher and switches games',
   async (mode) => {
     const game = fixture[mode] as OnlineGame;
+    const sibling = fixture[`${mode}_return`] as OnlineGame;
+    // A completed first sequential leg leaves only one active game; add another
+    // so the >1-active switcher rule is exercised.
+    switcherGames =
+      mode === 'sequential' ? [sibling, { ...sibling, id: 'online-' + 'c'.repeat(32) }] : [sibling];
     room(game);
-    await screen.findByRole('button', { name: /Game 2 · Active · Version 1/ });
-    const sibling = fixture[`${mode}_return`];
-    expect(fetcher.mock.calls.some(([path]) => path.endsWith(sibling.id))).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: /Game 2 · Active · Version 1/ }));
+    const button = await waitFor(() => {
+      const found = document.querySelector(`[data-game-id="${sibling.id}"]`);
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    fireEvent.click(button);
     await waitFor(() => expect(location.pathname).toBe(`/online/games/${sibling.id}`));
-    await screen.findByText('Creator side: Attackers');
+    await screen.findByRole('heading', { name: 'Online game' });
   },
 );
 it('shows awaiting adjudication using the device clock without inventing a terminal result', async () => {
@@ -337,13 +347,22 @@ it('translates online controls and handles keyboard selection in German', async 
   expect(screen.getByRole('button', { name: 'Wiedergabe ansehen' })).toBeVisible();
 });
 
-it('refreshes a sibling result even when the selected game version stays unchanged', async () => {
-  room(fixture.simultaneous as OnlineGame);
-  await screen.findByRole('button', { name: /Game 2 · Active · Version 1/ });
-  simultaneousReturn = fixture.simultaneous_return_completed as OnlineGame;
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-  await screen.findByRole('button', { name: /Game 2 · Completed · Version 2/ });
-  expect(current.version).toBe(1);
+it('marks the current game and games awaiting the user move in the switcher', async () => {
+  const theirs = structuredClone(fixture.active) as OnlineGame;
+  theirs.id = 'online-' + 'b'.repeat(32);
+  theirs.position = { ...theirs.position, turn: 'defenders' };
+  switcherGames = [theirs];
+  room(fixture.active as OnlineGame);
+  await waitFor(() => {
+    expect(document.querySelector(`[data-game-id="${fixture.active.id}"]`)).not.toBeNull();
+  });
+  const currentButton = document.querySelector(
+    `[data-game-id="${fixture.active.id}"]`,
+  ) as HTMLElement;
+  expect(currentButton).toHaveAttribute('aria-current', 'page');
+  expect(currentButton.textContent).toContain('Your turn');
+  const otherButton = document.querySelector(`[data-game-id="${theirs.id}"]`) as HTMLElement;
+  expect(otherButton.textContent).not.toContain('Your turn');
 });
 
 it('retains the submitted creation ID when two submit events arrive before rendering pending state', async () => {
@@ -397,6 +416,27 @@ it('opens personal review with scoped reads only, effective void status and loca
   ).toBe(true);
 });
 
+it('switches lobby tabs and requests the matching section', async () => {
+  lobby();
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'All games' })).toBeVisible());
+  expect(screen.getByRole('tab', { name: 'All games' })).toHaveAttribute('aria-selected', 'true');
+  expect(fetcher.mock.calls.some(([path]) => path.includes('section=all'))).toBe(true);
+  fireEvent.click(screen.getByRole('tab', { name: 'My turn' }));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([path]) => path.includes('section=my_turn'))).toBe(true),
+  );
+  expect(screen.getByRole('tab', { name: 'My turn' })).toHaveAttribute('aria-selected', 'true');
+});
+it('shows the shared remaining time in the game details for an active game', async () => {
+  const game = {
+    ...fixture.active,
+    deadline: new Date(Date.now() + 125_000).toISOString(),
+  } as OnlineGame;
+  room(game);
+  await screen.findByText('Remaining time');
+  expect(screen.getByLabelText(/2m 0[0-9]s remaining/)).toBeVisible();
+  expect(screen.queryByText('Awaiting adjudication')).toBeNull();
+});
 it('replaces inline creation with the shared modal and closes it on Escape or Cancel', async () => {
   history.replaceState(null, '', '/dashboard');
   const { Lobby } = await import('./Online');
@@ -432,18 +472,18 @@ it('retries a retained 61-second creation intent exactly without truncation to a
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
-  expect(screen.getByText(/uses exactly 61 seconds per move/)).toBeVisible();
+  expect(screen.getByText(/uses exactly 1m 01s per move/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
   await screen.findByRole('heading', { name: 'Online game' });
   expect(
     JSON.parse(String(fetcher.mock.calls.find(([, o]) => o?.method === 'POST')![1]?.body)),
-  ).toEqual({ ...payload, rated: false });
+  ).toEqual({ ...payload, rated: true });
 });
-it('creates a rated game when the eligible player selects it', async () => {
+it('creates every new online game as rated with no casual selector', async () => {
   lobby();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
-  fireEvent.change(screen.getByLabelText('Game type'), { target: { value: 'rated' } });
-  expect(screen.getByText(/Rated games count toward the leaderboard/)).toBeVisible();
+  expect(screen.queryByLabelText('Game type')).toBeNull();
+  expect(screen.queryByText(/Casual games do not affect ratings/)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
   await screen.findByRole('heading', { name: 'Online game' });
   const post = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')!;

@@ -29,7 +29,10 @@ class RecordedHistory:
             (json_extract(data,'$.recorded_result.winner') IS NOT NULL) AS eligible,
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attackers,
             substr(json_extract(data,'$.players.defenders.name'),1,80) AS defenders,
-            substr(coalesce(a.display_name,a.username),1,80) AS owner
+            substr(coalesce(a.display_name,a.username),1,80) AS owner,
+            NULL AS attacker_rating,
+            NULL AS defender_rating,
+            NULL AS winner_delta
             FROM games JOIN accounts a ON a.id=games.owner_account_id"""
         online = """SELECT g.id,'online' AS category,g.updated_at AS order_at,
             g.created_at,g.updated_at AS recorded_at,g.ruleset,g.status,
@@ -37,7 +40,15 @@ class RecordedHistory:
             coalesce(r.competitive_eligible,0) AS eligible,
             substr(coalesce(a.display_name,a.username),1,80) AS attackers,
             substr(coalesce(d.display_name,d.username),1,80) AS defenders,
-            NULL AS owner
+            NULL AS owner,
+            (SELECT s.rating FROM online_game_start_ratings s
+              WHERE s.game_id=g.id AND s.account_id=g.attackers_id) AS attacker_rating,
+            (SELECT s.rating FROM online_game_start_ratings s
+              WHERE s.game_id=g.id AND s.account_id=g.defenders_id) AS defender_rating,
+            (SELECT ra.delta FROM rating_applications ra
+              WHERE ra.game_id=g.id AND ra.account_id = CASE json_extract(r.payload,'$.winner')
+                WHEN 'attackers' THEN g.attackers_id WHEN 'defenders' THEN g.defenders_id END
+            ) AS winner_delta
             FROM online_games g JOIN online_matches m ON m.id=g.match_id
             LEFT JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision
             LEFT JOIN accounts a ON a.id=g.attackers_id
@@ -52,8 +63,13 @@ class RecordedHistory:
             # Trusted current all_data sees every server record.
             return online + " UNION ALL " + account, params
         # Normal users and own-scoped administrators also see their own
-        # account single-player records, never another account's.
-        account += " WHERE games.owner_account_id=?"
+        # account single-player records, never another account's. AI-vs-AI games
+        # are admin analysis artifacts and stay out of personal history; the
+        # trusted all_data Hall still exposes them.
+        account += (
+            " WHERE games.owner_account_id=?"
+            " AND coalesce(json_extract(games.data,'$.mode'),'') <> 'ai-ai'"
+        )
         params = (*params, actor)
         return online + " UNION ALL " + account, params
 

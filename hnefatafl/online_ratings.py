@@ -113,6 +113,28 @@ class Ratings:
         for pool in _POOLS:
             self.rebuild_pool(c, pool, now)
 
+    def capture_start(
+        self, c, game_id: str, pool: str, attackers_id: str, defenders_id: str, now: datetime
+    ) -> None:
+        """Persist immutable per-player start ratings when a game activates.
+
+        Idempotent: duplicate activation requests keep the first snapshot. These
+        values are read from the current running ratings (or the initial rating
+        for an unrated account) and are never rewritten by a pool rebuild.
+        """
+        at = _micros(now)
+        for account in (attackers_id, defenders_id):
+            row = c.execute(
+                "SELECT rating FROM player_ratings WHERE account_id=? AND pool=?",
+                (account, pool),
+            ).fetchone()
+            value = row["rating"] if row else rating.INITIAL_RATING
+            c.execute(
+                """INSERT OR IGNORE INTO online_game_start_ratings(
+                     game_id,account_id,pool,rating,captured_at) VALUES(?,?,?,?,?)""",
+                (game_id, account, pool, value, at),
+            )
+
     def apply(self, c, match_id: str, game_id: str, result, now: datetime) -> None:
         """Apply or withdraw the rating event for one terminal result revision.
 
@@ -189,7 +211,18 @@ class Ratings:
             "losses": row["losses"],
             "draws": row["draws"],
             "rank": rank,
+            "provisional": row["rated_games"] < rating.PROVISIONAL_GAMES,
         }
+
+    # Ranking and presentation both round Elo to the nearest integer, so the
+    # displayed value and the order can never disagree. Equal displayed Elo is
+    # broken by more completed rated games, then by the immutable account id.
+    _ORDER = "ORDER BY CAST(ROUND(pr.rating) AS INTEGER) DESC,pr.rated_games DESC,pr.account_id ASC"
+    _RANK = (
+        "CAST(ROUND(pr.rating) AS INTEGER) > CAST(ROUND(?) AS INTEGER)"
+        " OR (CAST(ROUND(pr.rating) AS INTEGER) = CAST(ROUND(?) AS INTEGER)"
+        " AND (pr.rated_games > ? OR (pr.rated_games = ? AND pr.account_id < ?)))"
+    )
 
     @staticmethod
     def _standing(c, pool: str, account_id: str):
@@ -202,16 +235,11 @@ class Ratings:
         ).fetchone()
         if row is None:
             return None
-        provisional = row["rated_games"] < rating.PROVISIONAL_GAMES
-        clause = "<" if provisional else ">="
         rank = c.execute(
-            f"""SELECT COUNT(*)+1 FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id
-                WHERE pr.pool=? AND pr.rated_games {clause} ? AND a.active=1
-                  AND (pr.rating>? OR (pr.rating=? AND (pr.rated_games>?
-                       OR (pr.rated_games=? AND pr.account_id<?))))""",
+            "SELECT COUNT(*)+1 FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id "
+            f"WHERE pr.pool=? AND a.active=1 AND ({Ratings._RANK})",
             (
                 pool,
-                rating.PROVISIONAL_GAMES,
                 row["rating"],
                 row["rating"],
                 row["rated_games"],
@@ -219,28 +247,21 @@ class Ratings:
                 account_id,
             ),
         ).fetchone()[0]
-        return {**Ratings._entry(row, rank), "account_id": account_id, "provisional": provisional}
+        return Ratings._entry(row, rank)
 
     @classmethod
     def leaderboard(cls, c, account_id: str, pool: str, limit: int, offset: int) -> dict:
-        threshold = rating.PROVISIONAL_GAMES
         columns = """pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
                      coalesce(a.display_name,a.username) AS name"""
-        base = """FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id
-                  WHERE pr.pool=? AND pr.rated_games {clause} ? AND a.active=1
-                  ORDER BY pr.rating DESC,pr.rated_games DESC,pr.account_id ASC"""
         total = c.execute(
             "SELECT COUNT(*) FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id "
-            "WHERE pr.pool=? AND pr.rated_games>=? AND a.active=1",
-            (pool, threshold),
+            "WHERE pr.pool=? AND a.active=1",
+            (pool,),
         ).fetchone()[0]
-        qualified = c.execute(
-            f"SELECT {columns} {base.format(clause='>=')} LIMIT ? OFFSET ?",
-            (pool, threshold, limit, offset),
-        ).fetchall()
-        provisional = c.execute(
-            f"SELECT {columns} {base.format(clause='<')} LIMIT 50",
-            (pool, threshold),
+        rows = c.execute(
+            f"SELECT {columns} FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id "
+            f"WHERE pr.pool=? AND a.active=1 {cls._ORDER} LIMIT ? OFFSET ?",
+            (pool, limit, offset),
         ).fetchall()
         return {
             "ruleset": pool,
@@ -250,16 +271,9 @@ class Ratings:
                 "k_factor": rating.K_FACTOR,
                 "provisional_games": rating.PROVISIONAL_GAMES,
             },
-            "qualified": {
-                "entries": [
-                    cls._entry(row, offset + index + 1) for index, row in enumerate(qualified)
-                ],
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-            },
-            "provisional": {
-                "entries": [cls._entry(row, index + 1) for index, row in enumerate(provisional)]
-            },
+            "entries": [cls._entry(row, offset + index + 1) for index, row in enumerate(rows)],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
             "me": cls._standing(c, pool, account_id),
         }
