@@ -139,10 +139,19 @@ it('remembers only a successful permitted setup and does not save cancellation o
   expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(saved);
   second.unmount();
   fetcher.mockImplementation(() => json({ detail: 'Creation unavailable' }, false));
-  show();
+  const retried = vi.fn();
+  show(retried);
   fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
-  await screen.findByRole('alert');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Creation unavailable');
+  expect(screen.getAllByRole('alert')).toHaveLength(1);
+  expect(retried).not.toHaveBeenCalled();
   expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(saved);
+  // The failed attempt keeps the selections, so an explicit retry repeats them.
+  const failedBody = fetcher.mock.calls[0][1]?.body;
+  fetcher.mockImplementation(() => json({ id: 'created' }));
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(retried).toHaveBeenCalledOnce());
+  expect(fetcher.mock.calls[1][1]?.body).toBe(failedBody);
 });
 it.each([
   null,
