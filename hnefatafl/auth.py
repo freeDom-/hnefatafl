@@ -355,7 +355,9 @@ grant(
         for action in ("join", "cancel", "moves", "concede")
     ),
 )
+grant("play", "GET", "/api/leaderboard")
 grant("accounts", "POST", "/api/online/games/{game_id}/void")
+grant("accounts", "POST", "/api/online/ratings/rebuild")
 grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
 grant("play", "GET", "/api/online/availability")

@@ -157,7 +157,7 @@ def test_duration_is_strict_at_service_and_database_boundary(rig, seconds):
         row = dict(c.execute("SELECT * FROM online_games WHERE id=?", (game["id"],)).fetchone())
         match_id = "match-" + uuid4().hex
         c.execute(
-            "INSERT INTO online_matches SELECT ?,creator_id,NULL,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,NULL,NULL FROM online_matches WHERE id=?",
+            "INSERT INTO online_matches SELECT ?,creator_id,NULL,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,NULL,NULL,rated FROM online_matches WHERE id=?",
             (match_id, row["match_id"]),
         )
         row.update(id="invalid-" + uuid4().hex, creation_request=uuid4().hex, time_per_move=seconds)

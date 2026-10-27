@@ -1,9 +1,9 @@
-"""Schema 10: online records are separate from mutable local-game histories."""
+"""Schema 11: durable online records plus versioned Elo rating state."""
 
 import sqlite3
 import time
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -12,6 +12,11 @@ ONLINE_TABLES = (
     "online_void_audit",
     "online_timeout_gate",
     "online_gate_audit",
+    # Rating state is mutable (deterministic rebuilds), so it is retained on
+    # restore but never append-only. Children follow their parents.
+    "rating_events",
+    "rating_applications",
+    "player_ratings",
 )
 APPEND_ONLY = ("online_moves", "online_results", "online_void_audit", "online_gate_audit")
 
@@ -137,16 +142,61 @@ def migrate_online(c: sqlite3.Connection) -> None:
                 (OLD.status='active' AND NEW.status IN ('active','completed','voided')) OR
                 (OLD.status IN ('completed','cancelled') AND NEW.status='voided'))
             BEGIN SELECT RAISE(ABORT,'Invalid online transition'); END""",
-        """CREATE TRIGGER IF NOT EXISTS online_match_immutable BEFORE UPDATE ON online_matches
-            WHEN NEW.id<>OLD.id OR NEW.creator_id<>OLD.creator_id OR NEW.side_selection<>OLD.side_selection
-              OR NEW.mode<>OLD.mode OR NEW.ruleset<>OLD.ruleset OR NEW.ruleset_version<>OLD.ruleset_version
-              OR NEW.time_per_move<>OLD.time_per_move OR NEW.created_at<>OLD.created_at
-              OR (OLD.activated_at IS NOT NULL AND (NEW.activated_at IS NOT OLD.activated_at
-                  OR NEW.opponent_id IS NOT OLD.opponent_id OR NEW.first_creator_side IS NOT OLD.first_creator_side))
-            BEGIN SELECT RAISE(ABORT,'Match configuration and admitted participants are immutable'); END""",
+        """CREATE TABLE IF NOT EXISTS rating_events (
+            game_id TEXT PRIMARY KEY REFERENCES online_games(id),
+            pool TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE,
+            state TEXT NOT NULL CHECK(state IN ('applied','withdrawn')),
+            effective_revision INTEGER NOT NULL,
+            winner TEXT NOT NULL CHECK(winner IN ('attackers','defenders','draw')),
+            attackers_id TEXT NOT NULL REFERENCES accounts(id),
+            defenders_id TEXT NOT NULL REFERENCES accounts(id),
+            completed_at BLOB NOT NULL CHECK(typeof(completed_at)='integer'),
+            policy_version INTEGER NOT NULL CHECK(policy_version>=1),
+            created_at BLOB NOT NULL CHECK(typeof(created_at)='integer'),
+            CHECK(attackers_id<>defenders_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS rating_events_pool ON rating_events(pool,sequence)",
+        """CREATE TABLE IF NOT EXISTS rating_applications (
+            game_id TEXT NOT NULL REFERENCES rating_events(game_id),
+            account_id TEXT NOT NULL REFERENCES accounts(id), pool TEXT NOT NULL,
+            sequence INTEGER NOT NULL, opponent_id TEXT NOT NULL REFERENCES accounts(id),
+            rating_before REAL NOT NULL, rating_after REAL NOT NULL, delta REAL NOT NULL,
+            opponent_rating REAL NOT NULL, expected REAL NOT NULL, score REAL NOT NULL,
+            rated_games_after INTEGER NOT NULL CHECK(rated_games_after>=1),
+            policy_version INTEGER NOT NULL CHECK(policy_version>=1),
+            PRIMARY KEY(game_id,account_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS rating_applications_account ON rating_applications(account_id,pool)",
+        """CREATE TABLE IF NOT EXISTS player_ratings (
+            account_id TEXT NOT NULL REFERENCES accounts(id), pool TEXT NOT NULL,
+            rating REAL NOT NULL, rated_games INTEGER NOT NULL CHECK(rated_games>=0),
+            wins INTEGER NOT NULL CHECK(wins>=0), losses INTEGER NOT NULL CHECK(losses>=0),
+            draws INTEGER NOT NULL CHECK(draws>=0),
+            policy_version INTEGER NOT NULL CHECK(policy_version>=1),
+            updated_at BLOB NOT NULL CHECK(typeof(updated_at)='integer'),
+            PRIMARY KEY(account_id,pool)
+        )""",
+        "CREATE INDEX IF NOT EXISTS player_ratings_pool ON player_ratings(pool,rating DESC)",
     )
     for statement in statements:
         c.execute(statement)
+    # The authoritative rated/casual flag is a match-level creation property. It
+    # is added to existing schema-10 databases in place; online_games.rated_intent
+    # remains a legacy always-zero placeholder so no table rebuild is required.
+    match_columns = {row[1] for row in c.execute("PRAGMA table_info(online_matches)")}
+    if "rated" not in match_columns:
+        c.execute(
+            "ALTER TABLE online_matches ADD COLUMN rated INTEGER NOT NULL DEFAULT 0 CHECK(rated IN (0,1))"
+        )
+    c.execute("DROP TRIGGER IF EXISTS online_match_immutable")
+    c.execute("""CREATE TRIGGER online_match_immutable BEFORE UPDATE ON online_matches
+        WHEN NEW.id<>OLD.id OR NEW.creator_id<>OLD.creator_id OR NEW.side_selection<>OLD.side_selection
+          OR NEW.mode<>OLD.mode OR NEW.ruleset<>OLD.ruleset OR NEW.ruleset_version<>OLD.ruleset_version
+          OR NEW.time_per_move<>OLD.time_per_move OR NEW.created_at<>OLD.created_at
+          OR NEW.rated<>OLD.rated
+          OR (OLD.activated_at IS NOT NULL AND (NEW.activated_at IS NOT OLD.activated_at
+              OR NEW.opponent_id IS NOT OLD.opponent_id OR NEW.first_creator_side IS NOT OLD.first_creator_side))
+        BEGIN SELECT RAISE(ABORT,'Match configuration and admitted participants are immutable'); END""")
     for table in APPEND_ONLY:
         for action in ("UPDATE", "DELETE"):
             c.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_{action.lower()}_immutable
