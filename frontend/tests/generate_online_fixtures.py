@@ -65,6 +65,22 @@ with TemporaryDirectory() as root:
             output["simultaneous_return_completed"] = core.mutate(
                 credentials["Archer"], output[mode + "_return"]["id"], 1, "concede"
             )["game"]
+    def concede_side(game):
+        turn = game["position"]["turn"]
+        account_id = game["participants"][turn]["account_id"]
+        credential = next(
+            c for name, c in credentials.items() if accounts[name]["id"] == account_id
+        )
+        return core.mutate(credential, game["id"], game["version"], "concede")["game"]
+
+    output["rated_waiting"] = core.create(
+        credentials["Archer"], "tablut", "attackers", 259200, str(uuid4()), rated=True
+    )["game"]
+    rated = core.mutate(
+        credentials["Keeper"], output["rated_waiting"]["id"], 0, "join"
+    )["game"]
+    output["rated_completed"] = concede_side(rated)
+
     timeout = core.create(credentials["Archer"], "brandubh", "attackers", 60, str(uuid4()))["game"]
     output["timeout_active"] = core.mutate(credentials["Keeper"], timeout["id"], 0, "join")["game"]
     core.set_gate(credentials["FixtureAdmin"], 0, True, "Deterministic fixture policy")

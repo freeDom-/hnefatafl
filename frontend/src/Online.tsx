@@ -57,7 +57,8 @@ function restoreIntent(accountId: string): CreationIntent | null {
       Object.hasOwn(modeNames, p.mode) &&
       Number.isInteger(p.time_per_move) &&
       p.time_per_move >= 60 &&
-      p.time_per_move <= 1209600
+      p.time_per_move <= 1209600 &&
+      (p.rated === undefined || typeof p.rated === 'boolean')
     )
       return {
         request_id: p.request_id,
@@ -65,6 +66,7 @@ function restoreIntent(accountId: string): CreationIntent | null {
         side_selection: p.side_selection,
         mode: p.mode,
         time_per_move: p.time_per_move,
+        rated: p.rated === true,
       };
   } catch {
     /* Recovery still works through My games without browser storage. */
@@ -218,7 +220,10 @@ function GameSummary({ game, open }: { game: OnlineGame; open: (id: string) => v
         {' · '}
         {t('Defenders')}: {game.participants.defenders?.name ?? t('Unassigned')}
       </p>
-      <p>{t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}</p>
+      <p>
+        {game.rated ? t('Rated') : t('Casual')} ·{' '}
+        {t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}
+      </p>
       <button className="button" onClick={() => open(game.id)}>
         {t('Open game')}
       </button>
@@ -268,6 +273,7 @@ export function Lobby({
   );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
+  const [rated, setRated] = useState(intent?.rated ?? false);
   const [parts] = useState(() => durationParts(intent?.time_per_move ?? 259200));
   const [days, setDays] = useState(parts.days);
   const [hours, setHours] = useState(parts.hours);
@@ -327,6 +333,7 @@ export function Lobby({
       side_selection: side,
       mode,
       time_per_move: seconds,
+      rated,
     };
     intentRef.current = payload;
     setIntent(payload);
@@ -401,6 +408,23 @@ export function Lobby({
                     ))}
                   </select>
                 </label>
+                <label>
+                  {t('Game type')}
+                  <select
+                    value={rated ? 'rated' : 'casual'}
+                    onChange={(e) => setRated(e.target.value === 'rated')}
+                  >
+                    <option value="casual">{t('Casual')}</option>
+                    <option value="rated">{t('Rated')}</option>
+                  </select>
+                </label>
+                <p>
+                  {rated
+                    ? t(
+                        'Rated games count toward the leaderboard for verified accounts. The choice is fixed when the game is created.',
+                      )
+                    : t('Casual games do not affect ratings.')}
+                </p>
                 <fieldset className="move-duration">
                   <legend>{t('Time allowed per move')}</legend>
                   <div className="form-grid">
@@ -582,6 +606,27 @@ function Result({ game }: { game: OnlineGame }) {
     </p>
   );
 }
+function RatingChanges({ game }: { game: OnlineGame }) {
+  const { t } = useI18n();
+  const applications = game.result?.rating;
+  if (!game.rated || !applications?.length) return null;
+  const nameFor = (accountId: string) =>
+    game.participants.attackers?.account_id === accountId
+      ? game.participants.attackers?.name
+      : game.participants.defenders?.name;
+  return (
+    <div className="online-rating" role="status">
+      <h3>{t('Rating changes')}</h3>
+      {applications.map((application) => (
+        <p key={application.account_id}>
+          {nameFor(application.account_id) ?? t('Unassigned')}: {application.delta >= 0 ? '+' : ''}
+          {application.delta.toFixed(1)} → {Math.round(application.rating_after)}
+          {application.provisional ? ` · ${t('Provisional')}` : ''}
+        </p>
+      ))}
+    </div>
+  );
+}
 function GameRoom({
   id,
   accountId,
@@ -735,6 +780,7 @@ function GameRoom({
             <span>
               {t(game.ruleset)} · {t('Rules version')} {game.ruleset_version}
             </span>
+            <span>{game.rated ? t('Rated') : t('Casual')}</span>
             <span>{t('Time per move: {seconds} seconds', { seconds: game.time_per_move })}</span>
           </div>
           <nav className="online-toolbar" aria-label={t('Match games')}>
@@ -853,6 +899,7 @@ function GameRoom({
                 </p>
               )}
               <Result game={game} />
+              <RatingChanges game={game} />
               <Deadline game={game} />
               {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
                 <button

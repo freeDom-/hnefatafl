@@ -12,6 +12,45 @@ export type OnlinePosition = {
   reason: string | null;
 };
 export type Availability = { enabled: boolean; eligible: boolean };
+export type RatingApplication = {
+  account_id: string;
+  rating_before: number;
+  rating_after: number;
+  delta: number;
+  opponent_rating: number;
+  expected: number;
+  score: number;
+  provisional: boolean;
+  policy_version: number;
+};
+export type LeaderboardEntry = {
+  account_id: string;
+  name: string;
+  rating: number;
+  rated_games: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  rank: number;
+};
+export type LeaderboardStanding = LeaderboardEntry & { provisional: boolean };
+export type Leaderboard = {
+  ruleset: string;
+  policy: {
+    version: number;
+    initial_rating: number;
+    k_factor: number;
+    provisional_games: number;
+  };
+  qualified: {
+    entries: LeaderboardEntry[];
+    total: number;
+    limit: number;
+    offset: number;
+  };
+  provisional: { entries: LeaderboardEntry[] };
+  me: LeaderboardStanding | null;
+};
 export type OnlineGame = {
   id: string;
   category: 'online';
@@ -30,7 +69,7 @@ export type OnlineGame = {
   ruleset: string;
   ruleset_version: string;
   time_per_move: number;
-  rated_intent: false;
+  rated: boolean;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -56,8 +95,9 @@ export type OnlineGame = {
     move_count: number;
     competitive_eligible: boolean;
     abandoned_account_id: string | null;
-    rated_eligible: false;
-    rated_reason: 'policy_not_approved';
+    rated_eligible: boolean;
+    rated_reason: string | null;
+    rating: RatingApplication[] | null;
   };
 };
 export type OnlineListing = { games: OnlineGame[]; limit: number; offset: number };
@@ -73,4 +113,5 @@ export type CreationIntent = {
   side_selection: SideSelection;
   mode: MatchMode;
   time_per_move: number;
+  rated: boolean;
 };

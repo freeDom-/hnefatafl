@@ -34,7 +34,7 @@ test('default landing, shared latest three and exact review survive filtering an
   await expect(page.getByText(/Guest games stay/)).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Guest play', exact: true })).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
-  await expect(page.getByText('Upcoming in Phase 6')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
   await expect(rows(page)).toHaveCount(3);
   expect(
@@ -395,7 +395,6 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
     dialog.getByText('Disconnecting, closing the browser or logging out does not pause clocks.'),
   ).toHaveCount(0);
 });
-
 test('Hall account review runs the advisor and shows winning chances', async ({
   page,
   request,
@@ -418,5 +417,29 @@ test('Hall account review runs the advisor and shows winning chances', async ({
     page.getByRole('grid', { name: 'brandubh game board' }).locator('.hint-overlay'),
   ).toBeVisible();
   // The review stays read-only while the historical advisor runs.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('compact and full leaderboards separate qualified players and support ruleset browsing', async ({
+  page,
+}) => {
+  await login(page);
+  const board = page.locator('.leaderboard-compact');
+  await expect(board.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  await expect(board.getByRole('heading', { name: 'Qualified standings' })).toBeVisible();
+  await expect(board.getByText(/PersonalArcher/)).toBeVisible();
+  await expect(board.getByText(/PersonalKeeper/)).toBeVisible();
+  await expect(board.getByText(/Your standing/)).toBeVisible();
+  await board.screenshot({ path: test.info().outputPath('leaderboard-compact.png') });
+  await board.getByRole('link', { name: 'View full leaderboard' }).click();
+  await expect(page).toHaveURL(/\/leaderboard$/);
+  await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: /PersonalArcher/ })).toBeVisible();
+  await page.getByLabel('Ruleset').selectOption('brandubh');
+  await expect(page.getByText('No rated games in this pool yet.')).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath('leaderboard-full.png'),
+    fullPage: true,
+  });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

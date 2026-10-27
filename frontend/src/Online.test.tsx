@@ -107,6 +107,7 @@ it.each(
     side_selection: side,
     mode,
     time_per_move: 3600,
+    rated: false,
   });
 });
 it('retains a creation UUID through uncertain outcomes and reload; recovery never automatically retries', async () => {
@@ -186,6 +187,19 @@ it('uses the lifecycle result when a successful request finalizes timeout withou
   expect(screen.getByText('Defenders win')).toBeVisible();
   expect(current.position.winner).toBeNull();
   expect(screen.queryByRole('button', { name: 'Concede' })).toBeNull();
+});
+it('shows authoritative rating changes on a completed rated game', async () => {
+  const rated = structuredClone(fixture.rated_completed) as OnlineGame;
+  room(rated);
+  await screen.findByRole('heading', { name: 'Rating changes' });
+  expect(screen.getByText(/\+16\.0 → 1516/)).toBeVisible();
+  expect(screen.getByText(/-16\.0 → 1484/)).toBeVisible();
+  expect(screen.getAllByText(/Provisional/).length).toBeGreaterThan(0);
+});
+it('does not show rating changes for a casual completed game', async () => {
+  room(fixture.completed as OnlineGame);
+  await screen.findByText('Attackers win');
+  expect(screen.queryByRole('heading', { name: 'Rating changes' })).toBeNull();
 });
 it('reloads after a stale version without replaying the mutation', async () => {
   mutation = async () => {
@@ -423,7 +437,17 @@ it('retries a retained 61-second creation intent exactly without truncation to a
   await screen.findByRole('heading', { name: 'Online game' });
   expect(
     JSON.parse(String(fetcher.mock.calls.find(([, o]) => o?.method === 'POST')![1]?.body)),
-  ).toEqual(payload);
+  ).toEqual({ ...payload, rated: false });
+});
+it('creates a rated game when the eligible player selects it', async () => {
+  lobby();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+  fireEvent.change(screen.getByLabelText('Game type'), { target: { value: 'rated' } });
+  expect(screen.getByText(/Rated games count toward the leaderboard/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
+  await screen.findByRole('heading', { name: 'Online game' });
+  const post = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')!;
+  expect(JSON.parse(String(post[1]?.body))).toMatchObject({ rated: true });
 });
 it.each([
   ['0', '0', '0'],
