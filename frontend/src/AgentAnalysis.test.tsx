@@ -124,6 +124,18 @@ it('allows play after a failed analysis and never invents an estimate', async ()
   expect(view.result.current.report).toBeNull();
 });
 
+it('marks live analysis as non-historical so the exact-cursor contract holds', async () => {
+  const fetcher = vi.fn(async (_url: string, _opts?: RequestInit) => response(report));
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await waitFor(() => expect(view.result.current.report).toEqual(report));
+  const call = fetcher.mock.calls.find(
+    ([url, opts]) => String(url).includes('/analysis') && opts?.method === 'POST',
+  );
+  expect(call).toBeTruthy();
+  expect(JSON.parse(String(call![1]?.body))).toMatchObject({ historical: false });
+});
+
 it('offers compatible advisor models and keeps the no-advisor selection separate', () => {
   const options = advisorOptions(
     [],

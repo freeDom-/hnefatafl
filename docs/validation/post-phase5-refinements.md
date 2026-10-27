@@ -23,6 +23,12 @@ admission/timeout activation.
   Online outcomes use the account's seat and the current effective eligible
   result revision, counting own-clock timeouts separately from opponent
   timeouts. Rates and averages render as an em dash with no eligible games.
+- Normal users see their participating online games and their own account
+  single-player records in the Hall; the administrator name filter and
+  all-account scope stay restricted to trusted current `all_data`.
+- Hall review uses a read-only historical analysis request that analyzes the
+  selected recorded cursor without seeking the authoritative game. Live gameplay
+  keeps the exact-cursor contract; online analysis stays denied to every role.
 - The embedded Online lobby takes the old Recorded games grid slot, the
   Leaderboard placeholder follows, and Recorded games spans the final row. All
   three cards share padding and the section gap.

@@ -72,9 +72,10 @@ local timezone and shows a locale-aware date and time with a timezone label; the
 removed. The table scrolls inside its card on narrow screens without page-level
 horizontal overflow. Dashboard shows at most the latest
 three eligible completed visible games belonging to the current account, with
-**View all** and no pagination. Normal users see participating online games;
-administrators can also see their own account-single-player games.
-An administrator's Dashboard never becomes an all-account collection.
+**View all** and no pagination. Normal users see their participating online games
+and their own account single-player records; administrators can also see their own
+account single-player games. An administrator's Dashboard never becomes an
+all-account collection.
 
 Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/result
 filters and pagination. Normal users see only participating online records and have
@@ -106,8 +107,10 @@ The review restores the single-player presentation: the complete "The saga so fa
 move list with move selection, board replay navigation, general game information
 (ruleset, matchup mode, participants and lifecycle) and the Analytics/Winning
 chances panels. Account single-player review may use the existing authorized
-analysis. Recorded online review keeps those panels visible but shows them as
-unavailable, because online analysis stays denied to every role. Review canonically
+analysis through a read-only historical path that analyzes the selected recorded
+cursor without seeking the authoritative game. Recorded online review keeps those
+panels visible but shows them as unavailable, because online analysis stays denied
+to every role. Review canonically
 validates moves/positions, then uses a viewer-local cursor; previous/next never
 writes the authoritative game cursor/version. The replay controls add a
 **Play**/**Stop** button that advances one recorded move per second from the
