@@ -10,6 +10,7 @@ import { navigate } from './navigation';
 import RecordedGames, { type RecordedPage } from './RecordedGames';
 import RecordedReview from './RecordedReview';
 import PersonalStatisticsView from './PersonalStatistics';
+import Leaderboard from './Leaderboard';
 import './personalDashboard.css';
 
 function DashboardHome({
@@ -81,10 +82,7 @@ function DashboardHome({
           creationRequested={creation}
           open={(id) => navigate(`/online/games/${id}`)}
         />
-        <aside className="panel leaderboard-placeholder">
-          <h2>{t('Leaderboard')}</h2>
-          <p>{t('Upcoming in Phase 6')}</p>
-        </aside>
+        <Leaderboard compact />
         <section className="panel dashboard-recent" aria-labelledby="recent-heading">
           <div className="section-heading">
             <h2 id="recent-heading">{t('Recorded games')}</h2>

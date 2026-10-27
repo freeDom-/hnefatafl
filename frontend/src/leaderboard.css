@@ -1,0 +1,50 @@
+.leaderboard-page {
+  max-width: 900px;
+  margin: 1rem auto;
+  padding: 1.1rem;
+}
+.leaderboard-filter {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.leaderboard-me {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--surface-muted, transparent);
+}
+.leaderboard-table {
+  overflow-x: auto;
+}
+table.leaderboard {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.leaderboard th,
+table.leaderboard td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.leaderboard th:first-child,
+table.leaderboard td:first-child {
+  width: 3.5rem;
+  text-align: right;
+}
+table.leaderboard tr.you {
+  font-weight: 600;
+}
+.leaderboard-pages {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1rem;
+}
+.leaderboard-compact table.leaderboard th,
+.leaderboard-compact table.leaderboard td {
+  padding: 0.3rem 0.45rem;
+}

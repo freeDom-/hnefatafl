@@ -18,10 +18,11 @@ import Rune, { participantName } from './Rune';
 import Online from './Online';
 import Modal from './Modal';
 import PersonalDashboard from './PersonalDashboard';
+import Leaderboard from './Leaderboard';
 import { useAuth } from './Auth';
 import { canonicalLocation, navigate } from './navigation';
 
-type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'training' | 'tournaments';
+type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'leaderboard' | 'training' | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const sideGlyph = (side: Side) => (
   <span className={`mini-piece ${side === 'attackers' ? 'black' : 'ivory'}`} aria-hidden="true" />
@@ -38,11 +39,13 @@ export default function App() {
       ? 'play'
       : path.split('?')[0] === '/archive'
         ? 'archive'
-        : path.startsWith('/training') && permissions.includes('training')
-          ? 'training'
-          : path.startsWith('/tournaments') && permissions.includes('tournaments')
-            ? 'tournaments'
-            : 'dashboard';
+        : path.split('?')[0] === '/leaderboard'
+          ? 'leaderboard'
+          : path.startsWith('/training') && permissions.includes('training')
+            ? 'training'
+            : path.startsWith('/tournaments') && permissions.includes('tournaments')
+              ? 'tournaments'
+              : 'dashboard';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
     window.addEventListener('popstate', changed);
@@ -568,6 +571,7 @@ export default function App() {
           </>
         )}
         {tab === 'online' && <Online />}
+        {tab === 'leaderboard' && <Leaderboard />}
         {tab === 'archive' && <Archive />}
         {tab === 'tournaments' && permissions.includes('tournaments') && (
           <Tournaments

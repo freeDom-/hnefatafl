@@ -153,5 +153,34 @@ const personal: Record<string, string> = {
   Play: 'Abspielen',
   Stop: 'Stopp',
   'Open review: {attacker} vs {defender}': 'Wiedergabe öffnen: {attacker} gegen {defender}',
+  'View full leaderboard': 'Vollständige Rangliste ansehen',
+  'Loading leaderboard…': 'Rangliste wird geladen…',
+  'Leaderboard unavailable or stale. Retry to load current standings.':
+    'Die Rangliste ist nicht verfügbar oder veraltet. Erneut versuchen, um aktuelle Platzierungen zu laden.',
+  'No rated games in this pool yet.': 'Noch keine gewerteten Spiele in diesem Regelwerk.',
+  'Your standing': 'Deine Platzierung',
+  '{count} rated games': '{count} gewertete Spiele',
+  'You are not ranked in this pool yet.': 'Du bist in diesem Regelwerk noch nicht platziert.',
+  'Qualified standings': 'Qualifizierte Platzierungen',
+  'No qualified players in this pool yet.':
+    'Noch keine qualifizierten Spieler in diesem Regelwerk.',
+  'Provisional players': 'Vorläufige Spieler',
+  'Provisional until {count} rated games.': 'Vorläufig bis {count} gewertete Spiele.',
+  'Leaderboard pages': 'Ranglistenseiten',
+  'Page {page}': 'Seite {page}',
+  'Previous page': 'Vorherige Seite',
+  Rated: 'Gewertet',
+  Casual: 'Freundschaftlich',
+  'Rated games count toward the leaderboard for verified accounts. The choice is fixed when the game is created.':
+    'Gewertete Spiele zählen für verifizierte Konten zur Rangliste. Die Wahl ist bei der Spielerstellung festgelegt.',
+  'Casual games do not affect ratings.':
+    'Freundschaftliche Spiele haben keinen Einfluss auf die Wertung.',
+  'Rating changes': 'Wertungsänderungen',
+  Provisional: 'Vorläufig',
+  'Rated games': 'Gewertete Spiele',
+  Rank: 'Platz',
+  Player: 'Spieler',
+  Rating: 'Wertung',
+  You: 'Du',
 };
 export default personal;

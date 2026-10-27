@@ -5,9 +5,16 @@ export function safeDestination(value: string | null): string {
   const url = new URL(value, location.origin);
   if (url.origin !== location.origin) return '/dashboard';
   const path = url.pathname;
-  return ['/', '/play', '/dashboard', '/training', '/tournaments', '/archive', '/online'].includes(
-    path,
-  ) ||
+  return [
+    '/',
+    '/play',
+    '/dashboard',
+    '/leaderboard',
+    '/training',
+    '/tournaments',
+    '/archive',
+    '/online',
+  ].includes(path) ||
     /^\/online\/games\/online-[0-9a-f]{32}(?:\/review)?$/.test(path) ||
     /^\/(?:games|dashboard\/single-player)\/(?!online-)[A-Za-z0-9_-]{1,100}$/.test(path)
     ? path + url.search + url.hash

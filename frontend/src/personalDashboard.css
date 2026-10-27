@@ -24,21 +24,18 @@
 }
 .personal-section,
 .dashboard-recent,
-.leaderboard-placeholder,
+.leaderboard-compact,
 .dashboard-lobby,
 .recorded-review {
   min-width: 0;
   padding: 1.1rem;
 }
 .personal-section h2,
-.leaderboard-placeholder h2 {
+.leaderboard-compact h2 {
   margin-top: 0;
 }
-.leaderboard-placeholder {
+.leaderboard-compact {
   align-self: start;
-}
-.leaderboard-placeholder p {
-  margin-bottom: 0;
 }
 .personal-statistics {
   display: grid;

@@ -93,6 +93,22 @@ for _ in range(12):
     ids["active"] = active()["id"]
 ids["paired"] = active("simultaneous", "defenders")["id"]
 ids["tablut"] = active(ruleset="tablut")["id"]
+
+
+def concede_mover(game):
+    side = game["position"]["turn"]
+    account_id = game["participants"][side]["account_id"]
+    credential = next(
+        c for name, c in credentials.items() if accounts[name]["id"] == account_id
+    )
+    return core.mutate(credential, game["id"], game["version"], "concede")["game"]
+
+
+# Ten rated Tablut games make PersonalArcher and PersonalKeeper qualified.
+for _ in range(10):
+    rated = core.create(archer, "tablut", "attackers", 259200, str(uuid4()), rated=True)["game"]
+    rated = core.mutate(keeper, rated["id"], 0, "join")["game"]
+    ids["rated"] = concede_mover(rated)["id"]
 with TestClient(seed, base_url="http://127.0.0.1:8009") as client:
     session = client.post(
         "/api/auth/login",

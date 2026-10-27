@@ -52,6 +52,7 @@ export type PersonalOnline = {
   ruleset: string;
   status: OnlineStatus;
   version: number;
+  rated: boolean;
   turn: Side;
   own_side: Side | null;
   your_turn: boolean;
