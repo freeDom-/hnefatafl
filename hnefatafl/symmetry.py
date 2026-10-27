@@ -8,12 +8,24 @@ keys yet, and neural predictions must not be shared across orientations.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import IntEnum
 from functools import lru_cache
 from math import isqrt
 
 from .engine import Move, State
+
+# Optional cooperative cancellation hook. The pure geometry module never reads a
+# clock; search passes a callback that raises its own deadline/cancellation
+# exception. This keeps symmetry independent of search while bounding a long
+# canonicalization or stabilizer computation by the caller's budget.
+Check = Callable[[], None] | None
+
+
+def _check(check: Check) -> None:
+    if check is not None:
+        check()
 
 
 class Symmetry(IntEnum):
@@ -71,7 +83,8 @@ def transform_board(board: tuple[str, ...], symmetry: Symmetry) -> tuple[str, ..
     return tuple(result)
 
 
-def _transform_history(entry: str, size: int, symmetry: Symmetry) -> str:
+def _transform_history(entry: str, size: int, symmetry: Symmetry, check: Check = None) -> str:
+    _check(check)
     turn, separator, board = entry.partition(":")
     if (
         separator != ":"
@@ -83,12 +96,15 @@ def _transform_history(entry: str, size: int, symmetry: Symmetry) -> str:
     return turn + ":" + "".join(transform_board(tuple(board), symmetry))
 
 
-def transform_state(state: State, symmetry: Symmetry) -> State:
+def transform_state(state: State, symmetry: Symmetry, check: Check = None) -> State:
     """Transform the entire history in one common orientation, retaining metadata."""
+    _check(check)
     return replace(
         state,
         board=transform_board(state.board, symmetry),
-        history=tuple(_transform_history(entry, state.size, symmetry) for entry in state.history),
+        history=tuple(
+            _transform_history(entry, state.size, symmetry, check) for entry in state.history
+        ),
     )
 
 
@@ -112,52 +128,75 @@ class StateKey:
     history: tuple[str, ...]
 
 
-def canonical_board(board: tuple[str, ...]) -> tuple[BoardKey, Symmetry]:
+def canonical_board(board: tuple[str, ...], check: Check = None) -> tuple[BoardKey, Symmetry]:
     """Return least board and the transform to it; ties use enum order."""
-    return min((BoardKey(transform_board(board, symmetry)), symmetry) for symmetry in Symmetry)
+    best: tuple[BoardKey, Symmetry] | None = None
+    for symmetry in Symmetry:
+        _check(check)
+        candidate = (BoardKey(transform_board(board, symmetry)), symmetry)
+        if best is None or candidate < best:
+            best = candidate
+    assert best is not None
+    return best
 
 
-def board_stabilizer(board: tuple[str, ...]) -> tuple[Symmetry, ...]:
+def board_stabilizer(board: tuple[str, ...], check: Check = None) -> tuple[Symmetry, ...]:
     """Return every D4 symmetry that leaves the board geometry unchanged."""
-    return tuple(symmetry for symmetry in Symmetry if transform_board(board, symmetry) == board)
+    result: list[Symmetry] = []
+    for symmetry in Symmetry:
+        _check(check)
+        if transform_board(board, symmetry) == board:
+            result.append(symmetry)
+    return tuple(result)
 
 
-def state_stabilizer(state: State) -> tuple[Symmetry, ...]:
+def state_stabilizer(state: State, check: Check = None) -> tuple[Symmetry, ...]:
     """Return every D4 symmetry that leaves the complete state unchanged.
 
     A visually symmetric board is not sufficient: the ordered repetition
     history must map onto itself under the same global transformation. The
     returned symmetries form a subgroup of D4 and generate the move orbits that
-    symmetry-aware search may safely prune.
+    symmetry-aware search may safely prune. ``check`` is invoked between
+    symmetries and history entries so a caller's deadline is observed.
     """
     result: list[Symmetry] = []
-    for symmetry in board_stabilizer(state.board):
+    for symmetry in board_stabilizer(state.board, check):
+        _check(check)
         if state.history and any(
-            _transform_history(entry, state.size, symmetry) != entry for entry in state.history
+            _transform_history(entry, state.size, symmetry, check) != entry
+            for entry in state.history
         ):
             continue
         result.append(symmetry)
     return tuple(result)
 
 
-def canonical_state_key(state: State) -> tuple[StateKey, Symmetry]:
+def canonical_state_key(state: State, check: Check = None) -> tuple[StateKey, Symmetry]:
     """Canonicalize full histories globally, breaking board ties using history.
 
     Canonicalizing each historical board separately would erase relative
     orientations and could change future repetition outcomes. Only the board
     is transformed for all eight symmetries; the ordered history is transformed
     for the (usually single) symmetry that already realizes the least board.
+    ``check`` is invoked between symmetries and history entries so a caller's
+    deadline is observed.
     """
-    board_candidates = [(transform_board(state.board, symmetry), symmetry) for symmetry in Symmetry]
+    board_candidates: list[tuple[tuple[str, ...], Symmetry]] = []
+    for symmetry in Symmetry:
+        _check(check)
+        board_candidates.append((transform_board(state.board, symmetry), symmetry))
     least_board = min(board for board, _ in board_candidates)
     tied = [symmetry for board, symmetry in board_candidates if board == least_board]
-    history, symmetry = min(
-        (
-            tuple(_transform_history(entry, state.size, candidate) for entry in state.history),
-            candidate,
+    best: tuple[tuple[str, ...], Symmetry] | None = None
+    for candidate in tied:
+        _check(check)
+        transformed = tuple(
+            _transform_history(entry, state.size, candidate, check) for entry in state.history
         )
-        for candidate in tied
-    )
+        if best is None or (transformed, candidate) < best:
+            best = (transformed, candidate)
+    assert best is not None
+    history, symmetry = best
     return StateKey(
         state.ruleset,
         least_board,

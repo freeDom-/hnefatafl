@@ -63,6 +63,16 @@
   overflow-wrap: anywhere;
   max-width: 65%;
 }
+.record-parameters dd:has(.record-search-parameters) {
+  max-width: 100%;
+}
+.record-parameters .record-search-parameters {
+  margin: 0;
+  gap: 0.2rem;
+}
+.record-parameters .record-search-parameters dd {
+  max-width: none;
+}
 .variant-reference {
   opacity: 0.7;
   font-size: 0.7rem;

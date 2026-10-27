@@ -350,3 +350,29 @@ it('selects and restores Shield maiden as a fixed intermediate opponent and cust
     JSON.parse(String(fetcher.mock.calls[1][1]?.body)).players.attackers.config,
   ).not.toHaveProperty('heuristic_version');
 });
+
+it('selects the Shield maiden or Shield bearer evaluator for custom alpha-beta', async () => {
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json({ id: 'created', ...JSON.parse(String(init?.body)) }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<NewGame {...options} onClose={vi.fn()} onCreated={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
+  change(screen.getByLabelText('Attackers AI profile'), '');
+  change(screen.getByLabelText('Attackers algorithm'), 'alpha_beta');
+  const heuristic = screen.getByLabelText('Attackers heuristic');
+  expect(heuristic).toHaveValue('shield_maiden');
+  change(heuristic, 'shield_bearer');
+  expect(heuristic).toHaveValue('shield_bearer');
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalled());
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).players.attackers.config).toMatchObject(
+    {
+      algorithm: 'alpha_beta',
+      heuristic: 'shield_bearer',
+    },
+  );
+  // Switching away removes the evaluator rather than leaving a stale field.
+  change(screen.getByLabelText('Attackers algorithm'), 'baseline');
+  expect(screen.queryByLabelText('Attackers heuristic')).not.toBeInTheDocument();
+});

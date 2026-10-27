@@ -133,6 +133,105 @@ describe('tournament setup and saved selection', () => {
     });
   });
 
+  it('exposes alpha-beta optimization presets only for custom alpha-beta opponents', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('new'));
+        }
+        return json(path === '/api/tournaments' ? [] : saved('new'));
+      }),
+    );
+    show();
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    // A fixed named preset exposes no optimization controls.
+    expect(setup.queryByLabelText('Opponent 1 search preset')).not.toBeInTheDocument();
+    fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: '' } });
+    fireEvent.change(setup.getByLabelText('Opponent 1 algorithm'), {
+      target: { value: 'alpha_beta' },
+    });
+    const heuristic = setup.getByLabelText('Opponent 1 heuristic');
+    expect(heuristic).toHaveValue('shield_maiden');
+    fireEvent.change(heuristic, { target: { value: 'shield_bearer' } });
+    expect(heuristic).toHaveValue('shield_bearer');
+    const preset = setup.getByLabelText('Opponent 1 search preset');
+    expect(preset).toHaveValue('optimized');
+    expect(setup.getByLabelText('Opponent 1 transposition table capacity')).toHaveValue(100000);
+    fireEvent.change(preset, { target: { value: 'symmetry' } });
+    expect(preset).toHaveValue('symmetry');
+    expect(setup.getByLabelText('Opponent 1 symmetry move pruning')).toBeChecked();
+    fireEvent.change(setup.getByLabelText('Opponent 1 transposition table capacity'), {
+      target: { value: '2048' },
+    });
+    expect(preset).toHaveValue('custom');
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    const players = (submitted as { players: { config: Record<string, unknown> }[] }).players;
+    expect(players[0].config.search).toEqual({
+      legacy: false,
+      transposition: true,
+      move_ordering: true,
+      symmetry_transposition: true,
+      symmetry_pruning: true,
+      table_capacity: 2048,
+    });
+    expect(players[0].config.heuristic).toBe('shield_bearer');
+    // A non-alpha-beta opponent never carries search settings or an evaluator.
+    expect(players[1].config.search).toBeUndefined();
+    expect(players[1].config.heuristic).toBeUndefined();
+  });
+
+  it('disables irrelevant optimizations and explains the legacy alpha-beta search', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('new'));
+        }
+        return json(path === '/api/tournaments' ? [] : saved('new'));
+      }),
+    );
+    show();
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    fireEvent.change(setup.getByLabelText('Opponent 1 profile'), { target: { value: '' } });
+    fireEvent.change(setup.getByLabelText('Opponent 1 algorithm'), {
+      target: { value: 'alpha_beta' },
+    });
+    const preset = setup.getByLabelText('Opponent 1 search preset');
+    fireEvent.change(preset, { target: { value: 'legacy' } });
+    expect(preset).toHaveValue('legacy');
+    // Every optimized control and the capacity are disabled, so they cannot
+    // produce a misleading Custom preset while legacy overrides them.
+    expect(setup.getByLabelText('Opponent 1 transposition table')).toBeDisabled();
+    expect(setup.getByLabelText('Opponent 1 improved move ordering')).toBeDisabled();
+    expect(setup.getByLabelText('Opponent 1 d4-canonical transpositions')).toBeDisabled();
+    expect(setup.getByLabelText('Opponent 1 symmetry move pruning')).toBeDisabled();
+    expect(setup.getByLabelText('Opponent 1 transposition table capacity')).toBeDisabled();
+    expect(setup.getByText(/original exact-value cache/)).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    const players = (submitted as { players: { config: Record<string, unknown> }[] }).players;
+    expect(players[0].config.search).toEqual({
+      legacy: true,
+      transposition: true,
+      move_ordering: true,
+      symmetry_transposition: false,
+      symmetry_pruning: false,
+      table_capacity: 100000,
+    });
+  });
+
   it('configures neural wrappers and retains settings when switching search modes', async () => {
     let submitted: Record<string, unknown> | undefined;
     vi.stubGlobal(
@@ -508,6 +607,74 @@ describe('tournament setup and saved selection', () => {
     const replay = await screen.findByRole('dialog', { name: 'Replay game 1' });
     expect(replay).toHaveTextContent('ᚱEagle · Attackers vs ᚱFox · Defenders');
     expect(replay).toHaveTextContent('Fox wins');
+  });
+
+  it('shows per-opponent search diagnostics in a collapsible panel', async () => {
+    const tournament = saved('diagnostics');
+    tournament.result = {
+      scores: [1, 0],
+      standings: [
+        {
+          player: 0,
+          wins: 1,
+          losses: 0,
+          draws: 0,
+          truncated: 0,
+          games: 1,
+          score: 1,
+          diagnostics: {
+            decisions: 12,
+            mean_completed_depth: 2.5,
+            mean_decision_time: 0.02,
+            mean_nodes: 1234,
+            mean_evaluations: 567,
+            transposition_cutoffs: 9,
+            symmetry_moves_skipped: 4,
+            depth_cap_reached_fraction: 0.5,
+          },
+        },
+        {
+          player: 1,
+          wins: 0,
+          losses: 1,
+          draws: 0,
+          truncated: 0,
+          games: 1,
+          score: 0,
+          diagnostics: {
+            decisions: 11,
+            mean_completed_depth: 2,
+            mean_decision_time: 0.01,
+            mean_nodes: 800,
+            mean_evaluations: 400,
+            transposition_cutoffs: 0,
+            symmetry_moves_skipped: 0,
+            depth_cap_reached_fraction: 1,
+          },
+        },
+      ],
+      by_ruleset: { brandubh: { wins: [1, 0], draws: 0, truncated: 0, games: 1 } },
+      games: [],
+      truncated: 0,
+      average_game_length: 5,
+      average_decision_time: 0.015,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+    );
+    const { container } = show();
+    await screen.findByRole('heading', { name: 'Challenge diagnostics' });
+    // The detailed metrics stay inside a collapsed disclosure so they do not
+    // clutter the normal standings display.
+    const panels = container.querySelectorAll('details.tournament-diagnostics');
+    expect(panels).toHaveLength(2);
+    const first = within(panels[0] as HTMLElement);
+    expect(first.getByText('Mean completed depth')).toBeInTheDocument();
+    expect(first.getByText('2.50')).toBeInTheDocument();
+    expect(first.getByText('Transposition cutoffs')).toBeInTheDocument();
+    expect(first.getByText('9')).toBeInTheDocument();
+    expect(first.getByText('50%')).toBeInTheDocument();
   });
 });
 

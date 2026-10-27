@@ -6,6 +6,7 @@ import { selectStrongestModel } from './modelSelection';
 import { useI18n } from './i18n';
 import { modelLabel } from './modelLabel';
 import { profileConfiguration } from './gameSetupPreference';
+import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 
 export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: string) {
   const options: { id: string; label: string; rune?: string; advisor: Advisor }[] = profiles
@@ -120,6 +121,7 @@ export function AnalyticsSettingsPanel({
     if (key === 'algorithm') {
       if (input === 'neural' && !compatibleModels.length) return;
       delete config.heuristic_version;
+      delete config.heuristic;
       delete config.model_id;
       if (input === 'neural')
         config.model_id = selectStrongestModel(models, game.ruleset)?.model.id ?? '';
@@ -206,6 +208,13 @@ export function AnalyticsSettingsPanel({
                 onChange={(event) => updateConfig('depth', Number(event.target.value))}
               />
             </label>
+          )}
+          {(advisor.config.algorithm === 'alpha_beta' || advisor.config.algorithm === 'mcts') && (
+            <HeuristicSelect
+              value={heuristicFromConfig(advisor.config)}
+              label={t('Move advisor heuristic')}
+              onChange={(next) => updateConfig('heuristic', next)}
+            />
           )}
           {['mcts', 'neural'].includes(String(advisor.config.algorithm)) && (
             <>

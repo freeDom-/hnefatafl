@@ -105,7 +105,7 @@ configuration paths.
 | `tune --config FILE` | Local Optuna study/trials; [optimization](TRAINING.md#hyperparameter-optimization) |
 | `tournament --config FILE` | JSON round robin, final report to stdout; [tournaments](TOURNAMENTS.md) |
 | `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](SHIELD_MAIDEN.md) |
-| `benchmark-alpha-beta [--config FILE] [--output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; [evidence](PERFORMANCE.md#phase-4-alpha-beta-symmetry-search) |
+| `benchmark-alpha-beta [--config FILE] [--output FILE] [--summary-output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; `--summary-output` writes the compact evidence with the run's source hashes; [evidence](PERFORMANCE.md#alpha-beta-profiling-and-root-window-pruning) |
 | `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](OPENVINO.md#full-training-benchmark) |
 | `benchmark [--config FILE] [--output FILE]` | Fixed-model self-play, optional checkpoint/device/mode selection, no optimizer/model registration; [benchmark protocol](PERFORMANCE.md#benchmark-protocol-and-evidence) |
 | `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](TRAINING_DATA.md#checkpoints-registry-import-and-export) |
@@ -114,6 +114,10 @@ configuration paths.
 Runnable budgets live in [configs](../configs/): smoke training, beginner training,
 smoke tuning and tournaments. Inspect a config before running: a full tournament
 or recommended plan can be much more expensive than a syntax/interface check.
+
+`scripts/alpha_beta_strength.py` is a standalone equal-time strength series for
+two alpha-beta configurations (wins/draws/losses, 95% interval and mean completed
+depth); see the [control-refinement evidence](benchmarks/alpha-beta-controls.md#equal-time-strength-comparison-legacy-vs-full-symmetry).
 
 ## API and extension boundaries
 

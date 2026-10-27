@@ -208,7 +208,7 @@ selector. New jobs still support presets.
 | --- | --- | --- |
 | Shield bearer | Early training; existing inexpensive heuristic | Strictly higher score in the same benchmark configuration |
 | Shield maiden | Stronger rules-aware heuristic; low per-move overhead | Strictly higher score in its own versioned benchmark configuration |
-| Jarl | Intermediate/advanced; existing alpha-beta search | Strictly higher score with the same depth/deadline and benchmark protocol |
+| Jarl | Intermediate/advanced; alpha-beta search over the Shield maiden evaluation | Strictly higher score with the same depth/deadline and benchmark protocol |
 | Champion | Advanced; saved compatible neural incumbent | Balanced paired head-to-head evidence, described below |
 
 Jarl can be expensive: measure its evaluation duration on your hardware. Evaluation

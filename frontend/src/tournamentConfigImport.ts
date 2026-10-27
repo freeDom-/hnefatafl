@@ -1,4 +1,10 @@
 import { profileConfiguration } from './gameSetupPreference';
+import {
+  DEFAULT_ALPHA_BETA_SEARCH,
+  TABLE_CAPACITY_MAX,
+  TABLE_CAPACITY_MIN,
+  type AlphaBetaSearchSettings,
+} from './alphaBetaSearch';
 import type { AIProfile, Config, Model } from './types';
 import type { TournamentConfig, TournamentPlayer } from './tournamentTypes';
 
@@ -67,6 +73,51 @@ const object = (value: unknown): Record<string, unknown> | null =>
 const integer = (value: unknown, low: number, high: number): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high;
 
+const SEARCH_KEYS = new Set([
+  'legacy',
+  'transposition',
+  'move_ordering',
+  'symmetry_transposition',
+  'symmetry_pruning',
+  'table_capacity',
+]);
+const SEARCH_FLAGS = [
+  'legacy',
+  'transposition',
+  'move_ordering',
+  'symmetry_transposition',
+  'symmetry_pruning',
+] as const;
+
+/** Validate a nested alpha-beta search object exactly as the server will. */
+function parseSearchConfig(raw: unknown, fields: string[]): AlphaBetaSearchSettings | null {
+  const provided = object(raw);
+  if (!provided || Object.keys(provided).some((key) => !SEARCH_KEYS.has(key))) {
+    fields.push('search');
+    return null;
+  }
+  const result = { ...DEFAULT_ALPHA_BETA_SEARCH };
+  for (const key of SEARCH_FLAGS) {
+    const value = provided[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'boolean') {
+      fields.push(`search.${key}`);
+      return null;
+    }
+    result[key] = value;
+  }
+  if (provided.table_capacity !== undefined) {
+    if (!integer(provided.table_capacity, TABLE_CAPACITY_MIN, TABLE_CAPACITY_MAX)) {
+      fields.push('search.table_capacity');
+      return null;
+    }
+    result.table_capacity = provided.table_capacity;
+  }
+  if (result.symmetry_transposition) result.transposition = true;
+  if (result.legacy) return { ...DEFAULT_ALPHA_BETA_SEARCH, legacy: true };
+  return result;
+}
+
 function parseRulesets(value: unknown, fields: string[]): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 3) {
     fields.push('rulesets');
@@ -131,6 +182,16 @@ function parsePlayerConfig(
     }
     config.heuristic_version = 1;
   }
+  if (provided.heuristic !== undefined) {
+    if (
+      !['shield_bearer', 'shield_maiden'].includes(String(provided.heuristic)) ||
+      (algorithm !== 'alpha_beta' && algorithm !== 'mcts')
+    ) {
+      fields.push('heuristic');
+      return {};
+    }
+    config.heuristic = String(provided.heuristic);
+  }
   if (provided.search_wrapper !== undefined) {
     if (
       algorithm !== 'neural' ||
@@ -140,6 +201,22 @@ function parsePlayerConfig(
       return {};
     }
     config.search_wrapper = String(provided.search_wrapper);
+  }
+  if (provided.search !== undefined) {
+    const search = parseSearchConfig(provided.search, fields);
+    if (!search) return {};
+    const alphaBetaSearch =
+      algorithm === 'alpha_beta' ||
+      (algorithm === 'neural' && config.search_wrapper === 'alpha_beta');
+    if (!alphaBetaSearch) {
+      fields.push('search');
+      return {};
+    }
+    if (algorithm === 'neural' && (search.symmetry_transposition || search.symmetry_pruning)) {
+      fields.push('search');
+      return {};
+    }
+    config.search = search;
   }
   const usesModel = algorithm === 'neural' || config.evaluation === 'neural';
   if (usesModel) {

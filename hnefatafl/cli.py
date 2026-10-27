@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     alpha_beta.add_argument("--config", help="Optional alpha-beta benchmark JSON")
     alpha_beta.add_argument("--output", help="Save measured JSON evidence")
+    alpha_beta.add_argument(
+        "--summary-output",
+        help="Also save the compact summary with the run's source hashes",
+    )
     worker = sub.add_parser("worker", help="Run leased training jobs from a remote server")
     worker.add_argument("--server", required=True, help="Server HTTP(S) URL")
     worker.add_argument(
@@ -111,6 +115,16 @@ def main(argv: list[str] | None = None) -> int:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(
                     json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+                )
+            summary_output = getattr(args, "summary_output", None)
+            if summary_output:
+                from .alpha_beta_benchmark import summarise_report
+
+                target = Path(summary_output)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    json.dumps(summarise_report(result), indent=2, allow_nan=False) + "\n",
+                    encoding="utf-8",
                 )
         elif args.command == "worker":
             from .remote_worker import run_worker

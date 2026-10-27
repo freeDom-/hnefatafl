@@ -279,6 +279,8 @@ const translations: Record<string, string> = {
   'Replay to move {move}': 'Zug {move} wiedergeben',
   '{side} AI profile': 'KI-Profil der {side}',
   '{side} algorithm': 'Algorithmus der {side}',
+  '{side} heuristic': 'Heuristik der {side}',
+  'Move advisor heuristic': 'Heuristik des Beraters',
   '{side} trained model': 'Trainiertes Modell der {side}',
   '{side} human player': 'Menschlicher Spieler der {side}',
   '{side} player name': 'Spielername der {side}',
@@ -318,6 +320,7 @@ const translations: Record<string, string> = {
   'Shield bearer': 'Schildträger',
   'Shield maiden': 'Schildmaid',
   'Shield maiden heuristic': 'Schildmaid-Heuristik',
+  Heuristic: 'Heuristik',
   'Heuristic version': 'Heuristikversion',
   Intermediate: 'Mittel',
   'Shield maiden uses a stronger tactical heuristic, designed for low evaluation overhead.':

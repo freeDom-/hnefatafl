@@ -1,8 +1,10 @@
 import { t, useI18n } from './i18n';
+import { isAlphaBetaSearch, searchSummary, type AlphaBetaSearchSettings } from './alphaBetaSearch';
 import type { Config } from './types';
 
 const labels: Record<string, string> = {
   algorithm: 'Algorithm',
+  heuristic: 'Heuristic',
   heuristic_version: 'Heuristic version',
   search_wrapper: 'Search wrapper',
   depth: 'Search depth',
@@ -14,6 +16,7 @@ const labels: Record<string, string> = {
   seed: 'Random seed',
   evaluation: 'Evaluation',
   model_id: 'Model ID',
+  search: 'Alpha-beta optimizations',
 };
 const algorithms: Record<string, string> = {
   baseline: 'Tactical heuristic',
@@ -22,8 +25,17 @@ const algorithms: Record<string, string> = {
   mcts: 'Monte Carlo tree search',
   neural: 'Neural search',
 };
+const searchLabels: Record<keyof AlphaBetaSearchSettings, string> = {
+  legacy: 'Legacy search',
+  transposition: 'Transposition table',
+  move_ordering: 'Improved move ordering',
+  symmetry_transposition: 'D4-canonical transpositions',
+  symmetry_pruning: 'Symmetry move pruning',
+  table_capacity: 'Transposition table capacity',
+};
 
 export function parameterSummary(config: Config = {}) {
+  const search = isAlphaBetaSearch(config.search) ? config.search : undefined;
   return [
     t(String(algorithms[String(config.algorithm)] ?? config.algorithm ?? '')),
     config.search_wrapper === 'alpha_beta'
@@ -31,6 +43,10 @@ export function parameterSummary(config: Config = {}) {
       : config.search_wrapper === 'none'
         ? t('None (policy only)')
         : undefined,
+    search ? t(searchSummary(search)) : undefined,
+    config.heuristic !== undefined
+      ? t(config.heuristic === 'shield_bearer' ? 'Shield bearer' : 'Shield maiden')
+      : undefined,
     config.depth !== undefined ? t('depth {depth}', { depth: String(config.depth) }) : undefined,
     config.iterations !== undefined
       ? t('{iterations} iterations', { iterations: String(config.iterations) })
@@ -39,6 +55,35 @@ export function parameterSummary(config: Config = {}) {
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+function SearchValues({ search }: { search: AlphaBetaSearchSettings }) {
+  // Legacy overrides the optimized flags, so showing them as On/Off would
+  // misrepresent the search the backend actually ran.
+  if (search.legacy) {
+    return (
+      <p className="subtle">
+        {t('Legacy search uses the original exact-value cache implementation.')}
+      </p>
+    );
+  }
+  const entries = (Object.keys(searchLabels) as (keyof AlphaBetaSearchSettings)[]).filter(
+    (key) => key !== 'table_capacity' && key !== 'legacy',
+  );
+  return (
+    <dl className="record-search-parameters">
+      {entries.map((key) => (
+        <div key={key}>
+          <dt>{t(searchLabels[key])}</dt>
+          <dd>{search[key] ? t('On') : t('Off')}</dd>
+        </div>
+      ))}
+      <div>
+        <dt>{t(searchLabels.table_capacity)}</dt>
+        <dd>{search.table_capacity.toLocaleString()}</dd>
+      </div>
+    </dl>
+  );
 }
 
 export default function RecordsParameters({
@@ -84,15 +129,21 @@ export function ParameterValues({
             <div key={key}>
               <dt>{t(labels[key] ?? key.replaceAll('_', ' '))}</dt>
               <dd>
-                {key === 'algorithm'
-                  ? t(algorithms[String(value)] ?? String(value))
-                  : key === 'search_wrapper'
-                    ? t(
-                        value === 'none'
-                          ? 'None (policy only)'
-                          : (algorithms[String(value)] ?? String(value)),
-                      )
-                    : String(value)}
+                {key === 'algorithm' ? (
+                  t(algorithms[String(value)] ?? String(value))
+                ) : key === 'heuristic' ? (
+                  t(value === 'shield_bearer' ? 'Shield bearer' : 'Shield maiden')
+                ) : key === 'search_wrapper' ? (
+                  t(
+                    value === 'none'
+                      ? 'None (policy only)'
+                      : (algorithms[String(value)] ?? String(value)),
+                  )
+                ) : key === 'search' && isAlphaBetaSearch(value) ? (
+                  <SearchValues search={value} />
+                ) : (
+                  String(value)
+                )}
               </dd>
             </div>
           ))}

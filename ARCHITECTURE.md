@@ -26,7 +26,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [engine.py](hnefatafl/engine.py) | Immutable state, legal moves, captures, terminal rules; no HTTP/database/tensor dependency |
 | [symmetry.py](hnefatafl/symmetry.py) | Pure D4 geometry, full-history transforms, board/full-state stabilizers and typed canonical keys; no search or neural dependency |
 | [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS with bounded transposition tables and full-state symmetry pruning, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
-| [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; separate from generic search evaluation |
+| [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; reused by the Jarl alpha-beta and Seer MCTS model-free paths |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
 | [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and content-addressed model registry |
 | [training.py](hnefatafl/training.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
@@ -294,18 +294,25 @@ Tensor format and database schema remain unchanged. See the
 `choose_move` keeps the public contract: immutable `State` in, one legal `Move`
 out, with a monotonic deadline and a legal fallback. Iterative deepening searches
 alternating defender-maximizing and attacker-minimizing nodes over the
-defender-perspective evaluator. A search owns one `_TranspositionTable` for its
-lifetime; entries store searched depth, exact/lower/upper bounds, a preferred move
-and a generation. Replacement prefers deeper entries and exact bounds within a
-bounded capacity, and keys carry the complete repetition-aware state, so identical
-boards with different histories never alias. Bounds tighten the window, cut off
-when established and supply the preferred move; an interrupted search never
-publishes a partial exact result.
+defender-perspective Shield maiden evaluator. A custom alpha-beta or MCTS
+configuration may select the generic Shield bearer static evaluation instead
+with the `heuristic` field; the `baseline` algorithm is always Shield bearer and
+neural search uses its model value head. A search owns one
+`_TranspositionTable` for its lifetime; entries store searched depth,
+exact/lower/upper bounds, a preferred move, a generation and the canonical
+orientation that produced the key. Replacement prefers deeper entries and exact
+bounds within a bounded capacity, and keys carry the complete repetition-aware
+state, so identical boards with different histories never alias. Bounds tighten
+the window, cut off when established and supply the preferred move; an interrupted
+search never publishes a partial exact result. A probe whose stored orientation
+differs from the query's canonical orientation is counted as
+`transposition_cross_orientation_hits`, which separates genuine cross-orientation
+reuse from ordinary same-orientation table hits.
 
 An optional internal `search` configuration selects independent optimizations for
 regression and ablation: ordinary bounded transpositions, D4-canonical
 transpositions, full-state symmetry move pruning and improved move ordering. The
-handcrafted evaluator is D4-invariant and the engine's move generation and
+Shield maiden evaluator is D4-invariant and the engine's move generation and
 terminal adjudication are equivariant, so canonical keys and move orbits may be
 shared. Neural value heads are not guaranteed D4-equivariant even after
 augmentation; requesting symmetry reuse with a neural evaluator raises instead of
@@ -315,12 +322,24 @@ available to neural alpha-beta.
 Full-state canonicalization transforms every historical entry under one global
 transformation; the board is canonicalized for all eight symmetries first and
 only the tied orientations transform history. Move pruning computes the full-state
-stabilizer (a D4 subgroup), partitions legal moves into orbits and searches one
-deterministic representative per orbit. Neither symmetry feature is enabled by
-default because canonicalization cost varies by ruleset and history length; the
-reproducible benchmark measures the tradeoff. Move ordering prioritizes the
-transposition and principal-variation moves, killer moves and cutoff history
-without changing minimax values; root ties still follow the seeded base order.
+stabilizer (a D4 subgroup), partitions the legal moves into orbits and retains one
+deterministic representative per orbit *before* any successor state is built, so
+discarded moves cost no `apply_move` or static evaluation. The engine legal-move
+list is never mutated. `symmetry.py` accepts an optional cooperative check
+callback (it never reads a clock), so move ordering, canonicalization, the
+stabilizer and the orbit loop all observe the search deadline and abort a
+long-history computation promptly. Neither symmetry feature is enabled by default
+because canonicalization cost varies by ruleset and history length; the
+reproducible benchmark measures the tradeoff. The per-search table capacity is
+bounded at 500,000 entries because a repetition-aware key grows with history; the
+measured per-entry cost and long-game peak are in the
+[control-refinement evidence](docs/benchmarks/alpha-beta-controls.md). Move ordering applies one deterministic priority
+(principal variation, transposition move, killers, history, stable static order)
+and consults history even when no preferred move exists, without changing minimax
+values; root ties still follow the seeded base order. The public `search`
+configuration is validated and normalised by `clean_search_config` in `ai.py`, and
+both `clean_ai_config` in the API and `effective_ai_config` resolve it to the same
+shape so identity and behaviour cannot drift.
 
 ## MCTS node lifecycle
 
@@ -332,7 +351,8 @@ remaining-move dictionary once. The first visit backs up the value;
 a later visit consumes the saved priors to widen the node without yielding a
 second request. Edge visits and totals always belong to that search. Terminal
 children use engine outcomes before inference, including history-dependent
-repetition outcomes. Heuristic rollouts remain fresh on each simulation.
+repetition outcomes. Model-free rollouts evaluate their horizon with the Shield
+maiden heuristic freshly on each simulation.
 
 Slotted nodes retain no dense logits, device tensors, parents or global tree
 references. Expanded-node priors shrink as child states are created lazily. Keeping

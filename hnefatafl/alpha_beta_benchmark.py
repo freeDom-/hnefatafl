@@ -26,6 +26,7 @@ from typing import Callable
 
 from .ai import choose_move, evaluate
 from .engine import RULESETS, Move, State, apply_move, legal_moves, new_game
+from .shield_maiden import DecisionContext, normalise
 
 
 DEFAULTS = {
@@ -37,14 +38,23 @@ DEFAULTS = {
     "oracle_node_budget": 200_000,
     "table_capacity": 200_000,
     "warmup": True,
+    "scenarios": None,
 }
 
 # Feature ablation. ``legacy`` keeps the original exact-value cache search as the
-# reference; every other scenario shares the production code path.
+# reference; every other scenario shares the production code path. The
+# ``ordering_*`` scenarios isolate each move-ordering priority behind the
+# benchmark-only ``_ordering`` hook (never part of a saved search identity).
 SCENARIOS: dict[str, dict] = {
     "legacy": {"legacy": True},
     "transposition": {"transposition": True, "move_ordering": False},
     "ordering": {"transposition": True, "move_ordering": True},
+    "ordering_static": {"transposition": True, "move_ordering": True, "_ordering": "static"},
+    "ordering_pv": {"transposition": True, "move_ordering": True, "_ordering": "pv"},
+    "ordering_tt": {"transposition": True, "move_ordering": True, "_ordering": "tt"},
+    "ordering_killer": {"transposition": True, "move_ordering": True, "_ordering": "killer"},
+    "ordering_history": {"transposition": True, "move_ordering": True, "_ordering": "history"},
+    "ordering_depth": {"transposition": True, "move_ordering": True, "_ordering": "depth"},
     "symmetry_transposition": {
         "transposition": True,
         "symmetry_transposition": True,
@@ -61,7 +71,23 @@ SCENARIOS: dict[str, dict] = {
         "symmetry_pruning": True,
         "move_ordering": True,
     },
+    # Benchmark-only root-window A/B. Both scenarios use the production search;
+    # ``_root_window`` only switches the historical full-window root fan-out on
+    # or off, so the pair isolates that single change.
+    "root_window_full": {"transposition": True, "move_ordering": True, "_root_window": False},
+    "root_window_narrow": {"transposition": True, "move_ordering": True, "_root_window": True},
 }
+
+# The production ablation keeps the original six scenarios. A dedicated
+# ordering comparison selects the ``ordering_*`` names through ``scenarios``.
+DEFAULT_SCENARIOS = (
+    "legacy",
+    "transposition",
+    "ordering",
+    "symmetry_transposition",
+    "symmetry_pruning",
+    "all",
+)
 
 
 def _position(ruleset: str, pieces: dict[tuple[int, int], str], turn: str) -> State:
@@ -240,18 +266,24 @@ def corpus(seed: int) -> list[tuple[str, State]]:
     return [(label, state) for label, state in positions if not state.winner and legal_moves(state)]
 
 
-def _minimax(state: State, depth: int, budget: list[int]) -> float | None:
+def _minimax(
+    state: State, depth: int, budget: list[int], incoming: float | None = None
+) -> float | None:
     if budget[0] <= 0:
         return None
     budget[0] -= 1
-    if state.winner or depth == 0:
+    if state.winner:
         return evaluate(state)
+    if depth == 0:
+        return incoming if incoming is not None else evaluate(state)
     moves = legal_moves(state)
     if not moves:
         return -1.0 if state.turn == "defenders" else 1.0
+    context = DecisionContext(state)
     values: list[float] = []
     for move in moves:
-        value = _minimax(apply_move(state, move), depth - 1, budget)
+        child = apply_move(state, move)
+        value = _minimax(child, depth - 1, budget, normalise(context.score(child, move)))
         if value is None:
             return None
         values.append(value)
@@ -282,13 +314,22 @@ def _run(
     table_capacity: int,
     measure_memory: bool = False,
 ) -> dict:
+    # ``_ordering`` and ``_root_window`` are internal, benchmark-only hooks and
+    # must not leak into the public ``search`` object the server validates.
+    internal = {"_ordering", "_root_window"}
+    search = {key: value for key, value in scenario.items() if key not in internal}
     config = {
         "algorithm": "alpha_beta",
         "depth": depth,
         "time_limit": time_limit,
         "seed": seed,
-        "search": {**scenario, "table_capacity": table_capacity},
+        "search": {**search, "table_capacity": table_capacity},
     }
+    for key in internal:
+        if key in scenario:
+            config[key] = scenario[key]
+    # Enable the per-node timing breakdown; integer counters are always kept.
+    config["_profile"] = True
     details: dict = {}
     if measure_memory:
         tracemalloc.start()
@@ -309,13 +350,30 @@ def _run(
         "evaluations": details.get("evaluations"),
         "cutoffs": details.get("cutoffs"),
         "transposition_lookups": details.get("transposition_lookups"),
+        "transposition_successful_lookups": details.get("transposition_successful_lookups"),
         "transposition_exact_hits": details.get("transposition_exact_hits"),
         "transposition_bound_hits": details.get("transposition_bound_hits"),
         "transposition_cutoffs": details.get("transposition_cutoffs"),
+        "transposition_cross_orientation_hits": details.get("transposition_cross_orientation_hits"),
         "transposition_peak_entries": details.get("transposition_peak_entries"),
+        "transposition_depth_compatible": details.get("transposition_depth_compatible"),
+        "transposition_board_history_divergence": details.get(
+            "transposition_board_history_divergence"
+        ),
         "symmetry_hits": details.get("symmetry_hits"),
         "symmetry_moves_skipped": details.get("symmetry_moves_skipped"),
+        "successors": details.get("successors"),
+        "ordered_moves": details.get("ordered_moves"),
+        "chosen_from_completed_iteration": details.get("chosen_from_completed_iteration"),
+        "interrupted_depth": details.get("interrupted_depth"),
+        "interrupted_seconds": details.get("interrupted_seconds"),
+        "discarded_nodes": details.get("discarded_nodes"),
         "canonicalization_seconds": details.get("canonicalization_seconds"),
+        "stabilizer_seconds": details.get("stabilizer_seconds"),
+        "pruning_seconds": details.get("pruning_seconds"),
+        "successor_seconds": details.get("successor_seconds"),
+        "sort_seconds": details.get("sort_seconds"),
+        "transposition_seconds": details.get("transposition_seconds"),
         "wall_seconds": elapsed,
         "peak_traced_bytes": peak,
     }
@@ -327,13 +385,26 @@ def _aggregate(rows: list[dict]) -> dict:
         "evaluations",
         "cutoffs",
         "transposition_lookups",
+        "transposition_successful_lookups",
         "transposition_exact_hits",
         "transposition_bound_hits",
         "transposition_cutoffs",
+        "transposition_cross_orientation_hits",
         "transposition_peak_entries",
+        "transposition_depth_compatible",
+        "transposition_board_history_divergence",
         "symmetry_hits",
         "symmetry_moves_skipped",
+        "successors",
+        "ordered_moves",
+        "interrupted_seconds",
+        "discarded_nodes",
         "canonicalization_seconds",
+        "stabilizer_seconds",
+        "pruning_seconds",
+        "successor_seconds",
+        "sort_seconds",
+        "transposition_seconds",
         "wall_seconds",
         "peak_traced_bytes",
     )
@@ -355,6 +426,27 @@ def _aggregate(rows: list[dict]) -> dict:
 
 def _scenario_order(names: list[str], repetition: int) -> list[str]:
     return names if repetition % 2 == 0 else list(reversed(names))
+
+
+SUMMARY_KEYS = ("config", "host", "corpus_sha256", "source_sha256")
+SUMMARY_SECTIONS = ("fixed_depth", "fixed_time", "oracle")
+
+
+def summarise_report(report: dict) -> dict:
+    """Reduce a raw benchmark report to the compact checked-in summary.
+
+    The raw report keeps every per-position record; the checked-in evidence only
+    needs the aggregates plus provenance. ``source_sha256`` is copied verbatim
+    from the raw report, which computed it from the source files on disk at run
+    time, so a committed summary always names the exact revision that produced
+    its numbers. Use ``--summary-output`` on ``benchmark-alpha-beta`` to write it.
+    """
+    summary = {key: report[key] for key in SUMMARY_KEYS if key in report}
+    for section in SUMMARY_SECTIONS:
+        if section not in report or "summary" not in report[section]:
+            raise ValueError(f"Raw report is missing the {section} summary")
+        summary[f"{section}_summary"] = report[section]["summary"]
+    return summary
 
 
 def run_alpha_beta_benchmark(
@@ -380,10 +472,19 @@ def run_alpha_beta_benchmark(
         raise ValueError("Benchmark oracle depth must be between 1 and 4")
     seed = int(config["seed"])
     positions = corpus(seed + 7000)
-    names = list(SCENARIOS)
+    requested = config["scenarios"]
+    if requested is None:
+        names = list(DEFAULT_SCENARIOS)
+    elif isinstance(requested, list) and requested:
+        unknown_scenarios = [name for name in requested if name not in SCENARIOS]
+        if unknown_scenarios:
+            raise ValueError(f"Unknown benchmark scenario: {unknown_scenarios[0]}")
+        names = list(dict.fromkeys(requested))
+    else:
+        raise ValueError("Benchmark scenarios must be a nonempty list")
     result: dict = {
         "config": config,
-        "scenarios": SCENARIOS,
+        "scenarios": {name: SCENARIOS[name] for name in names},
         "host": {
             "python": platform.python_version(),
             "platform": platform.platform(),
@@ -398,7 +499,13 @@ def run_alpha_beta_benchmark(
         ).hexdigest(),
         "source_sha256": {
             name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-            for name in ("ai.py", "engine.py", "symmetry.py", "alpha_beta_benchmark.py")
+            for name in (
+                "ai.py",
+                "engine.py",
+                "symmetry.py",
+                "shield_maiden.py",
+                "alpha_beta_benchmark.py",
+            )
         },
         "fixed_depth": {"positions": [], "summary": {}},
         "fixed_time": {"positions": [], "summary": {}},
@@ -406,8 +513,15 @@ def run_alpha_beta_benchmark(
     }
     if config["warmup"]:
         warm = new_game("brandubh")
-        for scenario in SCENARIOS.values():
-            _run(warm, scenario, depth=1, time_limit=1.0, seed=seed, table_capacity=10_000)
+        for name in names:
+            _run(
+                warm,
+                SCENARIOS[name],
+                depth=1,
+                time_limit=1.0,
+                seed=seed,
+                table_capacity=10_000,
+            )
 
     depth_rows: dict[str, list[dict]] = {name: [] for name in names}
     for label, state in positions:
@@ -468,9 +582,12 @@ def run_alpha_beta_benchmark(
             )
 
     reference_values: dict[str, float] = {}
+    # The legacy exact-value search is the reference when present. A dedicated
+    # ordering comparison that omits legacy falls back to its first scenario,
+    # which is still an exact minimax search at the completed depth.
+    reference_name = "legacy" if "legacy" in names else names[0]
     for entry in result["fixed_depth"]["positions"]:
-        legacy = entry["scenarios"]["legacy"]
-        reference_values[entry["position"]] = legacy["values"][0]
+        reference_values[entry["position"]] = entry["scenarios"][reference_name]["values"][0]
     mismatches = []
     for entry in result["fixed_depth"]["positions"]:
         expected = reference_values[entry["position"]]
@@ -488,7 +605,7 @@ def run_alpha_beta_benchmark(
     result["fixed_depth"]["summary"] = {
         "scenarios": {name: _aggregate(rows) for name, rows in depth_rows.items()},
         "minimax_mismatches": mismatches,
-        "reference": "legacy exact-value cache value at the same completed depth",
+        "reference": f"{reference_name} value at the same completed depth",
     }
 
     # Independent exhaustive oracle at a feasible depth.

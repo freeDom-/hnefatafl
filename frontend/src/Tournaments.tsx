@@ -11,17 +11,30 @@ import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { profileConfiguration } from './gameSetupPreference';
+import {
+  DEFAULT_ALPHA_BETA_SEARCH,
+  TABLE_CAPACITY_MAX,
+  TABLE_CAPACITY_MIN,
+  effectiveSearch,
+  presetSearch,
+  searchFromConfig,
+  searchPreset,
+  type AlphaBetaPresetName,
+  type AlphaBetaSearchSettings,
+} from './alphaBetaSearch';
 import ConfigImportButton from './ConfigImportButton';
 import {
   readImportedTournamentConfig,
   TournamentConfigImportError,
 } from './tournamentConfigImport';
 import SearchWrapper from './SearchWrapper';
+import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 import { getLocale, t, useI18n } from './i18n';
 import type { AIProfile, Config, Game, Model, Ruleset } from './types';
 import type {
   Tournament,
   TournamentConfig,
+  TournamentDiagnostics,
   TournamentGame,
   TournamentPlayer,
   TournamentReplay,
@@ -507,6 +520,7 @@ export default function Tournaments({
                             <dd>{standing?.truncated ?? 0}</dd>
                           </div>
                         </dl>
+                        <TournamentDiagnosticsPanel diagnostics={standing?.diagnostics} />
                         {model && <ModelTrainingSummary model={model} compact />}
                         <RecordsParameters
                           config={player.config}
@@ -736,6 +750,161 @@ export default function Tournaments({
   );
 }
 
+function AlphaBetaSearchFields({
+  prefix,
+  search,
+  onPreset,
+  onField,
+}: {
+  prefix: string;
+  search: AlphaBetaSearchSettings;
+  onPreset: (name: AlphaBetaPresetName) => void;
+  onField: (patch: Partial<AlphaBetaSearchSettings>) => void;
+}) {
+  const { locale } = useI18n();
+  const preset = searchPreset(search);
+  // Legacy overrides every optimized flag, so the irrelevant switches and the
+  // table capacity are disabled instead of showing active-looking settings that
+  // the backend ignores.
+  const legacy = search.legacy;
+  const toggle = (
+    key:
+      | 'legacy'
+      | 'transposition'
+      | 'move_ordering'
+      | 'symmetry_transposition'
+      | 'symmetry_pruning',
+    label: string,
+    tooltip: string,
+    disabled = false,
+  ) => (
+    <label key={key} title={t(tooltip)}>
+      <input
+        type="checkbox"
+        aria-label={`${prefix} ${t(label).toLocaleLowerCase(locale)}`}
+        checked={search[key]}
+        disabled={disabled}
+        onChange={(event) => onField({ [key]: event.target.checked })}
+      />
+      {t(label)}
+    </label>
+  );
+  return (
+    <fieldset className="tournament-search-optimizations">
+      <legend>{t('Alpha-beta optimizations')}</legend>
+      <label>
+        {t('Search preset')}
+        <select
+          aria-label={`${prefix} ${t('search preset').toLocaleLowerCase(locale)}`}
+          value={preset}
+          onChange={(event) => onPreset(event.target.value as AlphaBetaPresetName)}
+        >
+          <option value="legacy">{t('Legacy alpha-beta')}</option>
+          <option value="optimized">{t('Optimized default')}</option>
+          <option value="symmetry">{t('Full symmetry')}</option>
+          <option value="custom">{t('Custom')}</option>
+        </select>
+      </label>
+      {legacy && (
+        <p className="subtle">
+          {t(
+            'Legacy uses the original exact-value cache search. Every optimization switch and the table capacity below are ignored while it is selected.',
+          )}
+        </p>
+      )}
+      <div className="form-grid tournament-search-flags">
+        {toggle(
+          'legacy',
+          'Legacy search',
+          'Use the original exact-value cache search and ignore every optimized option below.',
+        )}
+        {toggle(
+          'transposition',
+          'Transposition table',
+          'Reuse positions that were already searched during this game.',
+          legacy,
+        )}
+        {toggle(
+          'move_ordering',
+          'Improved move ordering',
+          'Try known-good moves earlier using the transposition table, principal variation, killers and history.',
+          legacy,
+        )}
+        {toggle(
+          'symmetry_transposition',
+          'D4-canonical transpositions',
+          'Share positions that are rotations or reflections of each other.',
+          legacy,
+        )}
+        {toggle(
+          'symmetry_pruning',
+          'Symmetry move pruning',
+          'Search one representative per symmetric move group.',
+          legacy,
+        )}
+      </div>
+      <label
+        title={t('Bounded number of stored transposition entries. Larger tables use more memory.')}
+      >
+        {t('Transposition table capacity')}
+        <input
+          type="number"
+          aria-label={`${prefix} ${t('transposition table capacity').toLocaleLowerCase(locale)}`}
+          min={TABLE_CAPACITY_MIN}
+          max={TABLE_CAPACITY_MAX}
+          step={1}
+          required
+          disabled={legacy}
+          value={search.table_capacity}
+          onChange={(event) => onField({ table_capacity: Number(event.target.value) })}
+        />
+      </label>
+    </fieldset>
+  );
+}
+
+function TournamentDiagnosticsPanel({ diagnostics }: { diagnostics?: TournamentDiagnostics }) {
+  const { locale } = useI18n();
+  if (!diagnostics || !diagnostics.decisions) return null;
+  const number = (value: number, digits = 0) =>
+    value.toLocaleString(locale, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  const rows: [string, string][] = [];
+  if (diagnostics.mean_completed_depth != null)
+    rows.push([t('Mean completed depth'), number(diagnostics.mean_completed_depth, 2)]);
+  if (diagnostics.mean_decision_time != null)
+    rows.push([t('Mean decision time'), `${number(diagnostics.mean_decision_time, 3)}${t('s')}`]);
+  if (diagnostics.mean_nodes != null)
+    rows.push([t('Mean nodes'), number(Math.round(diagnostics.mean_nodes))]);
+  if (diagnostics.mean_evaluations != null)
+    rows.push([t('Mean evaluations'), number(Math.round(diagnostics.mean_evaluations))]);
+  if (diagnostics.transposition_cutoffs != null)
+    rows.push([t('Transposition cutoffs'), number(diagnostics.transposition_cutoffs)]);
+  if (diagnostics.symmetry_moves_skipped != null)
+    rows.push([t('Symmetry-pruned moves'), number(diagnostics.symmetry_moves_skipped)]);
+  if (diagnostics.depth_cap_reached_fraction != null)
+    rows.push([
+      t('Reached depth cap'),
+      `${Math.round(100 * diagnostics.depth_cap_reached_fraction)}%`,
+    ]);
+  if (!rows.length) return null;
+  return (
+    <details className="tournament-diagnostics">
+      <summary>{t('Search diagnostics')}</summary>
+      <dl className="tournament-score-stats">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 const fallbackPlayer = (index: number): TournamentPlayer =>
   index % 2
     ? {
@@ -841,6 +1010,28 @@ function TournamentSetup({
     manualOpponents.current[index] = true;
     updatePlayer(index, { config: { ...config.players[index].config, [key]: value } });
   };
+  const updateSearch = (index: number, patch: Partial<AlphaBetaSearchSettings>) => {
+    manualOpponents.current[index] = true;
+    const current = searchFromConfig(config.players[index].config) ?? DEFAULT_ALPHA_BETA_SEARCH;
+    // Collapse legacy so an ignored switch can never create a misleading Custom
+    // preset that disagrees with the effective backend configuration.
+    updatePlayer(index, {
+      config: {
+        ...config.players[index].config,
+        search: effectiveSearch({ ...current, ...patch }),
+      },
+    });
+  };
+  const applySearchPreset = (index: number, name: AlphaBetaPresetName) => {
+    manualOpponents.current[index] = true;
+    const current = searchFromConfig(config.players[index].config) ?? DEFAULT_ALPHA_BETA_SEARCH;
+    updatePlayer(index, {
+      config: {
+        ...config.players[index].config,
+        search: effectiveSearch(presetSearch(name, current)),
+      },
+    });
+  };
   const addPlayer = () => {
     if (config.players.length >= 4) return;
     manualOpponents.current.push(false);
@@ -875,7 +1066,15 @@ function TournamentSetup({
     const profile = profiles.find((item) => item.id === id);
     manualOpponents.current[index] = true;
     if (!profile) {
-      updatePlayer(index, { profile_id: undefined, name: 'Computer' });
+      const current = config.players[index].config;
+      updatePlayer(index, {
+        profile_id: undefined,
+        name: 'Computer',
+        config:
+          current.algorithm === 'alpha_beta' && !searchFromConfig(current)
+            ? { ...current, search: { ...DEFAULT_ALPHA_BETA_SEARCH } }
+            : current,
+      });
       return;
     }
     updatePlayer(index, {
@@ -895,9 +1094,12 @@ function TournamentSetup({
     manualOpponents.current[index] = true;
     const next: Config = { ...config.players[index].config, algorithm };
     delete next.heuristic_version;
+    delete next.heuristic;
     delete next.model_id;
     delete next.evaluation;
     delete next.search_wrapper;
+    delete next.search;
+    if (algorithm === 'alpha_beta') next.search = { ...DEFAULT_ALPHA_BETA_SEARCH };
     if (algorithm === 'neural' && config.rulesets.length === 1)
       next.model_id = selectStrongestModel(models, config.rulesets[0])?.model.id ?? '';
     updatePlayer(index, { profile_id: undefined, name: 'Computer', config: next });
@@ -1064,6 +1266,8 @@ function TournamentSetup({
             const neural = algorithm === 'neural';
             const wrapper = String(player.config.search_wrapper ?? 'mcts');
             const search = neural ? wrapper : String(algorithm);
+            const alphaBetaOptimizations = !player.profile_id && algorithm === 'alpha_beta';
+            const searchSettings = searchFromConfig(player.config) ?? DEFAULT_ALPHA_BETA_SEARCH;
             const fixedPreset = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(
               player.profile_id ?? '',
             );
@@ -1189,6 +1393,21 @@ function TournamentSetup({
                   />
                 )}
                 {description && <p className="subtle">{t(description)}</p>}
+                {alphaBetaOptimizations && (
+                  <AlphaBetaSearchFields
+                    prefix={prefix}
+                    search={searchSettings}
+                    onPreset={(name) => applySearchPreset(index, name)}
+                    onField={(patch) => updateSearch(index, patch)}
+                  />
+                )}
+                {!neural && (search === 'alpha_beta' || search === 'mcts') && (
+                  <HeuristicSelect
+                    value={heuristicFromConfig(player.config)}
+                    label={`${prefix} ${t('Heuristic').toLocaleLowerCase(locale)}`}
+                    onChange={(next) => parameter(index, 'heuristic', next)}
+                  />
+                )}
                 {fixedPreset ? (
                   <p className="subtle">{parameterSummary(player.config)}</p>
                 ) : (

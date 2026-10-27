@@ -1,3 +1,4 @@
+import { isAlphaBetaSearch } from './alphaBetaSearch';
 import type { AIProfile, Config, Mode, Model, Player, PlayerConfig, Ruleset, Side } from './types';
 import { readLastGameMode, rememberGameMode } from './gameModePreference';
 import { selectStrongestModel } from './modelSelection';
@@ -107,9 +108,29 @@ function restoredComputer(
   }
   if (raw.evaluation === 'heuristic' || raw.evaluation === 'neural')
     config.evaluation = raw.evaluation;
+  if (raw.heuristic !== undefined) {
+    if (
+      !['shield_bearer', 'shield_maiden'].includes(String(raw.heuristic)) ||
+      !['alpha_beta', 'mcts'].includes(String(config.algorithm))
+    )
+      return null;
+    config.heuristic = String(raw.heuristic);
+  }
   if (config.algorithm === 'neural' && raw.search_wrapper !== undefined) {
     if (!['mcts', 'alpha_beta', 'none'].includes(String(raw.search_wrapper))) return null;
     config.search_wrapper = String(raw.search_wrapper);
+  }
+  if (raw.search !== undefined) {
+    const alphaBetaSearch =
+      config.algorithm === 'alpha_beta' ||
+      (config.algorithm === 'neural' && config.search_wrapper === 'alpha_beta');
+    if (!alphaBetaSearch || !isAlphaBetaSearch(raw.search)) return null;
+    if (
+      config.algorithm === 'neural' &&
+      (raw.search.symmetry_transposition || raw.search.symmetry_pruning)
+    )
+      return null;
+    config.search = raw.search;
   }
   const usesModel = config.algorithm === 'neural' || config.evaluation === 'neural';
   const model = usesModel

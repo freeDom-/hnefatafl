@@ -7,7 +7,7 @@ import time
 
 from auth_support import AuthenticatedClient as TestClient
 
-from hnefatafl.identities import RUNES, effective_ai_config, rune_for_ordinal
+from hnefatafl.identities import RUNES, agent_identity, effective_ai_config, rune_for_ordinal
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
 from hnefatafl.server import create_app
 from hnefatafl.storage import Store
@@ -29,6 +29,25 @@ def test_neural_wrapper_effective_settings_preserve_legacy_mcts_defaults():
     )
     assert policy["temperature"] == 0.8 and policy["evaluation"] == "neural"
     assert "depth" not in policy and "iterations" not in policy
+
+
+def test_explicit_default_search_object_is_a_distinct_effective_identity():
+    from hnefatafl.ai import SEARCH_SETTINGS_DEFAULTS
+
+    implicit = effective_ai_config({"algorithm": "alpha_beta", "depth": 3})
+    explicit = effective_ai_config(
+        {"algorithm": "alpha_beta", "depth": 3, "search": dict(SEARCH_SETTINGS_DEFAULTS)}
+    )
+    # Historical records keep the shape they were saved with; a new explicit
+    # default object is preserved rather than collapsed into the implicit form.
+    assert "search" not in implicit
+    assert explicit["search"] == SEARCH_SETTINGS_DEFAULTS
+    # The trade-off is intentional: the two are behaviourally equivalent but
+    # intentionally distinct identities, so their runes and statistics stay
+    # separate and no historical record silently changes identity.
+    assert agent_identity({"kind": "ai", "config": implicit}) != agent_identity(
+        {"kind": "ai", "config": explicit}
+    )
 
 
 def test_allocator_is_unique_past_single_alphabet_and_safe_across_connections(tmp_path):

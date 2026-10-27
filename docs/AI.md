@@ -22,7 +22,11 @@ requires a registered model compatible with the selected battlefield.
 | Seer | Monte Carlo tree search | 5,000 simulations, exploration 1.4, rollout depth 8, temperature 0, maximum 2 seconds |
 | Trained model | Selected neural wrapper | MCTS by default; profile supplies 40 simulations and maximum 10 seconds; controls remain configurable |
 
-The static heuristic uses defender-relative material, the king's escape distance,
+Jarl and Seer reuse the Shield maiden heuristic for their model-free evaluation,
+including move ordering and the alpha-beta leaf/rollout horizon. Only the
+standalone Shield bearer baseline keeps the generic static evaluation below.
+
+That static heuristic uses defender-relative material, the king's escape distance,
 open escape rays and adjacent attackers. It uses edge escape for Tablut and corner
 escape for Brandubh/Copenhagen. Engine terminal outcomes always take precedence.
 Shield bearer checks all legal moves for immediate wins, captures and king safety
@@ -30,16 +34,31 @@ through the resulting static score. This is a useful baseline rather than a
 claim of expert strength.
 
 Alpha-beta searches alternating maximizing defender and minimizing attacker
-nodes and orders moves by terminal/static value plus the previous iteration's
-principal variation, the transposition-table move, killer moves and cutoff
-history. Iterative deepening retains the last completed result when time expires.
-An optional `model_path` replaces its nonterminal leaf evaluation with a
-compatible neural value network.
+nodes and orders moves by the Shield maiden child score plus, optionally, the
+previous iteration's principal variation, the transposition-table move, killer
+moves and cutoff history. The production priority is principal variation, then
+transposition-table move, then killers, then history-ranked quiet moves, then the
+stable static order. History is consulted even when no preferred move exists, so
+a quiet move that caused a cutoff still rises; when every history score is zero
+the base order is returned untouched. The root now searches each candidate with a
+window narrowed by the best value so far, so the widest part of the tree is no
+longer a full-window minimax fan-out; the first move to reach the best value wins,
+which stays deterministic. Iterative deepening retains the last completed result
+when time expires. An optional `model_path` replaces its nonterminal leaf
+evaluation with a compatible neural value network.
 
 Each search owns a bounded transposition table for its lifetime. Entries record
-searched depth, an exact/lower/upper bound and a preferred move; keys include the
-full repetition context, so identical boards with different histories never
-alias. Bounds tighten the search window, cut off when established and supply move
+searched depth, an exact/lower/upper bound and a preferred move. The ordinary key
+is ``(ruleset, board, turn, repetition signature)``: the ordered move history is
+replaced by the order-independent occurrence counts of board/turn keys. The
+engine's threefold rule and the Shield maiden repetition penalty depend only on
+those counts, so the compact key preserves every future outcome while letting
+move-order transpositions share one entry. Two histories with different counts
+(for example a position seen once versus twice) keep distinct keys, so
+repetition-sensitive states never alias. A depth-compatible bound is classified
+against the window that was *actually searched* after any table tightening; a
+fail-low against a tightened alpha is stored as an upper bound, never as an exact
+value. Bounds tighten the search window, cut off when established and supply move
 ordering. An interrupted search never publishes a partial exact result. The table
 is discarded when the search ends and is never shared across games, rulesets or
 evaluators.
@@ -56,11 +75,15 @@ pass an optional internal `search` object to ablate individual features:
 | `move_ordering` | `true` | PV, table, killer and history ordering |
 | `symmetry_transposition` | `false` | D4-canonical, repetition-safe table keys |
 | `symmetry_pruning` | `false` | Search one representative per full-state move orbit |
-| `table_capacity` | `100000` | Maximum resident table entries (1–5000000) |
+| `table_capacity` | `100000` | Maximum resident table entries (1–500000) |
 | `legacy` | `false` | Restore the original exact-value-cache reference search |
 
-The handcrafted evaluator is D4-invariant, so the two symmetry features are valid
-for heuristic-backed search. Trained value heads are not guaranteed
+The capacity ceiling is bounded because a repetition-aware key can grow to several
+kilobytes on a long game; the measured per-entry cost and the long-game peak are
+recorded in the [control-refinement evidence](benchmarks/alpha-beta-controls.md).
+
+The Shield maiden evaluator is D4-invariant, so the two symmetry features are
+valid for heuristic-backed search. Trained value heads are not guaranteed
 equivariant even after augmentation; requesting either symmetry feature with a
 neural evaluator raises instead of merging unequal predictions. Neural alpha-beta
 still uses the ordinary orientation-specific table and move ordering. Symmetry
@@ -68,16 +91,72 @@ features are optional rather than defaults because canonicalizing long histories
 costs more than it saves on some rulesets; see the
 [benchmark evidence](PERFORMANCE.md#phase-4-alpha-beta-symmetry-search).
 
-Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`,
-`transposition_hits`, `transposition_peak_entries` and `symmetry_moves_skipped`.
-Counts describe visited interior nodes, leaf/terminal evaluations, alpha-beta
-cutoffs, reused exact/bound results and symmetry-pruned moves respectively.
+Symmetry move pruning runs before successors are built: the full-state stabilizer
+partitions the legal moves into orbits, one deterministic representative per orbit
+is retained, and only those moves are applied and evaluated. Because the stabilizer
+is computed from the complete state (board, turn and ordered repetition history),
+a visually symmetric board with asymmetric history is never pruned. The engine's
+legal-move list is never modified.
+
+Move ordering, canonicalization, the stabilizer and the per-move evaluation loop
+all observe the monotonic search deadline. A long-history canonicalization or
+stabilizer therefore aborts promptly when the budget expires instead of running
+the whole computation to completion; the interrupted iteration keeps the last
+completed depth, exactly like any other deadline expiry. History is consulted in
+the documented priority even without a preferred move, but the measured node
+effect is position-dependent and is not claimed as a strength gain.
+
+Tournament setup exposes the same options for a custom alpha-beta opponent under
+**Alpha-beta optimizations**, with **Legacy alpha-beta**, **Optimized default**,
+**Full symmetry** and **Custom** presets. Jarl remains a fixed preset without
+editable optimization controls. The nested `search` object is accepted by the
+game, advisor and tournament APIs and is validated and normalised server-side
+before it reaches `choose_move`. An explicit `search` object is part of the
+effective configuration identity, so a record that names the defaults explicitly
+stays distinct from one without the object; the two behave identically but keep
+separate runes and statistics so historical records never change identity. See
+[persistent identity runes](IDENTITIES.md).
+
+### Evaluator heuristic
+
+Jarl (alpha-beta) and Seer (MCTS) default to the Shield maiden evaluator. A
+custom alpha-beta or MCTS opponent may set a top-level `heuristic` field to
+`shield_maiden` (the default) or `shield_bearer` for testing and evaluation. The
+standalone `baseline` algorithm is always Shield bearer, the `shield_maiden`
+algorithm has no separate evaluator, and neural search uses its model value head.
+New-game custom opponents, tournament setup and custom advisors expose the same
+choice. The resolved `heuristic` is part of the effective AI configuration, so a
+Shield bearer Jarl record stays distinct from a default Shield maiden one.
+
+Alpha-beta diagnostics add `nodes`, `evaluations`, `cutoffs`, `successors`,
+`ordered_moves`, `transposition_lookups`, `transposition_successful_lookups`,
+`transposition_exact_hits`, `transposition_bound_hits`,
+`transposition_depth_compatible`, `transposition_board_history_divergence`,
+`transposition_cutoffs`, `transposition_cross_orientation_hits`,
+`transposition_peak_entries`, `canonicalization_seconds`, `stabilizer_seconds`,
+`pruning_seconds`, `successor_seconds`, `sort_seconds`,
+`transposition_seconds` and `symmetry_moves_skipped`. Iterative deepening adds
+`iteration_timings` (per completed depth: seconds and nodes), `interrupted_depth`,
+`interrupted_seconds`, `discarded_nodes` and `chosen_from_completed_iteration`.
+The per-node timing fields are only populated when the benchmark-only `_profile`
+hook is set; the integer counters are always collected.
+`transposition_hits` remains the exact-plus-bound hit count. `symmetry_hits` keeps
+its historical meaning (a probe that found any canonical-table entry);
+`transposition_cross_orientation_hits` is the precise count of probes whose stored
+orientation differed from the query's canonical orientation, so genuine
+cross-orientation reuse is distinguishable from ordinary same-orientation table
+hits. `transposition_board_history_divergence` counts distinct `(board, turn)`
+keys probed with different repetition signatures, measuring the reuse the old
+full-history key forwent. Counts describe visited interior nodes, leaf/terminal
+evaluations, alpha-beta cutoffs, built successors, ordered moves, reused results
+and symmetry-pruned moves respectively.
 
 MCTS stores defender-perspective values consistently at every node. Selection
 converts that value to the active side's perspective, adds a PUCT exploration
 bonus, expands legal moves and backs the result up the visited path. Progressive
 widening permits deeper exploration with hundreds of legal opening moves. Plain
-MCTS uses seeded random rollouts and the heuristic at the rollout horizon.
+MCTS uses seeded random rollouts and the Shield maiden evaluator at the rollout
+horizon.
 Neural search uses a masked policy prior and the model value instead of rollouts.
 An immediate one-move win is always taken even with a tiny simulation budget.
 Training additionally applies configurable Dirichlet noise at the root.
@@ -231,6 +310,7 @@ It needs no model or PyTorch. Select the named profile in games, AI versus AI,
 tournaments or advisors, or use the algorithm with a custom deadline.
 Its effective configuration includes `heuristic_version: 1`; seeds break ties
 reproducibly when the same candidates finish within the deadline.
+Jarl and Seer reuse the same Shield maiden child scoring for model-free search.
 The `baseline` algorithm and existing identities are unchanged.
 
 The evaluator combines legal king capture geometry, independent clear escape

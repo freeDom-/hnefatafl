@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+from hnefatafl import ai, shield_maiden
 from hnefatafl.ai import ai_profiles, analyze_position, choose_move, evaluate
 from hnefatafl.engine import RULESETS, State, apply_move, legal_moves, new_game
 from hnefatafl.identities import agent_identity, effective_ai_config
@@ -270,3 +271,181 @@ def test_open_endgame_route_cache_matches_uncached(ruleset):
         context.route_cells = set(range(state.size**2))
         assert context.score(child, move) == cached
         context.route_cells = cells
+
+
+# --- Jarl and Seer reuse the Shield maiden evaluator -----------------------
+
+
+def _spy_maiden(monkeypatch):
+    """Count Shield maiden scoring/evaluation calls without changing values."""
+    calls = {"score": 0, "evaluate": 0}
+    original_score = shield_maiden.DecisionContext.score
+    original_evaluate = shield_maiden.evaluate
+
+    def score(self, child, move):
+        calls["score"] += 1
+        return original_score(self, child, move)
+
+    def evaluate_state(state):
+        calls["evaluate"] += 1
+        return original_evaluate(state)
+
+    monkeypatch.setattr(shield_maiden.DecisionContext, "score", score)
+    monkeypatch.setattr(shield_maiden, "evaluate", evaluate_state)
+    return calls
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+def test_maiden_evaluate_is_bounded_and_deterministic(ruleset):
+    state = new_game(ruleset)
+    first = shield_maiden.evaluate(state)
+    assert -1 <= first <= 1
+    assert shield_maiden.evaluate(state) == first
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("algorithm", ["alpha_beta", "mcts"])
+def test_jarl_and_seer_invoke_maiden_evaluator_by_default(ruleset, algorithm, monkeypatch):
+    calls = _spy_maiden(monkeypatch)
+    state = new_game(ruleset)
+    move = choose_move(
+        state,
+        {
+            "algorithm": algorithm,
+            "depth": 1,
+            "iterations": 4,
+            "rollout_depth": 1,
+            "time_limit": 5,
+            "seed": 3,
+        },
+    )
+    assert move in legal_moves(state)
+    assert calls["score"] + calls["evaluate"] > 0
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("profile_id", ["alpha_beta", "mcts"])
+def test_factory_profiles_invoke_maiden_evaluator_by_default(ruleset, profile_id, monkeypatch):
+    calls = _spy_maiden(monkeypatch)
+    state = new_game(ruleset)
+    move = choose_move(
+        state,
+        {
+            "profile_id": profile_id,
+            "depth": 1,
+            "iterations": 4,
+            "rollout_depth": 1,
+            "time_limit": 5,
+            "seed": 3,
+        },
+    )
+    assert move in legal_moves(state)
+    assert calls["score"] + calls["evaluate"] > 0
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("turn", ["attackers", "defenders"])
+def test_jarl_depth_one_value_matches_maiden_not_bearer(ruleset, turn):
+    state = replace(new_game(ruleset), turn=turn)
+    result = analyze_position(
+        state, {"algorithm": "alpha_beta", "depth": 1, "time_limit": 5, "seed": 3}
+    )
+    context = shield_maiden.DecisionContext(state)
+    maiden = [
+        shield_maiden.normalise(context.score(apply_move(state, move), move))
+        for move in legal_moves(state)
+    ]
+    bearer = [evaluate(apply_move(state, move)) for move in legal_moves(state)]
+    pick = max if turn == "defenders" else min
+    assert result["value"] == pytest.approx(pick(maiden), abs=1e-9)
+    # The two heuristics genuinely differ on these openings, so matching the
+    # maiden value is evidence for the intended evaluator rather than a tie.
+    assert abs(pick(maiden) - pick(bearer)) > 1e-9
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+def test_baseline_keeps_the_shield_bearer_evaluator(ruleset, monkeypatch):
+    calls = _spy_maiden(monkeypatch)
+    state = new_game(ruleset)
+    move = choose_move(state, {"algorithm": "baseline", "time_limit": 5, "seed": 3})
+    assert move in legal_moves(state)
+    assert calls["score"] == 0
+    assert calls["evaluate"] == 0
+
+
+def test_standalone_shield_maiden_agent_is_unchanged(monkeypatch):
+    calls = _spy_maiden(monkeypatch)
+    state = new_game("brandubh")
+    move = choose_move(state, {"algorithm": "shield_maiden", "time_limit": 5, "seed": 3})
+    assert move in legal_moves(state)
+    assert calls["score"] > 0
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("algorithm", ["alpha_beta", "mcts"])
+def test_explicit_shield_bearer_override_uses_generic_evaluator(ruleset, algorithm, monkeypatch):
+    calls = _spy_maiden(monkeypatch)
+    bearer_calls = 0
+    original_bearer = ai.evaluate
+
+    def bearer(state):
+        nonlocal bearer_calls
+        bearer_calls += 1
+        return original_bearer(state)
+
+    monkeypatch.setattr(ai, "evaluate", bearer)
+    state = new_game(ruleset)
+    move = choose_move(
+        state,
+        {
+            "algorithm": algorithm,
+            "depth": 1,
+            "iterations": 4,
+            "rollout_depth": 1,
+            "time_limit": 5,
+            "seed": 3,
+            "heuristic": "shield_bearer",
+        },
+    )
+    assert move in legal_moves(state)
+    assert bearer_calls > 0
+    assert calls["score"] == 0
+    assert calls["evaluate"] == 0
+
+
+@pytest.mark.parametrize("ruleset", RULESETS)
+@pytest.mark.parametrize("turn", ["attackers", "defenders"])
+def test_jarl_bearer_override_matches_bearer_not_maiden(ruleset, turn):
+    state = replace(new_game(ruleset), turn=turn)
+    result = analyze_position(
+        state,
+        {
+            "algorithm": "alpha_beta",
+            "depth": 1,
+            "time_limit": 5,
+            "seed": 3,
+            "heuristic": "shield_bearer",
+        },
+    )
+    context = shield_maiden.DecisionContext(state)
+    maiden = [
+        shield_maiden.normalise(context.score(apply_move(state, move), move))
+        for move in legal_moves(state)
+    ]
+    bearer = [evaluate(apply_move(state, move)) for move in legal_moves(state)]
+    pick = max if turn == "defenders" else min
+    assert result["value"] == pytest.approx(pick(bearer), abs=1e-9)
+    assert abs(pick(maiden) - pick(bearer)) > 1e-9
+
+
+def test_effective_config_and_identity_include_the_search_heuristic():
+    default = effective_ai_config({"algorithm": "alpha_beta"})
+    explicit = effective_ai_config({"algorithm": "alpha_beta", "heuristic": "shield_bearer"})
+    assert default["heuristic"] == "shield_maiden"
+    assert explicit["heuristic"] == "shield_bearer"
+    assert agent_identity({"kind": "ai", "config": {"algorithm": "alpha_beta"}}) != agent_identity(
+        {"kind": "ai", "config": {"algorithm": "alpha_beta", "heuristic": "shield_bearer"}}
+    )
+    # The standalone shield_maiden algorithm and the baseline keep their shape.
+    assert "heuristic" not in effective_ai_config({"algorithm": "baseline"})
+    assert "heuristic" not in effective_ai_config({"algorithm": "shield_maiden"})

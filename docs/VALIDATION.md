@@ -13,6 +13,34 @@ exhaustive minimax for Brandubh, Tablut and Copenhagen positions, including
 sparse and symmetric openings. A deliberately symmetric board with a one-sided
 history asserts that unsafe board-only pruning cannot occur.
 
+Follow-up coverage asserts the deterministic move-ordering priority and that
+history is consulted without a preferred move (and skipped when all scores are
+zero), that `clean_search_config` normalises and rejects malformed values, that
+`transposition_cross_orientation_hits` counts only genuine cross-orientation
+reuse, that the table capacity ceiling is bounded at 500,000, and that a nested
+`search` object survives the game and tournament APIs. API and identity tests
+confirm malformed search settings are rejected atomically, that non-alpha-beta
+algorithms reject `search`, that two alpha-beta opponents with different
+optimizations keep distinct variant IDs and runes, and that an explicit
+default `search` object is intentionally a distinct, stable identity from the
+implicit shape. Deadline tests assert that `canonical_state_key`,
+`state_stabilizer` and `board_stabilizer` invoke the cancellation callback and
+that a tiny `time_limit` on a long-history position returns before the
+uninterrupted stabilizer baseline. Frontend unit tests cover import/export of
+nested search settings, preset spoofing protection, the summary renderer, the
+capacity bound and the setup form's presets. A browser end-to-end test starts a
+brandubh tournament with one legacy and one full-symmetry alpha-beta opponent,
+confirms the recorded configs, standings, a validated replay, the results export
+and the responsive layout.
+
+`scripts/alpha_beta_strength.py` plays the shipped comparison configuration at
+equal time budgets and reports wins/draws/losses, a normal-approximation 95%
+interval and mean completed depth. The measured 20-game result did not show a
+statistically significant strength difference (legacy 0.425, interval
+[0.220, 0.630]); the evidence file records the numbers and explicitly avoids a
+strength claim from speed. The same file records the 500,000-entry memory bound
+and the long-game `tracemalloc` peaks.
+
 `benchmark-alpha-beta` exercises the real production search on a deterministic
 corpus with a fixed-depth correctness pass, an independent minimax oracle,
 fixed-time equal-budget scenarios and traced memory. Measured CPU results and the
@@ -20,6 +48,12 @@ raw report are recorded in
 [Phase 4 evidence](benchmarks/alpha-beta-symmetry.md). The symmetry features
 remain optional defaults; the report distinguishes fixed-depth speedups from
 fixed-time strength and names any per-ruleset regression.
+
+The follow-up profiling and ordering summaries are written by the same
+`benchmark-alpha-beta` invocation through `--summary-output`, so each summary's
+`source_sha256` names the exact revision that produced its numbers; the
+root-window A/B has its own checked-in configuration and summary. See
+[alpha-beta profiling](benchmarks/alpha-beta-profiling.md#reproduction).
 
 ## Remote worker application compatibility (`0.26.0`)
 

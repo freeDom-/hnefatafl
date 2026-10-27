@@ -6,6 +6,15 @@ the same `rune` for that identity. Names can repeat; runes distinguish separate
 player UUIDs and model IDs. A model keeps its rune across different search budgets
 and uses on either side. Ordinary non-model AI agents use their normalized search
 configuration, excluding game seed, so equivalent agents have the same rune.
+An explicit nested `search` object is part of that normalized configuration:
+a record that names the default optimizations explicitly is intentionally a
+different identity from the same algorithm without the object. The two behave
+identically, but keeping them separate means a historical record is never
+silently merged with a newer explicit-default record, and their runes and
+statistics stay stable. New explicit configurations are preserved rather than
+collapsed into the implicit shape. The resolved `heuristic` is part of the same
+normalized configuration: an alpha-beta or MCTS agent explicitly evaluated with
+Shield bearer stays distinct from the default Shield maiden one.
 
 Tournament participants display their underlying model/agent rune consistently
 with games and the model collection. Reusing the same model also reuses its rune;
