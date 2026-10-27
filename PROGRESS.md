@@ -525,3 +525,43 @@ browser suite passed 70 desktop/mobile checks with four intentional mobile
 duplicates skipped, including the new notification and tab-preservation flows.
 No storage, checkpoint or protocol migration is required; CUDA, MPS and OpenVINO
 GPU were not exercised. See the [0.30.0 release record](docs/releases/0.30.0.md).
+
+## Optimized alpha-beta search and portable tournament setup (`0.31.0`)
+
+Phase 4 gives the Jarl alpha-beta search a bounded, depth-aware transposition
+table with exact/lower/upper bounds, root-window pruning, a deterministic move
+priority (principal variation, transposition move, killers, history, stable
+static order) and optional D4-canonical transpositions and full-state symmetry
+move pruning. The ordinary key is the compact order-independent repetition
+signature. Symmetry pruning collapses full-state move orbits before successors
+are built, and the monotonic deadline is observed inside ordering,
+canonicalization and the stabilizer. The Shield maiden evaluator is D4-invariant,
+so the symmetry features are valid for heuristic-backed search and refused for
+neural value heads. The legacy search stays available as a reference; Jarl uses
+the optimized search with no configuration change. Measured fixed-depth results
+matched the legacy minimax value on every position and the independent oracle
+found an optimal move for 37/37 feasible positions; root-window pruning cut
+median interior nodes ~1.9x and leaf evaluations ~7.3x at equal values. A
+20-game equal-time comparison did not show a measurable strength difference
+(legacy 0.425, interval [0.220, 0.630]).
+
+A validated nested `search` object now selects the optimizations through the
+game, advisor and tournament APIs and the tournament setup form (presets plus
+individual toggles and a bounded table capacity). Jarl and Seer reuse the Shield
+maiden evaluator for model-free search, and a custom alpha-beta or MCTS opponent
+may choose Shield bearer instead. The resolved `heuristic` and an explicit
+`search` object are part of the effective identity, so historical records keep
+their runes. Tournaments gain portable configuration import and result export,
+and training jobs gain a display-only rename. New training jobs default to
+random D4 augmentation and a 10-second search ceiling; legacy checkpoints keep
+their historical behavior. `benchmark-alpha-beta` and `scripts/alpha_beta_strength.py`
+provide the reproducible evidence.
+
+Validation: `make check` passed documentation (69 files, 436 links), Ruff,
+Prettier, mypy (34 files), TypeScript, 1,325 backend tests (36 hardware skips),
+292 frontend unit tests and the production build. One full frontend run under
+load failed once in an unrelated `RemoteTraining` worker-revocation check; it
+passed in isolation and in the clean rerun. The full browser suite passed 72
+desktop/mobile Chromium checks with four intentional mobile duplicates skipped.
+No storage, checkpoint or protocol migration is required; CUDA, MPS and
+OpenVINO GPU were not exercised. See the [0.31.0 release record](docs/releases/0.31.0.md).
