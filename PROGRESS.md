@@ -85,6 +85,21 @@ existing 60-second training smoke deadline (1460 passed / 36 optional/hardware
 skips); the evidence records its isolated recheck and separately completed frontend
 validation without claiming a green local aggregate run.
 
+Phase 6 adds the approved rated-game and leaderboard basics on top of Phase 5.
+Schema 11 adds a versioned Elo pool (initial 1500, K = 32, provisional until 10
+eligible rated games) per ruleset. Rated creation is explicit and immutable
+(default Casual); only verified human-vs-human online games are eligible, each
+match leg is rated independently, and concessions/finalized timeouts count while
+cancellations/voids do not. Result revision, rating event, per-player application
+and running ratings commit in one writer transaction; voids withdraw the event and
+deterministically rebuild the pool in stable sequence order. The authenticated
+leaderboard separates qualified and provisional players, uses display names, and
+the Dashboard placeholder is replaced by a compact leaderboard with a full
+`/leaderboard` view. No historical backfill, decay, rewards, aggregate match score,
+public leaderboard or production activation is included. See
+[Rated games](docs/RATINGS.md) and the
+[Phase 6 validation](docs/validation/online-phase6.md).
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)

@@ -317,7 +317,7 @@ For upgrades and rollback, see [Deployment](DEPLOYMENT.md#updating). Schema upgr
 are additive but older code can reject a newer schema; rollback uses the matching
 pre-upgrade **database and files**, not just an older executable.
 
-Schema 10 adds independent online authority. Use the
+Schema 11 adds independent online authority and the rating pool. Use the
 [online recovery procedure](ONLINE.md#migration-backup-and-recovery) as well:
 compatible updater restores retain live accepted online moves/results, revoke
 capabilities and audit/pause timeouts; snapshot-only recovery cannot reconstruct

@@ -47,13 +47,17 @@ denominator restricted to games played on that side. Average length uses the sam
 completed-game population and the existing accepted-ply ("moves") convention.
 Rates and averages with no eligible games render as an em dash. Unfinished games
 stay out of completed-result denominators. Lifecycle, effective result and the
-engine board outcome remain separate. Guest data and rated results are absent.
-The small **Leaderboard** panel says **Upcoming in Phase 6**; it contains no
-rankings or rating calculation.
+engine board outcome remain separate. Guest data never enters personal statistics.
+
+Ratings are a separate Elo concept from these personal statistics; see
+[Rated games](RATINGS.md). The Dashboard's compact **Leaderboard** panel shows the
+top qualified players, provisional players and the signed-in player's standing for
+the selected ruleset, and links to the full `/leaderboard` view. It requires a
+session and exposes only display names, ratings and rated-game counts.
 
 On the Dashboard grid the embedded **Online lobby** takes the slot after the two
-statistics panels, the **Leaderboard** placeholder follows, and **Recorded games**
-spans the final row. All three cards share the same padding and section gap.
+statistics panels, the **Leaderboard** panel follows, and **Recorded games**
+spans the final row. All cards share the same padding and section gap.
 
 ## Shared Recorded games and visibility
 

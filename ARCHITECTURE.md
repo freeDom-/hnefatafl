@@ -38,6 +38,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [benchmark.py](hnefatafl/benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons and headless command dispatch |
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
+| [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
@@ -127,6 +128,15 @@ limiter state. Bounded aggregate denial counters and rate-limited sanitized logs
 survive restart; administrator-only monitoring reports these and database/WAL
 growth. Optional schema-10 monitoring state is initialized on compatible restore
 without changing authoritative game rows or resetting the live creation budget.
+
+Schema 11 adds the Phase 6 rating pool. `rating.py` owns the pure Elo formula and
+deterministic replay; `online_ratings.py` persists one event per applied or
+withdrawn Rated game with a stable sequence, per-player applications and running
+`player_ratings`. Result revision, event, applications and running ratings commit
+in the same write transaction. A void withdraws the event and rebuilds the pool
+from applied events in sequence order inside one transaction, so standings are
+never partially visible. Leaderboard reads require a session and separate
+qualified from provisional players. See [Rated games](docs/RATINGS.md).
 
 ## Training execution and inference
 
@@ -411,7 +421,9 @@ Authenticated headers omit the Guest link. Anonymous Guest navigation offers one
 login anchor; authenticated direct Guest visits retain shared account navigation
 without a login or self-link. Dashboard never reads device saves.
 Account-keyed poll state, cancellation and session epochs
-reject late responses. The leaderboard panel is only an upcoming Phase 6 placeholder.
+reject late responses. The Dashboard's compact leaderboard and the full
+`/leaderboard` view share authenticated qualified/provisional standings and the
+viewer's own standing; see [Rated games](docs/RATINGS.md).
 
 `personal_api.py` retains five own-account GET adapters under `/api/personal`, including
 administrators. Two additional read-only `/api/history` routes use `history.py`:
@@ -436,4 +448,4 @@ tracebacks with generic 503 responses. Guest saves never enter these adapters. L
 queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the
 [dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
 [refinement evidence](docs/validation/dashboard-consolidation.md) and
-[Phase 6 handoff](docs/designs/online-phase6-handoff.md).
+[Rated games](docs/RATINGS.md).

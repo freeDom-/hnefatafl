@@ -21,6 +21,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Tournaments and statistics
 
+- [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
 
