@@ -1,5 +1,5 @@
 import { useI18n } from './i18n';
-/** Viewer state only; no game, account, guest, analysis or seek adapter. */
+/** Viewer state only; no game, account, analysis or seek adapter. */
 export default function ReplayControls({
   cursor,
   length,

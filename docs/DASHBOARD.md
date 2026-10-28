@@ -1,14 +1,13 @@
 # Dashboard and Hall of records
 
 [Documentation index](README.md) · [Account play](GAMEPLAY.md) ·
-[Online play](ONLINE_PLAY.md) · [Guest storage](GUEST_PLAY.md)
+[Online play](ONLINE_PLAY.md)
 
 Dashboard (`/dashboard`) is the authenticated landing and default post-login page.
 `/`, `/play` and `/online` redirect there, retaining search parameters and fragments;
 old Play/Online entries select the corresponding setup. Main navigation contains
 Dashboard, Hall of records and the authorized workshop/tournament controls.
-Authenticated navigation omits Guest play. The public `/guest` route remains
-available directly, and login screens still offer guest play.
+Every surface here requires an authenticated session.
 
 ## Play from Dashboard
 
@@ -24,6 +23,10 @@ your game to resume, or a visible game to watch under existing permissions. `/on
 The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
+
+The **Singleplayer** and **Online multiplayer** statistics cards start collapsed.
+Click a heading, or focus it and press Enter/Space, to expand or collapse that card.
+The cards reset to collapsed when Dashboard reloads; expansion is not saved.
 
 Dashboard statistics are personal and relative to the signed-in account's
 authoritative seat. Both panels group by ruleset only:
@@ -50,7 +53,8 @@ denominator restricted to games played on that side. Average length uses the sam
 completed-game population and the existing accepted-ply ("moves") convention.
 Rates and averages with no eligible games render as an em dash. Unfinished games
 stay out of completed-result denominators. Lifecycle, effective result and the
-engine board outcome remain separate. Guest data never enters personal statistics.
+engine board outcome remain separate. Only account-scoped records enter personal
+statistics.
 
 Ratings are a separate Elo concept from these personal statistics; see
 [Rated games](RATINGS.md). The Dashboard's compact **Leaderboard** panel shows one
@@ -95,7 +99,7 @@ Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/r
 filters and pagination. Normal users see only participating online records and have
 no account-single-player or player-name filter. Administrators with trusted current
 `all_data` permission can inspect online and account-single-player records across
-accounts. Guest saves are never server records. The Local players section is removed;
+accounts. Only server records are visible here. The Local players section is removed;
 new account setup uses the current account and four preset opponents. Local-player
 CRUD is removed; historical data is retained for read/play compatibility.
 
@@ -145,10 +149,8 @@ history/statistics/replay reads and discard late responses. The personal APIs re
 strictly own-account even for administrators; broader Hall access uses separate
 read-only `/api/history` routes with trusted session rechecks.
 
-Dashboard never imports or reads guest storage. Dashboard cards, including the
-full-width lobby, share padding and one grid gap. Guest navigation uses the shared
-authenticated header for signed-in visitors and a single login anchor otherwise;
-only the header checks the session. Protected destinations retain their auth guard.
-The guest worker, one device slot, validated replay, replacement and
-clear policy are unchanged. No save upload/import, archive or server accounting is
-introduced. See [the Phase 5 refinement evidence](validation/dashboard-consolidation.md).
+Dashboard reads only account-scoped records. Dashboard cards, including the
+full-width lobby, share padding and one grid gap. The shared header shows the
+signed-in navigation; only it checks the session. Protected destinations retain
+their auth guard. See
+[the Phase 5 refinement evidence](validation/dashboard-consolidation.md).

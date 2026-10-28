@@ -9,8 +9,7 @@ const personal: Record<string, string> = {
   'Upcoming in Phase 6': 'Geplant für Phase 6',
   'Close setup': 'Einrichtung schließen',
   'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
-  'All server-recorded games. Guest saves stay on their device.':
-    'Alle auf dem Server gespeicherten Spiele. Gastspiele bleiben auf ihrem Gerät.',
+  'All server-recorded games.': 'Alle auf dem Server gespeicherten Spiele.',
   'Your participating online games.': 'Deine Onlinespiele als Teilnehmer.',
   'Game type': 'Spieltyp',
   'All server games': 'Alle Serverspiele',
@@ -23,9 +22,6 @@ const personal: Record<string, string> = {
   'Your games': 'Deine Spiele',
   'Private account records. Single-player and online results are kept separate.':
     'Private Kontoeinträge. Einzelspieler- und Online-Ergebnisse bleiben getrennt.',
-  'Guest play on this device': 'Gastspiel auf diesem Gerät',
-  'Guest games stay in the device slot and never appear in account history.':
-    'Gastspiele bleiben im Gerätespeicher und erscheinen nie im Kontoverlauf.',
   'Account single-player': 'Einzelspieler im Konto',
   'All your account single-player records': 'Alle deine Einzelspieler-Kontoeinträge',
   'Totals are independent of the page filters.':

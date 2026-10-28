@@ -138,7 +138,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   setLanguage('en', false);
 });
-it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without guest reads', async () => {
+it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without device-local reads', async () => {
   const open = vi.fn();
   vi.stubGlobal('indexedDB', { open });
   const start = vi.fn();
@@ -148,6 +148,8 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(link.closest('table')).toHaveClass('recorded-games');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   await screen.findByText('1516');
+  fireEvent.click(screen.getByRole('button', { name: 'Singleplayer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Online multiplayer' }));
   // Personal statistics replace side-result totals and no longer label the mode.
   // Both the account and online panels show a Brandubh ruleset heading.
   expect(screen.getAllByRole('heading', { name: 'Brandubh' })).toHaveLength(2);
@@ -164,9 +166,7 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(order.findIndex((value) => value.includes('leaderboard-compact'))).toBeLessThan(
     order.findIndex((value) => value.includes('dashboard-recent')),
   );
-  expect(screen.queryByText(/Guest games stay/)).toBeNull();
   expect(screen.queryByText('Local players')).toBeNull();
-  expect(screen.queryByRole('link', { name: 'Guest play on this device' })).toBeNull();
   expect(fetcher.mock.calls.some(([url]) => url === '/api/history/games?dashboard=true')).toBe(
     true,
   );
@@ -176,6 +176,35 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   await screen.findByRole('heading', { name: 'Create an online game' });
   expect(open).not.toHaveBeenCalled();
 });
+it('starts statistics collapsed, expands each independently and resets on reload', async () => {
+  const view = render(<PersonalDashboard />);
+  await screen.findByText('66.7%');
+  const single = screen.getByRole('button', { name: 'Singleplayer' });
+  const online = screen.getByRole('button', { name: 'Online multiplayer' });
+  expect(single).toHaveAttribute('aria-expanded', 'false');
+  expect(online).toHaveAttribute('aria-expanded', 'false');
+  expect(single).toHaveAttribute('aria-controls', 'personal-account-body');
+  expect(online).toHaveAttribute('aria-controls', 'personal-online-body');
+  expect(document.getElementById('personal-account-body')).toHaveAttribute('hidden');
+  expect(document.getElementById('personal-online-body')).toHaveAttribute('hidden');
+  expect(screen.getByText('66.7%')).not.toBeVisible();
+  expect(screen.getByText('Timed-out games')).not.toBeVisible();
+  fireEvent.click(single);
+  expect(single).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByText('66.7%')).toBeVisible();
+  expect(screen.getByText('Timed-out games')).not.toBeVisible();
+  fireEvent.click(online);
+  expect(screen.getByText('Timed-out games')).toBeVisible();
+  fireEvent.click(single);
+  expect(screen.getByText('66.7%')).not.toBeVisible();
+  view.unmount();
+  render(<PersonalDashboard />);
+  expect(screen.getByRole('button', { name: 'Online multiplayer' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+});
+
 it('shows stale retry and recovers empty recent results', async () => {
   serve = (url) =>
     url.includes('/history/')

@@ -1,19 +1,19 @@
 {
-  "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+  "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
   "waiting": {
-    "id": "online-70126eec14ec478ba2887a5962f7961d",
+    "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-6033db6e142f470fa35b51c77f8e4e83",
+      "id": "match-1aec358465fa4402bac7f4ef1e8cfb3d",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": null,
       "leg": 1,
       "games": [
         {
-          "id": "online-70126eec14ec478ba2887a5962f7961d",
+          "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
           "leg": 1,
           "status": "waiting",
           "version": 0
@@ -25,7 +25,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": null,
@@ -33,7 +33,7 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": null
@@ -97,23 +97,27 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "active": {
-    "id": "online-70126eec14ec478ba2887a5962f7961d",
+    "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-6033db6e142f470fa35b51c77f8e4e83",
+      "id": "match-1aec358465fa4402bac7f4ef1e8cfb3d",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": "attackers",
       "leg": 1,
       "games": [
         {
-          "id": "online-70126eec14ec478ba2887a5962f7961d",
+          "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
           "leg": 1,
           "status": "active",
           "version": 1
@@ -125,7 +129,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -133,11 +137,11 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -200,23 +204,27 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "moved": {
-    "id": "online-70126eec14ec478ba2887a5962f7961d",
+    "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-6033db6e142f470fa35b51c77f8e4e83",
+      "id": "match-1aec358465fa4402bac7f4ef1e8cfb3d",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": "attackers",
       "leg": 1,
       "games": [
         {
-          "id": "online-70126eec14ec478ba2887a5962f7961d",
+          "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
           "leg": 1,
           "status": "active",
           "version": 2
@@ -228,7 +236,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -236,11 +244,11 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -303,6 +311,10 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [
       {
         "ply": 1,
@@ -315,19 +327,19 @@
     "result": null
   },
   "completed": {
-    "id": "online-70126eec14ec478ba2887a5962f7961d",
+    "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-6033db6e142f470fa35b51c77f8e4e83",
+      "id": "match-1aec358465fa4402bac7f4ef1e8cfb3d",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": "attackers",
       "leg": 1,
       "games": [
         {
-          "id": "online-70126eec14ec478ba2887a5962f7961d",
+          "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
           "leg": 1,
           "status": "completed",
           "version": 3
@@ -339,7 +351,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -347,11 +359,11 @@
     "completed_at": "2030-01-01T00:00:00.000000Z",
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -414,6 +426,10 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [
       {
         "ply": 1,
@@ -424,14 +440,14 @@
       }
     ],
     "result": {
-      "game_id": "online-70126eec14ec478ba2887a5962f7961d",
+      "game_id": "online-f8157aaad48a49d4ad338588bec9a3f5",
       "revision": 1,
       "supersedes": null,
       "category": "online",
       "ruleset": "brandubh",
       "ruleset_version": "1",
-      "attackers": "bf95bb137a8b4ea091a0b9e58e25340a",
-      "defenders": "37577ef083054c7ca54f0cff179bf80a",
+      "attackers": "7fed11edc170408facbcdc6f60c0cf1f",
+      "defenders": "c224053c2762463cb463894c90ebb8c3",
       "started_at": "2030-01-01T00:00:00.000000Z",
       "completed_at": "2030-01-01T00:00:00.000000Z",
       "revised_at": "2030-01-01T00:00:00.000000Z",
@@ -440,26 +456,49 @@
       "move_count": 1,
       "competitive_eligible": true,
       "abandoned_account_id": null,
-      "rated_eligible": false,
-      "rated_reason": "casual",
-      "rating": null
+      "rated_eligible": true,
+      "rated_reason": null,
+      "rating": [
+        {
+          "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
+          "rating_before": 1500.0,
+          "rating_after": 1516.0,
+          "delta": 16.0,
+          "opponent_rating": 1500.0,
+          "expected": 0.5,
+          "score": 1.0,
+          "provisional": true,
+          "policy_version": 1
+        },
+        {
+          "account_id": "c224053c2762463cb463894c90ebb8c3",
+          "rating_before": 1500.0,
+          "rating_after": 1484.0,
+          "delta": -16.0,
+          "opponent_rating": 1500.0,
+          "expected": 0.5,
+          "score": 0.0,
+          "provisional": true,
+          "policy_version": 1
+        }
+      ]
     }
   },
   "replay": {
     "game": {
-      "id": "online-70126eec14ec478ba2887a5962f7961d",
+      "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
       "category": "online",
-      "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+      "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
       "creator_side": "attackers",
       "match": {
-        "id": "match-6033db6e142f470fa35b51c77f8e4e83",
+        "id": "match-1aec358465fa4402bac7f4ef1e8cfb3d",
         "mode": "single",
         "side_selection": "attackers",
         "first_creator_side": "attackers",
         "leg": 1,
         "games": [
           {
-            "id": "online-70126eec14ec478ba2887a5962f7961d",
+            "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
             "leg": 1,
             "status": "completed",
             "version": 3
@@ -471,7 +510,7 @@
       "ruleset": "brandubh",
       "ruleset_version": "1",
       "time_per_move": 259200,
-      "rated": false,
+      "rated": true,
       "created_at": "2030-01-01T00:00:00.000000Z",
       "updated_at": "2030-01-01T00:00:00.000000Z",
       "started_at": "2030-01-01T00:00:00.000000Z",
@@ -479,11 +518,11 @@
       "completed_at": "2030-01-01T00:00:00.000000Z",
       "participants": {
         "attackers": {
-          "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+          "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
           "name": "Archer"
         },
         "defenders": {
-          "account_id": "37577ef083054c7ca54f0cff179bf80a",
+          "account_id": "c224053c2762463cb463894c90ebb8c3",
           "name": "Keeper"
         }
       },
@@ -546,6 +585,10 @@
         "reason": null
       },
       "terminal_king_square": null,
+      "captured": {
+        "attackers": 0,
+        "defenders": 0
+      },
       "moves": [
         {
           "ply": 1,
@@ -556,14 +599,14 @@
         }
       ],
       "result": {
-        "game_id": "online-70126eec14ec478ba2887a5962f7961d",
+        "game_id": "online-f8157aaad48a49d4ad338588bec9a3f5",
         "revision": 1,
         "supersedes": null,
         "category": "online",
         "ruleset": "brandubh",
         "ruleset_version": "1",
-        "attackers": "bf95bb137a8b4ea091a0b9e58e25340a",
-        "defenders": "37577ef083054c7ca54f0cff179bf80a",
+        "attackers": "7fed11edc170408facbcdc6f60c0cf1f",
+        "defenders": "c224053c2762463cb463894c90ebb8c3",
         "started_at": "2030-01-01T00:00:00.000000Z",
         "completed_at": "2030-01-01T00:00:00.000000Z",
         "revised_at": "2030-01-01T00:00:00.000000Z",
@@ -572,9 +615,32 @@
         "move_count": 1,
         "competitive_eligible": true,
         "abandoned_account_id": null,
-        "rated_eligible": false,
-        "rated_reason": "casual",
-        "rating": null
+        "rated_eligible": true,
+        "rated_reason": null,
+        "rating": [
+          {
+            "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
+            "rating_before": 1500.0,
+            "rating_after": 1516.0,
+            "delta": 16.0,
+            "opponent_rating": 1500.0,
+            "expected": 0.5,
+            "score": 1.0,
+            "provisional": true,
+            "policy_version": 1
+          },
+          {
+            "account_id": "c224053c2762463cb463894c90ebb8c3",
+            "rating_before": 1500.0,
+            "rating_after": 1484.0,
+            "delta": -16.0,
+            "opponent_rating": 1500.0,
+            "expected": 0.5,
+            "score": 0.0,
+            "provisional": true,
+            "policy_version": 1
+          }
+        ]
       }
     },
     "validated": true,
@@ -698,25 +764,25 @@
     ]
   },
   "simultaneous": {
-    "id": "online-62a7b7c7f6fc41dca31ba7bbd0f79ba6",
+    "id": "online-ddad40474b4d448fb372908d44cee864",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "defenders",
     "match": {
-      "id": "match-4917a9a28d49484ab84c7f345d5a42af",
+      "id": "match-b4f55379cca34cc6a7146bf1bc8fc58e",
       "mode": "simultaneous",
       "side_selection": "defenders",
       "first_creator_side": "defenders",
       "leg": 1,
       "games": [
         {
-          "id": "online-62a7b7c7f6fc41dca31ba7bbd0f79ba6",
+          "id": "online-ddad40474b4d448fb372908d44cee864",
           "leg": 1,
           "status": "active",
           "version": 1
         },
         {
-          "id": "online-99ea3fc76834409da0231c7d4064cf80",
+          "id": "online-28539f23f9f14233b043d5f4680eba18",
           "leg": 2,
           "status": "active",
           "version": 1
@@ -728,7 +794,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -736,11 +802,11 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       },
       "defenders": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       }
     },
@@ -803,29 +869,33 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "simultaneous_return": {
-    "id": "online-99ea3fc76834409da0231c7d4064cf80",
+    "id": "online-28539f23f9f14233b043d5f4680eba18",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-4917a9a28d49484ab84c7f345d5a42af",
+      "id": "match-b4f55379cca34cc6a7146bf1bc8fc58e",
       "mode": "simultaneous",
       "side_selection": "defenders",
       "first_creator_side": "defenders",
       "leg": 2,
       "games": [
         {
-          "id": "online-62a7b7c7f6fc41dca31ba7bbd0f79ba6",
+          "id": "online-ddad40474b4d448fb372908d44cee864",
           "leg": 1,
           "status": "active",
           "version": 1
         },
         {
-          "id": "online-99ea3fc76834409da0231c7d4064cf80",
+          "id": "online-28539f23f9f14233b043d5f4680eba18",
           "leg": 2,
           "status": "active",
           "version": 1
@@ -837,7 +907,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -845,11 +915,11 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -912,29 +982,33 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "simultaneous_return_completed": {
-    "id": "online-99ea3fc76834409da0231c7d4064cf80",
+    "id": "online-28539f23f9f14233b043d5f4680eba18",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-4917a9a28d49484ab84c7f345d5a42af",
+      "id": "match-b4f55379cca34cc6a7146bf1bc8fc58e",
       "mode": "simultaneous",
       "side_selection": "defenders",
       "first_creator_side": "defenders",
       "leg": 2,
       "games": [
         {
-          "id": "online-62a7b7c7f6fc41dca31ba7bbd0f79ba6",
+          "id": "online-ddad40474b4d448fb372908d44cee864",
           "leg": 1,
           "status": "active",
           "version": 1
         },
         {
-          "id": "online-99ea3fc76834409da0231c7d4064cf80",
+          "id": "online-28539f23f9f14233b043d5f4680eba18",
           "leg": 2,
           "status": "completed",
           "version": 2
@@ -946,7 +1020,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -954,11 +1028,11 @@
     "completed_at": "2030-01-01T00:00:00.000000Z",
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -1021,16 +1095,20 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": {
-      "game_id": "online-99ea3fc76834409da0231c7d4064cf80",
+      "game_id": "online-28539f23f9f14233b043d5f4680eba18",
       "revision": 1,
       "supersedes": null,
       "category": "online",
       "ruleset": "brandubh",
       "ruleset_version": "1",
-      "attackers": "bf95bb137a8b4ea091a0b9e58e25340a",
-      "defenders": "37577ef083054c7ca54f0cff179bf80a",
+      "attackers": "7fed11edc170408facbcdc6f60c0cf1f",
+      "defenders": "c224053c2762463cb463894c90ebb8c3",
       "started_at": "2030-01-01T00:00:00.000000Z",
       "completed_at": "2030-01-01T00:00:00.000000Z",
       "revised_at": "2030-01-01T00:00:00.000000Z",
@@ -1039,31 +1117,54 @@
       "move_count": 0,
       "competitive_eligible": true,
       "abandoned_account_id": null,
-      "rated_eligible": false,
-      "rated_reason": "casual",
-      "rating": null
+      "rated_eligible": true,
+      "rated_reason": null,
+      "rating": [
+        {
+          "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
+          "rating_before": 1516.0,
+          "rating_after": 1498.5304984710244,
+          "delta": -17.46950152897557,
+          "opponent_rating": 1484.0,
+          "expected": 0.5459219227804837,
+          "score": 0.0,
+          "provisional": true,
+          "policy_version": 1
+        },
+        {
+          "account_id": "c224053c2762463cb463894c90ebb8c3",
+          "rating_before": 1484.0,
+          "rating_after": 1501.4695015289756,
+          "delta": 17.46950152897557,
+          "opponent_rating": 1516.0,
+          "expected": 0.4540780772195163,
+          "score": 1.0,
+          "provisional": true,
+          "policy_version": 1
+        }
+      ]
     }
   },
   "sequential": {
-    "id": "online-ab7a92b0a67c458992e6ba3d656e6058",
+    "id": "online-e9bc7c659ea64af582e91c33ab4fb672",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "defenders",
     "match": {
-      "id": "match-e95be36063654717bcf8086d8ec5ec2b",
+      "id": "match-2ebbf2d73cb14758a97ed17a3a93bd1c",
       "mode": "sequential",
       "side_selection": "defenders",
       "first_creator_side": "defenders",
       "leg": 1,
       "games": [
         {
-          "id": "online-ab7a92b0a67c458992e6ba3d656e6058",
+          "id": "online-e9bc7c659ea64af582e91c33ab4fb672",
           "leg": 1,
           "status": "completed",
           "version": 2
         },
         {
-          "id": "online-ee3a3cc224504005b775605800854b97",
+          "id": "online-b35f76bdf2f843978024f596d08a7a8a",
           "leg": 2,
           "status": "active",
           "version": 1
@@ -1075,7 +1176,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -1083,11 +1184,11 @@
     "completed_at": "2030-01-01T00:00:00.000000Z",
     "participants": {
       "attackers": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       },
       "defenders": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       }
     },
@@ -1150,16 +1251,20 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": {
-      "game_id": "online-ab7a92b0a67c458992e6ba3d656e6058",
+      "game_id": "online-e9bc7c659ea64af582e91c33ab4fb672",
       "revision": 1,
       "supersedes": null,
       "category": "online",
       "ruleset": "brandubh",
       "ruleset_version": "1",
-      "attackers": "37577ef083054c7ca54f0cff179bf80a",
-      "defenders": "bf95bb137a8b4ea091a0b9e58e25340a",
+      "attackers": "c224053c2762463cb463894c90ebb8c3",
+      "defenders": "7fed11edc170408facbcdc6f60c0cf1f",
       "started_at": "2030-01-01T00:00:00.000000Z",
       "completed_at": "2030-01-01T00:00:00.000000Z",
       "revised_at": "2030-01-01T00:00:00.000000Z",
@@ -1168,31 +1273,54 @@
       "move_count": 0,
       "competitive_eligible": true,
       "abandoned_account_id": null,
-      "rated_eligible": false,
-      "rated_reason": "casual",
-      "rating": null
+      "rated_eligible": true,
+      "rated_reason": null,
+      "rating": [
+        {
+          "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
+          "rating_before": 1498.5304984710244,
+          "rating_after": 1514.6658413353916,
+          "delta": 16.135342864367203,
+          "opponent_rating": 1501.4695015289756,
+          "expected": 0.49577053548852734,
+          "score": 1.0,
+          "provisional": true,
+          "policy_version": 1
+        },
+        {
+          "account_id": "c224053c2762463cb463894c90ebb8c3",
+          "rating_before": 1501.4695015289756,
+          "rating_after": 1485.3341586646084,
+          "delta": -16.135342864367203,
+          "opponent_rating": 1498.5304984710244,
+          "expected": 0.5042294645114727,
+          "score": 0.0,
+          "provisional": true,
+          "policy_version": 1
+        }
+      ]
     }
   },
   "sequential_return": {
-    "id": "online-ee3a3cc224504005b775605800854b97",
+    "id": "online-b35f76bdf2f843978024f596d08a7a8a",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-e95be36063654717bcf8086d8ec5ec2b",
+      "id": "match-2ebbf2d73cb14758a97ed17a3a93bd1c",
       "mode": "sequential",
       "side_selection": "defenders",
       "first_creator_side": "defenders",
       "leg": 2,
       "games": [
         {
-          "id": "online-ab7a92b0a67c458992e6ba3d656e6058",
+          "id": "online-e9bc7c659ea64af582e91c33ab4fb672",
           "leg": 1,
           "status": "completed",
           "version": 2
         },
         {
-          "id": "online-ee3a3cc224504005b775605800854b97",
+          "id": "online-b35f76bdf2f843978024f596d08a7a8a",
           "leg": 2,
           "status": "active",
           "version": 1
@@ -1204,7 +1332,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 259200,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -1212,11 +1340,11 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -1279,23 +1407,27 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "rated_waiting": {
-    "id": "online-12820db1d0eb4c27bad0539b6628d22e",
+    "id": "online-2914004b2616482e8c3f943eaf30d44f",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-974d24374a994b9f8139b4d855364e96",
+      "id": "match-1e5069100d3e4f89a7c6bc1abecc1acf",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": null,
       "leg": 1,
       "games": [
         {
-          "id": "online-12820db1d0eb4c27bad0539b6628d22e",
+          "id": "online-2914004b2616482e8c3f943eaf30d44f",
           "leg": 1,
           "status": "waiting",
           "version": 0
@@ -1315,7 +1447,7 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": null
@@ -1411,23 +1543,27 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "rated_completed": {
-    "id": "online-12820db1d0eb4c27bad0539b6628d22e",
+    "id": "online-2914004b2616482e8c3f943eaf30d44f",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-974d24374a994b9f8139b4d855364e96",
+      "id": "match-1e5069100d3e4f89a7c6bc1abecc1acf",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": "attackers",
       "leg": 1,
       "games": [
         {
-          "id": "online-12820db1d0eb4c27bad0539b6628d22e",
+          "id": "online-2914004b2616482e8c3f943eaf30d44f",
           "leg": 1,
           "status": "completed",
           "version": 2
@@ -1447,11 +1583,11 @@
     "completed_at": "2030-01-01T00:00:00.000000Z",
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -1546,16 +1682,20 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": {
-      "game_id": "online-12820db1d0eb4c27bad0539b6628d22e",
+      "game_id": "online-2914004b2616482e8c3f943eaf30d44f",
       "revision": 1,
       "supersedes": null,
       "category": "online",
       "ruleset": "tablut",
       "ruleset_version": "1",
-      "attackers": "bf95bb137a8b4ea091a0b9e58e25340a",
-      "defenders": "37577ef083054c7ca54f0cff179bf80a",
+      "attackers": "7fed11edc170408facbcdc6f60c0cf1f",
+      "defenders": "c224053c2762463cb463894c90ebb8c3",
       "started_at": "2030-01-01T00:00:00.000000Z",
       "completed_at": "2030-01-01T00:00:00.000000Z",
       "revised_at": "2030-01-01T00:00:00.000000Z",
@@ -1568,18 +1708,7 @@
       "rated_reason": null,
       "rating": [
         {
-          "account_id": "37577ef083054c7ca54f0cff179bf80a",
-          "rating_before": 1500.0,
-          "rating_after": 1484.0,
-          "delta": -16.0,
-          "opponent_rating": 1500.0,
-          "expected": 0.5,
-          "score": 0.0,
-          "provisional": true,
-          "policy_version": 1
-        },
-        {
-          "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+          "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
           "rating_before": 1500.0,
           "rating_after": 1516.0,
           "delta": 16.0,
@@ -1588,24 +1717,35 @@
           "score": 1.0,
           "provisional": true,
           "policy_version": 1
+        },
+        {
+          "account_id": "c224053c2762463cb463894c90ebb8c3",
+          "rating_before": 1500.0,
+          "rating_after": 1484.0,
+          "delta": -16.0,
+          "opponent_rating": 1500.0,
+          "expected": 0.5,
+          "score": 0.0,
+          "provisional": true,
+          "policy_version": 1
         }
       ]
     }
   },
   "timeout_active": {
-    "id": "online-a894699097e64dc7ac0b9355fbb690e5",
+    "id": "online-ea61581dce944f1d9085a91d7c015d9f",
     "category": "online",
-    "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+    "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
     "creator_side": "attackers",
     "match": {
-      "id": "match-5b6af4eb3cea4859bbd49dba328fb728",
+      "id": "match-70d52374e38f45ef84055aca9e0e78fd",
       "mode": "single",
       "side_selection": "attackers",
       "first_creator_side": "attackers",
       "leg": 1,
       "games": [
         {
-          "id": "online-a894699097e64dc7ac0b9355fbb690e5",
+          "id": "online-ea61581dce944f1d9085a91d7c015d9f",
           "leg": 1,
           "status": "active",
           "version": 1
@@ -1617,7 +1757,7 @@
     "ruleset": "brandubh",
     "ruleset_version": "1",
     "time_per_move": 60,
-    "rated": false,
+    "rated": true,
     "created_at": "2030-01-01T00:00:00.000000Z",
     "updated_at": "2030-01-01T00:00:00.000000Z",
     "started_at": "2030-01-01T00:00:00.000000Z",
@@ -1625,11 +1765,11 @@
     "completed_at": null,
     "participants": {
       "attackers": {
-        "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+        "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
         "name": "Archer"
       },
       "defenders": {
-        "account_id": "37577ef083054c7ca54f0cff179bf80a",
+        "account_id": "c224053c2762463cb463894c90ebb8c3",
         "name": "Keeper"
       }
     },
@@ -1692,24 +1832,28 @@
       "reason": null
     },
     "terminal_king_square": null,
+    "captured": {
+      "attackers": 0,
+      "defenders": 0
+    },
     "moves": [],
     "result": null
   },
   "timeout_response": {
     "game": {
-      "id": "online-a894699097e64dc7ac0b9355fbb690e5",
+      "id": "online-ea61581dce944f1d9085a91d7c015d9f",
       "category": "online",
-      "creator_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+      "creator_id": "7fed11edc170408facbcdc6f60c0cf1f",
       "creator_side": "attackers",
       "match": {
-        "id": "match-5b6af4eb3cea4859bbd49dba328fb728",
+        "id": "match-70d52374e38f45ef84055aca9e0e78fd",
         "mode": "single",
         "side_selection": "attackers",
         "first_creator_side": "attackers",
         "leg": 1,
         "games": [
           {
-            "id": "online-a894699097e64dc7ac0b9355fbb690e5",
+            "id": "online-ea61581dce944f1d9085a91d7c015d9f",
             "leg": 1,
             "status": "completed",
             "version": 2
@@ -1721,7 +1865,7 @@
       "ruleset": "brandubh",
       "ruleset_version": "1",
       "time_per_move": 60,
-      "rated": false,
+      "rated": true,
       "created_at": "2030-01-01T00:00:00.000000Z",
       "updated_at": "2030-01-01T00:01:01.000000Z",
       "started_at": "2030-01-01T00:00:00.000000Z",
@@ -1729,11 +1873,11 @@
       "completed_at": "2030-01-01T00:01:00.000000Z",
       "participants": {
         "attackers": {
-          "account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
+          "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
           "name": "Archer"
         },
         "defenders": {
-          "account_id": "37577ef083054c7ca54f0cff179bf80a",
+          "account_id": "c224053c2762463cb463894c90ebb8c3",
           "name": "Keeper"
         }
       },
@@ -1796,16 +1940,20 @@
         "reason": null
       },
       "terminal_king_square": null,
+      "captured": {
+        "attackers": 0,
+        "defenders": 0
+      },
       "moves": [],
       "result": {
-        "game_id": "online-a894699097e64dc7ac0b9355fbb690e5",
+        "game_id": "online-ea61581dce944f1d9085a91d7c015d9f",
         "revision": 1,
         "supersedes": null,
         "category": "online",
         "ruleset": "brandubh",
         "ruleset_version": "1",
-        "attackers": "bf95bb137a8b4ea091a0b9e58e25340a",
-        "defenders": "37577ef083054c7ca54f0cff179bf80a",
+        "attackers": "7fed11edc170408facbcdc6f60c0cf1f",
+        "defenders": "c224053c2762463cb463894c90ebb8c3",
         "started_at": "2030-01-01T00:00:00.000000Z",
         "completed_at": "2030-01-01T00:01:00.000000Z",
         "revised_at": "2030-01-01T00:01:01.000000Z",
@@ -1813,10 +1961,33 @@
         "termination_reason": "timeout",
         "move_count": 0,
         "competitive_eligible": true,
-        "abandoned_account_id": "bf95bb137a8b4ea091a0b9e58e25340a",
-        "rated_eligible": false,
-        "rated_reason": "casual",
-        "rating": null
+        "abandoned_account_id": "7fed11edc170408facbcdc6f60c0cf1f",
+        "rated_eligible": true,
+        "rated_reason": null,
+        "rating": [
+          {
+            "account_id": "7fed11edc170408facbcdc6f60c0cf1f",
+            "rating_before": 1514.6658413353916,
+            "rating_after": 1497.318267433319,
+            "delta": -17.347573902072554,
+            "opponent_rating": 1485.3341586646084,
+            "expected": 0.5421116844397674,
+            "score": 0.0,
+            "provisional": true,
+            "policy_version": 1
+          },
+          {
+            "account_id": "c224053c2762463cb463894c90ebb8c3",
+            "rating_before": 1485.3341586646084,
+            "rating_after": 1502.681732566681,
+            "delta": 17.347573902072554,
+            "opponent_rating": 1514.6658413353916,
+            "expected": 0.4578883155602325,
+            "score": 1.0,
+            "provisional": true,
+            "policy_version": 1
+          }
+        ]
       }
     },
     "transition": "timeout",

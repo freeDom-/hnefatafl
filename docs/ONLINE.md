@@ -15,8 +15,7 @@ Singleplayer, training, workers and model records keep their existing
 tables and behavior. The old local `game_participants` scaffold references local
 `games`; online seats therefore live in the separate authoritative online tables.
 
-Guest single-player is a separate public browser surface with one device slot;
-see [guest play and storage](GUEST_PLAY.md). It never uploads games or feeds online
+Single-player is a separate authenticated surface; it never feeds online
 results, and online IDs never enter its replay/AI adapter.
 
 ## Confirmed behavior and owner decisions

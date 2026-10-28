@@ -622,6 +622,7 @@ class OnlineCore:
             # terminal board. Follow the recorded king moves so the terminal
             # presentation can still show it, without touching stored history.
             terminal_king_square = self._terminal_king_square(row["ruleset"], move_rows)
+        start = new_game(row["ruleset"])
         result = None
         if game.result:
             result = result_payload(game.result)
@@ -662,6 +663,12 @@ class OnlineCore:
             "participants": participants,
             "position": safe_position(game.position),
             "terminal_king_square": terminal_king_square,
+            "captured": {
+                "attackers": start.board.count("A") - game.position.board.count("A"),
+                "defenders": sum(
+                    start.board.count(p) - game.position.board.count(p) for p in ("D", "K")
+                ),
+            },
             "moves": [
                 {
                     "ply": r["ply"],

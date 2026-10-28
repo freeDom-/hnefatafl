@@ -13,6 +13,7 @@ import {
   BOARD_THEMES,
   COLOR_MODES,
   DEFAULT_APPEARANCE,
+  DENSITIES,
   TOKEN_THEMES,
   parseAppearance,
   type Appearance,
@@ -68,6 +69,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.dataset.colorMode = resolvedMode;
+    root.dataset.density = appearance.density;
     root.dataset.tokenTheme = appearance.tokens;
     root.dataset.boardTheme = appearance.board;
     root.style.colorScheme = resolvedMode === 'wood' ? 'dark' : resolvedMode;
@@ -329,6 +331,28 @@ export function AppearanceSettings() {
                 </span>
                 <strong>{t(theme.name)}</strong>
                 <small>{t(theme.description)}</small>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="appearance-section">
+          <legend>{t('Interface scale')}</legend>
+          <div className="appearance-choices">
+            {DENSITIES.map((density) => (
+              <label
+                className={`appearance-choice ${appearance.density === density.id ? 'chosen' : ''}`}
+                key={density.id}
+              >
+                <input
+                  type="radio"
+                  name="density"
+                  value={density.id}
+                  checked={appearance.density === density.id}
+                  onChange={() => updateAppearance({ density: density.id })}
+                  aria-label={t(density.name)}
+                />
+                <strong>{t(density.name)}</strong>
+                <small>{t(density.description)}</small>
               </label>
             ))}
           </div>

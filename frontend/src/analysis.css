@@ -1,24 +1,24 @@
 .agent-analysis {
-  padding: 20px;
+  padding: var(--pad-panel);
 }
 .agent-analysis h2 {
   margin: 7px 0;
 }
 .analysis-perspective {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
   margin: 0 0 14px;
 }
 .agent-estimate {
-  padding: 13px 0;
+  padding: var(--pad-panel-sm) 0;
   border-top: 1px solid var(--line);
 }
 .agent-estimate-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gap-stack);
 }
 .agent-estimate-heading > div {
   min-width: 0;
@@ -26,13 +26,13 @@
 .agent-estimate-heading strong {
   display: block;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: 0.8125rem;
   margin: 3px 0 7px;
 }
 .agent-estimate-heading small,
 .estimate-source {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.5;
 }
 .agent-estimate-heading b {
@@ -57,28 +57,28 @@
 }
 .analysis-explanation {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.65;
   margin: 12px 0 0;
 }
 .analysis-hint {
   display: flex;
-  gap: 8px;
+  gap: var(--gap-inline);
   align-items: center;
-  font-size: 12px;
-  padding-top: 12px;
+  font-size: 0.75rem;
+  padding-top: var(--pad-panel-sm);
   border-top: 1px solid var(--line);
 }
 .analysis-hint > span {
-  font-size: 22px;
+  font-size: 1.375rem;
   color: var(--green);
 }
 .analysis-status {
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.6;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gap-inline);
   flex-wrap: wrap;
 }
 .analysis-spinner {
@@ -131,7 +131,7 @@
 }
 .advisor-settings > p {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.6;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -147,16 +147,16 @@
 .analysis-visibility {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 10px 0 14px;
-  font-size: 12px;
+  gap: var(--gap-inline);
+  margin: var(--gap-stack) 0 var(--gap-stack);
+  font-size: 0.75rem;
 }
 .analysis-visibility input {
   width: auto;
   margin: 0;
 }
 .analytics-settings {
-  padding: 20px;
+  padding: var(--pad-panel);
 }
 .analytics-settings h2 {
   margin: 7px 0 16px;
@@ -166,7 +166,7 @@
   display: grid;
   gap: 6px;
   margin-bottom: 14px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .analytics-settings select,
 .analytics-settings input {
@@ -175,20 +175,20 @@
 }
 .advisor-custom-fields {
   min-width: 0;
-  padding: 12px;
+  padding: var(--pad-panel-sm);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 .advisor-custom-fields legend {
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 0 5px;
 }
 .analytics-settings .subtle {
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.6;
 }
 .history-panel > .analytics-settings {
-  margin: 0 -16px;
+  margin: 0 calc(-1 * var(--pad-panel));
   border-inline: 0;
   border-bottom: 0;
   border-radius: 0;

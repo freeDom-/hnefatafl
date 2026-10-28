@@ -24,11 +24,11 @@
   width: 100%;
 }
 .record-parameters {
-  margin: 0.35rem 0 0.85rem;
+  margin: var(--gap-stack) 0 var(--gap-stack);
   text-align: left;
 }
 .record-entry > .record-parameters {
-  margin-left: 3rem;
+  margin-left: var(--gap-card);
 }
 .record-parameters summary {
   cursor: pointer;
@@ -44,15 +44,15 @@
   overflow-wrap: anywhere;
 }
 .record-parameters dl {
-  margin: 0.6rem 0;
+  margin: var(--gap-inline) 0;
   display: grid;
-  gap: 0.35rem;
+  gap: var(--gap-inline);
   font-size: 0.8rem;
 }
 .record-parameters dl > div {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--gap-stack);
 }
 .record-parameters dt {
   font-weight: 400;
@@ -68,7 +68,7 @@
 }
 .record-parameters .record-search-parameters {
   margin: 0;
-  gap: 0.2rem;
+  gap: var(--gap-inline);
 }
 .record-parameters .record-search-parameters dd {
   max-width: none;
@@ -84,13 +84,13 @@
 }
 .model-actions {
   display: flex;
-  gap: 0.35rem;
+  gap: var(--gap-inline);
   align-items: start;
 }
 .name-suggestion-field .name-input-group {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--gap-inline);
 }
 .name-suggestion-field .name-input-group input {
   min-width: 0;
@@ -101,9 +101,4 @@
 .model-delete-note {
   font-size: 0.75rem;
   opacity: 0.8;
-}
-@media (max-width: 600px) {
-  .record-entry > .record-parameters {
-    margin-left: 0.5rem;
-  }
 }

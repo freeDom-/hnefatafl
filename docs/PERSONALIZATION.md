@@ -78,7 +78,7 @@ Only successful permitted setup preferences are saved at
 Older preferences contribute only this allowlisted subset; saved identities,
 models, custom settings and fixed seeds cannot restore removed creation options.
 Cancel/failure does not replace a successful preference, and unavailable browser
-storage does not prevent creation. Account/guest storage remains separate.
+storage does not prevent creation. Stored preferences stay account-scoped.
 
 ## Persistent runes and tournament names
 
@@ -128,13 +128,20 @@ Copenhagen 11×11, in new games, records and training.
 
 ## Color, tokens and boards
 
-Open **Appearance** in the application header. The three settings are independent:
+Open **Appearance** in the application header. The four settings are independent:
 
 | Setting | Choices |
 | --- | --- |
 | Color mode | Follow device, Light, Dark, Wood |
 | Token theme | Classic stones, Viking figures, Carved wood |
 | Board theme | Golden oak, Old walnut, Fjord slate |
+| Interface scale | Compact, Default, Large |
+
+**Interface scale** changes both spacing and text size. Compact fits more on screen;
+Large provides more room and larger text. Responsive spacing adjusts with the
+viewport while retaining the selected scale. Play screens reserve more space for
+the board, with the page heading retained for screen readers. On desktop, tall
+side panels scroll within the play area so the board and footer stay in view.
 
 ![Appearance settings with live previews](screenshots/appearance.png)
 
@@ -162,9 +169,9 @@ Preferences are stored in this browser under `hnefatafl-appearance`, not in play
 profiles or the database. Follow-device mode responds to operating-system color
 changes. Invalid saved values fall back to supported defaults. If browser storage is
 unavailable, settings still work for the visit and the dialog reports the limitation.
-Fresh browsers use **Follow device + Carved wood + Old walnut**. Valid saved choices
+Fresh browsers use **Follow device + Carved wood + Old walnut + Default scale**. Valid saved choices
 remain in effect; missing or invalid fields fall back to these defaults. Choose
-those three settings to return to the defaults.
+those four settings to return to the defaults.
 
 ## Adding another theme
 

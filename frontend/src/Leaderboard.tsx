@@ -109,9 +109,9 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
         <h2 id={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}>
           {t('Leaderboard')}
         </h2>
-        <label className="leaderboard-filter">
-          {t('Ruleset')}
+        <div className="leaderboard-filter">
           <select
+            aria-label={t('Ruleset')}
             value={ruleset}
             onChange={(event) => {
               setRuleset(event.target.value);
@@ -125,7 +125,7 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
               </option>
             ))}
           </select>
-        </label>
+        </div>
       </div>
       {poll.phase === 'loading' && <p role="status">{t('Loading leaderboard…')}</p>}
       {poll.phase === 'stale' && (

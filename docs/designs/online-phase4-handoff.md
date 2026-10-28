@@ -3,8 +3,8 @@
 [Documentation index](../README.md) · [User guide](../ONLINE_PLAY.md) ·
 [Operations and policies](../ONLINE.md) · [Phase 3 validation](../validation/online-phase3.md)
 
-This is the incoming Phase 3 contract. Phase 4 subsequently implements the
-owner-approved guest boundary described in [guest play and storage](../GUEST_PLAY.md);
+This is the incoming Phase 3 contract. Phase 4 subsequently implemented the
+owner-approved guest boundary (its guide has since been removed with the surface);
 see [Phase 4 evidence](../validation/online-phase4.md) and the
 [Phase 5 handoff](online-phase5-handoff.md) for current follow-up decisions.
 

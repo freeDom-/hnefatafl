@@ -31,8 +31,6 @@ test('default landing, shared latest three and exact review survive filtering an
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(nav.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
   await expect(nav.getByRole('button', { name: 'Online', exact: true })).toHaveCount(0);
-  await expect(page.getByText(/Guest games stay/)).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Guest play', exact: true })).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
@@ -263,6 +261,8 @@ test('late real history/statistics responses cannot populate a new account after
   release();
   await page.unrouteAll({ behavior: 'wait' });
   await expect(rows(page)).toHaveCount(0);
+  await accountPanel(page).getByRole('button', { name: 'Singleplayer', exact: true }).click();
+  await onlinePanel(page).getByRole('button', { name: 'Online multiplayer', exact: true }).click();
   await expect(accountPanel(page).getByText('No games recorded yet.')).toBeVisible();
   await expect(onlinePanel(page).getByText('No games recorded yet.')).toBeVisible();
 });
@@ -426,6 +426,9 @@ test('compact and full leaderboards default to Copenhagen and persist ruleset br
   await login(page);
   const board = page.locator('.leaderboard-compact');
   await expect(board.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  // The leaderboard's visible "Ruleset" label is gone; the selector keeps it as
+  // its accessible name. (The embedded online lobby has its own label.)
+  await expect(board.getByText('Ruleset', { exact: true })).toHaveCount(0);
   // Default is Copenhagen; the fixture only has rated Tablut games.
   await expect(board.getByLabel('Ruleset')).toHaveValue('copenhagen');
   await expect(board.getByText('No rated games in this pool yet.')).toBeVisible();
@@ -452,26 +455,81 @@ test('compact and full leaderboards default to Copenhagen and persist ruleset br
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('desktop play screens fit 1920x1080 without document scrolling', async ({ page, request }) => {
+test('desktop play screens fit both viewports at every density without document scrolling', async ({
+  page,
+  request,
+}) => {
   const state = await snapshot(request);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await login(page);
-  const fits = () =>
-    page.evaluate(() => ({
-      scrollHeight: document.documentElement.scrollHeight,
-      innerHeight: window.innerHeight,
-    }));
-  // Online active game uses the shared layout and a viewport-capped board.
-  await page.goto('/online/games/' + state.ids.active);
-  await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
-  await expect(page.getByRole('grid')).toBeVisible();
-  const online = await fits();
-  expect(online.scrollHeight).toBeLessThanOrEqual(online.innerHeight + 1);
-  // Single-player unfinished game shares the same wrapper and heading.
-  await page.goto('/games/' + state.ids.unfinished_account);
-  await expect(page.getByRole('heading', { name: 'Single player game' })).toBeVisible();
-  await expect(page.getByRole('grid')).toBeVisible();
-  await expect(page.getByText('Every move tells a saga.')).toHaveCount(0);
-  const single = await fits();
-  expect(single.scrollHeight).toBeLessThanOrEqual(single.innerHeight + 1);
+  for (const density of ['default', 'compact', 'large']) {
+    await page.evaluate(
+      (density) =>
+        localStorage.setItem(
+          'hnefatafl-appearance',
+          JSON.stringify({ mode: 'wood', tokens: 'wood', board: 'walnut', density }),
+        ),
+      density,
+    );
+    for (const [path, heading] of [
+      ['/online/games/' + state.ids.active, 'Online game'],
+      ['/games/' + state.ids.unfinished_account, 'Single player game'],
+    ]) {
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await page.goto(path);
+      await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+      await expect(page.getByRole('grid')).toBeVisible();
+      await expect(page.getByText('Every move tells a saga.')).toHaveCount(0);
+      for (const [width, height, floor] of [
+        [1920, 1080, 660],
+        [1568, 785, 380],
+      ]) {
+        await page.setViewportSize({ width, height });
+        const fit = await page.evaluate(() => ({
+          scrollHeight: document.documentElement.scrollHeight,
+          innerHeight: window.innerHeight,
+          boardBottom: document.querySelector('.battlefield')!.getBoundingClientRect().bottom,
+          footerTop: document.querySelector('.site-footer')!.getBoundingClientRect().top,
+        }));
+        expect(fit.scrollHeight).toBeLessThanOrEqual(fit.innerHeight + 1);
+        expect(fit.boardBottom).toBeLessThan(fit.footerTop);
+        expect((await page.locator('.board-frame').boundingBox())!.width).toBeGreaterThanOrEqual(
+          density === 'large' ? (height === 1080 ? 600 : 320) : floor,
+        );
+      }
+    }
+  }
+});
+
+test('Large desktop play fits a wrapped administrator header', async ({ page, request }) => {
+  const state = await snapshot(request);
+  await page.setViewportSize({ width: 1568, height: 785 });
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'hnefatafl-appearance',
+      JSON.stringify({ mode: 'wood', tokens: 'wood', board: 'walnut', density: 'large' }),
+    ),
+  );
+  await login(page, 'PersonalOdin');
+  for (const path of ['/games/' + state.ids.admin_account, '/online/games/' + state.ids.active]) {
+    await page.goto(path);
+    await expect(page.getByRole('grid')).toBeVisible();
+    for (const [width, height] of [
+      [1568, 785],
+      [1920, 1080],
+    ]) {
+      await page.setViewportSize({ width, height });
+      const fit = await page.evaluate(() => ({
+        doc: document.documentElement.scrollHeight,
+        view: innerHeight,
+        horizontal: document.documentElement.scrollWidth,
+        width: innerWidth,
+        board: document.querySelector('.battlefield')!.getBoundingClientRect().bottom,
+        footer: document.querySelector('.site-footer')!.getBoundingClientRect().top,
+      }));
+      expect(fit.doc).toBeLessThanOrEqual(fit.view + 1);
+      expect(fit.horizontal).toBeLessThanOrEqual(fit.width);
+      expect(fit.board).toBeLessThan(fit.footer);
+    }
+  }
 });

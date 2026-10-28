@@ -1,20 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-test('auth screens share heading spacing and place the keyboard-accessible guest anchor below login', async ({
-  page,
-}) => {
+test('auth screens share heading spacing, focus and layout across views', async ({ page }) => {
   await page.goto('/login');
   const login = page.getByRole('button', { name: 'Log in', exact: true });
-  const guest = page.getByRole('link', { name: 'Play as guest on this device', exact: true });
   await expect(login).toBeVisible();
-  await expect(guest).toHaveAttribute('href', '/guest');
-  const primary = await login.boundingBox(),
-    secondary = await guest.boundingBox();
-  expect(secondary!.y).toBeGreaterThanOrEqual(primary!.y + primary!.height + 12);
-  expect(secondary!.height).toBeGreaterThanOrEqual(44);
-  await login.focus();
-  await page.keyboard.press('Tab');
-  await expect(guest).toBeFocused();
   const spacing = await page
     .locator('.auth-card')
     .evaluate((card) => getComputedStyle(card).rowGap);
@@ -39,8 +28,5 @@ test('auth screens share heading spacing and place the keyboard-accessible guest
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    await expect(
-      page.getByRole('link', { name: 'Play as guest on this device', exact: true }),
-    ).toHaveAttribute('href', '/guest');
   }
 });

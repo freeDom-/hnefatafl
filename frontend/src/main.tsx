@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import PlaySurfaces from './PlaySurfaces';
+import Auth from './Auth';
+import App from './App';
 import { AppearanceProvider } from './Appearance';
 import { I18nProvider } from './i18n';
 import { NotificationProvider } from './notifications';
@@ -13,7 +14,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <I18nProvider>
       <NotificationProvider>
         <AppearanceProvider>
-          <PlaySurfaces />
+          <Auth>
+            <App />
+          </Auth>
         </AppearanceProvider>
       </NotificationProvider>
     </I18nProvider>

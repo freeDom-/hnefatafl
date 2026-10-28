@@ -248,6 +248,4 @@ Complete the specified concurrency/crash tests before exposing multiplayer. This
 phase grants no new online gameplay capability or production deployment permission.
 
 Authentication forms share heading, content and action spacing across login,
-registration, verification and password recovery. The secondary **Play as guest on
-this device** anchor sits below the primary login action and remains keyboard
-navigable. Guest play retains its separate device-only storage boundary.
+registration, verification and password recovery.

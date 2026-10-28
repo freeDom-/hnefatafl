@@ -137,7 +137,7 @@ administrators have the same personal scope. Known-game spectator routes and
 legacy administrator Hall access keep their existing behavior. Summary projections
 omit private configuration, security fields and correction notes. Account-keyed UI,
 abort cleanup and session epochs prevent stale account responses entering the next
-account. Guest storage is never read by this surface. See the
+account. See the
 [personal API contract](designs/personal-dashboard-phase5.md#api-contract).
 
 ## Coverage and explicit exceptions
@@ -151,7 +151,7 @@ after reviewing new permissions, regenerate with `--write`. Persistence flags
 conservatively include GET routes that can reserve identity runes or reconcile jobs.
 
 Login, registration availability, the five declared registration/verification/reset
-POST routes, minimal database readiness, the auth/guest shells and compiled `/assets/`
+POST routes, minimal database readiness, the login shell and compiled `/assets/`
 files are public. Mutating public routes require same-origin JSON and bounded
 request bodies; signup cannot assign roles or verification and creates no session.
 Token pages require explicit POST confirmation and exclude tokens from URL request
@@ -188,11 +188,11 @@ remain operator responsibilities. MFA is not implemented. SMTP/provider delivery
 privacy/retention and operational recovery policy require owner validation before
 enabling signup. These are tested controls, not a claim of immunity.
 
-The exact public `/guest` and `/guest/` shells mount browser-local single-player
-outside account authentication. No guest API or upload path is granted. Only
-`/assets/guest-<64 hex>/worker.js` receives `wasm-unsafe-eval`; document and other
-asset/API policies retain their existing restrictions. The runtime/engine and
-license update policy is in [guest play and storage](GUEST_PLAY.md).
+Browser-local guest play is removed. `/`, `/login`, the registration/verification/
+reset shells and the immutable build assets are the public documents; every other
+page, including an anonymous `GET /guest`, goes through the authenticated shell and
+redirects to `/login?next=%2Fguest`. All documents and APIs
+share one strict content-security policy; no route receives `wasm-unsafe-eval`.
 
 The Phase 5 history refinement adds read-only `/api/history/games` and
 `/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits

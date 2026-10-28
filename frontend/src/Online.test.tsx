@@ -18,6 +18,7 @@ let eligible = true;
 let enabled = true;
 let unavailable = false;
 let mutation: (path: string, body: Record<string, unknown>) => Promise<Response>;
+let replayResponse: typeof fixture.replay = fixture.replay;
 const respond = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status < 400, status, json: async () => body } as Response);
 const fetcher = vi.fn((path: string, options?: RequestInit): Promise<Response> => {
@@ -32,7 +33,7 @@ const fetcher = vi.fn((path: string, options?: RequestInit): Promise<Response> =
   if (path === '/api/online/availability') return respond({ eligible, enabled });
   if (path.includes('/online/games?'))
     return respond({ games: [current, ...switcherGames], limit: 25, offset: 0, section: 'all' });
-  if (path.endsWith('/replay')) return respond(fixture.replay);
+  if (path.endsWith('/replay')) return respond(replayResponse);
   if (path.endsWith(fixture.simultaneous_return.id)) return respond(simultaneousReturn);
   if (path.endsWith(fixture.sequential_return.id)) return respond(fixture.sequential_return);
   return respond(current);
@@ -47,7 +48,7 @@ function lobby() {
   return render(<Online />);
 }
 async function move() {
-  await screen.findByText('Attackers to move');
+  await screen.findByLabelText('Attackers to move');
   // A visible position can precede its passive version-change effects.
   await act(async () => {});
   const { source, target } = fixture.moved.moves[0];
@@ -62,6 +63,7 @@ beforeEach(() => {
   eligible = true;
   enabled = true;
   unavailable = false;
+  replayResponse = structuredClone(fixture.replay);
   current = structuredClone(fixture.waiting) as OnlineGame;
   switcherGames = [];
   mutation = async () =>
@@ -199,8 +201,13 @@ it('shows authoritative rating changes on a completed rated game', async () => {
   expect(screen.getByText(/-16\.0 → 1484/)).toBeVisible();
   expect(screen.getAllByText(/Provisional/).length).toBeGreaterThan(0);
 });
-it('does not show rating changes for a casual completed game', async () => {
-  room(fixture.completed as OnlineGame);
+it('does not show rating changes when the result carries no rating applications', async () => {
+  const unrated = {
+    ...fixture.completed,
+    rated: false,
+    result: { ...fixture.completed.result!, rating: null, rated_eligible: false },
+  } as OnlineGame;
+  room(unrated);
   await screen.findByText('Attackers win');
   expect(screen.queryByRole('heading', { name: 'Rating changes' })).toBeNull();
 });
@@ -212,7 +219,7 @@ it('reloads after a stale version without replaying the mutation', async () => {
   room();
   await move();
   await screen.findByText(/State changed or adjudication/);
-  await screen.findByText('Defenders to move');
+  await screen.findByLabelText('Defenders to move');
   expect(fetcher.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(1);
 });
 it('retains the last confirmed board as stale on unavailable recovery', async () => {
@@ -265,15 +272,15 @@ it('joins only with eligible admission and shows read-only spectator controls', 
     return respond({ game: current, transition: 'join', action_accepted: true });
   };
   fireEvent.click(screen.getByRole('button', { name: 'Join game' }));
-  await screen.findByText('Attackers to move');
+  await screen.findByLabelText('Attackers to move');
   expect(screen.queryByRole('button', { name: 'Concede' })).toBeNull();
   expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('aria-disabled', 'true');
 });
 it('replay navigation stays local and prevents historical moves, with no assistance calls', async () => {
   room(fixture.moved as OnlineGame);
-  await screen.findByText('Defenders to move');
+  await screen.findByLabelText('Defenders to move');
   fireEvent.click(screen.getByRole('button', { name: 'View replay' }));
-  await screen.findByText('Historical replay · read only');
+  await screen.findByRole('button', { name: 'Return to live board' });
   const { source, target } = fixture.moved.moves[0];
   expect(screen.getAllByRole('gridcell')[source]).toHaveAccessibleName(/attacker/);
   fireEvent.click(screen.getAllByRole('gridcell')[source]);
@@ -286,6 +293,21 @@ it('replay navigation stays local and prevents historical moves, with no assista
       ([path, opts]) => !path.includes('/api/games/') && opts?.method !== 'POST',
     ),
   ).toBe(true);
+});
+it('shows the payload captured counts and follows the replay cursor', async () => {
+  room({ ...fixture.moved, captured: { attackers: 2, defenders: 3 } } as OnlineGame);
+  await screen.findByLabelText('Defenders to move');
+  const capturedRow = () => screen.getByText('Captured').closest('.captured-row')!;
+  const counts = () => capturedRow().textContent?.replace(/\s+/g, ' ').trim();
+  expect(counts()).toBe('Captured 2 3');
+  const shortened = structuredClone(fixture.replay);
+  const board = shortened.states[0].board;
+  board[board.indexOf('A')] = '.';
+  board[board.indexOf('D')] = '.';
+  replayResponse = shortened;
+  fireEvent.click(screen.getByRole('button', { name: 'View replay' }));
+  await screen.findByRole('button', { name: 'Return to live board' });
+  expect(counts()).toBe('Captured 3 4');
 });
 it.each(['simultaneous', 'sequential'] as const)(
   'discovers %s siblings in the active-game switcher and switches games',
@@ -403,7 +425,7 @@ it('opens personal review with scoped reads only, effective void status and loca
   history.replaceState(null, '', `/online/games/${current.id}/review`);
   render(<Online />);
   await screen.findByRole('heading', { name: 'Online game review' });
-  await screen.findByText('Historical replay · read only');
+  await screen.findByRole('button', { name: 'Next move' });
   expect(screen.getByText('Lifecycle: Voided')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
   expect(screen.getByText('Move 1 of 1')).toBeVisible();

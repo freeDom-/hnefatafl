@@ -1,4 +1,4 @@
-"""Private query-derived history; no guest storage, game writes or accounting tables."""
+"""Private query-derived history; no game writes or accounting tables."""
 
 import base64
 import hashlib

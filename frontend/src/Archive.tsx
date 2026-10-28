@@ -49,7 +49,7 @@ export default function Archive() {
       <p>
         {t(
           admin
-            ? 'All server-recorded games. Guest saves stay on their device.'
+            ? 'All server-recorded games.'
             : 'Your participating online games and single-player records.',
         )}
       </p>
