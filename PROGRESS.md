@@ -9,6 +9,10 @@ and [Validation](docs/VALIDATION.md). This checklist is not a current user manua
 Releases are created only after the corresponding implementation and validation.
 See GitHub Releases and `docs/releases/` for exact evidence and limitations.
 
+The formerly unreleased online phases are consolidated in the
+[0.32.0 release preparation](docs/releases/0.32.0.md). Their original phase status,
+test counts and rollout limits below remain historical evidence.
+
 ## Online milestone phases (unreleased)
 
 Phase work integrates into `feat/online-multiplayer`, not main. Phase 0 PR #6 was
@@ -705,3 +709,49 @@ analysis denial remained unchanged.
 Leaderboard is an upcoming placeholder with no approved rating policy. See
 [refinement evidence](docs/validation/dashboard-consolidation.md) for actual checks.
 No version, release, schema, production gates, merge or deployment changed.
+
+## Verified accounts, online multiplayer and interface scale (`0.32.0` preparation)
+
+Release preparation starts from merged `main` at `145a93b`, incorporating the
+online integration and shared play refinements from PRs #25 and #26. Python/npm
+metadata and lockfile project versions move together to `0.32.0`; tagging and
+stable-asset publication follow the release PR merge and successful CI on `main`.
+
+The milestone delivers optional signup, email verification/password recovery,
+durable authenticated online play with single/simultaneous/sequential modes,
+server-owned per-move clocks, quota monitoring, rated-only new games, Elo pools
+and immutable activation-time start ratings. Dashboard becomes the landing page,
+with personal ruleset statistics, compact recent records, role-scoped Hall review,
+and a leaderboard. Completed online games have a separate post-game analysis
+adapter; ongoing games remain ineligible. Account single-player binds the human
+seat to the account and fixed presets, while retaining historical records.
+
+Shared play sections, stable board sizing, saved Compact/Default/Large spacing
+and text scales, and collapsed Dashboard statistics reduce chrome. At the two
+measured desktop sizes, Default board frames are 711 px (1920×1080) and 416 px
+(1568×785); all three scales fit both play modes, with tall panels scrolling
+internally and wrapped administrator headers accounted for. The experimental
+guest runtime is absent from the release.
+
+Upgrading `0.31.0` requires the schema-8-to-12 forward migration, a stopped-writer
+backup and read-only account-collision preflight. Old code cannot safely read the
+new schema; compatible recovery retains current online/security authority and
+revokes capabilities. Registration, online admission and production timeout
+finalization keep their separate disabled/paused defaults. Remote workers must
+match `0.32.0` for new assignments.
+
+Implementation CI at `bb25cde` passed 1,701 backend tests (6 hardware skips),
+418 frontend tests and 74 general/8 registration/14 online/22 personal browser
+checks (4 intentional general-browser skips). This source tree matches merged
+`main`; the release PR reruns the suites with the new version metadata. Local
+timeout retries and the commit-scoped baseline are recorded in the
+[0.32.0 release notes](docs/releases/0.32.0.md#validation), along with installation,
+migration and remaining operational/hardware limitations. Historical records above
+retain their original evidence.
+
+Release-branch checks with the installed `0.32.0` identity passed 69 targeted
+deployment, worker-version and migration tests, frozen lockfile validation,
+documentation (94 files, 719 links/anchors), frontend formatting/typechecking and
+the production build. The release PR's full Verify run remains the acceptance
+gate for the versioned source; publication requires a separate green `main` run
+for the eventual annotated tag.

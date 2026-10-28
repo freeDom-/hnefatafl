@@ -2,6 +2,15 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Online multiplayer and interface scale (`0.32.0` preparation)
+
+The [0.32.0 release notes](releases/0.32.0.md#validation) identify the verified
+merged-implementation baseline, exact backend/frontend/browser counts, release
+preparation checks and the final tagged-main CI requirement. They also cover the
+schema-8-to-12 upgrade, disabled production gates and remaining hardware/operator
+validation. The phase records below retain their original integration status and
+evidence; they are not fresh release-validation claims.
+
 ## Online milestone integration (unreleased)
 
 The [Dashboard consolidation refinement](validation/dashboard-consolidation.md)

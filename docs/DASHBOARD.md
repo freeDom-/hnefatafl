@@ -118,17 +118,19 @@ A row opens `/archive?review=online&selected={id}` or
 `/archive?review=account-single-player&selected={id}`. Review category and ID are
 independent of list filters/cursor, so selection survives refresh, empty results
 and pages that do not contain the selected game. Direct lookup repeats backend
-role/participant authorization. Administrators' history reads grant no mutation,
-assistance or exports. Online IDs always use online adapters.
+role/participant authorization. History reads grant no game mutation or exports;
+online analysis additionally requires authoritative completion. Online IDs always
+use online adapters.
 
 The review restores the single-player presentation: the complete "The saga so far"
 move list with move selection, board replay navigation, general game information
 (ruleset, matchup mode, participants and lifecycle) and the Analytics/Winning
 chances panels. Singleplayer review may use the existing authorized
 analysis through a read-only historical path that analyzes the selected recorded
-cursor without seeking the authoritative game. Recorded online review keeps those
-panels visible but shows them as unavailable, because online analysis stays denied
-to every role. Review canonically
+cursor without seeking the authoritative game. Completed online reviews use a
+separate online-scoped analysis adapter, available to participants and authorized
+administrators. Active, waiting, cancelled and voided games never grant analysis.
+Review canonically
 validates moves/positions, then uses a viewer-local cursor; previous/next never
 writes the authoritative game cursor/version. The replay controls add a
 **Play**/**Stop** button that advances one recorded move per second from the

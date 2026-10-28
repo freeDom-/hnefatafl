@@ -5,12 +5,12 @@
 [Playing online](ONLINE_PLAY.md) · [Phase 3 evidence](validation/online-phase3.md) ·
 [Phase 4 handoff](designs/online-phase4-handoff.md)
 
-Phase 2 provides authenticated backend gameplay. It reuses the existing engine,
-pure lifecycle, accounts and SQLite transactions. Phase 3 adds the authenticated
-lobby and playable UI described in [Playing online](ONLINE_PLAY.md). Phase 6 adds
-the versioned Elo pool and authenticated leaderboard described in
-[Rated games](RATINGS.md). Anonymous access, online advice, aggregate match
-scoring, rewards and deployment remain absent.
+Authenticated online gameplay reuses the existing engine, pure lifecycle, accounts
+and SQLite transactions. The lobby and playable UI are described in
+[Playing online](ONLINE_PLAY.md); the versioned Elo pool and authenticated
+leaderboard are described in [Rated games](RATINGS.md). Analysis is available only
+through the completed-game history adapter. Anonymous access, ongoing-game
+assistance, aggregate match scoring and rewards are not provided.
 Singleplayer, training, workers and model records keep their existing
 tables and behavior. The old local `game_participants` scaffold references local
 `games`; online seats therefore live in the separate authoritative online tables.
@@ -38,11 +38,12 @@ The owner explicitly refined/approved these Phase 2 policies in conversation:
   retains existing-seat moves/concession while active with a valid session. This
   includes the already-agreed return game; it is not another open join/admission.
 
-Anonymous visibility, waiting-lobby retention/lifetime, rated eligibility and the
-production outage-resolution procedure remain **unapproved**. Anonymous access and
-rated input are rejected. No automatic waiting-game expiry or deadline extension
-is implemented. Keeping a durable waiting record is not approval of a future
-public-lobby retention policy. Production automatic forfeits start disabled.
+Anonymous visibility, waiting-lobby retention/lifetime and the production
+outage-resolution procedure remain **unapproved**. Anonymous access is rejected;
+the approved rated-only creation policy is described in [Rated games](RATINGS.md).
+No automatic waiting-game expiry or deadline extension is implemented. Keeping a
+durable waiting record is not approval of a future public-lobby retention policy.
+Production automatic forfeits start disabled.
 
 Each game in a two-game match contributes independently to derived online counts;
 there is no match-level winner, Elo or score. Administrative void applies to the
@@ -252,9 +253,11 @@ administrator operations data and is never bundled into game projections.
 
 Online IDs cannot enter local game/AI/analysis/analytics/seek/undo/restart/export
 adapters, including for administrators. Separate tables also exclude them from
-local collections, tournament replay and training exports. No arbitrary-position
-analysis endpoint or online assistance endpoint exists. Safe completed/played-voided
-replay is available; online analysis remains a later lifecycle-aware adapter.
+local collections, tournament replay and training exports. The dedicated
+`/api/history/online/{id}/analytics` and `/analysis` routes permit authorized
+analysis only after the game has an authoritative Completed result. Active,
+waiting, cancelled and voided games are rejected; a client countdown reaching zero
+does not grant analysis. Safe completed/played-voided replay remains read-only.
 Pre-start replay contains only the initial board, not a played line or advice.
 Publicly shared board positions cannot prevent external AI assistance.
 

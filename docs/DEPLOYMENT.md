@@ -188,11 +188,12 @@ verification/token/mail/limiter state without reassigning owners; run the
 before a separately authorized upgrade. No production migration is implied by
 development validation.
 
-Schema 11 adds the [durable online core](ONLINE.md) and the
-[rated-game/leaderboard pool](RATINGS.md) without reinterpreting local histories.
+Schema 12 includes the [durable online core](ONLINE.md), the
+[rated-game/leaderboard pool](RATINGS.md) and immutable per-game start-rating
+snapshots without reinterpreting local histories.
 Admission defaults off and timeout finalization starts paused, with a separate
 unapproved production outage-policy prerequisite. Review the
-[schema-11 recovery boundary](ONLINE.md#migration-backup-and-recovery) before an
+[schema-12 recovery boundary](ONLINE.md#migration-backup-and-recovery) before an
 upgrade or rollback, and pause the timeout gate before maintenance.
 
 Registration remains off unless explicitly enabled with valid mail configuration.

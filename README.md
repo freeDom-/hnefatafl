@@ -141,10 +141,15 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 
 ## Current limitations
 
-A server connection is required. Local participants remain separate from login accounts.
+A server connection and an authenticated account are required. Verified accounts
+can create/join games in the online lobby when the operator enables admission;
+registration and online admission default off. Automatic timeout finalization
+also requires an approved outage policy and an enabled persistent gate. See
+[online operations](docs/ONLINE.md) and [registration](docs/REGISTRATION.md).
 Use the production HTTPS/proxy configuration before public exposure. Offline play,
-online matchmaking/lobbies, distributed self-play and PostgreSQL migration tools
-are not implemented. Installation requires a published stable release with a verified asset.
+automatic opponent matchmaking, distributed self-play and PostgreSQL migration
+tools are not implemented. Installation requires a published stable release with
+a verified asset.
 
 CPU workflows are verified. CUDA/MPS execution, GPU throughput and target-host
 systemd/proxy operation require separate validation. Tiny v0.17.0 CPU benchmarks
