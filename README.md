@@ -4,7 +4,7 @@ Play Brandubh, Tablut and Copenhagen in a responsive browser application. Challe
 search opponents, compare them in tournaments, or train a policy/value network
 from scratch with real self-play learning.
 
-![Brandubh desktop gameplay in an earlier interface](docs/screenshots/desktop.png)
+![Brandubh gameplay with the Wood theme, Carved wood tokens and Old walnut board](docs/screenshots/readme-gameplay.png)
 
 [Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md)
 
