@@ -159,7 +159,8 @@ and explicit operator reconciliation. See
 Before enabling Rated play in production:
 
 1. Complete the existing [online admission and timeout prerequisites](ONLINE.md).
-2. Confirm schema 11 migration and a compatible backup/restore on a copy.
+2. Confirm schema 12 migration (including rating events and start-rating snapshots)
+   and a compatible backup/restore on a copy.
 3. Decide and document a moderation/anti-farming response using the existing
    private void audit and rebuild procedures.
 4. Review leaderboard display-name and account-deletion behavior with the

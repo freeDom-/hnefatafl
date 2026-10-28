@@ -3,11 +3,12 @@
 [Documentation index](README.md) · [Security](SECURITY.md) ·
 [Deployment and backups](DEPLOYMENT.md) · [Phase 1 validation](validation/account-registration-phase1.md)
 
-Phase 1 extends the existing account/session system. Registration is **disabled
-by default**. No online game endpoints, email-address changes or account deletion
-are provided. The future-online gate is `security_context.online_eligible`: active
-USER/ADMIN account and a verified email. It does not restrict current single-player
-functionality; an unverified account may explicitly log in normally.
+Registration extends the existing account/session system and is **disabled by
+default**. The online admission gate is `security_context.online_eligible`: an
+active USER/ADMIN account and a verified email. It does not restrict single-player
+functionality; an unverified account may explicitly log in normally. See
+[online gameplay](ONLINE.md) for the separate multiplayer routes and operational
+gates. Email-address changes and account deletion are not provided.
 
 ## Account and token policy
 
@@ -192,9 +193,9 @@ browser persistence. Reopening an expired/replaced link provides a resend path.
 
 ## Migration and rollback boundary
 
-The current overall database is schema 11 after [online-core integration](ONLINE.md)
-and the [rating pool](RATINGS.md). The account upgrade below remains schema 9;
-schema-11-aware recovery additionally preserves current online authority and pauses
+The current overall database is schema 12 after [online-core integration](ONLINE.md),
+the [rating pool and start-rating snapshots](RATINGS.md). The account upgrade below remains schema 9;
+schema-12-aware recovery additionally preserves current online authority and pauses
 its timeout gate. Review the
 [online compatibility boundary](ONLINE.md#migration-backup-and-recovery) too.
 
@@ -242,10 +243,10 @@ SMTP/provider deliverability and physical mobile clients remain operator validat
 not claims made by fake-transport tests. The [registration browser suite](../frontend/registration-tests/accounts.spec.ts)
 exercises English/German flows and mobile emulation with an in-memory fake mailbox.
 
-Before online games, integrate the verified gate with transactional participants,
-deadlines/results and approved outage policy from [Phase 0](designs/online-phase0.md).
-Complete the specified concurrency/crash tests before exposing multiplayer. This
-phase grants no new online gameplay capability or production deployment permission.
+Before enabling online admission, review the implemented participant, deadline and
+result policies in [online operations](ONLINE.md). Timeout finalization additionally
+requires a separately approved outage procedure and an enabled persistent gate.
+Publishing or installing a release does not enable these settings.
 
 Authentication forms share heading, content and action spacing across login,
 registration, verification and password recovery.
