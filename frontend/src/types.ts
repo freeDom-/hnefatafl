@@ -26,10 +26,12 @@ export interface PlayerConfig {
   profile_id?: string;
   config: Config;
   player_id?: string;
+  account_id?: string;
   profile_name?: string;
   model_name?: string;
 }
 export interface Game {
+  creation_policy?: number;
   id: string;
   advisor?: Advisor | null;
   analysis_enabled?: boolean;
@@ -73,11 +75,7 @@ export interface AIProfile {
   parameters: Config;
   supported_rulesets: string[];
 }
-export interface Player {
-  rune?: string;
-  id: string;
-  name: string;
-}
+
 export interface Model {
   self_play_games?: {
     version: number;

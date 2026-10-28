@@ -37,6 +37,7 @@ def main(argv=None):
             "set-role",
             "disable",
             "enable",
+            "check-collisions",
         ),
     )
     parser.add_argument("--data-dir", default=os.environ.get("HNEFATAFL_DATA_DIR", "data"))
@@ -49,13 +50,25 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     root = Path(args.data_dir).resolve()
+    if args.command == "check-collisions":
+        from .account_migrations import check_collisions
+
+        try:
+            report = check_collisions(root / "hnefatafl.sqlite3")
+            print(json.dumps(report))
+            return 0 if report["ok"] else 1
+        except sqlite3.Error:
+            print("Cannot open the account database read-only.", file=sys.stderr)
+            return 1
     root.mkdir(parents=True, exist_ok=True)
     if os.geteuid() not in (0, root.stat().st_uid):
         parser.error("Run as root or the owner of the application data directory")
     os.umask(0o077)
     store = Store(root / "hnefatafl.sqlite3")
     if args.command == "migrate":
-        print("Database schema 8 ready.")
+        from .storage import SCHEMA_VERSION
+
+        print(f"Database schema {SCHEMA_VERSION} ready.")
         return 0
     auth = Auth(store, SecuritySettings())
     try:

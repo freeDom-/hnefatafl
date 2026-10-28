@@ -1,11 +1,15 @@
+import { historicalGame } from './historical-fixture';
 import { expect, test } from './auth-fixture';
 
 test('a searching advisor publishes partial results while the human can move and can be changed immediately', async ({
   page,
+  request,
 }) => {
-  await page.goto('/');
-  await page.getByRole('radio', { name: /Copenhagen/ }).check();
-  await page.getByRole('button', { name: 'To the table' }).click();
+  const stored = await historicalGame(request, {
+    data: { ruleset: 'copenhagen', mode: 'human-human' },
+  });
+  expect(stored.ok()).toBe(true);
+  await page.goto('/games/' + (await stored.json()).id);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
   // Leave time for real touch scrolling between the advisor and the board while
@@ -16,8 +20,11 @@ test('a searching advisor publishes partial results while the human can move and
     analytics.getByRole('spinbutton', { name: 'Search depth', exact: true }),
   ).toHaveValue('5');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
+  const advisorOpinion = panel
+    .locator('.agent-estimate')
+    .filter({ has: page.getByText('Move advisor', { exact: true }) });
   await expect(panel).toHaveAttribute('aria-busy', 'true');
-  await expect(panel.locator('.estimate-source')).toContainText(/depth [1-4] \/ 5/);
+  await expect(advisorOpinion.locator('.estimate-source')).toContainText(/depth [1-4] \/ 5/);
   const board = page.getByRole('grid', { name: 'copenhagen game board' });
   const piece = board.getByRole('gridcell', { name: /attacker/ }).first();
   await expect(piece).toBeEnabled();
@@ -29,20 +36,22 @@ test('a searching advisor publishes partial results while the human can move and
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
   await advisor.selectOption('profile:baseline');
   await expect(panel).toHaveAttribute('aria-busy', 'false');
-  await expect(panel.locator('.agent-estimate')).toContainText('Shield bearer');
-  await expect(panel.locator('.agent-estimate')).not.toContainText('Custom move advisor');
+  await expect(advisorOpinion).toContainText('Shield bearer');
+  await expect(advisorOpinion).not.toContainText('Custom move advisor');
   await expect(board.locator('.hint-overlay')).toBeVisible();
 });
 
 test('advisor highlights a legal move and original estimates survive replay, reload and localization', async ({
   page,
+  request,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
-  await page.getByRole('radio', { name: /Brandubh/ }).check();
-  await expect(page.getByRole('combobox', { name: 'Agent for move suggestions' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'To the table' }).click();
+  const stored = await historicalGame(request, {
+    data: { ruleset: 'brandubh', mode: 'human-human' },
+  });
+  expect(stored.ok()).toBe(true);
+  await page.goto('/games/' + (await stored.json()).id);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
   await expect(advisor).toHaveValue('');
@@ -51,28 +60,28 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   ).toHaveValue('5');
   await advisor.selectOption('profile:baseline');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
-  await expect(panel.getByRole('meter')).toHaveCount(1);
+  const advisorOpinion = panel
+    .locator('.agent-estimate')
+    .filter({ has: page.getByText('Move advisor', { exact: true }) });
+  await expect(advisorOpinion.getByRole('meter')).toHaveCount(1);
   await expect(panel).toHaveAttribute('aria-busy', 'false');
-  const initialValue = await panel.getByRole('meter').getAttribute('aria-valuenow');
+  const initialValue = await advisorOpinion.getByRole('meter').getAttribute('aria-valuenow');
   const board = page.getByRole('grid', { name: 'brandubh game board' });
   await expect(board.locator('.hint-overlay')).toBeVisible();
   await expect(board.locator('.hint-source')).toHaveCount(1);
   await expect(board.locator('.hint-target')).toHaveCount(1);
-  const showChances = panel.getByRole('checkbox', { name: 'Show winning chances', exact: true });
-  await expect(showChances).toBeChecked();
-  await showChances.uncheck();
-  await expect(panel.getByRole('meter')).toHaveCount(0);
+  // The advisor selection is the single trigger; no visibility checkbox remains.
+  await expect(panel.getByRole('checkbox')).toHaveCount(0);
+  await expect(advisorOpinion.getByRole('meter')).toHaveCount(1);
   await expect(board.locator('.hint-overlay')).toBeVisible();
-  await showChances.check();
-  await expect(panel.getByRole('meter')).toHaveCount(1);
   await board.locator('.hint-source').click();
   await board.locator('.hint-target').click();
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
   await expect(panel).toHaveAttribute('aria-busy', 'false');
   await page.getByRole('button', { name: 'Undo move', exact: true }).click();
-  await expect(panel.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
+  await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
   await page.reload();
-  await expect(panel.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
+  await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
   await expect(advisor).toHaveValue('profile:baseline');
 
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
@@ -99,7 +108,7 @@ test('the actual AI decision and the opponent’s background estimate survive re
   page,
   request,
 }) => {
-  const response = await request.post('http://127.0.0.1:8001/api/games', {
+  const response = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',
@@ -150,11 +159,20 @@ test('the actual AI decision and the opponent’s background estimate survive re
     target: after.moves[0].target,
   });
   expect(replay.analysis.evaluations).toHaveLength(2);
-  await page.addInitScript((id) => localStorage.setItem('hnefatafl-game', id), game.id);
-  await page.goto('/');
+  // Freeze only the browser playback timer while opening the retained position;
+  // all recorded searches and moves above used the real engine/API.
+  await page.clock.install({ time: new Date() });
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  await page.goto('/games/' + game.id);
   await page.getByRole('button', { name: /Pause AI/ }).click();
-  const meters = page.getByRole('region', { name: 'Agent evaluations' }).getByRole('meter');
-  await expect(meters).toHaveCount(2);
+  await page.clock.resume();
+  // The advisor selection is the display trigger; stored playing-agent evidence
+  // still appears alongside the advisor.
+  await page
+    .getByRole('region', { name: 'Analytics', exact: true })
+    .getByRole('combobox', { name: 'Move advisor', exact: true })
+    .selectOption('profile:baseline');
+  await expect(page.getByRole('region', { name: 'Agent evaluations' })).toBeVisible();
   for (const agent of replay.analysis.evaluations) {
     await expect(
       page.getByRole('meter', { name: `${agent.name} estimate for Attackers` }),

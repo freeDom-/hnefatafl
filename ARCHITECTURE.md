@@ -14,8 +14,9 @@ responsive browser client for desktop and phones. SQLite keeps ordinary Linux an
 Proxmox LXC installations simple. PyTorch provides real CPU/CUDA policy/value learning;
 Optuna manages persistent search studies. Docker is not required.
 
-The browser never decides legality or game outcomes. Every position and move has a
-serializable representation, shared by interactive play, replay, AI and training.
+Account and online positions/results are server-authoritative. Every position and
+move has a serializable representation, shared by interactive play, replay, AI and
+training.
 Pieces are `.`, `A`, `D`, `K`; moves use zero-based flattened `source` and `target`
 indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 
@@ -34,6 +35,8 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
 | [benchmark.py](hnefatafl/benchmark.py), [alpha_beta_benchmark.py](hnefatafl/alpha_beta_benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons, alpha-beta optimization ablations and headless command dispatch |
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
+| [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
+| [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
@@ -72,13 +75,75 @@ are explicit hooks, including Copenhagen shield walls, encirclement and edge for
 The exact linked market Tablut rules take precedence over other historical Tablut
 reconstructions. Dedicated rule documents record interpretation and source access.
 
-## Future multiplayer
+## Online game core
 
-Game IDs, stable player identities, persisted ordered moves and versioned move
-requests permit future online participation and WebSocket broadcasts. Persistent
-accounts, database sessions and centralized permissions now protect the API;
-lobby matchmaking remains future work. The engine does not need to change. SQLite transactions currently serialize
-updates; a PostgreSQL adapter can replace storage without changing rules or clients.
+Phase 1 extends existing auth with [registration and recovery](docs/REGISTRATION.md).
+`account_policy.py` shares validation, `account_migrations.py` owns schema-9
+preflight/token/mail state, `account_api.py` declares the public account flows and
+`registration.py` coordinates transactional tokens, durable limits and leased SMTP
+delivery through `account_mail.py`. Lifespan supervises delivery independently of
+request lifetime. Phase 2 reuses its verified-account admission gate.
+
+[Phase 0](docs/designs/online-phase0.md) records the proposed online lifecycle,
+deadline, result and permission boundaries, backed by a
+[source assessment](docs/designs/online-phase0-assessment.md). The pure
+`lifecycle.py` contract is integrated by `online_core.py` for dedicated online records.
+The [browser-offline spike](spikes/browser_offline/README.md) stages an isolated
+runtime, not a production anonymous mode or authentication exception.
+
+Schema 10 separates online matches/games from mutable local histories. SQLite
+`BEGIN IMMEDIATE` serializes session/account rechecks, time sampled after locking,
+seat assignment, legal engine actions, expected versions, deadlines and append-only
+result revisions. Private administrative notes never enter game projections.
+Effective eligible results derive online counts; void revisions withdraw prior
+contributions. Random sides resolve once at join. Simultaneous two-game matches
+activate both legs atomically; sequential matches activate the side-swapped return
+in the first game's completion transaction. Each game retains its own version/result.
+
+Lifespan reconciles one bounded expiry batch and supervises periodic passes. Requests
+and sweeps share the same expiry transaction/gate, including deployment freeze.
+Persistent timeout finalization starts paused and has a separate unapproved outage
+policy prerequisite; overdue play stays rejected without deadline extension. Current
+sessions are reloaded under the write lock through trusted session context, closing
+the gap after middleware authentication. Admission requires active/verified accounts;
+existing admitted seats retain play after verification changes while active/session-valid.
+
+The [operations guide](docs/ONLINE.md) documents policy approval, schema/restore
+boundaries and safe projections. The [online UI](docs/ONLINE_PLAY.md) owns separate
+account-keyed lobby/game state, abortable/coalesced polling and viewer-local replay.
+The presentation-only Board receives no online assistance. Auth generation guards
+prevent delayed session responses restoring old state after logout. Admission UX
+uses the authenticated availability projection backed by `online_eligible`; writes
+remain authoritative. [Phase 4 handoff](docs/designs/online-phase4-handoff.md) records
+remaining public/rated/operational decisions.
+All online endpoints are authenticated, with CSRF/Origin/JSON/body protections.
+Legacy analysis/AI/shared-cursor/export adapters reject online IDs, including admins;
+no online assistance or WebSocket endpoint is provided. The engine remains shared.
+
+Creation admission also checks per-account waiting and rolling creation quotas in
+the game transaction, using indexed persisted rows rather than process-local
+limiter state. Bounded aggregate denial counters and rate-limited sanitized logs
+survive restart; administrator-only monitoring reports these and database/WAL
+growth. Optional schema-10 monitoring state is initialized on compatible restore
+without changing authoritative game rows or resetting the live creation budget.
+
+Schema 12 adds the Phase 6 rating pool. `rating.py` owns the pure Elo formula and
+deterministic replay; `online_ratings.py` persists one event per applied or
+withdrawn Rated game with a stable sequence, per-player applications and running
+`player_ratings`. Result revision, event, applications and running ratings commit
+in the same write transaction. A void withdraws the event and rebuilds the pool
+from applied events in sequence order inside one transaction, so standings are
+never partially visible. `online_game_start_ratings` captures immutable per-player
+start Elo at activation, independently of pool rebuilds. All newly created games
+are rated; historical casual games keep their flag. Leaderboard reads require a
+session and return one Elo-ordered list (provisional players carry a badge). See
+[Rated games](docs/RATINGS.md).
+
+Completed online games reuse the local analysis engine through an online-scoped
+adapter: `server.py` reconstructs a terminal game from `online_games`/`online_moves`,
+`analysis_service.py` and `storage.py` accept the online identity, and the advisor
+reports persist in the existing `advisor_analysis`/`game_analytics` tables. Ongoing
+online games are rejected by the backend and never expose assistance.
 
 ## Training execution and inference
 
@@ -154,9 +219,9 @@ store resolved parameters and display-name snapshots. Legacy explicit-algorithm
 sessions retain the defaults their original engine used; profile defaults are not
 retroactively applied. Variant statistics expose configuration metadata for inspection.
 
-Player tombstones and archived model metadata preserve deleted identities. Deleting a player
-hides it from selection while preserving its ID and saved history; reusing the same
-display name creates a new identity. Deleting an available model removes its registry
+Retained player tombstones and archived model metadata preserve historical identities.
+Local-player creation/deletion paths are removed; saved IDs, names and runes stay
+readable. New human seats use account IDs and one stable account rune. Deleting an available model removes its registry
 copy and entry, retaining historical labels and original training outputs. Catalog
 reference creation and deletion are serialized in the supported single API process.
 
@@ -167,8 +232,10 @@ persists choices. New artwork and palettes can be added without changing game ru
 or persistence. See [Personalization](docs/PERSONALIZATION.md).
 
 Ordinary new games store a server-generated base seed; actual decision seeds combine
-the base with the ply. Explicit game seeds support reproducible requests. Restart
-always creates a fresh seed, and legacy records retain their original semantics.
+the base with the ply. Explicit seeds remain available to authorized training and
+tournament workflows, while account creation uses server seeds only. Restart of a
+current-policy unfinished game creates a fresh seed; historical records retain their
+original read/play seed semantics.
 Game deletion uses an expected version and removes the source record; statistics
 are derived from retained records, so all counts/rates update without cached totals.
 Restart is restricted to unfinished records, using the retained final outcome
@@ -180,11 +247,10 @@ a matching usage fingerprint. SQL and registry failure handling preserve referen
 if deletion fails; completed histories and training checkpoints remain. App-level
 deletion callbacks clear matching current-game pointers and reject late AI responses.
 
-Hall tables sort and filter presentation data locally without rewriting stored
-results or changing aggregate statistics. Numeric comparisons cover counts, rates
-and averages; player/history text searches remain independent. AI parameter dialogs
-share the same full-value renderer as recorded-game details while keeping table rows
-compact. New browser preferences default to carved wood and walnut; valid saved
+Hall filters and counts run on authorized server queries without rewriting stored
+results. Selected canonical review is independent of filtering and pagination.
+AI parameter details remain inspectable in recorded games; account setup exposes
+only the four named presets and their time/depth/iteration budgets. New browser preferences default to carved wood and walnut; valid saved
 preferences remain authoritative.
 
 ## Background analysis
@@ -215,9 +281,14 @@ exclude seed from identity. Tournaments display the underlying agent rune; older
 seat-rune reservations remain stored. Older response snapshots gain runes without
 rewriting game JSON or checkpoint metadata. See [Identities](docs/IDENTITIES.md).
 
-New-game browser preferences retain a validated complete successful setup. Native
-model choices update their canonical names with their IDs, and saved model-name
-snapshots identify earlier games whose supplied aliases were stale. Training
+Account setup retains only battlefield, permitted mode, side and four preset IDs.
+The server binds human seats to the account and resolves preset budgets itself;
+creation and restart recheck current sessions/roles in a write transaction. New
+pass-and-play, local-player CRUD and custom/neural account-game creation are removed.
+Historical player IDs, modes and effective configurations remain read/play shims,
+without supporting legacy result reconstruction or cloning old setups via restart.
+Model choices in authorized advisors/tournaments retain canonical names/IDs, and
+saved model-name snapshots identify earlier games whose supplied aliases were stale. Training
 resumption uses an explicit job checkpoint metadata route and server-derived
 configuration, then creates a new worker/output directory for the chosen total
 iteration target. The UI never reconstructs a resume request from arbitrary paths.
@@ -369,3 +440,61 @@ square-root threshold; weighted sampling and RNG consumption are unchanged.
 The scheduler still batches one dependent request per independent game. Node
 reuse reduces generator transitions before the Phase 1 cache; cache hits and
 batch deduplication remain separate from node reuse and completed simulations.
+
+## Account and online play surfaces
+
+`main.tsx` mounts `Auth` around `App`. Account play lives at `/games/{id}` and online
+play at `/online/games/{id}`; both render the shared play-screen sections. Session
+reads do not modify saved account preferences; explicit logout keeps its existing
+cleanup. Protected requests have session epochs and cancellation so delayed
+old-account responses cannot update a different account or emit stale authentication
+events. Existing account selection and online-intent keys keep their formats and
+semantics; account setup preferences retain only the permitted subset of older
+values. Browser-local guest play and its device-only worker are removed; the
+historical separation evidence stays in
+[Phase 4 validation](docs/validation/online-phase4.md).
+
+
+## Personal dashboard and review
+
+`PersonalDashboard.tsx` is the authenticated landing with existing account setup and
+embedded `Online.Lobby`, separate personal statistics and at most three completed
+visible own records. `navigation.ts` normalizes obsolete landing URLs while retaining
+search/selection; account gameplay has `/games/{id}` and dedicated online/replay paths
+remain. `RecordedGames` supplies compact rows (named winner, locale-aware date/time with
+Timezone) to Dashboard and `Archive` (Hall). `RecordedReview` restores the full
+single-player presentation (saga move list, board replay, general game information,
+Analytics/Winning chances) using category-specific validated read adapters and
+viewer-local state. Online review shows the analysis panels as unavailable; account
+single-player review may use the existing authorized analysis. Selected review is
+independent of Hall filters/page and survives direct load/refresh.
+Dashboard reads only account-scoped records.
+Account-keyed poll state, cancellation and session epochs
+reject late responses. The Dashboard's compact leaderboard and the full
+`/leaderboard` view share authenticated qualified/provisional standings and the
+viewer's own standing; see [Rated games](docs/RATINGS.md).
+
+`personal_api.py` retains five own-account GET adapters under `/api/personal`, including
+administrators. Two additional read-only `/api/history` routes use `history.py`:
+normal-user lists/review are participant online only; trusted current `all_data`
+sessions can filter/review all server-recorded online/account records. Dashboard
+history always applies own-account scope, visibility and eligible completion before
+limit three. Summary/count/category totals use set-based SQL and bounded cursors in
+one read transaction, without engine calls or schema changes. Detail rechecks role
+and object scope in the same transaction as canonical replay. No history grant adds
+mutation, analysis or export authority. Global authenticated online lobby/spectator
+reads and all-role active-online assistance denial retain their permissions.
+
+Account totals read persisted `recorded_result` only: current writers include it,
+seeks preserve it and missing/null results are unfinished. No legacy account records
+or result reconstruction are supported. Personal statistics attribute wins/losses
+to the account-bound human seat and exclude `ai-ai` and unattributed legacy records
+from personal outcomes, reporting coverage instead. Online statistics use the
+account's seat and only current eligible completed revisions, withdrawing voids and
+counting own-clock timeouts separately from opponent timeouts. Unexpected
+personal/history API failures log fixed actions, exception types and scrubbed
+tracebacks with generic 503 responses. Local players UI and Archive-only profile
+queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the
+[dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
+[refinement evidence](docs/validation/dashboard-consolidation.md) and
+[Rated games](docs/RATINGS.md).

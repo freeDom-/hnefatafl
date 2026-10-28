@@ -1,5 +1,6 @@
 """Shared Shield maiden identities through game, analysis and tournament APIs."""
 
+from record_fixtures import historical_response
 import time
 
 import pytest
@@ -16,8 +17,8 @@ def test_profile_custom_analysis_and_stats_use_distinct_effective_identity(tmp_p
         profiles = client.get("/api/ai/profiles").json()
         maiden = next(p for p in profiles if p["id"] == "shield_maiden")
         assert maiden["name"] == "Shield maiden" and maiden["difficulty"] == "Intermediate"
-        created = client.post(
-            "/api/games",
+        created = historical_response(
+            client,
             json={
                 "ruleset": ruleset,
                 "mode": "ai-ai",
@@ -28,7 +29,7 @@ def test_profile_custom_analysis_and_stats_use_distinct_effective_identity(tmp_p
                 },
             },
         )
-        assert created.status_code == 201, created.text
+        assert created.status_code == 200, created.text
         game = created.json()
         assert game["players"]["attackers"]["config"] == {
             "algorithm": "shield_maiden",
@@ -49,8 +50,8 @@ def test_profile_custom_analysis_and_stats_use_distinct_effective_identity(tmp_p
             assert response.status_code == 200, response.text
             move = response.json()["moves"][-1]
             assert (move["source"], move["target"]) == (expected.source, expected.target)
-        custom = client.post(
-            "/api/games",
+        custom = historical_response(
+            client,
             json={
                 "ruleset": ruleset,
                 "mode": "ai-ai",
@@ -59,7 +60,7 @@ def test_profile_custom_analysis_and_stats_use_distinct_effective_identity(tmp_p
                 },
             },
         )
-        assert custom.status_code == 201, custom.text
+        assert custom.status_code == 200, custom.text
         assert custom.json()["players"]["attackers"]["config"]["time_limit"] == 0.03
         # Statistics include completed records only. Finish the real API game.
         game = client.get(f"/api/games/{game['id']}").json()
@@ -88,7 +89,7 @@ def test_profile_custom_analysis_and_stats_use_distinct_effective_identity(tmp_p
                 },
             },
         )
-        assert invalid.status_code == 400
+        assert invalid.status_code == 422
 
 
 def test_tournament_snapshots_and_runs_shield_maiden(tmp_path):

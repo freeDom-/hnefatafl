@@ -317,6 +317,13 @@ For upgrades and rollback, see [Deployment](DEPLOYMENT.md#updating). Schema upgr
 are additive but older code can reject a newer schema; rollback uses the matching
 pre-upgrade **database and files**, not just an older executable.
 
+Schema 11 adds independent online authority and the rating pool. Use the
+[online recovery procedure](ONLINE.md#migration-backup-and-recovery) as well:
+compatible updater restores retain live accepted online moves/results, revoke
+capabilities and audit/pause timeouts; snapshot-only recovery cannot reconstruct
+post-backup progress. Cross-online-schema rollback is refused. Quiesce all online
+writers and pause the timeout gate before maintenance; inspect it before resuming.
+
 ## Troubleshooting retained data
 
 - **Directory exists, job missing:** the SQLite jobs registry was not moved, or the

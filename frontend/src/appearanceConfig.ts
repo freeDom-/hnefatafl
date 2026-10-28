@@ -12,6 +12,12 @@ export const TOKEN_THEMES = [
   { id: 'wood', name: 'Carved wood', description: 'Weathered grain and hand-carved runes' },
 ] as const;
 
+export const DENSITIES = [
+  { id: 'compact', name: 'Compact', description: 'Tighter spacing for more on screen' },
+  { id: 'default', name: 'Default', description: 'Balanced spacing and text' },
+  { id: 'large', name: 'Large', description: 'Roomier spacing for relaxed reading' },
+] as const;
+
 export const BOARD_THEMES = [
   {
     id: 'oak',
@@ -78,13 +84,20 @@ export const BOARD_THEMES = [
 export type ColorMode = (typeof COLOR_MODES)[number]['id'];
 export type TokenTheme = (typeof TOKEN_THEMES)[number]['id'];
 export type BoardTheme = (typeof BOARD_THEMES)[number]['id'];
+export type Density = (typeof DENSITIES)[number]['id'];
 export interface Appearance {
   mode: ColorMode;
   tokens: TokenTheme;
   board: BoardTheme;
+  density: Density;
 }
 export const APPEARANCE_KEY = 'hnefatafl-appearance';
-export const DEFAULT_APPEARANCE: Appearance = { mode: 'system', tokens: 'wood', board: 'walnut' };
+export const DEFAULT_APPEARANCE: Appearance = {
+  mode: 'system',
+  tokens: 'wood',
+  board: 'walnut',
+  density: 'default',
+};
 
 export function parseAppearance(value: unknown): Appearance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_APPEARANCE };
@@ -99,5 +112,8 @@ export function parseAppearance(value: unknown): Appearance {
     board: BOARD_THEMES.some((theme) => theme.id === candidate.board)
       ? (candidate.board as BoardTheme)
       : DEFAULT_APPEARANCE.board,
+    density: DENSITIES.some((density) => density.id === candidate.density)
+      ? (candidate.density as Density)
+      : DEFAULT_APPEARANCE.density,
   };
 }

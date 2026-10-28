@@ -48,7 +48,7 @@ test('real random_d4 training, workshop control, reuse and reviewed resume', asy
   expect(augmentation.exposures).toBeGreaterThan(job.progress.metrics.replay_positions);
 
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await selectWorkshopJob(page, job.id, name);

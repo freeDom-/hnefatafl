@@ -182,7 +182,21 @@ an old installation, stop all writers and copy the **complete** data root and
 configuration first; see [backup and relocation](TRAINING_DATA.md#consistent-backup-and-restoration).
 Do not copy only the database or registry. Existing legacy games/players remain
 administrator-only, with no invented account ownership. Schema 8 is additive and
-transactional; newer unsupported schemas are refused.
+transactional; newer unsupported schemas are refused. Schema 9 adds account
+verification/token/mail/limiter state without reassigning owners; run the
+[read-only collision preflight and review rollback constraints](REGISTRATION.md#migration-and-rollback-boundary)
+before a separately authorized upgrade. No production migration is implied by
+development validation.
+
+Schema 11 adds the [durable online core](ONLINE.md) and the
+[rated-game/leaderboard pool](RATINGS.md) without reinterpreting local histories.
+Admission defaults off and timeout finalization starts paused, with a separate
+unapproved production outage-policy prerequisite. Review the
+[schema-11 recovery boundary](ONLINE.md#migration-backup-and-recovery) before an
+upgrade or rollback, and pause the timeout gate before maintenance.
+
+Registration remains off unless explicitly enabled with valid mail configuration.
+See [SMTP setup and account operations](REGISTRATION.md#enable-and-configure-mail).
 
 ## Private GitHub authentication
 
@@ -326,9 +340,17 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
+With matching online schema 11, recovery retains current live authoritative online
+matches, games, moves/results, audit and rating history, then pauses the timeout
+gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed
+online schema/column set refuses automatic root replacement, even when account
+columns match. Snapshot-only recovery without live authority cannot recover newer
+progress, but still revokes saved capabilities and pauses timeouts. See
+[online recovery](ONLINE.md#migration-backup-and-recovery) before resuming.
+
 Data created after the snapshot is kept in a sibling
 `/var/lib/hnefatafl.retained-<id>` directory for inspection and manual reconciliation.
-It is not silently merged into restored games/models. Application configuration
+Other local game/model data is not silently merged. Application configuration
 is preserved; each snapshot also contains its prior protected configuration.
 Failed migration/readiness normally restores the previous code/data and starts it.
 If recovery itself fails, the command exits nonzero, preserves artifacts and prints

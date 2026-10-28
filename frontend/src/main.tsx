@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
 import Auth from './Auth';
+import App from './App';
 import { AppearanceProvider } from './Appearance';
 import { I18nProvider } from './i18n';
 import { NotificationProvider } from './notifications';

@@ -1,12 +1,13 @@
+import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext } from './auth-fixture';
 
 const api = 'http://127.0.0.1:8001/api';
 
-test('named opponents keep fixed presets, custom settings stay editable and the dialog closes on outside press', async ({
+test('only named opponents with fixed presets are offered and the dialog closes on outside press', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
@@ -47,20 +48,9 @@ test('named opponents keep fixed presets, custom settings stay editable and the 
     time_limit: 2,
   });
   await page.getByRole('button', { name: /Pause AI/ }).click();
-  await page.getByRole('button', { name: /New game/ }).click();
-  await setup.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('');
-  await attackers.getByRole('combobox', { name: 'Attackers algorithm' }).selectOption('alpha_beta');
-  await attackers.getByRole('spinbutton', { name: 'Search depth', exact: true }).fill('3');
-  await attackers
-    .getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true })
-    .fill('0.5');
-  await expect(
-    attackers.getByRole('spinbutton', { name: 'Search depth', exact: true }),
-  ).toHaveValue('3');
-  await expect(
-    attackers.getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true }),
-  ).toHaveValue('0.5');
-
+  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await expect(setup.getByRole('option', { name: 'Trained model', exact: true })).toHaveCount(0);
+  await expect(setup.getByRole('spinbutton')).toHaveCount(0);
   // A drag that begins inside the dialog must not close it when released on the backdrop.
   const title = setup.getByRole('heading', { name: 'Begin a new saga' });
   await title.scrollIntoViewIfNeeded();
@@ -110,7 +100,7 @@ async function trainedModel(request: APIRequestContext, name: string, seed: numb
   return model as { id: string; name: string; rune: string };
 }
 
-test('distinct trained opponents keep their IDs and displayed names, and every game option survives reload', async ({
+test('historical trained opponents retain names, runes and legal play while new setup stays preset-only', async ({
   page,
   request,
 }, info) => {
@@ -122,43 +112,30 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
   expect(ulf.rune).toBeTruthy();
   expect(freydis.rune).toBeTruthy();
   expect(ulf.rune).not.toBe(freydis.rune);
-  await page.goto('/');
-  await page.getByRole('radio', { name: /Brandubh/ }).check();
-  await page.getByRole('button', { name: 'AI vs AI', exact: true }).click();
-  await page
-    .getByRole('combobox', { name: 'Attackers trained model', exact: true })
-    .selectOption(ulf.id);
-  await page
-    .getByRole('combobox', { name: 'Defenders trained model', exact: true })
-    .selectOption(freydis.id);
-  for (const fields of await page.locator('.player-config').all()) {
-    await fields.getByRole('spinbutton', { name: 'Search iterations', exact: true }).fill('2');
-    await fields
-      .getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true })
-      .fill('0.05');
-  }
-  await expect(
-    page.getByRole('combobox', { name: 'Agent for move suggestions', exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }).check();
-  await page.getByRole('spinbutton', { name: 'Game seed', exact: true }).fill('711');
-  const created = page.waitForResponse(
-    (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
-  );
-  await page.getByRole('button', { name: 'To the table', exact: false }).click();
-  const response = await created;
+  const response = await historicalGame(request, {
+    data: {
+      ruleset: 'brandubh',
+      mode: 'ai-ai',
+      seed: 711,
+      players: {
+        attackers: {
+          name: ulf.name,
+          profile_id: 'neural',
+          config: { model_id: ulf.id, iterations: 2, time_limit: 0.05 },
+        },
+        defenders: {
+          name: freydis.name,
+          profile_id: 'neural',
+          config: { model_id: freydis.id, iterations: 2, time_limit: 0.05 },
+        },
+      },
+    },
+  });
   expect(response.ok()).toBe(true);
   const game = await response.json();
-  expect(game.players.attackers).toMatchObject({
-    name: ulf.name,
-    model_name: ulf.name,
-    config: { model_id: ulf.id },
-  });
-  expect(game.players.defenders).toMatchObject({
-    name: freydis.name,
-    model_name: freydis.name,
-    config: { model_id: freydis.id },
-  });
+  await page.goto('/games/' + game.id);
+  await page.getByRole('button', { name: /Pause AI/ }).click();
+  await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
   await expect(page.locator('.army h3').nth(0)).toContainText(ulf.name);
   await expect(page.locator('.army h3').nth(1)).toContainText(freydis.name);
   await expect(page.locator('.army-symbol [data-rune]').nth(0)).toHaveAttribute(
@@ -172,36 +149,13 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
   await page.reload();
   await page.getByRole('button', { name: 'New game', exact: false }).click();
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
-  await expect(setup.getByRole('radio', { name: /Brandubh/ })).toBeChecked();
+  await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
   await expect(setup.getByRole('button', { name: 'AI vs AI', exact: true })).toHaveClass('active');
-  await expect(
-    setup.getByRole('combobox', { name: 'Attackers trained model', exact: true }),
-  ).toHaveValue(ulf.id);
-  await expect(
-    setup.getByRole('combobox', { name: 'Defenders trained model', exact: true }),
-  ).toHaveValue(freydis.id);
-  for (const fields of await setup.locator('.player-config').all()) {
-    await expect(
-      fields.getByRole('spinbutton', { name: 'Search iterations', exact: true }),
-    ).toHaveValue('2');
-    await expect(
-      fields.getByRole('spinbutton', { name: 'Time limit (seconds)', exact: true }),
-    ).toHaveValue('0.05');
-  }
-  await expect(
-    setup.getByRole('combobox', { name: 'Agent for move suggestions', exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    setup.getByRole('checkbox', { name: 'Use a fixed seed', exact: true }),
-  ).toBeChecked();
-  await expect(setup.getByRole('spinbutton', { name: 'Game seed', exact: true })).toHaveValue(
-    '711',
+  await expect(setup.getByRole('combobox', { name: 'Attackers AI profile' })).toHaveValue(
+    'baseline',
   );
-  await expect(
-    setup
-      .getByRole('combobox', { name: 'Attackers trained model', exact: true })
-      .locator(`option[value="${ulf.id}"]`),
-  ).toContainText(ulf.rune);
+  await expect(setup.getByRole('option', { name: /UI Ulf|UI Freydis/ })).toHaveCount(0);
+  await expect(setup.getByRole('spinbutton')).toHaveCount(0);
   await setup.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
@@ -210,12 +164,10 @@ test('distinct trained opponents keep their IDs and displayed names, and every g
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });
   await expect(ulfCard.locator('[data-rune]')).toHaveAttribute('data-rune', ulf.rune);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  await expect(
-    page.locator(`.record-entry[data-game-id="${game.id}"] [data-rune]`).nth(0),
-  ).toHaveAttribute('data-rune', ulf.rune);
-  await expect(
-    page.locator(`.record-entry[data-game-id="${game.id}"] [data-rune]`).nth(1),
-  ).toHaveAttribute('data-rune', freydis.rune);
+  const row = page.locator('.recorded-games tbody tr').filter({ hasText: ulf.name });
+  await expect(row).toContainText(freydis.name);
+  expect(game.players.attackers.rune).toBe(ulf.rune);
+  expect(game.players.defenders.rune).toBe(freydis.rune);
   await expect(page.locator('.header-note')).toHaveCount(0);
   await expect(page.locator('p.eyebrow')).toHaveCount(0);
   await expect

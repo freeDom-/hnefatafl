@@ -52,6 +52,54 @@ branching again. Keep one concern per branch and do not force-push a branch that
 already shared. Milestone releases take the same path and are tagged only after
 their pull request is merged ([Releasing](RELEASING.md)).
 
+## Online milestone workflow
+
+The online milestone integrates into `feat/online-multiplayer`; phase PRs must
+**not target main**. Phase 0 PR #6 was retargeted and merged there at
+`004d21855858f73705261e2db9e5fd6d5f8cf2b7` before Phase 1 began. Phase 1 PR #9
+was merged at `44d0ae7159bd8ec5653134adbc02d9b137025c92` before Phase 2 branched.
+Do not duplicate phase changes, cherry-pick silently or merge an unreviewed phase.
+
+```sh
+git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+git switch -c feat/phase2-online-core origin/feat/online-multiplayer
+# implement and validate on the phase branch
+git push -u origin HEAD
+gh pr create --base feat/online-multiplayer --head feat/phase2-online-core \
+  --title 'feat: add durable authoritative online games' --body-file work/phase2/pr-body.md
+gh pr checks
+```
+
+If the integration branch is absent, create it from current `origin/main` without
+changing main, and publish only with authorized repository access. Check actual
+PR state and Phase 0 ancestry before implementation. Leave merging to the owner.
+There are no releases, version bumps, force pushes or production deployments in
+this workflow. Verify CI runs for all pull-request bases and for integration-branch
+pushes; the release workflow remains explicitly restricted to main/manual tags.
+
+The isolated account browser suite uses a guarded development-only fake mailbox:
+
+```sh
+npm --prefix frontend run test:registration
+# Or select an installed browser without changing production settings:
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:registration
+```
+
+It starts disposable backend/Vite/mailbox services on loopback ports 8003/4175/8004,
+uses an in-memory fake SMTP transport, and exercises English/German desktop/mobile
+flows. No real email is sent. Trace recording is off to avoid retaining test token
+payloads; normal Playwright failure diagnostics may still contain disposable test
+form data. The harness's registration-IP budget is 20 to accommodate six browser
+cases sharing one peer; the production default remains five. See
+[registration operations](REGISTRATION.md) for schema/configuration boundaries.
+
+Backend online integration uses independent disposable SQLite connections/processes,
+barriers and controlled UTC clocks. Run
+`.venv/bin/python -m pytest tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_lifecycle.py tests/test_security.py tests/test_account_migrations.py tests/test_deployment.py -q`
+before `make check`. See [online operations](ONLINE.md) and the
+[frontend handoff](designs/online-phase3-handoff.md). There is no lobby frontend
+or new browser validation claim in this backend phase.
+
 ## Check the change you made
 
 | Command | Checks |
@@ -155,3 +203,11 @@ annotated tag and the GitHub release stay separate, deliberate steps.
 Backend regression clients and browser tests log in through the real API with
 ordinary disposable accounts and send CSRF tokens. No runtime authentication
 bypass exists. The security matrix derives from every registered API route.
+
+## Browser validation
+
+Install Playwright Chromium first, or set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` when using a system installation.
+The browser projects check desktop and mobile emulation; this is not physical-device
+evidence. Run heavy browser and backend training checks serially on constrained
+local hosts. The suites also run in browser CI. No service worker is installed.

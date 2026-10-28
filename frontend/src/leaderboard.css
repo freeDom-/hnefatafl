@@ -1,0 +1,51 @@
+.leaderboard-page {
+  max-width: 900px;
+  margin: var(--gap-stack) auto;
+  padding: var(--pad-page);
+}
+.leaderboard-heading-row {
+  align-items: center;
+}
+.leaderboard-filter {
+  display: inline-flex;
+  gap: var(--gap-inline);
+  align-items: center;
+  margin-bottom: 0;
+}
+.leaderboard .leaderboard-provisional {
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+.leaderboard-table {
+  overflow-x: auto;
+}
+table.leaderboard {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.leaderboard th,
+table.leaderboard td {
+  padding: var(--pad-row);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.leaderboard th:first-child,
+table.leaderboard td:first-child {
+  width: 3.5rem;
+  text-align: right;
+}
+table.leaderboard tr.you {
+  font-weight: 600;
+}
+.leaderboard-pages {
+  display: flex;
+  gap: var(--gap-stack);
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--gap-stack);
+}
+.leaderboard-compact table.leaderboard th,
+.leaderboard-compact table.leaderboard td {
+  padding: var(--pad-row);
+}

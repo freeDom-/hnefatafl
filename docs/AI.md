@@ -8,6 +8,16 @@ Brandubh, Tablut market rules and Copenhagen. Search loops use a monotonic
 wall-clock deadline and retain a legal fallback when the budget expires; an
 in-progress expansion or inference is not a hard real-time operation.
 
+## Account game opponents
+
+New account games select four fixed presets, resolved on the server: Shield bearer
+(baseline tactical heuristic, 1 s), Shield maiden (royal escape geometry and piece
+safety, 1 s), Jarl (alpha-beta, depth 5, 2 s), Seer (MCTS, up to 5000 iterations,
+2 s). The dialog describes styles and budgets without a measured strength ranking.
+Normal accounts play as their account against AI; administrators can also run two
+preset AIs. Custom/neural parameters belong to the separate authorized workflows
+below. Existing stored custom/neural games remain readable/playable.
+
 ## Available opponents
 
 Named Shield bearer/Shield maiden/Jarl/Seer presets are fixed in New game and Tournament

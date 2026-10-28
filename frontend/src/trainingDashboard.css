@@ -1,27 +1,27 @@
 /* Workshop layout is scoped to training surfaces; all colors follow the theme. */
 .training-workshop .workshop-intro {
-  padding-block: 26px 20px;
+  padding-block: var(--pad-panel);
   flex-wrap: wrap;
-  gap: 16px;
+  gap: var(--gap-stack);
 }
 .training-workshop .workshop-intro h1 {
   margin: 0;
-  font-size: 32px;
+  font-size: 2rem;
 }
 .training-workshop .workshop-global {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 20px;
+  gap: var(--gap-stack) var(--gap-card);
   color: var(--ui-copy);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .training-workshop .workshop-global strong {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 .training-workshop .workshop-creation {
-  margin-bottom: 20px;
+  margin-bottom: var(--gap-card);
 }
 .training-workshop .workshop-creation .panel-title {
   margin-bottom: 0;
@@ -42,40 +42,40 @@
 .training-workshop .workshop-creation .creation-group {
   border: 0;
   border-top: 1px solid var(--line);
-  padding: 18px 0 10px;
-  margin: 20px 0 0;
+  padding: var(--pad-panel) 0 var(--pad-panel);
+  margin: var(--gap-card) 0 0;
   min-width: 0;
 }
 .training-workshop .workshop-creation .creation-group legend {
   padding-right: 14px;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
 }
 .training-workshop .workshop-creation .form-grid,
 .training-workshop .workshop-creation .training-evaluation .form-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr));
-  gap: 16px 20px;
+  gap: var(--gap-stack) var(--gap-card);
 }
 .training-workshop .workshop-creation .form-grid label,
 .training-workshop .workshop-creation label {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .training-workshop .workshop-creation .form-grid input,
 .training-workshop .workshop-creation .form-grid select,
 .training-workshop .workshop-creation textarea {
-  font-size: 14px;
+  font-size: 0.875rem;
   min-height: 42px;
 }
 .training-workshop .workshop-creation .segmented {
   max-width: 540px;
-  margin-top: 18px;
+  margin-top: var(--gap-card);
 }
 .creation-import {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px 14px;
-  margin-top: 14px;
+  gap: var(--gap-inline) var(--gap-stack);
+  margin-top: var(--gap-stack);
 }
 .creation-import .subtle {
   flex: 1 1 260px;
@@ -83,32 +83,32 @@
 }
 .training-workshop .workshop-creation .subtle,
 .training-workshop .workshop-creation .training-start > span {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
 }
 .training-workshop .workshop-jobs {
-  margin-bottom: 20px;
-  padding: 20px;
+  margin-bottom: var(--gap-card);
+  padding: var(--pad-panel);
   min-width: 0;
 }
 .training-workshop .workshop-jobs > .panel-title {
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--gap-stack);
+  margin-bottom: var(--gap-card);
 }
 .training-workshop .workshop-jobs > .panel-title h2 {
   margin-right: auto;
 }
 .training-workshop .workshop-jobs .button.small,
 .training-workshop .workshop-global .button.small {
-  font-size: 13px;
+  font-size: 0.8125rem;
   min-height: 38px;
 }
 .training-workshop .workshop-workspace {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 24px;
+  gap: var(--gap-card);
   align-items: start;
 }
 .training-workshop .workshop-workspace > * {
@@ -118,10 +118,10 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .training-workshop .training-job-navigator {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .training-workshop .training-job-navigator label {
-  font-size: 13px;
+  font-size: 0.8125rem;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -131,36 +131,36 @@
   width: 100%;
   min-width: 0;
   min-height: 40px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .training-workshop .job-navigation-options > summary {
-  font-size: 14px;
+  font-size: 0.875rem;
   margin-bottom: 14px;
   cursor: pointer;
 }
 .training-workshop .job-filters {
   display: grid;
-  gap: 12px;
+  gap: var(--gap-stack);
 }
 .training-workshop .job-filter-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--gap-inline);
 }
 .training-workshop .navigator-count {
-  font-size: 12px;
+  font-size: 0.75rem;
   margin-block: 14px 4px;
 }
 .training-workshop .training-job-navigator .jobs-list {
   max-height: none;
   overflow: visible;
-  margin-top: 8px;
+  margin-top: var(--gap-inline);
 }
 .training-workshop .training-job-navigator .job-row {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 7px;
-  padding: 14px 12px;
+  gap: var(--gap-inline);
+  padding: var(--pad-row);
   border-radius: 6px;
 }
 .training-workshop .training-job-navigator .job-row > * {
@@ -168,25 +168,25 @@
   overflow-wrap: anywhere;
 }
 .training-workshop .training-job-navigator .job-row strong {
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
 }
 .training-workshop .training-job-navigator .job-row > span:not(.job-status) {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .training-workshop .training-job-navigator .job-row small {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .training-workshop .training-job-navigator .job-status {
   justify-self: start;
 }
 .training-workshop .workshop-jobs .job-status {
-  font-size: 11px;
+  font-size: 0.6875rem;
   padding: 5px 8px;
 }
 .training-workshop .training-job-dashboard.job-detail {
   margin: 0;
-  padding: 0 0 0 24px;
+  padding: 0 0 0 var(--pad-panel);
   border: 0;
   border-left: 1px solid var(--line);
   min-width: 0;
@@ -200,25 +200,25 @@
   top: 0;
   z-index: 2;
   background: var(--surface);
-  padding-block: 0 14px;
+  padding-block: 0 var(--pad-panel-sm);
   border-bottom: 1px solid var(--line);
 }
 .training-workshop .dashboard-job-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: var(--gap-stack);
 }
 .training-workshop .dashboard-job-heading h3 {
-  font-size: 26px;
+  font-size: 1.625rem;
   margin: 4px 0 0;
   overflow-wrap: anywhere;
 }
 .training-workshop .dashboard-job-heading .eyebrow {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .training-workshop .workshop-jobs .job-worker {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
   margin-block: 8px;
   overflow-wrap: anywhere;
@@ -226,8 +226,8 @@
 .training-workshop .dashboard-progress {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--gap-stack);
+  font-size: 0.8125rem;
   flex-wrap: wrap;
 }
 .training-workshop .dashboard-progress strong {
@@ -248,29 +248,29 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  margin-block: 12px 0;
-  gap: 8px;
+  margin-block: var(--gap-stack) 0;
+  gap: var(--gap-inline);
 }
 .training-workshop .training-job-dashboard .job-actions .text-button {
   margin-left: auto;
-  font-size: 13px;
+  font-size: 0.8125rem;
   min-height: 38px;
 }
 .training-workshop .training-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--gap-inline);
   border-bottom: 1px solid var(--line);
-  margin-block: 12px 18px;
+  margin-block: var(--gap-card) var(--gap-card);
 }
 .training-workshop .training-tabs > button {
   flex: 1;
   background: none;
   border: 0;
   border-bottom: 3px solid transparent;
-  padding: 12px 8px;
+  padding: var(--pad-control);
   color: var(--ui-copy);
-  font-size: 14px;
+  font-size: 0.875rem;
   min-height: 44px;
 }
 .training-workshop .training-tabs > button[aria-selected='true'] {
@@ -287,33 +287,33 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  font-size: 13px;
-  margin-bottom: 16px;
+  gap: var(--gap-stack);
+  font-size: 0.8125rem;
+  margin-bottom: var(--gap-stack);
 }
 .training-workshop .training-range select {
   width: auto;
   max-width: 100%;
-  font-size: 13px;
+  font-size: 0.8125rem;
   min-height: 40px;
 }
 .training-workshop .training-kpis {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px 24px;
-  margin: 0 0 18px;
+  gap: var(--gap-card) var(--gap-card);
+  margin: 0 0 var(--gap-card);
 }
 .training-workshop .training-kpi {
   min-width: 0;
-  padding-left: 12px;
+  padding-left: var(--pad-panel-sm);
   border-left: 2px solid var(--line);
 }
 .training-workshop .training-kpi dt {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--ui-copy);
 }
 .training-workshop .training-kpi dd {
-  font-size: 23px;
+  font-size: 1.4375rem;
   font-weight: 600;
   margin: 6px 0 4px;
   font-variant-numeric: tabular-nums;
@@ -321,35 +321,35 @@
   overflow-wrap: anywhere;
 }
 .training-workshop .training-kpi small {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--ui-subtle);
   line-height: 1.4;
 }
 .training-workshop .dashboard-message {
-  padding: 10px 12px;
+  padding: var(--pad-panel-sm);
   border-left: 3px solid var(--gold);
   background: var(--ui-gold-tint);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
-  margin-block: 12px;
+  margin-block: var(--gap-stack);
 }
 .training-workshop .training-job-dashboard .training-history {
-  margin: 16px 0;
+  margin: var(--gap-stack) 0;
 }
 .training-workshop .history-compact {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: var(--gap-card);
   align-items: start;
 }
 .training-workshop .training-history > .training-chart:first-child {
-  padding-top: 25px;
+  padding-top: var(--pad-panel);
 }
 .training-workshop .training-history:not(.history-compact) > .training-chart:first-child {
   padding-top: 0;
 }
 .training-workshop .series-context {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--ui-copy);
   margin: 0 0 7px;
   line-height: 18px;
@@ -357,11 +357,11 @@
   overflow-wrap: anywhere;
 }
 .training-workshop .training-job-dashboard .subtle {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
 }
 .training-workshop .training-job-dashboard h4 {
-  font-size: 16px;
+  font-size: 1rem;
   margin: 0 0 12px;
 }
 .training-workshop .overview-context {
@@ -370,9 +370,9 @@
 .training-workshop .overview-bottom {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: var(--gap-card);
   border-top: 1px solid var(--line);
-  padding-top: 16px;
+  padding-top: var(--pad-panel-sm);
 }
 .training-workshop .phase-timings {
   min-width: 0;
@@ -384,20 +384,20 @@
   flex-wrap: wrap;
 }
 .training-workshop .phase-timings h4 small {
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 400;
   color: var(--ui-copy);
 }
 .training-workshop .phase-comparison {
   display: grid;
-  gap: 10px;
+  gap: var(--gap-inline);
 }
 .training-workshop .phase-comparison > div {
   display: grid;
   grid-template-columns: 100px minmax(30px, 1fr) 65px;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
+  gap: var(--gap-inline);
+  font-size: 0.75rem;
 }
 .training-workshop .phase-comparison strong {
   font-variant-numeric: tabular-nums;
@@ -422,24 +422,24 @@
   background: var(--chart-evaluation);
 }
 .training-workshop .checkpoint-summary p {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .training-workshop .training-job-dashboard .job-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
-  gap: 16px;
+  gap: var(--gap-stack);
 }
 .training-workshop .training-job-dashboard .job-metrics dt,
 .training-workshop .training-job-dashboard .job-metrics span {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--ui-copy);
   line-height: 1.5;
 }
 .training-workshop .training-job-dashboard .job-metrics dd {
   margin: 5px 0 0;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -447,48 +447,48 @@
 .training-workshop .performance-groups {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-block: 24px;
+  gap: var(--gap-card);
+  margin-block: var(--gap-card);
 }
 .training-workshop .training-performance h5 {
-  font-size: 16px;
+  font-size: 1rem;
   margin: 16px 0;
 }
 .training-workshop .performance-metric-control {
   display: flex;
-  gap: 10px;
+  gap: var(--gap-inline);
   flex-wrap: wrap;
   align-items: center;
-  font-size: 13px;
-  margin-bottom: 14px;
+  font-size: 0.8125rem;
+  margin-bottom: var(--gap-stack);
 }
 .training-workshop .performance-metric-control select {
   width: auto;
   max-width: 100%;
   min-height: 40px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .training-workshop .training-job-dashboard details > summary {
-  font-size: 14px;
+  font-size: 0.875rem;
   padding-block: 12px;
   cursor: pointer;
 }
 .training-workshop .training-job-dashboard .log-view {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
   max-height: 360px;
   overflow: auto;
   white-space: pre;
-  margin-block: 12px;
+  margin-block: var(--gap-stack);
 }
 .training-workshop .training-job-dashboard table {
-  font-size: 13px;
+  font-size: 0.8125rem;
   width: 100%;
   border-collapse: collapse;
 }
 .training-workshop .training-job-dashboard th,
 .training-workshop .training-job-dashboard td {
-  padding: 10px 12px;
+  padding: var(--pad-row);
   text-align: left;
   border-bottom: 1px solid var(--line);
   font-variant-numeric: tabular-nums;
@@ -496,7 +496,7 @@
 .training-workshop .training-job-dashboard td code {
   display: block;
   max-width: 300px;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: normal;
 }
 .training-workshop .training-job-dashboard .table-scroll {
@@ -510,11 +510,11 @@
   border-bottom: 1px solid var(--line);
 }
 .training-workshop .training-details p {
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.7;
 }
 .training-workshop .learning-kpis .training-kpi dd {
-  font-size: 18px;
+  font-size: 1.125rem;
 }
 .training-workshop .mobile-job-selector {
   display: none !important;
@@ -534,10 +534,7 @@
 @media (max-width: 1200px) {
   .training-workshop .workshop-workspace {
     grid-template-columns: 230px minmax(0, 1fr);
-    gap: 18px;
-  }
-  .training-workshop .training-job-dashboard.job-detail {
-    padding-left: 18px;
+    gap: var(--gap-card);
   }
   .training-workshop .history-compact,
   .training-workshop .overview-bottom {
@@ -577,31 +574,20 @@
   .training-workshop .history-compact {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .training-workshop .training-kpis {
-    gap: 16px;
-  }
 }
 @media (max-width: 600px) {
-  .training-workshop .workshop-intro {
-    padding-top: 24px;
-  }
   .training-workshop .workshop-intro h1 {
-    font-size: 29px;
+    font-size: 1.8125rem;
   }
   .training-workshop .workshop-global {
-    font-size: 12px;
-    gap: 12px;
+    font-size: 0.75rem;
   }
   .training-workshop .workshop-global > span:first-child {
     flex-basis: 100%;
   }
-  .training-workshop .workshop-creation,
-  .training-workshop .workshop-jobs {
-    padding: 16px;
-  }
   .training-workshop .workshop-creation .panel-title {
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--gap-inline);
   }
   .training-workshop .workshop-creation .panel-title > .subtle {
     margin-left: 28px;
@@ -609,7 +595,7 @@
   .training-workshop .workshop-creation h2,
   .training-workshop .workshop-jobs h2,
   .training-workshop .model-registry h2 {
-    font-size: 22px;
+    font-size: 1.375rem;
   }
   .training-workshop .job-filters,
   .training-workshop .history-compact,
@@ -622,24 +608,18 @@
   }
   .training-workshop .training-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px 12px;
-  }
-  .training-workshop .training-kpi {
-    padding-left: 8px;
+    gap: var(--gap-stack) var(--gap-stack);
   }
   .training-workshop .training-kpi dd {
-    font-size: 21px;
+    font-size: 1.3125rem;
   }
   .training-workshop .dashboard-job-heading h3 {
-    font-size: 23px;
+    font-size: 1.4375rem;
   }
   .training-workshop .training-tabs > button {
     flex: 1 0 29%;
-    padding-inline: 4px;
-    font-size: 13px;
-  }
-  .training-workshop .dashboard-progress {
-    gap: 8px;
+    padding-inline: var(--pad-panel-sm);
+    font-size: 0.8125rem;
   }
   .training-workshop .dashboard-progress progress {
     max-width: none;
@@ -655,7 +635,7 @@
   }
   .training-workshop .phase-comparison > div {
     grid-template-columns: 90px minmax(20px, 1fr) 60px;
-    gap: 7px;
+    gap: var(--gap-inline);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -667,7 +647,7 @@
   }
 }
 .training-workshop .workshop-creation {
-  padding-block: 18px;
+  padding-block: var(--pad-panel);
 }
 .training-workshop .workshop-creation h2,
 .training-workshop .workshop-jobs > .panel-title h2 {
@@ -703,26 +683,26 @@
 }
 .training-workshop .training-chart svg text {
   fill: var(--ui-copy);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .training-workshop .training-chart figcaption {
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 .training-workshop .training-chart-legend {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .training-workshop .evaluation-series-control {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--gap-stack);
+  font-size: 0.8125rem;
 }
 .training-workshop .evaluation-series-control select {
   min-height: 40px;
   width: auto;
   max-width: 100%;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .training-workshop .job-status.running::before {
   content: '';
@@ -738,8 +718,8 @@
 }
 .training-workshop .tuning-summary {
   border-bottom: 1px solid var(--line);
-  margin-bottom: 18px;
-  padding-bottom: 12px;
+  margin-bottom: var(--gap-card);
+  padding-bottom: var(--pad-panel-sm);
 }
 .training-workshop .training-range,
 .training-workshop .performance-metric-control,
@@ -750,8 +730,8 @@
 .dashboard-game-counts {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 2rem;
-  margin: 0.8rem 0;
+  gap: var(--gap-stack) var(--gap-card);
+  margin: var(--gap-stack) 0;
 }
 .dashboard-game-counts dt {
   font-size: 0.8rem;

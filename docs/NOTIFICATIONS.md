@@ -40,7 +40,6 @@ inside the viewport on both desktop and mobile.
 
 - The former top-of-page application error banner.
 - New-game creation failures (selections and retry are preserved).
-- Login, logout and expired-session errors.
 - Model rename, training resume, tournament creation, remote-worker
   create/revoke/override/copy, and analytics-settings save failures.
 - Errors reported from the hall of records, tournaments and training workshop
@@ -52,6 +51,11 @@ Some states stay inline because they are contextual rather than transient:
 
 - Field validation, for example invalid training numbers, incompatible models
   and unsupported inference/symmetry targets.
+- Account authentication states. Login, registration, verification,
+  password-reset, logout and expired-session messages stay inline in the
+  account surface ([AccountForms.tsx](../frontend/src/AccountForms.tsx) and
+  [Auth.tsx](../frontend/src/Auth.tsx)) because they belong to the form the
+  reader is working in.
 - Persistent page or dialog states such as "training jobs could not be loaded",
   "no resumable checkpoint", recorded job failures and a model-usage check that
   disables deletion until the user retries.
@@ -66,6 +70,7 @@ keeps its field-level guidance.
 
 `frontend/src/notifications.test.tsx` covers dismissal, timeout, stacking,
 deduplication, fallback text, live-region roles and focus stability.
-`frontend/src/GameSetupPreference.test.tsx` covers the new-game failure and
-retry path. `frontend/tests/notifications.spec.ts` is the Playwright regression
-for the original scrolled-dialog visibility issue on desktop and mobile.
+`frontend/src/NewGame.test.tsx` covers the new-game failure, its single
+notification and the retry that repeats the kept selections.
+`frontend/tests/notifications.spec.ts` is the Playwright regression for the
+original scrolled-dialog visibility issue on desktop and mobile.

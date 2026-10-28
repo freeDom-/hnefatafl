@@ -8,19 +8,19 @@
 .training-resume-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin: 18px 0;
-  padding: 16px;
+  gap: var(--gap-stack);
+  margin: var(--gap-card) 0;
+  padding: var(--pad-panel-sm);
   background: var(--surface-raised);
   border-radius: 7px;
 }
 .training-resume-details dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .training-resume-details dd {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
 .training-resume-dialog label > small {
@@ -31,7 +31,7 @@
 }
 .resume-optimizer-settings {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 20px 0 24px;
+  margin: var(--gap-card) 0 var(--gap-card);
 }
 .resume-optimizer-settings label:last-child {
   grid-column: 1 / -1;
@@ -39,9 +39,9 @@
 .model-card .model-training-seed {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 9px;
-  font-size: 10px;
+  gap: var(--gap-inline);
+  margin-top: var(--gap-inline);
+  font-size: 0.625rem;
   color: var(--muted);
 }
 .model-training-seed strong {
@@ -50,8 +50,8 @@
   overflow-wrap: anywhere;
 }
 .model-usage-warning {
-  padding: 15px;
-  margin-top: 14px;
+  padding: var(--pad-panel-sm);
+  margin-top: var(--gap-stack);
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -60,11 +60,11 @@
   margin-bottom: 8px;
 }
 .model-usage-warning p {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .model-usage-warning ul {
-  padding-left: 18px;
-  font-size: 12px;
+  padding-left: var(--pad-panel);
+  font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 .model-usage-games {
@@ -72,31 +72,31 @@
   overflow-y: auto;
 }
 .model-usage-games li {
-  padding: 5px 0;
+  padding: var(--pad-row);
 }
 .model-usage-games strong,
 .model-usage-games span {
   display: block;
 }
 .model-usage-games span {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
 }
 .model-discard-choice {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 10px;
-  margin: 17px 0 9px;
+  gap: var(--gap-inline);
+  margin: var(--gap-stack) 0 var(--gap-stack);
   line-height: 1.6;
 }
 .model-discard-choice input {
-  margin-top: 3px;
+  margin-top: var(--gap-inline);
   flex: 0 0 auto;
 }
 .model-usage-error {
   margin-top: 15px;
 }
 .model-usage-error .button {
-  margin-top: 10px;
+  margin-top: var(--gap-inline);
 }

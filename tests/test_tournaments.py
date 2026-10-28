@@ -8,6 +8,7 @@ import time
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
+from record_fixtures import stored_player, retired_player, historical_player
 
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.server import create_app
@@ -145,9 +146,109 @@ def test_tournament_records_distinct_alpha_beta_search_configs(client):
     assert players[0]["agent_rune"] != players[1]["agent_rune"]
 
 
+@pytest.mark.parametrize(
+    "search",
+    [
+        {"unknown": True},
+        {"transposition": 1},
+        {"move_ordering": "yes"},
+        {"table_capacity": 0},
+        {"table_capacity": True},
+        {"symmetry_pruning": True, "table_capacity": 1.5},
+    ],
+)
+def test_tournament_rejects_malformed_alpha_beta_search_configs(client, search):
+    response = client.post(
+        "/api/tournaments",
+        json=configuration(
+            players=[
+                {
+                    "name": "Legacy",
+                    "config": {"algorithm": "alpha_beta", "depth": 1, "search": search},
+                },
+                {"name": "Shield bearer", "config": {"algorithm": "baseline", "time_limit": 0.01}},
+            ]
+        ),
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_tournament_rejects_search_config_for_non_alpha_beta_algorithms(client):
+    for algorithm in ("baseline", "shield_maiden", "mcts"):
+        response = client.post(
+            "/api/tournaments",
+            json=configuration(
+                players=[
+                    {
+                        "name": "Opponent",
+                        "config": {"algorithm": algorithm, "search": {"legacy": True}},
+                    },
+                    {
+                        "name": "Shield bearer",
+                        "config": {"algorithm": "baseline", "time_limit": 0.01},
+                    },
+                ]
+            ),
+        )
+        assert response.status_code == 400, response.text
+
+
+def test_tournament_records_the_selected_shield_evaluator(client):
+    created = launch(
+        client,
+        configuration(
+            players=[
+                {
+                    "name": "Jarl",
+                    "config": {
+                        "algorithm": "alpha_beta",
+                        "depth": 1,
+                        "time_limit": 0.05,
+                        "heuristic": "shield_bearer",
+                    },
+                },
+                {
+                    "name": "Seer",
+                    "config": {
+                        "algorithm": "mcts",
+                        "iterations": 2,
+                        "time_limit": 0.05,
+                        "heuristic": "shield_bearer",
+                    },
+                },
+            ],
+            games=2,
+            max_plies=4,
+        ),
+    )
+    record = wait_for(client, created["id"], lambda row: row["status"] == "completed")
+    assert [row["config"]["heuristic"] for row in record["config"]["players"]] == [
+        "shield_bearer",
+        "shield_bearer",
+    ]
+    for config in (
+        {"algorithm": "baseline", "heuristic": "shield_maiden"},
+        {"algorithm": "shield_maiden", "heuristic": "shield_maiden"},
+        {"algorithm": "alpha_beta", "heuristic": "unknown"},
+    ):
+        response = client.post(
+            "/api/tournaments",
+            json=configuration(
+                players=[
+                    {"name": "Opponent", "config": config},
+                    {
+                        "name": "Shield bearer",
+                        "config": {"algorithm": "baseline", "time_limit": 0.01},
+                    },
+                ]
+            ),
+        )
+        assert response.status_code == 400, response.text
+
+
 def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
     with TestClient(create_app(tmp_path)) as first:
-        player = first.post("/api/players", json={"name": "Astrid"}).json()
+        player = historical_player(first, "Astrid")
         game = first.post("/api/games", json={"ruleset": "brandubh"}).json()
         created = launch(first)
         saved = wait_for(first, created["id"], lambda row: row["status"] == "completed")
@@ -176,7 +277,7 @@ def test_saved_results_survive_restart_and_delete_only_the_tournament(tmp_path):
         assert second.get(f"/api/tournaments/{created['id']}/games/0/replay").status_code == 404
         assert second.get(f"/api/tournaments/{other['id']}").json() == other
         assert second.get(f"/api/games/{game['id']}").json() == game
-        assert any(row["id"] == player["id"] for row in second.get("/api/players").json())
+        assert any(row["id"] == player["id"] for row in second.app.state.store.players())
 
 
 def test_completed_rule_outcomes_update_named_opponent_standings(client):
@@ -416,8 +517,8 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     store = Store(database)
     game = {"id": "history", "version": 0, "created_at": "2026-01-01", "moves": []}
     store.create_game(game)
-    store.create_player({"id": "retired", "name": "Freya", "created_at": "2026-01-01"})
-    store.delete_player("retired", "2026-01-02")
+    stored_player(store, {"id": "retired", "name": "Freya", "created_at": "2026-01-01"})
+    retired_player(store, "retired", "2026-01-02")
     store.archive_model({"id": "old-model", "name": "Eir"})
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE tournaments")
@@ -428,7 +529,7 @@ def test_schema_two_upgrade_keeps_existing_history_and_archived_metadata(tmp_pat
     assert upgraded.players(include_deleted=True)[0]["deleted_at"] == "2026-01-02"
     assert upgraded.historical_models() == [{"id": "old-model", "name": "Eir"}]
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
 
 
 def test_interrupted_worker_is_reported_without_losing_retained_data(tmp_path):

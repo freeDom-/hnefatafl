@@ -16,46 +16,41 @@
   vertical-align: middle;
 }
 .army-symbol .identity-rune {
-  font-size: 24px;
+  font-size: 1.5rem;
 }
 .army-symbol .identity-rune[data-rune-size='compound'] {
-  font-size: 17px;
+  font-size: 1.0625rem;
   letter-spacing: 0;
 }
 .stat-player-identity > .identity-rune {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .record small .identity-rune {
-  font-size: 11px;
+  font-size: 0.6875rem;
   margin-inline-end: 4px;
 }
 .model-heading-with-rune {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--gap-inline);
 }
 .agent-estimate-heading strong .identity-rune {
   margin-inline-end: 6px;
 }
 .tournament-standing .identity-rune,
 .tournament-match-players .identity-rune {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .header-controls {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--gap-stack);
   margin-left: auto;
   flex-shrink: 0;
 }
 .site-header > nav {
   margin-inline: auto;
-}
-@media (max-width: 760px) {
-  .header-controls {
-    gap: 8px;
-  }
 }
 @media (max-width: 540px) {
   .site-header .header-controls {
@@ -68,11 +63,11 @@
   }
   .site-header > nav {
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--gap-inline);
     margin: 0;
   }
   .site-header > nav button {
-    font-size: 10px;
+    font-size: 0.625rem;
     white-space: nowrap;
   }
   .header-controls .language-select select {
@@ -81,13 +76,13 @@
 }
 @media (max-width: 400px) {
   .site-header .brand {
-    font-size: 16px;
+    font-size: 1rem;
     letter-spacing: 2px;
-    gap: 6px;
+    gap: var(--gap-inline);
     min-width: 0;
   }
   .site-header .brand small {
-    font-size: 6px;
+    font-size: 0.375rem;
     letter-spacing: 2px;
   }
   .site-header .brand-emblem {
@@ -97,4 +92,63 @@
   .site-header .brand-emblem svg {
     width: 23px;
   }
+}
+
+/* Account names must not overlap the brand or controls on narrow screens. */
+.header-controls .account-name {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 540px) {
+  .site-header .brand {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .site-header .header-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+  }
+  .site-header > nav {
+    grid-row: 3;
+  }
+  .header-controls .account-name {
+    flex: 1;
+    max-width: none;
+  }
+}
+
+/* Role-specific and translated navigation can need more than one line. */
+.site-header {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--header-h);
+}
+.site-header > nav {
+  flex-wrap: wrap;
+  justify-content: center;
+  height: auto;
+  min-height: 42px;
+  min-width: 0;
+  gap: var(--gap-inline) var(--gap-card);
+}
+.site-header > nav button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+@media (max-width: 540px) {
+  .site-header > nav {
+    justify-content: space-between;
+    gap: 0 var(--gap-inline);
+  }
+}
+
+.button.small.header-link {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
 }

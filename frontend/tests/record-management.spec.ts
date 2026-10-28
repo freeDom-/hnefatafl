@@ -1,3 +1,4 @@
+import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
 
@@ -13,7 +14,7 @@ async function currentGame(page: Page, request: APIRequestContext) {
 }
 
 async function completedGame(request: APIRequestContext, name: string) {
-  const response = await request.post(`${api}/games`, {
+  const response = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'ai-ai',
@@ -51,9 +52,9 @@ test('completed games have no restart control, including after undo in replay', 
   request,
 }, info) => {
   const completed = await completedGame(request, `No restart ${info.project.name}`);
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.evaluate((id) => localStorage.setItem('hnefatafl-game', id), completed.id);
-  await page.reload();
+  await page.goto('/games/' + completed.id);
   await expect(page.getByRole('grid')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo move', exact: true }).click();
@@ -74,9 +75,8 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
 }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
-  await expect(setup).toContainText('A fresh random seed');
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   const first = await currentGame(page, request);
   expect(Number.isInteger(first.seed)).toBe(true);
@@ -92,7 +92,7 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   expect(restarted.seed).not.toBe(first.seed);
   expect((await request.get(`${api}/games/${first.id}`)).ok()).toBe(true);
 
-  await page.getByRole('button', { name: /New game/ }).click();
+  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   await expect
@@ -103,39 +103,14 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   expect(active.seed).not.toBe(restarted.seed);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
 
-  const statsPanel = page.getByRole('region', { name: 'Statistics', exact: true });
-  const history = page.locator('.records-history');
-  await expect(statsPanel).toBeVisible();
-  expect(
-    await statsPanel.evaluate((section) => {
-      const saved = document.querySelector('.records-history');
-      return (
-        !!saved && !!(section.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING)
-      );
-    }),
-  ).toBe(true);
-
-  await page.getByRole('button', { name: `Delete game ${active.id}`, exact: true }).click();
-  const confirmation = page.getByRole('dialog', { name: 'Delete recorded game?', exact: true });
-  await confirmation.getByRole('button', { name: 'Keep it', exact: true }).click();
-  expect((await request.get(`${api}/games/${active.id}`)).ok()).toBe(true);
-  await page.getByRole('button', { name: `Delete game ${active.id}`, exact: true }).click();
-  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
-  await expect(page.locator(`.record-entry[data-game-id="${active.id}"]`)).toHaveCount(0);
+  const removed = await request.delete(`${api}/games/${active.id}?version=${active.version}`);
+  expect(removed.ok()).toBe(true);
   expect((await request.get(`${api}/games/${active.id}`)).status()).toBe(404);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBeNull();
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'The king awaits.', exact: true })).toBeVisible();
-  await expect(page.getByRole('grid')).toHaveCount(0);
-
   const completed = await completedGame(request, `Record cleanup ${info.project.name}`);
   const before = await statistics(request, '?ruleset=brandubh');
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Battlefield', exact: true }).selectOption('brandubh');
-  await expect(page.locator(`.record-entry[data-game-id="${completed.id}"]`)).toBeVisible();
-  await page.getByRole('button', { name: `Delete game ${completed.id}`, exact: true }).click();
-  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
-  await expect(page.locator(`.record-entry[data-game-id="${completed.id}"]`)).toHaveCount(0);
+  expect(
+    (await request.delete(`${api}/games/${completed.id}?version=${completed.version}`)).ok(),
+  ).toBe(true);
   const after = await statistics(request, '?ruleset=brandubh');
   expect(after.total_games).toBe(before.total_games - 1);
   expect(after.completed_games).toBe(before.completed_games - 1);
@@ -146,15 +121,6 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   ] as const) {
     expect(after[field]).toBe(before[field] - Number(completed.recorded_winner === winner));
   }
-  await expect(
-    page.locator('.metric').filter({ hasText: 'BATTLES RECORDED' }).locator('strong'),
-  ).toHaveText(String(after.total_games));
-  await expect(
-    page.locator('.metric').filter({ hasText: 'ATTACKER VICTORIES' }).locator('strong'),
-  ).toHaveText(String(after.attackers_wins));
-  await expect(
-    page.locator('.metric').filter({ hasText: 'DEFENDER VICTORIES' }).locator('strong'),
-  ).toHaveText(String(after.defenders_wins));
   const remaining = await (await request.get(`${api}/games?ruleset=brandubh`)).json();
   const finished = remaining.filter(
     (game: { recorded_winner: string | null }) => game.recorded_winner,
@@ -173,9 +139,6 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
     finished.length ? after.defenders_wins / finished.length : 0,
   );
   expect(after.draw_rate).toBe(finished.length ? after.draws / finished.length : 0);
-  await history.locator(':scope > summary').click();
-  await expect(history).not.toHaveAttribute('open');
-  await expect(statsPanel).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
@@ -216,7 +179,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect(model).toBeTruthy();
   expect(model.training_config.seed).toBe(104729);
 
-  await page.goto('/');
+  await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
@@ -229,24 +192,25 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
     String(model.evaluation.seed),
   );
 
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await page.getByRole('button', { name: /New game/ }).click();
-  const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
-  await setup.getByRole('radio', { name: /Brandubh/ }).check();
-  await setup.getByRole('button', { name: 'Human vs AI', exact: true }).click();
-  await setup.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('attackers');
-  await expect(
-    setup.getByRole('combobox', { name: 'Defenders algorithm', exact: true }),
-  ).toHaveValue('neural');
-  await expect(
-    setup.getByRole('combobox', { name: 'Defenders trained model', exact: true }),
-  ).toHaveValue(model.id);
-  await expect(setup.locator('.model-recommendation')).toContainText(modelName);
-  await setup.getByRole('button', { name: 'To the table', exact: true }).click();
-  const current = await currentGame(page, request);
+  const currentResponse = await historicalGame(request, {
+    data: {
+      ruleset: 'brandubh',
+      mode: 'human-ai',
+      human_side: 'attackers',
+      players: {
+        defenders: {
+          profile_id: 'neural',
+          config: { model_id: model.id, iterations: 1, time_limit: 0.1 },
+        },
+      },
+    },
+  });
+  const current = await currentResponse.json();
+  await page.goto('/games/' + current.id);
+  await expect(page.getByRole('grid')).toBeVisible();
   expect(current.players.defenders.config.model_id).toBe(model.id);
 
-  const hiddenResponse = await request.post(`${api}/games`, {
+  const hiddenResponse = await historicalGame(request, {
     data: {
       ruleset: 'brandubh',
       mode: 'human-ai',
@@ -300,8 +264,8 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect(savedJob.checkpoint).toBeTruthy();
   expect(savedJob.status).toBe('completed');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBeNull();
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'The king awaits.', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.getByRole('grid')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

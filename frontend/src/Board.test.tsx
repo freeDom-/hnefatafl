@@ -92,6 +92,36 @@ describe('accessible game board', () => {
     expect(screen.getAllByRole('gridcell', { name: /king/ })).toHaveLength(1);
     expect(screen.getByRole('gridcell', { name: 'b2, king' })).toBeDisabled();
   });
+  it('uses a server-derived captured king square for online terminal boards', () => {
+    const finished = {
+      ...game,
+      board: ['.', 'A', '.', 'A', '.', 'A', '.', '.', 'D'],
+      winner: 'attackers' as const,
+      reason: 'king_captured',
+      cursor: 1,
+      total_moves: 1,
+      moves: [{ source: 0, target: 1, side: 'attackers' as const }],
+      legal_moves: [],
+      capturedKingSquare: 4,
+    };
+    render(<Board game={finished} selected={null} onSelect={vi.fn()} disabled />);
+    expect(screen.getByRole('gridcell', { name: 'b2, king' })).toBeDisabled();
+    expect(screen.getAllByRole('gridcell', { name: /king/ })).toHaveLength(1);
+  });
+  it('draws a trusted advisor hint on a read-only review without a client legal-move list', () => {
+    render(
+      <Board
+        game={{ ...game, legal_moves: [] }}
+        selected={null}
+        onSelect={vi.fn()}
+        readOnly
+        hint={{ source: 0, target: 1 }}
+      />,
+    );
+    expect(document.querySelector('.hint-overlay')).not.toBeNull();
+    expect(screen.getByRole('gridcell', { name: /suggested source/ })).toBeVisible();
+    expect(screen.getByRole('gridcell', { name: /suggested target/ })).toBeVisible();
+  });
   it('does not restore ordinary captures or a king from a different replay turn', () => {
     render(
       <Board

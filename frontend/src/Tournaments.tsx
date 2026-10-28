@@ -10,7 +10,7 @@ import ModelTrainingSummary from './ModelTrainingSummary';
 import TournamentWinMatrix from './TournamentWinMatrix';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
-import { profileConfiguration } from './gameSetupPreference';
+import { profileConfiguration } from './profileConfiguration';
 import {
   DEFAULT_ALPHA_BETA_SEARCH,
   TABLE_CAPACITY_MAX,

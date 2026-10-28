@@ -9,6 +9,9 @@ import modelManagement from './locales/de-model-management';
 import workers from './locales/de-workers';
 import evaluation from './locales/de-evaluation';
 import dashboard from './locales/de-dashboard';
+import online from './locales/de-online';
+import accounts from './locales/de-accounts';
+import personal from './locales/de-personal';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
@@ -25,6 +28,9 @@ const dictionary = {
   ...workers,
   ...evaluation,
   ...dashboard,
+  ...accounts,
+  ...online,
+  ...personal,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();

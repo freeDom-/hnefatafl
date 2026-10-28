@@ -1,0 +1,106 @@
+.online-root:focus {
+  outline: none;
+}
+.online-page {
+  max-width: 1440px;
+  margin: auto;
+  padding: var(--pad-page) 0;
+}
+.online-lobby-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  gap: var(--gap-card);
+  margin-top: var(--gap-stack);
+  align-items: start;
+}
+.online-details {
+  padding: var(--pad-panel);
+}
+.online-toolbar,
+.online-health {
+  display: flex;
+  gap: var(--gap-stack);
+  flex-wrap: wrap;
+  align-items: center;
+  margin: var(--gap-stack) 0;
+}
+.online-toolbar button,
+.online-health button,
+.online-details button {
+  min-height: 44px;
+  padding: var(--pad-control);
+}
+.online-toolbar [aria-current],
+.online-toolbar [aria-pressed='true'] {
+  outline: 2px solid var(--accent, #a5703c);
+  outline-offset: 2px;
+}
+.online-health > .online-notice {
+  flex-basis: 100%;
+}
+.active-game-switcher {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--gap-inline);
+  margin: var(--gap-stack) 0;
+  overflow-x: auto;
+  padding-bottom: var(--pad-panel-sm);
+}
+.active-game-switcher button {
+  max-width: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.active-game-switcher button[aria-current='page'] {
+  outline: 2px solid var(--accent, #a5703c);
+  outline-offset: 2px;
+}
+.online-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: var(--gap-stack);
+}
+.online-card {
+  padding: var(--pad-panel-sm);
+  border: 1px solid var(--border, #d7c9ae);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.online-card h3 {
+  margin-top: 0;
+}
+.online-game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 800px) minmax(240px, 1fr);
+  gap: var(--gap-card);
+  align-items: start;
+}
+.online-game-layout .battlefield {
+  min-width: 0;
+}
+.online-notice {
+  padding: var(--pad-panel-sm);
+  border-inline-start: 3px solid var(--accent, #a5703c);
+  background: var(--surface, #f5ede0);
+  overflow-wrap: anywhere;
+}
+.online-deadline {
+  border-block: 1px solid var(--border, #d7c9ae);
+  padding-block: var(--pad-panel-sm);
+  margin-block: var(--gap-stack);
+}
+.online-details ol {
+  max-height: 18rem;
+  overflow: auto;
+}
+@media (max-width: 800px) {
+  .online-game-layout,
+  .online-lobby-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.online-page .button,
+.dashboard-lobby .button {
+  white-space: normal;
+}

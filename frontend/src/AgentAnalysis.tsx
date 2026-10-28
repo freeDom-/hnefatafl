@@ -12,7 +12,12 @@ import Rune from './Rune';
 import './analysis.css';
 
 /** Background requests are tied to both the position and the advisor revision. */
-export function useGameAnalysis(game: Game | null, visible: boolean) {
+export function useGameAnalysis(
+  game: Game | null,
+  visible: boolean,
+  historical = false,
+  basePath = '/games',
+) {
   const gameId = game?.id ?? '';
   const currentGame = useRef(gameId);
   currentGame.current = gameId;
@@ -37,7 +42,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
       return;
     }
     setPreferences({ gameId, value: defaultAnalyticsSettings, pending: true, confirmed: false });
-    void api<AnalyticsSettings>(`/games/${gameId}/analytics`)
+    void api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`)
       .then((value) => {
         if (alive && settingsSequence.current === sequence) {
           confirmedSettings.current = { gameId, value };
@@ -59,7 +64,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
     };
     // A settings update is independent of subsequent gameplay responses.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId]);
+  }, [gameId, basePath]);
   const settings =
     preferences?.gameId === gameId
       ? preferences.value
@@ -77,7 +82,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
         .catch(() => undefined)
         .then(() =>
           api<AnalyticsSettings>(
-            `/games/${gameId}/analytics`,
+            `${basePath}/${gameId}/analytics`,
             {
               advisor: next.advisor && {
                 name: next.advisor.name,
@@ -85,7 +90,9 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
                 config: next.advisor.config,
               },
               time_limit: next.time_limit,
-              show_win_chances: next.show_win_chances,
+              // Removing the checkbox makes the advisor the single trigger for
+              // winning chances, so keep the persisted gate enabled.
+              show_win_chances: true,
             },
             'PUT',
           ),
@@ -102,7 +109,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
         // A failed response may still have committed. Read the server's effective
         // preferences before showing results or enabling a new analysis request.
         try {
-          const value = await api<AnalyticsSettings>(`/games/${gameId}/analytics`);
+          const value = await api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`);
           if (currentGame.current === gameId && settingsSequence.current === sequence) {
             confirmedSettings.current = { gameId, value };
             setPreferences({ gameId, value, pending: false, confirmed: true, error: message });
@@ -118,16 +125,13 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
         }
       }
     },
-    [gameId],
+    [gameId, basePath],
   );
   const key = game
     ? `${game.id}:${game.version}:${game.cursor}:${settings.revision}:${JSON.stringify([settings.advisor, settings.time_limit, settings.show_win_chances])}`
     : '';
-  const needed =
-    !!game &&
-    (!!settings.advisor ||
-      (settings.show_win_chances &&
-        Object.values(game.players).some((player) => player.kind === 'ai')));
+  // Winning chances and the best-move hint belong to the selected move advisor.
+  const needed = !!game && !!settings.advisor;
   const stored =
     !settingsPending &&
     game?.analysis?.cursor === game?.cursor &&
@@ -156,15 +160,16 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
     setRequest({ key, status: 'pending', report: stored ?? undefined });
     const poll = async () => {
       try {
-        const report = await api<PositionAnalysis>(`/games/${game.id}/analysis`, {
+        const report = await api<PositionAnalysis>(`${basePath}/${game.id}/analysis`, {
           version: game.version,
           cursor: game.cursor,
           background: true,
+          historical,
         });
         if (!alive) return;
         // A response from before an advisor edit must never redraw its arrow.
         if ((report.advisor_revision ?? 0) !== settings.revision) {
-          const value = await api<AnalyticsSettings>(`/games/${game.id}/analytics`);
+          const value = await api<AnalyticsSettings>(`${basePath}/${game.id}/analytics`);
           if (alive && settingsSequence.current === sequence) {
             confirmedSettings.current = { gameId, value };
             setPreferences({ gameId, value, pending: false, confirmed: true });
@@ -190,7 +195,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
     };
     // Stored reports arrive with gameplay responses; requests are keyed explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, visible, needed, settingsPending, settingsConfirmed, attempt]);
+  }, [key, visible, needed, settingsPending, settingsConfirmed, attempt, historical]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;
   return {
@@ -202,7 +207,7 @@ export function useGameAnalysis(game: Game | null, visible: boolean) {
       (current ? current.status === 'pending' : !stored || stored.status === 'pending'),
     failed: current?.status === 'failed',
     retry: () => setAttempt((value) => value + 1),
-    show: !!game,
+    show: !!game && !!settings.advisor,
     settings,
     updateSettings,
     settingsPending,
@@ -216,16 +221,12 @@ export default function AgentAnalysis({
   pending,
   failed,
   retry,
-  settings = defaultAnalyticsSettings,
-  updateSettings,
 }: {
   game: Game;
   report: PositionAnalysis | null;
   pending: boolean;
   failed: boolean;
   retry: () => void;
-  settings?: AnalyticsSettings;
-  updateSettings?: (next: AnalyticsSettings) => Promise<void>;
 }) {
   const { t, locale } = useI18n();
   const sides = { attackers: t('Attackers'), defenders: t('Defenders') };
@@ -245,110 +246,96 @@ export default function AgentAnalysis({
       aria-busy={pending}
     >
       <h2>{t('Winning chances')}</h2>
-      <label className="analysis-visibility">
-        <input
-          type="checkbox"
-          checked={settings.show_win_chances}
-          onChange={(event) =>
-            void updateSettings?.({ ...settings, show_win_chances: event.target.checked })
-          }
-        />
-        {t('Show winning chances')}
-      </label>
-      {settings.show_win_chances && (
-        <>
-          <p className="analysis-perspective">
-            {t('For the current player: {side}', { side: sides[game.turn] })}
+      <>
+        <p className="analysis-perspective">
+          {t('For the current player: {side}', { side: sides[game.turn] })}
+        </p>
+        {pending && (
+          <p className="analysis-status" role="status">
+            <i className="analysis-spinner" />
+            {t('Evaluating this position…')}
           </p>
-          {pending && (
-            <p className="analysis-status" role="status">
-              <i className="analysis-spinner" />
-              {t('Evaluating this position…')}
-            </p>
-          )}
-          {failed ? (
-            <div className="analysis-status">
-              <p>{t('The evaluation is unavailable. You can keep playing.')}</p>
-              <button className="text-button" onClick={retry}>
-                {t('Retry evaluation')}
-              </button>
-            </div>
-          ) : (!report || report.unavailable_reason === 'not_recorded') && !pending ? (
-            <p className="subtle">{t('No evaluation was recorded for this position.')}</p>
-          ) : (
-            report?.evaluations.map((agent) => (
-              <article className="agent-estimate" key={agent.agent_id}>
-                <div className="agent-estimate-heading">
-                  <div>
-                    <small>
-                      {agent.role === 'advisor'
-                        ? t('Move advisor')
-                        : t('{side} agent', { side: sides[agent.role] })}
-                    </small>
-                    <strong>
-                      <Rune rune={agent.rune} />
-                      {agent.model_name ?? agent.name}
-                    </strong>
-                  </div>
-                  <b>
-                    {agent.win_probability === null ? '—' : number.format(agent.win_probability)}
-                  </b>
+        )}
+        {failed ? (
+          <div className="analysis-status">
+            <p>{t('The evaluation is unavailable. You can keep playing.')}</p>
+            <button className="text-button" onClick={retry}>
+              {t('Retry evaluation')}
+            </button>
+          </div>
+        ) : (!report || report.unavailable_reason === 'not_recorded') && !pending ? (
+          <p className="subtle">{t('No evaluation was recorded for this position.')}</p>
+        ) : (
+          (report?.evaluations ?? []).map((agent) => (
+            <article className="agent-estimate" key={agent.agent_id}>
+              <div className="agent-estimate-heading">
+                <div>
+                  <small>
+                    {agent.role === 'advisor'
+                      ? t('Move advisor')
+                      : t('{side} agent', { side: sides[agent.role] })}
+                  </small>
+                  <strong>
+                    <Rune rune={agent.rune} />
+                    {agent.model_name ?? agent.name}
+                  </strong>
                 </div>
-                {agent.win_probability !== null && (
-                  <div
-                    className="estimate-meter"
-                    role="meter"
-                    aria-label={t('{agent} estimate for {side}', {
-                      agent: agent.model_name ?? agent.name,
-                      side: sides[game.turn],
-                    })}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(agent.win_probability * 1000) / 10}
-                    aria-valuetext={number.format(agent.win_probability)}
-                  >
-                    <span style={{ width: `${agent.win_probability * 100}%` }} />
-                  </div>
-                )}
-                <small className="estimate-source">
-                  {sourceLabels[agent.source]}
-                  {agent.simulations !== undefined
-                    ? ` · ${t('{count} simulations', { count: agent.simulations })}`
-                    : ''}
-                  {agent.completed_depth !== undefined
-                    ? ` · ${
-                        (agent.config.algorithm === 'alpha_beta' ||
-                          agent.config.search_wrapper === 'alpha_beta') &&
-                        agent.config.depth !== undefined
-                          ? t('depth {completed} / {requested}', {
-                              completed: agent.completed_depth,
-                              requested: Number(agent.config.depth),
-                            })
-                          : t('depth {depth}', { depth: agent.completed_depth })
-                      }`
-                    : ''}
-                </small>
-                {!pending &&
-                  (agent.config.algorithm === 'alpha_beta' ||
-                    agent.config.search_wrapper === 'alpha_beta') &&
-                  agent.completed_depth !== undefined &&
-                  agent.completed_depth < Number(agent.config.depth) && (
-                    <p className="subtle">
-                      {t('The time limit was reached before the configured depth finished.')}
-                    </p>
-                  )}
-                {agent.unavailable_reason && (
+                <b>{agent.win_probability === null ? '—' : number.format(agent.win_probability)}</b>
+              </div>
+              {agent.win_probability !== null && (
+                <div
+                  className="estimate-meter"
+                  role="meter"
+                  aria-label={t('{agent} estimate for {side}', {
+                    agent: agent.model_name ?? agent.name,
+                    side: sides[game.turn],
+                  })}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(agent.win_probability * 1000) / 10}
+                  aria-valuetext={number.format(agent.win_probability)}
+                >
+                  <span style={{ width: `${agent.win_probability * 100}%` }} />
+                </div>
+              )}
+              <small className="estimate-source">
+                {sourceLabels[agent.source]}
+                {agent.simulations !== undefined
+                  ? ` · ${t('{count} simulations', { count: agent.simulations })}`
+                  : ''}
+                {agent.completed_depth !== undefined
+                  ? ` · ${
+                      (agent.config.algorithm === 'alpha_beta' ||
+                        agent.config.search_wrapper === 'alpha_beta') &&
+                      agent.config.depth !== undefined
+                        ? t('depth {completed} / {requested}', {
+                            completed: agent.completed_depth,
+                            requested: Number(agent.config.depth),
+                          })
+                        : t('depth {depth}', { depth: agent.completed_depth })
+                    }`
+                  : ''}
+              </small>
+              {!pending &&
+                (agent.config.algorithm === 'alpha_beta' ||
+                  agent.config.search_wrapper === 'alpha_beta') &&
+                agent.completed_depth !== undefined &&
+                agent.completed_depth < Number(agent.config.depth) && (
                   <p className="subtle">
-                    {agent.unavailable_reason === 'model_unavailable'
-                      ? t('The model is no longer available. Saved evaluations remain in replay.')
-                      : t('This agent could not evaluate the position.')}
+                    {t('The time limit was reached before the configured depth finished.')}
                   </p>
                 )}
-              </article>
-            ))
-          )}
-        </>
-      )}
+              {agent.unavailable_reason && (
+                <p className="subtle">
+                  {agent.unavailable_reason === 'model_unavailable'
+                    ? t('The model is no longer available. Saved evaluations remain in replay.')
+                    : t('This agent could not evaluate the position.')}
+                </p>
+              )}
+            </article>
+          ))
+        )}
+      </>
       {report?.hint && (
         <p className="analysis-hint">
           <span aria-hidden="true">↗</span>
@@ -358,13 +345,9 @@ export default function AgentAnalysis({
           })}
         </p>
       )}
-      {settings.show_win_chances && (
-        <p className="analysis-explanation">
-          {t(
-            'Agent estimates; draws count as half. These are not calibrated winning probabilities.',
-          )}
-        </p>
-      )}
+      <p className="analysis-explanation">
+        {t('Agent estimates; draws count as half. These are not calibrated winning probabilities.')}
+      </p>
     </section>
   );
 }

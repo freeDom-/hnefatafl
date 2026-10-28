@@ -14,6 +14,8 @@ from typing import Iterable, Iterator
 
 from .identities import rune_for_ordinal
 from .security_context import owner_scope, principal
+from .account_migrations import migrate_accounts
+from .online_migrations import SCHEMA_VERSION, migrate_online
 
 
 class ConflictError(ValueError):
@@ -53,7 +55,7 @@ class Store:
             # embedded game-history snapshots from the original schema.
             connection.execute("BEGIN IMMEDIATE")
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema > 8:
+            if schema > SCHEMA_VERSION:
                 raise ValueError("This database uses a newer unsupported schema")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
@@ -122,7 +124,9 @@ class Store:
                 connection.execute(
                     f"CREATE INDEX IF NOT EXISTS {table}_owner ON {table}(owner_account_id)"
                 )
-            connection.execute("PRAGMA user_version=8")
+            migrate_accounts(connection)
+            migrate_online(connection)
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.
         with self.connection() as connection:
@@ -193,6 +197,13 @@ class Store:
                 (game_id, owner) if owner else (game_id,),
             ).fetchone()
         return json.loads(row["data"]) if row else None
+
+    def online_game_exists(self, game_id: str) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute("SELECT 1 FROM online_games WHERE id=?", (game_id,)).fetchone()
+                is not None
+            )
 
     def list_games(self) -> list[dict]:
         owner = owner_scope()
@@ -269,11 +280,16 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
-    def save_analytics(self, game_id: str, settings: dict) -> dict:
+    def save_analytics(self, game_id: str, settings: dict, *, allow_online=False) -> dict:
         """Preferences use their own revision, independently of gameplay moves."""
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute("SELECT 1 FROM games WHERE id=?", (game_id,)).fetchone() is None:
+            exists = connection.execute("SELECT 1 FROM games WHERE id=?", (game_id,)).fetchone()
+            if exists is None and allow_online:
+                exists = connection.execute(
+                    "SELECT 1 FROM online_games WHERE id=?", (game_id,)
+                ).fetchone()
+            if exists is None:
                 raise ConflictError("Game not found.")
             row = connection.execute(
                 "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
@@ -309,6 +325,7 @@ class Store:
         *,
         advisor_revision: int | None = None,
         partial: bool = False,
+        online: bool = False,
     ) -> dict:
         """Save late work only while the exact searched line remains retained.
 
@@ -320,17 +337,28 @@ class Store:
         game_id, key, cursor = original["id"], snapshot["position_key"], snapshot["cursor"]
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT data FROM games WHERE id=?", (game_id,)).fetchone()
-            if row is None:
-                raise ConflictError("Game no longer exists.")
-            current = json.loads(row["data"])
-            if (
-                current.get("seed") != original.get("seed")
-                or current.get("ruleset") != original.get("ruleset")
-                or len(current["moves"]) < cursor
-                or current["moves"][:cursor] != original["moves"][:cursor]
-            ):
-                raise ConflictError("The analyzed line is no longer retained.")
+            if online:
+                # Online games are terminal and immutable here, so the retained
+                # line cannot change; only confirm the record still exists.
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM online_games WHERE id=?", (game_id,)
+                    ).fetchone()
+                    is None
+                ):
+                    raise ConflictError("Game no longer exists.")
+            else:
+                row = connection.execute("SELECT data FROM games WHERE id=?", (game_id,)).fetchone()
+                if row is None:
+                    raise ConflictError("Game no longer exists.")
+                current = json.loads(row["data"])
+                if (
+                    current.get("seed") != original.get("seed")
+                    or current.get("ruleset") != original.get("ruleset")
+                    or len(current["moves"]) < cursor
+                    or current["moves"][:cursor] != original["moves"][:cursor]
+                ):
+                    raise ConflictError("The analyzed line is no longer retained.")
             if advisor_revision is not None:
                 preferences = connection.execute(
                     "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
@@ -413,32 +441,6 @@ class Store:
             ]
         runes = self.runes(f"player:{player['id']}" for player in result)
         return [{**player, "rune": runes[f"player:{player['id']}"]} for player in result]
-
-    def delete_player(self, player_id: str, deleted_at: str) -> bool:
-        """Hide a profile from selection while retaining its historical identity."""
-        with self.connection() as connection:
-            cursor = connection.execute(
-                "UPDATE players SET deleted_at=? WHERE id=? AND deleted_at IS NULL"
-                + (" AND owner_account_id=?" if owner_scope() else ""),
-                (deleted_at, player_id, owner_scope())
-                if owner_scope()
-                else (deleted_at, player_id),
-            )
-        return cursor.rowcount == 1
-
-    def create_player(self, player: dict) -> dict:
-        account = principal.get()
-        with self.connection() as connection:
-            connection.execute(
-                "INSERT INTO players(id,name,created_at,owner_account_id) VALUES(?,?,?,?)",
-                (
-                    player["id"],
-                    player["name"],
-                    player["created_at"],
-                    account["id"] if account else None,
-                ),
-            )
-        return {**player, "rune": self.rune(f"player:{player['id']}")}
 
     def archive_model(self, metadata: dict) -> None:
         """Retain display provenance for pre-snapshot games, never model weights."""

@@ -61,6 +61,9 @@ class SeekRequest(VersionRequest):
 
 class AnalysisRequest(SeekRequest):
     background: bool = False
+    # Read-only history review analyzes any recorded cursor without seeking the
+    # authoritative game; live gameplay keeps the exact-cursor contract.
+    historical: bool = False
 
 
 class AdvisorRequest(BaseModel):
@@ -76,18 +79,20 @@ class AnalyticsRequest(BaseModel):
     show_win_chances: bool = True
 
 
+Preset = Literal["baseline", "shield_maiden", "alpha_beta", "mcts"]
+
+
+class OpponentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_id: Preset = "baseline"
+
+
 class GameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
-    mode: Literal["human-human", "human-ai", "ai-ai"] = "human-human"
+    mode: Literal["human-ai", "ai-ai"] = "human-ai"
     human_side: Literal["attackers", "defenders"] = "defenders"
-    players: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    seed: StrictInt | None = Field(default=None, ge=0, le=2**32 - 1)
-    advisor: AdvisorRequest | None = None
-
-
-class PlayerRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    players: dict[str, OpponentRequest] = Field(default_factory=dict)
 
 
 class ModelNameRequest(BaseModel):
@@ -115,7 +120,17 @@ class TournamentRequest(BaseModel):
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
 
 
-def create_app(data_dir: str | Path | None = None) -> FastAPI:
+def create_app(
+    data_dir: str | Path | None = None,
+    *,
+    account_settings=None,
+    mail_transport=None,
+    account_clock=None,
+    account_background=True,
+    online_settings=None,
+    online_clock=None,
+    online_background=True,
+) -> FastAPI:
     server_build = application_metadata()
     package_version = server_build["package_version"]
     app = FastAPI(
@@ -137,6 +152,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     from .auth import attach_auth
 
     auth = attach_auth(app, store)
+    from .account_api import attach_accounts
+
+    account_options = {"settings": account_settings, "transport": mail_transport}
+    if account_clock is not None:
+        account_options["clock"] = account_clock
+    registration = attach_accounts(app, auth, **account_options)
+    from .online_api import attach_online
+
+    online = attach_online(app, auth, settings=online_settings, clock=online_clock)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
     # Catalog changes and new references must be atomic with respect to each
@@ -160,7 +184,16 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     raise RuntimeError(
                         "Provision the initial administrator using the local CLI before startup"
                     )
-        yield
+        if account_background:
+            registration.start()
+        if online_background:
+            await asyncio.to_thread(online.sweep)
+            online.start()
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(online.shutdown)
+            await asyncio.to_thread(registration.shutdown)
         await asyncio.to_thread(tournaments.shutdown)
         await asyncio.to_thread(analyses.shutdown)
         # A server shutdown stops workers it started, preserving completed
@@ -189,6 +222,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         raise HTTPException(status, message)
 
     def game_or_404(game_id: str, version: int | None = None) -> dict:
+        # All local analysis/AI/seek/export adapters use this guard. Separate
+        # online tables also keep collections, tournaments and training isolated.
+        if store.online_game_exists(game_id):
+            fail("Online games require the dedicated read-only game/replay adapters.", 409)
         game = store.get_game(game_id)
         if game is None:
             fail("Game not found.", 404)
@@ -237,24 +274,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         }
 
     def recorded_outcome(game: dict) -> dict:
-        """The end of the retained record is independent of a replay cursor."""
+        """Only the stored result completes a record, independent of replay cursor."""
         summary = game.get("recorded_result")
         if isinstance(summary, dict):
             return summary
-        if "recorded_result" in game:
-            return {"winner": None, "reason": None, "plies": len(game["moves"])}
-        # Backward-compatible derivation for databases from early pre-releases.
-        terminal = (
-            state_of(game)
-            if game["cursor"] == len(game["moves"])
-            else state_at(game, len(game["moves"]))
-        )
-        return {
-            "winner": terminal.winner,
-            "reason": terminal.reason,
-            "plies": terminal.ply,
-            "ended_at": game.get("ended_at"),
-        }
+        return {"winner": None, "reason": None, "plies": len(game["moves"])}
 
     def agent_rune(agent: dict) -> str:
         return store.rune(agent_identity(agent))
@@ -433,77 +457,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             fail("The neural opponent requires a registered model.")
         return resolved
 
-    def normalise_players(request: GameRequest, seed: int) -> dict:
-        result: dict[str, dict[str, Any]] = {}
-        for side in SIDES:
-            is_ai = request.mode == "ai-ai" or (
-                request.mode == "human-ai" and side != request.human_side
-            )
-            provided = request.players.get(side, {})
-            provided_config = provided.get("config")
-            # A named preset is fixed for new games. Custom opponents omit a
-            # profile ID and retain explicit budgets; saved games are unchanged.
-            if is_ai and provided.get("profile_id") in {
-                "baseline",
-                "shield_maiden",
-                "alpha_beta",
-                "mcts",
-            }:
-                from .ai import ai_profiles
-
-                preset = next(p for p in ai_profiles() if p["id"] == provided["profile_id"])
-                provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
-            kind = "ai" if is_ai else "human"
-            player_id = provided.get("player_id")
-            name = str(provided.get("name") or ("Computer" if is_ai else side.title())).strip()
-            if not name or len(name) > 80:
-                fail("Player names must contain 1–80 characters.")
-            if player_id and kind == "human":
-                profile = next((p for p in store.players() if p["id"] == player_id), None)
-                if not profile:
-                    fail("Unknown player profile.")
-                name = profile["name"]
-            elif kind == "human":
-                existing = next((p for p in store.players() if p["name"] == name), None)
-                if existing:
-                    player_id = existing["id"]
-                else:
-                    player_id = uuid4().hex
-                    store.create_player({"id": player_id, "name": name, "created_at": now()})
-            result[side] = {
-                "name": name,
-                "kind": kind,
-                "player_id": player_id if kind == "human" else None,
-                "profile_id": provided.get("profile_id", "baseline") if kind == "ai" else None,
-                "config": clean_ai_config(provided_config, provided.get("profile_id", "baseline"))
-                if kind == "ai"
-                else {},
-            }
-            if is_ai:
-                from .ai import ai_profiles
-
-                # Manual algorithm selection must not inherit an unrelated
-                # profile label left behind by the setup form.
-                result[side]["config"]["seed"] = seed
-                algorithm = result[side]["config"]["algorithm"]
-                profile = next(p for p in ai_profiles() if p["algorithm"] == algorithm)
-                result[side]["profile_id"] = profile["id"]
-                result[side]["profile_name"] = profile["name"]
-                result[side]["variant_id"] = ai_variant_id(result[side]["config"])
-                model_id = result[side]["config"].get("model_id")
-                if model_id:
-                    model = model_info(model_id)
-                    if model["ruleset"] != request.ruleset:
-                        fail("This model is for a different ruleset.")
-                    result[side]["model_name"] = model["name"]
-        return {side: with_agent_rune(player) for side, player in result.items()}
-
-    def normalise_advisor(request: GameRequest, seed: int) -> dict | None:
-        if request.advisor is None:
+    def normalise_advisor(provided: AdvisorRequest | None, ruleset: str, seed: int) -> dict | None:
+        if provided is None:
             return None
         from .ai import ai_profiles
 
-        provided = request.advisor
         name = provided.name.strip()
         if not name:
             fail("The move advisor needs a name.")
@@ -519,7 +477,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         }
         if config.get("model_id"):
             model = model_info(config["model_id"])
-            if model["ruleset"] != request.ruleset:
+            if model["ruleset"] != ruleset:
                 fail("This model is for a different ruleset.")
             model_file(model)
             result["model_name"] = model["name"]
@@ -622,31 +580,64 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             for profile in ai_profiles()
         ]
 
+    def insert_account_game(c, account, request: GameRequest, *, seed=None):
+        from .ai import ai_profiles
+        from .game_records import game_record
+        from .security_context import allowed
+
+        if request.mode == "ai-ai" and not allowed(account, "all_data"):
+            fail("Administrator permission is required for AI vs AI.", 403)
+        ai_sides = set(SIDES) if request.mode == "ai-ai" else set(SIDES) - {request.human_side}
+        if set(request.players) - ai_sides:
+            fail("Human identity comes from the authenticated account.", 422)
+        seed = secrets.randbits(32) if seed is None else seed
+        catalog = {p["id"]: p for p in ai_profiles()}
+        players = {}
+        for side in SIDES:
+            if side not in ai_sides:
+                players[side] = {
+                    "name": str(account.get("display_name") or account["username"])[:80],
+                    "account_id": account["id"],
+                    "kind": "human",
+                    "config": {},
+                }
+                continue
+            profile = catalog[request.players.get(side, OpponentRequest()).profile_id]
+            config = effective_ai_config(
+                {**profile["parameters"], "algorithm": profile["algorithm"], "seed": seed}
+            )
+            players[side] = {
+                "name": profile["name"],
+                "kind": "ai",
+                "profile_id": profile["id"],
+                "profile_name": profile["name"],
+                "config": config,
+                "variant_id": ai_variant_id(config),
+            }
+        game = game_record(request.ruleset, request.mode, request.human_side, players, seed)
+        game["creation_policy"] = 1
+        c.execute(
+            "INSERT INTO games(id,version,created_at,data,owner_account_id) VALUES(?,?,?,?,?)",
+            (game["id"], 0, game["created_at"], json.dumps(game), account["id"]),
+        )
+        return game
+
+    def account_creator(c):
+        from .online_core import OnlineError
+        from .security_context import session_identity
+
+        try:
+            return online._identity(c, session_identity.get())
+        except OnlineError as error:
+            fail(str(error), error.status)
+
     @app.post("/api/games", status_code=201)
     def create_game(request: GameRequest):
-        with catalog_lock:
-            state = new_game(request.ruleset)
-            seed = secrets.randbits(32) if request.seed is None else request.seed
-            game = {
-                "id": uuid4().hex,
-                "ruleset": request.ruleset,
-                "ruleset_version": 1,
-                "mode": request.mode,
-                "human_side": request.human_side,
-                "players": normalise_players(request, seed),
-                "advisor": normalise_advisor(request, seed),
-                "analysis_enabled": True,
-                "seed": seed,
-                "state": state.to_dict(),
-                "moves": [],
-                "cursor": 0,
-                "version": 0,
-                "created_at": now(),
-                "ended_at": None,
-                "recorded_result": None,
-            }
-            store.create_game(game)
-            return response(game)
+        with catalog_lock, store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            account = account_creator(c)
+            game = insert_account_game(c, account, request)
+        return response(game)
 
     @app.get("/api/games")
     def games(ruleset: str | None = None, mode: str | None = None, kind: str | None = None):
@@ -664,10 +655,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def get_game(game_id: str):
         return response(game_or_404(game_id))
 
-    def position_snapshot(game: dict) -> dict:
-        state = state_of(game)
+    def position_snapshot(
+        game: dict, *, state: State | None = None, cursor: int | None = None
+    ) -> dict:
+        state = state or state_of(game)
         return {
-            "cursor": game["cursor"],
+            "cursor": game["cursor"] if cursor is None else cursor,
             "ply": state.ply,
             "side_to_move": state.turn,
             "position_key": position_key(state),
@@ -676,9 +669,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "hint": None,
         }
 
-    def current_analysis(game: dict, settings: dict | None = None) -> dict | None:
+    def current_analysis(
+        game: dict, settings: dict | None = None, *, state: State | None = None
+    ) -> dict | None:
         settings = settings or analytics_settings(game)
-        key = position_key(state_of(game))
+        key = position_key(state or state_of(game))
         recorded = store.game_analysis(game["id"], key)
         advisor = store.advisor_analysis(game["id"], key, settings["revision"])
         # Before the first preference change, legacy advisor reports keep their
@@ -701,9 +696,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return result
 
     def evaluation_entry(
-        game: dict, role: str, agent: dict, settings: dict, report: dict | None = None
+        game: dict,
+        role: str,
+        agent: dict,
+        settings: dict,
+        report: dict | None = None,
+        *,
+        state: State | None = None,
     ) -> dict:
-        state = state_of(game)
+        state = state or state_of(game)
         configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
         if role == "advisor":
             configuration["time_limit"] = settings["time_limit"]
@@ -737,16 +738,18 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             )
         return entry
 
-    def evaluate_background(game: dict, role: str, agent: dict, settings: dict, progress):
+    def evaluate_background(
+        game: dict, role: str, agent: dict, settings: dict, progress, *, state: State | None = None
+    ):
         from .ai import analyze_position
 
-        state = state_of(game)
+        state = state or state_of(game)
         configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
         if role == "advisor":
             configuration["time_limit"] = settings["time_limit"]
         if "seed" in game:
             configuration["seed"] = (configuration["seed"] + state.ply) % 2**32
-        entry = evaluation_entry(game, role, agent, settings)
+        entry = evaluation_entry(game, role, agent, settings, state=state)
         try:
             if configuration.get("model_id") and not state.winner:
                 with catalog_lock:
@@ -796,7 +799,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 existing
                 if same_advisor
                 else normalise_advisor(
-                    GameRequest(ruleset=game["ruleset"], advisor=request.advisor),
+                    request.advisor,
+                    game["ruleset"],
                     game.get("seed", 0),
                 )
             )
@@ -812,15 +816,19 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             except ConflictError as exc:
                 fail(str(exc), 409)
 
-    def background_analysis(game: dict) -> dict:
-        state, settings = state_of(game), analytics_settings(game)
-        snapshot = position_snapshot(game)
-        recorded = current_analysis(game, settings)
+    def background_analysis(
+        game: dict, *, state: State | None = None, cursor: int | None = None
+    ) -> dict:
+        state = state or state_of(game)
+        settings = analytics_settings(game)
+        snapshot = position_snapshot(game, state=state, cursor=cursor)
+        recorded = current_analysis(game, settings, state=state)
         existing = {entry["agent_id"] for entry in (recorded or {}).get("evaluations", [])}
         tasks = []
         # Actual AI turns produce their own evidence in /ai-move. Historical
         # player evidence is never invented later using changed model weights.
-        frontier = game["cursor"] == len(game["moves"])
+        position = game["cursor"] if cursor is None else cursor
+        frontier = position == len(game["moves"])
         human_turn = game["players"][state.turn]["kind"] == "human"
         if settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
             for role, agent in game["players"].items():
@@ -829,7 +837,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                     and role not in existing
                     and (human_turn or state.winner or role != state.turn)
                 ):
-                    tasks.append(analyses.schedule(game, snapshot, role, agent, settings))
+                    tasks.append(
+                        analyses.schedule(game, snapshot, role, agent, settings, state=state)
+                    )
         if settings["advisor"]:
             advisor_report = store.advisor_analysis(
                 game["id"], snapshot["position_key"], settings["revision"]
@@ -842,13 +852,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 pass  # An immutable legacy advisor report is already retained.
             elif advisor_report is None or advisor_report.get("partial"):
                 tasks.append(
-                    analyses.schedule(game, snapshot, "advisor", settings["advisor"], settings)
+                    analyses.schedule(
+                        game, snapshot, "advisor", settings["advisor"], settings, state=state
+                    )
                 )
         # Read activity before data: a worker can commit between these reads.
         # A stale "pending" only causes another poll; stale "complete" could
         # otherwise hide the newly committed result indefinitely.
         pending = any(analyses.active(key) for key in tasks)
-        result = current_analysis(game, settings) or missing_analysis(game)
+        result = current_analysis(game, settings, state=state) or missing_analysis(game)
         rendered = analysis_response(
             {
                 **result,
@@ -864,6 +876,16 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         from .ai import analyze_position
 
         game = game_or_404(game_id, request.version)
+        if request.historical:
+            if not 0 <= request.cursor <= len(game["moves"]):
+                fail("The requested position is outside this recorded game.", 422)
+            state = state_at(game, request.cursor)
+            if request.background:
+                return background_analysis(game, state=state, cursor=request.cursor)
+            settings = analytics_settings(game)
+            return analysis_response(
+                current_analysis(game, settings, state=state) or missing_analysis(game)
+            )
         if request.cursor != game["cursor"]:
             fail("This game changed. Reload it before analyzing again.", 409)
         if request.background:
@@ -943,6 +965,111 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         except ConflictError as exc:
             fail(str(exc), 409)
 
+    def online_analysis_game(identifier: str) -> dict:
+        """Read-only analysis view of a completed online game.
+
+        Only terminal games are eligible. Ongoing online games never expose
+        analysis, suggestions, evaluations or win probabilities, and a client
+        countdown reaching zero is never treated as completion.
+        """
+        from .online_core import OnlineError
+        from .security_context import allowed, session_identity
+
+        try:
+            with store.connection() as c:
+                c.execute("BEGIN")
+                account = online._identity(c, session_identity.get())
+                if not allowed(account, "all_data"):
+                    online._participant(c, account["id"], identifier)
+                row, game = online._load(c, identifier)
+                if game.status.value != "completed" or game.result is None:
+                    fail("Analysis is available only for completed online games.", 403)
+                players = {}
+                for side in SIDES:
+                    record = c.execute(
+                        "SELECT username,display_name FROM accounts WHERE id=?",
+                        (row[side + "_id"],),
+                    ).fetchone()
+                    players[side] = {
+                        "name": str(record["display_name"] or record["username"])[:80],
+                        "kind": "human",
+                        "config": {},
+                    }
+                moves = [
+                    {"source": item["source"], "target": item["target"]}
+                    for item in c.execute(
+                        "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
+                        (identifier,),
+                    )
+                ]
+        except OnlineError as error:
+            fail(str(error), error.status)
+        return {
+            "id": identifier,
+            "online": True,
+            "ruleset": row["ruleset"],
+            "mode": "human-human",
+            "players": players,
+            "moves": moves,
+            "cursor": len(moves),
+            "state": game.position.to_dict(),
+            "analysis_enabled": True,
+            "advisor": None,
+            "recorded_result": {
+                "winner": game.result.winner,
+                "reason": game.result.termination_reason,
+                "plies": len(moves),
+            },
+        }
+
+    @app.get("/api/history/online/{game_id}/analytics")
+    def online_analytics(game_id: str):
+        return analytics_settings(online_analysis_game(game_id))
+
+    @app.put("/api/history/online/{game_id}/analytics")
+    def set_online_analytics(game_id: str, request: AnalyticsRequest):
+        with catalog_lock:
+            game = online_analysis_game(game_id)
+            existing = analytics_settings(game)["advisor"]
+            same_advisor = bool(
+                existing
+                and request.advisor
+                and request.advisor.model_dump()
+                == {
+                    "name": existing["name"],
+                    "profile_id": existing.get("profile_id"),
+                    "config": existing["config"],
+                }
+            )
+            advisor = (
+                existing if same_advisor else normalise_advisor(request.advisor, game["ruleset"], 0)
+            )
+            try:
+                return store.save_analytics(
+                    game_id,
+                    {
+                        "advisor": advisor,
+                        "time_limit": request.time_limit,
+                        "show_win_chances": request.show_win_chances,
+                    },
+                    allow_online=True,
+                )
+            except ConflictError as exc:
+                fail(str(exc), 409)
+
+    @app.post("/api/history/online/{game_id}/analysis")
+    def analyze_online_game(game_id: str, request: AnalysisRequest):
+        game = online_analysis_game(game_id)
+        if not 0 <= request.cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        state = state_at(game, request.cursor)
+        if request.background:
+            return background_analysis(game, state=state, cursor=request.cursor)
+        settings = analytics_settings(game)
+        return analysis_response(
+            current_analysis(game, settings, state=state) or missing_analysis(game)
+        )
+
     @app.delete("/api/games/{game_id}")
     def delete_game(
         game_id: str, version: str = Query(pattern=r"^(0|[1-9][0-9]*)$", max_length=16)
@@ -958,7 +1085,9 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/games/{game_id}/replay")
     def game_replay(game_id: str):
-        game = game_or_404(game_id)
+        return validated_account_replay(game_or_404(game_id))
+
+    def validated_account_replay(game: dict):
         state = new_game(game["ruleset"])
         states = [state.to_dict()]
         try:
@@ -969,7 +1098,16 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             fail("Stored game history failed deterministic validation.", 409)
         if states[game["cursor"]] != game["state"]:
             fail("Stored position does not match the recorded moves.", 409)
-        return {"game_id": game_id, "validated": True, "cursor": game["cursor"], "states": states}
+        return {
+            "game_id": game["id"],
+            "validated": True,
+            "cursor": game["cursor"],
+            "states": states,
+        }
+
+    from .personal_api import attach_personal
+
+    attach_personal(app, online, replay=validated_account_replay)
 
     @app.post("/api/games/{game_id}/moves")
     def make_move(game_id: str, request: MoveRequest):
@@ -1034,81 +1172,50 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.post("/api/games/{game_id}/restart")
     def restart(game_id: str, request: VersionRequest):
         with catalog_lock:
-            game = game_or_404(game_id, request.version)
-            if recorded_outcome(game)["winner"] or state_of(game).winner:
+            prior = game_or_404(game_id, request.version)
+            if recorded_outcome(prior)["winner"] or state_of(prior).winner:
                 fail("Completed games cannot be restarted. Start a new game instead.", 409)
-            active = {player["id"] for player in store.players()}
-            for player in referenced_agents(game):
-                if player.get("kind") == "human" and player.get("player_id") not in active:
-                    fail(
-                        "Choose active players in a new game; a previous profile was deleted.", 409
-                    )
-                model_id = player.get("config", {}).get("model_id")
-                if model_id and not any(model["id"] == model_id for model in models_list()):
-                    fail(
-                        "Choose an available model in a new game; the previous model was deleted.",
-                        409,
-                    )
-            previous_seeds = {game.get("seed")} | {
-                effective_ai_config(player["config"], player.get("profile_id"))["seed"]
-                for player in referenced_agents(game)
-                if player["kind"] == "ai"
+            if prior.get("creation_policy") != 1:
+                fail(
+                    "Start a new account game with the supported opponents; this saved setup is read/play compatible only.",
+                    409,
+                )
+            profiles = {
+                side: OpponentRequest(profile_id=p["profile_id"])
+                for side, p in prior["players"].items()
+                if p["kind"] == "ai"
             }
-            seed = secrets.randbits(32)
-            while seed in previous_seeds:
-                seed = (seed + 1) % 2**32
-            settings = analytics_settings(game)
-            selected_advisor = settings["advisor"]
-            agents = [*game["players"].values(), *([selected_advisor] if selected_advisor else [])]
-            for player in agents:
-                if player["kind"] == "ai":
-                    player["config"] = {
-                        **effective_ai_config(player["config"], player.get("profile_id")),
-                        "seed": seed,
-                    }
-                    player["variant_id"] = ai_variant_id(player["config"])
-            game.update(
-                advisor=selected_advisor,
-                id=uuid4().hex,
-                state=new_game(game["ruleset"]).to_dict(),
-                moves=[],
-                cursor=0,
-                version=0,
-                created_at=now(),
-                ended_at=None,
-                recorded_result=None,
-                seed=seed,
-                analysis_enabled=True,
+            setup = GameRequest(
+                ruleset=prior["ruleset"],
+                mode=prior["mode"],
+                human_side=prior["human_side"],
+                players=profiles,
             )
-            store.create_game(game)
-            store.save_analytics(
-                game["id"],
-                {
-                    "advisor": selected_advisor,
-                    "time_limit": settings["time_limit"],
-                    "show_win_chances": settings["show_win_chances"],
-                },
-            )
+            settings = analytics_settings(prior)
+            with store.connection() as c:
+                c.execute("BEGIN IMMEDIATE")
+                account = account_creator(c)
+                from .security_context import allowed
+
+                if not c.execute(
+                    "SELECT 1 FROM games WHERE id=? AND version=? AND (? OR owner_account_id=?)",
+                    (game_id, request.version, allowed(account, "all_data"), account["id"]),
+                ).fetchone():
+                    fail("The game changed. Reload before restarting.", 409)
+                seed = secrets.randbits(32)
+                if seed == prior.get("seed"):
+                    seed = (seed + 1) % 2**32
+                game = insert_account_game(c, account, setup, seed=seed)
+            preferences = {
+                key: settings[key] for key in ("advisor", "time_limit", "show_win_chances")
+            }
+            if preferences["advisor"]:
+                preferences["advisor"] = {
+                    **preferences["advisor"],
+                    "config": {**preferences["advisor"]["config"], "seed": seed},
+                }
+            store.save_analytics(game["id"], preferences)
             return response(game)
-
-    @app.get("/api/players")
-    def players():
-        return store.players()
-
-    @app.post("/api/players", status_code=201)
-    def create_player(request: PlayerRequest):
-        name = request.name.strip()
-        if not name:
-            fail("A player needs a display name.")
-        with catalog_lock:
-            return store.create_player({"id": uuid4().hex, "name": name, "created_at": now()})
-
-    @app.delete("/api/players/{player_id}")
-    def delete_player(player_id: str):
-        with catalog_lock:
-            if not store.delete_player(player_id, now()):
-                fail("Player profile not found.", 404)
-        return {"deleted": True, "id": player_id}
 
     @app.get("/api/stats")
     def stats(
@@ -1126,7 +1233,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             and (not mode or g["mode"] == mode)
             and (not kind or any(p["kind"] == kind for p in g["players"].values()))
             and (
-                not player_id or any(p.get("player_id") == player_id for p in g["players"].values())
+                not player_id
+                or any(
+                    p.get("player_id") == player_id
+                    or "account:" + str(p.get("account_id")) == player_id
+                    for p in g["players"].values()
+                )
             )
         ]
         completed = [g for g in selected if recorded_outcome(g)["winner"]]
@@ -1188,7 +1300,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 )
                 experiment_seed = config.pop("seed", None) if config is not None else None
                 identifier = (
-                    player.get("player_id")
+                    (
+                        "account:" + player["account_id"]
+                        if player.get("account_id")
+                        else player.get("player_id")
+                    )
                     if player["kind"] == "human"
                     else ai_variant_id(config or {})
                 )

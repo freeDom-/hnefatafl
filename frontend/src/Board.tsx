@@ -1,6 +1,6 @@
 import { t, useI18n } from './i18n';
 import { useId, useRef, type KeyboardEvent } from 'react';
-import type { Game, Move } from './types';
+import type { GameMove, Move } from './types';
 import { Token } from './Tokens';
 import { useAppearance } from './Appearance';
 
@@ -15,22 +15,48 @@ const pieceNames: Record<string, string> = {
 
 export { Crown } from './Tokens';
 
+export interface BoardView {
+  ruleset: string;
+  size: number;
+  board: string[];
+  winner: string | null;
+  recorded_winner?: string | null;
+  reason: string | null;
+  moves: (Move & { captured?: GameMove['captured']; side?: GameMove['side'] })[];
+  cursor: number;
+  total_moves?: number;
+  legal_moves?: Move[];
+  /** Display-only square for a king captured on the terminal move. */
+  capturedKingSquare?: number | null;
+}
 interface Props {
-  game: Game;
+  game: BoardView;
   selected: number | null;
   onSelect: (index: number) => void;
   disabled?: boolean;
   hint?: Move | null;
+  readOnly?: boolean;
 }
-export default function Board({ game, selected, onSelect, disabled = false, hint = null }: Props) {
+export default function Board({
+  game,
+  selected,
+  onSelect,
+  disabled = false,
+  hint = null,
+  readOnly = false,
+}: Props) {
   useI18n();
   const { appearance } = useAppearance();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const markerId = useId().replaceAll(':', '');
+  const legalMoves = game.legal_moves ?? [];
+  // A read-only review has no client legal-move list; its hint comes from the
+  // trusted advisor analysis for this exact position, so draw it directly.
   const suggestion =
     hint &&
     !game.winner &&
-    game.legal_moves.some((move) => move.source === hint.source && move.target === hint.target)
+    (readOnly ||
+      legalMoves.some((move) => move.source === hint.source && move.target === hint.target))
       ? hint
       : null;
   const center = (index: number) => ({
@@ -38,17 +64,20 @@ export default function Board({ game, selected, onSelect, disabled = false, hint
     y: ((Math.floor(index / game.size) + 0.5) * 100) / game.size,
   });
   const targets = new Set(
-    game.legal_moves.filter((move) => move.source === selected).map((move) => move.target),
+    legalMoves.filter((move) => move.source === selected).map((move) => move.target),
   );
   const lastMove = game.cursor > 0 ? game.moves[game.cursor - 1] : undefined;
-  // Retain the final capture arrangement for display without changing the rules state.
+  // Retain the final capture arrangement for display without changing the rules
+  // state. Online games supply the derived square because their move records do
+  // not carry per-move captures.
   const capturedKingSquare =
-    game.winner === 'attackers' &&
+    game.capturedKingSquare ??
+    (game.winner === 'attackers' &&
     game.reason === 'king_captured' &&
     !game.board.includes('K') &&
     Array.isArray(lastMove?.captured)
       ? lastMove.captured.find((capture) => capture.piece === 'K')?.square
-      : undefined;
+      : undefined);
   const keydown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
     if (event.key === 'ArrowRight') next = Math.min(index + 1, game.board.length - 1);
@@ -100,8 +129,11 @@ export default function Board({ game, selected, onSelect, disabled = false, hint
                 role="gridcell"
                 type="button"
                 className={`square ${(row + column) % 2 ? 'dark' : 'light'} ${selected === index ? 'selected' : ''} ${targets.has(index) ? 'legal' : ''} ${last ? 'last-move' : ''} ${throne || corner ? 'special' : ''} ${suggestion?.source === index ? 'hint-source' : ''} ${suggestion?.target === index ? 'hint-target' : ''}`}
-                onClick={() => onSelect(index)}
+                onClick={() => {
+                  if (!readOnly) onSelect(index);
+                }}
                 disabled={disabled}
+                aria-disabled={readOnly || disabled}
                 onKeyDown={(event) => keydown(event, index)}
                 aria-label={`${coordinate(index, game.size)}, ${t(pieceNames[piece] ?? piece)}${targets.has(index) ? t(', legal move') : ''}${suggestion?.source === index ? t(', suggested source') : ''}${suggestion?.target === index ? t(', suggested target') : ''}`}
                 aria-selected={selected === index}

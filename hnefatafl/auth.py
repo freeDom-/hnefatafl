@@ -13,8 +13,8 @@ import fcntl
 import os
 import re
 import secrets
+import sqlite3
 import time
-import unicodedata
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 from uuid import uuid4
@@ -28,23 +28,33 @@ from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Match
 
-from .security_context import PERMISSIONS, allowed, principal
+from .security_context import PERMISSIONS, allowed, principal, session_identity
+from .account_policy import (
+    normalize,
+    username as validate_username,
+    email as validate_email,
+    validate_password,
+)
 
 COOKIE = "hnefatafl_session"
 SAFE = {"GET", "HEAD", "OPTIONS"}
+# This module owns policy; account_api is imported only after Auth is defined.
+ACCOUNT_ACTIONS = {
+    "/api/auth/register": "register",
+    "/api/auth/verification/resend": "resend",
+    "/api/auth/verify-email": "confirm",
+    "/api/auth/password-reset/request": "reset",
+    "/api/auth/password-reset/confirm": "confirm",
+}
+ACCOUNT_PAGES = {"/register", "/verify-email", "/forgot-password", "/reset-password"}
 
 
 def digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def normalize(value: str) -> str:
-    return unicodedata.normalize("NFKC", value).strip().casefold()
-
-
 def password_hash(password: str) -> str:
-    if len(password) < 12 or len(password) > 256 or len(set(password)) < 4:
-        raise ValueError("Use 12–256 characters with at least four distinct characters.")
+    validate_password(password)
     salt = secrets.token_hex(16)
     key = hashlib.scrypt(password.encode(), salt=salt.encode(), n=32768, r=8, p=3, maxmem=67108864)
     return f"scrypt$32768$8$3${salt}${key.hex()}"
@@ -133,6 +143,7 @@ def public_account(account: dict) -> dict:
             )
         },
         "permissions": sorted(PERMISSIONS.get(account["role"], ())),
+        "email_verified": account.get("email_verified_at") is not None,
     }
 
 
@@ -142,19 +153,15 @@ class Auth:
         self.gate_path = store.path.parent / ".deployment-gate"
         os.close(os.open(self.gate_path, os.O_CREAT | os.O_RDONLY, 0o644))
         self.worker_auth: Callable | None = None
+        self.account_requests: Callable[[str, str], None] | None = None
+        self.public_hash_budget: Callable[[sqlite3.Connection], None] | None = None
         # Same work for nonexistent identities; no per-request expensive setup.
         self.dummy_hash = password_hash(secrets.token_urlsafe(24))
 
     def create_account(
         self, username: str, email: str, password: str, role="USER", *, bootstrap=False
     ) -> dict:
-        username, email = unicodedata.normalize("NFKC", username).strip(), normalize(email)
-        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{1,63}", username):
-            raise ValueError(
-                "Username must contain 2–64 letters, digits, dots, underscores or hyphens"
-            )
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) or len(email) > 254:
-            raise ValueError("A valid email address is required")
+        username, email = validate_username(username), validate_email(email)
         if role not in PERMISSIONS:
             raise ValueError("Unknown role")
         encoded = password_hash(password)
@@ -196,6 +203,10 @@ class Auth:
                 ).fetchone()
                 if row and row[0] >= (30 if key.startswith("ip:") else 10):
                     raise HTTPException(429, "Too many login attempts. Try again later.")
+            if self.public_hash_budget:
+                # Share the transaction: denial must not allocate unbounded legacy
+                # login-attempt keys for fresh attacker-controlled identities/IPs.
+                self.public_hash_budget(c)
             for key in keys:
                 c.execute(
                     "INSERT INTO login_attempts(key,started,attempts) VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET attempts=attempts+1",
@@ -212,6 +223,14 @@ class Auth:
         token = secrets.token_urlsafe(32)
         csrf = digest("csrf:" + token)
         with self.store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            current = c.execute("SELECT * FROM accounts WHERE id=?", (account["id"],)).fetchone()
+            if (
+                current is None
+                or not allowed(dict(current), "play")
+                or not hmac.compare_digest(current["password_hash"], account["password_hash"])
+            ):
+                raise HTTPException(401, "Invalid username/email or password.")
             c.execute("DELETE FROM sessions WHERE expires<=?", (moment,))
             c.execute(
                 "INSERT INTO sessions(token_hash,account_id,expires,csrf_hash) VALUES(?,?,?,?)",
@@ -266,6 +285,13 @@ class Auth:
                 (role, active, encoded, identifier),
             )
             c.execute("DELETE FROM sessions WHERE account_id=?", (identifier,))
+            if password is not None or active is False:
+                for table in ("account_tokens", "account_mail"):
+                    c.execute(
+                        f"DELETE FROM {table} WHERE account_id=?"
+                        + (" AND purpose='reset'" if active is not False else ""),
+                        (identifier,),
+                    )
 
 
 # Exact method/path declarations: unknown routes remain denied, including future
@@ -280,7 +306,7 @@ def grant(permission, method, *paths):
 
 
 grant("public", "GET", "/api/health", "/api/auth/registration")
-grant("public", "POST", "/api/auth/login")
+grant("public", "POST", "/api/auth/login", *ACCOUNT_ACTIONS)
 grant("profile", "GET", "/api/auth/me")
 grant("profile", "POST", "/api/auth/logout")
 grant(
@@ -290,8 +316,15 @@ grant(
     "/api/ai/profiles",
     "/api/models",
     "/api/games",
-    "/api/players",
     "/api/stats",
+    "/api/personal/single-player",
+    "/api/personal/single-player/{game_id}/replay",
+    "/api/personal/online",
+    "/api/personal/online/{game_id}",
+    "/api/personal/online/{game_id}/replay",
+    "/api/history/games",
+    "/api/history/{category}/{game_id}/replay",
+    "/api/history/online/{game_id}/analytics",
     "/api/games/{game_id}",
     "/api/games/{game_id}/analytics",
     "/api/games/{game_id}/replay",
@@ -300,14 +333,39 @@ grant(
     "play",
     "POST",
     "/api/games",
-    "/api/players",
     *(
         f"/api/games/{{game_id}}/{action}"
         for action in ("analysis", "moves", "ai-move", "seek", "undo", "redo", "restart")
     ),
 )
 grant("play", "PUT", "/api/games/{game_id}/analytics")
-grant("play", "DELETE", "/api/games/{game_id}", "/api/players/{player_id}")
+grant("play", "PUT", "/api/history/online/{game_id}/analytics")
+grant("play", "POST", "/api/history/online/{game_id}/analysis")
+grant(
+    "play",
+    "GET",
+    "/api/online/games",
+    "/api/online/games/{game_id}",
+    "/api/online/games/{game_id}/replay",
+    "/api/online/stats",
+)
+grant(
+    "play",
+    "POST",
+    "/api/online/games",
+    *(
+        f"/api/online/games/{{game_id}}/{action}"
+        for action in ("join", "cancel", "moves", "concede")
+    ),
+)
+grant("play", "GET", "/api/leaderboard")
+grant("accounts", "POST", "/api/online/games/{game_id}/void")
+grant("accounts", "POST", "/api/online/ratings/rebuild")
+grant("accounts", "GET", "/api/online/timeout-gate")
+grant("accounts", "GET", "/api/online/monitoring")
+grant("play", "GET", "/api/online/availability")
+grant("accounts", "PATCH", "/api/online/timeout-gate")
+grant("play", "DELETE", "/api/games/{game_id}")
 grant(
     "tournaments",
     "GET",
@@ -373,7 +431,10 @@ class SecurityBoundary:
                 message["headers"] += [
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
-                    (b"referrer-policy", b"same-origin"),
+                    (
+                        b"referrer-policy",
+                        b"no-referrer" if scope["path"] in ACCOUNT_PAGES else b"same-origin",
+                    ),
                     (b"cache-control", b"no-store"),
                     (
                         b"content-security-policy",
@@ -391,15 +452,17 @@ class SecurityBoundary:
         route = next((r for r in self.router.routes if r.matches(scope)[0] == Match.FULL), None)
         route_path = getattr(route, "path", "")
         permission = POLICY.get((method, route_path), "deny")
-        if (method, route_path) == ("POST", "/api/auth/login"):
+        online_mutation = method not in SAFE and route_path.startswith("/api/online/")
+        if (method == "POST" and route_path.startswith("/api/auth/")) or online_mutation:
+            size_error = (
+                "Online request too large" if online_mutation else "Login request too large"
+            )
             try:
                 length = int(request.headers.get("content-length", "0"))
             except ValueError:
                 length = 8193
             if not 0 <= length <= 8192:
-                return await JSONResponse({"detail": "Login request too large"}, 413)(
-                    scope, receive, send
-                )
+                return await JSONResponse({"detail": size_error}, 413)(scope, receive, send)
             original_receive, received = receive, 0
 
             async def bounded_login_receive():
@@ -407,7 +470,7 @@ class SecurityBoundary:
                 message = await original_receive()
                 received += len(message.get("body", b""))
                 if received > 8192:
-                    raise HTTPException(413, "Login request too large")
+                    raise HTTPException(413, size_error)
                 return message
 
             receive = bounded_login_receive
@@ -415,7 +478,14 @@ class SecurityBoundary:
         shell = method == "GET" and (
             (
                 route_path == "/{path:path}"
-                and path in {"/", "/login", "/index.html", "/favicon.svg"}
+                and path
+                in {
+                    "/",
+                    "/login",
+                    "/index.html",
+                    "/favicon.svg",
+                    *ACCOUNT_PAGES,
+                }
             )
             or (route_path == "/assets" and path.startswith("/assets/"))
         )
@@ -444,7 +514,12 @@ class SecurityBoundary:
                 response = (
                     JSONResponse({"detail": "Authentication required"}, 401)
                     if path.startswith("/api")
-                    else RedirectResponse("/login?next=" + quote(path, safe=""))
+                    else RedirectResponse(
+                        "/login?next="
+                        + quote(
+                            path + ("?" + request.url.query if request.url.query else ""), safe=""
+                        )
+                    )
                 )
                 return await response(scope, receive, send)
             if not allowed(account, permission):
@@ -473,8 +548,18 @@ class SecurityBoundary:
                 return await JSONResponse(
                     {"detail": "Login requires JSON and a same-origin Origin header"}, 403
                 )(scope, receive, send)
+            if online_mutation and (
+                not origin
+                or request.headers.get("content-type", "").split(";")[0] != "application/json"
+            ):
+                return await JSONResponse(
+                    {"detail": "Online actions require JSON and a same-origin Origin header"}, 403
+                )(scope, receive, send)
 
         context = principal.set(account)
+        session_context = session_identity.set(
+            digest(request.cookies.get(COOKIE, "")) if account else None
+        )
         gate = None
         try:
             if method not in SAFE:
@@ -485,11 +570,22 @@ class SecurityBoundary:
                     return await JSONResponse(
                         {"detail": "Deployment in progress. Please retry shortly."}, 503
                     )(scope, receive, send)
+            if method == "POST" and route_path in ACCOUNT_ACTIONS and self.auth.account_requests:
+                try:
+                    self.auth.account_requests(
+                        ACCOUNT_ACTIONS[route_path],
+                        request.client.host if request.client else "unknown",
+                    )
+                except HTTPException as error:
+                    return await JSONResponse({"detail": error.detail}, error.status_code)(
+                        scope, receive, send
+                    )
             await self.app(scope, receive, send)
         finally:
             if gate is not None:
                 gate.close()
             principal.reset(context)
+            session_identity.reset(session_context)
 
 
 class LoginRequest(BaseModel):
@@ -504,9 +600,18 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
-        if request.url.path == "/api/auth/login":
+        if request.url.path.startswith(("/api/auth/", "/api/online/")):
             # Pydantic's default errors include raw inputs, potentially passwords.
-            return JSONResponse({"detail": "Invalid login request."}, 422)
+            return JSONResponse(
+                {
+                    "detail": "Invalid login request."
+                    if request.url.path == "/api/auth/login"
+                    else "Invalid online request."
+                    if request.url.path.startswith("/api/online/")
+                    else "Invalid account request."
+                },
+                422,
+            )
         return await request_validation_exception_handler(request, error)
 
     @app.post("/api/auth/login")
@@ -541,10 +646,6 @@ def attach_auth(app, store):
             COOKIE, path="/", secure=auth.settings.production, httponly=True, samesite="lax"
         )
         return {"logged_out": True}
-
-    @app.get("/api/auth/registration")
-    def registration():
-        return {"message": "Registration is not available yet."}
 
     app.add_middleware(SecurityBoundary, router=app.router, auth=auth)
     return auth

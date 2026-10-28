@@ -36,6 +36,8 @@ class AnalysisService:
         role: str,
         agent: dict,
         settings: dict,
+        *,
+        state=None,
     ) -> tuple:
         revision = settings["revision"] if role == "advisor" else None
         key = (game["id"], snapshot["position_key"], role, revision)
@@ -63,7 +65,7 @@ class AnalysisService:
                         and previous_key != key
                     ):
                         task.cancel()
-            task = self.executor.submit(self._run, game, snapshot, role, agent, settings)
+            task = self.executor.submit(self._run, game, snapshot, role, agent, settings, state)
             self.tasks[key] = task
             task.add_done_callback(lambda finished: self._forget(key, finished))
         return key
@@ -75,11 +77,16 @@ class AnalysisService:
             if self.latest_advisor.get(key[0]) == key:
                 self.latest_advisor.pop(key[0], None)
 
-    def _run(self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict):
+    def _run(self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, state=None):
         revision = settings["revision"] if role == "advisor" else None
 
         def check() -> None:
-            if self.closed or self.store.get_game(game["id"]) is None:
+            if self.closed:
+                raise SupersededAnalysis()
+            if game.get("online"):
+                if not self.store.online_game_exists(game["id"]):
+                    raise SupersededAnalysis()
+            elif self.store.get_game(game["id"]) is None:
                 raise SupersededAnalysis()
             if revision is not None:
                 key = (game["id"], snapshot["position_key"], role, revision)
@@ -98,17 +105,19 @@ class AnalysisService:
                     entry,
                     advisor_revision=revision,
                     partial=True,
+                    online=bool(game.get("online")),
                 )
 
         try:
             check()
-            entry = self.evaluate(game, role, agent, settings, progress)
+            entry = self.evaluate(game, role, agent, settings, progress, state=state)
             check()
             self.store.save_analysis_entry(
                 game,
                 snapshot,
                 entry,
                 advisor_revision=revision,
+                online=bool(game.get("online")),
             )
         except (ConflictError, SupersededAnalysis):
             # Cancellation is expected: a late opinion must not revive a game,
@@ -127,7 +136,13 @@ class AnalysisService:
                 "unavailable_reason": "evaluation_failed",
             }
             try:
-                self.store.save_analysis_entry(game, snapshot, entry, advisor_revision=revision)
+                self.store.save_analysis_entry(
+                    game,
+                    snapshot,
+                    entry,
+                    advisor_revision=revision,
+                    online=bool(game.get("online")),
+                )
             except ConflictError:
                 pass
 

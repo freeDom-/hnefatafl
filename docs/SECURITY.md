@@ -9,7 +9,9 @@ hashes, roles, enabled status, creation/login timestamps and optional display na
 The default initial username is **Odin**; email and password are always supplied.
 Passwords require 12–256 characters with four distinct characters and use salted scrypt (N=32768, r=8, p=3,
 32 MiB memory). Python/OpenSSL implements hashing and constant-time comparison.
-There are no default passwords, remote bootstrap endpoints or public registration.
+There are no default passwords or remote bootstrap endpoints. Public registration
+is configurable and disabled by default; [verification/recovery operations](REGISTRATION.md)
+document SMTP, token, quota, migration and deployment requirements.
 
 From the OS account owning the data directory (root in production):
 
@@ -39,6 +41,10 @@ CSRF tokens are stored in SQLite. The cookie is Secure in production and host-on
 Passwords/session tokens are never written to browser storage; CSRF stays in memory.
 Identity or effective-permission changes remount protected UI state; logout also
 clears private game/setup preferences.
+Login rechecks the current password hash/status under the session-creation writer
+lock, so an old password checked concurrently with reset cannot grant a new
+session after reset commits. Public login, signup and reset share a durable global
+password-work budget in addition to route/IP/identity protections.
 `GET /api/auth/me` restores the account/CSRF token after a reload. Authentication
 requires no signing key: entropy is generated with Python `secrets`, while the
 protected database is the shared persistent session authority.
@@ -79,18 +85,60 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators
-explicitly have global data access. Users can play all existing modes, configure
-bounded inference opponents/advisors, delete their own games/local profiles, and
-select existing models. The ordinary model catalog exposes only ID/name/ruleset/rune;
+explicitly have global data access. New account game creation binds the human
+seat to the current account and resolves one of four server presets. Only a trusted
+current administrator can create/restart AI vs AI; pass-and-play, arbitrary identity,
+raw configurations, seeds and neural opponents are rejected in this creation API.
+Identity/session/role are rechecked inside the creation transaction. Historical
+setups remain read/play compatible, with no restart creation bypass. Local-player
+CRUD routes are removed (unknown routes remain default-denied); historical storage
+is retained. Owned deletion, bounded advisors and authorized training/tournaments
+remain available independently. The ordinary model catalog exposes only ID/name/ruleset/rune;
 paths, training summaries, checkpoints, renames/imports/exports/deletion are admin-only.
 
-Schema 8 adds accounts, sessions, login attempts, bootstrap metadata, nullable
+Schema 8 introduced accounts, sessions, login attempts, bootstrap metadata, nullable
 game/player ownership and a future account-participation relation. Existing game
 JSON, players, runes, statistics, jobs, tournaments and checkpoints remain intact.
 Historical NULL-owned records are administrator-only and are never assigned to
 Odin or given invented passwords. Local humans and AI identities are separate
 from login accounts. Future online participation needs explicit enrollment and
 authorization; the reserved relation does not confer access today.
+Schema 9 adds unknown/unverified legacy email state, version/address-bound token
+digests, leased mail intents and limiter state. IDs, ownership and existing sessions
+survive forward migration; safe rollback has an explicit account-schema boundary.
+
+Schema 11 adds independent [online match/game/result/gate records](ONLINE.md) and
+the [versioned rating pool](RATINGS.md).
+Create/join require active, verified accounts, including administrators; an admitted
+seat retains play after verification changes with an active account/current session.
+Online mutations reload the session, role/status and participants inside their
+SQLite write transaction, after middleware checks. Admin privilege cannot take a
+turn or obtain running-game assistance. All online mutations also require matching
+Origin, JSON, CSRF, strict bodies and bounded size. Dedicated projections omit
+account/security metadata and private administrative notes; local-game analysis,
+AI and shared-cursor/export adapters reject online IDs for all roles.
+Timeout controls are persisted, administrator-restricted and audited, with production
+finalization disabled until an approved outage procedure and explicit gate resume.
+Compatible recovery retains live online authority and pauses the gate; incompatible
+online schema rollback is refused before root replacement.
+
+Authenticated online creation is additionally bounded per account: five waiting
+lobbies and ten new matches per rolling fifteen minutes by default, without an
+administrator exemption. Limits serialize with creation and survive cancellation,
+restart and compatible recovery. Quota denials use fixed-size persistent counters
+and sanitized, rate-limited logs; aggregate monitoring requires administrator
+permission and exposes no account/security identifiers. See
+[creation quotas and monitoring](ONLINE.md#creation-quotas-and-monitoring).
+
+Personal dashboard routes under `/api/personal` are authenticated GET-only `play`
+grants. Account listings/replay require exact ownership, online listings/detail/
+replay require participation (including creator/admitted match opponent), and
+administrators have the same personal scope. Known-game spectator routes and
+legacy administrator Hall access keep their existing behavior. Summary projections
+omit private configuration, security fields and correction notes. Account-keyed UI,
+abort cleanup and session epochs prevent stale account responses entering the next
+account. See the
+[personal API contract](designs/personal-dashboard-phase5.md#api-contract).
 
 ## Coverage and explicit exceptions
 
@@ -102,8 +150,12 @@ Run `.venv/bin/python scripts/audit_api.py` to check the generated inventory;
 after reviewing new permissions, regenerate with `--write`. Persistence flags
 conservatively include GET routes that can reserve identity runes or reconcile jobs.
 
-Only login, the registration-unavailable message, minimal database readiness,
-the login shell and compiled `/assets/` files are public. The build directory is
+Login, registration availability, the five declared registration/verification/reset
+POST routes, minimal database readiness, the login shell and compiled `/assets/`
+files are public. Mutating public routes require same-origin JSON and bounded
+request bodies; signup cannot assign roles or verification and creates no session.
+Token pages require explicit POST confirmation and exclude tokens from URL request
+paths through fragment transport. The build directory is
 the only static root. API schema/interactive docs are disabled. Page requests for
 training/tournaments also require their permissions. Unknown API paths fail closed;
 slash variants and unsupported methods do not grant access. No SSE or WebSocket
@@ -132,5 +184,22 @@ limits. Permitted users can consume inference resources; multi-tenant scheduling
 and per-user compute quotas remain future work. SQLite and the OS account are
 trusted; root/data-owner access can change accounts directly. TLS, network
 restriction to the application port, patched dependencies and off-host backups
-remain operator responsibilities. MFA, email verification and password-recovery
-email are not implemented. These are tested controls, not a claim of immunity.
+remain operator responsibilities. MFA is not implemented. SMTP/provider delivery,
+privacy/retention and operational recovery policy require owner validation before
+enabling signup. These are tested controls, not a claim of immunity.
+
+Browser-local guest play is removed. `/`, `/login`, the registration/verification/
+reset shells and the immutable build assets are the public documents; every other
+page, including an anonymous `GET /guest`, goes through the authenticated shell and
+redirects to `/login?next=%2Fguest`. All documents and APIs
+share one strict content-security policy; no route receives `wasm-unsafe-eval`.
+
+The Phase 5 history refinement adds read-only `/api/history/games` and
+`/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits
+administrator-wide server history filters/review. Normal users remain scoped to
+online participation; account categories/name filters are denied and unauthorized
+object lookups return 404. Dashboard always adds own-account and completed eligible
+scope before its three-row limit, including administrators. List/count/category
+statistics and direct canonical review recheck current sessions in read transactions.
+No history route adds mutation, exports, assistance or public access. See
+[Dashboard](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).

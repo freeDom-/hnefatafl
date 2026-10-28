@@ -9,6 +9,134 @@ and [Validation](docs/VALIDATION.md). This checklist is not a current user manua
 Releases are created only after the corresponding implementation and validation.
 See GitHub Releases and `docs/releases/` for exact evidence and limitations.
 
+## Online milestone phases (unreleased)
+
+Phase work integrates into `feat/online-multiplayer`, not main. Phase 0 PR #6 was
+reviewed/merged there before the Phase 1 implementation branch was created.
+Phase 1 adds disabled-by-default public signup, explicit email verification,
+password recovery, schema-9 preflight/migration, leased SMTP delivery, durable
+abuse budgets and English/German account forms. It does not activate multiplayer
+or execute a production migration/deployment. Current checks, remaining operator
+choices and limitations are recorded in the
+[Phase 1 handoff](docs/validation/account-registration-phase1.md) and
+[registration operations guide](docs/REGISTRATION.md); these are not release claims.
+
+Phase 1 PR #9 was merged before Phase 2 branched from the integration tip.
+Phase 2 adds the authenticated durable online core, schema 10, SQLite seat/move/
+deadline/result transactions, derived abandonment accounting, audited voids and a
+persistent paused timeout gate. Owner-approved refinements add random sides at join
+and simultaneous/sequential two-game matches with swapped sides. Existing-seat
+play survives later verification changes while account/session eligibility remains.
+Create/join defaults off; production timeout policy, rated/public-lobby decisions
+remain gated. No lobby frontend or deployment is part of the phase. See
+[operations](docs/ONLINE.md), [validation](docs/validation/online-phase2.md) and
+[Phase 3 handoff](docs/designs/online-phase3-handoff.md).
+
+The Phase 2 creation-abuse follow-up adds transactionally enforced per-account
+waiting/rolling creation limits, persistent bounded denial telemetry, sanitized
+rate-limited logs and administrator-only database-growth monitoring. It retains
+creation budgets through cancellation/restart and compatible schema-10 restore.
+
+Phase 2 PR #12 was merged before Phase 3 branched from the integration tip.
+Phase 3 adds the authenticated lobby and playable online board, all match modes,
+frozen creation-request recovery, conflict/reconnect polling, effective results and
+read-only local replay. A narrow authenticated availability projection supplies
+backend admission eligibility without blocking existing seats. No lifecycle/schema/
+timeout policy or production setting changed. See [online play](docs/ONLINE_PLAY.md),
+[Phase 3 evidence](docs/validation/online-phase3.md) and the
+[Phase 4 handoff](docs/designs/online-phase4-handoff.md).
+Validation: local `make check` passed 1413 backend tests with 36 optional/hardware
+skips and all 269 frontend tests. Final real-backend online browsers passed 10
+checks and registration passed 6. All-extras CI passed 1443 backend tests with 6
+hardware skips, 269 frontend tests, 66 legacy browser checks with 4 intentional
+skips, plus all registration/online checks. This is integration evidence, not a
+release or production rollout.
+
+Phase 3 PR #13 was merged before Phase 4 branched. The owner approved the Phase 0
+single-slot policy explicitly. Phase 4 separated public browser-local guest play
+from preserved account single-player and server-authoritative Online: the Python
+engine/AI ran through pinned Pyodide, only a bounded move envelope was saved,
+restores went through validated replay, and replacement/clear required confirmation.
+It added no archive/upload, competitive/training accounting, service worker or full
+offline startup. Existing account keys/history and online authorization stayed
+independent. That browser surface and its worker were later removed entirely; the
+evidence remains in [Phase 4 validation](docs/validation/online-phase4.md) and the
+[Phase 5 handoff](docs/designs/online-phase5-handoff.md).
+Local `make check` passed 1440 backend tests / 36 optional or hardware skips and
+305 frontend tests. The final production-CSP startup/account-separation rerun
+passed 4 checks; CI passed the complete account/registration/online suites. Exact commit-scoped counts and the observed
+local asset-transfer stall are retained in the validation record.
+
+Phase 4 PR #15 has merged into `feat/online-multiplayer`; Phase 5 was rebased onto
+its integration merge before combined verification. The private authenticated
+personal dashboard separates owned account single-player and participant online
+records, adds bounded server filters/keyset pages and read-only viewer-local
+replay, and keeps category totals independent. Current eligible online revisions
+supply per-game W/L/D/timeout counts; cancellations/voids do not count. Five scoped
+GET grants add no migration, uploads, online assistance, public history
+or rating policy. Legacy Hall/spectator permissions remained unchanged. See
+[dashboard use](docs/DASHBOARD.md),
+[Phase 5 validation](docs/validation/online-phase5.md) and the
+[Phase 6 policy handoff](docs/designs/online-phase6-handoff.md).
+Functional CI passed 1491 backend tests / 6 hardware skips, 312 frontend tests,
+66 legacy browsers / 4 intentional duplicate skips, and all 6 registration,
+10 online and 10 personal browser checks. Local `make check` hit one
+existing 60-second training smoke deadline (1460 passed / 36 optional/hardware
+skips); the evidence records its isolated recheck and separately completed frontend
+validation without claiming a green local aggregate run.
+
+Phase 6 adds the approved rated-game and leaderboard basics on top of Phase 5.
+Schema 11 adds a versioned Elo pool (initial 1500, K = 32, provisional until 10
+eligible rated games) per ruleset. Rated creation is explicit and immutable
+(default Casual); only verified human-vs-human online games are eligible, each
+match leg is rated independently, and concessions/finalized timeouts count while
+cancellations/voids do not. Result revision, rating event, per-player application
+and running ratings commit in one writer transaction; voids withdraw the event and
+deterministically rebuild the pool in stable sequence order. The authenticated
+leaderboard uses display names, and the Dashboard placeholder is replaced by a
+compact leaderboard with a full `/leaderboard` view. No historical backfill, decay,
+rewards, aggregate match score, public leaderboard or production activation is
+included. See [Rated games](docs/RATINGS.md) and the
+[Phase 6 validation](docs/validation/online-phase6.md).
+
+The Phase 6 UI refinement reuses the single-player game layout for online play
+(no assistance, version labels, manual refresh or back button; remaining time in
+the game details; a compact active-game switcher), adds All games/My games/My turn
+lobby tabs that exclude terminal games, groups online statistics by ruleset with
+the account's Elo in each heading, excludes AI-vs-AI account games from personal
+history and statistics, and unifies the leaderboard into one Elo-ordered list with
+deterministic ties. See
+[refinement validation](docs/validation/phase6-ui-refinements.md).
+
+A follow-up refinement makes every newly created online game rated (explicit
+unrated requests are rejected; historical casual games are untouched), captures
+immutable per-player start-Elo snapshots at activation, shows start ratings and
+the winner's effective positive Elo delta in the shared records table, reuses the
+duration formatter for configured time per move, adds a single-player heading and
+viewport-fitted desktop play, extends the active-game switcher across single-player
+and online games, persists the leaderboard ruleset preference (default Copenhagen),
+and enables the existing post-game analytics for completed online games only. See
+[refinement validation](docs/validation/phase6-ui-refinements.md#follow-up-refinement).
+
+The integration branch was then rebased onto `main` (`0.31.0`) with the Phase 6 pull
+requests #23 and #24 replayed on top, so the Phase 6 baselines recorded above
+(`0702ea9`, `41052bf`, `d373005`) are pre-rebase merges rather than ancestors of the
+branch. The two conflicts kept main's newer behavior: the training job tab strip uses
+the shared `Tabs` component while the parent still owns the active tab, and the play
+page keeps the shared `play-page` wrapper, `ActiveGameSwitcher` and the shared
+notification channel instead of the per-page error banner removed in `0.30.0`. The
+shared integration branch was force-pushed after that reconciliation; the pre-rebase
+tips remain in the local `backup/online-multiplayer-*` branches.
+
+Combining main's alpha-beta work with the browser guest runtime needed one repair:
+the newer `hnefatafl/ai.py` imports `hnefatafl.symmetry` at load time, while the
+pinned Pyodide package shipped only `__init__.py`, `engine.py`, `ai.py` and
+`guest.py`. The worker therefore failed to start and every guest browser check
+reported the engine as unavailable, with unit, API and packaging tests all green.
+`scripts/prepare_guest.py` and the worker now also ship `symmetry.py`, and
+`tests/test_guest_package.py` asserts that the packaged modules cover the engine's
+module-level relative imports.
+
 - [x] Foundation: architecture, locked dependencies and development tools (`v0.1.0`)
 - [x] Engine: Tablut, Brandubh and Copenhagen, 61 variant-specific tests and documentation (`v0.2.0`)
 - [x] Playable application: responsive local play, authoritative API and persistence (`v0.4.0`)
@@ -565,3 +693,15 @@ passed in isolation and in the clean rerun. The full browser suite passed 72
 desktop/mobile Chromium checks with four intentional mobile duplicates skipped.
 No storage, checkpoint or protocol migration is required; CUDA, MPS and
 OpenVINO GPU were not exercised. See the [0.31.0 release record](docs/releases/0.31.0.md).
+## Phase 5 Dashboard/navigation/history refinement (unreleased)
+
+Owner-authorized refinement remains on `feat/phase5-personal-dashboard`, PR #17 to
+`feat/online-multiplayer`. Dashboard becomes default and reuses account setup/online
+lobby. Shared compact history rows link to independently selected read-only Hall
+reviews. Normal Hall scope is participating online; trusted administrators can
+filter all server records while Dashboard stays personal. Local players UI is
+removed without deleting profiles/history. Online gates, quotas, results and
+analysis denial remained unchanged.
+Leaderboard is an upcoming placeholder with no approved rating policy. See
+[refinement evidence](docs/validation/dashboard-consolidation.md) for actual checks.
+No version, release, schema, production gates, merge or deployment changed.

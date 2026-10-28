@@ -7,6 +7,8 @@ Commands assume the repository root unless a different directory is shown.
 ## Getting started and gameplay
 
 - [Repository introduction and quick start](../README.md)
+- [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
+- [Personal dashboard and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
 - [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
 
@@ -18,6 +20,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Tournaments and statistics
 
+- [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
 
@@ -46,6 +49,7 @@ Commands assume the repository root unless a different directory is shown.
 ## Installation, deployment, security and backups
 
 - [Accounts, sessions, CSRF and API permissions](SECURITY.md)
+- [Registration, verification, password recovery and SMTP operations](REGISTRATION.md)
 - [Local production/development, Linux/LXC, systemd, reverse proxy, upgrades and rollback](DEPLOYMENT.md)
 - [Backup and relocation safeguards](TRAINING_DATA.md#consistent-backup-and-restoration)
 
@@ -57,6 +61,27 @@ Commands assume the repository root unless a different directory is shown.
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
+
+## Online foundations and offline feasibility
+
+- [Post-Phase 5 statistics and review refinement validation](validation/post-phase5-refinements.md)
+- [Dashboard consolidation refinement validation](validation/dashboard-consolidation.md)
+- [Phase 5 validation](validation/online-phase5.md)
+- [Phase 6 handoff and rating policy decisions](designs/online-phase6-handoff.md)
+- [Phase 5 personal dashboard contract and dependency](designs/personal-dashboard-phase5.md)
+- [Durable online game core, match modes, timeout controls and schema-10 recovery](ONLINE.md)
+- [Phase 2 implementation checklist and validation](validation/online-phase2.md)
+- [Phase 3 backend/API/reconnect contract](designs/online-phase3-handoff.md)
+- [Phase 3 UI validation](validation/online-phase3.md)
+- [Phase 4 incoming handoff](designs/online-phase4-handoff.md)
+- [Phase 4 guest separation evidence](validation/online-phase4.md)
+- [Phase 5 handoff and pending rollout decisions](designs/online-phase5-handoff.md)
+- [Phase 0 source-backed architecture assessment](designs/online-phase0-assessment.md)
+- [Lifecycle, deadlines, results, permissions and pending policy decisions](designs/online-phase0.md)
+- [Phase 1 registration implementation brief](designs/registration-phase1.md)
+- [Executable browser-offline spike](../spikes/browser_offline/README.md)
+- [Phase 0 validation evidence and handoff](validation/online-phase0.md)
+- [Phase 1 registration validation and integration handoff](validation/account-registration-phase1.md)
 
 ## Rulesets, release history and historical requirements
 

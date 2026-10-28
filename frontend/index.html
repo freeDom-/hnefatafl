@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <meta name="referrer" content="no-referrer" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#173d37" />
@@ -8,27 +9,7 @@
       name="description"
       content="The ancient game of strategy. Play Hnefatafl, explore three historic variants, and train your own Viking AI."
     />
-    <script>
-      // Apply the saved/device color mode before the first painted frame.
-      try {
-        const saved = JSON.parse(localStorage.getItem('hnefatafl-appearance') || 'null');
-        const mode =
-          saved && ['light', 'dark', 'wood', 'system'].includes(saved.mode) ? saved.mode : 'system';
-        const dark =
-          mode === 'dark' ||
-          mode === 'wood' ||
-          (mode === 'system' &&
-            window.matchMedia &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.dataset.colorMode =
-          mode === 'wood' ? 'wood' : dark ? 'dark' : 'light';
-        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-      } catch {
-        const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.dataset.colorMode = dark ? 'dark' : 'light';
-        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-      }
-    </script>
+    <script src="/assets/appearance-init.js"></script>
     <title>Hnefatafl · The king's table</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>

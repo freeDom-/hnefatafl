@@ -1,0 +1,270 @@
+.personal-dashboard,
+.hall-page {
+  max-width: 1320px;
+  margin: var(--gap-stack) auto;
+}
+.dashboard-actions,
+.section-heading {
+  display: flex;
+  gap: var(--gap-stack);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--gap-stack);
+}
+.section-heading {
+  justify-content: space-between;
+}
+.section-heading h2 {
+  margin: 0;
+}
+.dashboard-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-stack);
+}
+.personal-section,
+.dashboard-recent,
+.leaderboard-compact,
+.dashboard-lobby,
+.recorded-review {
+  min-width: 0;
+  padding: var(--pad-panel);
+}
+.personal-section h2,
+.leaderboard-compact h2 {
+  margin-top: 0;
+}
+.personal-section .disclosure-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.personal-section .disclosure-heading::before {
+  /* Empty alternative text keeps the marker out of the accessible heading name. */
+  content: '−' / '';
+  color: var(--gold);
+  font-size: 0.9em;
+}
+.personal-section .disclosure-heading[aria-expanded='false']::before {
+  content: '＋' / '';
+}
+.leaderboard-compact {
+  align-self: start;
+}
+.personal-statistics {
+  display: grid;
+  gap: var(--gap-stack);
+}
+.statistics-ruleset {
+  display: grid;
+  gap: var(--gap-inline);
+}
+.statistics-ruleset > h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.statistics-group {
+  border-top: 1px solid var(--line);
+  padding-top: var(--pad-panel-sm);
+}
+.statistics-group > h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.statistics-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: var(--gap-inline) var(--gap-stack);
+  margin: 0;
+}
+.statistics-metrics > div {
+  min-width: 0;
+}
+.statistics-metrics dt {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.statistics-metrics dd {
+  margin: 0.1rem 0 0;
+  font-size: 1rem;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+.personal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-stack);
+  margin-block: var(--gap-stack);
+}
+.personal-filters label {
+  display: grid;
+  gap: 0.35rem;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.personal-filters select,
+.personal-filters input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+.recorded-games-table {
+  width: 100%;
+  overflow-x: auto;
+}
+.recorded-games {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: var(--gap-stack);
+  font-size: 0.9rem;
+}
+.recorded-games tbody tr {
+  position: relative;
+}
+.recorded-games tbody tr:hover,
+.recorded-games tbody tr:focus-within,
+.recorded-games tbody tr.selected {
+  background: var(--surface);
+  cursor: pointer;
+}
+.recorded-games tbody tr:focus-within,
+.recorded-games tbody tr.selected {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+.recorded-games th,
+.recorded-games td {
+  text-align: left;
+  padding: var(--pad-row);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.recorded-games th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.recorded-games a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: inherit;
+  text-decoration: none;
+}
+.recorded-games .winner-delta {
+  color: #2f7d32;
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-left: 0.35rem;
+}
+/* One link per row; its overlay makes the whole row clickable without adding
+   duplicate links or changing the accessibility tree. The selected/focused row
+   itself carries the highlight, so the date link has no separate focus ring. */
+.recorded-games tbody td a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.recorded-games a:focus-visible {
+  outline: none;
+}
+.recorded-games time {
+  font-size: 0.8rem;
+}
+.dashboard-recent {
+  grid-column: 1 / -1;
+}
+.hall-totals {
+  font-size: 0.9rem;
+  margin-block: var(--gap-stack);
+}
+.personal-review-board {
+  max-width: 650px;
+  margin: var(--gap-stack) 0;
+}
+.personal-review-board .board-with-labels {
+  margin-left: 0;
+}
+.recorded-review {
+  margin-top: var(--gap-card);
+  overflow-wrap: anywhere;
+}
+.personal-dashboard .online-lobby-layout.lobby-discovery {
+  grid-template-columns: minmax(0, 1fr);
+}
+.personal-dashboard .online-cards {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.personal-dashboard .online-card {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.65fr) minmax(0, 1fr) minmax(130px, 0.6fr) auto;
+  gap: var(--gap-inline) var(--gap-stack);
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: var(--pad-panel-sm);
+}
+.personal-dashboard .online-card h3,
+.personal-dashboard .online-card p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.personal-dashboard .online-card h3 {
+  grid-column: 1;
+  grid-row: 1;
+}
+.personal-dashboard .online-card p:nth-of-type(1) {
+  grid-column: 1;
+  grid-row: 2;
+}
+.personal-dashboard .online-card p:nth-of-type(2) {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+.personal-dashboard .online-card p:nth-of-type(3) {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+.personal-dashboard .online-card button {
+  grid-column: 4;
+  grid-row: 1 / 3;
+  min-height: 44px;
+}
+@media (max-width: 800px) {
+  .dashboard-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .personal-dashboard .online-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .personal-dashboard .online-card button {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .personal-dashboard .online-card p:nth-of-type(n) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+.dashboard-lobby > h2 {
+  margin-top: 0;
+}
+.dashboard-lobby .online-lobby-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.move-duration .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}

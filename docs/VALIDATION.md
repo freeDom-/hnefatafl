@@ -2,6 +2,19 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Online milestone integration (unreleased)
+
+The [Dashboard consolidation refinement](validation/dashboard-consolidation.md)
+records the current Phase 5 landing/navigation, role-scoped compact Hall and shared
+review checks, plus shared authentication layout, account-bound
+preset creation and online lobby/dialog polish. It includes full CI results and
+the separate local check failures and timeouts. The refinement remains on PR #17
+by explicit owner instruction.
+
+[Phase 5 evidence](validation/online-phase5.md) records the personal dashboard,
+scoped history/review, result revision totals and preserved account/online
+boundaries. It is separate from release and production rollout validation.
+
 ## Alpha-beta search optimization (Phase 4)
 
 The dedicated `tests/test_alpha_beta_search.py` module covers transposition-table
@@ -517,3 +530,7 @@ must restart after a cloud snapshot is restored.
 
 The current FastAPI/Starlette test client emits a dependency deprecation warning;
 the tested requests execute and pass. It does not skip or replace API tests.
+
+The removed browser-local guest surface keeps its separation evidence in
+[Phase 4 validation](validation/online-phase4.md), including production-CSP Chromium,
+real IndexedDB and account/online boundaries.

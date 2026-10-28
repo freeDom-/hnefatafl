@@ -1,5 +1,6 @@
 """Registered neural wrappers survive API normalization and real worker execution."""
 
+from record_fixtures import historical_response
 import time
 
 import pytest
@@ -37,8 +38,8 @@ def test_registered_wrappers_drive_seeded_gameplay_and_position_analysis(client_
     client, model = client_and_model
     selected_moves = []
     for _ in range(2):
-        response = client.post(
-            "/api/games",
+        response = historical_response(
+            client,
             json={
                 "ruleset": "brandubh",
                 "mode": "human-ai",
@@ -47,7 +48,7 @@ def test_registered_wrappers_drive_seeded_gameplay_and_position_analysis(client_
                 "players": {"attackers": opponent(model, wrapper)},
             },
         )
-        assert response.status_code == 201, response.text
+        assert response.status_code == 200, response.text
         game = response.json()
         config = game["players"]["attackers"]["config"]
         assert config.get("search_wrapper", "mcts") == (wrapper or "mcts")
@@ -105,35 +106,24 @@ def test_tournament_worker_executes_all_neural_wrappers(client_and_model):
 @pytest.mark.parametrize("wrapper", ["invalid", None, True, [], {}])
 def test_wrapper_validation_rejects_invalid_values(client_and_model, wrapper):
     client, model = client_and_model
+    game = client.post("/api/games", json={"ruleset": "brandubh"}).json()
     player = opponent(model, "mcts")
     player["config"]["search_wrapper"] = wrapper
-    response = client.post(
-        "/api/games",
-        json={"mode": "human-ai", "players": {"attackers": player}},
-    )
+    response = client.put(f"/api/games/{game['id']}/analytics", json={"advisor": player})
     assert response.status_code == 400, response.text
     assert "Search wrapper" in response.json()["detail"]
 
 
 def test_wrappers_require_a_compatible_registered_neural_model(client_and_model):
     client, model = client_and_model
+    game = client.post("/api/games", json={"ruleset": "tablut"}).json()
     for wrapper in ("mcts", "alpha_beta", "none"):
-        incompatible = client.post(
-            "/api/games",
-            json={
-                "ruleset": "tablut",
-                "mode": "human-ai",
-                "players": {"attackers": opponent(model, wrapper)},
-            },
+        incompatible = client.put(
+            f"/api/games/{game['id']}/analytics", json={"advisor": opponent(model, wrapper)}
         )
         assert incompatible.status_code == 400, incompatible.text
-    non_neural = client.post(
-        "/api/games",
-        json={
-            "mode": "human-ai",
-            "players": {
-                "attackers": {"config": {"algorithm": "baseline", "search_wrapper": "none"}}
-            },
-        },
+    non_neural = client.put(
+        f"/api/games/{game['id']}/analytics",
+        json={"advisor": {"config": {"algorithm": "baseline", "search_wrapper": "none"}}},
     )
     assert non_neural.status_code == 400, non_neural.text

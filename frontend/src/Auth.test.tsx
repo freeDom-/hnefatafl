@@ -46,12 +46,16 @@ describe('authenticated application boundary', () => {
       );
     });
     expect(await screen.findByText('Cached profile First')).toBeVisible();
+    sessionStorage.setItem('hnefatafl-online-intent', 'first-account-request');
+    // Another tab already wrote the shared cache before this tab refreshes.
+    localStorage.setItem('hnefatafl-account-cache', 'Second');
     name = 'Second';
     await act(async () => {
       fireEvent(window, new Event('focus'));
     });
     expect(await screen.findByText('Cached profile Second')).toBeVisible();
     expect(screen.queryByText('Cached profile First')).toBeNull();
+    expect(sessionStorage.getItem('hnefatafl-online-intent')).toBeNull();
   });
   it('restores sessions, clears protected state on logout, and keeps registration unavailable', async () => {
     const fetcher = vi.fn((path: string) =>
@@ -67,11 +71,14 @@ describe('authenticated application boundary', () => {
     );
     expect(await screen.findByText('Protected gameplay for Odin')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();
     expect(screen.queryByText('Protected gameplay for Odin')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sign up / Register' })).toBeEnabled(),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Sign up / Register' }));
     expect(screen.getByRole('status')).toHaveTextContent('Registration is not available yet.');
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it('requires login before mounting gameplay and keeps passwords out of storage', async () => {
     const fetcher = vi.fn((path: string) =>
@@ -85,7 +92,7 @@ describe('authenticated application boundary', () => {
         <Protected />
       </Auth>,
     );
-    await screen.findByRole('heading', { name: 'Log in' });
+    await screen.findByRole('heading', { name: 'HNEFATAFL' });
     expect(screen.queryByText(/Protected gameplay/)).toBeNull();
     fireEvent.change(screen.getByLabelText('Username or email'), { target: { value: 'Raven' } });
     const password = screen.getByLabelText('Password');
@@ -95,4 +102,53 @@ describe('authenticated application boundary', () => {
     await waitFor(() => expect(screen.getByText('Protected gameplay for Raven')).toBeVisible());
     expect(JSON.stringify(localStorage)).not.toContain('never-store-this-password');
   });
+});
+
+it('does not restore an old session response after logout and clears the retained online intent immediately', async () => {
+  const first = {
+    account: { id: 'first', username: 'First', permissions: ['play'] },
+    csrf_token: 'csrf',
+  };
+  let finishRefresh!: (response: Response) => void;
+  let finishLogout!: (response: Response) => void;
+  let reads = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => {
+      if (path === '/api/auth/me') {
+        reads++;
+        return reads === 1
+          ? response(first)
+          : new Promise<Response>((resolve) => {
+              finishRefresh = resolve;
+            });
+      }
+      if (path === '/api/auth/logout')
+        return new Promise<Response>((resolve) => {
+          finishLogout = resolve;
+        });
+      return response({ enabled: false });
+    }),
+  );
+  await act(async () => {
+    render(
+      <Auth>
+        <Protected />
+      </Auth>,
+    );
+  });
+  sessionStorage.setItem('hnefatafl-online-intent', 'protected-request');
+  act(() => {
+    fireEvent(window, new Event('focus'));
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+  await screen.findByText('Logging out…');
+  expect(sessionStorage.getItem('hnefatafl-online-intent')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Log in' })).toBeNull();
+  await act(async () => {
+    finishRefresh(await response(first));
+    finishLogout(await response({ logged_out: true }));
+  });
+  await screen.findByRole('heading', { name: 'HNEFATAFL' });
+  expect(screen.queryByText('Protected gameplay for First')).toBeNull();
 });

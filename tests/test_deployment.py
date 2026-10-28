@@ -221,6 +221,174 @@ def test_backup_verification_corruption_and_preservation(deployment):
     assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
 
 
+def test_restore_preserves_live_verification_and_limits_but_revokes_tokens_and_mail(deployment):
+    identifier = deployment.admin["id"]
+    with deployment.store.connection() as c:
+        c.execute(
+            "INSERT INTO account_tokens VALUES(?,'reset','old-digest',1,'old-address-digest',1,9999999999,NULL)",
+            (identifier,),
+        )
+        c.execute(
+            "INSERT INTO account_mail(account_id,purpose,generation,email_version,address_hash,status,created_at,next_attempt) VALUES(?,'reset','old-generation',1,'old-address-digest','pending',1,1)",
+            (identifier,),
+        )
+    backup = deployment.snapshot()
+    with deployment.store.connection() as c:
+        c.execute("UPDATE accounts SET email_verified_at=12345 WHERE id=?", (identifier,))
+        c.execute("INSERT INTO account_limits VALUES('hashes',12345,99)")
+    deployment.restore(backup)
+    with deployment.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT email_verified_at FROM accounts WHERE id=?", (identifier,)
+            ).fetchone()[0]
+            == 12345
+        )
+        assert (
+            c.execute("SELECT attempts FROM account_limits WHERE key='hashes'").fetchone()[0] == 99
+        )
+        assert c.execute("SELECT COUNT(*) FROM account_tokens").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM account_mail").fetchone()[0] == 0
+
+
+def test_cross_account_schema_restore_refuses_to_replace_live_security(deployment):
+    import sqlite3
+
+    backup = deployment.snapshot()
+    live = deployment.data / "hnefatafl.sqlite3"
+    with sqlite3.connect(live) as c:
+        c.execute("ALTER TABLE accounts ADD COLUMN future_security_state TEXT")
+    with pytest.raises(ValueError, match="Account schema changed"):
+        deployment.restore(backup)
+    assert deployment.auth.account(deployment.admin["id"])["role"] == "ADMIN"
+
+
+def test_restore_retains_live_online_results_return_games_and_pauses_timeout_gate(deployment):
+    from datetime import datetime, timezone
+    from uuid import uuid4
+    import sqlite3
+
+    from hnefatafl.auth import digest
+    from hnefatafl.online_core import OnlineCore
+    from hnefatafl.online_settings import OnlineSettings
+
+    backup = deployment.snapshot()
+    other = deployment.auth.create_account(
+        "Raven", "raven@example.test", "online-deployment-password"
+    )
+    with deployment.store.connection() as c:
+        c.execute("UPDATE accounts SET email_verified_at=123")
+    _, first_token, _ = deployment.auth.login("Odin", "deployment-fixture-password", "first")
+    _, second_token, _ = deployment.auth.login("Raven", "online-deployment-password", "second")
+    core = OnlineCore(
+        deployment.auth,
+        OnlineSettings(enabled=True, timeout_policy_approved=True),
+        lambda: datetime.now(timezone.utc),
+    )
+    game = core.create(digest(first_token), "brandubh", "attackers", 60, uuid4().hex, "sequential")[
+        "game"
+    ]
+    core.mutate(digest(second_token), game["id"], 0, "join")
+    finished = core.mutate(digest(first_token), game["id"], 1, "concede")["game"]
+    core.set_gate(digest(first_token), 0, True, "Disposable approved outage fixture")
+    tables = (
+        "online_matches",
+        "online_games",
+        "online_moves",
+        "online_results",
+        "online_void_audit",
+    )
+    with deployment.store.connection() as c:
+        before = {
+            table: c.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in tables
+        }
+        before = {table: [tuple(row) for row in rows] for table, rows in before.items()}
+    deployment.auth.update_account(
+        deployment.admin["id"], password="new-online-deployment-password"
+    )
+    deployment.restore(backup)
+    assert deployment.auth.account(other["id"])["email_verified_at"] == 123
+    assert (
+        deployment.auth.session(first_token) is None
+        and deployment.auth.session(second_token) is None
+    )
+    with deployment.store.connection() as c:
+        after = {
+            table: [tuple(row) for row in c.execute(f"SELECT * FROM {table} ORDER BY 1")]
+            for table in tables
+        }
+        assert before == after
+        assert tuple(c.execute("SELECT enabled,version FROM online_timeout_gate").fetchone()) == (
+            0,
+            2,
+        )
+        assert (
+            c.execute(
+                "SELECT source FROM online_gate_audit ORDER BY version DESC LIMIT 1"
+            ).fetchone()[0]
+            == "restore"
+        )
+        assert c.execute("SELECT COUNT(*) FROM online_games").fetchone()[0] == 2
+        assert c.execute("SELECT COUNT(*) FROM online_results").fetchone()[0] == 1
+        for table in ("online_results", "online_gate_audit"):
+            with pytest.raises(sqlite3.IntegrityError):
+                c.execute(f"DELETE FROM {table}")
+    _, new_session, _ = deployment.auth.login(
+        "Odin", "new-online-deployment-password", "after-restore"
+    )
+    recovered = core.read(digest(new_session), game["id"])
+    assert recovered == finished
+
+
+def test_online_schema_downgrade_restore_refuses_live_root_replacement(deployment):
+    from hnefatafl.online_migrations import ONLINE_TABLES
+
+    with deployment.store.connection() as c:
+        for table in reversed(ONLINE_TABLES):
+            c.execute(f"DROP TABLE {table}")
+        c.execute("PRAGMA user_version=9")
+    backup = deployment.snapshot()
+    Store(deployment.store.path)
+    with pytest.raises(ValueError, match="Online schema changed"):
+        deployment.restore(backup)
+    with deployment.store.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
+
+
+def test_snapshot_only_recovery_also_revokes_sessions_and_audits_timeout_pause(deployment):
+    import sqlite3
+
+    _, token, _ = deployment.auth.login("Odin", "deployment-fixture-password", "snapshot")
+    with deployment.store.connection() as c:
+        c.execute("UPDATE online_timeout_gate SET enabled=1")
+    backup = deployment.snapshot()
+    deployment.store.path.unlink()
+    deployment.restore(backup)
+    assert deployment.auth.session(token) is None
+    with sqlite3.connect(deployment.store.path) as c:
+        assert c.execute("SELECT enabled FROM online_timeout_gate").fetchone()[0] == 0
+        assert (
+            c.execute(
+                "SELECT source FROM online_gate_audit ORDER BY version DESC LIMIT 1"
+            ).fetchone()[0]
+            == "restore"
+        )
+        assert c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
+
+
+def test_snapshot_without_database_cannot_replace_live_authority(deployment):
+    held = deployment.data.parent / "held-live.sqlite3"
+    deployment.store.path.rename(held)
+    backup = deployment.snapshot()
+    held.rename(deployment.store.path)
+    with pytest.raises(ValueError, match="Snapshot has no database"):
+        deployment.restore(backup)
+    assert deployment.auth.account(deployment.admin["id"])["active"] == 1
+    with deployment.store.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 12
+
+
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])
 def test_active_training_prevents_service_interruption(deployment, status):
     deployment.store.save_job({"id": "active", "created_at": "now", "status": status})
