@@ -209,7 +209,9 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(path);
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  const back = page.getByRole('link', { name: 'Back to dashboard', exact: true });
+  if (await back.isVisible()) await back.click();
+  else await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   const game = await (await context.request.get('/api' + path)).json();
   const me = await (await context.request.get('/api/auth/me')).json();
   const changed = await context.request.post('/api' + path + '/moves', {
