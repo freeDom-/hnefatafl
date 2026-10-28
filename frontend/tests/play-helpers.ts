@@ -37,6 +37,7 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'players'
 }
 
 export async function pauseGame(page: Page) {
+  await expect(page.getByRole('grid')).toBeVisible();
   await openGameOptions(page);
   await page.getByRole('button', { name: /Pause AI/ }).click();
   await closeGameOptions(page);

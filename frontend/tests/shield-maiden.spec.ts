@@ -50,6 +50,7 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
+  await expect(page.getByRole('grid')).toBeVisible();
   await openGameOptions(page);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   await analytics
