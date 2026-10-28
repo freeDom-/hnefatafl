@@ -1,4 +1,17 @@
 const translations: Record<string, string> = {
+  'Game options': 'Spieloptionen',
+  'Game information': 'Spielinformationen',
+  'Move history pages': 'Seiten des Zugverlaufs',
+  'Earlier moves': 'Frühere Züge',
+  'Later moves': 'Spätere Züge',
+  'No moves yet': 'Noch keine Züge',
+  Latest: 'Neueste',
+  Moves: 'Züge',
+  Players: 'Spieler',
+  '{from}–{to} of {count}': '{from}–{to} von {count}',
+  'Select a move advisor in Game options to see analysis.':
+    'Wähle in den Spieloptionen einen Zugberater für die Analyse.',
+
   Advanced: 'Fortgeschritten',
   Analytics: 'Analyse',
   'Show winning chances': 'Gewinnchancen anzeigen',

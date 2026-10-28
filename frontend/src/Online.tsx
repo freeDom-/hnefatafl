@@ -23,6 +23,7 @@ import { formatRemaining, remainingSeconds, RemainingTime, useNow } from './rema
 import ActiveGameSwitcher, { type ActiveGameEntry } from './ActiveGameSwitcher';
 import PlayPage from './PlayPage';
 import GameLayout from './GameLayout';
+import { useMediaQuery } from './mobilePlay';
 import GameDetailsPanel from './GameDetailsPanel';
 import GameResult from './GameResult';
 import ArmiesPanel from './ArmiesPanel';
@@ -578,6 +579,7 @@ function GameRoom({
   reviewOnly?: boolean;
 }) {
   const { t, locale } = useI18n();
+  const compact = useMediaQuery('(max-width: 760px), (max-height: 480px) and (pointer: coarse)');
   const { account } = useAuth();
   const prefix = reviewOnly ? '/personal/online' : '/online/games';
   const load = useCallback(
@@ -716,12 +718,106 @@ function GameRoom({
   })();
   const remaining =
     game?.status === 'active' && game.deadline ? remainingSeconds(game.deadline, now) : null;
+  const gameDetails = game && (
+    <GameDetailsPanel
+      ruleset={t(game.ruleset)}
+      size={size}
+      rows={[
+        { label: t('Game mode'), value: t(modeNames[game.match.mode]) },
+        { label: t('Game {leg}', { leg: game.match.leg }), value: t('Rated') },
+        { label: t('Time per move'), value: formatRemaining(game.time_per_move) },
+        {
+          label: t('Remaining time'),
+          value:
+            remaining === null ? (
+              '—'
+            ) : remaining > 0 ? (
+              <RemainingTime seconds={remaining} />
+            ) : (
+              t('Awaiting adjudication')
+            ),
+        },
+      ]}
+      footer={
+        <>
+          {game.status === 'active' && game.deadline && (
+            <p className="subtle">
+              <time dateTime={game.deadline}>
+                {new Intl.DateTimeFormat(locale, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }).format(new Date(game.deadline))}
+              </time>
+            </p>
+          )}
+          {game.status === 'waiting' && (
+            <div>
+              {t(
+                'Waiting for a second player. Random sides are assigned when they join. To change settings, cancel and create again.',
+              )}
+            </div>
+          )}
+          {reviewOnly && (
+            <div>
+              {t('Lifecycle')}: {t(statuses[game.status])}
+            </div>
+          )}
+          {game.result ? (
+            <GameResult
+              winner={game.result.winner}
+              reason={game.result.termination_reason}
+              labels={sideNames}
+            />
+          ) : (
+            <div>{t(statuses[game.status])}</div>
+          )}
+          <RatingChanges game={game} />
+          {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
+            <button
+              className="button primary"
+              disabled={
+                !ready || !poll.data!.availability.enabled || !poll.data!.availability.eligible
+              }
+              onClick={() => submit('join')}
+            >
+              {t('Join game')}
+            </button>
+          )}
+          {!reviewOnly && game.status === 'waiting' && game.creator_id === accountId && (
+            <button className="button" disabled={!ready} onClick={() => submit('cancel')}>
+              {t('Cancel waiting game')}
+            </button>
+          )}
+          {!compact && <Notice value={action.notice} />}
+          <div className="subtle">
+            {t('Disconnecting, closing the browser or logging out does not pause clocks.')}
+          </div>
+        </>
+      }
+    />
+  );
+  const armies = game && (
+    <ArmiesPanel
+      rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
+        side,
+        symbol: sideGlyph(side),
+        name: game.participants[side]?.name ?? t('Unassigned'),
+        detail: `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}`,
+        toMove: game.status === 'active' && game.position.turn === side,
+      }))}
+      captured={captured}
+      label={t('Players and result')}
+    />
+  );
+  const switcher = !reviewOnly && (
+    <ActiveGameSwitcher accountId={accountId} currentId={id} open={openActive} />
+  );
+
   return (
     <PlayPage
       className="online-page"
       heading={t(reviewOnly ? 'Online game review' : 'Online game')}
     >
-      {!reviewOnly && <ActiveGameSwitcher accountId={accountId} currentId={id} open={openActive} />}
       {reviewOnly && (
         <button className="button" onClick={lobby}>
           {t('Back to dashboard')}
@@ -746,107 +842,50 @@ function GameRoom({
         <>
           {!reviewOnly && <Admission availability={poll.data!.availability} />}
           <GameLayout
+            key={id}
+            switcher={switcher}
+            mobile={
+              game.status === 'waiting'
+                ? undefined
+                : {
+                    title: t(game.ruleset),
+                    subtitle: (
+                      <>
+                        {game.result ? (
+                          <GameResult
+                            winner={game.result.winner}
+                            reason={game.result.termination_reason}
+                            labels={sideNames}
+                          />
+                        ) : (
+                          <span>{t(statuses[game.status])}</span>
+                        )}{' '}
+                        ·{' '}
+                        {game.match.mode !== 'single' && (
+                          <>
+                            <span>{t('Game {leg}', { leg: game.match.leg })}</span> ·{' '}
+                          </>
+                        )}
+                        {game.status === 'active' && remaining !== null ? (
+                          remaining > 0 ? (
+                            <RemainingTime seconds={remaining} />
+                          ) : (
+                            t('Awaiting adjudication')
+                          )
+                        ) : (
+                          t('Move') + ' ' + position.ply
+                        )}
+                      </>
+                    ),
+                    players: armies,
+                    details: gameDetails,
+                    moveCount: game.moves.length,
+                  }
+            }
             sidebar={
               <>
-                <GameDetailsPanel
-                  ruleset={t(game.ruleset)}
-                  size={size}
-                  rows={[
-                    { label: t('Game mode'), value: t(modeNames[game.match.mode]) },
-                    { label: t('Game {leg}', { leg: game.match.leg }), value: t('Rated') },
-                    { label: t('Time per move'), value: formatRemaining(game.time_per_move) },
-                    {
-                      label: t('Remaining time'),
-                      value:
-                        remaining === null ? (
-                          '—'
-                        ) : remaining > 0 ? (
-                          <RemainingTime seconds={remaining} />
-                        ) : (
-                          t('Awaiting adjudication')
-                        ),
-                    },
-                  ]}
-                  footer={
-                    <>
-                      {game.status === 'active' && game.deadline && (
-                        <p className="subtle">
-                          <time dateTime={game.deadline}>
-                            {new Intl.DateTimeFormat(locale, {
-                              dateStyle: 'medium',
-                              timeStyle: 'short',
-                            }).format(new Date(game.deadline))}
-                          </time>
-                        </p>
-                      )}
-                      {game.status === 'waiting' && (
-                        <div>
-                          {t(
-                            'Waiting for a second player. Random sides are assigned when they join. To change settings, cancel and create again.',
-                          )}
-                        </div>
-                      )}
-                      {reviewOnly && (
-                        <div>
-                          {t('Lifecycle')}: {t(statuses[game.status])}
-                        </div>
-                      )}
-                      {game.result ? (
-                        <GameResult
-                          winner={game.result.winner}
-                          reason={game.result.termination_reason}
-                          labels={sideNames}
-                        />
-                      ) : (
-                        <div>{t(statuses[game.status])}</div>
-                      )}
-                      <RatingChanges game={game} />
-                      {!reviewOnly &&
-                        game.status === 'waiting' &&
-                        game.creator_id !== accountId && (
-                          <button
-                            className="button primary"
-                            disabled={
-                              !ready ||
-                              !poll.data!.availability.enabled ||
-                              !poll.data!.availability.eligible
-                            }
-                            onClick={() => submit('join')}
-                          >
-                            {t('Join game')}
-                          </button>
-                        )}
-                      {!reviewOnly &&
-                        game.status === 'waiting' &&
-                        game.creator_id === accountId && (
-                          <button
-                            className="button"
-                            disabled={!ready}
-                            onClick={() => submit('cancel')}
-                          >
-                            {t('Cancel waiting game')}
-                          </button>
-                        )}
-                      <Notice value={action.notice} />
-                      <div className="subtle">
-                        {t(
-                          'Disconnecting, closing the browser or logging out does not pause clocks.',
-                        )}
-                      </div>
-                    </>
-                  }
-                />
-                <ArmiesPanel
-                  rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
-                    side,
-                    symbol: sideGlyph(side),
-                    name: game.participants[side]?.name ?? t('Unassigned'),
-                    detail: `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}`,
-                    toMove: game.status === 'active' && game.position.turn === side,
-                  }))}
-                  captured={captured}
-                  label={t('Players and result')}
-                />
+                {gameDetails}
+                {armies}
               </>
             }
             battlefield={
@@ -916,6 +955,7 @@ function GameRoom({
                   />
                 }
               >
+                {compact && <Notice value={action.notice} />}
                 {confirm && mayAct && (
                   <p role="status">
                     {t('Concede this game? This ends your game if the server accepts it.')}

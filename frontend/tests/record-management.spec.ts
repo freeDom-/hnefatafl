@@ -1,3 +1,4 @@
+import { openGameOptions, closeGameOptions } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
@@ -80,10 +81,12 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   const first = await currentGame(page, request);
   expect(Number.isInteger(first.seed)).toBe(true);
+  await openGameOptions(page);
   await expect(page.locator('.detail-row').filter({ hasText: 'Random seed' })).toContainText(
     String(first.seed),
   );
 
+  await closeGameOptions(page);
   await page.getByRole('button', { name: 'Restart game', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game')))
@@ -92,6 +95,7 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   expect(restarted.seed).not.toBe(first.seed);
   expect((await request.get(`${api}/games/${first.id}`)).ok()).toBe(true);
 
+  await openGameOptions(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
@@ -101,6 +105,7 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   const active = await currentGame(page, request);
   expect(active.seed).not.toBe(first.seed);
   expect(active.seed).not.toBe(restarted.seed);
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
 
   const removed = await request.delete(`${api}/games/${active.id}?version=${active.version}`);
@@ -181,6 +186,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
 
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
   const card = page
@@ -228,6 +234,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   const hidden = await hiddenResponse.json();
   expect((await request.delete(`${api}/models/${model.id}`)).status()).toBe(409);
   const before = await statistics(request);
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
   await page.getByRole('button', { name: `Delete model ${modelName}`, exact: true }).click();

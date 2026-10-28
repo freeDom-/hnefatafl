@@ -225,6 +225,131 @@ export default function App() {
   }, []);
   const activeRules = rulesets.find((r) => r.id === game?.ruleset);
 
+  const gameDetails = game && (
+    <GameDetailsPanel
+      ruleset={
+        game.ruleset === 'tablut'
+          ? t('Tablut')
+          : game.ruleset === 'copenhagen'
+            ? t('Copenhagen')
+            : t(activeRules?.name ?? game.ruleset)
+      }
+      size={game.size}
+      header={
+        <>
+          <p>{t(activeRules?.description ?? 'An ancient contest of escape and encirclement.')}</p>
+          <button className="text-button" onClick={() => setRulesOpen(true)}>
+            {t('Read the rules')}
+            <span aria-hidden="true">↗</span>
+          </button>
+          <button
+            className="button secondary"
+            onClick={() => {
+              setNewOpen(true);
+              void refreshOptions().catch((e) => reportError(e));
+            }}
+            disabled={initializing}
+          >
+            {t('New game')}
+          </button>
+        </>
+      }
+      rows={[
+        {
+          label: t('Game mode'),
+          value:
+            game.mode === 'human-human'
+              ? t('Pass & play')
+              : game.mode === 'human-ai'
+                ? t('Human vs AI')
+                : t('AI vs AI'),
+        },
+        { label: t('Move'), value: game.cursor },
+        ...(game.seed !== undefined ? [{ label: t('Random seed'), value: game.seed }] : []),
+      ]}
+      footer={
+        outcome !== null && <GameResult winner={outcome} reason={game.reason} labels={titles} />
+      }
+    />
+  );
+  const armies = game && (
+    <ArmiesPanel
+      rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
+        side,
+        symbol: game.players[side]?.rune ? (
+          <Rune rune={game.players[side].rune} />
+        ) : (
+          sideGlyph(side)
+        ),
+        name: participantName(game.players[side], t(titles[side])),
+        detail: `${t(titles[side])} · ${
+          game.players[side]?.kind === 'ai'
+            ? t(String(game.players[side].config.algorithm ?? 'Computer'))
+            : t('Human')
+        }`,
+        toMove: game.turn === side && outcome === null,
+      }))}
+      captured={game.captured ?? { attackers: 0, defenders: 0 }}
+    />
+  );
+  const analyticsSettings = game && (
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={models}
+      settings={analysis.settings}
+      onChange={analysis.updateSettings}
+      pending={analysis.settingsPending}
+      error={analysis.settingsError}
+    />
+  );
+  const switcher = account && (
+    <ActiveGameSwitcher
+      accountId={account.id}
+      currentId={game?.id ?? ''}
+      open={(entry) =>
+        navigate(entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`)
+      }
+    />
+  );
+  const playback = game && game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
+    <div className="playback">
+      <button
+        className="button small"
+        onClick={() => setPaused((p) => !p)}
+        disabled={!!game.winner}
+      >
+        {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
+      </button>
+      <button
+        className="text-button"
+        onClick={() => void action('ai-move')}
+        disabled={!activeAI || busy || !paused}
+      >
+        {t('Next move')}
+      </button>
+      <label>
+        {t('Playback')}{' '}
+        <select
+          aria-label={t('AI playback speed')}
+          value={speed}
+          onChange={(e) => setSpeed(Number(e.target.value))}
+        >
+          <option value={1800}>{t('Relaxed')}</option>
+          <option value={900}>{t('Normal')}</option>
+          <option value={100}>{t('Fast')}</option>
+        </select>
+      </label>
+      {busy && (
+        <span className="thinking">
+          <i />
+          {t('Calculating')}
+        </span>
+      )}
+    </div>
+  );
+  const agentAnalysis = game && analysis.show ? <AgentAnalysis game={game} {...analysis} /> : null;
+
   return (
     <>
       <SiteHeader account={account} logout={logout} current={tab} />
@@ -232,17 +357,6 @@ export default function App() {
         {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
         {tab === 'play' && (
           <PlayPage className="play-page" heading={t('Single player game')}>
-            {account && (
-              <ActiveGameSwitcher
-                accountId={account.id}
-                currentId={game?.id ?? ''}
-                open={(entry) =>
-                  navigate(
-                    entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`,
-                  )
-                }
-              />
-            )}
             {initializing ? (
               <div className="empty-state">
                 <div className="spinner" />
@@ -274,81 +388,38 @@ export default function App() {
               </section>
             ) : (
               <GameLayout
+                key={game.id}
+                switcher={switcher}
+                mobile={{
+                  title:
+                    game.ruleset === 'tablut'
+                      ? t('Tablut')
+                      : game.ruleset === 'copenhagen'
+                        ? t('Copenhagen')
+                        : t(activeRules?.name ?? game.ruleset),
+                  subtitle: (
+                    <>
+                      {game.size} × {game.size} ·{' '}
+                      {outcome
+                        ? outcome === 'draw'
+                          ? t('Draw')
+                          : t('{side} win', { side: t(titles[outcome]) })
+                        : t('{side} to move', { side: t(titles[game.turn]) })}{' '}
+                      · {t('Move')} {game.cursor}
+                    </>
+                  ),
+                  players: armies,
+                  details: gameDetails,
+                  analytics: agentAnalysis,
+                  settings: analyticsSettings,
+                  options: playback,
+                  moveCount: game.total_moves,
+                }}
                 sidebar={
                   <>
-                    <GameDetailsPanel
-                      ruleset={
-                        game.ruleset === 'tablut'
-                          ? t('Tablut')
-                          : game.ruleset === 'copenhagen'
-                            ? t('Copenhagen')
-                            : t(activeRules?.name ?? game.ruleset)
-                      }
-                      size={game.size}
-                      header={
-                        <>
-                          <p>
-                            {t(
-                              activeRules?.description ??
-                                'An ancient contest of escape and encirclement.',
-                            )}
-                          </p>
-                          <button className="text-button" onClick={() => setRulesOpen(true)}>
-                            {t('Read the rules')}
-                            <span aria-hidden="true">↗</span>
-                          </button>
-                          <button
-                            className="button secondary"
-                            onClick={() => {
-                              setNewOpen(true);
-                              void refreshOptions().catch((e) => reportError(e));
-                            }}
-                            disabled={initializing}
-                          >
-                            {t('New game')}
-                          </button>
-                        </>
-                      }
-                      rows={[
-                        {
-                          label: t('Game mode'),
-                          value:
-                            game.mode === 'human-human'
-                              ? t('Pass & play')
-                              : game.mode === 'human-ai'
-                                ? t('Human vs AI')
-                                : t('AI vs AI'),
-                        },
-                        { label: t('Move'), value: game.cursor },
-                        ...(game.seed !== undefined
-                          ? [{ label: t('Random seed'), value: game.seed }]
-                          : []),
-                      ]}
-                      footer={
-                        outcome !== null && (
-                          <GameResult winner={outcome} reason={game.reason} labels={titles} />
-                        )
-                      }
-                    />
-                    <ArmiesPanel
-                      rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
-                        side,
-                        symbol: game.players[side]?.rune ? (
-                          <Rune rune={game.players[side].rune} />
-                        ) : (
-                          sideGlyph(side)
-                        ),
-                        name: participantName(game.players[side], t(titles[side])),
-                        detail: `${t(titles[side])} · ${
-                          game.players[side]?.kind === 'ai'
-                            ? t(String(game.players[side].config.algorithm ?? 'Computer'))
-                            : t('Human')
-                        }`,
-                        toMove: game.turn === side && outcome === null,
-                      }))}
-                      captured={game.captured ?? { attackers: 0, defenders: 0 }}
-                    />
-                    {analysis.show && <AgentAnalysis game={game} {...analysis} />}
+                    {gameDetails}
+                    {armies}
+                    {agentAnalysis}
                     <div className="strategy-note">
                       <span aria-hidden="true">ᛉ</span>
                       <p>
@@ -428,42 +499,7 @@ export default function App() {
                       />
                     }
                   >
-                    {game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
-                      <div className="playback">
-                        <button
-                          className="button small"
-                          onClick={() => setPaused((p) => !p)}
-                          disabled={!!game.winner}
-                        >
-                          {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
-                        </button>
-                        <button
-                          className="text-button"
-                          onClick={() => void action('ai-move')}
-                          disabled={!activeAI || busy || !paused}
-                        >
-                          {t('Next move')}
-                        </button>
-                        <label>
-                          {t('Playback')}{' '}
-                          <select
-                            aria-label={t('AI playback speed')}
-                            value={speed}
-                            onChange={(e) => setSpeed(Number(e.target.value))}
-                          >
-                            <option value={1800}>{t('Relaxed')}</option>
-                            <option value={900}>{t('Normal')}</option>
-                            <option value={100}>{t('Fast')}</option>
-                          </select>
-                        </label>
-                        {busy && (
-                          <span className="thinking">
-                            <i />
-                            {t('Calculating')}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {playback}
                   </Battlefield>
                 }
                 history={
@@ -496,15 +532,7 @@ export default function App() {
                       </div>
                     }
                   >
-                    <AnalyticsSettingsPanel
-                      game={game}
-                      profiles={profiles}
-                      models={models}
-                      settings={analysis.settings}
-                      onChange={analysis.updateSettings}
-                      pending={analysis.settingsPending}
-                      error={analysis.settingsError}
-                    />
+                    {analyticsSettings}
                   </HistoryPanel>
                 }
               />

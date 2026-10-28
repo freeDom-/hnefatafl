@@ -14,6 +14,28 @@ game-details panel, armies panel, board toolbar and move list stay identical
 between them; the single-player sidebar additionally offers post-game analysis and
 the online room adds its lifecycle and replay controls.
 
+## Mobile play screen
+
+On phones, a compact game header and both players sit above the board. A fixed
+panel below it switches between **Moves**, **Analytics** (single-player), and
+**Players**. Switching tabs keeps the board in place; the full game screen fits
+the available viewport. Landscape places the panel beside the board.
+
+Move history uses **Earlier moves**, **Later moves**, and **Latest** to reach
+all recorded moves without scrolling the page. Short phones show one move per
+page; taller phones show two. Selecting a move still uses the existing replay
+and version-guarded seek behavior.
+
+Open **Game options** (the three dots) for rules, new-game setup, AI playback,
+advisor settings, active-game switching, and account/navigation/appearance
+controls. The **Players** tab includes full names, roles, and captured pieces.
+The **Analytics** tab shows one agent at a time, with an agent selector when
+several have evaluated the position. Detailed settings scroll within the options
+dialog; the board stays visible when browsing the game tabs. Active online games
+keep their remaining time in the header and offer no live assistance.
+
+Desktop keeps the existing three-column presentation.
+
 ## Choose a battlefield
 
 All pieces move like rooks through vacant orthogonal squares. Captures require
@@ -69,7 +91,8 @@ identities/tombstones remain readable in saved games; their CRUD routes are remo
 
 ## Get advice and read results
 
-**Analytics** below move history selects an optional background advisor. When an
+**Analytics** below move history on desktop, or in **Game options** on mobile,
+selects an optional background advisor. When an
 advisor is selected, the panel shows the best-move hint and winning chances; the
 advisor suggests a legal move without executing it. AI player opinions can
 disagree and remain saved in replay. These displayed values are uncalibrated

@@ -1,3 +1,4 @@
+import { openGameOptions, closeGameOptions } from './play-helpers';
 import { expect, test } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
 
@@ -13,7 +14,9 @@ test('interface scale changes spacing and text, persists and composes with respo
       padding: parseFloat(getComputedStyle(node).paddingLeft),
       font: parseFloat(getComputedStyle(node.querySelector('h2')!).fontSize),
     }));
+  await openGameOptions(page);
   const initial = await measure();
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Compact', exact: true }).check();
   await expect(root).toHaveAttribute('data-density', 'compact');
@@ -23,7 +26,9 @@ test('interface scale changes spacing and text, persists and composes with respo
   await page.getByRole('button', { name: 'Back to the table' }).click();
   await page.reload();
   await expect(root).toHaveAttribute('data-density', 'compact');
+  await openGameOptions(page);
   expect(await measure()).toEqual(compact);
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await expect(page.getByRole('radio', { name: 'Compact', exact: true })).toBeChecked();
   await page.getByRole('radio', { name: 'Large', exact: true }).check();
@@ -59,11 +64,15 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   const empty = board.getByRole('gridcell', { name: 'b9, empty', exact: true });
   const originalColor = await empty.evaluate((cell) => getComputedStyle(cell).backgroundColor);
 
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Light', exact: true }).check();
   await page.getByRole('radio', { name: 'Viking figures' }).check();
   await page.getByRole('radio', { name: 'Golden oak' }).check();
-  const previewKing = await page.locator('.token-preview .token-viking.king').boundingBox();
+  const previewKing = await page
+    .getByRole('dialog', { name: 'Appearance settings', exact: true })
+    .locator('.token-preview .token-viking.king')
+    .boundingBox();
   expect(previewKing!.width).toBeLessThan(50);
   expect(previewKing!.height).toBeLessThan(55);
   await page.getByRole('button', { name: 'Back to the table' }).click();
@@ -75,6 +84,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await expect(root).toHaveAttribute('data-color-mode', 'light');
   await expect(board.locator('svg[data-token-art="viking"]')).toHaveCount(25);
 
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Dark', exact: true }).check();
   await page.getByRole('radio', { name: 'Carved wood' }).check();
@@ -82,6 +92,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await page.getByRole('button', { name: 'Back to the table' }).click();
   await expect(board.locator('.token-wood')).toHaveCount(25);
   expect(await empty.evaluate((cell) => getComputedStyle(cell).backgroundColor)).not.toBe(oakColor);
+  await closeGameOptions(page);
   await board.getByRole('gridcell', { name: 'e7, defender', exact: true }).click();
   await board
     .getByRole('gridcell', { name: /empty, legal move/ })
@@ -92,6 +103,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
 
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Wood', exact: true }).check();
   await page.getByRole('button', { name: 'Back to the table' }).click();
@@ -106,6 +118,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await expect(root).toHaveAttribute('data-board-theme', 'slate');
   await expect(page.getByLabel('Attackers to move')).toBeVisible();
 
+  await openGameOptions(page);
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Follow device' }).check();
   await page.getByRole('button', { name: 'Close appearance settings' }).click();

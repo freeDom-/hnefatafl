@@ -1,3 +1,4 @@
+import { openGameOptions } from '../tests/play-helpers';
 import { test, expect, type Page, type Browser, type BrowserContext } from '@playwright/test';
 const password = 'online-browser-fixture-password';
 async function login(page: Page, username: string) {
@@ -73,6 +74,7 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   // constraint: the board column must fill its track instead of shrink-to-fit
   // around its own toolbar content, which changes with the first move.
   await page.setViewportSize({ width: 1440, height: 1400 });
+  await expect(page.locator('.game-layout')).toBeVisible();
   const measure = () =>
     page.evaluate(() => {
       const track = getComputedStyle(
@@ -138,6 +140,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   const id = new URL(url).pathname.split('/').pop()!;
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
+  await openGameOptions(page);
   const switcher = page.getByRole('navigation', { name: 'Active games' });
   const sibling = switcher.locator(`[data-game-id="${siblingId}"]`);
   await expect(sibling).toBeVisible();
@@ -146,6 +149,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await concede(page);
   // The return game completed; the still-active first leg remains in the switcher.
+  await openGameOptions(page);
   await switcher.locator(`[data-game-id="${id}"]`).click();
   await expect(page.getByLabel(/(Attackers|Defenders) to move/)).toBeVisible();
 });

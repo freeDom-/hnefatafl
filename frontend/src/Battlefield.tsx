@@ -31,9 +31,9 @@ export default function Battlefield({
 }) {
   return (
     <section className="battlefield" aria-label={label}>
-      {board}
+      <div className="board-stage">{board}</div>
       {toolbar}
-      {children}
+      {children && <div className="battlefield-controls">{children}</div>}
     </section>
   );
 }
