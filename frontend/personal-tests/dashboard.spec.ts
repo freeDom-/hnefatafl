@@ -261,10 +261,9 @@ test('late real history/statistics responses cannot populate a new account after
   release();
   await page.unrouteAll({ behavior: 'wait' });
   await expect(rows(page)).toHaveCount(0);
-  await accountPanel(page).getByRole('button', { name: 'Singleplayer', exact: true }).click();
-  await onlinePanel(page).getByRole('button', { name: 'Online multiplayer', exact: true }).click();
-  await expect(accountPanel(page).getByText('No games recorded yet.')).toBeVisible();
-  await expect(onlinePanel(page).getByText('No games recorded yet.')).toBeVisible();
+  await expect(accountPanel(page).locator('.performance-badge')).toHaveCount(3);
+  await expect(onlinePanel(page).getByText(/Elo/)).toHaveCount(0);
+  await expect(accountPanel(page).getByRole('link').first()).toContainText('—');
 });
 
 test('history review is read-only, validated and preserves authoritative records', async ({
@@ -335,9 +334,9 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
   const spacing = async (name: string) => {
     const dimensions = await page.evaluate(() => {
       const card = document.querySelector<HTMLElement>('.dashboard-lobby')!;
-      const reference = document.querySelector<HTMLElement>('.personal-section')!;
+      const reference = document.querySelector<HTMLElement>('.dashboard-performance')!;
       const overview = document.querySelector<HTMLElement>('.dashboard-overview')!;
-      const panels = Array.from(document.querySelectorAll<HTMLElement>('.personal-section'));
+      const panels = Array.from(document.querySelectorAll<HTMLElement>('.dashboard-performance'));
       const rect = card.getBoundingClientRect();
       const css = getComputedStyle(card);
       return {
@@ -532,4 +531,108 @@ test('Large desktop play fits a wrapped administrator header', async ({ page, re
       expect(fit.board).toBeLessThan(fit.footer);
     }
   }
+});
+
+test('compact dashboard badges link to detailed ruleset and AI statistics without empty-pool Elo', async ({
+  page,
+}, info) => {
+  const { singleStatistics, multiplayerStatistics } = await import('./statistics-fixture');
+  await page.route(/\/api\/personal\/(single-player|online)\?/, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...data,
+        statistics: route.request().url().includes('/single-player?')
+          ? singleStatistics
+          : multiplayerStatistics,
+      },
+    });
+  });
+  await login(page);
+  const badges = page.locator('.dashboard-performance');
+  await expect(
+    badges.getByRole('link', { name: /Brandubh Singleplayer statistics.*20%/ }),
+  ).toBeVisible();
+  await expect(badges.locator('.performance-badge')).toHaveCount(6);
+  await expect(badges.getByText('Average game length')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Online lobby', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Online games', exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator('.dashboard-lobby')
+      .getByRole('button', { name: 'Open game', exact: true })
+      .first(),
+  ).toHaveClass(/primary/);
+  await expect(badges.getByRole('link', { name: /Brandubh Singleplayer/ })).toHaveClass(
+    /badge-bronze/,
+  );
+  await expect(badges.getByRole('link', { name: /Tablut Singleplayer/ })).toHaveClass(
+    /badge-silver/,
+  );
+  await expect(badges.getByRole('link', { name: /Copenhagen Singleplayer/ })).toHaveClass(
+    /badge-royal/,
+  );
+  await expect(badges.getByRole('link', { name: /Brandubh Multiplayer/ })).toContainText(
+    'Elo 1537',
+  );
+  await expect(badges.getByRole('link', { name: /Tablut Multiplayer/ })).not.toContainText('Elo');
+  expect((await badges.boundingBox())!.height).toBeLessThan(
+    info.project.name === 'mobile' ? 320 : 220,
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await badges.screenshot({ path: info.outputPath('compact-performance-badges.png') });
+  await badges.getByRole('link', { name: /Brandubh Singleplayer/ }).click();
+  await expect(page).toHaveURL(/\/statistics\?mode=single-player&ruleset=brandubh$/);
+  await expect(page.getByRole('heading', { name: 'Your statistics' })).toBeVisible();
+  const table = page.getByRole('table', { name: 'Brandubh results by side' });
+  await expect(table.getByRole('row', { name: /Overall/ })).toContainText('20 moves');
+  await expect(table.getByRole('row', { name: /As attacker/ })).toContainText('18 moves');
+  await expect(table.getByRole('row', { name: /As defender/ })).toContainText('22 moves');
+  await page.getByText('Shield bearer', { exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Shield bearer results by side' })).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath('detailed-singleplayer-statistics.png'),
+    fullPage: true,
+  });
+  await page.getByRole('tab', { name: 'Multiplayer', exact: true }).click();
+  await expect(page.getByText('Elo 1537')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI opponents' })).toHaveCount(0);
+  await page.screenshot({
+    path: info.outputPath('detailed-multiplayer-statistics.png'),
+    fullPage: true,
+  });
+  await page.getByLabel('Ruleset', { exact: true }).selectOption('tablut');
+  await expect(page.getByText('Elo 1500')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Multiplayer', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByLabel('Ruleset', { exact: true })).toHaveValue('tablut');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('statistics deep links retain login protection and show only the signed-in account', async ({
+  page,
+  context,
+}) => {
+  await login(page, 'PersonalObserver', '/statistics?mode=multiplayer&ruleset=brandubh');
+  await expect(page.getByRole('heading', { name: 'Your statistics' })).toBeVisible();
+  await expect(page.getByText('No games recorded yet.')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Multiplayer', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(
+    (await (await context.request.get('/api/personal/online?limit=1')).json()).statistics.groups,
+  ).toEqual([]);
+  await page.reload();
+  await expect(page.getByLabel('Ruleset', { exact: true })).toHaveValue('brandubh');
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await expect(page.locator('.performance-badge')).toHaveCount(6);
+  await expect(page.locator('.dashboard-performance').getByText(/Elo/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Statistics', exact: true }).click();
+  await expect(page.getByText('No games recorded yet.')).toBeVisible();
 });

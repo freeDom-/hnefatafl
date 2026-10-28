@@ -85,7 +85,9 @@ class PersonalHistory:
             json_extract(data,'$.players.attackers.kind') AS attacker_kind,
             json_extract(data,'$.players.defenders.kind') AS defender_kind,
             json_extract(data,'$.players.attackers.account_id') AS attacker_account_id,
-            json_extract(data,'$.players.defenders.account_id') AS defender_account_id
+            json_extract(data,'$.players.defenders.account_id') AS defender_account_id,
+            json_extract(data,'$.players.attackers') AS attacker_player,
+            json_extract(data,'$.players.defenders') AS defender_player
             FROM games WHERE owner_account_id=?
               AND coalesce(json_extract(data,'$.mode'),'') <> 'ai-ai'"""
 
@@ -120,10 +122,11 @@ class PersonalHistory:
         """
         rows = c.execute(
             f"""WITH records AS ({cls._account_base()})
-            SELECT ruleset,winner,plies,{cls._personal_side_case()} AS personal_side
+            SELECT ruleset,winner,plies,attacker_player,defender_player,
+              {cls._personal_side_case()} AS personal_side
             FROM records""",
             (account_id, account_id, account_id, account_id, account_id),
-        ).fetchall()
+        )
         groups: dict[str, dict] = {}
         unattributed = 0
         for row in rows:
@@ -132,64 +135,98 @@ class PersonalHistory:
                 unattributed += 1
                 continue
             group = groups.setdefault(row["ruleset"], cls._empty_group(row["ruleset"]))
-            group["played"] += 1
-            winner = row["winner"]
-            if winner is None:
-                continue
-            group["completed"] += 1
-            group["length_sum"] += row["plies"] or 0
-            if winner == "draw":
-                group["draws"] += 1
-            elif winner == side:
-                group["wins"] += 1
-            else:
-                group["losses"] += 1
-            if side == "attackers":
-                group["decided_attackers"] += 1
-                if winner == side:
-                    group["wins_attackers"] += 1
-            else:
-                group["decided_defenders"] += 1
-                if winner == side:
-                    group["wins_defenders"] += 1
+            cls._add_statistic(group, side, row["winner"], row["plies"])
+            opponent = json.loads(
+                row["defender_player" if side == "attackers" else "attacker_player"] or "null"
+            )
+            if isinstance(opponent, dict) and opponent.get("kind") == "ai":
+                # Stored configuration identity excludes seeds. Different AI
+                # configurations remain distinct without replaying any game.
+                identifier = opponent.get("variant_id") or opponent.get("profile_id") or "ai"
+                agents = group.setdefault("agents", {})
+                agent = agents.setdefault(
+                    identifier,
+                    {
+                        **cls._empty_group(row["ruleset"]),
+                        "id": identifier,
+                        "name": str(
+                            opponent.get("name") or opponent.get("profile_id") or "Computer"
+                        )[:120],
+                        "profile_id": opponent.get("profile_id"),
+                    },
+                )
+                cls._add_statistic(agent, side, row["winner"], row["plies"])
         return {
             "groups": [cls._group_result(groups[ruleset]) for ruleset in sorted(groups)],
             "coverage": {"unattributed_games": unattributed},
         }
 
     @staticmethod
-    def _empty_group(ruleset):
+    def _empty_metrics():
         return {
-            "ruleset": ruleset,
-            "mode": None,
             "played": 0,
             "completed": 0,
             "wins": 0,
             "losses": 0,
             "draws": 0,
-            "wins_attackers": 0,
-            "decided_attackers": 0,
-            "wins_defenders": 0,
-            "decided_defenders": 0,
             "length_sum": 0,
         }
 
     @classmethod
-    def _group_result(cls, group):
+    def _empty_group(cls, ruleset):
+        return {
+            **cls._empty_metrics(),
+            "ruleset": ruleset,
+            "mode": None,
+            "by_side": {side: cls._empty_metrics() for side in ("attackers", "defenders")},
+        }
+
+    @staticmethod
+    def _add_statistic(group, side, winner, length):
+        for metrics in (group, group["by_side"][side]):
+            metrics["played"] += 1
+            if winner is None:
+                continue
+            metrics["completed"] += 1
+            metrics["length_sum"] += length or 0
+            metrics["draws" if winner == "draw" else "wins" if winner == side else "losses"] += 1
+
+    @classmethod
+    def _metrics_result(cls, group):
         completed = group["completed"]
         return {
-            "ruleset": group["ruleset"],
-            "mode": None,
             "played": group["played"],
+            "completed": completed,
             "wins": group["wins"],
             "losses": group["losses"],
             "draws": group["draws"],
             "win_rate": cls._rate(group["wins"], group["wins"] + group["losses"] + group["draws"]),
-            "win_rate_attackers": cls._rate(group["wins_attackers"], group["decided_attackers"]),
-            "win_rate_defenders": cls._rate(group["wins_defenders"], group["decided_defenders"]),
             "average_game_length": (group["length_sum"] / completed) if completed else None,
             "average_game_length_unit": "moves",
         }
+
+    @classmethod
+    def _group_result(cls, group):
+        sides = {side: cls._metrics_result(metrics) for side, metrics in group["by_side"].items()}
+        result = {
+            **cls._metrics_result(group),
+            "ruleset": group["ruleset"],
+            "mode": None,
+            "win_rate_attackers": sides["attackers"]["win_rate"],
+            "win_rate_defenders": sides["defenders"]["win_rate"],
+            "by_side": sides,
+        }
+        if "agents" in group:
+            result["agents"] = [
+                {
+                    **cls._group_result(agent),
+                    **{key: agent[key] for key in ("id", "name", "profile_id")},
+                }
+                for agent in sorted(
+                    group["agents"].values(), key=lambda agent: (agent["name"], agent["id"])
+                )
+            ]
+        return result
 
     @staticmethod
     def _account_summary(row):
@@ -320,71 +357,26 @@ class PersonalHistory:
             WHERE g.status='completed' AND r.competitive_eligible=1
               AND (g.attackers_id=? OR g.defenders_id=?)""",
             (account_id, account_id, account_id, account_id),
-        ).fetchall()
+        )
         groups: dict[str, dict] = {}
         for row in rows:
-            group = groups.setdefault(
-                row["ruleset"],
-                {
-                    "ruleset": row["ruleset"],
-                    "rating": row["rating"],
-                    "played": 0,
-                    "wins": 0,
-                    "losses": 0,
-                    "draws": 0,
-                    "timed_out": 0,
-                    "wins_attackers": 0,
-                    "decided_attackers": 0,
-                    "wins_defenders": 0,
-                    "decided_defenders": 0,
-                    "length_sum": 0,
-                },
+            group = groups.setdefault(row["ruleset"], cls._empty_group(row["ruleset"]))
+            group["rating"] = row["rating"]
+            cls._add_statistic(group, row["side"], row["winner"], row["move_count"])
+            group["timed_out"] = group.get("timed_out", 0) + int(
+                row["abandoned_account_id"] == account_id
             )
-            group["played"] += 1
-            group["length_sum"] += row["move_count"] or 0
-            winner, side = row["winner"], row["side"]
-            if winner == "draw":
-                group["draws"] += 1
-            elif winner == side:
-                group["wins"] += 1
-            else:
-                group["losses"] += 1
-            if row["abandoned_account_id"] == account_id:
-                group["timed_out"] += 1
-            if side == "attackers":
-                group["decided_attackers"] += 1
-                if winner == side:
-                    group["wins_attackers"] += 1
-            else:
-                group["decided_defenders"] += 1
-                if winner == side:
-                    group["wins_defenders"] += 1
-        result = []
-        for ruleset in sorted(groups):
-            group = groups[ruleset]
-            played = group["played"]
-            result.append(
+        return {
+            "groups": [
                 {
-                    "ruleset": ruleset,
-                    "mode": None,
-                    "played": played,
-                    "wins": group["wins"],
-                    "losses": group["losses"],
-                    "draws": group["draws"],
-                    "timed_out": group["timed_out"],
-                    "win_rate": cls._rate(group["wins"], played),
-                    "win_rate_attackers": cls._rate(
-                        group["wins_attackers"], group["decided_attackers"]
-                    ),
-                    "win_rate_defenders": cls._rate(
-                        group["wins_defenders"], group["decided_defenders"]
-                    ),
-                    "average_game_length": group["length_sum"] / played if played else None,
-                    "average_game_length_unit": "moves",
+                    **cls._group_result(group),
                     "rating": group["rating"],
+                    "timed_out": group["timed_out"],
                 }
-            )
-        return {"groups": result, "coverage": {"unattributed_games": 0}}
+                for _, group in sorted(groups.items())
+            ],
+            "coverage": {"unattributed_games": 0},
+        }
 
     def online_games(
         self,
