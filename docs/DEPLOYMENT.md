@@ -341,8 +341,8 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
-With matching online schema 11, recovery retains current live authoritative online
-matches, games, moves/results, audit and rating history, then pauses the timeout
+With matching online schema 12, recovery retains current live authoritative online
+matches, games, moves/results, audit, rating history and start-rating snapshots, then pauses the timeout
 gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed
 online schema/column set refuses automatic root replacement, even when account
 columns match. Snapshot-only recovery without live authority cannot recover newer
