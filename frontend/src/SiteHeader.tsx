@@ -31,6 +31,7 @@ export default function SiteHeader({
         {(
           [
             ['dashboard', 'Dashboard'],
+            ['statistics', 'Statistics'],
             ['leaderboard', 'Leaderboard'],
             ['archive', 'Hall of records'],
             ['training', 'AI workshop'],

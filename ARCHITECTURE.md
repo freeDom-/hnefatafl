@@ -458,8 +458,12 @@ historical separation evidence stays in
 ## Personal dashboard and review
 
 `PersonalDashboard.tsx` is the authenticated landing with existing account setup and
-embedded `Online.Lobby`, separate personal statistics and at most three completed
-visible own records. `navigation.ts` normalizes obsolete landing URLs while retaining
+embedded `Online.Lobby`, compact per-mode/ruleset performance badges and at most
+three completed visible own records. `StatisticsPage.tsx` owns the authenticated
+`/statistics` view, URL-backed mode/ruleset selection and account-keyed polling.
+`PersonalStatistics.tsx` renders detailed results by ruleset, AI configuration and
+account side, using tables on desktop and labelled metric cards on phones.
+`navigation.ts` normalizes obsolete landing URLs while retaining
 search/selection; account gameplay has `/games/{id}` and dedicated online/replay paths
 remain. `RecordedGames` supplies compact rows (named winner, locale-aware date/time with
 Timezone) to Dashboard and `Archive` (Hall). `RecordedReview` restores the full
@@ -491,7 +495,14 @@ or result reconstruction are supported. Personal statistics attribute wins/losse
 to the account-bound human seat and exclude `ai-ai` and unattributed legacy records
 from personal outcomes, reporting coverage instead. Online statistics use the
 account's seat and only current eligible completed revisions, withdrawing voids and
-counting own-clock timeouts separately from opponent timeouts. Unexpected
+counting own-clock timeouts separately from opponent timeouts. The existing
+personal reads add completed counts, side metrics and seed-independent AI-agent
+groups, without replay, inference, schema changes or new API grants. Aggregates
+cover the complete account population independently of history pagination.
+Win-rate/length denominators remain completed games; single-player played counts
+also include unfinished games. Multiplayer uses the existing persisted rating,
+shown only when the ruleset has played games. Dashboard badge tiers are cosmetic
+functions of single-player win rate and do not write rewards or ratings. Unexpected
 personal/history API failures log fixed actions, exception types and scrubbed
 tracebacks with generic 503 responses. Local players UI and Archive-only profile
 queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the

@@ -222,7 +222,7 @@ function GameSummary({
           t('Time per move: {duration}', { duration: formatRemaining(game.time_per_move) })
         )}
       </p>
-      <button className="button" onClick={() => open(game.id)}>
+      <button className="button primary" onClick={() => open(game.id)}>
         {t('Open game')}
       </button>
     </article>
@@ -360,7 +360,6 @@ export function Lobby({
   };
   return (
     <section className="panel dashboard-lobby" aria-label={t('Online lobby')}>
-      <h2>{t('Online lobby')}</h2>
       {poll.phase === 'loading' && <p role="status">{t('Loading online games…')}</p>}
       {poll.phase === 'stale' && (
         <div role="alert" className="online-notice">

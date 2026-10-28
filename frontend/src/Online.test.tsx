@@ -465,7 +465,7 @@ it('replaces inline creation with the shared modal and closes it on Escape or Ca
   const view = render(
     <Lobby accountId={identity.id} open={vi.fn()} embedded creationRequested={0} />,
   );
-  await screen.findByRole('heading', { name: 'Online lobby' });
+  await screen.findByRole('heading', { name: 'Online games' });
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
   expect(screen.queryByText('Connected · refreshes automatically')).toBeNull();

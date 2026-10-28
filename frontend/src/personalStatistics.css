@@ -1,0 +1,296 @@
+.dashboard-performance {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: var(--pad-panel);
+}
+.dashboard-performance > .section-heading {
+  margin-bottom: var(--gap-inline);
+}
+.dashboard-performance h2 {
+  font-size: 1.15rem;
+}
+.performance-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-card);
+}
+.performance-modes h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+.performance-modes h3 small {
+  font-weight: normal;
+  color: var(--muted);
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}
+.performance-badges {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.performance-badge {
+  --badge-metal: var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 4.25rem;
+  padding: 0.4rem 0.3rem;
+  gap: 0.1rem;
+  color: var(--ui-heading, #26352e);
+  text-decoration: none;
+  border: 1px solid var(--badge-metal);
+  border-radius: 0.6rem;
+  background: linear-gradient(
+    145deg,
+    var(--surface),
+    color-mix(in srgb, var(--badge-metal) 10%, var(--surface))
+  );
+  overflow-wrap: anywhere;
+}
+.performance-badge:hover {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--badge-metal) 28%, transparent);
+}
+.performance-badge:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+.performance-badge-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  text-align: center;
+}
+.performance-badge strong {
+  font-size: 1.3rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.performance-badge small {
+  font-size: 0.7rem;
+}
+.badge-crest {
+  width: 1rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--badge-metal);
+  stroke-width: 1.3;
+}
+.badge-bronze {
+  --badge-metal: #a77654;
+}
+.badge-silver {
+  --badge-metal: #7b919c;
+  border-style: double;
+  border-width: 3px;
+  padding: calc(0.4rem - 2px) calc(0.3rem - 2px);
+}
+.badge-gold {
+  --badge-metal: var(--gold);
+  border-width: 2px;
+  padding: calc(0.4rem - 1px) calc(0.3rem - 1px);
+}
+.badge-royal {
+  --badge-metal: var(--gold);
+  border: 3px double var(--gold);
+  padding: calc(0.4rem - 2px) calc(0.3rem - 2px);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--gold) 20%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--gold) 20%, var(--surface)),
+    var(--surface),
+    color-mix(in srgb, var(--gold) 15%, var(--surface))
+  );
+}
+.badge-royal .badge-crest {
+  fill: color-mix(in srgb, var(--gold) 25%, transparent);
+}
+.badge-online {
+  --badge-metal: var(--green);
+}
+.badge-unplayed {
+  color: var(--muted);
+  background: var(--surface);
+}
+.statistics-page {
+  max-width: 1320px;
+  margin: var(--gap-stack) auto;
+  min-width: 0;
+}
+.statistics-page h1 {
+  margin: 0;
+}
+.statistics-page > .section-heading > div > p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+}
+.statistics-ruleset-filter {
+  display: grid;
+  gap: 0.35rem;
+}
+.statistics-explanation {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-block: var(--gap-inline);
+}
+.detailed-statistics {
+  display: grid;
+  gap: var(--gap-card);
+  margin-top: var(--gap-stack);
+}
+.statistics-ruleset-card {
+  padding: var(--pad-panel);
+  min-width: 0;
+}
+.statistics-ruleset-card h3 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+.statistics-headline {
+  display: grid;
+  justify-items: end;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.statistics-headline strong {
+  color: var(--green);
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+.outcome-bar {
+  display: flex;
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 1rem;
+  margin-bottom: var(--gap-stack);
+  background: var(--line);
+}
+.outcome-wins {
+  background: var(--green);
+}
+.outcome-losses {
+  background: #b27162;
+}
+.outcome-draws {
+  background: var(--gold);
+}
+.statistics-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-block: var(--gap-inline);
+}
+.statistics-table-scroll:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.statistics-table {
+  width: 100%;
+  min-width: 40rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.statistics-table th,
+.statistics-table td {
+  text-align: right;
+  padding: var(--pad-row);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.statistics-table th:first-child {
+  text-align: left;
+}
+.statistics-table thead th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: normal;
+}
+.statistics-table tbody tr:first-child {
+  background: color-mix(in srgb, var(--green) 5%, var(--surface));
+  font-weight: bold;
+}
+.statistics-opponents {
+  margin-top: var(--gap-stack);
+}
+.statistics-opponents h4 {
+  margin: 0 0 var(--gap-inline);
+}
+.opponent-results {
+  border-top: 1px solid var(--line);
+  padding-block: var(--pad-panel-sm);
+}
+.opponent-results summary {
+  display: list-item;
+  cursor: pointer;
+  min-height: 2rem;
+}
+.opponent-results summary strong {
+  margin-right: var(--gap-stack);
+}
+.opponent-results summary span {
+  display: inline-block;
+  margin-right: var(--gap-stack);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+@media (max-width: 800px) {
+  .performance-modes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--gap-stack);
+  }
+}
+
+.statistics-table tbody th,
+.statistics-table tbody td {
+  color: var(--ui-heading, #26352e);
+}
+@media (max-width: 600px) {
+  .statistics-table {
+    min-width: 0;
+  }
+  .statistics-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .statistics-table tbody {
+    display: grid;
+    gap: var(--gap-stack);
+  }
+  .statistics-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 0.4rem;
+    padding: var(--pad-panel-sm);
+  }
+  .statistics-table tbody th {
+    grid-column: 1 / -1;
+    padding: 0 0 0.25rem;
+    border: 0;
+    font-size: 0.85rem;
+  }
+  .statistics-table tbody td {
+    display: grid;
+    align-content: start;
+    text-align: left;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    font-weight: 600;
+  }
+  .statistics-table tbody td::before {
+    content: attr(data-label) / '';
+    font-size: 0.7rem;
+    font-weight: normal;
+    color: var(--muted);
+  }
+}

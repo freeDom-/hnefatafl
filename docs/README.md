@@ -8,7 +8,7 @@ Commands assume the repository root unless a different directory is shown.
 
 - [Repository introduction and quick start](../README.md)
 - [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
-- [Personal dashboard and read-only history](DASHBOARD.md)
+- [Personal dashboard, statistics and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
 - [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
 
@@ -20,6 +20,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Tournaments and statistics
 
+- [Personal ruleset, AI-opponent and side statistics](DASHBOARD.md#compact-badges-and-detailed-personal-statistics)
 - [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
@@ -64,6 +65,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Online foundations and offline feasibility
 
+- [Compact Dashboard badges and detailed personal statistics validation](validation/personal-statistics.md)
 - [Post-Phase 5 statistics and review refinement validation](validation/post-phase5-refinements.md)
 - [Dashboard consolidation refinement validation](validation/dashboard-consolidation.md)
 - [Phase 5 validation](validation/online-phase5.md)

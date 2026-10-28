@@ -12,6 +12,9 @@ it.each([
   expect(safeDestination(value)).toBe('/dashboard');
 });
 it('retains filters, selected record, game deep links and fragment through safe auth navigation', () => {
+  expect(safeDestination('/statistics?mode=multiplayer&ruleset=tablut')).toBe(
+    '/statistics?mode=multiplayer&ruleset=tablut',
+  );
   const next = '/archive?ruleset=tablut&review=online&selected=online-123#review';
   expect(safeDestination(next)).toBe(next);
   expect(safeDestination('/games/owned-id?cursor=3')).toBe('/games/owned-id?cursor=3');

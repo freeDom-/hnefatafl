@@ -4,6 +4,10 @@
 
 ## Online milestone integration (unreleased)
 
+The [personal statistics refinement](validation/personal-statistics.md) records
+compact Dashboard badges, the separate ruleset/AI/side statistics page and current
+desktop/mobile checks on top of the integrated Elo implementation.
+
 The [Dashboard consolidation refinement](validation/dashboard-consolidation.md)
 records the current Phase 5 landing/navigation, role-scoped compact Hall and shared
 review checks, plus shared authentication layout, account-bound

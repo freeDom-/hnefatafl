@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import german from './locales/de';
+import statistics from './locales/de-statistics';
 import extra from './locales/de-extra';
 import tournaments from './locales/de-tournaments';
 import appearance from './locales/de-appearance';
@@ -31,6 +32,7 @@ const dictionary = {
   ...accounts,
   ...online,
   ...personal,
+  ...statistics,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();
