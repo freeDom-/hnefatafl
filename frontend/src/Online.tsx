@@ -878,7 +878,6 @@ function GameRoom({
                       </>
                     ),
                     players: armies,
-                    details: gameDetails,
                     moveCount: game.moves.length,
                   }
             }

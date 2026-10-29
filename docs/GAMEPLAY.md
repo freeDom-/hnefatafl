@@ -18,7 +18,7 @@ the online room adds its lifecycle and replay controls.
 
 On phones, a compact game header and both players sit above the board. A fixed
 panel below it switches between **Moves**, **Analytics** (single-player), and
-**Players**. Switching tabs keeps the board in place; the full game screen fits
+**My games**. Switching tabs keeps the board in place; the full game screen fits
 the available viewport. Landscape places the panel beside the board.
 
 Move history uses **Earlier moves**, **Later moves**, and **Latest** to reach
@@ -26,13 +26,16 @@ all recorded moves without scrolling the page. Short phones show one move per
 page; taller phones show two. Selecting a move still uses the existing replay
 and version-guarded seek behavior.
 
-Open **Game options** (the three dots) for rules, new-game setup, AI playback,
-advisor settings, active-game switching, and account/navigation/appearance
-controls. The **Players** tab includes full names, roles, and captured pieces.
+Open **Game options** (the three dots) for AI playback and advisor settings.
+**My games** lists your unfinished single-player games and active or waiting
+online games, including the current game. Select any row to open that game;
+additional rows scroll inside the panel while the board stays visible.
+
 The **Analytics** tab shows one agent at a time, with an agent selector when
 several have evaluated the position. Detailed settings scroll within the options
-dialog; the board stays visible when browsing the game tabs. Active online games
-keep their remaining time in the header and offer no live assistance.
+dialog. Active online games keep their remaining time in the header and offer no
+live assistance. The header's back link returns to Dashboard for new-game setup,
+account controls, appearance, language, and other pages.
 
 Desktop keeps the existing three-column presentation.
 

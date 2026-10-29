@@ -1,7 +1,5 @@
 import { useId, useState, type ReactNode } from 'react';
 import { useI18n } from './i18n';
-import { useAuth } from './Auth';
-import SiteHeader from './SiteHeader';
 import { surfaceLink } from './surfaceNavigation';
 import Modal from './Modal';
 import Tabs from './Tabs';
@@ -12,7 +10,6 @@ export type MobileGamePresentation = {
   title: string;
   subtitle: ReactNode;
   players: ReactNode;
-  details: ReactNode;
   analytics?: ReactNode;
   settings?: ReactNode;
   options?: ReactNode;
@@ -31,14 +28,13 @@ export default function MobileGameLayout({
   switcher?: ReactNode;
 }) {
   const { t } = useI18n();
-  const { account, logout } = useAuth();
   const id = useId();
   const [tab, setTab] = useState('moves');
   const [optionsOpen, setOptionsOpen] = useState(false);
   const items = [
     { id: 'moves', label: `${t('Moves')} ${presentation.moveCount}` },
     ...(presentation.analytics !== undefined ? [{ id: 'analytics', label: 'Analytics' }] : []),
-    { id: 'players', label: 'Players' },
+    ...(switcher ? [{ id: 'games', label: 'My games' }] : []),
   ];
   return (
     <MobilePlayContext.Provider value>
@@ -56,14 +52,16 @@ export default function MobileGameLayout({
             <h2>{presentation.title}</h2>
             <div className="mobile-play-subtitle">{presentation.subtitle}</div>
           </div>
-          <button
-            className="icon-button"
-            onClick={() => setOptionsOpen(true)}
-            aria-label={t('Game options')}
-            aria-haspopup="dialog"
-          >
-            ⋯
-          </button>
+          {(presentation.options || presentation.settings) && (
+            <button
+              className="icon-button"
+              onClick={() => setOptionsOpen(true)}
+              aria-label={t('Game options')}
+              aria-haspopup="dialog"
+            >
+              ⋯
+            </button>
+          )}
         </header>
         <div className="mobile-player-strip">{presentation.players}</div>
         {battlefield}
@@ -91,19 +89,16 @@ export default function MobileGameLayout({
                 )}
               </div>
             )}
-            <div className="mobile-tab-content mobile-player-details" hidden={tab !== 'players'}>
-              {tab === 'players' && presentation.players}
+            <div className="mobile-tab-content" hidden={tab !== 'games'}>
+              {tab === 'games' && switcher}
             </div>
           </div>
         </section>
         {optionsOpen && (
           <Modal title={t('Game options')} onClose={() => setOptionsOpen(false)}>
             <div className="mobile-game-options">
-              {presentation.details}
               {presentation.options}
-              {switcher}
               {presentation.settings}
-              <SiteHeader account={account} logout={logout} />
             </div>
           </Modal>
         )}

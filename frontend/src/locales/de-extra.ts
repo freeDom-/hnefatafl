@@ -1,5 +1,9 @@
 const translations: Record<string, string> = {
   'Game options': 'Spieloptionen',
+  'Loading running games…': 'Laufende Partien werden geladen…',
+  'Some running games could not be loaded.':
+    'Einige laufende Partien konnten nicht geladen werden.',
+  'No running games.': 'Keine laufenden Partien.',
   'Game information': 'Spielinformationen',
   'Move history pages': 'Seiten des Zugverlaufs',
   'Earlier moves': 'Frühere Züge',

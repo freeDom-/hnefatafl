@@ -41,6 +41,11 @@ function layout(cursor = 24) {
   return (
     <GameLayout
       sidebar={<p>Desktop details</p>}
+      switcher={
+        <nav aria-label="My games">
+          <button>My current game</button>
+        </nav>
+      }
       battlefield={<div role="grid" aria-label="Board" />}
       history={<HistoryPanel count={24} entries={entries(cursor)} />}
       mobile={{
@@ -68,7 +73,7 @@ function layout(cursor = 24) {
             captured={{ attackers: 2, defenders: 1 }}
           />
         ),
-        details: <p>Game details</p>,
+        options: <p>Playback controls</p>,
         analytics: null,
         settings: (
           <label>
@@ -88,9 +93,11 @@ it('pages the full history, preserves a browsed page across tabs, and follows a 
   fireEvent.click(screen.getByRole('button', { name: 'Earlier moves' }));
   fireEvent.click(screen.getByRole('button', { name: 'Replay to move 21' }));
   expect(seek).toHaveBeenCalledWith(21);
-  fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
-  expect(within(screen.getByRole('tabpanel')).getByText('Captured')).toBeVisible();
-  fireEvent.keyDown(screen.getByRole('tab', { name: 'Players' }), { key: 'Home' });
+  fireEvent.click(screen.getByRole('tab', { name: 'My games' }));
+  expect(
+    within(screen.getByRole('tabpanel')).getByRole('button', { name: 'My current game' }),
+  ).toBeVisible();
+  fireEvent.keyDown(screen.getByRole('tab', { name: 'My games' }), { key: 'Home' });
   expect(screen.getByRole('tab', { name: 'Moves 24' })).toHaveFocus();
   expect(screen.getByRole('button', { name: 'Replay to move 21' })).toBeVisible();
   expect(screen.getAllByRole('grid')).toHaveLength(1);
@@ -100,14 +107,17 @@ it('pages the full history, preserves a browsed page across tabs, and follows a 
   expect(screen.getByRole('button', { name: 'Replay to move 24' })).toBeVisible();
 });
 
-it('keeps advisor setup and game details in options and returns focus after closing', () => {
+it('keeps only playback and advisor setup in options and returns focus after closing', () => {
   render(layout());
   fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
   const trigger = screen.getByRole('button', { name: 'Move advisor' });
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole('dialog', { name: 'Game options' });
-  expect(within(dialog).getByText('Game details')).toBeVisible();
+  expect(within(dialog).getByText('Playback controls')).toBeVisible();
+  expect(within(dialog).queryByRole('navigation')).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
   expect(within(dialog).getByLabelText('Advisor settings')).toBeVisible();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Close dialog' }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

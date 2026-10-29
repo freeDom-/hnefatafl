@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
-import { gameTab, openGameOptions, closeGameOptions } from './play-helpers';
+import { gameTab, closeGameOptions, openGameNavigation, returnToGame } from './play-helpers';
 
 async function fits(page: Page) {
   await expect
@@ -33,6 +33,7 @@ test('mobile board, tabs, paged replay and advisor stay within the viewport', as
   );
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  let previous: { id: string; size: number } | undefined;
   for (const [ruleset, size] of [
     ['brandubh', 7],
     ['tablut', 9],
@@ -54,12 +55,34 @@ test('mobile board, tabs, paged replay and advisor stay within the viewport', as
     await expect(page.getByRole('gridcell')).toHaveCount(size * size);
     await fits(page);
     const original = await page.locator('.board').boundingBox();
-    await gameTab(page, 'players');
-    await expect(page.getByRole('tabpanel').getByText('Captured', { exact: true })).toBeVisible();
+    await gameTab(page, 'games');
+    await expect(
+      page
+        .getByRole('navigation', { name: 'My games', exact: true })
+        .locator(`[data-game-id="${game.id}"]`),
+    ).toBeVisible();
     await fits(page);
     expect(await page.locator('.board').boundingBox()).toEqual(original);
+    if (previous) {
+      await page
+        .getByRole('navigation', { name: 'My games', exact: true })
+        .locator(`[data-game-id="${previous.id}"]`)
+        .click();
+      await expect(page.getByRole('gridcell')).toHaveCount(previous.size * previous.size);
+      await gameTab(page, 'games');
+      await page
+        .getByRole('navigation', { name: 'My games', exact: true })
+        .locator(`[data-game-id="${game.id}"]`)
+        .click();
+      await expect(page.getByRole('gridcell')).toHaveCount(size * size);
+      await fits(page);
+    }
     await gameTab(page, 'analytics');
     await page.getByRole('button', { name: 'Move advisor', exact: true }).click();
+    const menu = page.getByRole('dialog', { name: 'Game options', exact: true });
+    await expect(menu.locator('.game-details, .active-game-switcher, .site-header')).toHaveCount(0);
+    await expect(menu.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+    await expect(menu.getByRole('button', { name: 'New game', exact: true })).toHaveCount(0);
     await page
       .getByRole('combobox', { name: 'Move advisor', exact: true })
       .selectOption('profile:baseline');
@@ -78,16 +101,17 @@ test('mobile board, tabs, paged replay and advisor stay within the viewport', as
     await page.setViewportSize({ width: 375, height: 667 });
     await expect(page.getByRole('button', { name: /Replay to move/ })).toHaveCount(1);
     await fits(page);
-    await openGameOptions(page);
+    await openGameNavigation(page);
     await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
-    await closeGameOptions(page);
+    await returnToGame(page, `/games/${game.id}`);
     await expect(page.getByRole('tab', { name: /^Züge/ })).toBeVisible();
     await fits(page);
-    await openGameOptions(page);
+    await openGameNavigation(page);
     await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en');
-    await closeGameOptions(page);
+    await returnToGame(page, `/games/${game.id}`);
     await page.setViewportSize({ width: 844, height: 390 });
     await fits(page);
+    previous = { id: game.id, size };
   }
   expect(errors).toEqual([]);
 });

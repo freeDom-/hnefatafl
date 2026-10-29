@@ -409,7 +409,6 @@ export default function App() {
                     </>
                   ),
                   players: armies,
-                  details: gameDetails,
                   analytics: agentAnalysis,
                   settings: analyticsSettings,
                   options: playback,

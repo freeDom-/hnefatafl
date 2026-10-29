@@ -294,29 +294,6 @@
     padding: 0 4px;
     font-size: 11px;
   }
-  .mobile-player-details .armies {
-    border: 0;
-    box-shadow: none;
-    padding: 8px 12px;
-    background: transparent;
-  }
-  .mobile-player-details .army {
-    margin: 0;
-    padding: 6px;
-    min-height: 48px;
-  }
-  .mobile-player-details .army h3 {
-    font-size: 13px;
-    max-width: none;
-  }
-  .mobile-player-details .army p {
-    font-size: 11px;
-  }
-  .mobile-player-details .captured-row {
-    padding: 7px 6px 0;
-    margin-top: 6px;
-    font-size: 11px;
-  }
   .compact-analysis.panel {
     padding: 8px 12px;
     border: 0;
@@ -376,27 +353,44 @@
     min-height: 44px;
     font-size: 12px;
   }
-  .mobile-game-options .site-header {
-    height: auto;
-    min-height: 0;
-    padding: 8px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .mobile-game-options .site-header nav {
-    display: flex;
-    flex-wrap: wrap;
-    width: 100%;
-  }
-  .mobile-game-options .site-header nav button {
-    min-height: 44px;
+  .mobile-running-games {
+    padding: 8px 12px;
     font-size: 12px;
   }
-  .mobile-game-options .header-controls {
+  .mobile-running-games > p,
+  .mobile-running-games [role='alert'] {
+    padding: 8px 0;
+  }
+  .mobile-running-games [role='alert'] button {
+    min-height: 44px;
+    margin-top: 8px;
+  }
+  .mobile-running-games .running-game-list {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
     gap: 8px;
+  }
+  .running-game-list button.button {
+    flex: none;
+    min-height: 56px;
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 12px;
+    text-align: left;
+    white-space: normal;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+  }
+  .running-game-list button small {
+    font-size: 11px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
   }
 }
 

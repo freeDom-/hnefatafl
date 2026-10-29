@@ -1,4 +1,4 @@
-import { openGameOptions } from '../tests/play-helpers';
+import { openMyGames } from '../tests/play-helpers';
 import { test, expect, type Page, type Browser, type BrowserContext } from '@playwright/test';
 const password = 'online-browser-fixture-password';
 async function login(page: Page, username: string) {
@@ -140,8 +140,8 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   const id = new URL(url).pathname.split('/').pop()!;
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  await openGameOptions(page);
-  const switcher = page.getByRole('navigation', { name: 'Active games' });
+  await openMyGames(page);
+  const switcher = page.getByRole('navigation', { name: /^(Active games|My games)$/ });
   const sibling = switcher.locator(`[data-game-id="${siblingId}"]`);
   await expect(sibling).toBeVisible();
   await sibling.click();
@@ -149,7 +149,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await concede(page);
   // The return game completed; the still-active first leg remains in the switcher.
-  await openGameOptions(page);
+  await openMyGames(page);
   await switcher.locator(`[data-game-id="${id}"]`).click();
   await expect(page.getByLabel(/(Attackers|Defenders) to move/)).toBeVisible();
 });

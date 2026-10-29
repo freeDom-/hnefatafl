@@ -1,4 +1,4 @@
-import { openGameOptions } from './play-helpers';
+import { openGameNavigation } from './play-helpers';
 import { test, expect } from '@playwright/test';
 
 test('login, registration placeholder, regular-user navigation, reload and logout', async ({
@@ -42,7 +42,7 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   expect(game.players.attackers.name).toBe('BrowserUser');
   const session = await (await page.request.get('/api/auth/me')).json();
   expect(game.players.attackers.account_id).toBe(session.account.id);
-  await openGameOptions(page);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();

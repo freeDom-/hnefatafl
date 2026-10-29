@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { setLanguage } from './i18n';
+import { MobilePlayContext } from './mobilePlay';
 
 const singleGame = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
@@ -72,4 +73,77 @@ it('lists active games across both types and marks current and your-turn games',
   expect(single.textContent).toContain('Single player game');
   fireEvent.click(single);
   expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: 's1', type: 'single' }));
+});
+
+function renderList(open = vi.fn()) {
+  return render(
+    <MobilePlayContext.Provider value>
+      <ActiveGameSwitcher accountId="me" currentId="s1" open={open} />
+    </MobilePlayContext.Provider>,
+  );
+}
+
+it('shows loading, empty, and single-current-game states in My games', async () => {
+  singles = [];
+  onlines = [];
+  const empty = renderList();
+  expect(screen.getByRole('status')).toHaveTextContent('Loading running games');
+  await screen.findByText('No running games.');
+  empty.unmount();
+  singles = [singleGame('s1')];
+  renderList();
+  const nav = await screen.findByRole('navigation', { name: 'My games' });
+  expect(within(nav).getAllByRole('button')).toHaveLength(1);
+  expect(nav.querySelector('[data-game-id="s1"]')).toHaveAttribute('aria-current', 'page');
+});
+
+it('loads every online page and includes waiting games while excluding completed games', async () => {
+  const pages = Array.from({ length: 51 }, (_, i) =>
+    onlineGame(`o${i}`, i === 50 ? 'waiting' : 'active'),
+  );
+  pages.push(onlineGame('completed', 'completed'));
+  const paged = vi.fn((path: string) => {
+    if (path === '/api/games')
+      return respond([singleGame('s1'), singleGame('finished', { recorded_winner: 'draw' })]);
+    const offset = Number(new URL(path, 'http://test').searchParams.get('offset'));
+    return respond({ games: pages.slice(offset, offset + 50), limit: 50, offset, section: 'mine' });
+  });
+  vi.stubGlobal('fetch', paged);
+  const open = vi.fn();
+  renderList(open);
+  const last = await screen.findByRole('button', { name: /Online game.*Waiting/ });
+  expect(
+    screen.getByRole('navigation', { name: 'My games' }).querySelectorAll('button'),
+  ).toHaveLength(52);
+  expect(paged).toHaveBeenCalledWith(expect.stringContaining('offset=50'), expect.anything());
+  fireEvent.click(last);
+  expect(open).toHaveBeenCalledWith(
+    expect.objectContaining({ id: 'o50', type: 'online', waiting: true }),
+  );
+});
+
+it('retains a readable partial list and retries a failed source', async () => {
+  let fail = true;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => {
+      if (path === '/api/games') return respond([singleGame('s1')]);
+      return fail
+        ? Promise.reject(new Error('offline'))
+        : respond({ games: [onlineGame('o1', 'active')], limit: 50, offset: 0, section: 'mine' });
+    }),
+  );
+  renderList();
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Some running games could not be loaded.',
+  );
+  expect(
+    screen.getByRole('navigation', { name: 'My games' }).querySelector('[data-game-id="s1"]'),
+  ).toBeInTheDocument();
+  fail = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  expect(
+    screen.getByRole('navigation', { name: 'My games' }).querySelectorAll('button'),
+  ).toHaveLength(2);
 });

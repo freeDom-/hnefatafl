@@ -23,14 +23,14 @@ export async function closeGameOptions(page: Page) {
       .click();
 }
 
-export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'players') {
+export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') {
   if (/^\/(games|online\/games)\//.test(new URL(page.url()).pathname))
     await expect(page.getByRole('grid')).toBeVisible();
   await closeGameOptions(page);
   const names = {
     moves: /^(Moves|Züge) \d+$/,
     analytics: /^(Analytics|Analyse)$/,
-    players: /^(Players|Spieler)$/,
+    games: /^(My games|Meine Partien)$/,
   };
   const button = page.locator('.mobile-inspector').getByRole('tab', { name: names[tab] });
   if (await button.isVisible()) await button.click();
@@ -53,4 +53,33 @@ export async function showMove(page: Page, ply: number) {
     await previous.click();
   }
   await expect(row).toBeVisible();
+}
+
+export async function openGameNavigation(page: Page) {
+  if (/^\/(games|online\/games)\//.test(new URL(page.url()).pathname))
+    await expect(page.getByRole('grid')).toBeVisible();
+  await closeGameOptions(page);
+  const back = page.locator('.mobile-play-header a');
+  if (await back.isVisible()) {
+    await back.click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole('combobox', { name: /^(Language|Sprache)$/ })).toBeVisible();
+  }
+}
+
+export async function returnToGame(page: Page, path: string) {
+  if (new URL(page.url()).pathname !== path) {
+    await page.goto(path);
+    await expect(page.getByRole('grid')).toBeVisible();
+  }
+}
+
+export async function openMyGames(page: Page) {
+  const compact = await page.evaluate(
+    () => matchMedia('(max-width: 760px), (max-height: 480px) and (pointer: coarse)').matches,
+  );
+  if (compact) {
+    await expect(page.locator('.mobile-game-layout')).toBeVisible();
+    await gameTab(page, 'games');
+  }
 }

@@ -1,4 +1,4 @@
-import { openGameOptions, gameTab, pauseGame } from './play-helpers';
+import { openGameNavigation, openGameOptions, gameTab, pauseGame } from './play-helpers';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
@@ -31,7 +31,7 @@ test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
 test('Shield maiden is localized and selectable for training and advisors', async ({ page }) => {
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await openGameOptions(page);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCreation(page);
   await openCollection(page);
@@ -46,7 +46,7 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await expect(page.getByRole('option', { name: 'Schildmaid', exact: true })).toHaveCount(1);
   await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en');
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
-  await openGameOptions(page);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();

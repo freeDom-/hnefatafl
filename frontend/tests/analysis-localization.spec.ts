@@ -1,4 +1,11 @@
-import { openGameOptions, gameTab, pauseGame, showMove } from './play-helpers';
+import {
+  openGameNavigation,
+  returnToGame,
+  openGameOptions,
+  gameTab,
+  pauseGame,
+  showMove,
+} from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { expect, test } from './auth-fixture';
 
@@ -95,19 +102,22 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
   await openGameOptions(page);
   await expect(advisor).toHaveValue('profile:baseline');
-
+  const gamePath = new URL(page.url()).pathname;
+  await openGameNavigation(page);
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
+  await returnToGame(page, gamePath);
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await gameTab(page, 'analytics');
   await expect(page.getByRole('region', { name: 'Agentenbewertungen', exact: true })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: /König/ })).toHaveCount(1);
-  await openGameOptions(page);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'Darstellungseinstellungen', exact: true }).click();
   await page.getByRole('radio', { name: 'Holz', exact: true }).check();
   await page
     .getByRole('button', { name: 'Darstellungseinstellungen schließen', exact: true })
     .click();
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
+  await returnToGame(page, gamePath);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
