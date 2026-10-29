@@ -33,6 +33,9 @@ Open **Game options** (the three dots) for advisor settings.
 **My games** lists your unfinished single-player games and active or waiting
 online games, including the current game. Select any row to open that game;
 additional rows scroll inside the panel while the board stays visible.
+Games awaiting your move use the standard filled button style and retain the
+**Your turn** label. The outline independently marks the game currently open;
+waiting games, opponents' turns and AI turns use the normal secondary style.
 
 The **Analytics** tab shows one agent at a time, with an agent selector when
 several have evaluated the position. Detailed settings scroll within the options

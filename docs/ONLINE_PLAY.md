@@ -146,10 +146,11 @@ configured limit and clock details, including the increment for total-time games
 ## Viewing and replay
 
 Authenticated viewers can inspect games allowed by the current backend visibility
-policy. Spectators cannot move or concede. **View replay** loads the validated
-server replay. Previous/next move changes only your local view; it does not change
-a shared cursor. **Historical replay · read only** clearly marks the board.
-**Return to live board** is required before submitting moves. Live polling continues
+policy. Spectators cannot move or concede. In **Moves**, choose **Starting position**
+or a recorded move to load the validated server replay. There is no separate
+View replay button. Selecting history changes only your local view; it does not
+change a shared cursor. **Read-only history** marks the board. Choose **Return to
+live board** or the latest recorded move before submitting moves. Live polling continues
 while viewing history and reports newly available moves.
 
 Online replay provides no seek/undo/branch mutations or exports. **Completed**

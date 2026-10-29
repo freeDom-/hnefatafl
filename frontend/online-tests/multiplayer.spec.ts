@@ -1,4 +1,4 @@
-import { openMyGames } from '../tests/play-helpers';
+import { gameTab, openMyGames } from '../tests/play-helpers';
 import { test, expect, type Page, type Browser, type BrowserContext } from '@playwright/test';
 const password = 'online-browser-fixture-password';
 async function login(page: Page, username: string) {
@@ -43,6 +43,7 @@ async function refresh(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
 }
 async function concede(page: Page) {
+  await expect(page.getByRole('button', { name: 'Concede', exact: true })).toHaveClass(/secondary/);
   await page.getByRole('button', { name: 'Concede', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm concession', exact: true }).click();
   await expect(page.getByText(/win · concession/)).toBeVisible();
@@ -160,6 +161,17 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(page).toHaveURL(url);
   await refresh(page);
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'View replay', exact: true })).toHaveCount(0);
+  await openMyGames(page);
+  const currentInMyGames = page
+    .getByRole('navigation', { name: 'My games', exact: true })
+    .locator(`[data-game-id="${id}"]`);
+  await expect(currentInMyGames).toHaveClass(/primary/);
+  const turnBackground = await currentInMyGames.evaluate(
+    (node) => getComputedStyle(node).backgroundColor,
+  );
+  await page.screenshot({ path: test.info().outputPath('my-turn-highlight.png') });
+  await gameTab(page, 'moves');
   for (const viewport of [
     { width: 1280, height: 720 },
     { width: 3840, height: 2160 },
@@ -221,6 +233,13 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
     `Captured ${afterMove.captured.attackers} ${afterMove.captured.defenders}`,
   );
   await other.context.setOffline(true);
+  await openMyGames(page);
+  await refresh(page);
+  await expect(currentInMyGames).toHaveClass(/secondary/);
+  expect(
+    await currentInMyGames.evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).not.toBe(turnBackground);
+  await gameTab(page, 'moves');
   await refresh(other.page);
   await expect(
     other.page.getByText('Online service unavailable or stale. Retry to reconnect.'),
@@ -238,7 +257,8 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(capturedRow).toHaveText(
     `Captured ${afterConcession.captured.attackers} ${afterConcession.captured.defenders}`,
   );
-  await page.getByRole('button', { name: 'View replay' }).click();
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
   await expect(page.getByRole('button', { name: 'Return to live board' })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: 'd7, attacker', exact: true })).toHaveAttribute(
     'aria-disabled',
