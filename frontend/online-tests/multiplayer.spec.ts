@@ -306,8 +306,11 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await expect(page.getByText(/State changed or adjudication is paused/)).toBeVisible();
   await expect(page.getByText('Active', { exact: true })).toBeVisible();
   await page.goto('/dashboard');
-  await page.getByRole('button', { name: 'New online game', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Create game', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'New online game', exact: true })).toBeDisabled();
+  await expect(
+    page.getByText('Verify your email address before creating or joining online games.'),
+  ).toBeVisible();
+  await expect(page.getByText(/Creating and joining require/)).toHaveCount(0);
 });
 
 test('lobby automatically observes creation, join and completion and resynchronizes after reconnect and tab visibility', async ({
