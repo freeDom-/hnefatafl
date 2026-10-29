@@ -34,70 +34,8 @@
 .leaderboard-compact h2 {
   margin-top: 0;
 }
-.personal-section .disclosure-heading {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--gap-inline);
-  background: none;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.personal-section .disclosure-heading::before {
-  /* Empty alternative text keeps the marker out of the accessible heading name. */
-  content: '−' / '';
-  color: var(--gold);
-  font-size: 0.9em;
-}
-.personal-section .disclosure-heading[aria-expanded='false']::before {
-  content: '＋' / '';
-}
 .leaderboard-compact {
   align-self: start;
-}
-.personal-statistics {
-  display: grid;
-  gap: var(--gap-stack);
-}
-.statistics-ruleset {
-  display: grid;
-  gap: var(--gap-inline);
-}
-.statistics-ruleset > h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-.statistics-group {
-  border-top: 1px solid var(--line);
-  padding-top: var(--pad-panel-sm);
-}
-.statistics-group > h4 {
-  margin: 0 0 0.4rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-.statistics-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-  gap: var(--gap-inline) var(--gap-stack);
-  margin: 0;
-}
-.statistics-metrics > div {
-  min-width: 0;
-}
-.statistics-metrics dt {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-.statistics-metrics dd {
-  margin: 0.1rem 0 0;
-  font-size: 1rem;
-  font-weight: bold;
-  overflow-wrap: anywhere;
 }
 .personal-filters {
   display: flex;
@@ -259,10 +197,11 @@
     grid-row: auto;
   }
 }
-.dashboard-lobby > h2 {
+.dashboard-lobby .online-games > h2 {
   margin-top: 0;
 }
 .dashboard-lobby .online-lobby-layout {
+  margin-top: 0;
   grid-template-columns: minmax(0, 1fr);
 }
 .move-duration .form-grid {

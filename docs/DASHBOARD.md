@@ -1,4 +1,4 @@
-# Dashboard and Hall of records
+# Dashboard, personal statistics and Hall of records
 
 [Documentation index](README.md) · [Account play](GAMEPLAY.md) ·
 [Online play](ONLINE_PLAY.md)
@@ -6,7 +6,8 @@
 Dashboard (`/dashboard`) is the authenticated landing and default post-login page.
 `/`, `/play` and `/online` redirect there, retaining search parameters and fragments;
 old Play/Online entries select the corresponding setup. Main navigation contains
-Dashboard, Hall of records and the authorized workshop/tournament controls.
+Dashboard, Statistics, Leaderboard, Hall of records and the authorized
+workshop/tournament controls.
 Every surface here requires an authenticated session.
 
 ## Play from Dashboard
@@ -24,27 +25,42 @@ The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
 
-The **Singleplayer** and **Online multiplayer** statistics cards start collapsed.
-Click a heading, or focus it and press Enter/Space, to expand or collapse that card.
-The cards reset to collapsed when Dashboard reloads; expansion is not saved.
+## Compact badges and detailed personal statistics
 
-Dashboard statistics are personal and relative to the signed-in account's
-authoritative seat. Both panels group by ruleset only:
+Dashboard's **Your performance** strip contains three small ruleset badges per
+mode. Singleplayer badges show the win rate; their decoration progresses from
+bronze to silver (40%), gold (65%) and royal (85%). These are cosmetic treatments
+of the current rate, not earned rewards or ratings. Multiplayer badges show the
+win rate and the account's existing Elo for that ruleset. Elo is omitted when no
+eligible games have been played there, including an empty rating pool. A ruleset
+with no completed results shows an em dash. Badges link to its mode/ruleset on
+the Statistics page; detailed tables do not appear on Dashboard.
+
+**Statistics** (`/statistics`) is personal and relative to the signed-in
+account's authoritative seat. The Singleplayer/Multiplayer tabs and ruleset
+selector are retained in the URL, including through login and reload. Each ruleset
+has an outcome distribution and a comparison table for overall, attacker and
+defender results: games played, wins, losses, draws, win rate and average length.
+On phones the tables become labelled metric cards without horizontal panning.
+Singleplayer adds expandable AI-opponent breakdowns with the same metrics and
+sides. Opponents use the persisted seed-independent effective configuration
+identity, so changing only a random seed does not split an agent's results.
+
+Both views use complete account-scoped aggregates, independent of history
+pagination and filters:
 
 - **Singleplayer** uses the account-bound human seat and the persisted
-  `recorded_result`. Each ruleset shows played games, wins, losses, draws, win
-  rate, side-specific win rates and average length. AI-vs-AI games are not recorded
+  `recorded_result`. Played includes unfinished games. AI-vs-AI games are not recorded
   in personal history or statistics and never appear here; they exist only for
-  administrator AI-strength analysis. Legacy records without an account-bound seat
-  are excluded from personal statistics; the panel reports how many records are
+  administrator AI-strength analysis. Records without an account-bound seat
+  are excluded from personal statistics; the page reports how many records are
   unattributed. Missing/null `recorded_result` is unfinished and never
-  reconstructed.
+  reconstructed. No legacy account-result replay is supported.
 - **Online multiplayer** uses the current effective eligible result revision and
-  the account's seat, aggregated across match modes per ruleset. Each ruleset
-  heading appends the account's available Elo rating (for example
-  `Brandubh (1537)`); the rating is omitted when the account has no rated-game
-  pool for that ruleset. Cancelled, waiting and voided games do not contribute;
-  voids withdraw prior contributions and concession is a loss. `Timed-out games`
+  the account's seat, aggregated across match modes per ruleset. Played counts
+  completed eligible results only. The detailed card also shows the existing Elo
+  when games have been played in that ruleset. Cancelled, waiting and voided games
+  do not contribute; voids withdraw prior contributions and concession is a loss. `Timed-out games`
   counts only games the account lost because its own clock expired, never wins
   caused by an opponent's timeout.
 
@@ -64,9 +80,11 @@ to **Copenhagen** and persists the last valid choice in browser storage, restore
 after reload and navigation and ignored when storage is unavailable. It requires a
 session and exposes only display names, ratings and rated-game counts.
 
-On the Dashboard grid the embedded **Online lobby** takes the slot after the two
-statistics panels, the **Leaderboard** panel follows, and **Recorded games**
-spans the final row. All cards share the same padding and section gap.
+On the Dashboard grid **Online games** follows the compact performance strip,
+then **Leaderboard** and the final **Recorded games** row. The redundant visible
+Online lobby heading is removed; the lobby keeps its accessible region name.
+**Open game** uses the same primary button style as **New online game**.
+All cards share the same padding and section gap.
 
 ## Shared Recorded games and visibility
 
@@ -151,8 +169,8 @@ history/statistics/replay reads and discard late responses. The personal APIs re
 strictly own-account even for administrators; broader Hall access uses separate
 read-only `/api/history` routes with trusted session rechecks.
 
-Dashboard reads only account-scoped records. Dashboard cards, including the
-full-width lobby, share padding and one grid gap. The shared header shows the
+Dashboard reads only account-scoped records. Dashboard cards share padding and
+one grid gap. The shared header shows the
 signed-in navigation; only it checks the session. Protected destinations retain
 their auth guard. See
 [the Phase 5 refinement evidence](validation/dashboard-consolidation.md).

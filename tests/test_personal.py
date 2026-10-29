@@ -938,3 +938,93 @@ def test_own_timeout_loss_differs_from_opponent_timeout_win(world):
     assert group["played"] == 2
     assert (group["wins"], group["losses"]) == (1, 1)
     assert group["timed_out"] == 1
+
+
+def test_statistics_ai_opponents_and_sides_are_complete_despite_history_paging(world):
+    app, clients, _, _, _ = world
+    client = clients["Archer"]
+    _finish_account(app, _account_game(client, "brandubh", "attackers")["id"], "attackers", 20)
+    _finish_account(app, _account_game(client, "brandubh", "defenders")["id"], "attackers", 40)
+    _account_game(client, "brandubh", "defenders")
+    seer = client.post(
+        "/api/games",
+        json={
+            "ruleset": "brandubh",
+            "mode": "human-ai",
+            "human_side": "attackers",
+            "players": {"defenders": {"profile_id": "mcts"}},
+        },
+    ).json()
+    _finish_account(app, seer["id"], "draw", 10)
+    response = client.get("/api/personal/single-player?limit=1&status=in_progress").json()
+    assert len(response["games"]) == 1
+    group = response["statistics"]["groups"][0]
+    assert (
+        group["played"],
+        group["completed"],
+        group["wins"],
+        group["losses"],
+        group["draws"],
+    ) == (4, 3, 1, 1, 1)
+    assert group["win_rate"] == 1 / 3
+    assert group["average_game_length"] == 70 / 3
+    attackers, defenders = group["by_side"]["attackers"], group["by_side"]["defenders"]
+    assert (
+        attackers["played"],
+        attackers["wins"],
+        attackers["draws"],
+        attackers["average_game_length"],
+    ) == (2, 1, 1, 15)
+    assert (
+        defenders["played"],
+        defenders["completed"],
+        defenders["losses"],
+        defenders["average_game_length"],
+    ) == (2, 1, 1, 40)
+    agents = {agent["profile_id"]: agent for agent in group["agents"]}
+    assert set(agents) == {"baseline", "mcts"}
+    baseline = agents["baseline"]
+    assert baseline["played"] == 3 and baseline["completed"] == 2
+    assert baseline["average_game_length"] == 30
+    assert baseline["by_side"]["attackers"]["win_rate"] == 1
+    assert baseline["by_side"]["defenders"]["win_rate"] == 0
+    assert agents["mcts"]["by_side"]["defenders"]["played"] == 0
+    assert agents["mcts"]["by_side"]["defenders"]["win_rate"] is None
+    assert (
+        clients["Observer"].get("/api/personal/single-player").json()["statistics"]["groups"] == []
+    )
+
+
+def test_online_statistics_side_lengths_rating_and_void_withdrawal(world):
+    app, clients, credentials, _, _ = world
+    core = app.state.online
+    attackers = online(world)
+    core.mutate(credentials["Archer"], attackers["id"], attackers["version"], "concede")
+    other = core.create(credentials["Keeper"], "brandubh", "attackers", 60, str(uuid4()))["game"]
+    joined = core.mutate(credentials["Archer"], other["id"], 0, "join")["game"]
+    moved = core.mutate(
+        credentials["Keeper"], other["id"], joined["version"], "move", source=3, target=1
+    )["game"]
+    ended = core.mutate(credentials["Archer"], other["id"], moved["version"], "concede")["game"]
+    group = clients["Archer"].get("/api/personal/online?limit=1").json()["statistics"]["groups"][0]
+    assert group["played"] == group["completed"] == group["losses"] == 2
+    assert group["average_game_length"] == 0.5
+    assert group["by_side"]["attackers"]["average_game_length"] == 0
+    assert group["by_side"]["defenders"]["average_game_length"] == 1
+    with app.state.store.connection() as c:
+        rating = c.execute(
+            "SELECT rating FROM player_ratings WHERE account_id=? AND pool='brandubh'",
+            (clients["Archer"].get("/api/auth/me").json()["account"]["id"],),
+        ).fetchone()[0]
+    assert group["rating"] == rating
+    core.mutate(
+        credentials["Odin"],
+        ended["id"],
+        ended["version"],
+        "void",
+        note="statistics fixture withdrawal",
+    )
+    after = clients["Archer"].get("/api/personal/online").json()["statistics"]["groups"][0]
+    assert after["played"] == 1 and after["average_game_length"] == 0
+    assert after["by_side"]["defenders"]["played"] == 0
+    assert after["by_side"]["defenders"]["average_game_length"] is None

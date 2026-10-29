@@ -14,20 +14,25 @@ export type AccountSummary = {
   players: Record<Side, { name: string; kind: 'human' | 'ai' }>;
 };
 export type Paging = { limit: number; matching: number; next_cursor: string | null };
-export type PersonalStatisticGroup = {
-  ruleset: string;
-  mode: string | null;
-  rating?: number | null;
+export type PersonalStatisticMetrics = {
   played: number;
+  completed?: number;
   wins: number | null;
   losses: number | null;
   draws: number | null;
   timed_out?: number;
   win_rate: number | null;
-  win_rate_attackers: number | null;
-  win_rate_defenders: number | null;
   average_game_length: number | null;
   average_game_length_unit: string;
+};
+export type PersonalStatisticGroup = PersonalStatisticMetrics & {
+  ruleset: string;
+  mode: string | null;
+  rating?: number | null;
+  win_rate_attackers: number | null;
+  win_rate_defenders: number | null;
+  by_side?: Record<Side, PersonalStatisticMetrics>;
+  agents?: (PersonalStatisticGroup & { id: string; name: string; profile_id: string | null })[];
 };
 export type PersonalStatistics = {
   groups: PersonalStatisticGroup[];
