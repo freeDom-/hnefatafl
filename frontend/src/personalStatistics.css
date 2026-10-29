@@ -7,7 +7,7 @@
   margin-bottom: var(--gap-inline);
 }
 .dashboard-performance h2 {
-  font-size: 1.15rem;
+  font-size: var(--text-section);
 }
 .performance-modes {
   display: grid;
@@ -16,13 +16,13 @@
 }
 .performance-modes h3 {
   margin: 0 0 0.4rem;
-  font-size: 0.85rem;
+  font-size: var(--text-subsection);
 }
 .performance-modes h3 small {
   font-weight: normal;
   color: var(--muted);
   margin-left: 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--text-subsection);
 }
 .performance-badges {
   display: grid;
@@ -149,7 +149,7 @@
 }
 .statistics-ruleset-card h3 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: var(--text-subsection);
 }
 .statistics-headline {
   display: grid;

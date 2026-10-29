@@ -49,7 +49,7 @@ export default function MobileGameLayout({
           >
             ‹
           </a>
-          <div>
+          <div className="sr-only">
             <h2>{presentation.title}</h2>
             <div className="mobile-play-subtitle">{presentation.subtitle}</div>
           </div>

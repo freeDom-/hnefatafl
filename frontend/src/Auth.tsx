@@ -214,7 +214,10 @@ export default function Auth({ children }: { children: ReactNode }) {
     >
       {required && !account.permissions.includes(required) ? (
         <main>
-          <h1>{t('Access denied')}</h1>
+          <h1 className="sr-only" tabIndex={-1}>
+            {t('Access denied')}
+          </h1>
+          <p role="alert">{t('Access denied')}</p>
           <a href="/">{t('Return to gameplay')}</a>
         </main>
       ) : (

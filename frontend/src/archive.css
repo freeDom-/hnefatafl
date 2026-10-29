@@ -16,7 +16,7 @@
   margin-bottom: var(--gap-card);
 }
 .archive-statistics-heading h2 {
-  font-size: 1.8125rem;
+  font-size: var(--text-section);
   margin: 8px 0;
 }
 .archive-statistics-heading p:not(.eyebrow) {
@@ -55,7 +55,7 @@
 }
 .archive-statistics-block h3 {
   color: var(--ui-heading, #48613f);
-  font-size: 0.8125rem;
+  font-size: var(--text-subsection);
   margin: 0 5px 13px;
 }
 .archive-statistics-block .table-scroll {
@@ -108,12 +108,12 @@
 }
 .archive-table-filter label {
   flex: 1 1 170px;
-  font-size: 0.625rem;
+  font-size: var(--text-label);
   min-width: 0;
 }
 .archive-table-filter input {
   padding: var(--pad-control);
-  font-size: 0.6875rem;
+  font-size: var(--text-body);
 }
 .archive-table-filter .button {
   min-height: 34px;
@@ -228,7 +228,7 @@
   min-width: 0;
 }
 .archive-history-summary h2 {
-  font-size: 1.625rem;
+  font-size: var(--text-section);
   color: var(--ui-heading, #3e5236);
   margin: 8px 0;
 }
@@ -332,7 +332,7 @@
     gap: var(--gap-stack);
   }
   .archive-statistics-heading h2 {
-    font-size: 1.5625rem;
+    font-size: var(--text-section);
   }
   .archive-statistics-heading p:not(.eyebrow) {
     font-size: 0.625rem;
@@ -350,7 +350,7 @@
     min-width: 405px;
   }
   .archive-history-summary h2 {
-    font-size: 1.4375rem;
+    font-size: var(--text-section);
   }
   .archive-history-summary .eyebrow {
     font-size: 0.5rem;

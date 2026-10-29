@@ -540,24 +540,28 @@ it.each([
 });
 
 it.each(['per_move', 'total'])(
-  'creates a %s clock with a configured increment and retains it on reload',
+  'creates a %s clock with an increment only for total time and retains the exact request',
   async (timeControl) => {
     mutation = async () => {
       throw new TypeError('network');
     };
     const view = lobby();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+    expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Time control'), { target: { value: 'total' } });
     expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(0);
-    fireEvent.change(screen.getByLabelText('Time control'), { target: { value: timeControl } });
     fireEvent.change(screen.getByLabelText('Increment per move (seconds)'), {
       target: { value: '12' },
     });
+    fireEvent.change(screen.getByLabelText('Time control'), { target: { value: timeControl } });
+    if (timeControl === 'per_move')
+      expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
     await screen.findByText(/The outcome is uncertain/);
     const first = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')![1]!.body;
     expect(JSON.parse(String(first))).toMatchObject({
       time_control: timeControl,
-      increment_seconds: 12,
+      increment_seconds: timeControl === 'total' ? 12 : 0,
     });
     view.unmount();
     lobby();
@@ -565,7 +569,9 @@ it.each(['per_move', 'total'])(
       expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
     );
     expect(screen.getByLabelText('Time control')).toHaveValue(timeControl);
-    expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(12);
+    if (timeControl === 'total')
+      expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(12);
+    else expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
     await waitFor(() =>
       expect(fetcher.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(2),

@@ -139,7 +139,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   setLanguage('en', false);
 });
-it('shows the verification warning immediately after the Dashboard heading and disables only online creation', async () => {
+it('shows the verification warning before creation actions and disables only online creation', async () => {
   identity.email_verified = false;
   const previous = serve;
   serve = (url) =>
@@ -149,7 +149,10 @@ it('shows the verification warning immediately after the Dashboard heading and d
   const warning = screen.getByText(
     'Verify your email address before creating or joining online games.',
   );
-  expect(screen.getByRole('heading', { name: 'Dashboard' }).nextElementSibling).toBe(warning);
+  expect(
+    warning.compareDocumentPosition(screen.getByRole('button', { name: 'New online game' })) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
   expect(warning).toHaveAttribute('role', 'alert');
   expect(screen.getByRole('button', { name: 'New online game' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'New single-player game' })).toBeEnabled();

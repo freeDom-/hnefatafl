@@ -8,6 +8,7 @@ import { navigate } from './navigation';
 import { surfaceLink } from './surfaceNavigation';
 import GameCreationActions from './GameCreationActions';
 import { Lobby } from './Online';
+import PageHeading from './PageHeading';
 
 export default function PlayLanding({
   onNewSingle,
@@ -58,7 +59,7 @@ export default function PlayLanding({
   }, [games.phase, target, creation, creatingSingle]);
   return (
     <section className="personal-dashboard play-home">
-      <h1>{t('Play')}</h1>
+      <PageHeading title={t('Play')} />
       {games.phase === 'loading' || (games.phase === 'ready' && target) ? (
         <p role="status">{t('Loading your games…')}</p>
       ) : games.phase === 'stale' ? (
