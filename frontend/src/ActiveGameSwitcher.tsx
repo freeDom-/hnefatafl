@@ -20,8 +20,8 @@ export type ActiveGameEntry = {
 };
 
 /**
- * Compact switcher across active single-player and online games. Rendered only
- * when more than one accessible active game exists; terminal games are excluded.
+ * Compact switcher across active single-player and online games. Rendered when
+ * an accessible active game differs from the current game; terminal games are excluded.
  */
 export default function ActiveGameSwitcher({
   accountId,
@@ -72,7 +72,7 @@ export default function ActiveGameSwitcher({
       yourTurn: game.participants[game.position.turn]?.account_id === accountId,
     });
   }
-  if (entries.length <= 1) return null;
+  if (!entries.some((entry) => entry.id !== currentId)) return null;
   return (
     <nav className="active-game-switcher" aria-label={t('Active games')}>
       {entries.map((entry) => (
