@@ -1,15 +1,12 @@
-import {
-  openGameNavigation,
-  openGameOptions,
-  closeGameOptions,
-  pauseGame,
-  showMove,
-} from './play-helpers';
+import { openGameNavigation, openGameOptions, closeGameOptions, showMove } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
 test('real gameplay, undo, redo, rules, records and mobile layout', async ({ page }) => {
+  // Hold browser time for the undo/redo assertions; live AI turns are covered below.
+  await page.clock.install({ time: new Date() });
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/dashboard?setup=single-player');
@@ -17,7 +14,7 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
   await page.getByRole('button', { name: 'To the table' }).click();
   const board = page.getByRole('grid', { name: 'tablut game board' });
   await expect(board.getByRole('gridcell')).toHaveCount(81);
-  await pauseGame(page);
+  await expect(page.getByRole('button', { name: /Pause AI|Resume AI/ })).toHaveCount(0);
   await board.getByRole('gridcell', { name: 'e7, defender', exact: true }).click();
   const destination = board.getByRole('gridcell', { name: /empty, legal move/ }).first();
   const name = await destination.getAttribute('aria-label');
@@ -77,11 +74,9 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible({
     timeout: 20000,
   });
-  await pauseGame(page);
-  await expect(page.getByRole('button', { name: /Resume AI/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Pause AI|Resume AI/ })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'AI playback speed' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Next move', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: /Resume AI/ }).click();
   const outcome = page.locator('.game-details .game-result strong, .mobile-play-subtitle');
   await expect(outcome).toHaveText(/Attackers win|Defenders win|Draw/, {
     timeout: 120000,

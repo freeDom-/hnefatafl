@@ -12,7 +12,7 @@ export function BoardToolbar({
   return (
     <div className="board-toolbar">
       <div className="button-group">{leading}</div>
-      <span className="board-help">{help}</span>
+      {help && <span className="board-help">{help}</span>}
       {trailing}
     </div>
   );

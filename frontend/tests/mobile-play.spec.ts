@@ -6,7 +6,6 @@ import {
   closeGameOptions,
   openGameNavigation,
   returnToGame,
-  pauseGame,
 } from './play-helpers';
 
 async function fits(page: Page) {
@@ -150,9 +149,8 @@ test('mobile board, tabs, scrollable replay and advisor stay within the viewport
   }
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'To the table', exact: true }).click();
-  await pauseGame(page);
-  const resume = page.locator('.board-toolbar').getByRole('button', { name: /Resume AI/ });
-  await expect(resume).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Resume AI|Pause AI/ })).toHaveCount(0);
   for (const size of [
     { width: 390, height: 780 },
     { width: 375, height: 667 },
@@ -168,11 +166,5 @@ test('mobile board, tabs, scrollable replay and advisor stay within the viewport
   );
   await expect(options.getByRole('combobox', { name: 'AI playback speed' })).toHaveCount(0);
   await closeGameOptions(page);
-  await resume.click();
-  await page
-    .locator('.board-toolbar')
-    .getByRole('button', { name: /Pause AI/ })
-    .click();
-  await expect(resume).toBeVisible();
   expect(errors).toEqual([]);
 });

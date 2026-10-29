@@ -36,12 +36,6 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
   if (await button.isVisible()) await button.click();
 }
 
-export async function pauseGame(page: Page) {
-  await expect(page.getByRole('grid')).toBeVisible();
-  await closeGameOptions(page);
-  await page.getByRole('button', { name: /Pause AI/ }).click();
-}
-
 export async function showMove(page: Page, ply: number) {
   await gameTab(page, 'moves');
   const row = page.getByRole('button', { name: `Replay to move ${ply}`, exact: true });

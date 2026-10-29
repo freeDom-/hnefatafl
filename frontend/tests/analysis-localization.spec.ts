@@ -3,7 +3,6 @@ import {
   returnToGame,
   openGameOptions,
   gameTab,
-  pauseGame,
   showMove,
 } from './play-helpers';
 import { historicalGame } from './historical-fixture';
@@ -184,13 +183,10 @@ test('the actual AI decision and the opponent’s background estimate survive re
     target: after.moves[0].target,
   });
   expect(replay.analysis.evaluations).toHaveLength(2);
-  // Freeze only the browser playback timer while opening the retained position;
-  // all recorded searches and moves above used the real engine/API.
-  await page.clock.install({ time: new Date() });
-  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  // Hold the automatic move request while inspecting this retained position.
+  // The recorded searches/moves above and all analysis requests use the real API.
+  await page.route(`**/api/games/${game.id}/ai-move`, () => {});
   await page.goto('/games/' + game.id);
-  await pauseGame(page);
-  await page.clock.resume();
   // The advisor selection is the display trigger; stored playing-agent evidence
   // still appears alongside the advisor.
   await openGameOptions(page);

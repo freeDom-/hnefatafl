@@ -25,8 +25,9 @@ Move history scrolls inside the panel, keeping the board in place. All recorded
 moves are available in one list. Selecting a move still uses the existing replay
 and version-guarded seek behavior.
 
-The **Pause AI / Resume AI** button sits below the board, between undo/redo and
-restart. Open **Game options** (the three dots) for advisor settings.
+The AI plays automatically whenever it is its turn in an unfinished game;
+there are no pause/resume controls on mobile or desktop.
+Open **Game options** (the three dots) for advisor settings.
 **My games** lists your unfinished single-player games and active or waiting
 online games, including the current game. Select any row to open that game;
 additional rows scroll inside the panel while the board stays visible.
@@ -67,7 +68,7 @@ draws. Ordinary games have no experimental move cap.
    authoritative server move validation. Arrow keys navigate; Enter/Space select;
    Escape clears selection.
 4. Follow the active side, captured pieces, move history and game-over result.
-   Computer play supports pause/resume and automatic legal moves at a fixed pace.
+   The computer plays its turns automatically at a fixed pace.
 
 The last successful battlefield, permitted mode, side and preset choices are saved in the current browser. Cancelled or
 failed creation does not replace it. Games live on the server; browser preferences
@@ -79,9 +80,11 @@ is not deletion of saved games. A connection to the server is required.
 Account gameplay uses `/games/{id}`, including refresh/reconnect. **Resume single-player**
 on Dashboard opens an unfinished account game. Seek, undo and redo inspect retained
 positions without changing the recorded final outcome or discarding future moves.
-Making a different legal continuation branches history. Completed-game controls
-disable further play/restart even when viewing an earlier position. **Restart** is
-for unfinished games created under the current account/preset policy. A confirmation
+Making a different legal continuation branches history. In unfinished games,
+returning to an AI turn resumes automatic play, including after undo or seek.
+Completed-game controls disable further play/restart even when viewing an earlier
+position. **Restart** is for unfinished games created under the current
+account/preset policy. A confirmation
 dialog lets you cancel before restarting. Confirming creates a
 new game with a fresh seed and preserves the old record. Historical pass-and-play
 or custom-model setups remain readable/playable but cannot create another game

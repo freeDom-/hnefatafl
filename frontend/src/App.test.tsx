@@ -69,16 +69,17 @@ function setup(
       ]);
     if (path === '/api/models') return json([]);
     if (path === '/api/games/g1' && options?.method === 'GET') return json(game);
-    if (path === '/api/games/g1/analytics')
+    if (/^\/api\/games\/g[12]\/analytics$/.test(path))
       return json({ advisor: null, time_limit: 5, show_win_chances: true, revision: 0 });
-    if (path === '/api/games/g1/analysis')
+    if (/^\/api\/games\/g[12]\/analysis$/.test(path))
       return (
         analysisResponse ??
         json({ cursor: game.cursor, evaluations: [], hint: null, status: 'complete' })
       );
-    if (path === '/api/games/g1/ai-move')
-      return moveResponse ?? json({ ...game, version: 1, winner: 'draw' });
-    if (path === '/api/games/g1/restart') return json({ ...game, id: 'g2', version: 0 });
+    if (/^\/api\/games\/g[12]\/ai-move$/.test(path))
+      return moveResponse ?? json({ ...game, id: path.split('/')[3], version: 1, winner: 'draw' });
+    if (path === '/api/games/g1/restart')
+      return json({ ...game, id: 'g2', turn: 'defenders', version: 0 });
     if (path === '/api/games/g1/moves')
       return (
         moveResponse ??
@@ -133,6 +134,11 @@ describe('game flow', () => {
     expect(calls).toHaveLength(1);
     expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 0 });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(fetcher.mock.calls.some(([path]) => path === '/api/games/g2/ai-move')).toBe(true),
+      { timeout: 5000 },
+    );
   });
   it.each([false, true])(
     'hides AI playback controls for a completed record (replay: %s)',
@@ -157,7 +163,79 @@ describe('game flow', () => {
       ).toBe(true);
     },
   );
-  it('resumes saved unfinished computer play at its dedicated route', async () => {
+  it.each([false, true])(
+    'plays AI turns automatically without controls (mobile: %s)',
+    async (mobile) => {
+      vi.stubGlobal('matchMedia', () => ({
+        matches: mobile,
+        addEventListener() {},
+        removeEventListener() {},
+      }));
+      const fetcher = setup(undefined, {
+        ...initial,
+        mode: 'human-ai',
+        players: {
+          ...initial.players,
+          attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
+        },
+      });
+      render(<App />);
+      await screen.findByRole('grid');
+      expect(screen.queryByRole('button', { name: /Pause AI|Resume AI/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Next move' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: 'AI playback speed' })).not.toBeInTheDocument();
+      await waitFor(
+        () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
+        { timeout: 5000 },
+      );
+    },
+  );
+  it.each(['undo', 'redo', 'seek'])(
+    'automatically plays an AI turn reached through %s',
+    async (mutation) => {
+      const saved: Game = {
+        ...initial,
+        mode: 'human-ai',
+        turn: 'defenders',
+        cursor: 1,
+        total_moves: 2,
+        moves: [
+          { source: 0, target: 1, side: 'attackers' },
+          { source: 8, target: 7, side: 'defenders' },
+        ],
+        players: {
+          ...initial.players,
+          attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
+        },
+      };
+      const fetcher = setup(undefined, saved);
+      const original = fetcher.getMockImplementation()!;
+      fetcher.mockImplementation((path, options) =>
+        path === `/api/games/g1/${mutation}`
+          ? json({ ...saved, turn: 'attackers', version: 1 })
+          : original(path, options),
+      );
+      render(<App />);
+      await screen.findByRole('grid');
+      fireEvent.click(
+        screen.getByRole('button', {
+          name:
+            mutation === 'seek'
+              ? 'Replay to move 2'
+              : mutation === 'undo'
+                ? 'Undo move'
+                : 'Redo move',
+        }),
+      );
+      await waitFor(
+        () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
+        { timeout: 5000 },
+      );
+      const call = fetcher.mock.calls.find(([path]) => path.endsWith('/ai-move'))!;
+      expect(JSON.parse(String(call[1]?.body))).toEqual({ version: 1 });
+    },
+  );
+  it('automatically retries a failed AI turn without requiring a resume action', async () => {
     const fetcher = setup(undefined, {
       ...initial,
       mode: 'human-ai',
@@ -166,15 +244,17 @@ describe('game flow', () => {
         attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
       },
     });
+    const original = fetcher.getMockImplementation()!;
+    let attempts = 0;
+    fetcher.mockImplementation((path, options) => {
+      if (path.endsWith('/ai-move') && attempts++ === 0)
+        return Promise.reject(new Error('offline'));
+      return original(path, options);
+    });
     render(<App />);
-    await screen.findByRole('grid');
-    expect(document.querySelector('.board-toolbar')).toContainElement(
-      screen.getByRole('button', { name: /Pause AI/ }),
-    );
-    expect(screen.queryByRole('button', { name: 'Next move' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'AI playback speed' })).not.toBeInTheDocument();
     await waitFor(
-      () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
+      () =>
+        expect(fetcher.mock.calls.filter(([path]) => path.endsWith('/ai-move'))).toHaveLength(2),
       { timeout: 5000 },
     );
   });

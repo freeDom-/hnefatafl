@@ -173,10 +173,6 @@
     line-height: 1.3;
     max-width: none;
   }
-  .mobile-game-layout .board-help .button {
-    min-height: 44px;
-    font-size: 12px;
-  }
   .mobile-game-layout .battlefield-controls {
     display: block;
     max-height: 100px;

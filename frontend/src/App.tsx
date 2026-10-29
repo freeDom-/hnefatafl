@@ -66,7 +66,7 @@ export default function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
   const aiLock = useRef(false);
 
@@ -131,6 +131,7 @@ export default function App() {
         if (alive) {
           setGame(saved);
           setSelected(null);
+          setAiRetryDelay(900);
         }
       })
       .catch((e) => {
@@ -160,6 +161,7 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
+        setAiRetryDelay(900);
         if (next.id !== active.id) {
           loadedRoute.current = next.id;
           navigate(`/games/${next.id}`);
@@ -175,7 +177,8 @@ export default function App() {
         } catch {
           /* Preserve the game while a connection is unavailable. */
         }
-        setPaused(true);
+        if (currentGame.current?.id === active.id && name === 'ai-move')
+          setAiRetryDelay((delay) => Math.min(delay * 2, 30000));
       }
     } finally {
       setBusy(false);
@@ -187,10 +190,10 @@ export default function App() {
   const outcome = game?.winner ?? game?.recorded_winner ?? null;
   useEffect(() => setRestartOpen(false), [path, game?.id]);
   useEffect(() => {
-    if (!game || !activeAI || paused || busy || restartOpen || tab !== 'play') return;
-    const timer = window.setTimeout(() => void action('ai-move'), 900);
+    if (!game || !activeAI || busy || restartOpen || tab !== 'play') return;
+    const timer = window.setTimeout(() => void action('ai-move'), aiRetryDelay);
     return () => window.clearTimeout(timer);
-  }, [game, activeAI, paused, busy, restartOpen, action, tab]);
+  }, [game, activeAI, busy, restartOpen, aiRetryDelay, action, tab]);
 
   const selectSquare = (index: number) => {
     if (!game || game.winner || game.recorded_winner || busy || activeAI) return;
@@ -220,7 +223,6 @@ export default function App() {
     currentGame.current = null;
     setGame(null);
     setSelected(null);
-    setPaused(true);
     setRulesOpen(false);
     localStorage.removeItem('hnefatafl-game');
   }, []);
@@ -312,15 +314,6 @@ export default function App() {
         navigate(entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`)
       }
     />
-  );
-  const playback = game && game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
-    <button
-      className="button small"
-      onClick={() => setPaused((p) => !p)}
-      aria-busy={busy && activeAI}
-    >
-      {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
-    </button>
   );
   const agentAnalysis = game && analysis.show ? <AgentAnalysis game={game} {...analysis} /> : null;
 
@@ -422,10 +415,7 @@ export default function App() {
                               className="icon-button"
                               aria-label={t('Undo move')}
                               title={t('Undo')}
-                              onClick={() => {
-                                setPaused(true);
-                                void action('undo');
-                              }}
+                              onClick={() => void action('undo')}
                               disabled={busy || game.cursor === 0}
                             >
                               ↶
@@ -434,17 +424,13 @@ export default function App() {
                               className="icon-button"
                               aria-label={t('Redo move')}
                               title={t('Redo')}
-                              onClick={() => {
-                                setPaused(true);
-                                void action('redo');
-                              }}
+                              onClick={() => void action('redo')}
                               disabled={busy || game.cursor >= game.total_moves}
                             >
                               ↷
                             </button>
                           </>
                         }
-                        help={playback}
                         trailing={
                           !game.winner &&
                           !game.recorded_winner &&
@@ -477,17 +463,11 @@ export default function App() {
                       side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
                       current: i === game.cursor - 1,
                       future: i >= game.cursor,
-                      onSeek: () => {
-                        setPaused(true);
-                        void action('seek', { cursor: i + 1 });
-                      },
+                      onSeek: () => void action('seek', { cursor: i + 1 }),
                       disabled: busy,
                     }))}
                     startAction={{
-                      onClick: () => {
-                        setPaused(true);
-                        void action('seek', { cursor: 0 });
-                      },
+                      onClick: () => void action('seek', { cursor: 0 }),
                       disabled: busy || game.cursor === 0,
                     }}
                     footer={
@@ -549,7 +529,6 @@ export default function App() {
               className="button"
               disabled={busy}
               onClick={() => {
-                setPaused(true);
                 setRestartOpen(false);
                 void action('restart');
               }}
@@ -573,7 +552,6 @@ export default function App() {
             loadedRoute.current = next.id;
             setGame(next);
             setSelected(null);
-            setPaused(false);
             setNewOpen(false);
             setInitializing(false);
             navigate(`/games/${next.id}`);

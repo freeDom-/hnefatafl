@@ -1,4 +1,4 @@
-import { openGameNavigation, pauseGame } from './play-helpers';
+import { openGameNavigation } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext } from './auth-fixture';
@@ -48,7 +48,7 @@ test('only named opponents with fixed presets are offered and the dialog closes 
     exploration: 1.4,
     time_limit: 2,
   });
-  await pauseGame(page);
+  await expect(page.getByRole('grid')).toBeVisible();
   await openGameNavigation(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await expect(setup.getByRole('option', { name: 'Trained model', exact: true })).toHaveCount(0);
@@ -136,7 +136,7 @@ test('historical trained opponents retain names, runes and legal play while new 
   expect(response.ok()).toBe(true);
   const game = await response.json();
   await page.goto('/games/' + game.id);
-  await pauseGame(page);
+  await expect(page.getByRole('grid')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
   await expect(page.locator('.army h3').nth(0)).toContainText(ulf.name);
   await expect(page.locator('.army h3').nth(1)).toContainText(freydis.name);

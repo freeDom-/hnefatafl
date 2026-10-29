@@ -1,4 +1,4 @@
-import { openGameNavigation, openGameOptions, gameTab, pauseGame } from './play-helpers';
+import { openGameNavigation, openGameOptions, gameTab } from './play-helpers';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
@@ -23,8 +23,8 @@ test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
     algorithm: 'shield_maiden',
     heuristic_version: 1,
   });
-  await pauseGame(page);
-  await expect(page.getByRole('button', { name: /Resume AI/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Pause AI|Resume AI/ })).toHaveCount(0);
 });
 
 test('Shield maiden is localized and selectable for training and advisors', async ({ page }) => {
