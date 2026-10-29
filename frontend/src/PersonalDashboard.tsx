@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -9,40 +9,9 @@ import { surfaceLink } from './surfaceNavigation';
 import { navigate } from './navigation';
 import RecordedGames, { type RecordedPage } from './RecordedGames';
 import RecordedReview from './RecordedReview';
-import PersonalStatisticsView from './PersonalStatistics';
+import PerformanceBadges from './PerformanceBadges';
 import Leaderboard from './Leaderboard';
 import './personalDashboard.css';
-
-function CollapsiblePanel({
-  id,
-  title,
-  children,
-}: {
-  id: string;
-  title: string;
-  children: ReactNode;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  return (
-    <section className="panel personal-section" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`}>
-        <button
-          type="button"
-          className="disclosure-heading"
-          aria-expanded={open}
-          aria-controls={`${id}-body`}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {t(title)}
-        </button>
-      </h2>
-      <div id={`${id}-body`} hidden={!open}>
-        {children}
-      </div>
-    </section>
-  );
-}
 
 function DashboardHome({
   accountId,
@@ -97,14 +66,38 @@ function DashboardHome({
         )}
       </div>
       <div className="dashboard-overview">
-        <CollapsiblePanel id="personal-account" title="Singleplayer">
-          <DashboardHealth phase={account.phase} refresh={account.refresh} />
-          <PersonalStatisticsView statistics={account.data?.statistics} />
-        </CollapsiblePanel>
-        <CollapsiblePanel id="personal-online" title="Online multiplayer">
-          <DashboardHealth phase={online.phase} refresh={online.refresh} />
-          <PersonalStatisticsView statistics={online.data?.statistics} online />
-        </CollapsiblePanel>
+        <section className="panel dashboard-performance" aria-labelledby="performance-heading">
+          <div className="section-heading">
+            <h2 id="performance-heading">{t('Your performance')}</h2>
+            <a href="/statistics" onClick={surfaceLink}>
+              {t('Detailed statistics')}
+            </a>
+          </div>
+          <div className="performance-modes">
+            <section aria-labelledby="personal-account-heading">
+              <h3 id="personal-account-heading">
+                {t('Singleplayer')} <small>{t('Win rate')}</small>
+              </h3>
+              <DashboardHealth phase={account.phase} refresh={account.refresh} />
+              <PerformanceBadges statistics={account.data?.statistics} />
+            </section>
+            <section aria-labelledby="personal-online-heading">
+              <h3 id="personal-online-heading">
+                {t('Multiplayer')}{' '}
+                <small>
+                  {t('Win rate')}
+                  {online.data?.statistics?.groups.some(
+                    (group) => group.played > 0 && group.rating != null,
+                  )
+                    ? ' / Elo'
+                    : ''}
+                </small>
+              </h3>
+              <DashboardHealth phase={online.phase} refresh={online.refresh} />
+              <PerformanceBadges statistics={online.data?.statistics} online />
+            </section>
+          </div>
+        </section>
         <Lobby
           accountId={accountId}
           embedded

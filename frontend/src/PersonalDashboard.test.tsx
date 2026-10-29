@@ -148,15 +148,9 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(link.closest('table')).toHaveClass('recorded-games');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   await screen.findByText('1516');
-  fireEvent.click(screen.getByRole('button', { name: 'Singleplayer' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Online multiplayer' }));
-  // Personal statistics replace side-result totals and no longer label the mode.
-  // Both the account and online panels show a Brandubh ruleset heading.
-  expect(screen.getAllByRole('heading', { name: 'Brandubh' })).toHaveLength(2);
-  expect(screen.queryByRole('heading', { name: 'Human vs AI' })).toBeNull();
-  expect(screen.getByText('66.7%')).toBeVisible();
-  expect(screen.getByText('Timed-out games')).toBeVisible();
-  expect(screen.getByText(/historical games have no authoritative account seat/)).toBeVisible();
+  expect(screen.getByRole('link', { name: /Brandubh Singleplayer statistics.*67%/ })).toBeVisible();
+  expect(screen.queryByText('Timed-out games')).toBeNull();
+  expect(screen.queryByRole('table', { name: /results by side/ })).toBeNull();
   // Lobby takes the old Recorded games slot; records move below the Leaderboard.
   const overview = document.querySelector('.dashboard-overview')!;
   const order = Array.from(overview.children).map((node) => node.className);
@@ -176,33 +170,16 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   await screen.findByRole('heading', { name: 'Create an online game' });
   expect(open).not.toHaveBeenCalled();
 });
-it('starts statistics collapsed, expands each independently and resets on reload', async () => {
-  const view = render(<PersonalDashboard />);
-  await screen.findByText('66.7%');
-  const single = screen.getByRole('button', { name: 'Singleplayer' });
-  const online = screen.getByRole('button', { name: 'Online multiplayer' });
-  expect(single).toHaveAttribute('aria-expanded', 'false');
-  expect(online).toHaveAttribute('aria-expanded', 'false');
-  expect(single).toHaveAttribute('aria-controls', 'personal-account-body');
-  expect(online).toHaveAttribute('aria-controls', 'personal-online-body');
-  expect(document.getElementById('personal-account-body')).toHaveAttribute('hidden');
-  expect(document.getElementById('personal-online-body')).toHaveAttribute('hidden');
-  expect(screen.getByText('66.7%')).not.toBeVisible();
-  expect(screen.getByText('Timed-out games')).not.toBeVisible();
-  fireEvent.click(single);
-  expect(single).toHaveAttribute('aria-expanded', 'true');
-  expect(screen.getByText('66.7%')).toBeVisible();
-  expect(screen.getByText('Timed-out games')).not.toBeVisible();
-  fireEvent.click(online);
-  expect(screen.getByText('Timed-out games')).toBeVisible();
-  fireEvent.click(single);
-  expect(screen.getByText('66.7%')).not.toBeVisible();
-  view.unmount();
+it('keeps six visible badges and moves detailed statistics to a dedicated page', async () => {
   render(<PersonalDashboard />);
-  expect(screen.getByRole('button', { name: 'Online multiplayer' })).toHaveAttribute(
-    'aria-expanded',
-    'false',
+  await screen.findByRole('link', { name: /Brandubh Singleplayer statistics.*67%/ });
+  expect(document.querySelectorAll('.performance-badge')).toHaveLength(6);
+  expect(screen.getByRole('link', { name: 'Detailed statistics' })).toHaveAttribute(
+    'href',
+    '/statistics',
   );
+  expect(screen.queryByText('Average game length')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Singleplayer' })).toBeNull();
 });
 
 it('shows stale retry and recovers empty recent results', async () => {

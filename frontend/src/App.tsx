@@ -18,6 +18,7 @@ import Rune, { participantName } from './Rune';
 import Online from './Online';
 import Modal from './Modal';
 import PersonalDashboard from './PersonalDashboard';
+import StatisticsPage from './StatisticsPage';
 import Leaderboard from './Leaderboard';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { useAuth } from './Auth';
@@ -31,7 +32,15 @@ import HistoryPanel from './HistoryPanel';
 import Battlefield, { BoardToolbar } from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 
-type Tab = 'dashboard' | 'online' | 'play' | 'archive' | 'leaderboard' | 'training' | 'tournaments';
+type Tab =
+  | 'statistics'
+  | 'dashboard'
+  | 'online'
+  | 'play'
+  | 'archive'
+  | 'leaderboard'
+  | 'training'
+  | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 
 export default function App() {
@@ -41,17 +50,19 @@ export default function App() {
   const [path, setPath] = useState(canonicalLocation);
   const tab: Tab = path.startsWith('/online/games/')
     ? 'online'
-    : path.startsWith('/games/')
-      ? 'play'
-      : path.split('?')[0] === '/archive'
-        ? 'archive'
-        : path.split('?')[0] === '/leaderboard'
-          ? 'leaderboard'
-          : path.startsWith('/training') && permissions.includes('training')
-            ? 'training'
-            : path.startsWith('/tournaments') && permissions.includes('tournaments')
-              ? 'tournaments'
-              : 'dashboard';
+    : path.split('?')[0] === '/statistics'
+      ? 'statistics'
+      : path.startsWith('/games/')
+        ? 'play'
+        : path.split('?')[0] === '/archive'
+          ? 'archive'
+          : path.split('?')[0] === '/leaderboard'
+            ? 'leaderboard'
+            : path.startsWith('/training') && permissions.includes('training')
+              ? 'training'
+              : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                ? 'tournaments'
+                : 'dashboard';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
     window.addEventListener('popstate', changed);
@@ -321,6 +332,7 @@ export default function App() {
     <>
       <SiteHeader account={account} logout={logout} current={tab} />
       <main>
+        {tab === 'statistics' && <StatisticsPage />}
         {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
         {tab === 'play' && (
           <PlayPage className="play-page" heading={t('Single player game')}>

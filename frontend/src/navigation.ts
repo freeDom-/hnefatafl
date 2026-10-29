@@ -9,6 +9,7 @@ export function safeDestination(value: string | null): string {
     '/',
     '/play',
     '/dashboard',
+    '/statistics',
     '/leaderboard',
     '/training',
     '/tournaments',

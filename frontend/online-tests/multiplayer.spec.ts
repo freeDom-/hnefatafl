@@ -6,7 +6,7 @@ async function login(page: Page, username: string) {
   await page.getByLabel('Username or email').fill(username);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Online lobby' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Online games' })).toBeVisible();
 }
 async function opponent(browser: Browser, name = 'OnlineKeeper') {
   const context = await browser.newContext();

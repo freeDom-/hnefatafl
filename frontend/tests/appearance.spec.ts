@@ -11,13 +11,10 @@ test('interface scale changes spacing and text, persists and composes with respo
   const root = page.locator('html');
   await expect(root).toHaveAttribute('data-density', 'default');
   const measure = () =>
-    page
-      .locator('.personal-section')
-      .first()
-      .evaluate((node) => ({
-        padding: parseFloat(getComputedStyle(node).paddingLeft),
-        font: parseFloat(getComputedStyle(node.querySelector('h2')!).fontSize),
-      }));
+    page.locator('.dashboard-recent').evaluate((node) => ({
+      padding: parseFloat(getComputedStyle(node).paddingLeft),
+      font: parseFloat(getComputedStyle(node.querySelector('h2')!).fontSize),
+    }));
   const initial = await measure();
   await page.getByRole('button', { name: 'Appearance settings' }).click();
   await page.getByRole('radio', { name: 'Compact', exact: true }).check();
