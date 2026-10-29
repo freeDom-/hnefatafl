@@ -132,3 +132,21 @@
 .dashboard-lobby .button {
   white-space: normal;
 }
+
+.online-create-fields {
+  align-items: start;
+}
+
+.online-create-modal .modal-top {
+  align-items: center;
+}
+
+.online-create-modal .dialog-title {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .online-create .online-create-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

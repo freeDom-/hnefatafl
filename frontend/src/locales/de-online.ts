@@ -1,4 +1,5 @@
 const online: Record<string, string> = {
+  'Each accepted move renews the allowance.': 'Jeder akzeptierte Zug erneuert das Zeitlimit.',
   'Time control': 'Zeitkontrolle',
   'Per move': 'Pro Zug',
   'Total per player': 'Gesamtzeit pro Spieler',

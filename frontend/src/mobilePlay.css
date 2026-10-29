@@ -4,15 +4,11 @@
 }
 
 @media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
-  :root:has(.mobile-game-layout) {
-    scrollbar-gutter: auto;
-  }
   #root:has(.mobile-game-layout) {
     height: 100dvh;
     display: flex;
     flex-direction: column;
   }
-  #root:has(.mobile-game-layout) > .site-header,
   #root:has(.mobile-game-layout) > .site-footer {
     display: none;
   }
@@ -36,7 +32,7 @@
     --mobile-inspector-height: 220px;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 52px 56px minmax(0, 1fr) var(--mobile-inspector-height);
+    grid-template-rows: 44px 56px minmax(0, 1fr) var(--mobile-inspector-height);
     flex: 1;
     min-height: 0;
     width: 100%;
@@ -61,7 +57,7 @@
     min-width: 0;
   }
   .mobile-play-header h2 {
-    font-size: 20px;
+    font-size: var(--text-section);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -119,7 +115,7 @@
     height: 24px;
   }
   .mobile-player-strip h3 {
-    font-size: 12px;
+    font-size: var(--text-subsection);
     max-width: none;
   }
   .mobile-player-strip p {
@@ -312,7 +308,7 @@
     min-height: 44px;
     max-width: 100%;
     padding: 4px;
-    font-size: 12px;
+    font-size: var(--text-body);
   }
   .compact-analysis .agent-estimate-heading > div {
     flex: 1;
@@ -403,10 +399,10 @@
     grid-column: 1 / -1;
   }
   .mobile-player-strip {
-    grid-column: 1 / -1;
+    grid-column: 1;
   }
   .mobile-inspector {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 2 / -1;
   }
 }

@@ -97,21 +97,36 @@ test('Hall replay uses the play layout at reduced desktop heights and on mobile 
       );
       await gameTab(page, 'moves');
       await expect(page.getByRole('button', { name: 'Next move', exact: true })).toBeVisible();
-      const fits = await page.evaluate(() => {
+      const geometry = await page.evaluate(() => {
         const board = document.querySelector('.board')!.getBoundingClientRect();
         const sidebar = document.querySelector('.game-sidebar')?.getBoundingClientRect();
         const footer = document.querySelector('.site-footer')!.getBoundingClientRect();
-        return (
+        const fits =
           document.documentElement.scrollHeight <= innerHeight + 1 &&
           document.documentElement.scrollWidth <= innerWidth &&
           board.top >= 0 &&
           board.bottom <= innerHeight &&
-          (!sidebar || sidebar.bottom <= footer.top + 1)
-        );
+          (!sidebar || sidebar.bottom <= footer.top + 1);
+        return {
+          fits,
+          height: document.documentElement.scrollHeight,
+          width: document.documentElement.scrollWidth,
+          header: document.querySelector('.site-header')!.getBoundingClientRect().toJSON(),
+          board: board.toJSON(),
+          sidebar: sidebar?.toJSON(),
+          footer: footer.toJSON(),
+          summary: [...document.querySelectorAll('.game-sidebar > *')].map((node) => ({
+            class: node.className,
+            ...node.getBoundingClientRect().toJSON(),
+          })),
+        };
       });
-      expect(fits, `${size.width}×${size.height}, ${density}`).toBe(true);
-      if (density === 'default')
-        await page.screenshot({ path: info.outputPath(`review-${size.width}.png`) });
+      expect(
+        geometry.fits,
+        `${size.width}×${size.height}, ${density}: ${JSON.stringify(geometry)}`,
+      ).toBe(true);
+      if (density === 'default' || density === 'large')
+        await page.screenshot({ path: info.outputPath(`review-${size.width}-${density}.png`) });
     }
   }
   await page.getByRole('button', { name: 'Next move', exact: true }).click();
@@ -139,7 +154,12 @@ test('an unverified account sees a red Dashboard warning instead of the lobby la
     'Verify your email address before creating or joining online games.',
   );
   await expect(warning).toBeVisible();
-  expect(await warning.evaluate((node) => node.previousElementSibling?.tagName)).toBe('H1');
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
+  const warningBox = await warning.boundingBox();
+  const actionsBox = await page
+    .getByRole('button', { name: 'New online game', exact: true })
+    .boundingBox();
+  expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(actionsBox!.y);
   const color = await warning.evaluate((node) =>
     getComputedStyle(node).color.match(/\d+/g)!.map(Number),
   );

@@ -25,9 +25,11 @@ banner; the live game room retains its own refresh controls.
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode, a **Time control**, an optional seconds increment, and integer
+a match mode, a **Time control**, and integer
 **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
-in a shared modal. Every newly created game is **rated** and counts toward the
+in a shared modal. Desktop uses two columns for game and clock settings; narrow
+screens stack them. A seconds increment is offered only for **Total per player**.
+Every newly created game is **rated** and counts toward the
 [leaderboard](RATINGS.md); there is no Casual selector. Rated play requires an
 active, verified account, checked at creation and joining. Configured time uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined base limit is converted to seconds
 at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
@@ -129,12 +131,15 @@ extends the deadline.
 The online game dialog offers **Per move** (default) or **Total per player**.
 Both use a base limit of 1 minute to 14 days. Total mode gives each player a
 separate budget; only their own turns consume it. **Increment per move (seconds)**
-defaults to 0 and accepts whole seconds from 0 to 1209600. In total mode it is
-credited to the moving player after each timely move. In per-move mode the first
-turn uses the base limit and each later turn resets to the base plus increment,
-without carrying unused time. Each leg of a two-game match starts with fresh clocks.
+defaults to 0 and accepts whole seconds from 0 to 1209600. It is shown only in
+total mode and is credited to the moving player after each timely move. Switching
+to per-move time clears the increment; a new per-move request always submits zero.
+Per-move time resets to the base limit without carrying unused time.
+Previously saved games and retained uncertain requests keep their exact settings;
+the server still reads historical per-move increments without reinterpreting them.
+Each leg of a two-game match starts with fresh clocks.
 Both clocks appear beside the players on mobile; **Game options** shows the
-configured limit, increment and clock details.
+configured limit and clock details, including the increment for total-time games.
 
 **Disconnecting, closing the browser or logging out does not pause clocks.**
 

@@ -241,7 +241,9 @@ function GameSummary({
           )
         )}
       </p>
-      <p>{t('Increment: {seconds} seconds', { seconds: game.increment_seconds ?? 0 })}</p>
+      {game.time_control === 'total' && (
+        <p>{t('Increment: {seconds} seconds', { seconds: game.increment_seconds ?? 0 })}</p>
+      )}
       <button className="button primary" onClick={() => open(game.id)}>
         {t('Open game')}
       </button>
@@ -363,9 +365,11 @@ export function Lobby({
     try {
       seconds = intentRef.current?.time_per_move ?? moveSeconds(days, hours, minutes);
       if (
-        !/^\d+$/.test(increment) ||
-        !Number.isSafeInteger(Number(increment)) ||
-        Number(increment) > 1209600
+        !intentRef.current &&
+        timeControl === 'total' &&
+        (!/^\d+$/.test(increment) ||
+          !Number.isSafeInteger(Number(increment)) ||
+          Number(increment) > 1209600)
       )
         throw new Error('Enter an increment in whole seconds from 0 to 1209600.');
     } catch (error) {
@@ -380,7 +384,7 @@ export function Lobby({
       mode,
       time_per_move: seconds,
       time_control: timeControl,
-      increment_seconds: Number(increment),
+      increment_seconds: timeControl === 'total' ? Number(increment) : 0,
       rated: true,
     };
     intentRef.current = payload;
@@ -424,97 +428,117 @@ export function Lobby({
       {!dialogOnly && poll.data && <Admission availability={poll.data.availability} />}
       <div className="online-lobby-layout lobby-discovery">
         {createOpen && (
-          <Modal title={t('Create an online game')} onClose={closeCreation} initialFocus="select">
+          <Modal
+            title={t('Create an online game')}
+            onClose={closeCreation}
+            initialFocus="select"
+            className="online-create-modal"
+          >
             {dialogOnly && poll.data && <Admission availability={poll.data.availability} />}
             <form onSubmit={create} className="new-game-form online-create">
-              <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
-                <legend>{t('Choose your online game')}</legend>
-                <label>
-                  {t('Ruleset')}
-                  <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
-                    {rulesets.map((r) => (
-                      <option value={r.id} key={r.id}>
-                        {t(r.name)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  {t('Creator side')}
-                  <select value={side} onChange={(e) => setSide(e.target.value as SideSelection)}>
-                    {Object.entries(sideNames).map(([value, label]) => (
-                      <option value={value} key={value}>
-                        {t(label)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  {t('Match mode')}
-                  <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
-                    {Object.entries(modeNames).map(([value, label]) => (
-                      <option value={value} key={value}>
-                        {t(label)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  {t('Time control')}
-                  <select
-                    value={timeControl}
-                    onChange={(e) => setTimeControl(e.target.value as TimeControlMode)}
-                  >
-                    <option value="per_move">{t('Per move')}</option>
-                    <option value="total">{t('Total per player')}</option>
-                  </select>
-                </label>
-                <fieldset className="move-duration">
-                  <legend>
-                    {t(timeControl === 'total' ? 'Total time per player' : 'Time allowed per move')}
-                  </legend>
-                  <div className="form-grid">
-                    {(
-                      [
-                        ['Days', days, setDays, 14],
-                        ['Hours', hours, setHours, 23],
-                        ['Minutes', minutes, setMinutes, 59],
-                      ] as const
-                    ).map(([label, value, change, max]) => (
-                      <label key={label}>
-                        {t(label)}
-                        <input
-                          type="number"
-                          min={0}
-                          max={max}
-                          step={1}
-                          required
-                          value={value}
-                          onChange={(event) => change(event.target.value)}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-                <label>
-                  {t('Increment per move (seconds)')}
-                  <input
-                    type="number"
-                    min={0}
-                    max={1209600}
-                    step={1}
-                    required
-                    value={increment}
-                    onChange={(e) => setIncrement(e.target.value)}
-                  />
-                </label>
-                <p className="subtle">
-                  {t(
-                    timeControl === 'total'
-                      ? 'Each player has their own total clock. The increment is added to your clock after you move.'
-                      : 'The first turn uses the base limit. Each later turn resets to the base limit plus the increment.',
+              <fieldset
+                className="form-grid online-create-fields"
+                disabled={!!intent || action.busy || !available || !rulesets.length}
+              >
+                <legend className="sr-only">{t('Choose your online game')}</legend>
+                <div className="form-section">
+                  <label>
+                    {t('Ruleset')}
+                    <select value={ruleset} onChange={(e) => setRuleset(e.target.value)}>
+                      {rulesets.map((r) => (
+                        <option value={r.id} key={r.id}>
+                          {t(r.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t('Creator side')}
+                    <select value={side} onChange={(e) => setSide(e.target.value as SideSelection)}>
+                      {Object.entries(sideNames).map(([value, label]) => (
+                        <option value={value} key={value}>
+                          {t(label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t('Match mode')}
+                    <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
+                      {Object.entries(modeNames).map(([value, label]) => (
+                        <option value={value} key={value}>
+                          {t(label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="form-section">
+                  <label>
+                    {t('Time control')}
+                    <select
+                      value={timeControl}
+                      onChange={(e) => {
+                        const value = e.target.value as TimeControlMode;
+                        setTimeControl(value);
+                        if (value === 'per_move') setIncrement('0');
+                      }}
+                    >
+                      <option value="per_move">{t('Per move')}</option>
+                      <option value="total">{t('Total per player')}</option>
+                    </select>
+                  </label>
+                  <fieldset className="move-duration">
+                    <legend>
+                      {t(
+                        timeControl === 'total' ? 'Total time per player' : 'Time allowed per move',
+                      )}
+                    </legend>
+                    <div className="form-grid form-grid-three">
+                      {(
+                        [
+                          ['Days', days, setDays, 14],
+                          ['Hours', hours, setHours, 23],
+                          ['Minutes', minutes, setMinutes, 59],
+                        ] as const
+                      ).map(([label, value, change, max]) => (
+                        <label key={label}>
+                          {t(label)}
+                          <input
+                            type="number"
+                            min={0}
+                            max={max}
+                            step={1}
+                            required
+                            value={value}
+                            onChange={(event) => change(event.target.value)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  {timeControl === 'total' && (
+                    <label>
+                      {t('Increment per move (seconds)')}
+                      <input
+                        type="number"
+                        min={0}
+                        max={1209600}
+                        step={1}
+                        required
+                        value={increment}
+                        onChange={(e) => setIncrement(e.target.value)}
+                      />
+                    </label>
                   )}
-                </p>
+                  <p className="form-help">
+                    {t(
+                      timeControl === 'total'
+                        ? 'Each player has their own total clock. The increment is added to your clock after you move.'
+                        : 'Each accepted move renews the allowance.',
+                    )}
+                  </p>
+                </div>
               </fieldset>
               {validation && <p role="alert">{t(validation)}</p>}
               {rulesError && <p role="alert">{t(rulesError)}</p>}
@@ -792,7 +816,14 @@ function GameRoom({
           label: t(game.time_control === 'total' ? 'Total time per player' : 'Time per move'),
           value: formatRemaining(game.time_per_move),
         },
-        { label: t('Increment per move (seconds)'), value: String(game.increment_seconds ?? 0) },
+        ...(game.time_control === 'total'
+          ? [
+              {
+                label: t('Increment per move (seconds)'),
+                value: String(game.increment_seconds ?? 0),
+              },
+            ]
+          : []),
         ...(game.time_control === 'total' && game.remaining_seconds
           ? (['attackers', 'defenders'] as const).map((side) => ({
               label: t(

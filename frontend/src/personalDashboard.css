@@ -3,14 +3,6 @@
   max-width: 1320px;
   margin: var(--gap-stack) auto;
 }
-.dashboard-actions,
-.section-heading {
-  display: flex;
-  gap: var(--gap-stack);
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: var(--gap-stack);
-}
 .dashboard-verification-warning {
   color: #a82e27;
   background: var(--ui-error-surface, #fff0ed);
@@ -53,12 +45,6 @@
 }
 .review-back {
   display: inline-block;
-}
-.section-heading {
-  justify-content: space-between;
-}
-.section-heading h2 {
-  margin: 0;
 }
 .dashboard-overview {
   display: grid;
@@ -201,7 +187,7 @@
 .personal-dashboard .online-card h3,
 .personal-dashboard .online-card p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--text-subsection);
 }
 .personal-dashboard .online-card h3 {
   grid-column: 1;

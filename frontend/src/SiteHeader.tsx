@@ -4,6 +4,7 @@ import { Crown } from './Board';
 import { LanguageSelect, useI18n } from './i18n';
 import { navigate } from './navigation';
 import { surfaceLink } from './surfaceNavigation';
+import './siteHeader.css';
 
 export default function SiteHeader({
   account,
@@ -48,7 +49,7 @@ export default function SiteHeader({
               type="button"
               key={item}
               onClick={() => navigate(`/${item}`)}
-              className={current === item ? 'active' : ''}
+              className="site-nav-link"
               aria-current={current === item ? 'page' : undefined}
             >
               {t(label)}

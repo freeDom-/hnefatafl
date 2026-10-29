@@ -55,6 +55,94 @@ test.afterEach(async () => {
   for (const context of extra.splice(0)) await context.close();
 });
 
+test('online creation fits desktop screens in two columns and exposes increments only for total clocks', async ({
+  page,
+  isMobile,
+}, info) => {
+  test.setTimeout(120000);
+  await login(page, 'OnlineArcher');
+  const sizes = isMobile
+    ? [{ width: 390, height: 844 }]
+    : [
+        { width: 1920, height: 1080 },
+        { width: 1568, height: 785 },
+        { width: 1280, height: 720 },
+      ];
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    for (const language of ['en', 'de']) {
+      await page.evaluate((value) => localStorage.setItem('hnefatafl-language', value), language);
+      await page.goto('/dashboard?setup=online');
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      const control = dialog.getByRole('combobox', {
+        name: language === 'en' ? 'Time control' : 'Zeitkontrolle',
+        exact: true,
+      });
+      await expect(control).toBeEnabled();
+      for (const density of ['compact', 'default', 'large']) {
+        await page.locator('html').evaluate((node, value) => {
+          node.dataset.density = value;
+        }, density);
+        for (const mode of ['per_move', 'total']) {
+          await control.selectOption(mode);
+          const increment = dialog.getByLabel(
+            language === 'en' ? 'Increment per move (seconds)' : 'Zeitbonus pro Zug (Sekunden)',
+            { exact: true },
+          );
+          if (mode === 'total') await expect(increment).toBeVisible();
+          else await expect(increment).toHaveCount(0);
+          const geometry = await dialog.evaluate((node) => {
+            const columns = [...node.querySelectorAll('.online-create-fields > .form-section')].map(
+              (column) => column.getBoundingClientRect(),
+            );
+            const bounds = node.getBoundingClientRect();
+            return {
+              top: bounds.top,
+              bottom: bounds.bottom,
+              left: bounds.left,
+              right: bounds.right,
+              scroll: node.scrollHeight - node.clientHeight,
+              columnGap: columns[1].left - columns[0].right,
+              sameColumn: Math.abs(columns[1].left - columns[0].left) < 1,
+              overflow: document.documentElement.scrollWidth > innerWidth,
+            };
+          });
+          const context = `${size.width}×${size.height}, ${language}, ${density}, ${mode}`;
+          expect(geometry.top, context).toBeGreaterThanOrEqual(0);
+          expect(geometry.bottom, context).toBeLessThanOrEqual(size.height);
+          expect(geometry.left, context).toBeGreaterThanOrEqual(0);
+          expect(geometry.right, context).toBeLessThanOrEqual(size.width);
+          expect(geometry.overflow, context).toBe(false);
+          if (isMobile) expect(geometry.sameColumn, context).toBe(true);
+          else {
+            expect(geometry.scroll, context).toBeLessThanOrEqual(1);
+            expect(geometry.columnGap, context).toBeGreaterThan(0);
+          }
+          if (
+            language === 'en' &&
+            density === 'default' &&
+            mode === 'total' &&
+            (size.width === 1568 || isMobile)
+          )
+            await page.screenshot({ path: info.outputPath('online-create.png') });
+        }
+      }
+    }
+  }
+  await page.evaluate(() => localStorage.setItem('hnefatafl-language', 'en'));
+  await page.goto('/dashboard?setup=online');
+  await page.getByRole('combobox', { name: 'Time control', exact: true }).selectOption('total');
+  await page.getByLabel('Increment per move (seconds)', { exact: true }).fill('12');
+  await page.getByRole('combobox', { name: 'Time control', exact: true }).selectOption('per_move');
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/online/games') && response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Create game', exact: true }).click();
+  expect((await (await created).json()).game.increment_seconds).toBe(0);
+});
+
 test('two accounts play, reconnect, finish and view a local read-only replay', async ({
   page,
   browser,

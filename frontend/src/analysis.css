@@ -166,7 +166,7 @@
   display: grid;
   gap: 6px;
   margin-bottom: 14px;
-  font-size: 0.75rem;
+  font-size: var(--text-label);
 }
 .analytics-settings select,
 .analytics-settings input {

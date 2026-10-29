@@ -96,8 +96,17 @@ name suggestions. Seats show the underlying model/agent rune; repeated models ar
 distinguished by seat number and settings. Older seat-rune reservations remain
 stored but are not a second current participant identity.
 
-The header groups language and appearance at the top right. Decorative overlines
-above page and panel headings have been removed; statistics retain their labels.
+The shared header groups language and appearance at the top right on every page,
+including play. Narrow screens use a horizontally scrollable navigation row.
+Page titles and subtitles are visually hidden while remaining available to screen
+readers and programmatic focus. Section headings, dialog titles, statistics labels,
+form help and operational messages remain visible.
+
+Shared typography, buttons, panels, dialogs, tabs, form grids and accessibility
+utilities live in [ui.css](../frontend/src/ui.css); [siteHeader.css](../frontend/src/siteHeader.css)
+owns responsive site navigation. Feature styles use the same type tokens rather
+than assigning their own heading/control sizes. [PageHeading](../frontend/src/PageHeading.tsx)
+provides the shared accessible page label.
 
 ![Identified opponents in the simplified interface](screenshots/identified-opponents.png)
 

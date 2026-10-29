@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { LanguageSelect, useI18n } from './i18n';
+import PageHeading from './PageHeading';
 
 type View = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 type Configuration = { enabled: boolean; email_available: boolean };
@@ -191,10 +192,9 @@ export default function AccountForms({
     <main className="auth-screen">
       <section className="auth-card">
         <LanguageSelect />
-        <h1>HNEFATAFL</h1>
-        <p>{t('The King’s Table')}</p>
+        <PageHeading title="HNEFATAFL" subtitle={t('The King’s Table')} />
         {view !== 'login' && (
-          <h2 ref={heading} tabIndex={-1}>
+          <h2 className="sr-only" ref={heading} tabIndex={-1}>
             {t(titles[view])}
           </h2>
         )}

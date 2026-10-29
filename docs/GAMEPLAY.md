@@ -16,7 +16,9 @@ the online room adds its lifecycle and replay controls.
 
 ## Mobile play screen
 
-On phones, a compact game header and both players sit above the board. A fixed
+On phones, the shared site navigation remains available above the game toolbar
+and both players. Page titles and subtitles remain available to screen readers
+without taking up visible space. A fixed
 panel below it switches between **Moves**, **Analytics** (single-player), and
 **My games**. Switching tabs keeps the board in place; the full game screen fits
 the available viewport. Landscape places the panel beside the board.
@@ -35,8 +37,8 @@ additional rows scroll inside the panel while the board stays visible.
 The **Analytics** tab shows one agent at a time, with an agent selector when
 several have evaluated the position. Detailed settings scroll within the options
 dialog. Active online games keep their remaining time in the header and offer no
-live assistance. The header's back link returns to Dashboard for new-game setup,
-account controls, appearance, language, and other pages.
+live assistance. The game toolbar's back link returns to Dashboard; the same site
+menu, account controls, appearance and language remain available during play.
 
 Desktop keeps the board between a compact game/player summary and a tabbed panel
 for **Moves**, **Analytics**, and **My games**. Game mode and random seed appear

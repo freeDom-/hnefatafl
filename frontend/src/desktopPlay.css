@@ -14,12 +14,12 @@
   }
   .player-game-details dt {
     color: var(--muted);
-    font-size: 0.625rem;
+    font-size: var(--text-label);
     margin-bottom: 4px;
   }
   .player-game-details dd {
     margin: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-body);
     overflow-wrap: anywhere;
   }
   .desktop-game-layout .army > div:not(.army-symbol) {
@@ -47,7 +47,7 @@
   .desktop-inspector > .tabs > button {
     min-width: 0;
     padding: 8px 4px;
-    font-size: 0.75rem;
+    font-size: var(--text-body);
   }
   .desktop-tab-panel {
     flex: 1;
@@ -144,10 +144,16 @@
     margin: 0;
   }
   .desktop-game-layout .variant-heading h2 {
-    font-size: 1.375rem;
+    font-size: var(--text-section);
   }
   .desktop-game-layout .game-details .text-button {
     margin-top: 6px;
+  }
+  .desktop-game-layout .game-details .divider {
+    margin-block: 8px;
+  }
+  .desktop-game-layout .game-details .detail-row {
+    margin-top: 8px;
   }
   .desktop-game-layout .army {
     padding: 8px;
