@@ -19,6 +19,8 @@ class CreationRequest(BaseModel):
     side_selection: Literal["attackers", "defenders", "random"]
     mode: Literal["single", "simultaneous", "sequential"] = "single"
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
+    time_control: Literal["per_move", "total"] = "per_move"
+    increment_seconds: StrictInt = Field(default=0, ge=0, le=1209600)
     # Rated-only policy: omitted requests default to rated; explicit false is
     # rejected by the service so legacy or forged fields cannot create casual games.
     rated: StrictBool = True
@@ -75,6 +77,8 @@ def attach_online(app, auth, *, settings=None, clock=None):
                 str(body.request_id),
                 body.mode,
                 body.rated,
+                body.time_control,
+                body.increment_seconds,
             )
         )
 

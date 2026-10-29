@@ -17,6 +17,7 @@ from test_online_core import (
     dump,
     race,
     resume,
+    pause,
     account_template as account_template,
     rig as rig,
 )
@@ -102,6 +103,7 @@ def test_sequential_return_game_starts_on_completion_with_swapped_fixed_seats(ri
 
 
 def test_paused_timeout_does_not_start_return_game_or_shift_first_deadline(rig):
+    pause(rig)
     first = match(rig, "sequential", "attackers")
     first = rig.core.mutate(rig.credentials["Keeper"], first["id"], 0, "join")["game"]
     rig.clock.value += timedelta(days=1)

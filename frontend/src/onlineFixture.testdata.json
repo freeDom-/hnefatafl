@@ -102,7 +102,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "active": {
     "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
@@ -209,7 +212,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "moved": {
     "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
@@ -324,7 +330,10 @@
         "side": "attackers"
       }
     ],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "completed": {
     "id": "online-f8157aaad48a49d4ad338588bec9a3f5",
@@ -482,7 +491,10 @@
           "policy_version": 1
         }
       ]
-    }
+    },
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "replay": {
     "game": {
@@ -641,7 +653,10 @@
             "policy_version": 1
           }
         ]
-      }
+      },
+      "time_control": "per_move",
+      "increment_seconds": 0,
+      "remaining_seconds": null
     },
     "validated": true,
     "states": [
@@ -874,7 +889,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "simultaneous_return": {
     "id": "online-28539f23f9f14233b043d5f4680eba18",
@@ -987,7 +1005,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "simultaneous_return_completed": {
     "id": "online-28539f23f9f14233b043d5f4680eba18",
@@ -1143,7 +1164,10 @@
           "policy_version": 1
         }
       ]
-    }
+    },
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "sequential": {
     "id": "online-e9bc7c659ea64af582e91c33ab4fb672",
@@ -1299,7 +1323,10 @@
           "policy_version": 1
         }
       ]
-    }
+    },
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "sequential_return": {
     "id": "online-b35f76bdf2f843978024f596d08a7a8a",
@@ -1412,7 +1439,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "rated_waiting": {
     "id": "online-2914004b2616482e8c3f943eaf30d44f",
@@ -1548,7 +1578,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "rated_completed": {
     "id": "online-2914004b2616482e8c3f943eaf30d44f",
@@ -1730,7 +1763,10 @@
           "policy_version": 1
         }
       ]
-    }
+    },
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "timeout_active": {
     "id": "online-ea61581dce944f1d9085a91d7c015d9f",
@@ -1837,7 +1873,10 @@
       "defenders": 0
     },
     "moves": [],
-    "result": null
+    "result": null,
+    "time_control": "per_move",
+    "increment_seconds": 0,
+    "remaining_seconds": null
   },
   "timeout_response": {
     "game": {
@@ -1988,7 +2027,10 @@
             "policy_version": 1
           }
         ]
-      }
+      },
+      "time_control": "per_move",
+      "increment_seconds": 0,
+      "remaining_seconds": null
     },
     "transition": "timeout",
     "action_accepted": false

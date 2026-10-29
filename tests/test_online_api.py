@@ -18,6 +18,7 @@ from test_online_core import (
     dump,
     move_for,
     resume,
+    pause,
     account_template as account_template,
     rig as rig,
 )
@@ -320,7 +321,9 @@ def test_session_revoke_after_middleware_identity_read_prevents_mutation(rig, ap
 def test_unapproved_policies_stay_disabled_and_existing_games_remain_readable(rig, api):
     app, client = api
     game = active(rig)
-    app.state.online.settings = OnlineSettings(enabled=True, creation_policy_approved=False)
+    app.state.online.settings = OnlineSettings(
+        enabled=True, creation_policy_approved=False, timeout_policy_approved=False
+    )
     assert client().post("/api/online/games", json=creation()).status_code == 503
     assert client("Visitor").get("/api/online/games/" + game["id"]).status_code == 200
     assert (
@@ -345,8 +348,8 @@ def test_unapproved_policies_stay_disabled_and_existing_games_remain_readable(ri
 @pytest.mark.parametrize("paused", [True, False])
 def test_lifespan_startup_reconciles_bounded_expiry_and_shuts_down_worker(rig, paused):
     game = active(rig)
-    if not paused:
-        resume(rig)
+    if paused:
+        pause(rig)
     rig.clock.value += timedelta(seconds=61)
     app = create_app(
         rig.root,
@@ -420,3 +423,40 @@ def test_duration_aggregate_boundaries_preserve_exact_existing_deadlines(api):
         response = archer.post("/api/online/games", json=creation(time_per_move=seconds))
         assert response.status_code == 201, response.text
         assert response.json()["game"]["time_per_move"] == seconds
+
+
+@pytest.mark.parametrize("control", ["per_move", "total"])
+def test_api_round_trips_time_control_and_increment(rig, api, control):
+    _, client = api
+    response = client().post(
+        "/api/online/games",
+        json=creation(time_per_move=120, time_control=control, increment_seconds=8),
+    )
+    assert response.status_code == 201
+    game = response.json()["game"]
+    assert game["time_control"] == control and game["increment_seconds"] == 8
+    joined = client("Keeper").post(f"/api/online/games/{game['id']}/join", json={"version": 0})
+    assert joined.status_code == 200
+    balances = joined.json()["game"]["remaining_seconds"]
+    assert balances == ({"attackers": 120, "defenders": 120} if control == "total" else None)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("time_control", "invalid"),
+        ("time_control", True),
+        ("time_control", None),
+        ("increment_seconds", -1),
+        ("increment_seconds", True),
+        ("increment_seconds", "1"),
+        ("increment_seconds", 1.0),
+        ("increment_seconds", 1209601),
+        ("increment_seconds", None),
+    ],
+)
+def test_api_rejects_invalid_clock_configuration(rig, api, field, value):
+    _, client = api
+    assert client().post("/api/online/games", json=creation(**{field: value})).status_code == 422
+    with rig.store.connection() as c:
+        assert c.execute("SELECT COUNT(*) FROM online_matches").fetchone()[0] == 0

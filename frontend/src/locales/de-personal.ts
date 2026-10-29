@@ -104,8 +104,8 @@ const personal: Record<string, string> = {
     'Gib ganze Zahlen für Tage, Stunden und Minuten ein.',
   'Use 0–14 days, 0–23 hours and 0–59 minutes.':
     'Verwende 0–14 Tage, 0–23 Stunden und 0–59 Minuten.',
-  'Time allowed per move must be at least 1 minute and at most 14 days in total.':
-    'Die erlaubte Zeit pro Zug muss insgesamt mindestens 1 Minute und höchstens 14 Tage betragen.',
+  'Time limit must be at least 1 minute and at most 14 days in total.':
+    'Das Zeitlimit muss insgesamt mindestens 1 Minute und höchstens 14 Tage betragen.',
   'Lobby data is stale. Reconnecting…':
     'Die Lobbydaten sind veraltet. Verbindung wird wiederhergestellt…',
   'Retry connection': 'Verbindung erneut versuchen',

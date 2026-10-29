@@ -34,7 +34,7 @@ app = create_app(
     root,
     online_settings=policy,
     online_clock=clock,
-    online_background=False,
+    online_background=True,
     account_background=False,
 )
 for name in (

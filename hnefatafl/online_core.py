@@ -132,7 +132,9 @@ class OnlineCore:
                 id=identifier,
                 creator=row["creator_id"],
                 creator_side=row["creator_side"] or "attackers",
-                control=lifecycle.TimeControl(row["time_per_move"]),
+                control=lifecycle.TimeControl(
+                    row["time_per_move"], row["time_control"], row["increment_seconds"]
+                ),
                 position=position,
                 updated_at=instant(row["updated_at"]),
                 status=lifecycle.Status(row["status"]),
@@ -142,6 +144,9 @@ class OnlineCore:
                 started_at=instant(row["started_at"]) if row["started_at"] is not None else None,
                 deadline=instant(row["deadline"]) if row["deadline"] is not None else None,
                 result=result,
+                remaining_us=(row["attackers_remaining_us"], row["defenders_remaining_us"])
+                if row["attackers_remaining_us"] is not None
+                else None,
             )
         except (ValueError, TypeError, KeyError, OverflowError):
             raise OnlineError(409, "Stored online state requires operator review.") from None
@@ -197,10 +202,12 @@ class OnlineCore:
         request_id: str,
         mode: str = "single",
         rated: bool = True,
+        time_control: str = "per_move",
+        increment_seconds: int = 0,
     ) -> dict:
         self._admission()
         try:
-            control = lifecycle.TimeControl(seconds)
+            control = lifecycle.TimeControl(seconds, time_control, increment_seconds)
             request_id = str(UUID(request_id))
         except (ValueError, TypeError, AttributeError):
             raise OnlineError(
@@ -239,7 +246,7 @@ class OnlineCore:
                 )
                 match_id = "match-" + uuid4().hex
                 c.execute(
-                    "INSERT INTO online_matches(id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,activated_at,first_creator_side,rated) VALUES(?,?,NULL,?,?,?,?,?,?,NULL,NULL,?)",
+                    "INSERT INTO online_matches(id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,activated_at,first_creator_side,rated,time_control,increment_seconds) VALUES(?,?,NULL,?,?,?,?,?,?,NULL,NULL,?,?,?)",
                     (
                         match_id,
                         account["id"],
@@ -250,6 +257,8 @@ class OnlineCore:
                         seconds,
                         micros(now),
                         int(rated),
+                        time_control,
+                        increment_seconds,
                     ),
                 )
                 self._insert_game(
@@ -334,7 +343,7 @@ class OnlineCore:
 
     def _insert_game(self, c, game, request_id, match_id, leg, now, *, assigned_side):
         c.execute(
-            "INSERT INTO online_games(id,creation_request,match_id,leg,creator_id,creator_side,attackers_id,defenders_id,ruleset,ruleset_version,time_per_move,status,version,created_at,updated_at,started_at,deadline,position) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO online_games(id,creation_request,match_id,leg,creator_id,creator_side,attackers_id,defenders_id,ruleset,ruleset_version,time_per_move,status,version,created_at,updated_at,started_at,deadline,position,time_control,increment_seconds,attackers_remaining_us,defenders_remaining_us) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 game.id,
                 request_id,
@@ -358,6 +367,10 @@ class OnlineCore:
                 micros(game.started_at) if game.started_at else None,
                 micros(game.deadline) if game.deadline else None,
                 json.dumps(game.position.to_dict()),
+                game.control.mode,
+                game.control.increment_seconds,
+                game.remaining_us[0] if game.remaining_us else None,
+                game.remaining_us[1] if game.remaining_us else None,
             ),
         )
 
@@ -425,7 +438,7 @@ class OnlineCore:
         game = transition.game
         next_version = row["version"] + 1
         c.execute(
-            "UPDATE online_games SET creator_side=?,attackers_id=?,defenders_id=?,status=?,version=?,updated_at=?,started_at=?,deadline=?,completed_at=?,position=?,result_revision=? WHERE id=? AND version=?",
+            "UPDATE online_games SET creator_side=?,attackers_id=?,defenders_id=?,status=?,version=?,updated_at=?,started_at=?,deadline=?,completed_at=?,position=?,result_revision=?,attackers_remaining_us=?,defenders_remaining_us=? WHERE id=? AND version=?",
             (
                 game.creator_side if row["creator_side"] is not None or game.started_at else None,
                 (game.creator if game.creator_side == "attackers" else game.opponent)
@@ -442,6 +455,8 @@ class OnlineCore:
                 micros(game.result.completed_at) if game.result else None,
                 json.dumps(game.position.to_dict()),
                 game.result.revision if game.result else None,
+                game.remaining_us[0] if game.remaining_us else None,
+                game.remaining_us[1] if game.remaining_us else None,
                 game.id,
                 row["version"],
             ),
@@ -654,6 +669,14 @@ class OnlineCore:
             "ruleset": row["ruleset"],
             "ruleset_version": row["ruleset_version"],
             "time_per_move": game.control.seconds,
+            "time_control": game.control.mode,
+            "increment_seconds": game.control.increment_seconds,
+            "remaining_seconds": {
+                "attackers": game.remaining_us[0] / 1000000,
+                "defenders": game.remaining_us[1] / 1000000,
+            }
+            if game.remaining_us
+            else None,
             "rated": rated,
             "created_at": stamp(instant(row["created_at"])),
             "updated_at": stamp(game.updated_at),

@@ -112,6 +112,11 @@ def dump(rig):
         }
 
 
+def pause(rig):
+    gate = rig.core.gate(rig.credentials["Odin"])
+    return rig.core.set_gate(rig.credentials["Odin"], gate["version"], False, "Test incident pause")
+
+
 def resume(rig):
     gate = rig.core.gate(rig.credentials["Odin"])
     return rig.core.set_gate(
@@ -157,7 +162,7 @@ def test_duration_is_strict_at_service_and_database_boundary(rig, seconds):
         row = dict(c.execute("SELECT * FROM online_games WHERE id=?", (game["id"],)).fetchone())
         match_id = "match-" + uuid4().hex
         c.execute(
-            "INSERT INTO online_matches SELECT ?,creator_id,NULL,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,NULL,NULL,rated FROM online_matches WHERE id=?",
+            "INSERT INTO online_matches SELECT ?,creator_id,NULL,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,NULL,NULL,rated,time_control,increment_seconds FROM online_matches WHERE id=?",
             (match_id, row["match_id"]),
         )
         row.update(id="invalid-" + uuid4().hex, creation_request=uuid4().hex, time_per_move=seconds)
@@ -205,6 +210,8 @@ def test_account_eligibility_creator_recheck_and_fixed_seats(rig):
             ("attackers_id", rig.accounts["Visitor"]["id"]),
             ("ruleset_version", "2"),
             ("time_per_move", 120),
+            ("time_control", "total"),
+            ("increment_seconds", 5),
         ):
             with pytest.raises(sqlite3.IntegrityError):
                 c.execute(f"UPDATE online_games SET {field}=? WHERE id=?", (value, game["id"]))
@@ -257,6 +264,7 @@ def test_authoritative_deadline_boundary_and_late_concession(rig, action, offset
 
 
 def test_pause_gate_covers_sweep_requests_and_restart_without_extensions(rig):
+    pause(rig)
     game = active(rig)
     rig.clock.value += timedelta(seconds=3600)
     for action in ("move", "concede"):
