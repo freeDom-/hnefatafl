@@ -253,7 +253,8 @@ it('shows unassigned random waiting seats, admission denial and creator cancella
   } as OnlineGame;
   enabled = false;
   room(current);
-  await screen.findByText(/Random sides are assigned/);
+  await screen.findByRole('heading', { name: 'Waiting for another player' });
+  expect(screen.getByText('Random when a player joins')).toBeVisible();
   expect(screen.getAllByText(/Unassigned/)).toHaveLength(2);
   mutation = async () => {
     current = { ...current, status: 'cancelled', version: 1 };

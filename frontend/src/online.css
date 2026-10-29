@@ -1,6 +1,34 @@
 .online-root:focus {
   outline: none;
 }
+.waiting-game-status {
+  margin-block: 12px;
+}
+.waiting-game-status h3 {
+  line-height: 1.4;
+}
+.waiting-game-status dl {
+  display: grid;
+  gap: 10px;
+  margin-block: 12px;
+}
+.waiting-game-status dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  font-size: 0.75rem;
+}
+.waiting-game-status dt {
+  color: var(--muted);
+}
+.waiting-game-status dd {
+  margin: 0;
+}
+.waiting-game-status p {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
 .online-page {
   max-width: 1440px;
   margin: auto;

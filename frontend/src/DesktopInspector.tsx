@@ -1,6 +1,7 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import Tabs from './Tabs';
 import { useI18n } from './i18n';
+import { usePlayTab } from './PlayTabs';
 
 /** Each tab owns one scrolling surface; the surrounding panel never scrolls. */
 export default function DesktopInspector({
@@ -16,12 +17,12 @@ export default function DesktopInspector({
 }) {
   const id = useId();
   const { t } = useI18n();
-  const [tab, setTab] = useState('moves');
   const items = [
     { id: 'moves', label: `${t('Moves')} ${moveCount}` },
     ...(analytics !== undefined ? [{ id: 'analytics', label: 'Analytics' }] : []),
     ...(switcher ? [{ id: 'games', label: 'My games' }] : []),
   ];
+  const [tab, setTab] = usePlayTab(items.map((item) => item.id));
   return (
     <section className="panel desktop-inspector">
       <Tabs id={id} items={items} active={tab} onChange={setTab} label="Game information" />

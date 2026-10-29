@@ -178,11 +178,12 @@ function Notice({ value }: { value: { text: string; detail: string } | null }) {
 }
 function Admission({ availability }: { availability: Availability }) {
   const { t } = useI18n();
+  const { account } = useAuth();
   return !availability.enabled ? (
     <p role="status">
       {t('New online games and joining are currently disabled. Existing seats remain available.')}
     </p>
-  ) : !availability.eligible ? (
+  ) : !availability.eligible && account?.email_verified !== false ? (
     <p role="status">
       {t(
         'Creating and joining require an active, eligible, verified account. Existing seats remain available.',
@@ -246,11 +247,15 @@ export function Lobby({
   open,
   embedded = false,
   creationRequested = 0,
+  dialogOnly = false,
+  onCloseCreation,
 }: {
   accountId: string;
   open: (id: string) => void;
   embedded?: boolean;
   creationRequested?: number;
+  dialogOnly?: boolean;
+  onCloseCreation?: () => void;
 }) {
   const { t } = useI18n();
   const pageSize = embedded ? 10 : 25;
@@ -261,6 +266,7 @@ export function Lobby({
   const closeCreation = () => {
     creationVisible.current = false;
     setCreateOpen(false);
+    onCloseCreation?.();
   };
   useEffect(() => {
     if (creationRequested) {
@@ -359,7 +365,10 @@ export function Lobby({
     });
   };
   return (
-    <section className="panel dashboard-lobby" aria-label={t('Online lobby')}>
+    <section
+      className={dialogOnly ? 'creation-host' : 'panel dashboard-lobby'}
+      aria-label={t('Online lobby')}
+    >
       {poll.phase === 'loading' && <p role="status">{t('Loading online games…')}</p>}
       {poll.phase === 'stale' && (
         <div role="alert" className="online-notice">
@@ -381,10 +390,11 @@ export function Lobby({
           {t('Review retained creation request')}
         </button>
       )}
-      {poll.data && <Admission availability={poll.data.availability} />}
+      {!dialogOnly && poll.data && <Admission availability={poll.data.availability} />}
       <div className="online-lobby-layout lobby-discovery">
         {createOpen && (
           <Modal title={t('Create an online game')} onClose={closeCreation} initialFocus="select">
+            {dialogOnly && poll.data && <Admission availability={poll.data.availability} />}
             <form onSubmit={create} className="new-game-form online-create">
               <fieldset disabled={!!intent || action.busy || !available || !rulesets.length}>
                 <legend>{t('Choose your online game')}</legend>
@@ -442,11 +452,6 @@ export function Lobby({
                       </label>
                     ))}
                   </div>
-                  <p>
-                    {t(
-                      'At least 1 minute, at most 14 days in total. Each accepted move renews the allowance.',
-                    )}
-                  </p>
                 </fieldset>
               </fieldset>
               {validation && <p role="alert">{t(validation)}</p>}
@@ -494,50 +499,52 @@ export function Lobby({
             <Notice value={action.notice} />
           </Modal>
         )}
-        <section className="online-games">
-          <h2>{t('Online games')}</h2>
-          <Tabs
-            id="online-lobby"
-            items={lobbyTabs}
-            active={tab}
-            onChange={(value) => {
-              setTab(value as LobbyTab);
-              setOffset(0);
-            }}
-            label="Online lobby games"
-            className="online-tabs"
-          />
-          {poll.data?.listing.games.length === 0 && (
-            <p>{t(tab === 'my_turn' ? 'No games await your move.' : 'No games on this page.')}</p>
-          )}
-          <div className="online-cards">
-            {poll.data?.listing.games.map((game) => (
-              <GameSummary key={game.id} game={game} open={open} now={now} />
-            ))}
-          </div>
-          <nav className="online-toolbar" aria-label={t('Game pages')}>
-            <button
-              className="button secondary"
-              disabled={action.busy || offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - pageSize))}
-            >
-              {t('Previous page')}
-            </button>
-            <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
-            <button
-              className="button secondary"
-              disabled={
-                action.busy ||
-                poll.phase !== 'ready' ||
-                (poll.data?.listing.games.length ?? 0) < pageSize ||
-                offset + pageSize > 100000
-              }
-              onClick={() => setOffset(offset + pageSize)}
-            >
-              {t('Next page')}
-            </button>
-          </nav>
-        </section>
+        {!dialogOnly && (
+          <section className="online-games">
+            <h2>{t('Online games')}</h2>
+            <Tabs
+              id="online-lobby"
+              items={lobbyTabs}
+              active={tab}
+              onChange={(value) => {
+                setTab(value as LobbyTab);
+                setOffset(0);
+              }}
+              label="Online lobby games"
+              className="online-tabs"
+            />
+            {poll.data?.listing.games.length === 0 && (
+              <p>{t(tab === 'my_turn' ? 'No games await your move.' : 'No games on this page.')}</p>
+            )}
+            <div className="online-cards">
+              {poll.data?.listing.games.map((game) => (
+                <GameSummary key={game.id} game={game} open={open} now={now} />
+              ))}
+            </div>
+            <nav className="online-toolbar" aria-label={t('Game pages')}>
+              <button
+                className="button secondary"
+                disabled={action.busy || offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - pageSize))}
+              >
+                {t('Previous page')}
+              </button>
+              <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
+              <button
+                className="button secondary"
+                disabled={
+                  action.busy ||
+                  poll.phase !== 'ready' ||
+                  (poll.data?.listing.games.length ?? 0) < pageSize ||
+                  offset + pageSize > 100000
+                }
+                onClick={() => setOffset(offset + pageSize)}
+              >
+                {t('Next page')}
+              </button>
+            </nav>
+          </section>
+        )}
       </div>
     </section>
   );
@@ -739,6 +746,7 @@ function GameRoom({
       ruleset={t(game.ruleset)}
       size={size}
       rows={gameMetadata}
+      desktopRows={[]}
       footer={
         <>
           {game.status === 'active' && game.deadline && (
@@ -752,10 +760,25 @@ function GameRoom({
             </p>
           )}
           {game.status === 'waiting' && (
-            <div>
-              {t(
-                'Waiting for a second player. Random sides are assigned when they join. To change settings, cancel and create again.',
-              )}
+            <div className="waiting-game-status" role="status">
+              <h3>{t('Waiting for another player')}</h3>
+              <dl>
+                <div>
+                  <dt>{t('Players')}</dt>
+                  <dd>1 / 2</dd>
+                </div>
+                <div>
+                  <dt>{t('Side assignment')}</dt>
+                  <dd>
+                    {t(
+                      game.match.side_selection === 'random'
+                        ? 'Random when a player joins'
+                        : sideNames[game.creator_side ?? 'attackers'],
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              <p>{t('To change settings, cancel this game and create another.')}</p>
             </div>
           )}
           {reviewOnly && (
@@ -769,9 +792,9 @@ function GameRoom({
               reason={game.result.termination_reason}
               labels={sideNames}
             />
-          ) : (
+          ) : game.status !== 'waiting' ? (
             <div>{t(statuses[game.status])}</div>
-          )}
+          ) : null}
           <RatingChanges game={game} />
           {!reviewOnly && game.status === 'waiting' && game.creator_id !== accountId && (
             <button
@@ -785,7 +808,7 @@ function GameRoom({
             </button>
           )}
           {!reviewOnly && game.status === 'waiting' && game.creator_id === accountId && (
-            <button className="button" disabled={!ready} onClick={() => submit('cancel')}>
+            <button className="button secondary" disabled={!ready} onClick={() => submit('cancel')}>
               {t('Cancel waiting game')}
             </button>
           )}

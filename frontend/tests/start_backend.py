@@ -20,6 +20,8 @@ app = create_app(root)
 auth = app.state.auth
 auth.create_account("BrowserAdmin", "browser-admin@example.test", "browser-fixture-only-password", "ADMIN", bootstrap=True)
 auth.create_account("BrowserUser", "browser-user@example.test", "browser-fixture-only-password")
+with app.state.store.connection() as connection:
+    connection.execute("UPDATE accounts SET email_verified_at=1 WHERE username='BrowserAdmin'")
 # No lifespan here: the real uvicorn app alone owns workers and cleanup.
 fixture_client = TestClient(app)
 session = fixture_client.post("/api/auth/login", json={"identity":"BrowserAdmin", "password":"browser-fixture-only-password"}, headers={"Origin":"http://testserver"}).json()

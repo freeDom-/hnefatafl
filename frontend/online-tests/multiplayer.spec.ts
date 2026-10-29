@@ -28,6 +28,8 @@ async function create(page: Page, mode = 'single', side = 'attackers', seconds =
   await page.getByRole('button', { name: 'Create game', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel waiting game' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Cancel waiting game' })).toHaveClass(/secondary/);
+  await expect(page.getByRole('heading', { name: 'Waiting for another player' })).toBeVisible();
   return page.url();
 }
 async function join(page: Page, url: string) {
@@ -207,7 +209,14 @@ test('sequential discovers the return game after the first result', async ({
   await switcher.locator(`[data-game-id="${siblingId}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/online/games/${siblingId}$`));
   await expect(page.getByText('Game 2', { exact: true })).toBeVisible();
-  await expect(switcher).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(switcher.locator(`[data-game-id="${siblingId}"]`)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
   await other.page.goto(page.url());
   await concede(other.page);
   await refresh(page);

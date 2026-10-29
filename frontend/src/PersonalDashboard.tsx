@@ -11,6 +11,7 @@ import RecordedGames, { type RecordedPage } from './RecordedGames';
 import RecordedReview from './RecordedReview';
 import PerformanceBadges from './PerformanceBadges';
 import Leaderboard from './Leaderboard';
+import GameCreationActions from './GameCreationActions';
 import './personalDashboard.css';
 
 function DashboardHome({
@@ -21,6 +22,7 @@ function DashboardHome({
   onNewSingle?: () => void;
 }) {
   const { t } = useI18n();
+  const { account: identity } = useAuth();
   const [creation, setCreation] = useState(0);
   const loadAccount = useCallback(
     (signal: AbortSignal) =>
@@ -48,13 +50,15 @@ function DashboardHome({
   return (
     <section className="personal-dashboard">
       <h1>{t('Dashboard')}</h1>
-      <div className="dashboard-actions">
-        <button className="button primary" onClick={() => setCreation((value) => value + 1)}>
-          {t('New online game')}
-        </button>
-        <button className="button secondary" onClick={onNewSingle}>
-          {t('New single-player game')}
-        </button>
+      {identity?.email_verified === false && (
+        <p role="alert" className="dashboard-verification-warning">
+          {t('Verify your email address before creating or joining online games.')}
+        </p>
+      )}
+      <GameCreationActions
+        onNewOnline={() => setCreation((value) => value + 1)}
+        onNewSingle={onNewSingle}
+      >
         {account.data?.games[0] && (
           <a
             className="button secondary"
@@ -64,7 +68,7 @@ function DashboardHome({
             {t('Resume single-player')}
           </a>
         )}
-      </div>
+      </GameCreationActions>
       <div className="dashboard-overview">
         <section className="panel dashboard-performance" aria-labelledby="performance-heading">
           <div className="section-heading">

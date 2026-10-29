@@ -41,6 +41,7 @@ export default function Auth({ children }: { children: ReactNode }) {
       if (localStorage.getItem('hnefatafl-account-cache') !== session.account.id) {
         changed = true;
         localStorage.removeItem('hnefatafl-game');
+        localStorage.removeItem('hnefatafl-play-route');
         localStorage.removeItem('hnefatafl-new-game-options');
       }
       localStorage.setItem('hnefatafl-account-cache', session.account.id);
@@ -74,6 +75,7 @@ export default function Auth({ children }: { children: ReactNode }) {
       try {
         for (const key of [
           'hnefatafl-game',
+          'hnefatafl-play-route',
           'hnefatafl-new-game-options',
           'hnefatafl-account-cache',
         ])

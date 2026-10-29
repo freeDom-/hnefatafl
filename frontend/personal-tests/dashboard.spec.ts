@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { gameTab, openGameOptions, openGameNavigation } from '../tests/play-helpers';
 const password = 'personal-browser-fixture-password';
 test.beforeEach(async ({ request }) => {
   expect((await request.post('http://127.0.0.1:8010/reset-login-attempts')).status()).toBe(204);
@@ -7,7 +8,13 @@ async function credentials(page: Page, name: string) {
   await page.getByLabel('Username or email').fill(name);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await page.getByRole('button', { name: 'Log out', exact: true }).isVisible()) ||
+        (await page.getByRole('grid').isVisible()),
+    )
+    .toBe(true);
 }
 async function login(page: Page, name = 'PersonalArcher', path = '/') {
   await page.goto(path);
@@ -17,6 +24,12 @@ async function snapshot(request: APIRequestContext) {
   return (await request.get('http://127.0.0.1:8010/snapshot')).json();
 }
 const rows = (page: Page) => page.locator('.recorded-games tbody tr');
+const reviewResult = (page: Page) =>
+  page
+    .locator('.detail-row', { hasText: 'Recorded result' })
+    .or(page.locator('.mobile-play-subtitle'));
+const reviewLifecycle = (page: Page) =>
+  page.locator('.detail-row', { hasText: 'Lifecycle' }).or(page.locator('.mobile-play-subtitle'));
 const accountPanel = (page: Page) => page.locator('[aria-labelledby="personal-account-heading"]');
 const onlinePanel = (page: Page) => page.locator('[aria-labelledby="personal-online-heading"]');
 
@@ -29,7 +42,7 @@ test('default landing, shared latest three and exact review survive filtering an
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
-  await expect(nav.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
   await expect(nav.getByRole('button', { name: 'Online', exact: true })).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
@@ -53,15 +66,19 @@ test('default landing, shared latest three and exact review survive filtering an
   await rows(page).first().locator('td').first().click({ force: true });
   await expect(page).toHaveURL(new RegExp(`selected=${latest.games[0].id}`));
   await expect(page.getByRole('grid')).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Hall of records' }).click();
   await page.getByRole('combobox', { name: 'Ruleset', exact: true }).selectOption('tablut');
   await expect(rows(page).filter({ hasText: 'brandubh' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Return to selected review' }).click();
   await expect(page.getByRole('grid')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Selected game review' })).toContainText(
+  await expect(page.getByRole('region', { name: 'Selected game review' })).toHaveAttribute(
+    'data-game-id',
     latest.games[0].id,
   );
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Selected game review' })).toContainText(
+  await expect(page.getByRole('region', { name: 'Selected game review' })).toHaveAttribute(
+    'data-game-id',
     latest.games[0].id,
   );
   await expect(page.getByLabel('Game type')).toHaveCount(0);
@@ -120,11 +137,10 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
       await page.goto(
         `/archive?ruleset=copenhagen&review=account-single-player&selected=${state.ids.account}`,
       );
-      await expect(page.getByText('No games match these filters.')).toBeVisible();
+      await expect(page.getByLabel('Ruleset', { exact: true })).toHaveCount(0);
       await expect(page.getByRole('grid')).toBeVisible();
-      await expect(page.locator('.detail-row', { hasText: 'Recorded result' })).toContainText(
-        'Draw',
-      );
+      await expect(reviewResult(page)).toContainText('Draw');
+      await gameTab(page, 'moves');
       await page.getByRole('button', { name: 'Next move', exact: true }).click();
       await expect(page.getByText('Move 1 of 8')).toBeVisible();
     } else {
@@ -153,6 +169,7 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
         ).toBe(404);
       await expect(page.getByLabel('Game type')).toHaveCount(0);
     }
+    await openGameNavigation(page);
     await page.getByRole('button', { name: 'Log out', exact: true }).click();
   }
 });
@@ -169,9 +186,7 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   );
   await expect(page).toHaveURL(new RegExp(`selected=${state.ids.completed}`));
   await expect(page.getByRole('grid')).toBeVisible();
-  await expect(page.locator('.detail-row', { hasText: 'Recorded result' })).toContainText(
-    'Attackers win · concession',
-  );
+  await expect(reviewResult(page)).toContainText('Attackers win · concession');
   await page.goto('/online?mine=true&selected=kept');
   await expect(page).toHaveURL(/\/dashboard\?mine=true&selected=kept&setup=online$/);
   await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
@@ -179,9 +194,8 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
     'true',
   );
   await page.goto('/play?ruleset=brandubh');
-  await expect(page).toHaveURL(/\/dashboard\?ruleset=brandubh&setup=single-player$/);
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page).toHaveURL(/\/(?:games|online\/games)\//);
   await page.goto('/games/' + state.ids.unfinished_account);
   await expect(page.getByRole('grid')).toBeVisible();
   await page.reload();
@@ -191,7 +205,7 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
   await page.goto('/dashboard/single-player/' + state.ids.account);
-  await expect(page.locator('.detail-row', { hasText: 'Recorded result' })).toContainText('Draw');
+  await expect(reviewResult(page)).toContainText('Draw');
 });
 
 test('starts account single-player from Dashboard and reconnects at its dedicated route', async ({
@@ -294,15 +308,12 @@ test('history review is read-only, validated and preserves authoritative records
     await expect(page.getByRole('button', { name: 'Concede', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /analysis|export|seek|undo/i })).toHaveCount(0);
     if (id === before.ids.completed) {
+      await gameTab(page, 'moves');
       await page.getByRole('button', { name: 'Next move', exact: true }).click();
       await expect(page.getByText('Move 1 of 1')).toBeVisible();
     }
-    if (id === before.ids.voided)
-      await expect(page.locator('.detail-row', { hasText: 'Lifecycle' })).toContainText('Voided');
-    if (id === before.ids.cancelled)
-      await expect(page.locator('.detail-row', { hasText: 'Lifecycle' })).toContainText(
-        'Cancelled',
-      );
+    if (id === before.ids.voided) await expect(reviewLifecycle(page)).toContainText('Voided');
+    if (id === before.ids.cancelled) await expect(reviewLifecycle(page)).toContainText('Cancelled');
   }
   // Account single-player review may run authorized analysis in separate tables.
   // No authoritative game/result write is allowed from the review.
@@ -407,10 +418,12 @@ test('Hall account review runs the advisor and shows winning chances', async ({
     `/archive?review=account-single-player&selected=${state.ids.account}`,
   );
   await expect(page.getByRole('grid')).toBeVisible();
+  await openGameOptions(page);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   await analytics
     .getByRole('combobox', { name: 'Move advisor', exact: true })
     .selectOption('profile:baseline');
+  await gameTab(page, 'analytics');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
   await expect(panel).toBeVisible();
   await expect(panel.getByRole('meter').first()).toBeVisible();

@@ -1,4 +1,17 @@
 const translations: Record<string, string> = {
+  'No games are currently running.': 'Derzeit laufen keine Partien.',
+  'Your running games could not be loaded.':
+    'Deine laufenden Partien konnten nicht geladen werden.',
+  'Find online games on Dashboard': 'Onlinepartien auf der Übersicht finden',
+  'Verify your email address before creating or joining online games.':
+    'Bestätige deine E-Mail-Adresse, bevor du Onlinepartien erstellst oder ihnen beitrittst.',
+  'Waiting for another player': 'Warten auf einen weiteren Spieler',
+  'Side assignment': 'Seitenverteilung',
+  'Random when a player joins': 'Zufällig beim Beitritt eines Spielers',
+  'To change settings, cancel this game and create another.':
+    'Um die Einstellungen zu ändern, brich diese Partie ab und erstelle eine neue.',
+  'Back to Hall of records': 'Zurück zur Halle der Aufzeichnungen',
+  'Return to selected review': 'Zurück zur ausgewählten Partie',
   'Game options': 'Spieloptionen',
   'Read-only history': 'Schreibgeschützter Verlauf',
   'Loading history…': 'Verlauf wird geladen…',

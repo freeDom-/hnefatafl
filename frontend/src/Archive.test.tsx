@@ -75,12 +75,15 @@ it('keeps the exact selected review visible when it is outside the filtered page
   );
   render(<Archive />);
   await screen.findByRole('grid');
-  expect(screen.getByText('No games match these filters.')).toBeVisible();
+  expect(screen.queryByLabelText('Ruleset')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
   expect(screen.getByText('Move 1 of 1')).toBeVisible();
+  fireEvent.click(screen.getByRole('link', { name: 'Back to Hall of records' }));
+  await screen.findByLabelText('Ruleset');
   fireEvent.change(screen.getByLabelText('Ruleset'), { target: { value: 'copenhagen' } });
   expect(location.search).toContain('selected=' + row.id);
-  expect(screen.getByRole('grid')).toBeVisible();
+  fireEvent.click(screen.getByRole('link', { name: 'Return to selected review' }));
+  await screen.findByRole('grid');
   expect(fetcher.mock.calls.every(([, opts]) => opts?.method === 'GET')).toBe(true);
   expect(fetcher.mock.calls.some(([url]) => url.includes('/api/games/'))).toBe(false);
 });

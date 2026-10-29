@@ -8,15 +8,18 @@ export default function GameDetailsPanel({
   size,
   header,
   rows,
+  desktopRows,
   footer,
 }: {
   ruleset: string;
   size: number;
   header?: ReactNode;
   rows: GameDetailRow[];
+  desktopRows?: GameDetailRow[];
   footer?: ReactNode;
 }) {
   const desktop = useDesktopPlay();
+  const visibleRows = desktop ? (desktopRows ?? rows) : rows;
   return (
     <section className="panel game-details">
       <div className="variant-heading">
@@ -26,8 +29,8 @@ export default function GameDetailsPanel({
         </span>
       </div>
       {header}
-      {header && !desktop ? <div className="divider" /> : null}
-      {(!desktop ? rows : []).map((row) => (
+      {header && visibleRows.length > 0 ? <div className="divider" /> : null}
+      {visibleRows.map((row) => (
         <div className="detail-row" key={row.label}>
           <span>{row.label}</span>
           <strong>{row.value}</strong>

@@ -39,8 +39,10 @@ live assistance. The header's back link returns to Dashboard for new-game setup,
 account controls, appearance, language, and other pages.
 
 Desktop keeps the board between a compact game/player summary and a tabbed panel
-for **Moves**, **Analytics**, and **My games**. Game mode, move number, and random
-seed appear with the players instead of in game details. Shorter desktop windows
+for **Moves**, **Analytics**, and **My games**. Game mode and random seed appear
+with the players; the separate Move detail is removed. The selected tab stays open
+when switching games, falling back to Moves when that game does not offer the tab.
+Shorter desktop windows
 condense the summary according to actual browser viewport height, including the
 space lost to browser bars and the operating-system taskbar.
 
@@ -118,6 +120,9 @@ The [Hall of records](DASHBOARD.md) offers compact read-only rows, server filter
 pagination and independent selected review. Normal users see their participating
 online records; administrators can inspect all server-recorded categories. Account
 single-player gameplay remains available despite being hidden from normal-user Hall.
+Selected reviews use the same board, player summary, and desktop/mobile tabbed
+layout as live play. Replay navigation lives in Moves and changes only the viewer's
+position. Back to Hall preserves filters and the selected record.
 Equivalent AI configurations still group across seeds in the existing statistics API.
 [Records and personalization](PERSONALIZATION.md) explains identities, model
 suggestions, themes and local preferences. [Tournaments](TOURNAMENTS.md) describes

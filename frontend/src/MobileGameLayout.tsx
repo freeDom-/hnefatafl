@@ -5,6 +5,7 @@ import Modal from './Modal';
 import Tabs from './Tabs';
 import { MobilePlayContext } from './mobilePlay';
 import './mobilePlay.css';
+import { usePlayTab } from './PlayTabs';
 
 export type MobileGamePresentation = {
   title: string;
@@ -13,6 +14,7 @@ export type MobileGamePresentation = {
   analytics?: ReactNode;
   settings?: ReactNode;
   moveCount: number;
+  back?: { href: string; label: string };
 };
 
 export default function MobileGameLayout({
@@ -28,22 +30,22 @@ export default function MobileGameLayout({
 }) {
   const { t } = useI18n();
   const id = useId();
-  const [tab, setTab] = useState('moves');
   const [optionsOpen, setOptionsOpen] = useState(false);
   const items = [
     { id: 'moves', label: `${t('Moves')} ${presentation.moveCount}` },
     ...(presentation.analytics !== undefined ? [{ id: 'analytics', label: 'Analytics' }] : []),
     ...(switcher ? [{ id: 'games', label: 'My games' }] : []),
   ];
+  const [tab, setTab] = usePlayTab(items.map((item) => item.id));
   return (
     <MobilePlayContext.Provider value>
       <div className="mobile-game-layout">
         <header className="mobile-play-header">
           <a
             className="icon-button"
-            href="/dashboard"
+            href={presentation.back?.href ?? '/dashboard'}
             onClick={surfaceLink}
-            aria-label={t('Back to dashboard')}
+            aria-label={t(presentation.back?.label ?? 'Back to dashboard')}
           >
             ‹
           </a>

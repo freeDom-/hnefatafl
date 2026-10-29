@@ -25,3 +25,7 @@ it('normalizes obsolete entries without losing query or selection', () => {
   expect(canonicalLocation()).toBe('/dashboard?mine=true&selected=kept&setup=online');
   expect(location.hash).toBe('#lobby');
 });
+it('retains the Play page and its query', () => {
+  history.replaceState(null, '', '/play?ruleset=tablut');
+  expect(canonicalLocation()).toBe('/play?ruleset=tablut');
+});

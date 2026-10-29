@@ -64,6 +64,7 @@ test('real gameplay, read-only history, rules, records and mobile layout', async
   await expect(page.getByText('Local players', { exact: true })).toHaveCount(0);
   await page.locator('.recorded-games a').first().click();
   await expect(page.getByRole('grid')).toBeVisible();
+  await gameTab(page, 'moves');
   await page.getByRole('button', { name: 'Next move', exact: true }).click();
   await expect(page.getByText('Move 1 of 1')).toBeVisible();
   await expect
