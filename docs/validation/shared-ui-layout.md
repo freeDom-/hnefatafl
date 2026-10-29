@@ -48,6 +48,8 @@ compact header now applies in short phone landscape, summary separators use the
 existing condensed spacing, and warning checks verify visible position and
 accessible heading presence. All eight play-entry/replay cases then passed,
 including 1366×620 desktop and 844×390 phone landscape at all scales.
+The landscape inspector spans the player and board rows so its move list remains
+usable alongside the shared site menu; compact appearance controls show their icon.
 
 The dialog check covers English/German, Compact/Default/Large, both clock modes,
 1920×1080, 1568×785 and 1280×720 desktop viewports, plus a 390×844 phone viewport.

@@ -170,6 +170,9 @@
     min-height: 44px;
     padding: 8px;
   }
+  .header-controls .appearance-trigger > span {
+    display: none;
+  }
   .site-header nav {
     flex-wrap: nowrap;
     justify-content: flex-start;

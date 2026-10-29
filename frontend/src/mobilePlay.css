@@ -399,10 +399,10 @@
     grid-column: 1 / -1;
   }
   .mobile-player-strip {
-    grid-column: 1 / -1;
+    grid-column: 1;
   }
   .mobile-inspector {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 2 / -1;
   }
 }
