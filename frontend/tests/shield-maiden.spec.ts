@@ -24,7 +24,6 @@ test('Shield maiden runs in real AI versus AI games', async ({ page }) => {
     heuristic_version: 1,
   });
   await pauseGame(page);
-  await openGameOptions(page);
   await expect(page.getByRole('button', { name: /Resume AI/ })).toBeVisible();
 });
 

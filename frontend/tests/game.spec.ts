@@ -57,6 +57,7 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
 });
 
 test('all rulesets and computer playback use the actual API', async ({ page }) => {
+  test.setTimeout(180000);
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'AI vs AI', exact: true }).click();
@@ -77,13 +78,13 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
     timeout: 20000,
   });
   await pauseGame(page);
-  await openGameOptions(page);
   await expect(page.getByRole('button', { name: /Resume AI/ })).toBeVisible();
-  await page.getByRole('combobox', { name: 'AI playback speed' }).selectOption({ label: 'Fast' });
+  await expect(page.getByRole('combobox', { name: 'AI playback speed' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Next move', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /Resume AI/ }).click();
   const outcome = page.locator('.game-details .game-result strong, .mobile-play-subtitle');
   await expect(outcome).toHaveText(/Attackers win|Defenders win|Draw/, {
-    timeout: 60000,
+    timeout: 120000,
   });
   const outcomeText = (await outcome.innerText()).match(/Attackers win|Defenders win|Draw/)![0];
   const archiveResult = outcomeText;

@@ -809,43 +809,6 @@ h1 {
   background: transparent;
   font-size: 1.25rem;
 }
-.playback {
-  margin-top: var(--pad-toolbar);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gap-stack);
-  border-top: 1px solid var(--line);
-  padding-top: var(--pad-toolbar);
-}
-.playback label {
-  margin-left: auto;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.625rem;
-  font-weight: 400;
-}
-.playback select {
-  padding: var(--pad-control);
-  font-size: 0.625rem;
-  max-width: 100px;
-}
-.thinking {
-  font-size: 0.5625rem;
-  color: var(--ui-copy, #8a927e);
-  display: flex;
-  align-items: center;
-  gap: var(--gap-inline);
-}
-.thinking i {
-  width: 6px;
-  height: 6px;
-  border: 1px solid #819270;
-  border-radius: 50%;
-  animation: pulse 1s infinite;
-}
 .history-panel {
   padding: var(--pad-panel) var(--pad-panel) 0;
   overflow: hidden;
@@ -2147,13 +2110,6 @@ summary {
     width: 28px;
     height: 28px;
   }
-  .playback .text-button {
-    font-size: 0.5625rem;
-  }
-  .playback label {
-    margin-left: 0;
-    font-size: 0.5625rem;
-  }
   .history-panel {
     padding: var(--pad-panel) var(--pad-panel) 0;
   }
@@ -2419,9 +2375,6 @@ summary {
   }
   .square-rune {
     font-size: 1.375rem;
-  }
-  .playback label {
-    margin-left: auto;
   }
   .history-panel {
     width: 100%;

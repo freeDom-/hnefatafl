@@ -90,11 +90,27 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   }
 
   await closeGameOptions(page);
+  const restartRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().endsWith('/restart'))
+      restartRequests.push(request.url());
+  });
   await page.getByRole('button', { name: 'Restart game', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Restart game?', exact: true });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  expect(restartRequests).toHaveLength(0);
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(confirmation).toHaveCount(0);
+  expect(restartRequests).toHaveLength(0);
+  expect(await page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBe(first.id);
+  await page.getByRole('button', { name: 'Restart game', exact: true }).click();
+  await confirmation.getByRole('button', { name: 'Confirm restart', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game')))
     .not.toBe(first.id);
   const restarted = await currentGame(page, request);
+  expect(restartRequests).toHaveLength(1);
   expect(restarted.seed).not.toBe(first.seed);
   expect((await request.get(`${api}/games/${first.id}`)).ok()).toBe(true);
 

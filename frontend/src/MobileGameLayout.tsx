@@ -12,7 +12,6 @@ export type MobileGamePresentation = {
   players: ReactNode;
   analytics?: ReactNode;
   settings?: ReactNode;
-  options?: ReactNode;
   moveCount: number;
 };
 
@@ -52,7 +51,7 @@ export default function MobileGameLayout({
             <h2>{presentation.title}</h2>
             <div className="mobile-play-subtitle">{presentation.subtitle}</div>
           </div>
-          {(presentation.options || presentation.settings) && (
+          {presentation.settings && (
             <button
               className="icon-button"
               onClick={() => setOptionsOpen(true)}
@@ -96,10 +95,7 @@ export default function MobileGameLayout({
         </section>
         {optionsOpen && (
           <Modal title={t('Game options')} onClose={() => setOptionsOpen(false)}>
-            <div className="mobile-game-options">
-              {presentation.options}
-              {presentation.settings}
-            </div>
+            <div className="mobile-game-options">{presentation.settings}</div>
           </Modal>
         )}
       </div>

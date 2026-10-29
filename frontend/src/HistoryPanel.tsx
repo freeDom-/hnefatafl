@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { useCompactPlay, useMediaQuery } from './mobilePlay';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useCompactPlay } from './mobilePlay';
 import { useI18n } from './i18n';
 import { sideGlyph } from './sideGlyph';
 import type { Side } from './types';
@@ -29,27 +29,30 @@ export default function HistoryPanel({
 }) {
   const { t } = useI18n();
   const compact = useCompactPlay();
-  const short = useMediaQuery('(max-height: 719px)');
-  const pageSize = short ? 1 : 2;
-  const anchor = entries.find((entry) => entry.current)?.ply ?? entries.at(-1)?.ply ?? 0;
-  const anchorIndex = Math.max(
-    0,
-    entries.findIndex((entry) => entry.ply === anchor),
-  );
-  const lastPage = Math.max(0, Math.ceil(entries.length / pageSize) - 1);
-  const [paging, setPaging] = useState({
-    anchor,
-    pageSize,
-    page: Math.floor(anchorIndex / pageSize),
-  });
-  const page = Math.min(
-    lastPage,
-    paging.anchor === anchor && paging.pageSize === pageSize
-      ? paging.page
-      : Math.floor(anchorIndex / pageSize),
-  );
-  const showPage = (next: number) => setPaging({ anchor, pageSize, page: next });
-  const visibleEntries = compact ? entries.slice(page * pageSize, (page + 1) * pageSize) : entries;
+  const list = useRef<HTMLOListElement>(null);
+  const currentPly = entries.find((entry) => entry.current)?.ply;
+  useLayoutEffect(() => {
+    const node = list.current;
+    const current = node?.querySelector('.current');
+    if (!compact || !node || !current) return;
+    let observer: ResizeObserver | undefined;
+    const reveal = () => {
+      if (!node.clientHeight) return;
+      const bounds = node.getBoundingClientRect();
+      const row = current.getBoundingClientRect();
+      // Scroll only the move list, keeping the board and document in place.
+      if (row.bottom > bounds.bottom) node.scrollTop += row.bottom - bounds.bottom;
+      else if (row.top < bounds.top) node.scrollTop += row.top - bounds.top;
+      observer?.disconnect();
+    };
+    reveal();
+    // A move may arrive while another tab hides the list. Reveal it on return.
+    if (!node.clientHeight && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(reveal);
+      observer.observe(node);
+    }
+    return () => observer?.disconnect();
+  }, [compact, currentPly, entries.length]);
   return (
     <aside className={`panel history-panel${compact ? ' compact-history' : ''}`}>
       <div className="panel-title">
@@ -62,8 +65,8 @@ export default function HistoryPanel({
         <span>{t('JOURNEY')}</span>
         <span>{t('SIDE')}</span>
       </div>
-      <ol className="move-list">
-        {visibleEntries.map((entry) => (
+      <ol className="move-list" ref={list}>
+        {entries.map((entry) => (
           <li key={entry.ply} className={entry.current ? 'current' : entry.future ? 'future' : ''}>
             <button
               type="button"
@@ -88,53 +91,7 @@ export default function HistoryPanel({
           </p>
         </div>
       )}
-      {compact && (
-        <nav className="mobile-history-pager" aria-label={t('Move history pages')}>
-          <button
-            className="icon-button"
-            aria-label={t('Earlier moves')}
-            disabled={page === 0}
-            onClick={() => showPage(page - 1)}
-          >
-            ‹
-          </button>
-          <span aria-live="polite">
-            {entries.length
-              ? t('{from}–{to} of {count}', {
-                  from: page * pageSize + 1,
-                  to: Math.min((page + 1) * pageSize, entries.length),
-                  count,
-                })
-              : t('No moves yet')}
-          </span>
-          {startAction && (
-            <button
-              className="icon-button"
-              aria-label={t('↤ Starting position')}
-              onClick={startAction.onClick}
-              disabled={startAction.disabled}
-            >
-              ↤
-            </button>
-          )}
-          <button
-            className="text-button"
-            onClick={() => showPage(lastPage)}
-            disabled={page === lastPage}
-          >
-            {t('Latest')}
-          </button>
-          <button
-            className="icon-button"
-            aria-label={t('Later moves')}
-            disabled={page === lastPage}
-            onClick={() => showPage(page + 1)}
-          >
-            ›
-          </button>
-        </nav>
-      )}
-      {!compact && startAction && (
+      {startAction && (
         <button
           className="history-start text-button"
           onClick={startAction.onClick}

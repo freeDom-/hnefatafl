@@ -15,13 +15,11 @@ const entries = (cursor = 24): HistoryEntry[] =>
     onSeek: () => seek(i + 1),
   }));
 let mobile = true;
-let short = false;
 beforeEach(() => {
   mobile = true;
-  short = false;
   seek.mockClear();
   vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: query.includes('max-width') ? mobile : short,
+    matches: query.includes('max-width') && mobile,
     addEventListener() {},
     removeEventListener() {},
   }));
@@ -73,7 +71,6 @@ function layout(cursor = 24) {
             captured={{ attackers: 2, defenders: 1 }}
           />
         ),
-        options: <p>Playback controls</p>,
         analytics: null,
         settings: (
           <label>
@@ -86,11 +83,13 @@ function layout(cursor = 24) {
   );
 }
 
-it('pages the full history, preserves a browsed page across tabs, and follows a changed replay cursor', () => {
+it('keeps every move in one list and preserves browsing across tabs', () => {
   const view = render(layout());
-  expect(screen.getAllByRole('button', { name: /Replay to move/ })).toHaveLength(2);
+  expect(screen.getAllByRole('button', { name: /Replay to move/ })).toHaveLength(24);
+  expect(screen.queryByRole('navigation', { name: 'Move history pages' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Replay to move 24' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Earlier moves' }));
+  const list = screen.getByRole('list');
+  list.scrollTop = 80;
   fireEvent.click(screen.getByRole('button', { name: 'Replay to move 21' }));
   expect(seek).toHaveBeenCalledWith(21);
   fireEvent.click(screen.getByRole('tab', { name: 'My games' }));
@@ -100,21 +99,25 @@ it('pages the full history, preserves a browsed page across tabs, and follows a 
   fireEvent.keyDown(screen.getByRole('tab', { name: 'My games' }), { key: 'Home' });
   expect(screen.getByRole('tab', { name: 'Moves 24' })).toHaveFocus();
   expect(screen.getByRole('button', { name: 'Replay to move 21' })).toBeVisible();
+  expect(list.scrollTop).toBe(80);
   expect(screen.getAllByRole('grid')).toHaveLength(1);
   view.rerender(layout(1));
   expect(screen.getByRole('button', { name: 'Replay to move 1' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
-  expect(screen.getByRole('button', { name: 'Replay to move 24' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Replay to move 1' }).parentElement).toHaveClass(
+    'current',
+  );
 });
 
-it('keeps only playback and advisor setup in options and returns focus after closing', () => {
+it('keeps only advisor setup in options and returns focus after closing', () => {
   render(layout());
   fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
   const trigger = screen.getByRole('button', { name: 'Move advisor' });
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole('dialog', { name: 'Game options' });
-  expect(within(dialog).getByText('Playback controls')).toBeVisible();
+  expect(
+    within(dialog).queryByRole('button', { name: /Resume AI|Pause AI/ }),
+  ).not.toBeInTheDocument();
   expect(within(dialog).queryByRole('navigation')).not.toBeInTheDocument();
   expect(within(dialog).queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument();
   expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
@@ -125,13 +128,7 @@ it('keeps only playback and advisor setup in options and returns focus after clo
   expect(screen.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
 });
 
-it('uses one paged row on short phones and leaves desktop history complete', () => {
-  short = true;
-  const view = render(layout());
-  expect(screen.getAllByRole('button', { name: /Replay to move/ })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Earlier moves' }));
-  expect(screen.getByRole('button', { name: 'Replay to move 23' })).toBeVisible();
-  view.unmount();
+it('leaves desktop history complete', () => {
   mobile = false;
   render(layout());
   expect(screen.getByText('Desktop details')).toBeVisible();

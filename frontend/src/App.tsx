@@ -65,8 +65,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [restartOpen, setRestartOpen] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [speed, setSpeed] = useState(900);
   const [initializing, setInitializing] = useState(true);
   const aiLock = useRef(false);
 
@@ -185,11 +185,12 @@ export default function App() {
   const activeAI =
     !!game && !game.winner && !game.recorded_winner && game.players[game.turn]?.kind === 'ai';
   const outcome = game?.winner ?? game?.recorded_winner ?? null;
+  useEffect(() => setRestartOpen(false), [path, game?.id]);
   useEffect(() => {
-    if (!game || !activeAI || paused || busy || tab !== 'play') return;
-    const timer = window.setTimeout(() => void action('ai-move'), speed);
+    if (!game || !activeAI || paused || busy || restartOpen || tab !== 'play') return;
+    const timer = window.setTimeout(() => void action('ai-move'), 900);
     return () => window.clearTimeout(timer);
-  }, [game, activeAI, paused, busy, speed, action, tab]);
+  }, [game, activeAI, paused, busy, restartOpen, action, tab]);
 
   const selectSquare = (index: number) => {
     if (!game || game.winner || game.recorded_winner || busy || activeAI) return;
@@ -313,40 +314,13 @@ export default function App() {
     />
   );
   const playback = game && game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
-    <div className="playback">
-      <button
-        className="button small"
-        onClick={() => setPaused((p) => !p)}
-        disabled={!!game.winner}
-      >
-        {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
-      </button>
-      <button
-        className="text-button"
-        onClick={() => void action('ai-move')}
-        disabled={!activeAI || busy || !paused}
-      >
-        {t('Next move')}
-      </button>
-      <label>
-        {t('Playback')}{' '}
-        <select
-          aria-label={t('AI playback speed')}
-          value={speed}
-          onChange={(e) => setSpeed(Number(e.target.value))}
-        >
-          <option value={1800}>{t('Relaxed')}</option>
-          <option value={900}>{t('Normal')}</option>
-          <option value={100}>{t('Fast')}</option>
-        </select>
-      </label>
-      {busy && (
-        <span className="thinking">
-          <i />
-          {t('Calculating')}
-        </span>
-      )}
-    </div>
+    <button
+      className="button small"
+      onClick={() => setPaused((p) => !p)}
+      aria-busy={busy && activeAI}
+    >
+      {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
+    </button>
   );
   const agentAnalysis = game && analysis.show ? <AgentAnalysis game={game} {...analysis} /> : null;
 
@@ -411,7 +385,6 @@ export default function App() {
                   players: armies,
                   analytics: agentAnalysis,
                   settings: analyticsSettings,
-                  options: playback,
                   moveCount: game.total_moves,
                 }}
                 sidebar={
@@ -471,11 +444,7 @@ export default function App() {
                             </button>
                           </>
                         }
-                        help={
-                          game.winner
-                            ? t('A new saga is one move away.')
-                            : t('Move in straight lines. Capture by surrounding.')
-                        }
+                        help={playback}
                         trailing={
                           !game.winner &&
                           !game.recorded_winner &&
@@ -484,11 +453,9 @@ export default function App() {
                             <button
                               className="icon-button"
                               aria-label={t('Restart game')}
+                              aria-haspopup="dialog"
                               title={t('Restart')}
-                              onClick={() => {
-                                setPaused(true);
-                                void action('restart');
-                              }}
+                              onClick={() => setRestartOpen(true)}
                               disabled={busy}
                             >
                               ⟲
@@ -497,9 +464,7 @@ export default function App() {
                         }
                       />
                     }
-                  >
-                    {playback}
-                  </Battlefield>
+                  />
                 }
                 history={
                   <HistoryPanel
@@ -564,6 +529,36 @@ export default function App() {
         <p>{t('An ancient game. An open horizon.')}</p>
         <span>{t('Made for thoughtful moves.')}</span>
       </footer>
+      {tab === 'play' && restartOpen && game && !outcome && (
+        <Modal
+          title={t('Restart game?')}
+          onClose={() => setRestartOpen(false)}
+          initialFocus=".restart-cancel"
+        >
+          <p className="confirmation-copy">
+            {t('Start a new game with the same setup? The current game will be kept.')}
+          </p>
+          <div className="modal-actions">
+            <button
+              className="button secondary restart-cancel"
+              onClick={() => setRestartOpen(false)}
+            >
+              {t('Cancel')}
+            </button>
+            <button
+              className="button"
+              disabled={busy}
+              onClick={() => {
+                setPaused(true);
+                setRestartOpen(false);
+                void action('restart');
+              }}
+            >
+              {t('Confirm restart')}
+            </button>
+          </div>
+        </Modal>
+      )}
       {tab !== 'online' && newOpen && (
         <NewGame
           rulesets={rulesets}

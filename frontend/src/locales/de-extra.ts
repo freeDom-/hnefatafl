@@ -1,18 +1,16 @@
 const translations: Record<string, string> = {
   'Game options': 'Spieloptionen',
+  'Restart game?': 'Partie neu starten?',
+  'Confirm restart': 'Neustart bestätigen',
+  'Start a new game with the same setup? The current game will be kept.':
+    'Eine neue Partie mit denselben Einstellungen starten? Die aktuelle Partie bleibt erhalten.',
   'Loading running games…': 'Laufende Partien werden geladen…',
   'Some running games could not be loaded.':
     'Einige laufende Partien konnten nicht geladen werden.',
   'No running games.': 'Keine laufenden Partien.',
   'Game information': 'Spielinformationen',
-  'Move history pages': 'Seiten des Zugverlaufs',
-  'Earlier moves': 'Frühere Züge',
-  'Later moves': 'Spätere Züge',
-  'No moves yet': 'Noch keine Züge',
-  Latest: 'Neueste',
   Moves: 'Züge',
   Players: 'Spieler',
-  '{from}–{to} of {count}': '{from}–{to} von {count}',
   'Select a move advisor in Game options to see analysis.':
     'Wähle in den Spieloptionen einen Zugberater für die Analyse.',
 

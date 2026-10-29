@@ -38,20 +38,14 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
 
 export async function pauseGame(page: Page) {
   await expect(page.getByRole('grid')).toBeVisible();
-  await openGameOptions(page);
-  await page.getByRole('button', { name: /Pause AI/ }).click();
   await closeGameOptions(page);
+  await page.getByRole('button', { name: /Pause AI/ }).click();
 }
 
 export async function showMove(page: Page, ply: number) {
   await gameTab(page, 'moves');
-  if (!(await page.locator('.mobile-inspector').isVisible())) return;
   const row = page.getByRole('button', { name: `Replay to move ${ply}`, exact: true });
-  for (let pageNumber = 0; pageNumber < 200 && !(await row.isVisible()); pageNumber++) {
-    const previous = page.getByRole('button', { name: 'Earlier moves', exact: true });
-    if (!(await previous.isEnabled())) break;
-    await previous.click();
-  }
+  await row.scrollIntoViewIfNeeded();
   await expect(row).toBeVisible();
 }
 

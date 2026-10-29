@@ -6,7 +6,7 @@ export function BoardToolbar({
   trailing,
 }: {
   leading?: ReactNode;
-  help: string;
+  help?: ReactNode;
   trailing?: ReactNode;
 }) {
   return (

@@ -1,6 +1,13 @@
 import { expect, test, type Page } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
-import { gameTab, closeGameOptions, openGameNavigation, returnToGame } from './play-helpers';
+import {
+  gameTab,
+  openGameOptions,
+  closeGameOptions,
+  openGameNavigation,
+  returnToGame,
+  pauseGame,
+} from './play-helpers';
 
 async function fits(page: Page) {
   await expect
@@ -23,7 +30,7 @@ async function fits(page: Page) {
     .toBe(true);
 }
 
-test('mobile board, tabs, paged replay and advisor stay within the viewport', async ({
+test('mobile board, tabs, scrollable replay and advisor stay within the viewport', async ({
   page,
   request,
 }, info) => {
@@ -83,6 +90,8 @@ test('mobile board, tabs, paged replay and advisor stay within the viewport', as
     await expect(menu.locator('.game-details, .active-game-switcher, .site-header')).toHaveCount(0);
     await expect(menu.getByRole('button', { name: 'Log out' })).toHaveCount(0);
     await expect(menu.getByRole('button', { name: 'New game', exact: true })).toHaveCount(0);
+    await expect(menu.getByRole('button', { name: /Resume AI|Pause AI|Next move/ })).toHaveCount(0);
+    await expect(menu.getByRole('combobox', { name: 'AI playback speed' })).toHaveCount(0);
     await page
       .getByRole('combobox', { name: 'Move advisor', exact: true })
       .selectOption('profile:baseline');
@@ -91,15 +100,41 @@ test('mobile board, tabs, paged replay and advisor stay within the viewport', as
     await expect(page.locator('.hint-overlay')).toBeVisible();
     await fits(page);
     await gameTab(page, 'moves');
-    await expect(page.getByRole('button', { name: /Replay to move/ })).toHaveCount(2);
-    await page.getByRole('button', { name: 'Earlier moves' }).click();
+    await expect(page.getByRole('button', { name: /Replay to move/ })).toHaveCount(
+      game.moves.length,
+    );
+    await expect(page.getByRole('navigation', { name: 'Move history pages' })).toHaveCount(0);
+    const list = page.locator('.compact-history .move-list');
+    expect(await list.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
     const seek = page.getByRole('button', { name: /Replay to move/ }).first();
+    const beforeScroll = await page.locator('.board').boundingBox();
+    await seek.scrollIntoViewIfNeeded();
+    const browsed = await list.evaluate((node) => node.scrollTop);
+    await gameTab(page, 'games');
+    await gameTab(page, 'moves');
+    expect(await list.evaluate((node) => node.scrollTop)).toBe(browsed);
+    await page
+      .getByRole('button', { name: /Replay to move/ })
+      .last()
+      .scrollIntoViewIfNeeded();
+    expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(browsed);
+    expect(await page.locator('.board').boundingBox()).toEqual(beforeScroll);
+    await seek.scrollIntoViewIfNeeded();
+    await gameTab(page, 'games');
+    await page.getByRole('button', { name: 'Undo move', exact: true }).click();
+    await expect(page.locator('.mobile-play-subtitle')).toContainText(
+      'Move ' + (game.moves.length - 1),
+    );
+    await gameTab(page, 'moves');
+    await expect(list.locator('li.current')).toBeInViewport();
     const ply = Number((await seek.getAttribute('aria-label'))!.match(/\d+/)![0]);
     await seek.click();
     await expect(page.locator('.mobile-play-subtitle')).toContainText('Move ' + ply);
     await fits(page);
     await page.setViewportSize({ width: 375, height: 667 });
-    await expect(page.getByRole('button', { name: /Replay to move/ })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /Replay to move/ })).toHaveCount(
+      game.moves.length,
+    );
     await fits(page);
     await openGameNavigation(page);
     await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
@@ -113,5 +148,31 @@ test('mobile board, tabs, paged replay and advisor stay within the viewport', as
     await fits(page);
     previous = { id: game.id, size };
   }
+  await page.goto('/dashboard?setup=single-player');
+  await page.getByRole('button', { name: 'To the table', exact: true }).click();
+  await pauseGame(page);
+  const resume = page.locator('.board-toolbar').getByRole('button', { name: /Resume AI/ });
+  await expect(resume).toBeVisible();
+  for (const size of [
+    { width: 390, height: 780 },
+    { width: 375, height: 667 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(size);
+    await fits(page);
+  }
+  await openGameOptions(page);
+  const options = page.getByRole('dialog', { name: 'Game options', exact: true });
+  await expect(options.getByRole('button', { name: /Resume AI|Pause AI|Next move/ })).toHaveCount(
+    0,
+  );
+  await expect(options.getByRole('combobox', { name: 'AI playback speed' })).toHaveCount(0);
+  await closeGameOptions(page);
+  await resume.click();
+  await page
+    .locator('.board-toolbar')
+    .getByRole('button', { name: /Pause AI/ })
+    .click();
+  await expect(resume).toBeVisible();
   expect(errors).toEqual([]);
 });

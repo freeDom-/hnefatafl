@@ -78,6 +78,7 @@ function setup(
       );
     if (path === '/api/games/g1/ai-move')
       return moveResponse ?? json({ ...game, version: 1, winner: 'draw' });
+    if (path === '/api/games/g1/restart') return json({ ...game, id: 'g2', version: 0 });
     if (path === '/api/games/g1/moves')
       return (
         moveResponse ??
@@ -105,6 +106,34 @@ function setup(
   return fetcher;
 }
 describe('game flow', () => {
+  it('restarts only after confirmation and preserves the current game when cancelled', async () => {
+    const fetcher = setup(undefined, {
+      ...initial,
+      mode: 'human-ai',
+      creation_policy: 1,
+      players: {
+        ...initial.players,
+        defenders: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
+      },
+    });
+    render(<App />);
+    const restart = await screen.findByRole('button', { name: 'Restart game' });
+    restart.focus();
+    fireEvent.click(restart);
+    expect(screen.getByRole('dialog', { name: 'Restart game?' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    expect(fetcher.mock.calls.filter(([path]) => path.endsWith('/restart'))).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(restart).toHaveFocus();
+    expect(localStorage.getItem('hnefatafl-game')).toBe('g1');
+    fireEvent.click(restart);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm restart' }));
+    await waitFor(() => expect(localStorage.getItem('hnefatafl-game')).toBe('g2'));
+    const calls = fetcher.mock.calls.filter(([path]) => path.endsWith('/restart'));
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 0 });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
   it.each([false, true])(
     'hides AI playback controls for a completed record (replay: %s)',
     async (replay) => {
@@ -139,6 +168,11 @@ describe('game flow', () => {
     });
     render(<App />);
     await screen.findByRole('grid');
+    expect(document.querySelector('.board-toolbar')).toContainElement(
+      screen.getByRole('button', { name: /Pause AI/ }),
+    );
+    expect(screen.queryByRole('button', { name: 'Next move' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'AI playback speed' })).not.toBeInTheDocument();
     await waitFor(
       () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
       { timeout: 5000 },
