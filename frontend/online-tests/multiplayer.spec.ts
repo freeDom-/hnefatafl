@@ -150,20 +150,28 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   await expect(page.getByLabel(/(Attackers|Defenders) to move/)).toBeVisible();
 });
 
-test('sequential discovers the return game after the first result', async ({ page, browser }) => {
-  await login(page, 'OnlineArcher');
-  const other = await opponent(browser);
+test('sequential discovers the return game after the first result', async ({
+  page,
+  browser,
+}, testInfo) => {
+  // Other cases retain active games, so isolate the one-active-game scenario per project.
+  await login(page, `SwitcherArcher${testInfo.project.name}`);
+  const other = await opponent(browser, `SwitcherKeeper${testInfo.project.name}`);
   extra.push(other.context);
   const url = await create(page, 'sequential');
   await join(other.page, url);
   await refresh(page);
   const id = new URL(url).pathname.split('/').pop()!;
   await concede(page);
-  // The return game activates after the first result and is reachable by URL.
+  // The return game is the only active game after the first result.
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  await page.goto(`/online/games/${siblingId}`);
+  const switcher = page.getByRole('navigation', { name: 'Active games' });
+  await expect(switcher.getByRole('button')).toHaveCount(1);
+  await switcher.locator(`[data-game-id="${siblingId}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`/online/games/${siblingId}$`));
   await expect(page.getByText('Game 2', { exact: true })).toBeVisible();
+  await expect(switcher).toHaveCount(0);
   await other.page.goto(page.url());
   await concede(other.page);
   await refresh(page);
