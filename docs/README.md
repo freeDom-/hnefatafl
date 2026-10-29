@@ -97,6 +97,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.33.0](releases/0.33.0.md) | Responsive play/replay, detailed personal statistics, shared UI styles and configurable online clocks |
 | [0.32.0](releases/0.32.0.md) | Verified accounts, rated online multiplayer, personal dashboard and interface scale |
 | [0.31.0](releases/0.31.0.md) | Optimized alpha-beta search with optional symmetry, configurable heuristics and portable tournament setup |
 | [0.30.0](releases/0.30.0.md) | Shared frontend notification layer and a preserved analysis tab when switching workshop jobs |
