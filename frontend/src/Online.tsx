@@ -531,13 +531,6 @@ export function Lobby({
                       />
                     </label>
                   )}
-                  <p className="form-help">
-                    {t(
-                      timeControl === 'total'
-                        ? 'Each player has their own total clock. The increment is added to your clock after you move.'
-                        : 'Each accepted move renews the allowance.',
-                    )}
-                  </p>
                 </div>
               </fieldset>
               {validation && <p role="alert">{t(validation)}</p>}
@@ -1053,7 +1046,10 @@ function GameRoom({
                     leading={
                       <>
                         {!reviewOnly && mayAct && !confirm && (
-                          <button className="button small" onClick={() => setConfirm(true)}>
+                          <button
+                            className="button secondary small"
+                            onClick={() => setConfirm(true)}
+                          >
                             {t('Concede')}
                           </button>
                         )}
@@ -1085,15 +1081,6 @@ function GameRoom({
                             ? 'Waiting for your turn or server confirmation.'
                             : 'You are viewing this game. Only the seated player whose turn it is may act.',
                     )}
-                    trailing={
-                      <button
-                        className="button secondary small"
-                        disabled={replayBusy || action.busy}
-                        onClick={() => void viewReplay()}
-                      >
-                        {t('View replay')}
-                      </button>
-                    }
                   />
                 }
               >

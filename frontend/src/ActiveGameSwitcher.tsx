@@ -115,7 +115,7 @@ export default function ActiveGameSwitcher({
             key={`${entry.type}:${entry.id}`}
             data-game-id={entry.id}
             data-game-type={entry.type}
-            className="button secondary small"
+            className={`button ${list && entry.yourTurn ? 'primary' : 'secondary'} small`}
             aria-current={entry.id === currentId ? 'page' : undefined}
             onClick={() => open(entry)}
           >

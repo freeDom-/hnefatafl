@@ -282,7 +282,7 @@ it('joins only with eligible admission and shows read-only spectator controls', 
 it('replay navigation stays local and prevents historical moves, with no assistance calls', async () => {
   room(fixture.moved as OnlineGame);
   await screen.findByLabelText('Defenders to move');
-  fireEvent.click(screen.getByRole('button', { name: 'View replay' }));
+  fireEvent.click(screen.getByRole('button', { name: /Starting position/ }));
   await screen.findByRole('button', { name: 'Return to live board' });
   const { source, target } = fixture.moved.moves[0];
   expect(screen.getAllByRole('gridcell')[source]).toHaveAccessibleName(/attacker/);
@@ -308,7 +308,7 @@ it('shows the payload captured counts and follows the replay cursor', async () =
   board[board.indexOf('A')] = '.';
   board[board.indexOf('D')] = '.';
   replayResponse = shortened;
-  fireEvent.click(screen.getByRole('button', { name: 'View replay' }));
+  fireEvent.click(screen.getByRole('button', { name: /Starting position/ }));
   await screen.findByRole('button', { name: 'Return to live board' });
   expect(counts()).toBe('Captured 3 4');
 });
@@ -371,7 +371,8 @@ it('translates online controls and handles keyboard selection in German', async 
   source.focus();
   fireEvent.keyDown(source, { key: 'ArrowRight' });
   expect(document.activeElement).not.toBe(source);
-  expect(screen.getByRole('button', { name: 'Wiedergabe ansehen' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Wiedergabe ansehen' })).toBeNull();
+  expect(screen.getByRole('button', { name: /Ausgangsstellung/ })).toBeVisible();
 });
 
 it('marks the current game and games awaiting the user move in the switcher', async () => {
@@ -547,8 +548,14 @@ it.each(['per_move', 'total'])(
     };
     const view = lobby();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+    expect(screen.queryByText('Each accepted move renews the allowance.')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Time control'), { target: { value: 'total' } });
+    expect(
+      screen.queryByText(
+        'Each player has their own total clock. The increment is added to your clock after you move.',
+      ),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(0);
     fireEvent.change(screen.getByLabelText('Increment per move (seconds)'), {
       target: { value: '12' },

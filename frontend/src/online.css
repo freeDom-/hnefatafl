@@ -83,6 +83,10 @@
   outline: 2px solid var(--accent, #a5703c);
   outline-offset: 2px;
 }
+
+.running-game-list .button.primary small {
+  color: inherit;
+}
 .online-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));

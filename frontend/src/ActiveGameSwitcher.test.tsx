@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { setLanguage } from './i18n';
-import { MobilePlayContext } from './mobilePlay';
+import { DesktopPlayContext, MobilePlayContext } from './mobilePlay';
 
 const singleGame = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
@@ -120,6 +120,44 @@ function renderList(open = vi.fn()) {
     </MobilePlayContext.Provider>,
   );
 }
+
+it.each(['mobile', 'desktop'])(
+  'highlights own turns in the %s My games list independently of the open game',
+  async (mode) => {
+    const players = {
+      attackers: { kind: 'human', account_id: 'me', name: 'Me' },
+      defenders: { kind: 'ai', name: 'AI' },
+    };
+    singles = [
+      singleGame('human-turn', { turn: 'attackers', players }),
+      singleGame('ai-turn', { turn: 'defenders', players }),
+    ];
+    onlines = [
+      onlineGame('your-turn', 'active'),
+      onlineGame('opponent-turn', 'active', 'defenders'),
+      onlineGame('waiting', 'waiting'),
+    ];
+    const Context = mode === 'mobile' ? MobilePlayContext : DesktopPlayContext;
+    render(
+      <Context.Provider value>
+        <ActiveGameSwitcher accountId="me" currentId="opponent-turn" open={vi.fn()} />
+      </Context.Provider>,
+    );
+    const nav = await screen.findByRole('navigation', { name: 'My games' });
+    await waitFor(() => expect(within(nav).getAllByRole('button')).toHaveLength(5));
+    for (const id of ['human-turn', 'your-turn']) {
+      const button = nav.querySelector(`[data-game-id="${id}"]`)!;
+      expect(button).toHaveClass('primary');
+      expect(button).toHaveTextContent('Your turn');
+    }
+    for (const id of ['ai-turn', 'opponent-turn', 'waiting'])
+      expect(nav.querySelector(`[data-game-id="${id}"]`)).toHaveClass('secondary');
+    expect(nav.querySelector('[data-game-id="opponent-turn"]')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  },
+);
 
 it('shows loading, empty, and single-current-game states in My games', async () => {
   singles = [];
