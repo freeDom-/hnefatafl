@@ -70,6 +70,37 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(page).toHaveURL(url);
   await refresh(page);
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 3840, height: 2160 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.locator('html').evaluate((root, compact) => {
+      root.dataset.density = compact ? 'compact' : 'default';
+    }, viewport.width === 3840);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const board = box('.board-with-labels');
+      return {
+        leftGap: board.left - box('.game-sidebar').right,
+        rightGap: box('.history-panel').left - board.right,
+        controlsBottom: box('.board-toolbar').bottom,
+        footerTop: box('.site-footer').top,
+        documentWidth: document.documentElement.scrollWidth,
+      };
+    });
+    expect(geometry.leftGap).toBeGreaterThanOrEqual(viewport.width === 3840 ? 80 : 31);
+    expect(geometry.rightGap).toBeGreaterThanOrEqual(viewport.width === 3840 ? 80 : 31);
+    expect(geometry.controlsBottom).toBeLessThanOrEqual(geometry.footerTop);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(viewport.width);
+  }
+  await page.locator('html').evaluate((root) => (root.dataset.density = 'default'));
   // 1440x1400 keeps the grid column, not the height cap, as the binding
   // constraint: the board column must fill its track instead of shrink-to-fit
   // around its own toolbar content, which changes with the first move.

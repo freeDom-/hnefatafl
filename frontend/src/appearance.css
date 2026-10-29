@@ -108,7 +108,6 @@
   --header-h: 72px;
   --footer-pad: 10px;
   --footer-h: 39px;
-  --play-chrome: 276px;
 }
 :root[data-density='large'] {
   --density: 1.35;
@@ -119,7 +118,6 @@
   --header-h: 96px;
   --footer-pad: 22px;
   --footer-h: 66px;
-  --play-chrome: 465px;
 }
 @media (max-width: 1100px) {
   :root {

@@ -62,12 +62,12 @@ export default function HistoryPanel({
         <span className="badge">{count}</span>
       </div>
       <p className="subtle">{t('A record of every move')}</p>
+      {status}
       <div className="history-columns">
         <span>{t('MOVE')}</span>
         <span>{t('JOURNEY')}</span>
         <span>{t('SIDE')}</span>
       </div>
-      {status}
       <ol className="move-list" ref={list}>
         {startAction && (
           <li>

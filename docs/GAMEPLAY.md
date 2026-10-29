@@ -38,7 +38,10 @@ dialog. Active online games keep their remaining time in the header and offer no
 live assistance. The header's back link returns to Dashboard for new-game setup,
 account controls, appearance, language, and other pages.
 
-Desktop keeps the existing three-column presentation.
+Desktop uses a wider three-column presentation with larger side panels. The board
+fills the available width or height, with a minimum gap between columns even at
+compact interface scale. History's read-only notice and return button appear above
+the move-table headings.
 
 ## Choose a battlefield
 

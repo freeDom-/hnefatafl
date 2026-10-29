@@ -31,14 +31,13 @@
   --gap-stack: calc(12px * var(--density) * var(--viewport-scale));
   --gap-inline: calc(8px * var(--density) * var(--viewport-scale));
   --gutter-x: calc(4% * var(--viewport-scale));
-  /* Page chrome: density only, so the board cap stays width-independent. */
+  /* Page chrome follows interface density. */
   --pad-page: 20px;
   --pad-toolbar: 10px;
   --pad-main-bottom: 32px;
   --header-h: 84px;
   --footer-pad: 14px;
   --footer-h: 48px;
-  --play-chrome: 369px;
   font-size: calc(16px * var(--type-scale));
 }
 * {
@@ -360,24 +359,26 @@ h1 {
   gap: var(--gap-card);
   align-items: start;
 }
-/* Keep normal desktop play within one viewport; the square board is capped by
-   the shorter of its column width and the available height. The reserve covers
-   the header, footer, board toolbar and the active-game switcher;
-   tall side panels retain their own scrolling. */
+/* Use the actual space left by page chrome and optional online controls for the
+   desktop board. Side panels scroll independently of the square board. */
 @media (min-width: 1101px) {
   /* Bound tall side panels by the remaining play area; they must not force the
      document taller than the viewport after the board has reached its cap. */
   #root:has(.play-page .game-layout),
   #root:has(.online-page .game-layout) {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     height: 100dvh;
   }
   main:has(.play-page .game-layout),
   main:has(.online-page .game-layout) {
     min-height: 0;
+    min-width: 0;
     height: 100%;
     width: 100%;
+    max-width: 3200px;
+    padding-bottom: 0;
   }
   #root:has(.play-page .game-layout) > .site-footer,
   #root:has(.online-page .game-layout) > .site-footer {
@@ -391,12 +392,22 @@ h1 {
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding-block: clamp(12px, 1.5vh, 24px);
   }
   .play-page .game-layout,
   .online-page .game-layout {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    grid-template-columns:
+      clamp(240px, 20vw, 420px) minmax(0, 1fr)
+      clamp(250px, 21vw, 440px);
     grid-template-rows: minmax(0, 1fr);
+    /* Board coordinates and focus rings need room even at compact density. */
+    column-gap: clamp(32px, 2.2vw, 84px);
   }
   .play-page .game-sidebar,
   .online-page .game-sidebar,
@@ -412,9 +423,50 @@ h1 {
   }
   .play-page .battlefield,
   .online-page .battlefield {
-    max-width: min(100%, max(320px, calc(100vh - var(--play-chrome))));
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    row-gap: var(--gap-stack);
+    min-height: 0;
+    height: 100%;
+    max-width: none;
     width: 100%;
-    margin-inline: auto;
+    margin: 0;
+  }
+  .game-layout .board-stage {
+    display: grid;
+    place-items: start center;
+    container-type: size;
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+  }
+  .game-layout .board-with-labels {
+    /* Include rank/file labels in the board's bounds, rather than letting the
+       old negative margin spill into the sidebar at compact density. */
+    margin: 0;
+    width: min(100cqw, calc(100cqh - 1px));
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .game-layout .history-review-status {
+    padding: 0 0 var(--pad-panel-sm);
+    margin-bottom: var(--pad-panel-sm);
+  }
+}
+@media (min-width: 1101px) and (max-width: 1600px) {
+  /* Keep desktop navigation to two rows at laptop widths, leaving enough
+     vertical room for the board when Large interface scale is selected. */
+  #root:has(.play-page .game-layout) > .site-header,
+  #root:has(.online-page .game-layout) > .site-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 var(--gap-card);
+    padding-block: 8px;
+  }
+  #root:has(.game-layout) > .site-header > nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
   }
 }
 .game-sidebar {
