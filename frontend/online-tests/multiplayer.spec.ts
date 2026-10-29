@@ -424,6 +424,7 @@ test('total clocks retain per-player balances and increments across moves and re
   page,
   browser,
   request,
+  isMobile,
 }) => {
   await login(page, 'OnlineArcher');
   const other = await opponent(browser);
@@ -443,13 +444,11 @@ test('total clocks retain per-player balances and increments across moves and re
   expect(moved.increment_seconds).toBe(5);
   expect(moved.remaining_seconds).toEqual({ attackers: 55, defenders: 60 });
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
-  const options = page.getByRole('button', { name: 'Game options', exact: true });
-  if (await options.isVisible()) await options.click();
+  await expect(page.getByRole('grid')).toBeVisible();
+  if (isMobile) await page.getByRole('button', { name: 'Game options', exact: true }).click();
   await expect(page.getByText('Total time per player', { exact: true })).toBeVisible();
   await expect(page.getByText('Attackers remaining time', { exact: true })).toBeVisible();
-  if (await page.getByRole('dialog', { name: 'Game options' }).isVisible())
-    await page.keyboard.press('Escape');
+  if (isMobile) await page.keyboard.press('Escape');
   await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 60 } });
   await refresh(page);
   await expect(page.getByText('Attackers win · timeout')).toBeVisible();
