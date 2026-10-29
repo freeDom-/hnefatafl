@@ -24,7 +24,7 @@ export type ActiveGameEntry = {
 
 /**
  * Compact switcher across active single-player and online games. Rendered only
- * when more than one accessible active game exists on desktop. The mobile My
+ * when another accessible active game exists on desktop. The mobile My
  * games panel also shows a single game, waiting games, and loading/error states.
  */
 export default function ActiveGameSwitcher({
@@ -100,7 +100,7 @@ export default function ActiveGameSwitcher({
   }
   const loading = single.phase === 'loading' || online.phase === 'loading';
   const failed = single.phase === 'stale' || online.phase === 'stale';
-  if (!list && entries.length <= 1) return null;
+  if (!list && !entries.some((entry) => entry.id !== currentId)) return null;
   const navigation =
     entries.length > 0 ? (
       <nav

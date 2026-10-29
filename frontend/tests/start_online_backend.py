@@ -37,7 +37,15 @@ app = create_app(
     online_background=False,
     account_background=False,
 )
-for name in ("OnlineArcher", "OnlineKeeper", "OnlineViewer"):
+for name in (
+    "OnlineArcher",
+    "OnlineKeeper",
+    "OnlineViewer",
+    "SwitcherArcherchromium",
+    "SwitcherKeeperchromium",
+    "SwitcherArchermobile",
+    "SwitcherKeepermobile",
+):
     app.state.auth.create_account(
         name, name.lower() + "@example.test", "online-browser-fixture-password"
     )

@@ -314,10 +314,7 @@ it.each(['simultaneous', 'sequential'] as const)(
   async (mode) => {
     const game = fixture[mode] as OnlineGame;
     const sibling = fixture[`${mode}_return`] as OnlineGame;
-    // A completed first sequential leg leaves only one active game; add another
-    // so the >1-active switcher rule is exercised.
-    switcherGames =
-      mode === 'sequential' ? [sibling, { ...sibling, id: 'online-' + 'c'.repeat(32) }] : [sibling];
+    switcherGames = [sibling];
     room(game);
     const button = await waitFor(() => {
       const found = document.querySelector(`[data-game-id="${sibling.id}"]`);
@@ -327,6 +324,11 @@ it.each(['simultaneous', 'sequential'] as const)(
     fireEvent.click(button);
     await waitFor(() => expect(location.pathname).toBe(`/online/games/${sibling.id}`));
     await screen.findByRole('heading', { name: 'Online game' });
+    if (mode === 'sequential') {
+      await waitFor(() =>
+        expect(screen.queryByRole('navigation', { name: 'Active games' })).toBeNull(),
+      );
+    }
   },
 );
 it('shows awaiting adjudication using the device clock without inventing a terminal result', async () => {
