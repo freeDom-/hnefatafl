@@ -535,7 +535,7 @@ export function Lobby({
                     {t(
                       timeControl === 'total'
                         ? 'Each player has their own total clock. The increment is added to your clock after you move.'
-                        : 'At least 1 minute, at most 14 days in total. Each accepted move renews the allowance.',
+                        : 'Each accepted move renews the allowance.',
                     )}
                   </p>
                 </div>

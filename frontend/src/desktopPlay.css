@@ -149,6 +149,12 @@
   .desktop-game-layout .game-details .text-button {
     margin-top: 6px;
   }
+  .desktop-game-layout .game-details .divider {
+    margin-block: 8px;
+  }
+  .desktop-game-layout .game-details .detail-row {
+    margin-top: 8px;
+  }
   .desktop-game-layout .army {
     padding: 8px;
     margin: 0 0 4px;

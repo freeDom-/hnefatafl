@@ -30,6 +30,7 @@ or production configuration changes.
 | Frontend unit tests | 55 files, 453 passed |
 | Play/layout and shared-page browser regressions | 4 passed, 4 deliberate project-specific skips |
 | Final desktop geometry and shared-header rerun | 3 passed |
+| Play entry, verification warning and Hall replay regressions | 8 passed |
 | Existing online gameplay/clock browsers | 16 passed |
 | Added online-dialog browser checks | 2 passed in a focused run |
 | Registration/recovery/auth-layout browsers | 8 passed |
@@ -40,6 +41,13 @@ The complete online invocation initially rejected the new test's exact wrapped-l
 locator. The focused run uses the combobox's accessible name and passes both browser
 projects; the 16 existing online cases passed in the complete invocation. The PR's
 Verify workflow reruns the complete suites on one committed source revision.
+
+The initial PR browser run also exposed Hall replay overflow in short Large-scale
+windows and two assertions tied to removed helper copy/heading markup. The shared
+compact header now applies in short phone landscape, summary separators use the
+existing condensed spacing, and warning checks verify visible position and
+accessible heading presence. All eight play-entry/replay cases then passed,
+including 1366×620 desktop and 844×390 phone landscape at all scales.
 
 The dialog check covers English/German, Compact/Default/Large, both clock modes,
 1920×1080, 1568×785 and 1280×720 desktop viewports, plus a 390×844 phone viewport.

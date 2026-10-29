@@ -124,7 +124,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
   .site-header {
     gap: 0 var(--gap-inline);
     padding-block: 0;
