@@ -2,6 +2,14 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Responsive play, personal statistics and online clocks (`0.33.0` preparation)
+
+The [0.33.0 release notes](releases/0.33.0.md#validation) identify the verified
+implementation tree, exact test counts and release-branch checks. They also cover
+the schema-12-to-13 clock migration, changed timeout defaults, preserved operator
+pauses and the final tagged-main CI requirement. Historical evidence below keeps
+its original commit scope.
+
 ## Shared interface and online creation
 
 [Shared interface validation](validation/shared-ui-layout.md) records the two-column

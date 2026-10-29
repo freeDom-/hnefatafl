@@ -755,3 +755,41 @@ documentation (94 files, 719 links/anchors), frontend formatting/typechecking an
 the production build. The release PR's full Verify run remains the acceptance
 gate for the versioned source; publication requires a separate green `main` run
 for the eventual annotated tag.
+
+## Responsive play, personal statistics and online clocks (`0.33.0` preparation)
+
+Release preparation starts from merged `main` at `aeba3f3`, collecting all changes
+since `0.32.0`, including PRs #28–#35. Python/npm metadata and lockfiles move
+together to `0.33.0` on a separate release branch. Tagging and stable publication
+follow the release PR merge and successful Verify on the exact `main` commit.
+
+The release adds compact Dashboard performance badges and a dedicated personal
+Statistics page with ruleset, mode, side and AI-opponent breakdowns. A shared
+desktop/mobile play and Hall-review layout keeps the board visible with
+Moves/Analytics/My games tabs. Play resumes running games; own-turn entries are
+highlighted independently of the current-game outline. Local read-only history
+preserves authoritative game state, and AI turns run automatically at live play.
+Common navigation, typography, buttons, accessible hidden page headings and a
+two-column online dialog harmonize the interface.
+
+Online creation adds per-player total clocks and optional increments alongside
+per-move timing. Timeout losses and rating updates default on, with a one-second
+background interval and preserved explicit operator pauses. Schema 12 advances
+to 13; existing games keep their per-move settings and deadlines. Migration only
+enables an untouched legacy default gate, never administrator/restore pauses.
+Explicit environment disabling remains effective. Remote workers must match
+`0.33.0` for new assignments; no model/checkpoint or worker-protocol migration is
+introduced.
+
+The merged application tree matches `54763c9`, whose Verify run passed 1,737
+backend tests (6 hardware skips), 455 frontend tests and 86 general/8 registration/
+18 online/26 personal browser checks (8 intentional general-browser skips).
+The release PR reruns complete CI with the new metadata. See the
+[0.33.0 release notes](docs/releases/0.33.0.md) for installation, migration,
+validation scope and limitations. Prior release and phase records are unchanged.
+
+Release-branch checks with installed `0.33.0` passed 89 deployment, worker-version,
+account/online-migration and clock regressions, frozen all-extras installation and
+lockfile/identity checks, documentation (97 files, 750 links/anchors), frontend
+formatting/typechecking and the production build. Full release-PR Verify and
+subsequent tagged-main Verify remain separate gates before publication.
