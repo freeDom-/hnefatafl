@@ -129,8 +129,9 @@ test('Hall replay uses the play layout at reduced desktop heights and on mobile 
 test('an unverified account sees a red Dashboard warning instead of the lobby label', async ({
   page,
 }) => {
+  // Keep the worker's shared administrator session valid for subsequent tests.
+  await page.context().clearCookies();
   await page.goto('/dashboard');
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await page.getByLabel('Username or email').fill('BrowserUser');
   await page.getByLabel('Password', { exact: true }).fill('browser-fixture-only-password');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
