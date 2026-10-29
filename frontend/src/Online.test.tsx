@@ -429,6 +429,10 @@ it('opens personal review with scoped reads only, effective void status and loca
   await screen.findByRole('heading', { name: 'Online game review' });
   await screen.findByRole('button', { name: 'Replay to move 1' });
   expect(screen.getByText('Lifecycle: Voided')).toBeVisible();
+  // A visible move list can precede completion of the initial replay read.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /Starting position/ })).toBeEnabled(),
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Replay to move 1' }));
   expect(screen.getByRole('button', { name: 'Replay to move 1' }).parentElement).toHaveClass(
     'current',
