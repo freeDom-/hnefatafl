@@ -10,8 +10,8 @@ class OnlineSettings:
     # Owner-approved in Phase 2: explicit/random sides and two-game matches.
     creation_policy_approved: bool = True
     retain_seat_without_verification: bool | None = True
-    timeout_policy_approved: bool = False
-    sweep_seconds: int = 10
+    timeout_policy_approved: bool = True
+    sweep_seconds: int = 1
     sweep_batch: int = 50
     waiting_limit: int = 5
     creation_limit: int = 10
@@ -36,11 +36,13 @@ class OnlineSettings:
     def environment(cls):
         return cls(
             enabled=os.environ.get("HNEFATAFL_ONLINE_ENABLED") == "true",
-            # Approval must refer to a separately approved outage procedure.
-            # This phase leaves it absent/false in all deployment examples.
-            timeout_policy_approved=os.environ.get("HNEFATAFL_ONLINE_TIMEOUT_POLICY_APPROVED")
+            # Timeouts are ordinary game results. Operators may still pause
+            # finalization explicitly during an incident or restore.
+            timeout_policy_approved=os.environ.get(
+                "HNEFATAFL_ONLINE_TIMEOUT_POLICY_APPROVED", "true"
+            )
             == "true",
-            sweep_seconds=int(os.environ.get("HNEFATAFL_ONLINE_SWEEP_SECONDS", "10")),
+            sweep_seconds=int(os.environ.get("HNEFATAFL_ONLINE_SWEEP_SECONDS", "1")),
             sweep_batch=int(os.environ.get("HNEFATAFL_ONLINE_SWEEP_BATCH", "50")),
             waiting_limit=int(os.environ.get("HNEFATAFL_ONLINE_WAITING_LIMIT", "5")),
             creation_limit=int(os.environ.get("HNEFATAFL_ONLINE_CREATION_LIMIT", "10")),

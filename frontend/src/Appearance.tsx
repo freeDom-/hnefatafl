@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useId,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -197,6 +198,7 @@ export function AppearanceSettings() {
   const { t } = useI18n();
   const { appearance, resolvedMode, updateAppearance, canPersist } = useAppearance();
   const [open, setOpen] = useState(false);
+  const groupId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (open) dialog.current?.showModal();
@@ -253,7 +255,7 @@ export function AppearanceSettings() {
               >
                 <input
                   type="radio"
-                  name="color-mode"
+                  name={`${groupId}-color-mode`}
                   value={mode.id}
                   checked={appearance.mode === mode.id}
                   onChange={() => updateAppearance({ mode: mode.id })}
@@ -276,7 +278,7 @@ export function AppearanceSettings() {
               >
                 <input
                   type="radio"
-                  name="token-theme"
+                  name={`${groupId}-token-theme`}
                   value={theme.id}
                   checked={appearance.tokens === theme.id}
                   onChange={() => updateAppearance({ tokens: theme.id })}
@@ -303,7 +305,7 @@ export function AppearanceSettings() {
               >
                 <input
                   type="radio"
-                  name="board-theme"
+                  name={`${groupId}-board-theme`}
                   value={theme.id}
                   checked={appearance.board === theme.id}
                   onChange={() => updateAppearance({ board: theme.id })}
@@ -345,7 +347,7 @@ export function AppearanceSettings() {
               >
                 <input
                   type="radio"
-                  name="density"
+                  name={`${groupId}-density`}
                   value={density.id}
                   checked={appearance.density === density.id}
                   onChange={() => updateAppearance({ density: density.id })}

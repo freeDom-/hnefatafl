@@ -194,7 +194,7 @@ def test_missing_history_and_legacy_games_do_not_invent_agent_opinions(client, m
     assert game["analysis"] is None
 
 
-def test_position_cache_distinguishes_new_branches(client):
+def test_position_cache_distinguishes_different_games_and_preserves_history(client):
     game = create(client, advisor={"profile_id": "baseline", "config": {"time_limit": 0.1}})
     report0 = analyze(client, game)
     alternative = game["legal_moves"][-1]
@@ -202,6 +202,7 @@ def test_position_cache_distinguishes_new_branches(client):
     report1 = analyze(client, game)
     game = client.post(f"/api/games/{game['id']}/undo", json={"version": game["version"]}).json()
     assert game["analysis"] == report0
+    game = create(client, advisor={"profile_id": "baseline", "config": {"time_limit": 0.1}})
     game = move(client, game, alternative)
     assert game["analysis"] is None
     branch = analyze(client, game)
@@ -401,7 +402,7 @@ def test_schema_three_migration_preserves_games_and_analysis_deletion_rolls_back
     upgraded.delete_game("old", 0)
     assert upgraded.game_analysis("old", "abc") is None
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
 
 
 def test_seed_only_model_variants_merge_without_losing_actual_game_seeds(client, tmp_path):
@@ -549,3 +550,23 @@ def test_historical_analysis_rejects_out_of_range_cursor(client):
         json={"version": game["version"], "cursor": 1, "background": True, "historical": True},
     )
     assert result.status_code == 422
+
+
+def test_read_only_historical_analysis_does_not_start_search_or_mutate_game(client, monkeypatch):
+    game = create(client, advisor={"profile_id": "baseline", "config": {"time_limit": 0.1}})
+    game = move(client, game)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Read-only history cannot calculate new moves")
+
+    monkeypatch.setattr("hnefatafl.ai.analyze_position", forbidden)
+    monkeypatch.setattr("hnefatafl.ai.choose_move", forbidden)
+    before = client.get(f"/api/games/{game['id']}").json()
+    response = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": 0, "historical": True, "background": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["cursor"] == 0
+    assert response.json()["status"] == "complete"
+    assert client.get(f"/api/games/{game['id']}").json() == before

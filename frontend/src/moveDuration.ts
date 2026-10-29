@@ -19,8 +19,6 @@ export function moveSeconds(days: string, hours: string, minutes: string): numbe
   if (d > 14 || h > 23 || m > 59) throw new Error('Use 0–14 days, 0–23 hours and 0–59 minutes.');
   const total = d * 86400 + h * 3600 + m * 60;
   if (total < MOVE_MIN_SECONDS || total > MOVE_MAX_SECONDS)
-    throw new Error(
-      'Time allowed per move must be at least 1 minute and at most 14 days in total.',
-    );
+    throw new Error('Time limit must be at least 1 minute and at most 14 days in total.');
   return total;
 }

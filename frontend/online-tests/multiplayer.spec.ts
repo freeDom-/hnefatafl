@@ -1,3 +1,4 @@
+import { gameTab, openMyGames } from '../tests/play-helpers';
 import { test, expect, type Page, type Browser, type BrowserContext } from '@playwright/test';
 const password = 'online-browser-fixture-password';
 async function login(page: Page, username: string) {
@@ -27,6 +28,8 @@ async function create(page: Page, mode = 'single', side = 'attackers', seconds =
   await page.getByRole('button', { name: 'Create game', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Online game', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel waiting game' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Cancel waiting game' })).toHaveClass(/secondary/);
+  await expect(page.getByRole('heading', { name: 'Waiting for another player' })).toBeVisible();
   return page.url();
 }
 async function join(page: Page, url: string) {
@@ -40,6 +43,7 @@ async function refresh(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
 }
 async function concede(page: Page) {
+  await expect(page.getByRole('button', { name: 'Concede', exact: true })).toHaveClass(/secondary/);
   await page.getByRole('button', { name: 'Concede', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm concession', exact: true }).click();
   await expect(page.getByText(/win · concession/)).toBeVisible();
@@ -50,6 +54,94 @@ test.beforeEach(async ({ request }) => {
 });
 test.afterEach(async () => {
   for (const context of extra.splice(0)) await context.close();
+});
+
+test('online creation fits desktop screens in two columns and exposes increments only for total clocks', async ({
+  page,
+  isMobile,
+}, info) => {
+  test.setTimeout(120000);
+  await login(page, 'OnlineArcher');
+  const sizes = isMobile
+    ? [{ width: 390, height: 844 }]
+    : [
+        { width: 1920, height: 1080 },
+        { width: 1568, height: 785 },
+        { width: 1280, height: 720 },
+      ];
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    for (const language of ['en', 'de']) {
+      await page.evaluate((value) => localStorage.setItem('hnefatafl-language', value), language);
+      await page.goto('/dashboard?setup=online');
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      const control = dialog.getByRole('combobox', {
+        name: language === 'en' ? 'Time control' : 'Zeitkontrolle',
+        exact: true,
+      });
+      await expect(control).toBeEnabled();
+      for (const density of ['compact', 'default', 'large']) {
+        await page.locator('html').evaluate((node, value) => {
+          node.dataset.density = value;
+        }, density);
+        for (const mode of ['per_move', 'total']) {
+          await control.selectOption(mode);
+          const increment = dialog.getByLabel(
+            language === 'en' ? 'Increment per move (seconds)' : 'Zeitbonus pro Zug (Sekunden)',
+            { exact: true },
+          );
+          if (mode === 'total') await expect(increment).toBeVisible();
+          else await expect(increment).toHaveCount(0);
+          const geometry = await dialog.evaluate((node) => {
+            const columns = [...node.querySelectorAll('.online-create-fields > .form-section')].map(
+              (column) => column.getBoundingClientRect(),
+            );
+            const bounds = node.getBoundingClientRect();
+            return {
+              top: bounds.top,
+              bottom: bounds.bottom,
+              left: bounds.left,
+              right: bounds.right,
+              scroll: node.scrollHeight - node.clientHeight,
+              columnGap: columns[1].left - columns[0].right,
+              sameColumn: Math.abs(columns[1].left - columns[0].left) < 1,
+              overflow: document.documentElement.scrollWidth > innerWidth,
+            };
+          });
+          const context = `${size.width}×${size.height}, ${language}, ${density}, ${mode}`;
+          expect(geometry.top, context).toBeGreaterThanOrEqual(0);
+          expect(geometry.bottom, context).toBeLessThanOrEqual(size.height);
+          expect(geometry.left, context).toBeGreaterThanOrEqual(0);
+          expect(geometry.right, context).toBeLessThanOrEqual(size.width);
+          expect(geometry.overflow, context).toBe(false);
+          if (isMobile) expect(geometry.sameColumn, context).toBe(true);
+          else {
+            expect(geometry.scroll, context).toBeLessThanOrEqual(1);
+            expect(geometry.columnGap, context).toBeGreaterThan(0);
+          }
+          if (
+            language === 'en' &&
+            density === 'default' &&
+            mode === 'total' &&
+            (size.width === 1568 || isMobile)
+          )
+            await page.screenshot({ path: info.outputPath('online-create.png') });
+        }
+      }
+    }
+  }
+  await page.evaluate(() => localStorage.setItem('hnefatafl-language', 'en'));
+  await page.goto('/dashboard?setup=online');
+  await page.getByRole('combobox', { name: 'Time control', exact: true }).selectOption('total');
+  await page.getByLabel('Increment per move (seconds)', { exact: true }).fill('12');
+  await page.getByRole('combobox', { name: 'Time control', exact: true }).selectOption('per_move');
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/online/games') && response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Create game', exact: true }).click();
+  expect((await (await created).json()).game.increment_seconds).toBe(0);
 });
 
 test('two accounts play, reconnect, finish and view a local read-only replay', async ({
@@ -69,10 +161,53 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(page).toHaveURL(url);
   await refresh(page);
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'View replay', exact: true })).toHaveCount(0);
+  await openMyGames(page);
+  const currentInMyGames = page
+    .getByRole('navigation', { name: 'My games', exact: true })
+    .locator(`[data-game-id="${id}"]`);
+  await expect(currentInMyGames).toHaveClass(/primary/);
+  const turnBackground = await currentInMyGames.evaluate(
+    (node) => getComputedStyle(node).backgroundColor,
+  );
+  await page.screenshot({ path: test.info().outputPath('my-turn-highlight.png') });
+  await gameTab(page, 'moves');
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 3840, height: 2160 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.locator('html').evaluate((root, compact) => {
+      root.dataset.density = compact ? 'compact' : 'default';
+    }, viewport.width === 3840);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const board = box('.board-with-labels');
+      return {
+        leftGap: board.left - box('.game-sidebar').right,
+        rightGap: box('.history-panel').left - board.right,
+        controlsBottom: box('.board-toolbar').bottom,
+        footerTop: box('.site-footer').top,
+        documentWidth: document.documentElement.scrollWidth,
+      };
+    });
+    expect(geometry.leftGap).toBeGreaterThanOrEqual(viewport.width === 3840 ? 80 : 31);
+    expect(geometry.rightGap).toBeGreaterThanOrEqual(viewport.width === 3840 ? 80 : 31);
+    expect(geometry.controlsBottom).toBeLessThanOrEqual(geometry.footerTop);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(viewport.width);
+  }
+  await page.locator('html').evaluate((root) => (root.dataset.density = 'default'));
   // 1440x1400 keeps the grid column, not the height cap, as the binding
   // constraint: the board column must fill its track instead of shrink-to-fit
   // around its own toolbar content, which changes with the first move.
   await page.setViewportSize({ width: 1440, height: 1400 });
+  await expect(page.locator('.game-layout')).toBeVisible();
   const measure = () =>
     page.evaluate(() => {
       const track = getComputedStyle(
@@ -98,6 +233,13 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
     `Captured ${afterMove.captured.attackers} ${afterMove.captured.defenders}`,
   );
   await other.context.setOffline(true);
+  await openMyGames(page);
+  await refresh(page);
+  await expect(currentInMyGames).toHaveClass(/secondary/);
+  expect(
+    await currentInMyGames.evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).not.toBe(turnBackground);
+  await gameTab(page, 'moves');
   await refresh(other.page);
   await expect(
     other.page.getByText('Online service unavailable or stale. Retry to reconnect.'),
@@ -115,15 +257,16 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await expect(capturedRow).toHaveText(
     `Captured ${afterConcession.captured.attackers} ${afterConcession.captured.defenders}`,
   );
-  await page.getByRole('button', { name: 'View replay' }).click();
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
   await expect(page.getByRole('button', { name: 'Return to live board' })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: 'd7, attacker', exact: true })).toHaveAttribute(
     'aria-disabled',
     'true',
   );
-  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  await page.getByRole('button', { name: 'Replay to move 1', exact: true }).click();
   await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Return to live board' }).click();
+  await expect(page.getByRole('button', { name: 'Return to live board' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('grid')).toHaveCount(0);
 });
@@ -138,7 +281,8 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   const id = new URL(url).pathname.split('/').pop()!;
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  const switcher = page.getByRole('navigation', { name: 'Active games' });
+  await openMyGames(page);
+  const switcher = page.getByRole('navigation', { name: /^(Active games|My games)$/ });
   const sibling = switcher.locator(`[data-game-id="${siblingId}"]`);
   await expect(sibling).toBeVisible();
   await sibling.click();
@@ -146,6 +290,7 @@ test('simultaneous games swap sides and keep separate versions', async ({ page, 
   await expect(page.getByRole('button', { name: 'Concede', exact: true })).toBeVisible();
   await concede(page);
   // The return game completed; the still-active first leg remains in the switcher.
+  await openMyGames(page);
   await switcher.locator(`[data-game-id="${id}"]`).click();
   await expect(page.getByLabel(/(Attackers|Defenders) to move/)).toBeVisible();
 });
@@ -166,12 +311,20 @@ test('sequential discovers the return game after the first result', async ({
   // The return game is the only active game after the first result.
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  const switcher = page.getByRole('navigation', { name: 'Active games' });
+  await openMyGames(page);
+  const switcher = page.getByRole('navigation', { name: /^(Active games|My games)$/ });
   await expect(switcher.getByRole('button')).toHaveCount(1);
   await switcher.locator(`[data-game-id="${siblingId}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/online/games/${siblingId}$`));
   await expect(page.getByText('Game 2', { exact: true })).toBeVisible();
-  await expect(switcher).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(switcher.locator(`[data-game-id="${siblingId}"]`)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
   await other.page.goto(page.url());
   await concede(other.page);
   await refresh(page);
@@ -233,7 +386,7 @@ test('stale action is reloaded once and authenticated spectators cannot mutate o
   expect(guard).toBe(409);
 });
 
-test('disabled admission preserves existing seats; overdue paused game awaits adjudication', async ({
+test('disabled admission preserves existing seats; timeout automatically completes the game', async ({
   page,
   browser,
   request,
@@ -255,14 +408,18 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 120 } });
   await page.clock.setFixedTime(new Date(Date.now() + 120000));
   await page.reload();
-  await expect(page.getByText(/Awaiting adjudication/)).toBeVisible();
-  await page.getByRole('button', { name: 'Concede', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm concession', exact: true }).click();
-  await expect(page.getByText(/State changed or adjudication is paused/)).toBeVisible();
-  await expect(page.getByText('Active', { exact: true })).toBeVisible();
+  await expect(page.getByText('Defenders win · timeout')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Concede', exact: true })).toHaveCount(0);
+  const id = new URL(url).pathname.split('/').pop()!;
+  const completed = await (await page.request.get(`/api/online/games/${id}`)).json();
+  expect(completed.status).toBe('completed');
+  expect(completed.result.termination_reason).toBe('timeout');
   await page.goto('/dashboard');
-  await page.getByRole('button', { name: 'New online game', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Create game', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'New online game', exact: true })).toBeDisabled();
+  await expect(
+    page.getByText('Verify your email address before creating or joining online games.'),
+  ).toBeVisible();
+  await expect(page.getByText(/Creating and joining require/)).toHaveCount(0);
 });
 
 test('lobby automatically observes creation, join and completion and resynchronizes after reconnect and tab visibility', async ({
@@ -369,4 +526,41 @@ test('online setup shares modal spacing, restores focus on Escape and rejects in
   expect((await response.json()).game.time_per_move).toBe(1209600);
   expect(JSON.parse(posts[0]).time_per_move).toBe(1209600);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('total clocks retain per-player balances and increments across moves and reload', async ({
+  page,
+  browser,
+  request,
+  isMobile,
+}) => {
+  await login(page, 'OnlineArcher');
+  const other = await opponent(browser);
+  extra.push(other.context);
+  await page.getByLabel('Time control').selectOption('total');
+  await page.getByLabel('Increment per move (seconds)').fill('5');
+  const url = await create(page, 'single', 'attackers', '60');
+  const id = new URL(url).pathname.split('/').pop()!;
+  await join(other.page, url);
+  await refresh(page);
+  await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 10 } });
+  await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
+  await page.getByRole('gridcell', { name: 'b7, empty', exact: true }).click();
+  await expect(page.getByLabel('Defenders to move')).toBeVisible();
+  const moved = await (await page.request.get(`/api/online/games/${id}`)).json();
+  expect(moved.time_control).toBe('total');
+  expect(moved.increment_seconds).toBe(5);
+  expect(moved.remaining_seconds).toEqual({ attackers: 55, defenders: 60 });
+  await page.reload();
+  await expect(page.getByRole('grid')).toBeVisible();
+  if (isMobile) await page.getByRole('button', { name: 'Game options', exact: true }).click();
+  await expect(page.getByText('Total time per player', { exact: true })).toBeVisible();
+  await expect(page.getByText('Attackers remaining time', { exact: true })).toBeVisible();
+  if (isMobile) await page.keyboard.press('Escape');
+  await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 60 } });
+  await refresh(page);
+  await expect(page.getByText('Attackers win · timeout')).toBeVisible();
+  const finished = await (await page.request.get(`/api/online/games/${id}`)).json();
+  expect(finished.remaining_seconds).toEqual({ attackers: 55, defenders: 0 });
+  expect(finished.result.rating).toHaveLength(2);
 });

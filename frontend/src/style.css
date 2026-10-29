@@ -1,10 +1,5 @@
 :root {
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
+  font-family: var(--font-ui);
   color: var(--ui-heading, #26352e);
   background: var(--page, #f6f5ef);
   font-synthesis: none;
@@ -31,14 +26,13 @@
   --gap-stack: calc(12px * var(--density) * var(--viewport-scale));
   --gap-inline: calc(8px * var(--density) * var(--viewport-scale));
   --gutter-x: calc(4% * var(--viewport-scale));
-  /* Page chrome: density only, so the board cap stays width-independent. */
+  /* Page chrome follows interface density. */
   --pad-page: 20px;
   --pad-toolbar: 10px;
   --pad-main-bottom: 32px;
   --header-h: 84px;
   --footer-pad: 14px;
   --footer-h: 48px;
-  --play-chrome: 369px;
   font-size: calc(16px * var(--type-scale));
 }
 * {
@@ -86,11 +80,11 @@ p {
 }
 h1,
 h2 {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: var(--font-display);
   font-weight: 500;
 }
 h3 {
-  font-size: 0.875rem;
+  font-size: var(--text-subsection);
   font-weight: 600;
 }
 p {
@@ -105,7 +99,7 @@ textarea {
   background: var(--surface, #fffefa);
   color: var(--ui-heading, #2e3a31);
   padding: var(--pad-control);
-  font-size: 0.8125rem;
+  font-size: var(--text-body);
   min-width: 0;
 }
 select {
@@ -115,7 +109,7 @@ label {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 0.75rem;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--ui-heading, #5a6559);
 }
@@ -133,79 +127,6 @@ small {
 svg {
   display: block;
 }
-.site-header {
-  height: var(--header-h);
-  padding: 0 var(--gutter-x);
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gap-card);
-  background: var(--ui-header, #fbfaf5);
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--gap-stack);
-  text-decoration: none;
-  letter-spacing: 3.5px;
-  font-family: Georgia, serif;
-  font-size: 1.4375rem;
-  color: var(--green);
-}
-.brand small {
-  display: block;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
-  font-size: 0.5rem;
-  letter-spacing: 4.2px;
-  margin-top: 7px;
-  color: var(--ui-copy, #899083);
-}
-.brand-emblem {
-  width: 45px;
-  height: 48px;
-  border: 1px solid var(--ui-border, #c8cdbb);
-  display: grid;
-  place-items: center;
-  clip-path: polygon(0 0, 100% 0, 100% 80%, 50% 100%, 0 80%);
-  background: var(--ui-tint, #edf0e5);
-}
-.brand-emblem svg {
-  width: 30px;
-}
-.site-header nav {
-  display: flex;
-  align-self: stretch;
-  gap: var(--gap-card);
-}
-.site-header nav button {
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  padding: var(--pad-control);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--ui-copy, #81877a);
-  letter-spacing: 0.3px;
-}
-.site-header nav button.active {
-  color: var(--green);
-  border-bottom-color: var(--green);
-}
-.header-note {
-  font-size: 0.625rem;
-  color: var(--ui-subtle, #929687);
-  display: flex;
-  align-items: center;
-  gap: var(--gap-inline);
-  letter-spacing: 0.3px;
-}
-.header-note span,
 .status-dot {
   width: 6px;
   height: 6px;
@@ -250,100 +171,7 @@ h1 {
   margin-top: 12px;
   letter-spacing: 0.05px;
 }
-.button {
-  border-radius: 6px;
-  padding: var(--pad-control);
-  border: 1px solid var(--ui-border, #daddcd);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--gap-stack);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  text-decoration: none;
-  min-height: 41px;
-  white-space: nowrap;
-}
-.button.primary {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fffdf2;
-  box-shadow: 0 3px 7px #14372d12;
-}
-.button.primary:hover {
-  background: var(--green-dark);
-}
-.button.secondary {
-  background: var(--surface, #fffefa);
-  color: var(--green);
-}
-.button.small {
-  padding: var(--pad-control);
-  min-height: 32px;
-  font-size: 0.625rem;
-}
-.text-button {
-  padding: 0;
-  background: transparent;
-  border: 0;
-  color: var(--green);
-  font-size: 0.625rem;
-  font-weight: 600;
-  text-align: left;
-  line-height: 1.6;
-}
-.text-button span {
-  margin-left: 8px;
-}
-.text-button:hover {
-  text-decoration: underline;
-}
-.icon-button {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  font-size: 1.3125rem;
-  border: 1px solid var(--ui-border, #e2e4d8);
-  border-radius: 5px;
-  color: var(--ui-heading, #65725f);
-  background: var(--surface, #fffefa);
-  text-decoration: none;
-}
-.icon-button:hover {
-  background: var(--ui-tint, #edf0e6);
-}
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  box-shadow: 0 3px 9px #41472a02;
-}
 /* Shared tab list: the jobs view and the online lobby use the same component. */
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gap-inline);
-  border-bottom: 1px solid var(--line);
-  margin-block: var(--gap-card) var(--gap-card);
-}
-.tabs > button {
-  flex: 1;
-  background: none;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  padding: var(--pad-control);
-  color: var(--ui-copy);
-  font-size: 0.875rem;
-  min-height: 44px;
-}
-.tabs > button[aria-selected='true'] {
-  color: var(--text);
-  border-color: var(--gold);
-  font-weight: 700;
-  background: var(--ui-gold-tint);
-}
 /* Reserve the vertical scrollbar so the board column cannot change width when a
    page grows past the viewport. */
 :root {
@@ -360,24 +188,26 @@ h1 {
   gap: var(--gap-card);
   align-items: start;
 }
-/* Keep normal desktop play within one viewport; the square board is capped by
-   the shorter of its column width and the available height. The reserve covers
-   the header, footer, board toolbar and the active-game switcher;
-   tall side panels retain their own scrolling. */
+/* Use the actual space left by page chrome and optional online controls for the
+   desktop board. Side panels scroll independently of the square board. */
 @media (min-width: 1101px) {
   /* Bound tall side panels by the remaining play area; they must not force the
      document taller than the viewport after the board has reached its cap. */
   #root:has(.play-page .game-layout),
   #root:has(.online-page .game-layout) {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     height: 100dvh;
   }
   main:has(.play-page .game-layout),
   main:has(.online-page .game-layout) {
     min-height: 0;
+    min-width: 0;
     height: 100%;
     width: 100%;
+    max-width: 3200px;
+    padding-bottom: 0;
   }
   #root:has(.play-page .game-layout) > .site-footer,
   #root:has(.online-page .game-layout) > .site-footer {
@@ -391,12 +221,22 @@ h1 {
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding-block: clamp(12px, 1.5vh, 24px);
   }
   .play-page .game-layout,
   .online-page .game-layout {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    grid-template-columns:
+      clamp(240px, 20vw, 420px) minmax(0, 1fr)
+      clamp(250px, 21vw, 440px);
     grid-template-rows: minmax(0, 1fr);
+    /* Board coordinates and focus rings need room even at compact density. */
+    column-gap: clamp(32px, 2.2vw, 84px);
   }
   .play-page .game-sidebar,
   .online-page .game-sidebar,
@@ -412,9 +252,34 @@ h1 {
   }
   .play-page .battlefield,
   .online-page .battlefield {
-    max-width: min(100%, max(320px, calc(100vh - var(--play-chrome))));
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    row-gap: var(--gap-stack);
+    min-height: 0;
+    height: 100%;
+    max-width: none;
     width: 100%;
-    margin-inline: auto;
+    margin: 0;
+  }
+  .game-layout .board-stage {
+    display: grid;
+    place-items: start center;
+    container-type: size;
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+  }
+  .game-layout .board-with-labels {
+    /* Include rank/file labels in the board's bounds, rather than letting the
+       old negative margin spill into the sidebar at compact density. */
+    margin: 0;
+    width: min(100cqw, calc(100cqh - 1px));
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .game-layout .history-review-status {
+    padding: 0 0 var(--pad-panel-sm);
+    margin-bottom: var(--pad-panel-sm);
   }
 }
 .game-sidebar {
@@ -433,19 +298,8 @@ h1 {
   gap: var(--gap-inline);
 }
 .variant-heading h2 {
-  font-size: 1.5625rem;
+  font-size: var(--text-section);
   letter-spacing: -0.6px;
-}
-.badge {
-  display: inline-block;
-  flex-shrink: 0;
-  background: var(--surface-raised, #f1f2e9);
-  color: var(--ui-copy, #869079);
-  font-size: 0.5625rem;
-  font-weight: 600;
-  padding: 5px 7px;
-  border-radius: 4px;
-  white-space: nowrap;
 }
 .game-details > p:not(.eyebrow) {
   font-size: 0.6875rem;
@@ -531,7 +385,7 @@ h1 {
   height: 28px;
 }
 .army h3 {
-  font-size: 0.6875rem;
+  font-size: var(--text-subsection);
   max-width: 125px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -809,58 +663,12 @@ h1 {
   background: transparent;
   font-size: 1.25rem;
 }
-.playback {
-  margin-top: var(--pad-toolbar);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gap-stack);
-  border-top: 1px solid var(--line);
-  padding-top: var(--pad-toolbar);
-}
-.playback label {
-  margin-left: auto;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.625rem;
-  font-weight: 400;
-}
-.playback select {
-  padding: var(--pad-control);
-  font-size: 0.625rem;
-  max-width: 100px;
-}
-.thinking {
-  font-size: 0.5625rem;
-  color: var(--ui-copy, #8a927e);
-  display: flex;
-  align-items: center;
-  gap: var(--gap-inline);
-}
-.thinking i {
-  width: 6px;
-  height: 6px;
-  border: 1px solid #819270;
-  border-radius: 50%;
-  animation: pulse 1s infinite;
-}
 .history-panel {
   padding: var(--pad-panel) var(--pad-panel) 0;
   overflow: hidden;
 }
-.panel-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gap-stack);
-}
-.panel-title h2 {
-  font-size: 1.25rem;
-}
 .history-panel h2 {
-  font-size: 1.25rem;
+  font-size: var(--text-section);
   letter-spacing: -0.4px;
 }
 .subtle {
@@ -943,9 +751,32 @@ h1 {
   line-height: 1.85;
 }
 .history-start {
-  margin: var(--gap-card) var(--gap-card) var(--gap-card);
+  margin: 0;
   color: var(--ui-subtle, #9ba28a);
   font-size: 0.5625rem;
+}
+.move-list .history-start {
+  display: block;
+}
+.history-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.history-review-status [role] {
+  flex-basis: 100%;
+}
+.history-review-status .button {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  white-space: normal;
+  font-size: 11px;
 }
 .history-footer {
   padding: var(--pad-panel-sm);
@@ -1000,7 +831,7 @@ h1 {
   margin-bottom: 15px;
 }
 .welcome-panel h2 {
-  font-size: 2.4375rem;
+  font-size: var(--text-section);
   margin: 12px 0;
 }
 .welcome-panel > p:not(.eyebrow) {
@@ -1091,60 +922,6 @@ h1 {
   border-top-color: var(--green);
   animation: spin 0.8s linear infinite;
 }
-.modal {
-  border: 1px solid var(--ui-border, #dfe2d4);
-  border-radius: 12px;
-  background: var(--ui-dialog, #fafbf4);
-  color: var(--ui-heading, #2c3e30);
-  padding: var(--pad-panel);
-  max-width: 740px;
-  width: calc(100% - 30px);
-  max-height: 90dvh;
-  box-shadow: 0 25px 100px #173d3733;
-}
-.modal::backdrop {
-  background: #102e2966;
-  backdrop-filter: blur(3px);
-}
-.modal-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--gap-card);
-  margin-bottom: var(--gap-card);
-}
-.modal-top h2 {
-  font-size: 1.875rem;
-  margin-top: 7px;
-}
-.modal-top .icon-button {
-  border: 0;
-  background: transparent;
-  font-size: 1.625rem;
-  color: var(--ui-subtle, #8e9b81);
-}
-.modal fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0 0 var(--gap-card);
-}
-.modal legend {
-  font-size: 0.5625rem;
-  letter-spacing: 1.5px;
-  color: var(--ui-subtle, #89997a);
-  text-transform: uppercase;
-  font-weight: 600;
-  margin-bottom: 15px;
-}
-.new-game-form .button {
-  min-height: 44px;
-}
-.new-game-form > fieldset {
-  min-width: 0;
-}
-.new-game-form > fieldset > label {
-  margin-block: 0.75rem;
-}
 .ruleset-options {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1185,7 +962,7 @@ h1 {
   color: var(--ui-heading, #425d37);
 }
 .ruleset-options label > span:last-child {
-  font-size: 0.5625rem;
+  font-size: var(--text-label);
   color: var(--ui-subtle, #9aa38e);
   font-weight: 400;
 }
@@ -1235,7 +1012,7 @@ h1 {
   padding: var(--pad-panel-sm);
 }
 .player-config h3 {
-  font-size: 0.6875rem;
+  font-size: var(--text-subsection);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1243,7 +1020,7 @@ h1 {
 }
 .player-config h3 small {
   margin-left: auto;
-  font-size: 0.4375rem;
+  font-size: var(--text-subsection);
   color: var(--ui-subtle, #a2aa94);
   letter-spacing: 1px;
   font-weight: 400;
@@ -1253,12 +1030,12 @@ h1 {
   height: 13px;
 }
 .player-config label {
-  font-size: 0.625rem;
+  font-size: var(--text-label);
   margin-bottom: 13px;
 }
 .player-config input,
 .player-config select {
-  font-size: 0.6875rem;
+  font-size: var(--text-body);
   padding: var(--pad-control);
 }
 .ai-fields .form-grid {
@@ -1268,18 +1045,6 @@ h1 {
   font-size: 0.5625rem;
   color: var(--ui-subtle, #a1a68f);
   line-height: 1.8;
-}
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--gap-card);
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--gap-stack);
-  border-top: 1px solid var(--line);
-  padding-top: var(--pad-panel);
 }
 .form-error {
   font-size: 0.6875rem;
@@ -1388,7 +1153,7 @@ h1 {
   margin: 20px 0;
 }
 .rules-document h2 {
-  font-size: 1.4375rem;
+  font-size: var(--text-section);
   margin: 25px 0 12px;
   color: var(--ui-heading, #425e39);
 }
@@ -1423,12 +1188,12 @@ h1 {
 }
 .filters label {
   flex: 1;
-  font-size: 0.625rem;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--ui-subtle, #9ba68b);
 }
 .filters select {
-  font-size: 0.6875rem;
+  font-size: var(--text-body);
 }
 .metric-grid {
   display: grid;
@@ -1530,8 +1295,8 @@ h1 {
   margin: 28px 0;
 }
 .records h3 {
-  font-family: Georgia, serif;
-  font-size: 1.1875rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-subsection);
   font-weight: 400;
   margin: 26px 0 15px;
   color: var(--ui-heading, #5e7450);
@@ -1571,7 +1336,7 @@ th small {
   padding: 16px 0;
 }
 .profiles-panel h2 {
-  font-size: 1.625rem;
+  font-size: var(--text-section);
   margin-top: 8px;
 }
 .profile-form {
@@ -1581,7 +1346,7 @@ th small {
   margin: var(--gap-card) 0;
 }
 .profile-form label {
-  font-size: 0.625rem;
+  font-size: var(--text-label);
 }
 .profile-list {
   list-style: none;
@@ -1642,14 +1407,14 @@ th small {
 .training-config h2,
 .jobs-panel h2,
 .model-registry h2 {
-  font-size: 1.5rem;
+  font-size: var(--text-section);
 }
 .training-config .form-grid label {
-  font-size: 0.625rem;
+  font-size: var(--text-label);
 }
 .training-config .form-grid input,
 .training-config .form-grid select {
-  font-size: 0.6875rem;
+  font-size: var(--text-body);
 }
 .advanced-toggle {
   margin: var(--gap-card) 0 var(--gap-card);
@@ -1673,7 +1438,7 @@ th small {
   padding-top: var(--pad-panel-sm);
 }
 .tuning-config label {
-  font-size: 0.625rem;
+  font-size: var(--text-label);
 }
 .tuning-config textarea {
   font: 10px/1.8 monospace;
@@ -1759,7 +1524,7 @@ th small {
   padding-top: var(--pad-panel);
 }
 .job-detail h3 {
-  font-size: 0.75rem;
+  font-size: var(--text-subsection);
   color: var(--ui-copy, #6b8257);
 }
 .job-metrics {
@@ -1854,7 +1619,7 @@ summary {
   min-width: 0;
 }
 .model-card h3 {
-  font-size: 0.75rem;
+  font-size: var(--text-subsection);
   overflow-wrap: anywhere;
   color: var(--ui-copy, #637d4e);
 }
@@ -1902,7 +1667,7 @@ summary {
     padding: 16px;
   }
   .game-layout .panel h2 {
-    font-size: 1.625rem;
+    font-size: var(--text-section);
   }
   .board-ranks,
   .board-files {
@@ -1916,7 +1681,7 @@ summary {
   }
   .detail-row,
   .army h3 {
-    font-size: 0.75rem;
+    font-size: var(--text-subsection);
   }
   .army p {
     font-size: 0.625rem;
@@ -1939,13 +1704,6 @@ summary {
   }
 }
 @media (max-width: 1100px) {
-  .site-header {
-    padding: 0 var(--gutter-x);
-    height: var(--header-h);
-  }
-  .header-note {
-    display: none;
-  }
   .game-layout {
     grid-template-columns: 190px minmax(300px, 1fr);
     gap: var(--gap-card);
@@ -2006,29 +1764,6 @@ summary {
   }
 }
 @media (max-width: 760px) {
-  .site-header {
-    height: var(--header-h);
-    gap: var(--gap-card);
-  }
-  .brand {
-    font-size: 1.1875rem;
-    letter-spacing: 2.7px;
-  }
-  .brand small {
-    font-size: 0.375rem;
-    letter-spacing: 3.5px;
-    margin-top: 6px;
-  }
-  .brand-emblem {
-    width: 34px;
-    height: 39px;
-  }
-  .brand-emblem svg {
-    width: 23px;
-  }
-  .site-header nav button {
-    font-size: 0.625rem;
-  }
   .page-intro {
     padding: var(--pad-hero);
   }
@@ -2058,7 +1793,7 @@ summary {
     gap: var(--gap-inline);
   }
   .variant-heading h2 {
-    font-size: 1.4375rem;
+    font-size: var(--text-section);
   }
   .game-details .eyebrow {
     font-size: 0.5rem;
@@ -2072,7 +1807,7 @@ summary {
     letter-spacing: 1px;
   }
   .army h3 {
-    font-size: 0.625rem;
+    font-size: var(--text-subsection);
     max-width: 70px;
   }
   .army p {
@@ -2143,22 +1878,11 @@ summary {
     font-size: 0.5rem;
     max-width: 155px;
   }
-  .icon-button {
-    width: 28px;
-    height: 28px;
-  }
-  .playback .text-button {
-    font-size: 0.5625rem;
-  }
-  .playback label {
-    margin-left: 0;
-    font-size: 0.5625rem;
-  }
   .history-panel {
     padding: var(--pad-panel) var(--pad-panel) 0;
   }
   .history-panel h2 {
-    font-size: 1.25rem;
+    font-size: var(--text-section);
   }
   .move-list li button,
   .move-list strong {
@@ -2204,10 +1928,10 @@ summary {
     flex: 1;
   }
   .filters label {
-    font-size: 0.5625rem;
+    font-size: var(--text-label);
   }
   .filters select {
-    font-size: 0.625rem;
+    font-size: var(--text-body);
   }
   .device-tag {
     font-size: 0.5rem;
@@ -2237,11 +1961,8 @@ summary {
   .ruleset-options strong {
     font-size: 1rem;
   }
-  .modal-top h2 {
-    font-size: 1.6875rem;
-  }
   .welcome-panel h2 {
-    font-size: 2.125rem;
+    font-size: var(--text-section);
   }
   .variant-pills > span {
     font-size: 0.75rem;
@@ -2261,26 +1982,6 @@ summary {
   }
   .notification {
     font-size: 0.75rem;
-  }
-  .site-header {
-    flex-wrap: wrap;
-    height: auto;
-    padding-top: var(--pad-page);
-    gap: var(--gap-stack);
-    justify-content: center;
-  }
-  .brand {
-    width: 100%;
-    justify-content: center;
-  }
-  .site-header nav {
-    width: 100%;
-    justify-content: center;
-    gap: var(--gap-card);
-    height: 42px;
-  }
-  .site-header nav button {
-    font-size: 0.625rem;
   }
   .page-intro {
     padding: var(--pad-hero);
@@ -2327,7 +2028,7 @@ summary {
     margin: var(--gap-inline) 0 var(--gap-inline);
   }
   .variant-heading h2 {
-    font-size: 1.3125rem;
+    font-size: var(--text-section);
   }
   .variant-heading .badge {
     font-size: 0.4375rem;
@@ -2357,7 +2058,7 @@ summary {
     margin: 0;
   }
   .army h3 {
-    font-size: 0.5625rem;
+    font-size: var(--text-subsection);
     max-width: 95px;
   }
   .army p {
@@ -2420,9 +2121,6 @@ summary {
   .square-rune {
     font-size: 1.375rem;
   }
-  .playback label {
-    margin-left: auto;
-  }
   .history-panel {
     width: 100%;
   }
@@ -2450,13 +2148,6 @@ summary {
   .site-footer p {
     font-size: 0.625rem;
   }
-  .modal {
-    padding: var(--pad-panel);
-    max-height: 93dvh;
-  }
-  .modal-top h2 {
-    font-size: 1.5625rem;
-  }
   .ruleset-options label {
     padding: 16px 4px 12px;
   }
@@ -2470,14 +2161,10 @@ summary {
     right: 7px;
   }
   .ruleset-options label > span:last-child {
-    font-size: 0.5rem;
+    font-size: var(--text-label);
   }
   .option-rune {
     font-size: 1.5625rem;
-  }
-  .modal legend {
-    font-size: 0.5rem;
-    letter-spacing: 1px;
   }
   .segmented button {
     font-size: 0.5625rem;
@@ -2486,19 +2173,19 @@ summary {
     grid-template-columns: 1fr;
   }
   .player-config h3 {
-    font-size: 0.6875rem;
+    font-size: var(--text-subsection);
   }
   .player-config label {
-    font-size: 0.625rem;
+    font-size: var(--text-label);
   }
   .player-config h3 small {
-    font-size: 0.5rem;
+    font-size: var(--text-subsection);
   }
   .inline-label {
     font-size: 0.625rem;
   }
   .inline-label select {
-    font-size: 0.625rem;
+    font-size: var(--text-body);
     padding: var(--pad-control);
     max-width: 76%;
   }
@@ -2507,7 +2194,7 @@ summary {
   }
   .player-config input,
   .player-config select {
-    font-size: 0.75rem;
+    font-size: var(--text-body);
   }
   .filters {
     gap: var(--gap-stack);
@@ -2516,13 +2203,13 @@ summary {
   }
   .filters label {
     min-width: calc(50% - 10px);
-    font-size: 0.5rem;
+    font-size: var(--text-label);
   }
   .filters label:last-child {
     max-width: none;
   }
   .filters select {
-    font-size: 0.625rem;
+    font-size: var(--text-body);
   }
   .metric .metric-label {
     font-size: 0.4375rem;
@@ -2570,7 +2257,7 @@ summary {
   .training-config h2,
   .jobs-panel h2,
   .model-registry h2 {
-    font-size: 1.5rem;
+    font-size: var(--text-section);
   }
   .record {
     gap: var(--gap-inline);
@@ -2596,7 +2283,7 @@ summary {
     max-width: 115px;
   }
   .records h3 {
-    font-size: 1.1875rem;
+    font-size: var(--text-subsection);
   }
   th,
   td {
@@ -2609,7 +2296,7 @@ summary {
     font-size: 0.625rem;
   }
   .profile-form label {
-    font-size: 0.5625rem;
+    font-size: var(--text-label);
   }
   .profile-list strong {
     font-size: 0.625rem;
@@ -2630,11 +2317,11 @@ summary {
     font-size: 0.5625rem;
   }
   .training-config .form-grid label {
-    font-size: 0.5625rem;
+    font-size: var(--text-label);
   }
   .training-config .form-grid input,
   .training-config .form-grid select {
-    font-size: 0.6875rem;
+    font-size: var(--text-body);
   }
   .training-config .badge {
     font-size: 0.375rem;
@@ -2658,7 +2345,7 @@ summary {
     line-height: 1.7;
   }
   .welcome-panel h2 {
-    font-size: 2rem;
+    font-size: var(--text-section);
   }
   .welcome-panel > p:not(.eyebrow) {
     font-size: 0.6875rem;
@@ -2691,11 +2378,6 @@ summary {
     transition: none !important;
     scroll-behavior: auto !important;
   }
-}
-
-.text-button span {
-  font-family: Arial, sans-serif;
-  font-variant-emoji: text;
 }
 .subtle {
   color: var(--ui-copy, #7d8871);
@@ -2754,24 +2436,10 @@ tbody th small {
   min-height: 36px;
   width: auto;
   max-width: 110px;
-  font-size: 0.75rem;
+  font-size: var(--text-body);
   padding: var(--pad-control);
 }
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 @media (max-width: 760px) {
-  .site-header .language-select {
-    margin-left: auto;
-  }
   .language-select select {
     max-width: 92px;
   }

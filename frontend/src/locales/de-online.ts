@@ -1,4 +1,23 @@
 const online: Record<string, string> = {
+  'Each accepted move renews the allowance.': 'Jeder akzeptierte Zug erneuert das Zeitlimit.',
+  'Time control': 'Zeitkontrolle',
+  'Per move': 'Pro Zug',
+  'Total per player': 'Gesamtzeit pro Spieler',
+  'Total time per player': 'Gesamtzeit pro Spieler',
+  'Total time per player: {duration}': 'Gesamtzeit pro Spieler: {duration}',
+  'Increment per move (seconds)': 'Zeitbonus pro Zug (Sekunden)',
+  'Increment: {seconds} seconds': 'Zeitbonus: {seconds} Sekunden',
+  'Enter an increment in whole seconds from 0 to 1209600.':
+    'Gib einen Zeitbonus in ganzen Sekunden von 0 bis 1209600 ein.',
+  'Each player has their own total clock. The increment is added to your clock after you move.':
+    'Jeder Spieler hat eine eigene Gesamtzeit. Nach deinem Zug wird der Zeitbonus deiner Uhr hinzugefügt.',
+  'The first turn uses the base limit. Each later turn resets to the base limit plus the increment.':
+    'Für den ersten Zug gilt das Grundlimit. Jeder weitere Zug erhält das Grundlimit plus Zeitbonus.',
+  'Attackers remaining time': 'Restzeit der Angreifer',
+  'Defenders remaining time': 'Restzeit der Verteidiger',
+  'Time expired. Finalizing result…': 'Zeit abgelaufen. Ergebnis wird ermittelt…',
+  'This retained request uses exactly {duration}. Retrying keeps that value.':
+    'Diese gespeicherte Anfrage verwendet genau {duration}. Beim erneuten Senden bleibt dieser Wert erhalten.',
   Online: 'Online',
   Concede: 'Aufgeben',
   'Log out': 'Abmelden',

@@ -33,7 +33,8 @@ The owner explicitly refined/approved these Phase 2 policies in conversation:
   The return game swaps the admitted accounts' sides, using the same rules/version
   and time control. Each game has its own identity, version, deadline and result.
 - Configuration freezes at creation: rules/version, side-selection policy, mode
-  and time per move. Cancel/recreate instead of editing the waiting configuration.
+  and time control/increment. Cancel/recreate instead of editing the waiting
+  configuration.
 - Verification gates admission. An activated player who later loses verification
   retains existing-seat moves/concession while active with a valid session. This
   includes the already-agreed return game; it is not another open join/admission.
@@ -43,7 +44,7 @@ outage-resolution procedure remain **unapproved**. Anonymous access is rejected;
 the approved rated-only creation policy is described in [Rated games](RATINGS.md).
 No automatic waiting-game expiry or deadline extension is implemented. Keeping a
 durable waiting record is not approval of a future public-lobby retention policy.
-Production automatic forfeits start disabled.
+Automatic timeout losses are enabled by default.
 
 Each game in a two-game match contributes independently to derived online counts;
 there is no match-level winner, Elo or score. Administrative void applies to the
@@ -57,27 +58,35 @@ must inspect both linked games when deciding an incident's resolution.
 | Environment setting | Default | Meaning |
 | --- | --- | --- |
 | `HNEFATAFL_ONLINE_ENABLED` | `false` | Admission for create/join; does not strand existing seats or pause clocks |
-| `HNEFATAFL_ONLINE_TIMEOUT_POLICY_APPROVED` | `false` | Operational prerequisite for timeout finalization; set only after separate owner approval of an outage procedure |
-| `HNEFATAFL_ONLINE_SWEEP_SECONDS` | `10` | Background interval, integer 1–300 |
+| `HNEFATAFL_ONLINE_TIMEOUT_POLICY_APPROVED` | `true` | Enables automatic timeout losses; explicit `false` pauses finalization for incidents |
+| `HNEFATAFL_ONLINE_SWEEP_SECONDS` | `1` | Background interval, integer 1–300 |
 | `HNEFATAFL_ONLINE_SWEEP_BATCH` | `50` | Maximum candidate games per pass, integer 1–256 |
 | `HNEFATAFL_ONLINE_WAITING_LIMIT` | `5` | Maximum outstanding waiting lobbies per creator, integer 1–1000 |
 | `HNEFATAFL_ONLINE_CREATION_LIMIT` | `10` | Successful new matches per account/window, integer 1–1000 |
 | `HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS` | `900` | Rolling creation window, integer 60–86400 seconds |
 
-No deployment configuration is enabled by this phase. The timeout prerequisite
-does not itself resume the persistent gate: both controls must allow finalization.
+Admission still defaults off. Timeout processing defaults on; both the environment
+control and persistent administrator gate must allow finalization. Existing explicit
+`false` environment settings remain effective and must be changed to `true` to resume.
 It is checked by the request and sweeper paths, including after restart and across
 connections. Mixed processes with the prerequisite disabled always fail closed;
 deploy one API process with consistent configuration, as before.
 
-Time per move defaults to **259200 seconds**, inclusive range **60–1209600**.
+The base time limit (`time_per_move`, retained for API compatibility) defaults to
+**259200 seconds**, inclusive range **60–1209600**. `time_control` selects
+`per_move` (default) or `total` per player; `increment_seconds` defaults to 0
+and accepts **0–1209600** whole seconds. Configuration is immutable for both legs.
 Only actual integer JSON/service/SQLite values are accepted; booleans, strings,
 floats (including `60.0`) and fractional durations are rejected. SQLite uses
 non-coercing affinity plus type/range checks. UTC instants are integer Unix
 microseconds; JSON uses six fractional digits and `Z`.
 
 The first deadline is activation plus the full duration. A timely nonterminal move
-gives the next player a fresh duration. At `now >= deadline`, move/concession is
+resets a per-move clock to the base limit plus increment. Total mode instead
+subtracts only the moving player’s elapsed time, adds their increment, and starts
+the opponent’s saved clock. Balances persist as integer microseconds and are
+projected as `remaining_seconds` at `updated_at`; the active clock uses `deadline`.
+At `now >= deadline`, move/concession is
 too late. Completion clears the active deadline. Logout, disconnect and restart
 do not reset time. Waiting games have no deadline. Late timeout processing records
 completion at the original deadline, with processing/revision time separate.
@@ -263,9 +272,9 @@ Publicly shared board positions cannot prevent external AI assistance.
 
 ## Pause, inspect, resolve and resume
 
-Automatic production forfeits are not approved by this work. Until an approved
-outage procedure exists, keep the timeout-policy environment flag false and the
-persistent gate paused. Deterministic tests explicitly inject an approved fixture.
+Automatic timeout losses and their rating changes are enabled by default. The
+persistent gate remains available for explicit incident/maintenance pauses;
+restores pause it automatically. The browser never overrides an operator pause.
 
 1. Using a current administrator session, read the protected timeout-gate endpoint.
    Submit PATCH with its current version, `enabled: false` and an incident/maintenance
@@ -279,8 +288,8 @@ persistent gate paused. Deterministic tests explicitly inject an approved fixtur
    decision, an administrator may void affected games with expected versions and
    private justification. Check all games in a linked match. No arbitrary winner
    correction, reopening or deadline-extension operation is provided.
-4. Resume only after owner approval of the outage procedure, clock/state review and
-   operator reconciliation. Set the policy prerequisite in protected configuration,
+4. Resume after clock/state review and operator reconciliation. Enable timeout
+   processing in protected configuration,
    restart consistently, then explicitly PATCH the persistent gate to true with its
    current version and justification. Inspect the bounded sweeper's results. Old
    deadlines still apply; this action does not compensate for downtime automatically.
@@ -292,17 +301,18 @@ Disabling admission is not a substitute for pausing timeout finalization.
 ## Migration, backup and recovery
 
 Use the [full stopped-writer backup procedure](TRAINING_DATA.md#consistent-backup-and-restoration),
-including protected environment and matching code. Schema 12 adds no interpretation
-of local histories and preserves account IDs/security, ownership, sessions, jobs,
-workers/models and files during forward migration from schemas 11/10/9/8/older
-fixtures. It adds the rating and start-snapshot tables and the
-`online_matches.rated` column in place.
+including protected environment and matching code. Schema 13 preserves local
+histories, accounts/security, ownership, sessions, jobs, workers/models and files.
+It adds clock configuration and per-player balances in place; all existing games
+retain per-move timing with zero increment and their original deadlines. Only an
+untouched legacy default timeout gate (disabled at version 0) is enabled, with a
+new audit entry; explicit administrator and restore pauses remain paused.
 Legacy normalization collision checks still run and stop ambiguous upgrades.
 No production database was inspected or migrated for development.
 
 Schema-9 code refuses schema 10; schema-10 code refuses schema 11; schema-11 code
-refuses schema 12. Additive tables are not a safe downgrade guarantee. The
-schema-12-aware updater refuses automatic recovery across differing online
+refuses schema 12; schema-12 code refuses schema 13. Additive tables are not a safe
+downgrade guarantee. The schema-13-aware updater refuses automatic recovery across differing online
 schemas/columns before replacing the live root; account-schema protections remain.
 An empty/pre-database snapshot also refuses replacement of a live database.
 Use a forward repair or separately reviewed manual reconciliation, retaining both

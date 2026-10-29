@@ -1,4 +1,5 @@
 import type { PlayerConfig, StatRow } from './types';
+import type { CSSProperties } from 'react';
 
 /** Names from old game snapshots may predate a model-dropdown selection. */
 export function participantName(
@@ -17,6 +18,7 @@ export default function Rune({ rune, className = '' }: { rune?: string; classNam
       aria-hidden="true"
       data-rune={rune}
       data-rune-size={Array.from(rune).length > 1 ? 'compound' : 'single'}
+      style={{ '--rune-characters': Array.from(rune).length } as CSSProperties}
     >
       {rune}
     </span>

@@ -1,3 +1,10 @@
+import {
+  openGameNavigation,
+  returnToGame,
+  openGameOptions,
+  gameTab,
+  showMove,
+} from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { expect, test } from './auth-fixture';
 
@@ -10,15 +17,17 @@ test('a searching advisor publishes partial results while the human can move and
   });
   expect(stored.ok()).toBe(true);
   await page.goto('/games/' + (await stored.json()).id);
+  await openGameOptions(page);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
-  // Leave time for real touch scrolling between the advisor and the board while
-  // asserting that input remains available during unfinished analysis.
+  // A long search leaves time to return from settings to the fixed mobile panel
+  // and verify that board input remains available during unfinished analysis.
   await analytics.getByRole('spinbutton', { name: 'Maximum search time (seconds)' }).fill('15');
   await advisor.selectOption('custom');
   await expect(
     analytics.getByRole('spinbutton', { name: 'Search depth', exact: true }),
   ).toHaveValue('5');
+  await gameTab(page, 'analytics');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
   const advisorOpinion = panel
     .locator('.agent-estimate')
@@ -33,8 +42,11 @@ test('a searching advisor publishes partial results while the human can move and
   await expect(destination).toBeEnabled();
   await expect(panel).toHaveAttribute('aria-busy', 'true');
   await destination.click();
+  await showMove(page, 1);
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
+  await openGameOptions(page);
   await advisor.selectOption('profile:baseline');
+  await gameTab(page, 'analytics');
   await expect(panel).toHaveAttribute('aria-busy', 'false');
   await expect(advisorOpinion).toContainText('Shield bearer');
   await expect(advisorOpinion).not.toContainText('Custom move advisor');
@@ -52,6 +64,7 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   });
   expect(stored.ok()).toBe(true);
   await page.goto('/games/' + (await stored.json()).id);
+  await openGameOptions(page);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
   await expect(advisor).toHaveValue('');
@@ -59,6 +72,7 @@ test('advisor highlights a legal move and original estimates survive replay, rel
     analytics.getByRole('spinbutton', { name: 'Maximum search time (seconds)' }),
   ).toHaveValue('5');
   await advisor.selectOption('profile:baseline');
+  await gameTab(page, 'analytics');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
   const advisorOpinion = panel
     .locator('.agent-estimate')
@@ -76,28 +90,42 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await expect(board.locator('.hint-overlay')).toBeVisible();
   await board.locator('.hint-source').click();
   await board.locator('.hint-target').click();
+  await showMove(page, 1);
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
+  await gameTab(page, 'analytics');
   await expect(panel).toHaveAttribute('aria-busy', 'false');
-  await page.getByRole('button', { name: 'Undo move', exact: true }).click();
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await gameTab(page, 'analytics');
   await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
   await page.reload();
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await gameTab(page, 'analytics');
   await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
+  await openGameOptions(page);
   await expect(advisor).toHaveValue('profile:baseline');
-
+  const gamePath = new URL(page.url()).pathname;
+  await openGameNavigation(page);
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
+  await returnToGame(page, gamePath);
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-  await expect(page.getByRole('heading', { name: 'Gewinnchancen', exact: true })).toBeVisible();
+  await gameTab(page, 'analytics');
+  await expect(page.getByRole('region', { name: 'Agentenbewertungen', exact: true })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: /König/ })).toHaveCount(1);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'Darstellungseinstellungen', exact: true }).click();
   await page.getByRole('radio', { name: 'Holz', exact: true }).check();
   await page
     .getByRole('button', { name: 'Darstellungseinstellungen schließen', exact: true })
     .click();
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
+  await returnToGame(page, gamePath);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
-  await expect(page.getByRole('heading', { name: 'Gewinnchancen', exact: true })).toBeVisible();
+  await gameTab(page, 'analytics');
+  await expect(page.getByRole('region', { name: 'Agentenbewertungen', exact: true })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
@@ -159,21 +187,20 @@ test('the actual AI decision and the opponent’s background estimate survive re
     target: after.moves[0].target,
   });
   expect(replay.analysis.evaluations).toHaveLength(2);
-  // Freeze only the browser playback timer while opening the retained position;
-  // all recorded searches and moves above used the real engine/API.
-  await page.clock.install({ time: new Date() });
-  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  // Loading an older saved position opens read-only history without advancing AI.
   await page.goto('/games/' + game.id);
-  await page.getByRole('button', { name: /Pause AI/ }).click();
-  await page.clock.resume();
   // The advisor selection is the display trigger; stored playing-agent evidence
   // still appears alongside the advisor.
+  await openGameOptions(page);
   await page
     .getByRole('region', { name: 'Analytics', exact: true })
     .getByRole('combobox', { name: 'Move advisor', exact: true })
     .selectOption('profile:baseline');
+  await gameTab(page, 'analytics');
   await expect(page.getByRole('region', { name: 'Agent evaluations' })).toBeVisible();
   for (const agent of replay.analysis.evaluations) {
+    const selector = page.getByRole('combobox', { name: 'Agent evaluations', exact: true });
+    if (await selector.isVisible()) await selector.selectOption(agent.agent_id);
     await expect(
       page.getByRole('meter', { name: `${agent.name} estimate for Attackers` }),
     ).toHaveAttribute('aria-valuenow', String(Math.round(agent.win_probability * 1000) / 10));

@@ -112,6 +112,8 @@ it.each(
     side_selection: side,
     mode,
     time_per_move: 3600,
+    time_control: 'per_move',
+    increment_seconds: 0,
     rated: true,
   });
 });
@@ -253,7 +255,8 @@ it('shows unassigned random waiting seats, admission denial and creator cancella
   } as OnlineGame;
   enabled = false;
   room(current);
-  await screen.findByText(/Random sides are assigned/);
+  await screen.findByRole('heading', { name: 'Waiting for another player' });
+  expect(screen.getByText('Random when a player joins')).toBeVisible();
   expect(screen.getAllByText(/Unassigned/)).toHaveLength(2);
   mutation = async () => {
     current = { ...current, status: 'cancelled', version: 1 };
@@ -279,15 +282,15 @@ it('joins only with eligible admission and shows read-only spectator controls', 
 it('replay navigation stays local and prevents historical moves, with no assistance calls', async () => {
   room(fixture.moved as OnlineGame);
   await screen.findByLabelText('Defenders to move');
-  fireEvent.click(screen.getByRole('button', { name: 'View replay' }));
+  fireEvent.click(screen.getByRole('button', { name: /Starting position/ }));
   await screen.findByRole('button', { name: 'Return to live board' });
   const { source, target } = fixture.moved.moves[0];
   expect(screen.getAllByRole('gridcell')[source]).toHaveAccessibleName(/attacker/);
   fireEvent.click(screen.getAllByRole('gridcell')[source]);
   fireEvent.click(screen.getAllByRole('gridcell')[target]);
-  fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Replay to move 1' }));
   expect(screen.getAllByRole('gridcell')[target]).toHaveAccessibleName(/attacker/);
-  fireEvent.click(screen.getByRole('button', { name: 'Return to live board' }));
+  expect(screen.queryByRole('button', { name: 'Return to live board' })).toBeNull();
   expect(
     fetcher.mock.calls.every(
       ([path, opts]) => !path.includes('/api/games/') && opts?.method !== 'POST',
@@ -305,7 +308,7 @@ it('shows the payload captured counts and follows the replay cursor', async () =
   board[board.indexOf('A')] = '.';
   board[board.indexOf('D')] = '.';
   replayResponse = shortened;
-  fireEvent.click(screen.getByRole('button', { name: 'View replay' }));
+  fireEvent.click(screen.getByRole('button', { name: /Starting position/ }));
   await screen.findByRole('button', { name: 'Return to live board' });
   expect(counts()).toBe('Captured 3 4');
 });
@@ -331,10 +334,10 @@ it.each(['simultaneous', 'sequential'] as const)(
     }
   },
 );
-it('shows awaiting adjudication using the device clock without inventing a terminal result', async () => {
+it('shows pending server finalization using the device clock without inventing a terminal result', async () => {
   const game = { ...fixture.active, deadline: '2000-01-01T00:00:00Z' } as OnlineGame;
   room(game);
-  await screen.findByText(/Awaiting adjudication/);
+  await screen.findByText(/Time expired. Finalizing result…/);
   expect(screen.getByRole('button', { name: 'Concede' })).toBeVisible();
   expect(fetcher.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false);
 });
@@ -368,7 +371,8 @@ it('translates online controls and handles keyboard selection in German', async 
   source.focus();
   fireEvent.keyDown(source, { key: 'ArrowRight' });
   expect(document.activeElement).not.toBe(source);
-  expect(screen.getByRole('button', { name: 'Wiedergabe ansehen' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Wiedergabe ansehen' })).toBeNull();
+  expect(screen.getByRole('button', { name: /Ausgangsstellung/ })).toBeVisible();
 });
 
 it('marks the current game and games awaiting the user move in the switcher', async () => {
@@ -427,10 +431,16 @@ it('opens personal review with scoped reads only, effective void status and loca
   history.replaceState(null, '', `/online/games/${current.id}/review`);
   render(<Online />);
   await screen.findByRole('heading', { name: 'Online game review' });
-  await screen.findByRole('button', { name: 'Next move' });
+  await screen.findByRole('button', { name: 'Replay to move 1' });
   expect(screen.getByText('Lifecycle: Voided')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
-  expect(screen.getByText('Move 1 of 1')).toBeVisible();
+  // A visible move list can precede completion of the initial replay read.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /Starting position/ })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Replay to move 1' }));
+  expect(screen.getByRole('button', { name: 'Replay to move 1' }).parentElement).toHaveClass(
+    'current',
+  );
   expect(screen.queryByRole('button', { name: 'Concede' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Return to live board' })).toBeNull();
   expect(
@@ -496,12 +506,12 @@ it('retries a retained 61-second creation intent exactly without truncation to a
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
-  expect(screen.getByText(/uses exactly 1m 01s per move/)).toBeVisible();
+  expect(screen.getByText(/uses exactly 1m 01s/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
   await screen.findByRole('heading', { name: 'Online game' });
   expect(
     JSON.parse(String(fetcher.mock.calls.find(([, o]) => o?.method === 'POST')![1]?.body)),
-  ).toEqual({ ...payload, rated: true });
+  ).toEqual({ ...payload, time_control: 'per_move', increment_seconds: 0, rated: true });
 });
 it('creates every new online game as rated with no casual selector', async () => {
   lobby();
@@ -528,4 +538,68 @@ it.each([
   fireEvent.submit(screen.getByRole('button', { name: 'Create game' }).closest('form')!);
   await screen.findByRole('alert');
   expect(fetcher.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false);
+});
+
+it.each(['per_move', 'total'])(
+  'creates a %s clock with an increment only for total time and retains the exact request',
+  async (timeControl) => {
+    mutation = async () => {
+      throw new TypeError('network');
+    };
+    const view = lobby();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+    expect(screen.queryByText('Each accepted move renews the allowance.')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Time control'), { target: { value: 'total' } });
+    expect(
+      screen.queryByText(
+        'Each player has their own total clock. The increment is added to your clock after you move.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(0);
+    fireEvent.change(screen.getByLabelText('Increment per move (seconds)'), {
+      target: { value: '12' },
+    });
+    fireEvent.change(screen.getByLabelText('Time control'), { target: { value: timeControl } });
+    if (timeControl === 'per_move')
+      expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
+    await screen.findByText(/The outcome is uncertain/);
+    const first = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')![1]!.body;
+    expect(JSON.parse(String(first))).toMatchObject({
+      time_control: timeControl,
+      increment_seconds: timeControl === 'total' ? 12 : 0,
+    });
+    view.unmount();
+    lobby();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText('Time control')).toHaveValue(timeControl);
+    if (timeControl === 'total')
+      expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(12);
+    else expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
+    await waitFor(() =>
+      expect(fetcher.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(2),
+    );
+    expect(fetcher.mock.calls.filter(([, opts]) => opts?.method === 'POST')[1][1]!.body).toBe(
+      first,
+    );
+  },
+);
+
+it('shows both total clocks, the configured increment and the live active clock', async () => {
+  room({
+    ...fixture.active,
+    time_control: 'total',
+    increment_seconds: 8,
+    deadline: new Date(Date.now() + 90000).toISOString(),
+    remaining_seconds: { attackers: 100, defenders: 47 },
+  } as OnlineGame);
+  await screen.findByText('Total time per player');
+  expect(screen.getByText('Attackers remaining time')).toBeVisible();
+  const defender = screen.getByText('Defenders remaining time').parentElement!;
+  expect(defender).toHaveTextContent('47s');
+  expect(screen.getByText('Increment per move (seconds)').parentElement).toHaveTextContent('8');
 });

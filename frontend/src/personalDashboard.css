@@ -3,19 +3,48 @@
   max-width: 1320px;
   margin: var(--gap-stack) auto;
 }
-.dashboard-actions,
-.section-heading {
-  display: flex;
-  gap: var(--gap-stack);
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: var(--gap-stack);
+.dashboard-verification-warning {
+  color: #a82e27;
+  background: var(--ui-error-surface, #fff0ed);
+  border: 1px solid #d78b80;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
-.section-heading {
-  justify-content: space-between;
+:root[data-color-mode='dark'] .dashboard-verification-warning,
+:root[data-color-mode='wood'] .dashboard-verification-warning {
+  color: #ffb4a5;
 }
-.section-heading h2 {
+.play-home > p {
+  margin-block: 12px;
+}
+.history-review-status.review-history-status {
+  display: block;
+}
+.review-history-status > span {
+  display: block;
+  margin-bottom: 6px;
+}
+.review-history-status .online-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
   margin: 0;
+}
+.review-history-status .online-toolbar > span {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  text-align: center;
+  font-size: 0.75rem;
+}
+.review-history-status .online-toolbar > button {
+  padding: 6px 4px;
+  font-size: 0.6875rem;
+}
+.review-back {
+  display: inline-block;
 }
 .dashboard-overview {
   display: grid;
@@ -158,7 +187,7 @@
 .personal-dashboard .online-card h3,
 .personal-dashboard .online-card p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--text-subsection);
 }
 .personal-dashboard .online-card h3 {
   grid-column: 1;

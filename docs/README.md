@@ -65,6 +65,7 @@ Commands assume the repository root unless a different directory is shown.
 
 ## Online foundations and offline feasibility
 
+- [Shared interface and online creation validation](validation/shared-ui-layout.md)
 - [Compact Dashboard badges and detailed personal statistics validation](validation/personal-statistics.md)
 - [Post-Phase 5 statistics and review refinement validation](validation/post-phase5-refinements.md)
 - [Dashboard consolidation refinement validation](validation/dashboard-consolidation.md)

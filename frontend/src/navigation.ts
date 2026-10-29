@@ -23,7 +23,7 @@ export function safeDestination(value: string | null): string {
 }
 export function canonicalLocation() {
   const url = new URL(location.href);
-  if (['/', '/play', '/online'].includes(url.pathname)) {
+  if (['/', '/online'].includes(url.pathname)) {
     if (url.pathname !== '/' && !url.searchParams.has('setup'))
       url.searchParams.set('setup', url.pathname === '/online' ? 'online' : 'single-player');
     url.pathname = '/dashboard';

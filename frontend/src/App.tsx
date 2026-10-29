@@ -29,8 +29,11 @@ import GameDetailsPanel from './GameDetailsPanel';
 import GameResult from './GameResult';
 import ArmiesPanel from './ArmiesPanel';
 import HistoryPanel from './HistoryPanel';
-import Battlefield, { BoardToolbar } from './Battlefield';
+import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
+import { usePlayHistory } from './usePlayHistory';
+import PlayLanding from './PlayLanding';
+import { PlayTabsProvider } from './PlayTabs';
 
 type Tab =
   | 'statistics'
@@ -52,7 +55,7 @@ export default function App() {
     ? 'online'
     : path.split('?')[0] === '/statistics'
       ? 'statistics'
-      : path.startsWith('/games/')
+      : path.startsWith('/games/') || path.split('?')[0] === '/play'
         ? 'play'
         : path.split('?')[0] === '/archive'
           ? 'archive'
@@ -63,28 +66,50 @@ export default function App() {
               : path.startsWith('/tournaments') && permissions.includes('tournaments')
                 ? 'tournaments'
                 : 'dashboard';
+  const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
     window.addEventListener('popstate', changed);
     return () => window.removeEventListener('popstate', changed);
   }, []);
+  useEffect(() => {
+    if (
+      /^\/(?:games\/(?!online-)[A-Za-z0-9_-]{1,100}|online\/games\/online-[0-9a-f]{32})$/.test(
+        path.split('?')[0],
+      )
+    ) {
+      try {
+        localStorage.setItem('hnefatafl-play-route', path.split('?')[0]);
+      } catch {
+        /* Optional browser preference. */
+      }
+    }
+  }, [path]);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
-  const [game, setGame] = useState<Game | null>(null);
+  const [liveGame, setGame] = useState<Game | null>(null);
+  const playHistory = usePlayHistory(liveGame);
+  const game = playHistory.game;
+  const reviewingRef = playHistory.cursorRef;
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const [speed, setSpeed] = useState(900);
+  const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
   const aiLock = useRef(false);
 
   const currentGame = useRef<Game | null>(null);
   const loadedRoute = useRef<string | null>(null);
-  currentGame.current = game;
-  const analysis = useGameAnalysis(game, tab === 'play');
+  currentGame.current = liveGame;
+  const analysis = useGameAnalysis(
+    game,
+    tab === 'play' && !playEntry,
+    playHistory.reviewing,
+    '/games',
+    playHistory.reviewing,
+  );
 
   const reportError = useCallback((message: unknown) => {
     notify.error(errorMessage(message));
@@ -142,6 +167,7 @@ export default function App() {
         if (alive) {
           setGame(saved);
           setSelected(null);
+          setAiRetryDelay(900);
         }
       })
       .catch((e) => {
@@ -161,7 +187,12 @@ export default function App() {
 
   const action = useCallback(async (name: string, body: Record<string, unknown> = {}) => {
     const active = currentGame.current;
-    if (!active || aiLock.current) return;
+    if (
+      !active ||
+      aiLock.current ||
+      ((name === 'moves' || name === 'ai-move') && reviewingRef.current !== null)
+    )
+      return false;
     aiLock.current = true;
     setBusy(true);
     try {
@@ -171,12 +202,15 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
+        setAiRetryDelay(900);
         if (next.id !== active.id) {
           loadedRoute.current = next.id;
           navigate(`/games/${next.id}`);
         }
         setSelected(null);
+        return true;
       }
+      return false;
     } catch (e) {
       if (currentGame.current?.id === active.id) {
         reportError(e);
@@ -186,24 +220,70 @@ export default function App() {
         } catch {
           /* Preserve the game while a connection is unavailable. */
         }
-        setPaused(true);
+        if (currentGame.current?.id === active.id && name === 'ai-move')
+          setAiRetryDelay((delay) => Math.min(delay * 2, 30000));
       }
+      return false;
     } finally {
       setBusy(false);
       aiLock.current = false;
     }
   }, []);
   const activeAI =
-    !!game && !game.winner && !game.recorded_winner && game.players[game.turn]?.kind === 'ai';
+    !!liveGame &&
+    !liveGame.winner &&
+    !liveGame.recorded_winner &&
+    Object.values(liveGame.players).every(
+      (player) => !player.account_id || player.account_id === account?.id,
+    ) &&
+    liveGame.players[liveGame.turn]?.kind === 'ai';
   const outcome = game?.winner ?? game?.recorded_winner ?? null;
   useEffect(() => {
-    if (!game || !activeAI || paused || busy || tab !== 'play') return;
-    const timer = window.setTimeout(() => void action('ai-move'), speed);
+    if (!liveGame || !activeAI || busy || playHistory.reviewing || tab !== 'play' || playEntry)
+      return;
+    const timer = window.setTimeout(() => void action('ai-move'), aiRetryDelay);
     return () => window.clearTimeout(timer);
-  }, [game, activeAI, paused, busy, speed, action, tab]);
+  }, [liveGame, activeAI, busy, playHistory.reviewing, aiRetryDelay, action, tab, playEntry]);
+
+  const mayPlay =
+    !!game &&
+    !playHistory.reviewing &&
+    game.players[game.turn]?.kind === 'human' &&
+    (!game.players[game.turn].account_id || game.players[game.turn].account_id === account?.id);
+  const returnToLive = async () => {
+    const active = currentGame.current;
+    if (!active) return;
+    if (!playHistory.reviewing && active.cursor === active.total_moves) return;
+    // Restore an old client's saved cursor without branching or changing its moves.
+    if (
+      active.cursor < active.total_moves &&
+      !(await action('seek', { cursor: active.total_moves }))
+    )
+      return;
+    if (active.cursor === active.total_moves) {
+      try {
+        const fresh = await api<Game>(`/games/${active.id}`);
+        if (currentGame.current?.id !== active.id) return;
+        setGame(fresh);
+      } catch (error) {
+        reportError(error);
+        return;
+      }
+    }
+    playHistory.showAt(null);
+    setSelected(null);
+  };
+  const showHistory = (ply: number) => {
+    if (!game || busy) return;
+    if (ply === game.total_moves) void returnToLive();
+    else {
+      playHistory.showAt(ply);
+      setSelected(null);
+    }
+  };
 
   const selectSquare = (index: number) => {
-    if (!game || game.winner || game.recorded_winner || busy || activeAI) return;
+    if (!game || !mayPlay || game.winner || game.recorded_winner || busy || activeAI) return;
     if (index < 0) {
       setSelected(null);
       return;
@@ -230,299 +310,264 @@ export default function App() {
     currentGame.current = null;
     setGame(null);
     setSelected(null);
-    setPaused(true);
     setRulesOpen(false);
     localStorage.removeItem('hnefatafl-game');
   }, []);
   const activeRules = rulesets.find((r) => r.id === game?.ruleset);
+  const gameMetadata = game
+    ? [
+        {
+          label: t('Game mode'),
+          value:
+            game.mode === 'human-human'
+              ? t('Pass & play')
+              : game.mode === 'human-ai'
+                ? t('Human vs AI')
+                : t('AI vs AI'),
+        },
+        ...(game.seed !== undefined ? [{ label: t('Random seed'), value: game.seed }] : []),
+      ]
+    : [];
+
+  const gameDetails = game && (
+    <GameDetailsPanel
+      ruleset={
+        game.ruleset === 'tablut'
+          ? t('Tablut')
+          : game.ruleset === 'copenhagen'
+            ? t('Copenhagen')
+            : t(activeRules?.name ?? game.ruleset)
+      }
+      size={game.size}
+      header={
+        <>
+          <p className="game-description">
+            {t(activeRules?.description ?? 'An ancient contest of escape and encirclement.')}
+          </p>
+          <button className="text-button" onClick={() => setRulesOpen(true)}>
+            {t('Read the rules')}
+            <span aria-hidden="true">↗</span>
+          </button>
+        </>
+      }
+      rows={gameMetadata}
+      desktopRows={[]}
+      footer={
+        outcome !== null && <GameResult winner={outcome} reason={game.reason} labels={titles} />
+      }
+    />
+  );
+  const armies = game && (
+    <ArmiesPanel
+      rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
+        side,
+        symbol: game.players[side]?.rune ? (
+          <Rune rune={game.players[side].rune} />
+        ) : (
+          sideGlyph(side)
+        ),
+        name: participantName(game.players[side], t(titles[side])),
+        detail: `${t(titles[side])} · ${
+          game.players[side]?.kind === 'ai'
+            ? t(String(game.players[side].config.algorithm ?? 'Computer'))
+            : t('Human')
+        }`,
+        toMove: game.turn === side && outcome === null,
+      }))}
+      captured={game.captured ?? { attackers: 0, defenders: 0 }}
+      metadata={gameMetadata}
+    />
+  );
+  const analyticsSettings = game && (
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={models}
+      settings={analysis.settings}
+      onChange={analysis.updateSettings}
+      pending={analysis.settingsPending}
+      error={analysis.settingsError}
+    />
+  );
+  const switcher = account && (
+    <ActiveGameSwitcher
+      accountId={account.id}
+      currentId={game?.id ?? ''}
+      open={(entry) =>
+        navigate(entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`)
+      }
+    />
+  );
+  const agentAnalysis = game && analysis.show ? <AgentAnalysis game={game} {...analysis} /> : null;
 
   return (
-    <>
-      <SiteHeader account={account} logout={logout} current={tab} />
+    <PlayTabsProvider key={account?.id}>
+      <SiteHeader account={account} logout={logout} current={tab === 'online' ? 'play' : tab} />
       <main>
         {tab === 'statistics' && <StatisticsPage />}
         {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
-        {tab === 'play' && (
-          <PlayPage className="play-page" heading={t('Single player game')}>
-            {account && (
-              <ActiveGameSwitcher
-                accountId={account.id}
-                currentId={game?.id ?? ''}
-                open={(entry) =>
-                  navigate(
-                    entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`,
-                  )
-                }
-              />
-            )}
-            {initializing ? (
-              <div className="empty-state">
-                <div className="spinner" />
-                <h2>{t('Setting the table…')}</h2>
-              </div>
-            ) : !game ? (
-              <section className="welcome-panel">
-                <div className="welcome-rune">ᛟ</div>
-                <h2>{t('The king awaits.')}</h2>
-                <p>
-                  {t(
-                    'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
-                  )}
-                </p>
-                <button className="button primary" onClick={() => setNewOpen(true)}>
-                  {t('Choose your game')}
-                  <span aria-hidden="true">↗</span>
-                </button>
-                <div className="variant-pills">
-                  {rulesets.map((r) => (
-                    <span key={r.id}>
-                      {t(r.name)}{' '}
-                      <small>
-                        {r.size} × {r.size}
-                      </small>
-                    </span>
-                  ))}
+        {tab === 'play' &&
+          (playEntry ? (
+            <PlayLanding onNewSingle={startSinglePlayer} creatingSingle={newOpen} />
+          ) : (
+            <PlayPage className="play-page" heading={t('Single player game')}>
+              {initializing ? (
+                <div className="empty-state">
+                  <div className="spinner" />
+                  <h2>{t('Setting the table…')}</h2>
                 </div>
-              </section>
-            ) : (
-              <GameLayout
-                sidebar={
-                  <>
-                    <GameDetailsPanel
-                      ruleset={
-                        game.ruleset === 'tablut'
-                          ? t('Tablut')
-                          : game.ruleset === 'copenhagen'
-                            ? t('Copenhagen')
-                            : t(activeRules?.name ?? game.ruleset)
-                      }
-                      size={game.size}
-                      header={
-                        <>
-                          <p>
-                            {t(
-                              activeRules?.description ??
-                                'An ancient contest of escape and encirclement.',
-                            )}
-                          </p>
-                          <button className="text-button" onClick={() => setRulesOpen(true)}>
-                            {t('Read the rules')}
-                            <span aria-hidden="true">↗</span>
-                          </button>
-                          <button
-                            className="button secondary"
-                            onClick={() => {
-                              setNewOpen(true);
-                              void refreshOptions().catch((e) => reportError(e));
-                            }}
-                            disabled={initializing}
-                          >
-                            {t('New game')}
-                          </button>
-                        </>
-                      }
-                      rows={[
-                        {
-                          label: t('Game mode'),
-                          value:
-                            game.mode === 'human-human'
-                              ? t('Pass & play')
-                              : game.mode === 'human-ai'
-                                ? t('Human vs AI')
-                                : t('AI vs AI'),
-                        },
-                        { label: t('Move'), value: game.cursor },
-                        ...(game.seed !== undefined
-                          ? [{ label: t('Random seed'), value: game.seed }]
-                          : []),
-                      ]}
-                      footer={
-                        outcome !== null && (
-                          <GameResult winner={outcome} reason={game.reason} labels={titles} />
-                        )
+              ) : !game ? (
+                <section className="welcome-panel">
+                  <div className="welcome-rune">ᛟ</div>
+                  <h2>{t('The king awaits.')}</h2>
+                  <p>
+                    {t(
+                      'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
+                    )}
+                  </p>
+                  <button className="button primary" onClick={() => navigate('/dashboard')}>
+                    {t('Back to dashboard')}
+                    <span aria-hidden="true">↗</span>
+                  </button>
+                  <div className="variant-pills">
+                    {rulesets.map((r) => (
+                      <span key={r.id}>
+                        {t(r.name)}{' '}
+                        <small>
+                          {r.size} × {r.size}
+                        </small>
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <GameLayout
+                  key={game.id}
+                  switcher={switcher}
+                  desktop={{
+                    sidebar: (
+                      <>
+                        {gameDetails}
+                        {armies}
+                      </>
+                    ),
+                    analytics: (
+                      <>
+                        {agentAnalysis}
+                        {analyticsSettings}
+                      </>
+                    ),
+                    moveCount: game.total_moves,
+                  }}
+                  mobile={{
+                    title:
+                      game.ruleset === 'tablut'
+                        ? t('Tablut')
+                        : game.ruleset === 'copenhagen'
+                          ? t('Copenhagen')
+                          : t(activeRules?.name ?? game.ruleset),
+                    subtitle: (
+                      <>
+                        {game.size} × {game.size} ·{' '}
+                        {outcome
+                          ? outcome === 'draw'
+                            ? t('Draw')
+                            : t('{side} win', { side: t(titles[outcome]) })
+                          : t('{side} to move', { side: t(titles[game.turn]) })}{' '}
+                        · {t('Move')} {game.cursor}
+                      </>
+                    ),
+                    players: armies,
+                    analytics: agentAnalysis,
+                    settings: analyticsSettings,
+                    moveCount: game.total_moves,
+                  }}
+                  sidebar={
+                    <>
+                      {gameDetails}
+                      {armies}
+                      {agentAnalysis}
+                      <div className="strategy-note">
+                        <span aria-hidden="true">ᛉ</span>
+                        <p>
+                          {game.turn === 'attackers'
+                            ? t('Close the circle. Cut off the king’s path to freedom.')
+                            : t('Protect the king. Find the opening in the siege.')}
+                        </p>
+                      </div>
+                    </>
+                  }
+                  battlefield={
+                    <Battlefield
+                      label={t('Game')}
+                      board={
+                        <Board
+                          game={game}
+                          selected={selected}
+                          onSelect={selectSquare}
+                          disabled={busy || !mayPlay || !!game.winner || !!game.recorded_winner}
+                          readOnly={playHistory.reviewing || !mayPlay}
+                          hint={analysis.report?.hint?.move ?? null}
+                        />
                       }
                     />
-                    <ArmiesPanel
-                      rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
-                        side,
-                        symbol: game.players[side]?.rune ? (
-                          <Rune rune={game.players[side].rune} />
-                        ) : (
-                          sideGlyph(side)
-                        ),
-                        name: participantName(game.players[side], t(titles[side])),
-                        detail: `${t(titles[side])} · ${
-                          game.players[side]?.kind === 'ai'
-                            ? t(String(game.players[side].config.algorithm ?? 'Computer'))
-                            : t('Human')
-                        }`,
-                        toMove: game.turn === side && outcome === null,
-                      }))}
-                      captured={game.captured ?? { attackers: 0, defenders: 0 }}
-                    />
-                    {analysis.show && <AgentAnalysis game={game} {...analysis} />}
-                    <div className="strategy-note">
-                      <span aria-hidden="true">ᛉ</span>
-                      <p>
-                        {game.turn === 'attackers'
-                          ? t('Close the circle. Cut off the king’s path to freedom.')
-                          : t('Protect the king. Find the opening in the siege.')}
-                      </p>
-                    </div>
-                  </>
-                }
-                battlefield={
-                  <Battlefield
-                    label={t('Game')}
-                    board={
-                      <Board
-                        game={game}
-                        selected={selected}
-                        onSelect={selectSquare}
-                        disabled={busy || activeAI || !!game.winner || !!game.recorded_winner}
-                        hint={analysis.report?.hint?.move ?? null}
-                      />
-                    }
-                    toolbar={
-                      <BoardToolbar
-                        leading={
-                          <>
+                  }
+                  history={
+                    <HistoryPanel
+                      status={
+                        playHistory.reviewing && (
+                          <div className="history-review-status">
+                            <span>{t('Read-only history')}</span>
                             <button
-                              className="icon-button"
-                              aria-label={t('Undo move')}
-                              title={t('Undo')}
-                              onClick={() => {
-                                setPaused(true);
-                                void action('undo');
-                              }}
-                              disabled={busy || game.cursor === 0}
-                            >
-                              ↶
-                            </button>
-                            <button
-                              className="icon-button"
-                              aria-label={t('Redo move')}
-                              title={t('Redo')}
-                              onClick={() => {
-                                setPaused(true);
-                                void action('redo');
-                              }}
-                              disabled={busy || game.cursor >= game.total_moves}
-                            >
-                              ↷
-                            </button>
-                          </>
-                        }
-                        help={
-                          game.winner
-                            ? t('A new saga is one move away.')
-                            : t('Move in straight lines. Capture by surrounding.')
-                        }
-                        trailing={
-                          !game.winner &&
-                          !game.recorded_winner &&
-                          game.creation_policy === 1 &&
-                          (game.mode !== 'ai-ai' || account?.permissions.includes('all_data')) && (
-                            <button
-                              className="icon-button"
-                              aria-label={t('Restart game')}
-                              title={t('Restart')}
-                              onClick={() => {
-                                setPaused(true);
-                                void action('restart');
-                              }}
+                              className="button secondary small"
+                              onClick={() => void returnToLive()}
                               disabled={busy}
                             >
-                              ⟲
+                              {t('Return to live board')}
                             </button>
-                          )
-                        }
-                      />
-                    }
-                  >
-                    {game.mode !== 'human-human' && !game.winner && !game.recorded_winner && (
-                      <div className="playback">
-                        <button
-                          className="button small"
-                          onClick={() => setPaused((p) => !p)}
-                          disabled={!!game.winner}
-                        >
-                          {paused ? t('▶ Resume AI') : t('Ⅱ Pause AI')}
-                        </button>
-                        <button
-                          className="text-button"
-                          onClick={() => void action('ai-move')}
-                          disabled={!activeAI || busy || !paused}
-                        >
-                          {t('Next move')}
-                        </button>
-                        <label>
-                          {t('Playback')}{' '}
-                          <select
-                            aria-label={t('AI playback speed')}
-                            value={speed}
-                            onChange={(e) => setSpeed(Number(e.target.value))}
-                          >
-                            <option value={1800}>{t('Relaxed')}</option>
-                            <option value={900}>{t('Normal')}</option>
-                            <option value={100}>{t('Fast')}</option>
-                          </select>
-                        </label>
-                        {busy && (
-                          <span className="thinking">
-                            <i />
-                            {t('Calculating')}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </Battlefield>
-                }
-                history={
-                  <HistoryPanel
-                    count={game.total_moves}
-                    entries={game.moves.map((move, i) => ({
-                      ply: i + 1,
-                      notation:
-                        move.notation ??
-                        `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
-                      side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
-                      current: i === game.cursor - 1,
-                      future: i >= game.cursor,
-                      onSeek: () => {
-                        setPaused(true);
-                        void action('seek', { cursor: i + 1 });
-                      },
-                      disabled: busy,
-                    }))}
-                    startAction={{
-                      onClick: () => {
-                        setPaused(true);
-                        void action('seek', { cursor: 0 });
-                      },
-                      disabled: busy || game.cursor === 0,
-                    }}
-                    footer={
-                      <div className="history-footer">
-                        <span className="status-dot" /> {t('Game saved automatically')}
-                      </div>
-                    }
-                  >
-                    <AnalyticsSettingsPanel
-                      game={game}
-                      profiles={profiles}
-                      models={models}
-                      settings={analysis.settings}
-                      onChange={analysis.updateSettings}
-                      pending={analysis.settingsPending}
-                      error={analysis.settingsError}
-                    />
-                  </HistoryPanel>
-                }
-              />
-            )}
-          </PlayPage>
-        )}
+                            {playHistory.loading && (
+                              <span role="status">{t('Loading history…')}</span>
+                            )}
+                            {playHistory.error && (
+                              <>
+                                <span role="alert">{t('Replay unavailable.')}</span>
+                                <button className="text-button" onClick={playHistory.retry}>
+                                  {t('Retry')}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )
+                      }
+                      count={game.total_moves}
+                      entries={game.moves.map((move, i) => ({
+                        ply: i + 1,
+                        notation:
+                          move.notation ??
+                          `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
+                        side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
+                        current: i === game.cursor - 1,
+                        future: i >= game.cursor,
+                        onSeek: () => showHistory(i + 1),
+                        disabled: busy,
+                      }))}
+                      startAction={{
+                        onClick: () => showHistory(0),
+                        disabled: busy || game.cursor === 0,
+                      }}
+                      footer={
+                        <div className="history-footer">
+                          <span className="status-dot" /> {t('Game saved automatically')}
+                        </div>
+                      }
+                    >
+                      {analyticsSettings}
+                    </HistoryPanel>
+                  }
+                />
+              )}
+            </PlayPage>
+          ))}
         {tab === 'online' && <Online />}
         {tab === 'leaderboard' && <Leaderboard />}
         {tab === 'archive' && <Archive />}
@@ -563,7 +608,7 @@ export default function App() {
             loadedRoute.current = next.id;
             setGame(next);
             setSelected(null);
-            setPaused(false);
+            setAiRetryDelay(900);
             setNewOpen(false);
             setInitializing(false);
             navigate(`/games/${next.id}`);
@@ -582,7 +627,7 @@ export default function App() {
           </article>
         </Modal>
       )}
-    </>
+    </PlayTabsProvider>
   );
 }
 

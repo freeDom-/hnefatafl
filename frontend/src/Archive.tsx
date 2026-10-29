@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
@@ -7,6 +8,7 @@ import { navigate } from './navigation';
 import RecordedGames, { type RecordedPage, type RecordedGame } from './RecordedGames';
 import RecordedReview from './RecordedReview';
 import './personalDashboard.css';
+import { surfaceLink } from './surfaceNavigation';
 
 export default function Archive() {
   const { account } = useAuth();
@@ -41,18 +43,41 @@ export default function Archive() {
     const next = new URLSearchParams(query);
     next.set('review', game.category);
     next.set('selected', game.id);
+    next.delete('view');
     return '/archive?' + next;
   };
+  if (selected && account && params.get('view') !== 'list') {
+    const back = new URLSearchParams(query);
+    back.set('view', 'list');
+    return (
+      <RecordedReview
+        key={`${account.id}:${selectedCategory}:${selected}`}
+        id={selected}
+        category={selectedCategory}
+        accountId={account.id}
+        backTo={'/archive' + (back.size ? '?' + back : '')}
+      />
+    );
+  }
   return (
     <section className="hall-page">
-      <h1>{t('Hall of records')}</h1>
-      <p>
-        {t(
+      {selected && (
+        <a
+          className="button secondary"
+          href={'/archive?' + new URLSearchParams([...params].filter(([key]) => key !== 'view'))}
+          onClick={surfaceLink}
+        >
+          {t('Return to selected review')}
+        </a>
+      )}
+      <PageHeading
+        title={t('Hall of records')}
+        subtitle={t(
           admin
             ? 'All server-recorded games.'
             : 'Your participating online games and single-player records.',
         )}
-      </p>
+      />
       <div className="personal-filters">
         {admin && (
           <>
@@ -180,14 +205,6 @@ export default function Archive() {
           {t('Next page')}
         </button>
       </nav>
-      {selected && account && (
-        <RecordedReview
-          key={`${account.id}:${selectedCategory}:${selected}`}
-          id={selected}
-          category={selectedCategory}
-          accountId={account.id}
-        />
-      )}
     </section>
   );
 }

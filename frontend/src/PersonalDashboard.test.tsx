@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PersonalDashboard from './PersonalDashboard';
 import fixture from './onlineFixture.testdata.json';
 import { setLanguage } from './i18n';
-const identity = vi.hoisted(() => ({ id: 'archer', permissions: ['play'] }));
+const identity = vi.hoisted(() => ({ id: 'archer', permissions: ['play'], email_verified: true }));
 vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
 const local = {
   games: [],
@@ -112,6 +112,7 @@ beforeEach(() => {
     this.removeAttribute('open');
   };
   identity.id = 'archer';
+  identity.email_verified = true;
   history.replaceState(null, '', '/dashboard');
   setLanguage('en', false);
   fetcher.mockClear();
@@ -137,6 +138,25 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   setLanguage('en', false);
+});
+it('shows the verification warning before creation actions and disables only online creation', async () => {
+  identity.email_verified = false;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/availability') ? respond({ enabled: true, eligible: false }) : previous(url);
+  render(<PersonalDashboard />);
+  await screen.findByRole('heading', { name: 'Online games' });
+  const warning = screen.getByText(
+    'Verify your email address before creating or joining online games.',
+  );
+  expect(
+    warning.compareDocumentPosition(screen.getByRole('button', { name: 'New online game' })) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(warning).toHaveAttribute('role', 'alert');
+  expect(screen.getByRole('button', { name: 'New online game' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'New single-player game' })).toBeEnabled();
+  expect(screen.queryByText(/Creating and joining require/)).toBeNull();
 });
 it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without device-local reads', async () => {
   const open = vi.fn();

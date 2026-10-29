@@ -13,6 +13,7 @@ import { advisorOptions, AnalyticsSettingsPanel } from './AdvisorSelect';
 import { defaultAnalyticsSettings } from './analysisTypes';
 import type { Game } from './types';
 import type { PositionAnalysis } from './analysisTypes';
+import { MobilePlayContext } from './mobilePlay';
 
 const game = {
   id: 'one',
@@ -76,6 +77,29 @@ const response = (value: unknown) => ({ ok: true, json: async () => value }) as 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it('lets mobile readers switch agents and recovers when the selected report disappears', () => {
+  const compact = (value: PositionAnalysis) => (
+    <MobilePlayContext.Provider value>
+      <AgentAnalysis game={game} report={value} pending={false} failed={false} retry={vi.fn()} />
+    </MobilePlayContext.Provider>
+  );
+  const view = render(compact(report));
+  expect(screen.getAllByRole('meter')).toHaveLength(1);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Agent evaluations' }), {
+    target: { value: 'defenders' },
+  });
+  expect(screen.getByRole('meter', { name: 'Munin estimate for Attackers' })).toHaveAttribute(
+    'aria-valuenow',
+    '30',
+  );
+  view.rerender(compact({ ...report, evaluations: [report.evaluations[0]] }));
+  expect(screen.getByRole('meter', { name: 'Hugin estimate for Attackers' })).toHaveAttribute(
+    'aria-valuenow',
+    '70',
+  );
+  expect(screen.getByText(/not calibrated winning probabilities/)).toBeInTheDocument();
 });
 
 it('compares both agents from the same current-player perspective and identifies estimates', () => {

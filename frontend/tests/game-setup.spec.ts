@@ -1,3 +1,4 @@
+import { openGameNavigation } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext } from './auth-fixture';
@@ -47,7 +48,8 @@ test('only named opponents with fixed presets are offered and the dialog closes 
     exploration: 1.4,
     time_limit: 2,
   });
-  await page.getByRole('button', { name: /Pause AI/ }).click();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await openGameNavigation(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await expect(setup.getByRole('option', { name: 'Trained model', exact: true })).toHaveCount(0);
   await expect(setup.getByRole('spinbutton')).toHaveCount(0);
@@ -134,7 +136,7 @@ test('historical trained opponents retain names, runes and legal play while new 
   expect(response.ok()).toBe(true);
   const game = await response.json();
   await page.goto('/games/' + game.id);
-  await page.getByRole('button', { name: /Pause AI/ }).click();
+  await expect(page.getByRole('grid')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
   await expect(page.locator('.army h3').nth(0)).toContainText(ulf.name);
   await expect(page.locator('.army h3').nth(1)).toContainText(freydis.name);
@@ -147,7 +149,8 @@ test('historical trained opponents retain names, runes and legal play while new 
     freydis.rune,
   );
   await page.reload();
-  await page.getByRole('button', { name: 'New game', exact: false }).click();
+  await openGameNavigation(page);
+  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
   await expect(setup.getByRole('button', { name: 'AI vs AI', exact: true })).toHaveClass('active');
@@ -157,12 +160,14 @@ test('historical trained opponents retain names, runes and legal play while new 
   await expect(setup.getByRole('option', { name: /UI Ulf|UI Freydis/ })).toHaveCount(0);
   await expect(setup.getByRole('spinbutton')).toHaveCount(0);
   await setup.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
   const ulfCard = page
     .getByRole('article')
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });
   await expect(ulfCard.locator('[data-rune]')).toHaveAttribute('data-rune', ulf.rune);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
   const row = page.locator('.recorded-games tbody tr').filter({ hasText: ulf.name });
   await expect(row).toContainText(freydis.name);

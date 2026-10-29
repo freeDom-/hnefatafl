@@ -11,8 +11,17 @@ import type { AIProfile, Game, GameMove, Model, PlayerConfig, Side } from './typ
 import type { OnlinePosition, OnlineReplay } from './onlineTypes';
 import type { AccountReviewData } from './personalTypes';
 import { resultName } from './RecordedGames';
-import { modeNames as onlineModeNames } from './Online';
 import { sideGlyph } from './sideGlyph';
+import { modeNames as onlineModeNames } from './Online';
+import PlayPage from './PlayPage';
+import GameLayout from './GameLayout';
+import GameDetailsPanel from './GameDetailsPanel';
+import ArmiesPanel from './ArmiesPanel';
+import HistoryPanel from './HistoryPanel';
+import Battlefield from './Battlefield';
+import ActiveGameSwitcher from './ActiveGameSwitcher';
+import { navigate } from './navigation';
+import { surfaceLink } from './surfaceNavigation';
 
 const ruleNames: Record<string, string> = {
   brandubh: 'Brandubh',
@@ -20,6 +29,12 @@ const ruleNames: Record<string, string> = {
   copenhagen: 'Copenhagen',
 };
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
+const modeNames: Record<string, string> = {
+  'human-ai': 'Human vs AI',
+  'ai-ai': 'AI vs AI',
+  'human-human': 'Pass & play',
+  ...onlineModeNames,
+};
 const statusNames: Record<string, string> = {
   completed: 'Completed',
   active: 'Active',
@@ -27,12 +42,6 @@ const statusNames: Record<string, string> = {
   cancelled: 'Cancelled',
   voided: 'Voided',
   in_progress: 'In progress',
-};
-const modeNames: Record<string, string> = {
-  'human-ai': 'Human vs AI',
-  'ai-ai': 'AI vs AI',
-  'human-human': 'Human vs Human',
-  ...onlineModeNames,
 };
 
 type ReviewParticipant = { name: string; kind: 'human' | 'ai' };
@@ -139,11 +148,13 @@ export default function RecordedReview({
   category,
   accountId,
   personal = false,
+  backTo,
 }: {
   id: string;
   category: 'online' | 'account-single-player';
   accountId: string;
   personal?: boolean;
+  backTo?: string;
 }) {
   const { t } = useI18n();
   const url = personal
@@ -163,11 +174,13 @@ export default function RecordedReview({
   const position = normalized?.states[index];
   const accountReview = normalized?.game.category === 'account-single-player';
   const onlineReview = normalized?.game.category === 'online';
+  const analysisAllowed =
+    accountReview || (onlineReview && normalized?.game.status === 'completed');
 
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   useEffect(() => {
-    if (!accountReview && !onlineReview) return;
+    if (!analysisAllowed) return;
     const controller = new AbortController();
     void Promise.all([
       api<AIProfile[]>('/ai/profiles', undefined, undefined, controller.signal),
@@ -181,7 +194,7 @@ export default function RecordedReview({
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [accountReview, onlineReview]);
+  }, [analysisAllowed]);
 
   const game = useMemo<Game | null>(() => {
     if (!normalized || !position) return null;
@@ -234,8 +247,8 @@ export default function RecordedReview({
   // Completed online reviews reuse the same analysis engine through the
   // online-scoped adapter; ongoing online games never reach this component.
   const analysis = useGameAnalysis(
-    accountReview || onlineReview ? game : null,
-    (accountReview || onlineReview) && !playback.playing,
+    analysisAllowed ? game : null,
+    !!analysisAllowed && !playback.playing,
     accountReview,
     onlineReview ? '/history/online' : '/games',
   );
@@ -258,95 +271,78 @@ export default function RecordedReview({
     );
   }
 
-  return (
-    <section className="recorded-review" aria-label={t('Selected game review')}>
-      <div className="game-layout">
-        <aside className="game-sidebar">
-          <section className="panel game-details">
-            <div className="variant-heading">
-              <h2>{t(ruleNames[normalized.game.ruleset] ?? normalized.game.ruleset)}</h2>
-              <span className="badge">
-                {game.size} × {game.size}
-              </span>
-            </div>
-            <p>{t('Read-only review. Replay controls change only your view.')}</p>
-            <p className="subtle">{normalized.game.id}</p>
-            <div className="divider" />
-            <div className="detail-row">
-              <span>{t('Game mode')}</span>
-              <strong>{t(modeNames[normalized.game.mode] ?? normalized.game.mode)}</strong>
-            </div>
-            <div className="detail-row">
-              <span>{t('Lifecycle')}</span>
-              <strong>{t(statusNames[normalized.game.status] ?? normalized.game.status)}</strong>
-            </div>
-            <div className="detail-row">
-              <span>{t('Move')}</span>
-              <strong>{index}</strong>
-            </div>
-            <div className="detail-row">
-              <span>{t('Recorded result')}</span>
-              <strong>
-                {t(resultName(normalized.game.winner))}
-                {normalized.game.reason
-                  ? ` · ${t(normalized.game.reason.replaceAll('_', ' '))}`
-                  : ''}
-              </strong>
-            </div>
-          </section>
-          <section className="panel armies">
-            {(['attackers', 'defenders'] as Side[]).map((side) => (
-              <div className="army" key={side}>
-                <div className="army-symbol">{sideGlyph(side)}</div>
-                <div>
-                  <h3>{normalized.game.players[side].name || t('Unassigned')}</h3>
-                  <p>
-                    {t(titles[side])} ·{' '}
-                    {normalized.game.players[side].kind === 'ai' ? t('Computer') : t('Human')}
-                  </p>
-                </div>
-              </div>
-            ))}
-            <div className="captured-row">
-              <span>{t('Captured')}</span>
-              <span>
-                {sideGlyph('attackers')} {game.captured.attackers}
-              </span>
-              <span>
-                {sideGlyph('defenders')} {game.captured.defenders}
-              </span>
-            </div>
-          </section>
-          <AgentAnalysis game={game} {...analysis} />
-        </aside>
-        <section className="battlefield" aria-label={t('Game')}>
-          <div className={`turn-banner ${position.winner ? 'finished' : ''}`} aria-live="polite">
-            <div>
-              {position.winner ? (
-                <>
-                  <strong>
-                    {position.winner === 'draw'
-                      ? t('An evenly matched saga')
-                      : t('{side} win', { side: t(titles[position.winner]) })}
-                  </strong>
-                  <span>{position.reason ? t(position.reason.replaceAll('_', ' ')) : ''}</span>
-                </>
-              ) : (
-                <>
-                  {sideGlyph(game.turn)}
-                  <strong>{t('{side} to move', { side: t(titles[game.turn]) })}</strong>
-                  <span>{t('Replay position {move}', { move: index })}</span>
-                </>
-              )}
-            </div>
-          </div>
-          <Board
-            game={game}
-            selected={null}
-            onSelect={() => {}}
-            readOnly
-            hint={analysis.report?.hint?.move ?? null}
-          />
+  const back = backTo ?? (personal ? '/dashboard' : '/archive');
+  const backLabel = personal ? 'Back to dashboard' : 'Back to Hall of records';
+  const reviewRows = [
+    {
+      label: t('Lifecycle'),
+      value: t(statusNames[normalized.game.status] ?? normalized.game.status),
+    },
+    {
+      label: t('Recorded result'),
+      value: (
+        <>
+          {t(resultName(normalized.game.winner))}
+          {normalized.game.reason ? ` · ${t(normalized.game.reason.replaceAll('_', ' '))}` : ''}
+        </>
+      ),
+    },
+  ];
+  const gameDetails = (
+    <GameDetailsPanel
+      ruleset={t(ruleNames[game.ruleset] ?? game.ruleset)}
+      size={game.size}
+      header={
+        <a className="text-button review-back" href={back} onClick={surfaceLink}>
+          {t(backLabel)}
+        </a>
+      }
+      rows={[
+        {
+          label: t('Game mode'),
+          value: t(modeNames[normalized.game.mode] ?? normalized.game.mode),
+        },
+        ...reviewRows,
+      ]}
+      desktopRows={reviewRows}
+    />
+  );
+  const armies = (
+    <ArmiesPanel
+      rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
+        side,
+        symbol: sideGlyph(side),
+        name: game.players[side].name || t('Unassigned'),
+        detail: `${t(titles[side])} · ${t(game.players[side].kind === 'ai' ? 'Computer' : 'Human')}`,
+        toMove: position.turn === side && !position.winner,
+      }))}
+      captured={game.captured}
+      metadata={[
+        {
+          label: t('Game mode'),
+          value: t(modeNames[normalized.game.mode] ?? normalized.game.mode),
+        },
+      ]}
+    />
+  );
+  const evaluations = analysisAllowed ? <AgentAnalysis game={game} {...analysis} /> : null;
+  const settings = analysisAllowed ? (
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={profiles}
+      models={models}
+      settings={analysis.settings}
+      onChange={analysis.updateSettings}
+      pending={analysis.settingsPending}
+      error={analysis.settingsError}
+    />
+  ) : undefined;
+  const history = (
+    <HistoryPanel
+      count={normalized.moves.length}
+      status={
+        <div className="history-review-status review-history-status">
+          <span>{t('Read-only replay')}</span>
           <ReplayControls
             cursor={index}
             length={normalized.states.length}
@@ -354,69 +350,96 @@ export default function RecordedReview({
             disabled={poll.phase !== 'ready'}
             playback={{ playing: playback.playing, toggle: playback.toggle }}
           />
-        </section>
-        <aside className="panel history-panel">
-          <div className="panel-title">
-            <h2>{t('The saga so far')}</h2>
-            <span className="badge">{normalized.moves.length}</span>
-          </div>
-          <p className="subtle">{t('A record of every move')}</p>
-          <div className="history-columns">
-            <span>{t('MOVE')}</span>
-            <span>{t('JOURNEY')}</span>
-            <span>{t('SIDE')}</span>
-          </div>
-          <ol className="move-list">
-            {normalized.moves.map((move, moveIndex) => (
-              <li
-                key={moveIndex}
-                className={moveIndex === index - 1 ? 'current' : moveIndex >= index ? 'future' : ''}
-              >
-                <button
-                  onClick={() => setCursor(moveIndex + 1)}
-                  aria-label={t('Replay to move {move}', { move: moveIndex + 1 })}
-                >
-                  <span>{String(moveIndex + 1).padStart(2, '0')}</span>
-                  <strong>
-                    {move.notation ??
-                      `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`}
-                  </strong>
-                  {sideGlyph(move.side)}
-                </button>
-              </li>
-            ))}
-          </ol>
-          {normalized.moves.length === 0 && (
-            <div className="history-empty">
-              <span aria-hidden="true">ᛝ</span>
-              <p>
-                {t('Every saga starts')}
-                <br />
-                {t('with a first move.')}
-              </p>
-            </div>
-          )}
-          <button
-            className="history-start text-button"
-            onClick={() => setCursor(0)}
-            disabled={index === 0}
-          >
-            {t('↤ Starting position')}
-          </button>
-          <div className="history-footer">
-            <span className="status-dot" /> {t('Read-only replay')}
-          </div>
-          <AnalyticsSettingsPanel
-            game={game}
-            profiles={profiles}
-            models={models}
-            settings={analysis.settings}
-            onChange={analysis.updateSettings}
-            pending={analysis.settingsPending}
-            error={analysis.settingsError}
+        </div>
+      }
+      entries={normalized.moves.map((move, moveIndex) => ({
+        ply: moveIndex + 1,
+        notation:
+          move.notation ??
+          `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
+        side: move.side,
+        current: moveIndex === index - 1,
+        future: moveIndex >= index,
+        onSeek: () => setCursor(moveIndex + 1),
+      }))}
+      startAction={{ onClick: () => setCursor(0), disabled: index === 0 }}
+    >
+      {settings}
+    </HistoryPanel>
+  );
+  return (
+    <PlayPage
+      className="play-page"
+      heading={t('Selected game review')}
+      label={t('Selected game review')}
+      gameId={game.id}
+    >
+      <GameLayout
+        key={game.id}
+        sidebar={
+          <>
+            {gameDetails}
+            {armies}
+            {evaluations}
+          </>
+        }
+        desktop={{
+          sidebar: (
+            <>
+              {gameDetails}
+              {armies}
+            </>
+          ),
+          analytics:
+            settings !== undefined ? (
+              <>
+                {evaluations}
+                {settings}
+              </>
+            ) : undefined,
+          moveCount: game.total_moves,
+        }}
+        mobile={{
+          title: t(ruleNames[game.ruleset] ?? game.ruleset),
+          subtitle: (
+            <>
+              {t(statusNames[normalized.game.status] ?? normalized.game.status)} ·{' '}
+              {t(resultName(normalized.game.winner))}
+              {normalized.game.reason ? ` · ${t(normalized.game.reason.replaceAll('_', ' '))}` : ''}
+            </>
+          ),
+          players: armies,
+          analytics: settings !== undefined ? evaluations : undefined,
+          settings,
+          moveCount: game.total_moves,
+          back: { href: back, label: backLabel },
+        }}
+        switcher={
+          <ActiveGameSwitcher
+            accountId={accountId}
+            currentId={game.id}
+            open={(entry) =>
+              navigate(entry.type === 'online' ? `/online/games/${entry.id}` : `/games/${entry.id}`)
+            }
           />
-        </aside>
-      </div>
-    </section>
+        }
+        battlefield={
+          <Battlefield
+            label={t('Game')}
+            board={
+              <Board
+                game={game}
+                selected={null}
+                onSelect={() => {}}
+                disabled
+                readOnly
+                hint={analysis.report?.hint?.move ?? null}
+              />
+            }
+          />
+        }
+        history={history}
+      />
+    </PlayPage>
   );
 }

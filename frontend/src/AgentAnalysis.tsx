@@ -10,6 +10,7 @@ import {
 import type { Game } from './types';
 import Rune from './Rune';
 import './analysis.css';
+import { useCompactPlay } from './mobilePlay';
 
 /** Background requests are tied to both the position and the advisor revision. */
 export function useGameAnalysis(
@@ -17,6 +18,7 @@ export function useGameAnalysis(
   visible: boolean,
   historical = false,
   basePath = '/games',
+  readOnlyHistory = false,
 ) {
   const gameId = game?.id ?? '';
   const currentGame = useRef(gameId);
@@ -163,7 +165,7 @@ export function useGameAnalysis(
         const report = await api<PositionAnalysis>(`${basePath}/${game.id}/analysis`, {
           version: game.version,
           cursor: game.cursor,
-          background: true,
+          background: !readOnlyHistory,
           historical,
         });
         if (!alive) return;
@@ -195,7 +197,16 @@ export function useGameAnalysis(
     };
     // Stored reports arrive with gameplay responses; requests are keyed explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, visible, needed, settingsPending, settingsConfirmed, attempt, historical]);
+  }, [
+    key,
+    visible,
+    needed,
+    settingsPending,
+    settingsConfirmed,
+    attempt,
+    historical,
+    readOnlyHistory,
+  ]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;
   return {
@@ -229,6 +240,10 @@ export default function AgentAnalysis({
   retry: () => void;
 }) {
   const { t, locale } = useI18n();
+  const compact = useCompactPlay();
+  const [selectedAgent, setSelectedAgent] = useState('advisor');
+  const evaluations = report?.evaluations ?? [];
+  const selected = evaluations.find((agent) => agent.agent_id === selectedAgent) ?? evaluations[0];
   const sides = { attackers: t('Attackers'), defenders: t('Defenders') };
   const sourceLabels = {
     heuristic: t('Heuristic estimate'),
@@ -241,11 +256,11 @@ export default function AgentAnalysis({
   const number = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 });
   return (
     <section
-      className="panel agent-analysis"
+      className={`panel agent-analysis${compact ? ' compact-analysis' : ''}`}
       aria-label={t('Agent evaluations')}
       aria-busy={pending}
     >
-      <h2>{t('Winning chances')}</h2>
+      {!compact && <h2>{t('Winning chances')}</h2>}
       <>
         <p className="analysis-perspective">
           {t('For the current player: {side}', { side: sides[game.turn] })}
@@ -266,19 +281,36 @@ export default function AgentAnalysis({
         ) : (!report || report.unavailable_reason === 'not_recorded') && !pending ? (
           <p className="subtle">{t('No evaluation was recorded for this position.')}</p>
         ) : (
-          (report?.evaluations ?? []).map((agent) => (
+          (compact ? (selected ? [selected] : []) : evaluations).map((agent) => (
             <article className="agent-estimate" key={agent.agent_id}>
               <div className="agent-estimate-heading">
                 <div>
-                  <small>
-                    {agent.role === 'advisor'
-                      ? t('Move advisor')
-                      : t('{side} agent', { side: sides[agent.role] })}
-                  </small>
-                  <strong>
-                    <Rune rune={agent.rune} />
-                    {agent.model_name ?? agent.name}
-                  </strong>
+                  {compact && evaluations.length > 1 ? (
+                    <select
+                      aria-label={t('Agent evaluations')}
+                      value={selected?.agent_id}
+                      onChange={(event) => setSelectedAgent(event.target.value)}
+                    >
+                      {evaluations.map((entry) => (
+                        <option key={entry.agent_id} value={entry.agent_id}>
+                          {entry.role === 'advisor' ? t('Move advisor') : sides[entry.role]} ·{' '}
+                          {entry.model_name ?? entry.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <>
+                      <small>
+                        {agent.role === 'advisor'
+                          ? t('Move advisor')
+                          : t('{side} agent', { side: sides[agent.role] })}
+                      </small>
+                      <strong>
+                        <Rune rune={agent.rune} />
+                        {agent.model_name ?? agent.name}
+                      </strong>
+                    </>
+                  )}
                 </div>
                 <b>{agent.win_probability === null ? '—' : number.format(agent.win_probability)}</b>
               </div>

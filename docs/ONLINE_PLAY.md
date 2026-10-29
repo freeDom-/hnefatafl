@@ -25,11 +25,13 @@ banner; the live game room retains its own refresh controls.
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode, and integer **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
-in a shared modal. Every newly created game is **rated** and counts toward the
+a match mode, a **Time control**, and integer
+**Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
+in a shared modal. Desktop uses two columns for game and clock settings; narrow
+screens stack them. A seconds increment is offered only for **Total per player**.
+Every newly created game is **rated** and counts toward the
 [leaderboard](RATINGS.md); there is no Casual selector. Rated play requires an
-active, verified account, checked at creation and joining. Configured time per
-move uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined **Time allowed per move** is converted to seconds
+active, verified account, checked at creation and joining. Configured time uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined base limit is converted to seconds
 at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
 through 14 days), default three days: all-zero and 14 days plus extra hours/minutes
 are rejected, never clamped. The component ranges do not widen that aggregate policy.
@@ -120,19 +122,35 @@ errors do not grant a bypass.
 
 Deadlines arrive as UTC instants and display in your browser's local time zone.
 The countdown is approximate and uses your device clock. Only the server decides
-expiry. **Awaiting adjudication** means your clock has passed the deadline while
-the server still reports Active; timeout finalization may be paused. The browser
-never declares a result or extends the deadline.
+expiry. When the server deadline is reached, the player to move loses and the
+game’s ratings update automatically. **Time expired. Finalizing result…** briefly
+indicates that the browser is waiting for the authoritative result; an explicit
+operator pause can delay finalization. The browser never declares a result or
+extends the deadline.
+
+The online game dialog offers **Per move** (default) or **Total per player**.
+Both use a base limit of 1 minute to 14 days. Total mode gives each player a
+separate budget; only their own turns consume it. **Increment per move (seconds)**
+defaults to 0 and accepts whole seconds from 0 to 1209600. It is shown only in
+total mode and is credited to the moving player after each timely move. Switching
+to per-move time clears the increment; a new per-move request always submits zero.
+Per-move time resets to the base limit without carrying unused time.
+Previously saved games and retained uncertain requests keep their exact settings;
+the server still reads historical per-move increments without reinterpreting them.
+Each leg of a two-game match starts with fresh clocks.
+Both clocks appear beside the players on mobile; **Game options** shows the
+configured limit and clock details, including the increment for total-time games.
 
 **Disconnecting, closing the browser or logging out does not pause clocks.**
 
 ## Viewing and replay
 
 Authenticated viewers can inspect games allowed by the current backend visibility
-policy. Spectators cannot move or concede. **View replay** loads the validated
-server replay. Previous/next move changes only your local view; it does not change
-a shared cursor. **Historical replay · read only** clearly marks the board.
-**Return to live board** is required before submitting moves. Live polling continues
+policy. Spectators cannot move or concede. In **Moves**, choose **Starting position**
+or a recorded move to load the validated server replay. There is no separate
+View replay button. Selecting history changes only your local view; it does not
+change a shared cursor. **Read-only history** marks the board. Choose **Return to
+live board** or the latest recorded move before submitting moves. Live polling continues
 while viewing history and reports newly available moves.
 
 Online replay provides no seek/undo/branch mutations or exports. **Completed**

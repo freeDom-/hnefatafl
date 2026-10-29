@@ -5,11 +5,13 @@ export default function Modal({
   onClose,
   children,
   initialFocus,
+  className,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   initialFocus?: string;
+  className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -26,7 +28,7 @@ export default function Modal({
   return (
     <dialog
       ref={dialog}
-      className="modal"
+      className={['modal', className].filter(Boolean).join(' ')}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();
@@ -46,7 +48,7 @@ export default function Modal({
     >
       <div className="modal-top">
         <div>
-          <h2>{title}</h2>
+          <h2 className="dialog-title">{title}</h2>
         </div>
         <button className="icon-button" aria-label={t('Close dialog')} onClick={onClose}>
           ×

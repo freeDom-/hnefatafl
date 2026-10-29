@@ -346,7 +346,7 @@ def test_deleted_game_cannot_be_recreated_by_a_late_background_result(client, mo
     assert store.advisor_analysis(game["id"], pending["position_key"], 1) is None
 
 
-def test_branch_rejects_opinion_for_removed_line(client, monkeypatch):
+def test_read_only_history_preserves_the_live_line_and_its_pending_opinion(client, monkeypatch):
     entered, release = threading.Event(), threading.Event()
 
     def slow(state, _config, *, progress=None):
@@ -362,8 +362,12 @@ def test_branch_rejects_opinion_for_removed_line(client, monkeypatch):
         pending = analyze(client, game)
         assert entered.wait(5)
         rewound = seek(client, game, 0)
-        branch = move(client, rewound, initial["legal_moves"][-1])
-        assert branch["analysis"] is None
+        denied = client.post(
+            f"/api/games/{game['id']}/moves",
+            json={**initial["legal_moves"][-1], "version": rewound["version"]},
+        )
+        assert denied.status_code == 409
+        assert client.get(f"/api/games/{game['id']}").json()["moves"] == game["moves"]
     finally:
         release.set()
     wait_for(lambda: not client.app.state.analyses.tasks)
@@ -371,7 +375,7 @@ def test_branch_rejects_opinion_for_removed_line(client, monkeypatch):
         client.app.state.store.advisor_analysis(
             game["id"], pending["position_key"], preferences["revision"]
         )
-        is None
+        is not None
     )
 
 

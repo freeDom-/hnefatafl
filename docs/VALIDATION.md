@@ -2,6 +2,12 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Shared interface and online creation
+
+[Shared interface validation](validation/shared-ui-layout.md) records the two-column
+online dialog, total-time-only increment controls, common page/header styles and
+accessible hidden page headings layered on the responsive-play feature branch.
+
 ## Online multiplayer and interface scale (`0.32.0` preparation)
 
 The [0.32.0 release notes](releases/0.32.0.md#validation) identify the verified

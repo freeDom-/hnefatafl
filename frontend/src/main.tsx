@@ -8,6 +8,7 @@ import { NotificationProvider } from './notifications';
 import './style.css';
 import './appearance.css';
 import './identity.css';
+import './ui.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -6,13 +6,13 @@ export function BoardToolbar({
   trailing,
 }: {
   leading?: ReactNode;
-  help: string;
+  help?: ReactNode;
   trailing?: ReactNode;
 }) {
   return (
     <div className="board-toolbar">
       <div className="button-group">{leading}</div>
-      <span className="board-help">{help}</span>
+      {help && <span className="board-help">{help}</span>}
       {trailing}
     </div>
   );
@@ -26,14 +26,14 @@ export default function Battlefield({
 }: {
   label?: string;
   board: ReactNode;
-  toolbar: ReactNode;
+  toolbar?: ReactNode;
   children?: ReactNode;
 }) {
   return (
-    <section className="battlefield" aria-label={label}>
-      {board}
+    <section className={`battlefield${toolbar ? ' has-toolbar' : ''}`} aria-label={label}>
+      <div className="board-stage">{board}</div>
       {toolbar}
-      {children}
+      {children && <div className="battlefield-controls">{children}</div>}
     </section>
   );
 }

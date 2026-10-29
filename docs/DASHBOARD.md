@@ -4,11 +4,18 @@
 [Online play](ONLINE_PLAY.md)
 
 Dashboard (`/dashboard`) is the authenticated landing and default post-login page.
-`/`, `/play` and `/online` redirect there, retaining search parameters and fragments;
-old Play/Online entries select the corresponding setup. Main navigation contains
-Dashboard, Statistics, Leaderboard, Hall of records and the authorized
+`/` and `/online` redirect there, retaining search parameters and fragments;
+the old Online entry selects online setup. Main navigation contains
+Dashboard, Play, Statistics, Leaderboard, Hall of records and the authorized
 workshop/tournament controls.
 Every surface here requires an authenticated session.
+
+**Play** (`/play`) opens the last selected unfinished game when it is still in the
+signed-in account's current games; otherwise it opens another unfinished game.
+With no running games, it shows a Dashboard link for finding opponents and the
+same New online game/New single-player game buttons and dialogs as Dashboard.
+The remembered game is checked against current server-owned lists and cleared on
+account changes/logout.
 
 ## Play from Dashboard
 
@@ -24,6 +31,9 @@ your game to resume, or a visible game to watch under existing permissions. `/on
 The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
+Unverified email addresses get a red warning immediately below the Dashboard
+heading, and New online game is disabled. The lobby omits its former duplicate
+verification notice. Existing seats remain playable under the same server policy.
 
 ## Compact badges and detailed personal statistics
 
@@ -140,10 +150,12 @@ role/participant authorization. History reads grant no game mutation or exports;
 online analysis additionally requires authoritative completion. Online IDs always
 use online adapters.
 
-The review restores the single-player presentation: the complete "The saga so far"
-move list with move selection, board replay navigation, general game information
-(ruleset, matchup mode, participants and lifecycle) and the Analytics/Winning
-chances panels. Singleplayer review may use the existing authorized
+Selected review opens in the shared play-screen layout, with the board, player
+summary, and Moves/Analytics/My games tabs. The list and filters remain available
+through Back to Hall; returning keeps the filters, page and selected-record
+highlight, including a return link when that record is outside the filtered list.
+Replay controls sit in Moves, rather than changing the board's layout.
+Singleplayer review may use the existing authorized
 analysis through a read-only historical path that analyzes the selected recorded
 cursor without seeking the authoritative game. Completed online reviews use a
 separate online-scoped analysis adapter, available to participants and authorized

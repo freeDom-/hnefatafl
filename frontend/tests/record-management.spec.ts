@@ -1,3 +1,4 @@
+import { openGameNavigation, openGameOptions, closeGameOptions, gameTab } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
@@ -47,7 +48,7 @@ async function statistics(request: APIRequestContext, query = '') {
   return response.json();
 }
 
-test('completed games have no restart control, including after undo in replay', async ({
+test('completed games have no restart control, including while browsing history', async ({
   page,
   request,
 }, info) => {
@@ -57,10 +58,10 @@ test('completed games have no restart control, including after undo in replay', 
   await page.goto('/games/' + completed.id);
   await expect(page.getByRole('grid')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Undo move', exact: true }).click();
-  await expect
-    .poll(async () => (await currentGame(page, request)).cursor)
-    .toBe(completed.cursor - 1);
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await expect(page.getByText('Read-only history', { exact: true })).toBeVisible();
+  expect((await currentGame(page, request)).cursor).toBe(completed.cursor);
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
   const replay = await currentGame(page, request);
   const denied = await request.post(`${api}/games/${replay.id}/restart`, {
@@ -69,7 +70,7 @@ test('completed games have no restart control, including after undo in replay', 
   expect(denied.status()).toBe(409);
 });
 
-test('new games and restarts receive fresh seeds; record deletion refreshes prominent statistics', async ({
+test('new games receive fresh seeds; record deletion refreshes prominent statistics', async ({
   page,
   request,
 }, info) => {
@@ -80,27 +81,28 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   const first = await currentGame(page, request);
   expect(Number.isInteger(first.seed)).toBe(true);
-  await expect(page.locator('.detail-row').filter({ hasText: 'Random seed' })).toContainText(
-    String(first.seed),
-  );
+  await expect(page.getByRole('grid')).toBeVisible();
+  if (!(await page.locator('.mobile-game-layout').isVisible())) {
+    await openGameOptions(page);
+    await expect(
+      page.locator('.player-game-details > div, .detail-row').filter({ hasText: 'Random seed' }),
+    ).toContainText(String(first.seed));
+  }
 
-  await page.getByRole('button', { name: 'Restart game', exact: true }).click();
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game')))
-    .not.toBe(first.id);
-  const restarted = await currentGame(page, request);
-  expect(restarted.seed).not.toBe(first.seed);
-  expect((await request.get(`${api}/games/${first.id}`)).ok()).toBe(true);
-
+  await closeGameOptions(page);
+  await expect(
+    page.getByRole('button', { name: /Undo move|Redo move|Restart game|New game/ }),
+  ).toHaveCount(0);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game')))
-    .not.toBe(restarted.id);
+    .not.toBe(first.id);
   const active = await currentGame(page, request);
   expect(active.seed).not.toBe(first.seed);
-  expect(active.seed).not.toBe(restarted.seed);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
 
   const removed = await request.delete(`${api}/games/${active.id}?version=${active.version}`);
@@ -181,6 +183,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
 
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
   const card = page
@@ -228,6 +231,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   const hidden = await hiddenResponse.json();
   expect((await request.delete(`${api}/models/${model.id}`)).status()).toBe(409);
   const before = await statistics(request);
+  await openGameNavigation(page);
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
   await openCollection(page);
   await page.getByRole('button', { name: `Delete model ${modelName}`, exact: true }).click();
