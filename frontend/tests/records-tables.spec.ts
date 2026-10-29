@@ -87,8 +87,10 @@ test('compact records filter server-side by names and category with independent 
   await expect(page.locator('.recorded-games tbody tr')).toHaveCount(1);
   await page.locator('.recorded-games a').click();
   await expect(page.getByRole('grid')).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Hall of records' }).click();
   await page.getByLabel('Player name').fill('no matching participant');
   await expect(page.locator('.recorded-games tbody tr')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Return to selected review' }).click();
   await expect(page.getByRole('grid')).toBeVisible();
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
