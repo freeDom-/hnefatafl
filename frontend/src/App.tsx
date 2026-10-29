@@ -564,6 +564,7 @@ export default function App() {
             loadedRoute.current = next.id;
             setGame(next);
             setSelected(null);
+            setAiRetryDelay(900);
             setNewOpen(false);
             setInitializing(false);
             navigate(`/games/${next.id}`);
