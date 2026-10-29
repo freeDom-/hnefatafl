@@ -8,6 +8,7 @@ import { sortRulesets } from './sortRulesets';
 import { suggestTournamentName } from './mythologicalNames';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import TournamentWinMatrix from './TournamentWinMatrix';
+import PageHeading from './PageHeading';
 import { selectStrongestModel } from './modelSelection';
 import { modelOptionLabel } from './modelLabel';
 import { profileConfiguration } from './profileConfiguration';
@@ -283,13 +284,13 @@ export default function Tournaments({
 
   return (
     <>
-      <section className="page-intro tournament-intro">
-        <div>
-          <h1>{t('The tournament hall.')}</h1>
-          <p>
-            {t('Set your strategists against each other. Every result becomes part of their saga.')}
-          </p>
-        </div>
+      <section className="page-toolbar tournament-intro">
+        <PageHeading
+          title={t('The tournament hall.')}
+          subtitle={t(
+            'Set your strategists against each other. Every result becomes part of their saga.',
+          )}
+        />
         <button className="button primary" onClick={openSetup} disabled={loading || running}>
           <span aria-hidden="true">＋</span>
           {t('New tournament')}

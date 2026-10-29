@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import type { ReactNode } from 'react';
 
 export default function PlayPage({
@@ -15,9 +16,7 @@ export default function PlayPage({
 }) {
   return (
     <section className={className} aria-label={label} data-game-id={gameId}>
-      <h1 className="sr-only" tabIndex={-1}>
-        {heading}
-      </h1>
+      <PageHeading title={heading} />
       {children}
     </section>
   );

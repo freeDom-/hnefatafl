@@ -3,6 +3,7 @@ import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import { useOnlinePoll } from './useOnlinePoll';
+import PageHeading from './PageHeading';
 import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineTypes';
 import './leaderboard.css';
 
@@ -105,10 +106,14 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
       className={compact ? 'panel leaderboard-compact' : 'leaderboard-page'}
       aria-labelledby={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}
     >
-      <div className="section-heading leaderboard-heading-row">
-        <h2 id={compact ? 'dashboard-leaderboard-heading' : 'leaderboard-heading'}>
-          {t('Leaderboard')}
-        </h2>
+      <div className={compact ? 'section-heading leaderboard-heading-row' : 'page-toolbar'}>
+        {compact ? (
+          <h2 id="dashboard-leaderboard-heading" className="section-title">
+            {t('Leaderboard')}
+          </h2>
+        ) : (
+          <PageHeading title={t('Leaderboard')} id="leaderboard-heading" />
+        )}
         <div className="leaderboard-filter">
           <select
             aria-label={t('Ruleset')}

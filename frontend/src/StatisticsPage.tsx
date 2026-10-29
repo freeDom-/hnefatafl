@@ -5,6 +5,7 @@ import { useI18n } from './i18n';
 import { navigate } from './navigation';
 import { useOnlinePoll } from './useOnlinePoll';
 import Tabs from './Tabs';
+import PageHeading from './PageHeading';
 import PersonalStatisticsView from './PersonalStatistics';
 import type { AccountHistory, PersonalOnlineHistory } from './personalTypes';
 import {
@@ -46,11 +47,11 @@ export default function StatisticsPage() {
   };
   return (
     <section className="statistics-page">
-      <div className="section-heading">
-        <div>
-          <h1>{t('Your statistics')}</h1>
-          <p>{t('Your results, from your side of the board.')}</p>
-        </div>
+      <div className="page-toolbar">
+        <PageHeading
+          title={t('Your statistics')}
+          subtitle={t('Your results, from your side of the board.')}
+        />
         <div className="statistics-ruleset-filter">
           <label htmlFor="statistics-ruleset">{t('Ruleset')}</label>
           <select

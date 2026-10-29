@@ -24,6 +24,7 @@ import { modelIteration } from './modelLabel';
 import TrainingWorkers from './TrainingWorkers';
 import { targetRequest } from './TrainingTarget';
 import TrainingCreationPanel from './TrainingCreationPanel';
+import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
@@ -544,8 +545,8 @@ export default function Training({
     : defaultJobTab;
   return (
     <div className="training-workshop">
-      <section className="page-intro workshop-intro">
-        <h1>{t('The AI workshop.')}</h1>
+      <section className="page-toolbar workshop-intro">
+        <PageHeading title={t('The AI workshop.')} />
         <div className="workshop-global" aria-label={t('Workshop summary')}>
           <span>
             <strong>{hardwareName.toUpperCase()}</strong> {device.cuda_devices?.join(' · ')}

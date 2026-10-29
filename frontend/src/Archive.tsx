@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
@@ -60,7 +61,6 @@ export default function Archive() {
   }
   return (
     <section className="hall-page">
-      <h1>{t('Hall of records')}</h1>
       {selected && (
         <a
           className="button secondary"
@@ -70,13 +70,14 @@ export default function Archive() {
           {t('Return to selected review')}
         </a>
       )}
-      <p>
-        {t(
+      <PageHeading
+        title={t('Hall of records')}
+        subtitle={t(
           admin
             ? 'All server-recorded games.'
             : 'Your participating online games and single-player records.',
         )}
-      </p>
+      />
       <div className="personal-filters">
         {admin && (
           <>

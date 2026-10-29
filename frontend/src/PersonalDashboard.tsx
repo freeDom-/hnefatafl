@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
@@ -49,7 +50,7 @@ function DashboardHome({
   const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent);
   return (
     <section className="personal-dashboard">
-      <h1>{t('Dashboard')}</h1>
+      <PageHeading title={t('Dashboard')} />
       {identity?.email_verified === false && (
         <p role="alert" className="dashboard-verification-warning">
           {t('Verify your email address before creating or joining online games.')}
