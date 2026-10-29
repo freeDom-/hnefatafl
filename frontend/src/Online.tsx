@@ -716,11 +716,8 @@ function GameRoom({
   })();
   const remaining =
     game?.status === 'active' && game.deadline ? remainingSeconds(game.deadline, now) : null;
-  const gameDetails = game && (
-    <GameDetailsPanel
-      ruleset={t(game.ruleset)}
-      size={size}
-      rows={[
+  const gameMetadata = game
+    ? [
         { label: t('Game mode'), value: t(modeNames[game.match.mode]) },
         { label: t('Game {leg}', { leg: game.match.leg }), value: t('Rated') },
         { label: t('Time per move'), value: formatRemaining(game.time_per_move) },
@@ -735,7 +732,13 @@ function GameRoom({
               t('Awaiting adjudication')
             ),
         },
-      ]}
+      ]
+    : [];
+  const gameDetails = game && (
+    <GameDetailsPanel
+      ruleset={t(game.ruleset)}
+      size={size}
+      rows={gameMetadata}
       footer={
         <>
           {game.status === 'active' && game.deadline && (
@@ -805,6 +808,7 @@ function GameRoom({
       }))}
       captured={captured}
       label={t('Players and result')}
+      metadata={gameMetadata}
     />
   );
   const switcher = !reviewOnly && (
@@ -842,6 +846,15 @@ function GameRoom({
           <GameLayout
             key={id}
             switcher={switcher}
+            desktop={{
+              sidebar: (
+                <>
+                  {gameDetails}
+                  {armies}
+                </>
+              ),
+              moveCount: game.moves.length,
+            }}
             mobile={
               game.status === 'waiting'
                 ? undefined

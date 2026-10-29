@@ -129,6 +129,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
     page.getByRole('grid', { name: 'brandubh game board' }).locator('button:not(:disabled)'),
   ).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
+  await gameTab(page, 'moves');
   await page.getByRole('button', { name: /Starting position/ }).click();
   await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
   await openGameOptions(page);

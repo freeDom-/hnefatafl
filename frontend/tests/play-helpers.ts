@@ -7,8 +7,10 @@ export async function openGameOptions(page: Page) {
     !(await page
       .getByRole('button', { name: /Game options|Spieloptionen/, exact: true })
       .isVisible())
-  )
+  ) {
+    await gameTab(page, 'analytics');
     return;
+  }
   const dialog = page.getByRole('dialog', { name: /Game options|Spieloptionen/, exact: true });
   if (!(await dialog.isVisible()))
     await page.getByRole('button', { name: /Game options|Spieloptionen/, exact: true }).click();
@@ -32,7 +34,9 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
     analytics: /^(Analytics|Analyse)$/,
     games: /^(My games|Meine Partien)$/,
   };
-  const button = page.locator('.mobile-inspector').getByRole('tab', { name: names[tab] });
+  const button = page
+    .locator('.mobile-inspector, .desktop-inspector')
+    .getByRole('tab', { name: names[tab] });
   if (await button.isVisible()) await button.click();
 }
 
@@ -72,6 +76,6 @@ export async function openMyGames(page: Page) {
   );
   if (compact) {
     await expect(page.locator('.mobile-game-layout')).toBeVisible();
-    await gameTab(page, 'games');
   }
+  await gameTab(page, 'games');
 }

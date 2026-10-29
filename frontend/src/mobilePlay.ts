@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useSyncExternalStore } from 're
 
 export const MobilePlayContext = createContext(false);
 export const useCompactPlay = () => useContext(MobilePlayContext);
+export const DesktopPlayContext = createContext(false);
+export const useDesktopPlay = () => useContext(DesktopPlayContext);
 
 export function useMediaQuery(query: string) {
   const subscribe = useCallback(

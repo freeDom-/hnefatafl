@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { useI18n } from './i18n';
 import { sideGlyph } from './sideGlyph';
 import type { Side } from './types';
+import type { GameDetailRow } from './GameDetailsPanel';
+import { useDesktopPlay } from './mobilePlay';
 
 const sideLabels: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 
@@ -17,12 +19,15 @@ export default function ArmiesPanel({
   rows,
   captured,
   label,
+  metadata,
 }: {
   rows: ArmyRow[];
   captured: { attackers: number; defenders: number };
   label?: string;
+  metadata?: GameDetailRow[];
 }) {
   const { t } = useI18n();
+  const desktop = useDesktopPlay();
   return (
     <section className="panel armies" aria-label={label}>
       {rows.map((row) => (
@@ -49,6 +54,16 @@ export default function ArmiesPanel({
           {sideGlyph('defenders')} {captured.defenders}
         </span>
       </div>
+      {desktop && metadata && (
+        <dl className="player-game-details">
+          {metadata.map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </section>
   );
 }

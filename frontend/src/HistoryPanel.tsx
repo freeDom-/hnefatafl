@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { useCompactPlay } from './mobilePlay';
+import { useCompactPlay, useDesktopPlay } from './mobilePlay';
 import { useI18n } from './i18n';
 import { sideGlyph } from './sideGlyph';
 import type { Side } from './types';
@@ -31,12 +31,13 @@ export default function HistoryPanel({
 }) {
   const { t } = useI18n();
   const compact = useCompactPlay();
+  const desktop = useDesktopPlay();
   const list = useRef<HTMLOListElement>(null);
   const currentPly = entries.find((entry) => entry.current)?.ply;
   useLayoutEffect(() => {
     const node = list.current;
     const current = node?.querySelector('.current');
-    if (!compact || !node || !current) return;
+    if ((!compact && !desktop) || !node || !current) return;
     let observer: ResizeObserver | undefined;
     const reveal = () => {
       if (!node.clientHeight) return;
@@ -54,7 +55,7 @@ export default function HistoryPanel({
       observer.observe(node);
     }
     return () => observer?.disconnect();
-  }, [compact, currentPly, entries.length]);
+  }, [compact, desktop, currentPly, entries.length]);
   return (
     <aside className={`panel history-panel${compact ? ' compact-history' : ''}`}>
       <div className="panel-title">
@@ -106,7 +107,7 @@ export default function HistoryPanel({
         </div>
       )}
       {!compact && footer}
-      {!compact && children}
+      {!compact && !desktop && children}
     </aside>
   );
 }

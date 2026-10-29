@@ -84,9 +84,9 @@ test('new games receive fresh seeds; record deletion refreshes prominent statist
   await expect(page.getByRole('grid')).toBeVisible();
   if (!(await page.locator('.mobile-game-layout').isVisible())) {
     await openGameOptions(page);
-    await expect(page.locator('.detail-row').filter({ hasText: 'Random seed' })).toContainText(
-      String(first.seed),
-    );
+    await expect(
+      page.locator('.player-game-details > div, .detail-row').filter({ hasText: 'Random seed' }),
+    ).toContainText(String(first.seed));
   }
 
   await closeGameOptions(page);

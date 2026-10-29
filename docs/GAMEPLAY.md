@@ -38,10 +38,16 @@ dialog. Active online games keep their remaining time in the header and offer no
 live assistance. The header's back link returns to Dashboard for new-game setup,
 account controls, appearance, language, and other pages.
 
-Desktop uses a wider three-column presentation with larger side panels. The board
-fills the available width or height, with a minimum gap between columns even at
-compact interface scale. History's read-only notice and return button appear above
-the move-table headings.
+Desktop keeps the board between a compact game/player summary and a tabbed panel
+for **Moves**, **Analytics**, and **My games**. Game mode, move number, and random
+seed appear with the players instead of in game details. Shorter desktop windows
+condense the summary according to actual browser viewport height, including the
+space lost to browser bars and the operating-system taskbar.
+
+The board fills the available width or height, with a minimum gap between columns
+even at compact interface scale. The surrounding panels do not scroll: only the
+move list or the active Analytics/My games tab scrolls, avoiding nested scrollbars.
+History's read-only notice and return button appear above the move-table headings.
 
 ## Choose a battlefield
 
@@ -100,7 +106,7 @@ existing version-guarded API recalculates statistics.
 
 ## Get advice and read results
 
-**Analytics** below move history on desktop, or in **Game options** on mobile,
+The **Analytics** tab on desktop, or **Game options** on mobile,
 selects an optional background advisor. When an
 advisor is selected, the panel shows the best-move hint and winning chances; the
 advisor suggests a legal move without executing it. AI player opinions can

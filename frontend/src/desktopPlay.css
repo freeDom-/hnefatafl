@@ -1,0 +1,160 @@
+@media (min-width: 1101px) {
+  .game-layout.desktop-game-layout .game-sidebar {
+    max-height: none;
+    overflow: visible;
+    gap: 12px;
+  }
+  .desktop-game-layout .player-game-details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin: 12px 0 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .player-game-details dt {
+    color: var(--muted);
+    font-size: 0.625rem;
+    margin-bottom: 4px;
+  }
+  .player-game-details dd {
+    margin: 0;
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+  .desktop-game-layout .army > div:not(.army-symbol) {
+    min-width: 0;
+    flex: 1;
+  }
+  .desktop-game-layout .army h3 {
+    max-width: none;
+  }
+  .desktop-inspector {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  .desktop-inspector > .tabs {
+    flex: none;
+    flex-wrap: nowrap;
+    gap: 0;
+    margin: 0;
+    padding: 0 4px;
+  }
+  .desktop-inspector > .tabs > button {
+    min-width: 0;
+    padding: 8px 4px;
+    font-size: 0.75rem;
+  }
+  .desktop-tab-panel {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .desktop-tab-content {
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .desktop-tab-content[hidden] {
+    display: none;
+  }
+  .desktop-tab-content.desktop-moves {
+    overflow: hidden;
+  }
+  .game-layout.desktop-game-layout .history-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+    padding: 12px 12px 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .desktop-inspector .history-panel > .panel-title,
+  .desktop-inspector .history-panel > .subtle {
+    display: none;
+  }
+  .desktop-inspector .history-columns,
+  .desktop-inspector .history-footer,
+  .desktop-inspector .history-review-status {
+    flex: none;
+  }
+  .desktop-inspector .move-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overscroll-behavior: contain;
+  }
+  .desktop-inspector .history-empty {
+    flex: 1;
+    padding-block: 16px;
+  }
+  .desktop-inspector .agent-analysis,
+  .desktop-inspector .analytics-settings {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .desktop-inspector .analytics-settings:has(h2) {
+    border-top: 1px solid var(--line);
+  }
+  .desktop-games {
+    padding: 12px;
+  }
+  .desktop-inspector .running-game-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 4px;
+    overflow: visible;
+  }
+  .desktop-inspector .running-game-list button {
+    text-align: left;
+    white-space: normal;
+    min-height: 44px;
+  }
+  .desktop-inspector .running-game-list small {
+    display: block;
+    margin-top: 4px;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Browser chrome and the OS taskbar reduce usable height. Condense the fixed
+   player summary for laptop windows, without introducing a sidebar scroller. */
+@media (min-width: 1101px) and (max-width: 1920px), (min-width: 1101px) and (max-height: 900px) {
+  .game-layout.desktop-game-layout .game-details,
+  .game-layout.desktop-game-layout .armies {
+    padding: 12px;
+  }
+  .desktop-game-layout .game-description {
+    display: none;
+  }
+  .desktop-game-layout .variant-heading {
+    margin: 0;
+  }
+  .desktop-game-layout .variant-heading h2 {
+    font-size: 1.375rem;
+  }
+  .desktop-game-layout .game-details .text-button {
+    margin-top: 6px;
+  }
+  .desktop-game-layout .army {
+    padding: 8px;
+    margin: 0 0 4px;
+    gap: 8px;
+  }
+  .desktop-game-layout .captured-row {
+    padding: 8px 0 0;
+  }
+}

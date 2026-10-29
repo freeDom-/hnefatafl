@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react';
+import { useDesktopPlay } from './mobilePlay';
+
+export type GameDetailRow = { label: string; value: ReactNode };
 
 export default function GameDetailsPanel({
   ruleset,
@@ -10,9 +13,10 @@ export default function GameDetailsPanel({
   ruleset: string;
   size: number;
   header?: ReactNode;
-  rows: { label: string; value: ReactNode }[];
+  rows: GameDetailRow[];
   footer?: ReactNode;
 }) {
+  const desktop = useDesktopPlay();
   return (
     <section className="panel game-details">
       <div className="variant-heading">
@@ -22,8 +26,8 @@ export default function GameDetailsPanel({
         </span>
       </div>
       {header}
-      {header ? <div className="divider" /> : null}
-      {rows.map((row) => (
+      {header && !desktop ? <div className="divider" /> : null}
+      {(!desktop ? rows : []).map((row) => (
         <div className="detail-row" key={row.label}>
           <span>{row.label}</span>
           <strong>{row.value}</strong>

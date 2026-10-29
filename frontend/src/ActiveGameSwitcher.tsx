@@ -4,7 +4,7 @@ import { useI18n } from './i18n';
 import { useOnlinePoll } from './useOnlinePoll';
 import type { Game } from './types';
 import type { OnlineListing } from './onlineTypes';
-import { useCompactPlay } from './mobilePlay';
+import { useCompactPlay, useDesktopPlay } from './mobilePlay';
 
 const ruleNames: Record<string, string> = {
   brandubh: 'Brandubh',
@@ -23,9 +23,9 @@ export type ActiveGameEntry = {
 };
 
 /**
- * Compact switcher across active single-player and online games. Rendered only
- * when another accessible active game exists on desktop. The mobile My
- * games panel also shows a single game, waiting games, and loading/error states.
+ * Shared running-game navigation. Tabbed play includes the current game,
+ * waiting games, and loading/error states; the fallback strip appears only
+ * when another accessible active game exists.
  */
 export default function ActiveGameSwitcher({
   accountId,
@@ -37,7 +37,9 @@ export default function ActiveGameSwitcher({
   open: (entry: ActiveGameEntry) => void;
 }) {
   const { t } = useI18n();
-  const list = useCompactPlay();
+  const compact = useCompactPlay();
+  const desktop = useDesktopPlay();
+  const list = compact || desktop;
   const loadSingle = useCallback(
     (signal: AbortSignal) => api<Game[]>('/games', undefined, undefined, signal),
     [],

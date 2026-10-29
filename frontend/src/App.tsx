@@ -297,6 +297,21 @@ export default function App() {
     localStorage.removeItem('hnefatafl-game');
   }, []);
   const activeRules = rulesets.find((r) => r.id === game?.ruleset);
+  const gameMetadata = game
+    ? [
+        {
+          label: t('Game mode'),
+          value:
+            game.mode === 'human-human'
+              ? t('Pass & play')
+              : game.mode === 'human-ai'
+                ? t('Human vs AI')
+                : t('AI vs AI'),
+        },
+        { label: t('Move'), value: game.cursor },
+        ...(game.seed !== undefined ? [{ label: t('Random seed'), value: game.seed }] : []),
+      ]
+    : [];
 
   const gameDetails = game && (
     <GameDetailsPanel
@@ -310,26 +325,16 @@ export default function App() {
       size={game.size}
       header={
         <>
-          <p>{t(activeRules?.description ?? 'An ancient contest of escape and encirclement.')}</p>
+          <p className="game-description">
+            {t(activeRules?.description ?? 'An ancient contest of escape and encirclement.')}
+          </p>
           <button className="text-button" onClick={() => setRulesOpen(true)}>
             {t('Read the rules')}
             <span aria-hidden="true">↗</span>
           </button>
         </>
       }
-      rows={[
-        {
-          label: t('Game mode'),
-          value:
-            game.mode === 'human-human'
-              ? t('Pass & play')
-              : game.mode === 'human-ai'
-                ? t('Human vs AI')
-                : t('AI vs AI'),
-        },
-        { label: t('Move'), value: game.cursor },
-        ...(game.seed !== undefined ? [{ label: t('Random seed'), value: game.seed }] : []),
-      ]}
+      rows={gameMetadata}
       footer={
         outcome !== null && <GameResult winner={outcome} reason={game.reason} labels={titles} />
       }
@@ -353,6 +358,7 @@ export default function App() {
         toMove: game.turn === side && outcome === null,
       }))}
       captured={game.captured ?? { attackers: 0, defenders: 0 }}
+      metadata={gameMetadata}
     />
   );
   const analyticsSettings = game && (
@@ -418,6 +424,21 @@ export default function App() {
               <GameLayout
                 key={game.id}
                 switcher={switcher}
+                desktop={{
+                  sidebar: (
+                    <>
+                      {gameDetails}
+                      {armies}
+                    </>
+                  ),
+                  analytics: (
+                    <>
+                      {agentAnalysis}
+                      {analyticsSettings}
+                    </>
+                  ),
+                  moveCount: game.total_moves,
+                }}
                 mobile={{
                   title:
                     game.ruleset === 'tablut'
