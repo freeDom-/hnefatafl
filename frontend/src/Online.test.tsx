@@ -112,6 +112,8 @@ it.each(
     side_selection: side,
     mode,
     time_per_move: 3600,
+    time_control: 'per_move',
+    increment_seconds: 0,
     rated: true,
   });
 });
@@ -332,10 +334,10 @@ it.each(['simultaneous', 'sequential'] as const)(
     }
   },
 );
-it('shows awaiting adjudication using the device clock without inventing a terminal result', async () => {
+it('shows pending server finalization using the device clock without inventing a terminal result', async () => {
   const game = { ...fixture.active, deadline: '2000-01-01T00:00:00Z' } as OnlineGame;
   room(game);
-  await screen.findByText(/Awaiting adjudication/);
+  await screen.findByText(/Time expired. Finalizing result…/);
   expect(screen.getByRole('button', { name: 'Concede' })).toBeVisible();
   expect(fetcher.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false);
 });
@@ -503,12 +505,12 @@ it('retries a retained 61-second creation intent exactly without truncation to a
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
-  expect(screen.getByText(/uses exactly 1m 01s per move/)).toBeVisible();
+  expect(screen.getByText(/uses exactly 1m 01s/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
   await screen.findByRole('heading', { name: 'Online game' });
   expect(
     JSON.parse(String(fetcher.mock.calls.find(([, o]) => o?.method === 'POST')![1]?.body)),
-  ).toEqual({ ...payload, rated: true });
+  ).toEqual({ ...payload, time_control: 'per_move', increment_seconds: 0, rated: true });
 });
 it('creates every new online game as rated with no casual selector', async () => {
   lobby();
@@ -535,4 +537,56 @@ it.each([
   fireEvent.submit(screen.getByRole('button', { name: 'Create game' }).closest('form')!);
   await screen.findByRole('alert');
   expect(fetcher.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false);
+});
+
+it.each(['per_move', 'total'])(
+  'creates a %s clock with a configured increment and retains it on reload',
+  async (timeControl) => {
+    mutation = async () => {
+      throw new TypeError('network');
+    };
+    const view = lobby();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
+    expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(0);
+    fireEvent.change(screen.getByLabelText('Time control'), { target: { value: timeControl } });
+    fireEvent.change(screen.getByLabelText('Increment per move (seconds)'), {
+      target: { value: '12' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
+    await screen.findByText(/The outcome is uncertain/);
+    const first = fetcher.mock.calls.find(([, opts]) => opts?.method === 'POST')![1]!.body;
+    expect(JSON.parse(String(first))).toMatchObject({
+      time_control: timeControl,
+      increment_seconds: 12,
+    });
+    view.unmount();
+    lobby();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText('Time control')).toHaveValue(timeControl);
+    expect(screen.getByLabelText('Increment per move (seconds)')).toHaveValue(12);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry retained request' }));
+    await waitFor(() =>
+      expect(fetcher.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(2),
+    );
+    expect(fetcher.mock.calls.filter(([, opts]) => opts?.method === 'POST')[1][1]!.body).toBe(
+      first,
+    );
+  },
+);
+
+it('shows both total clocks, the configured increment and the live active clock', async () => {
+  room({
+    ...fixture.active,
+    time_control: 'total',
+    increment_seconds: 8,
+    deadline: new Date(Date.now() + 90000).toISOString(),
+    remaining_seconds: { attackers: 100, defenders: 47 },
+  } as OnlineGame);
+  await screen.findByText('Total time per player');
+  expect(screen.getByText('Attackers remaining time')).toBeVisible();
+  const defender = screen.getByText('Defenders remaining time').parentElement!;
+  expect(defender).toHaveTextContent('47s');
+  expect(screen.getByText('Increment per move (seconds)').parentElement).toHaveTextContent('8');
 });

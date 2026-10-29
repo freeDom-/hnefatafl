@@ -25,11 +25,11 @@ banner; the live game room retains its own refresh controls.
 ## Create, find and join
 
 Choose Brandubh, Tablut or Copenhagen, your side (attackers, defenders or random),
-a match mode, and integer **Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
+a match mode, a **Time control**, an optional seconds increment, and integer
+**Days** (0–14), **Hours** (0–23), **Minutes** (0–59)
 in a shared modal. Every newly created game is **rated** and counts toward the
 [leaderboard](RATINGS.md); there is no Casual selector. Rated play requires an
-active, verified account, checked at creation and joining. Configured time per
-move uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined **Time allowed per move** is converted to seconds
+active, verified account, checked at creation and joining. Configured time uses the shared duration formatter (`45s`, `2m 05s`, `1h 00m 00s`). The combined base limit is converted to seconds
 at the API boundary. The approved aggregate remains 60–1209600 seconds (1 minute
 through 14 days), default three days: all-zero and 14 days plus extra hours/minutes
 are rejected, never clamped. The component ranges do not widen that aggregate policy.
@@ -120,9 +120,21 @@ errors do not grant a bypass.
 
 Deadlines arrive as UTC instants and display in your browser's local time zone.
 The countdown is approximate and uses your device clock. Only the server decides
-expiry. **Awaiting adjudication** means your clock has passed the deadline while
-the server still reports Active; timeout finalization may be paused. The browser
-never declares a result or extends the deadline.
+expiry. When the server deadline is reached, the player to move loses and the
+game’s ratings update automatically. **Time expired. Finalizing result…** briefly
+indicates that the browser is waiting for the authoritative result; an explicit
+operator pause can delay finalization. The browser never declares a result or
+extends the deadline.
+
+The online game dialog offers **Per move** (default) or **Total per player**.
+Both use a base limit of 1 minute to 14 days. Total mode gives each player a
+separate budget; only their own turns consume it. **Increment per move (seconds)**
+defaults to 0 and accepts whole seconds from 0 to 1209600. In total mode it is
+credited to the moving player after each timely move. In per-move mode the first
+turn uses the base limit and each later turn resets to the base plus increment,
+without carrying unused time. Each leg of a two-game match starts with fresh clocks.
+Both clocks appear beside the players on mobile; **Game options** shows the
+configured limit, increment and clock details.
 
 **Disconnecting, closing the browser or logging out does not pause clocks.**
 

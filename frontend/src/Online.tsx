@@ -13,6 +13,7 @@ import type {
   OnlineReplay,
   OnlineTransition,
   SideSelection,
+  TimeControlMode,
 } from './onlineTypes';
 import { useOnlinePoll } from './useOnlinePoll';
 import Modal from './Modal';
@@ -55,6 +56,11 @@ const statuses = {
   voided: 'Voided',
 };
 const INTENT_KEY = 'hnefatafl-online-intent';
+function playerRemaining(game: OnlineGame, side: Side, now: number): number {
+  return game.status === 'active' && game.position.turn === side
+    ? remainingSeconds(game.deadline, now)
+    : Math.ceil(game.remaining_seconds?.[side] ?? game.time_per_move);
+}
 function restoreIntent(accountId: string): CreationIntent | null {
   try {
     const saved = JSON.parse(sessionStorage.getItem(INTENT_KEY) ?? 'null');
@@ -69,6 +75,11 @@ function restoreIntent(accountId: string): CreationIntent | null {
       Number.isInteger(p.time_per_move) &&
       p.time_per_move >= 60 &&
       p.time_per_move <= 1209600 &&
+      (p.time_control === undefined || ['per_move', 'total'].includes(p.time_control)) &&
+      (p.increment_seconds === undefined ||
+        (Number.isInteger(p.increment_seconds) &&
+          p.increment_seconds >= 0 &&
+          p.increment_seconds <= 1209600)) &&
       (p.rated === undefined || typeof p.rated === 'boolean')
     )
       return {
@@ -77,6 +88,8 @@ function restoreIntent(accountId: string): CreationIntent | null {
         side_selection: p.side_selection,
         mode: p.mode,
         time_per_move: p.time_per_move,
+        time_control: p.time_control ?? 'per_move',
+        increment_seconds: p.increment_seconds ?? 0,
         // Rated-only policy: a retained legacy intent is replayed as rated.
         rated: true,
       };
@@ -220,9 +233,15 @@ function GameSummary({
             {t('Remaining')} <RemainingTime seconds={remainingSeconds(game.deadline, now)} />
           </>
         ) : (
-          t('Time per move: {duration}', { duration: formatRemaining(game.time_per_move) })
+          t(
+            game.time_control === 'total'
+              ? 'Total time per player: {duration}'
+              : 'Time per move: {duration}',
+            { duration: formatRemaining(game.time_per_move) },
+          )
         )}
       </p>
+      <p>{t('Increment: {seconds} seconds', { seconds: game.increment_seconds ?? 0 })}</p>
       <button className="button primary" onClick={() => open(game.id)}>
         {t('Open game')}
       </button>
@@ -291,6 +310,10 @@ export function Lobby({
   );
   const [side, setSide] = useState<SideSelection>(intent?.side_selection ?? 'random');
   const [mode, setMode] = useState<MatchMode>(intent?.mode ?? 'single');
+  const [timeControl, setTimeControl] = useState<TimeControlMode>(
+    intent?.time_control ?? 'per_move',
+  );
+  const [increment, setIncrement] = useState(String(intent?.increment_seconds ?? 0));
   const [parts] = useState(() => durationParts(intent?.time_per_move ?? 259200));
   const [days, setDays] = useState(parts.days);
   const [hours, setHours] = useState(parts.hours);
@@ -339,6 +362,12 @@ export function Lobby({
     let seconds: number;
     try {
       seconds = intentRef.current?.time_per_move ?? moveSeconds(days, hours, minutes);
+      if (
+        !/^\d+$/.test(increment) ||
+        !Number.isSafeInteger(Number(increment)) ||
+        Number(increment) > 1209600
+      )
+        throw new Error('Enter an increment in whole seconds from 0 to 1209600.');
     } catch (error) {
       setValidation((error as Error).message);
       return;
@@ -350,6 +379,8 @@ export function Lobby({
       side_selection: side,
       mode,
       time_per_move: seconds,
+      time_control: timeControl,
+      increment_seconds: Number(increment),
       rated: true,
     };
     intentRef.current = payload;
@@ -428,8 +459,20 @@ export function Lobby({
                     ))}
                   </select>
                 </label>
+                <label>
+                  {t('Time control')}
+                  <select
+                    value={timeControl}
+                    onChange={(e) => setTimeControl(e.target.value as TimeControlMode)}
+                  >
+                    <option value="per_move">{t('Per move')}</option>
+                    <option value="total">{t('Total per player')}</option>
+                  </select>
+                </label>
                 <fieldset className="move-duration">
-                  <legend>{t('Time allowed per move')}</legend>
+                  <legend>
+                    {t(timeControl === 'total' ? 'Total time per player' : 'Time allowed per move')}
+                  </legend>
                   <div className="form-grid">
                     {(
                       [
@@ -453,15 +496,33 @@ export function Lobby({
                     ))}
                   </div>
                 </fieldset>
+                <label>
+                  {t('Increment per move (seconds)')}
+                  <input
+                    type="number"
+                    min={0}
+                    max={1209600}
+                    step={1}
+                    required
+                    value={increment}
+                    onChange={(e) => setIncrement(e.target.value)}
+                  />
+                </label>
+                <p className="subtle">
+                  {t(
+                    timeControl === 'total'
+                      ? 'Each player has their own total clock. The increment is added to your clock after you move.'
+                      : 'The first turn uses the base limit. Each later turn resets to the base limit plus the increment.',
+                  )}
+                </p>
               </fieldset>
               {validation && <p role="alert">{t(validation)}</p>}
               {rulesError && <p role="alert">{t(rulesError)}</p>}
               {intent && intent.time_per_move % 60 !== 0 && (
                 <p role="status">
-                  {t(
-                    'This retained request uses exactly {duration} per move. Retrying keeps that value.',
-                    { duration: formatRemaining(intent.time_per_move) },
-                  )}
+                  {t('This retained request uses exactly {duration}. Retrying keeps that value.', {
+                    duration: formatRemaining(intent.time_per_move),
+                  })}
                 </p>
               )}
               {intent && (
@@ -727,7 +788,19 @@ function GameRoom({
     ? [
         { label: t('Game mode'), value: t(modeNames[game.match.mode]) },
         { label: t('Game {leg}', { leg: game.match.leg }), value: t('Rated') },
-        { label: t('Time per move'), value: formatRemaining(game.time_per_move) },
+        {
+          label: t(game.time_control === 'total' ? 'Total time per player' : 'Time per move'),
+          value: formatRemaining(game.time_per_move),
+        },
+        { label: t('Increment per move (seconds)'), value: String(game.increment_seconds ?? 0) },
+        ...(game.time_control === 'total' && game.remaining_seconds
+          ? (['attackers', 'defenders'] as const).map((side) => ({
+              label: t(
+                side === 'attackers' ? 'Attackers remaining time' : 'Defenders remaining time',
+              ),
+              value: <RemainingTime seconds={playerRemaining(game, side, now)} />,
+            }))
+          : []),
         {
           label: t('Remaining time'),
           value:
@@ -736,7 +809,7 @@ function GameRoom({
             ) : remaining > 0 ? (
               <RemainingTime seconds={remaining} />
             ) : (
-              t('Awaiting adjudication')
+              t('Time expired. Finalizing result…')
             ),
         },
       ]
@@ -826,7 +899,11 @@ function GameRoom({
         side,
         symbol: sideGlyph(side),
         name: game.participants[side]?.name ?? t('Unassigned'),
-        detail: `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}`,
+        detail: `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}${
+          compact && game.time_control === 'total' && game.remaining_seconds
+            ? ` · ${formatRemaining(playerRemaining(game, side, now))}`
+            : ''
+        }`,
         toMove: game.status === 'active' && game.position.turn === side,
       }))}
       captured={captured}
@@ -904,7 +981,7 @@ function GameRoom({
                           remaining > 0 ? (
                             <RemainingTime seconds={remaining} />
                           ) : (
-                            t('Awaiting adjudication')
+                            t('Time expired. Finalizing result…')
                           )
                         ) : (
                           t('Move') + ' ' + position.ply
@@ -912,6 +989,7 @@ function GameRoom({
                       </>
                     ),
                     players: armies,
+                    settings: gameDetails,
                     moveCount: game.moves.length,
                   }
             }

@@ -1,9 +1,9 @@
-"""Schema 12: durable online records, rating state and start-rating snapshots."""
+"""Schema 13: durable online records, ratings and configurable game clocks."""
 
 import sqlite3
 import time
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -136,8 +136,8 @@ def migrate_online(c: sqlite3.Connection) -> None:
             note TEXT NOT NULL CHECK(length(trim(note)) BETWEEN 1 AND 1000),
             CHECK(source<>'admin' OR actor_id IS NOT NULL)
         )""",
-        "INSERT OR IGNORE INTO online_timeout_gate VALUES(1,0,0,0)",
-        "INSERT OR IGNORE INTO online_gate_audit VALUES(0,0,0,NULL,'migration','Timeout finalization paused pending outage policy approval.')",
+        "INSERT OR IGNORE INTO online_timeout_gate VALUES(1,1,0,0)",
+        "INSERT OR IGNORE INTO online_gate_audit VALUES(0,1,0,NULL,'migration','Timeout losses are enabled by default.')",
         """CREATE TRIGGER IF NOT EXISTS online_configuration_immutable BEFORE UPDATE ON online_games
             WHEN NEW.id<>OLD.id OR NEW.creator_id<>OLD.creator_id OR NEW.match_id<>OLD.match_id OR NEW.leg<>OLD.leg
               OR (OLD.creator_side IS NOT NULL AND NEW.creator_side IS NOT OLD.creator_side)
@@ -200,12 +200,54 @@ def migrate_online(c: sqlite3.Connection) -> None:
         c.execute(
             "ALTER TABLE online_matches ADD COLUMN rated INTEGER NOT NULL DEFAULT 0 CHECK(rated IN (0,1))"
         )
+    for table in ("online_matches", "online_games"):
+        columns = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
+        for name, definition in (
+            (
+                "time_control",
+                "TEXT NOT NULL DEFAULT 'per_move' CHECK(time_control IN ('per_move','total'))",
+            ),
+            (
+                "increment_seconds",
+                "BLOB NOT NULL DEFAULT 0 CHECK(typeof(increment_seconds)='integer' AND increment_seconds BETWEEN 0 AND 1209600)",
+            ),
+        ):
+            if name not in columns:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+    game_columns = {row[1] for row in c.execute("PRAGMA table_info(online_games)")}
+    for name in ("attackers_remaining_us", "defenders_remaining_us"):
+        if name not in game_columns:
+            c.execute(
+                f"ALTER TABLE online_games ADD COLUMN {name} BLOB CHECK({name} IS NULL OR (typeof({name})='integer' AND {name}>=0))"
+            )
+    c.execute("""CREATE TRIGGER IF NOT EXISTS online_clock_configuration_immutable
+        BEFORE UPDATE ON online_games
+        WHEN NEW.time_control<>OLD.time_control OR NEW.increment_seconds<>OLD.increment_seconds
+        BEGIN SELECT RAISE(ABORT,'Online time control is immutable'); END""")
+    for action in ("INSERT", "UPDATE"):
+        c.execute(f"""CREATE TRIGGER IF NOT EXISTS online_clock_{action.lower()}_guard
+            BEFORE {action} ON online_games
+            WHEN (NEW.time_control='total' AND NEW.started_at IS NOT NULL
+                  AND (NEW.attackers_remaining_us IS NULL OR NEW.defenders_remaining_us IS NULL))
+              OR (NEW.time_control='per_move'
+                  AND (NEW.attackers_remaining_us IS NOT NULL OR NEW.defenders_remaining_us IS NOT NULL))
+            BEGIN SELECT RAISE(ABORT,'Invalid online clock balances'); END""")
+    # Resume only the untouched legacy default. Explicit administrator and
+    # restore pauses have a later audit version and remain paused.
+    if c.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+        gate = c.execute("SELECT enabled,version FROM online_timeout_gate WHERE id=1").fetchone()
+        if tuple(gate) == (0, 0):
+            c.execute("UPDATE online_timeout_gate SET enabled=1,version=1 WHERE id=1")
+            c.execute(
+                "INSERT INTO online_gate_audit VALUES(1,1,0,NULL,'migration','Enable automatic timeout losses for the untouched legacy default.')"
+            )
     c.execute("DROP TRIGGER IF EXISTS online_match_immutable")
     c.execute("""CREATE TRIGGER online_match_immutable BEFORE UPDATE ON online_matches
         WHEN NEW.id<>OLD.id OR NEW.creator_id<>OLD.creator_id OR NEW.side_selection<>OLD.side_selection
           OR NEW.mode<>OLD.mode OR NEW.ruleset<>OLD.ruleset OR NEW.ruleset_version<>OLD.ruleset_version
           OR NEW.time_per_move<>OLD.time_per_move OR NEW.created_at<>OLD.created_at
           OR NEW.rated<>OLD.rated
+          OR NEW.time_control<>OLD.time_control OR NEW.increment_seconds<>OLD.increment_seconds
           OR (OLD.activated_at IS NOT NULL AND (NEW.activated_at IS NOT OLD.activated_at
               OR NEW.opponent_id IS NOT OLD.opponent_id OR NEW.first_creator_side IS NOT OLD.first_creator_side))
         BEGIN SELECT RAISE(ABORT,'Match configuration and admitted participants are immutable'); END""")
@@ -224,7 +266,7 @@ def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connect
     """
     live_version = live.execute("PRAGMA user_version").fetchone()[0]
     copy_version = restored.execute("PRAGMA user_version").fetchone()[0]
-    if max(live_version, copy_version) < SCHEMA_VERSION:
+    if max(live_version, copy_version) < 10:
         return
     if live_version != copy_version or live_version != SCHEMA_VERSION:
         raise ValueError("Online schema changed; manual recovery is required")
@@ -266,7 +308,7 @@ def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connect
 
 def pause_online_after_restore(restored: sqlite3.Connection, note: str) -> None:
     version = restored.execute("PRAGMA user_version").fetchone()[0]
-    if version < SCHEMA_VERSION:
+    if version < 10:
         return
     if version != SCHEMA_VERSION:
         raise ValueError("Online schema changed; manual recovery is required")

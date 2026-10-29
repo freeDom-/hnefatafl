@@ -148,9 +148,8 @@ and explicit operator reconciliation. See
   verification change does not retroactively rebuild old events.
 - There is no rating decay, rewards, achievements, aggregate match score, public
   or unauthenticated leaderboard, or online analysis/assistance.
-- Production online admission and timeout finalization remain disabled. Rated
-  games can only be created when admission is enabled, and timeout results count
-  only when the separately approved timeout gate is active.
+- Production online admission defaults off. Timeout losses and their rating changes
+  are enabled by default; explicit operator/restore pauses defer finalization.
 - The leaderboard reflects completed, applied events only; in-progress games do
   not appear.
 
@@ -159,7 +158,7 @@ and explicit operator reconciliation. See
 Before enabling Rated play in production:
 
 1. Complete the existing [online admission and timeout prerequisites](ONLINE.md).
-2. Confirm schema 12 migration (including rating events and start-rating snapshots)
+2. Confirm schema 13 migration (including rating events and start-rating snapshots)
    and a compatible backup/restore on a copy.
 3. Decide and document a moderation/anti-farming response using the existing
    private void audit and rebuild procedures.

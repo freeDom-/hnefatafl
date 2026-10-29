@@ -30,11 +30,17 @@ class Status(StrEnum):
 @dataclass(frozen=True)
 class TimeControl:
     seconds: int = 3 * 24 * 60 * 60
+    mode: str = "per_move"
+    increment_seconds: int = 0
 
     def __post_init__(self) -> None:
         # In particular, reject bool, numeric strings and fractional seconds.
         if type(self.seconds) is not int or not 60 <= self.seconds <= 14 * 24 * 60 * 60:
-            raise LifecycleError("Time per move must be integer seconds from 60 to 1209600")
+            raise LifecycleError("Time limit must be integer seconds from 60 to 1209600")
+        if self.mode not in ("per_move", "total"):
+            raise LifecycleError("Time control must be per_move or total")
+        if type(self.increment_seconds) is not int or not 0 <= self.increment_seconds <= 1209600:
+            raise LifecycleError("Increment must be integer seconds from 0 to 1209600")
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,8 @@ class Game:
     started_at: datetime | None = None
     deadline: datetime | None = None
     result: Result | None = None
+    # Total-clock balances at updated_at, in exact integer microseconds.
+    remaining_us: tuple[int, int] | None = None
 
     def account_for(self, side: str) -> str:
         if side not in ("attackers", "defenders"):
@@ -139,6 +147,9 @@ def join(game: Game, actor: Actor, now: datetime) -> Transition:
             started_at=now,
             deadline=now + timedelta(seconds=game.control.seconds),
             updated_at=now,
+            remaining_us=(game.control.seconds * 1000000,) * 2
+            if game.control.mode == "total"
+            else None,
         )
     )
 
@@ -160,6 +171,18 @@ def _finish(
     assert game.started_at is not None
     completed_at = game.deadline if reason == "timeout" else now
     assert completed_at is not None
+    remaining = game.remaining_us
+    if remaining is not None and reason in ("timeout", "concession"):
+        assert game.deadline is not None
+        balance = game.deadline - completed_at
+        moving_us = max(
+            0, (balance.days * 86400 + balance.seconds) * 1000000 + balance.microseconds
+        )
+        remaining = (
+            (moving_us, remaining[1])
+            if game.position.turn == "attackers"
+            else (remaining[0], moving_us)
+        )
     result = Result(
         game_id=game.id,
         revision=1,
@@ -179,7 +202,14 @@ def _finish(
         abandoned_account_id=abandoned,
     )
     return Transition(
-        replace(game, status=Status.COMPLETED, deadline=None, result=result, updated_at=now),
+        replace(
+            game,
+            status=Status.COMPLETED,
+            deadline=None,
+            result=result,
+            updated_at=now,
+            remaining_us=remaining,
+        ),
         (result,),
     )
 
@@ -223,11 +253,30 @@ def accept_move(game: Game, actor: Actor, after: State, now: datetime) -> Transi
         or (after.winner is not None and not after.reason)
     ):
         raise LifecycleError("Expected the next engine-validated state")
-    moved = replace(game, position=after, updated_at=now)
+    remaining = game.remaining_us
+    if game.control.mode == "total":
+        assert remaining is not None and game.deadline is not None
+        balance = game.deadline - now
+        moving_us = (
+            (balance.days * 86400 + balance.seconds) * 1000000
+            + balance.microseconds
+            + game.control.increment_seconds * 1000000
+        )
+        remaining = (
+            (moving_us, remaining[1])
+            if game.position.turn == "attackers"
+            else (remaining[0], moving_us)
+        )
+    moved = replace(game, position=after, updated_at=now, remaining_us=remaining)
     if after.winner is not None:
         assert after.reason is not None
         return _finish(moved, now, after.winner, after.reason)
-    return Transition(replace(moved, deadline=now + timedelta(seconds=game.control.seconds)))
+    allowance = (
+        timedelta(microseconds=remaining[0 if after.turn == "attackers" else 1])
+        if remaining is not None
+        else timedelta(seconds=game.control.seconds + game.control.increment_seconds)
+    )
+    return Transition(replace(moved, deadline=now + allowance))
 
 
 def concede(game: Game, actor: Actor, now: datetime) -> Transition:

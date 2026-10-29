@@ -143,8 +143,8 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 
 A server connection and an authenticated account are required. Verified accounts
 can create/join games in the online lobby when the operator enables admission;
-registration and online admission default off. Automatic timeout finalization
-also requires an approved outage policy and an enabled persistent gate. See
+registration and online admission default off. Automatic timeout losses and rating
+updates are enabled by default; operators can explicitly pause finalization during maintenance or recovery. See
 [online operations](docs/ONLINE.md) and [registration](docs/REGISTRATION.md).
 Use the production HTTPS/proxy configuration before public exposure. Offline play,
 automatic opponent matchmaking, distributed self-play and PostgreSQL migration

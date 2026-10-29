@@ -278,7 +278,7 @@ test('stale action is reloaded once and authenticated spectators cannot mutate o
   expect(guard).toBe(409);
 });
 
-test('disabled admission preserves existing seats; overdue paused game awaits adjudication', async ({
+test('disabled admission preserves existing seats; timeout automatically completes the game', async ({
   page,
   browser,
   request,
@@ -300,11 +300,12 @@ test('disabled admission preserves existing seats; overdue paused game awaits ad
   await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 120 } });
   await page.clock.setFixedTime(new Date(Date.now() + 120000));
   await page.reload();
-  await expect(page.getByText(/Awaiting adjudication/)).toBeVisible();
-  await page.getByRole('button', { name: 'Concede', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm concession', exact: true }).click();
-  await expect(page.getByText(/State changed or adjudication is paused/)).toBeVisible();
-  await expect(page.getByText('Active', { exact: true })).toBeVisible();
+  await expect(page.getByText('Defenders win · timeout')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Concede', exact: true })).toHaveCount(0);
+  const id = new URL(url).pathname.split('/').pop()!;
+  const completed = await (await page.request.get(`/api/online/games/${id}`)).json();
+  expect(completed.status).toBe('completed');
+  expect(completed.result.termination_reason).toBe('timeout');
   await page.goto('/dashboard');
   await expect(page.getByRole('button', { name: 'New online game', exact: true })).toBeDisabled();
   await expect(
@@ -417,4 +418,41 @@ test('online setup shares modal spacing, restores focus on Escape and rejects in
   expect((await response.json()).game.time_per_move).toBe(1209600);
   expect(JSON.parse(posts[0]).time_per_move).toBe(1209600);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('total clocks retain per-player balances and increments across moves and reload', async ({
+  page,
+  browser,
+  request,
+  isMobile,
+}) => {
+  await login(page, 'OnlineArcher');
+  const other = await opponent(browser);
+  extra.push(other.context);
+  await page.getByLabel('Time control').selectOption('total');
+  await page.getByLabel('Increment per move (seconds)').fill('5');
+  const url = await create(page, 'single', 'attackers', '60');
+  const id = new URL(url).pathname.split('/').pop()!;
+  await join(other.page, url);
+  await refresh(page);
+  await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 10 } });
+  await page.getByRole('gridcell', { name: 'd7, attacker', exact: true }).click();
+  await page.getByRole('gridcell', { name: 'b7, empty', exact: true }).click();
+  await expect(page.getByLabel('Defenders to move')).toBeVisible();
+  const moved = await (await page.request.get(`/api/online/games/${id}`)).json();
+  expect(moved.time_control).toBe('total');
+  expect(moved.increment_seconds).toBe(5);
+  expect(moved.remaining_seconds).toEqual({ attackers: 55, defenders: 60 });
+  await page.reload();
+  await expect(page.getByRole('grid')).toBeVisible();
+  if (isMobile) await page.getByRole('button', { name: 'Game options', exact: true }).click();
+  await expect(page.getByText('Total time per player', { exact: true })).toBeVisible();
+  await expect(page.getByText('Attackers remaining time', { exact: true })).toBeVisible();
+  if (isMobile) await page.keyboard.press('Escape');
+  await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 60 } });
+  await refresh(page);
+  await expect(page.getByText('Attackers win · timeout')).toBeVisible();
+  const finished = await (await page.request.get(`/api/online/games/${id}`)).json();
+  expect(finished.remaining_seconds).toEqual({ attackers: 55, defenders: 0 });
+  expect(finished.result.rating).toHaveLength(2);
 });

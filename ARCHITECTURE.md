@@ -102,8 +102,14 @@ in the first game's completion transaction. Each game retains its own version/re
 
 Lifespan reconciles one bounded expiry batch and supervises periodic passes. Requests
 and sweeps share the same expiry transaction/gate, including deployment freeze.
-Persistent timeout finalization starts paused and has a separate unapproved outage
-policy prerequisite; overdue play stays rejected without deadline extension. Current
+Timeout finalization is enabled by default, with an audited administrator pause
+and an environment override for incidents; overdue play stays rejected without deadline extension.
+Schema 13 adds immutable per-move/total clock selection, a seconds increment, and
+per-player total balances in integer microseconds. Only the moving player spends
+time; a timely move credits their increment before starting the opponent’s clock.
+Per-move clocks reset to the base limit plus increment after each accepted move.
+The migration enables only the untouched legacy timeout pause; administrator and
+restore pauses survive upgrade. Current
 sessions are reloaded under the write lock through trusted session context, closing
 the gap after middleware authentication. Admission requires active/verified accounts;
 existing admitted seats retain play after verification changes while active/session-valid.

@@ -2,6 +2,7 @@ import type { Move, Side } from './types';
 
 export type OnlineStatus = 'waiting' | 'active' | 'completed' | 'cancelled' | 'voided';
 export type MatchMode = 'single' | 'simultaneous' | 'sequential';
+export type TimeControlMode = 'per_move' | 'total';
 export type SideSelection = Side | 'random';
 export type OnlinePosition = {
   ruleset: string;
@@ -66,6 +67,9 @@ export type OnlineGame = {
   ruleset: string;
   ruleset_version: string;
   time_per_move: number;
+  time_control: TimeControlMode;
+  increment_seconds: number;
+  remaining_seconds: Record<Side, number> | null;
   rated: boolean;
   created_at: string;
   updated_at: string;
@@ -117,5 +121,7 @@ export type CreationIntent = {
   side_selection: SideSelection;
   mode: MatchMode;
   time_per_move: number;
+  time_control: TimeControlMode;
+  increment_seconds: number;
   rated: boolean;
 };
