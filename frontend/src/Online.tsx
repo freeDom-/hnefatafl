@@ -15,7 +15,6 @@ import type {
   SideSelection,
 } from './onlineTypes';
 import { useOnlinePoll } from './useOnlinePoll';
-import ReplayControls from './ReplayControls';
 import Modal from './Modal';
 import Tabs, { type TabItem } from './Tabs';
 import { durationParts, moveSeconds } from './moveDuration';
@@ -690,7 +689,7 @@ function GameRoom({
     }
   };
   const showReplayAt = (ply: number) => {
-    if (replay) {
+    if (replay && ply < replay.states.length) {
       setCursor(Math.max(0, Math.min(ply, replay.states.length - 1)));
       setSelected(null);
       setConfirm(false);
@@ -959,26 +958,6 @@ function GameRoom({
                     {t('Concede this game? This ends your game if the server accepts it.')}
                   </p>
                 )}
-                {cursor !== null && replay && (
-                  <div className="online-toolbar">
-                    <ReplayControls
-                      cursor={cursor}
-                      length={replay.states.length}
-                      onChange={setCursor}
-                    />
-                    {!reviewOnly && (
-                      <button
-                        className="button secondary"
-                        onClick={() => {
-                          setCursor(null);
-                          setSelected(null);
-                        }}
-                      >
-                        {t('Return to live board')}
-                      </button>
-                    )}
-                  </div>
-                )}
                 {cursor !== null && replay && game.position.ply > replay.game.position.ply && (
                   <p role="status">{t('New moves are available on the live board.')}</p>
                 )}
@@ -988,6 +967,27 @@ function GameRoom({
             }
             history={
               <HistoryPanel
+                status={
+                  cursor !== null &&
+                  !reviewOnly && (
+                    <div className="history-review-status">
+                      <span>{t('Read-only history')}</span>
+                      <button
+                        className="button secondary small"
+                        onClick={() => {
+                          setCursor(null);
+                          setSelected(null);
+                        }}
+                      >
+                        {t('Return to live board')}
+                      </button>
+                    </div>
+                  )
+                }
+                startAction={{
+                  onClick: () => showReplayAt(0),
+                  disabled: replayBusy || action.busy,
+                }}
                 count={game.moves.length}
                 entries={game.moves.map((move, index) => ({
                   ply: move.ply,
@@ -995,7 +995,12 @@ function GameRoom({
                   side: move.side,
                   current: cursor === index + 1,
                   future: cursor !== null && index + 1 > cursor,
-                  onSeek: () => showReplayAt(index + 1),
+                  onSeek: () => {
+                    if (!reviewOnly && move.ply === game.position.ply) {
+                      setCursor(null);
+                      setSelected(null);
+                    } else showReplayAt(index + 1);
+                  },
                 }))}
               />
             }

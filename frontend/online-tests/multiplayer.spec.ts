@@ -123,9 +123,9 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
     'aria-disabled',
     'true',
   );
-  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  await page.getByRole('button', { name: 'Replay to move 1', exact: true }).click();
   await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Return to live board' }).click();
+  await expect(page.getByRole('button', { name: 'Return to live board' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('grid')).toHaveCount(0);
 });
@@ -170,7 +170,8 @@ test('sequential discovers the return game after the first result', async ({
   // The return game is the only active game after the first result.
   const detail = await (await page.request.get(`/api/online/games/${id}`)).json();
   const siblingId = detail.match.games.find((game: { id: string }) => game.id !== id).id;
-  const switcher = page.getByRole('navigation', { name: 'Active games' });
+  await openMyGames(page);
+  const switcher = page.getByRole('navigation', { name: /^(Active games|My games)$/ });
   await expect(switcher.getByRole('button')).toHaveCount(1);
   await switcher.locator(`[data-game-id="${siblingId}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/online/games/${siblingId}$`));

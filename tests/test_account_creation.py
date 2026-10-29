@@ -147,3 +147,26 @@ def test_historical_modes_and_custom_agents_remain_readable_playable_but_cannot_
         assert moved.status_code == 200, moved.text
         assert moved.json()["total_moves"] == 1
         assert client.get(path + "/replay").json()["validated"]
+
+
+def test_only_the_account_bound_to_the_active_human_seat_can_move(client):
+    game = client.post("/api/games", json={"ruleset": "tablut"}).json()
+    played = client.post(
+        f"/api/games/{game['id']}/moves",
+        json={**game["legal_moves"][0], "version": game["version"]},
+    )
+    assert played.status_code == 200
+    other = client.app.state.auth.create_account(
+        "OtherSeat", "other-seat@example.test", "other-seat-password-123"
+    )
+    game = client.post("/api/games", json={"ruleset": "tablut"}).json()
+    stored = client.app.state.store.get_game(game["id"])
+    stored["players"]["defenders"]["account_id"] = other["id"]
+    client.app.state.store.update_game(stored, game["version"])
+    current = client.get(f"/api/games/{game['id']}").json()
+    denied = client.post(
+        f"/api/games/{game['id']}/moves",
+        json={**current["legal_moves"][0], "version": current["version"]},
+    )
+    assert denied.status_code == 403
+    assert client.get(f"/api/games/{game['id']}").json() == current

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { Modal } from './App';
+import { navigate } from './navigation';
 import type { Game } from './types';
 
 const initial: Game = {
@@ -78,8 +79,11 @@ function setup(
       );
     if (/^\/api\/games\/g[12]\/ai-move$/.test(path))
       return moveResponse ?? json({ ...game, id: path.split('/')[3], version: 1, winner: 'draw' });
-    if (path === '/api/games/g1/restart')
-      return json({ ...game, id: 'g2', turn: 'defenders', version: 0 });
+    if (path === '/api/games/g1/replay')
+      return json({
+        validated: true,
+        states: [initial, ...game.moves.map((_, i) => ({ ...game, cursor: i + 1, ply: i + 1 }))],
+      });
     if (path === '/api/games/g1/moves')
       return (
         moveResponse ??
@@ -107,39 +111,6 @@ function setup(
   return fetcher;
 }
 describe('game flow', () => {
-  it('restarts only after confirmation and preserves the current game when cancelled', async () => {
-    const fetcher = setup(undefined, {
-      ...initial,
-      mode: 'human-ai',
-      creation_policy: 1,
-      players: {
-        ...initial.players,
-        defenders: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
-      },
-    });
-    render(<App />);
-    const restart = await screen.findByRole('button', { name: 'Restart game' });
-    restart.focus();
-    fireEvent.click(restart);
-    expect(screen.getByRole('dialog', { name: 'Restart game?' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
-    expect(fetcher.mock.calls.filter(([path]) => path.endsWith('/restart'))).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(restart).toHaveFocus();
-    expect(localStorage.getItem('hnefatafl-game')).toBe('g1');
-    fireEvent.click(restart);
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm restart' }));
-    await waitFor(() => expect(localStorage.getItem('hnefatafl-game')).toBe('g2'));
-    const calls = fetcher.mock.calls.filter(([path]) => path.endsWith('/restart'));
-    expect(calls).toHaveLength(1);
-    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 0 });
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await waitFor(
-      () =>
-        expect(fetcher.mock.calls.some(([path]) => path === '/api/games/g2/ai-move')).toBe(true),
-      { timeout: 5000 },
-    );
-  });
   it.each([false, true])(
     'hides AI playback controls for a completed record (replay: %s)',
     async (replay) => {
@@ -190,51 +161,82 @@ describe('game flow', () => {
       );
     },
   );
-  it.each(['undo', 'redo', 'seek'])(
-    'automatically plays an AI turn reached through %s',
-    async (mutation) => {
-      const saved: Game = {
-        ...initial,
-        mode: 'human-ai',
-        turn: 'defenders',
-        cursor: 1,
-        total_moves: 2,
-        moves: [
-          { source: 0, target: 1, side: 'attackers' },
-          { source: 8, target: 7, side: 'defenders' },
-        ],
-        players: {
-          ...initial.players,
-          attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
-        },
-      };
-      const fetcher = setup(undefined, saved);
-      const original = fetcher.getMockImplementation()!;
-      fetcher.mockImplementation((path, options) =>
-        path === `/api/games/g1/${mutation}`
-          ? json({ ...saved, turn: 'attackers', version: 1 })
-          : original(path, options),
-      );
-      render(<App />);
-      await screen.findByRole('grid');
-      fireEvent.click(
-        screen.getByRole('button', {
-          name:
-            mutation === 'seek'
-              ? 'Replay to move 2'
-              : mutation === 'undo'
-                ? 'Undo move'
-                : 'Redo move',
-        }),
-      );
-      await waitFor(
-        () => expect(fetcher.mock.calls.some(([path]) => path.endsWith('/ai-move'))).toBe(true),
-        { timeout: 5000 },
-      );
-      const call = fetcher.mock.calls.find(([path]) => path.endsWith('/ai-move'))!;
-      expect(JSON.parse(String(call[1]?.body))).toEqual({ version: 1 });
+  it.each([false, true])(
+    'keeps historical positions read-only and stops AI turns (mobile: %s)',
+    async (mobile) => {
+      vi.useFakeTimers();
+      try {
+        vi.stubGlobal('matchMedia', () => ({
+          matches: mobile,
+          addEventListener() {},
+          removeEventListener() {},
+        }));
+        const saved: Game = {
+          ...initial,
+          mode: 'human-ai',
+          cursor: 2,
+          total_moves: 2,
+          moves: [
+            { source: 0, target: 1, side: 'attackers' },
+            { source: 8, target: 7, side: 'defenders' },
+          ],
+          players: {
+            ...initial.players,
+            attackers: { name: 'Shield bearer', kind: 'ai', config: { algorithm: 'baseline' } },
+          },
+        };
+        const fetcher = setup(undefined, saved);
+        await act(async () => {
+          render(<App />);
+        });
+        expect(
+          screen.queryByRole('button', { name: /Undo move|Redo move|Restart game|New game/ }),
+        ).not.toBeInTheDocument();
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Replay to move 1' }));
+        });
+        expect(
+          screen.getAllByRole('gridcell').every((cell) => (cell as HTMLButtonElement).disabled),
+        ).toBe(true);
+        fireEvent.click(screen.getByRole('gridcell', { name: 'a3, attacker' }));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3000);
+        });
+        expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(
+          0,
+        );
+        expect(fetcher.mock.calls.filter(([path]) => path.endsWith('/replay'))).toHaveLength(1);
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Return to live board' }));
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(900);
+        });
+        const calls = fetcher.mock.calls.filter(([path]) => path.endsWith('/ai-move'));
+        expect(calls).toHaveLength(1);
+        expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 0 });
+        expect(fetcher.mock.calls.some(([path]) => path.endsWith('/seek'))).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
+  it('does not let another account play the active human seat', async () => {
+    const fetcher = setup(undefined, {
+      ...initial,
+      players: {
+        ...initial.players,
+        attackers: { ...initial.players.attackers, account_id: 'another-account' },
+      },
+    });
+    render(<App />);
+    await screen.findByRole('grid');
+    expect(
+      screen.getAllByRole('gridcell').every((cell) => (cell as HTMLButtonElement).disabled),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('gridcell', { name: 'a3, attacker' }));
+    expect(fetcher.mock.calls.some(([path]) => path.endsWith('/moves'))).toBe(false);
+  });
   it('automatically retries a failed AI turn without requiring a resume action', async () => {
     const fetcher = setup(undefined, {
       ...initial,
@@ -303,7 +305,9 @@ describe('game flow', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('gridcell', { name: 'a3, attacker' }));
     fireEvent.click(screen.getByRole('gridcell', { name: 'b3, empty, legal move' }));
-    fireEvent.click(screen.getByRole('button', { name: /New game/ }));
+    await act(async () => {
+      navigate('/dashboard?setup=single-player');
+    });
     fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
     await screen.findByRole('gridcell', { name: 'c3, attacker' });
     await act(async () =>

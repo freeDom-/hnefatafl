@@ -285,9 +285,9 @@ it('replay navigation stays local and prevents historical moves, with no assista
   expect(screen.getAllByRole('gridcell')[source]).toHaveAccessibleName(/attacker/);
   fireEvent.click(screen.getAllByRole('gridcell')[source]);
   fireEvent.click(screen.getAllByRole('gridcell')[target]);
-  fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Replay to move 1' }));
   expect(screen.getAllByRole('gridcell')[target]).toHaveAccessibleName(/attacker/);
-  fireEvent.click(screen.getByRole('button', { name: 'Return to live board' }));
+  expect(screen.queryByRole('button', { name: 'Return to live board' })).toBeNull();
   expect(
     fetcher.mock.calls.every(
       ([path, opts]) => !path.includes('/api/games/') && opts?.method !== 'POST',
@@ -427,10 +427,12 @@ it('opens personal review with scoped reads only, effective void status and loca
   history.replaceState(null, '', `/online/games/${current.id}/review`);
   render(<Online />);
   await screen.findByRole('heading', { name: 'Online game review' });
-  await screen.findByRole('button', { name: 'Next move' });
+  await screen.findByRole('button', { name: 'Replay to move 1' });
   expect(screen.getByText('Lifecycle: Voided')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
-  expect(screen.getByText('Move 1 of 1')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Replay to move 1' }));
+  expect(screen.getByRole('button', { name: 'Replay to move 1' }).parentElement).toHaveClass(
+    'current',
+  );
   expect(screen.queryByRole('button', { name: 'Concede' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Return to live board' })).toBeNull();
   expect(

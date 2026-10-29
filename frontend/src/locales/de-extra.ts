@@ -1,9 +1,7 @@
 const translations: Record<string, string> = {
   'Game options': 'Spieloptionen',
-  'Restart game?': 'Partie neu starten?',
-  'Confirm restart': 'Neustart bestätigen',
-  'Start a new game with the same setup? The current game will be kept.':
-    'Eine neue Partie mit denselben Einstellungen starten? Die aktuelle Partie bleibt erhalten.',
+  'Read-only history': 'Schreibgeschützter Verlauf',
+  'Loading history…': 'Verlauf wird geladen…',
   'Loading running games…': 'Laufende Partien werden geladen…',
   'Some running games could not be loaded.':
     'Einige laufende Partien konnten nicht geladen werden.',

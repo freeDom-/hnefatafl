@@ -527,8 +527,8 @@ def test_current_account_writes_store_result_metadata(world):
         ("moves", {"source": 3, "target": 2}),
         ("undo", {}),
         ("redo", {}),
-        ("seek", {"cursor": 0}),
-        ("moves", {"source": 3, "target": 1}),
+        ("seek", {"cursor": 1}),
+        ("ai-move", {}),
     ):
         response = client.post(
             f"/api/games/{game['id']}/{operation}", json={"version": game["version"], **payload}
@@ -549,8 +549,8 @@ def test_current_account_writes_store_result_metadata(world):
         f"/api/games/{completed['id']}/moves",
         json={"version": replayed.json()["version"], "source": 3, "target": 1},
     )
-    assert branch.status_code == 200
-    assert_stored(branch.json())
+    assert branch.status_code == 409
+    assert_stored(client.get(f"/api/games/{completed['id']}").json(), "draw")
     body = client.get("/api/personal/single-player").json()
     existing = client.get("/api/stats").json()
     assert all(body["totals"][key] == existing[key] for key in body["totals"])

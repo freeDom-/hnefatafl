@@ -26,11 +26,11 @@ export default function Battlefield({
 }: {
   label?: string;
   board: ReactNode;
-  toolbar: ReactNode;
+  toolbar?: ReactNode;
   children?: ReactNode;
 }) {
   return (
-    <section className="battlefield" aria-label={label}>
+    <section className={`battlefield${toolbar ? ' has-toolbar' : ''}`} aria-label={label}>
       <div className="board-stage">{board}</div>
       {toolbar}
       {children && <div className="battlefield-controls">{children}</div>}

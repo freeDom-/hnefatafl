@@ -29,8 +29,9 @@ import GameDetailsPanel from './GameDetailsPanel';
 import GameResult from './GameResult';
 import ArmiesPanel from './ArmiesPanel';
 import HistoryPanel from './HistoryPanel';
-import Battlefield, { BoardToolbar } from './Battlefield';
+import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
+import { usePlayHistory } from './usePlayHistory';
 
 type Tab =
   | 'statistics'
@@ -71,20 +72,28 @@ export default function App() {
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [models, setModels] = useState<Model[]>([]);
-  const [game, setGame] = useState<Game | null>(null);
+  const [liveGame, setGame] = useState<Game | null>(null);
+  const playHistory = usePlayHistory(liveGame);
+  const game = playHistory.game;
+  const reviewingRef = playHistory.cursorRef;
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [restartOpen, setRestartOpen] = useState(false);
   const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
   const aiLock = useRef(false);
 
   const currentGame = useRef<Game | null>(null);
   const loadedRoute = useRef<string | null>(null);
-  currentGame.current = game;
-  const analysis = useGameAnalysis(game, tab === 'play');
+  currentGame.current = liveGame;
+  const analysis = useGameAnalysis(
+    game,
+    tab === 'play',
+    playHistory.reviewing,
+    '/games',
+    playHistory.reviewing,
+  );
 
   const reportError = useCallback((message: unknown) => {
     notify.error(errorMessage(message));
@@ -162,7 +171,12 @@ export default function App() {
 
   const action = useCallback(async (name: string, body: Record<string, unknown> = {}) => {
     const active = currentGame.current;
-    if (!active || aiLock.current) return;
+    if (
+      !active ||
+      aiLock.current ||
+      ((name === 'moves' || name === 'ai-move') && reviewingRef.current !== null)
+    )
+      return false;
     aiLock.current = true;
     setBusy(true);
     try {
@@ -178,7 +192,9 @@ export default function App() {
           navigate(`/games/${next.id}`);
         }
         setSelected(null);
+        return true;
       }
+      return false;
     } catch (e) {
       if (currentGame.current?.id === active.id) {
         reportError(e);
@@ -191,23 +207,66 @@ export default function App() {
         if (currentGame.current?.id === active.id && name === 'ai-move')
           setAiRetryDelay((delay) => Math.min(delay * 2, 30000));
       }
+      return false;
     } finally {
       setBusy(false);
       aiLock.current = false;
     }
   }, []);
   const activeAI =
-    !!game && !game.winner && !game.recorded_winner && game.players[game.turn]?.kind === 'ai';
+    !!liveGame &&
+    !liveGame.winner &&
+    !liveGame.recorded_winner &&
+    Object.values(liveGame.players).every(
+      (player) => !player.account_id || player.account_id === account?.id,
+    ) &&
+    liveGame.players[liveGame.turn]?.kind === 'ai';
   const outcome = game?.winner ?? game?.recorded_winner ?? null;
-  useEffect(() => setRestartOpen(false), [path, game?.id]);
   useEffect(() => {
-    if (!game || !activeAI || busy || restartOpen || tab !== 'play') return;
+    if (!liveGame || !activeAI || busy || playHistory.reviewing || tab !== 'play') return;
     const timer = window.setTimeout(() => void action('ai-move'), aiRetryDelay);
     return () => window.clearTimeout(timer);
-  }, [game, activeAI, busy, restartOpen, aiRetryDelay, action, tab]);
+  }, [liveGame, activeAI, busy, playHistory.reviewing, aiRetryDelay, action, tab]);
+
+  const mayPlay =
+    !!game &&
+    !playHistory.reviewing &&
+    game.players[game.turn]?.kind === 'human' &&
+    (!game.players[game.turn].account_id || game.players[game.turn].account_id === account?.id);
+  const returnToLive = async () => {
+    const active = currentGame.current;
+    if (!active) return;
+    if (!playHistory.reviewing && active.cursor === active.total_moves) return;
+    // Restore an old client's saved cursor without branching or changing its moves.
+    if (
+      active.cursor < active.total_moves &&
+      !(await action('seek', { cursor: active.total_moves }))
+    )
+      return;
+    if (active.cursor === active.total_moves) {
+      try {
+        const fresh = await api<Game>(`/games/${active.id}`);
+        if (currentGame.current?.id !== active.id) return;
+        setGame(fresh);
+      } catch (error) {
+        reportError(error);
+        return;
+      }
+    }
+    playHistory.showAt(null);
+    setSelected(null);
+  };
+  const showHistory = (ply: number) => {
+    if (!game || busy) return;
+    if (ply === game.total_moves) void returnToLive();
+    else {
+      playHistory.showAt(ply);
+      setSelected(null);
+    }
+  };
 
   const selectSquare = (index: number) => {
-    if (!game || game.winner || game.recorded_winner || busy || activeAI) return;
+    if (!game || !mayPlay || game.winner || game.recorded_winner || busy || activeAI) return;
     if (index < 0) {
       setSelected(null);
       return;
@@ -255,16 +314,6 @@ export default function App() {
           <button className="text-button" onClick={() => setRulesOpen(true)}>
             {t('Read the rules')}
             <span aria-hidden="true">↗</span>
-          </button>
-          <button
-            className="button secondary"
-            onClick={() => {
-              setNewOpen(true);
-              void refreshOptions().catch((e) => reportError(e));
-            }}
-            disabled={initializing}
-          >
-            {t('New game')}
           </button>
         </>
       }
@@ -350,8 +399,8 @@ export default function App() {
                     'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
                   )}
                 </p>
-                <button className="button primary" onClick={() => setNewOpen(true)}>
-                  {t('Choose your game')}
+                <button className="button primary" onClick={() => navigate('/dashboard')}>
+                  {t('Back to dashboard')}
                   <span aria-hidden="true">↗</span>
                 </button>
                 <div className="variant-pills">
@@ -415,57 +464,40 @@ export default function App() {
                         game={game}
                         selected={selected}
                         onSelect={selectSquare}
-                        disabled={busy || activeAI || !!game.winner || !!game.recorded_winner}
+                        disabled={busy || !mayPlay || !!game.winner || !!game.recorded_winner}
+                        readOnly={playHistory.reviewing || !mayPlay}
                         hint={analysis.report?.hint?.move ?? null}
-                      />
-                    }
-                    toolbar={
-                      <BoardToolbar
-                        leading={
-                          <>
-                            <button
-                              className="icon-button"
-                              aria-label={t('Undo move')}
-                              title={t('Undo')}
-                              onClick={() => void action('undo')}
-                              disabled={busy || game.cursor === 0}
-                            >
-                              ↶
-                            </button>
-                            <button
-                              className="icon-button"
-                              aria-label={t('Redo move')}
-                              title={t('Redo')}
-                              onClick={() => void action('redo')}
-                              disabled={busy || game.cursor >= game.total_moves}
-                            >
-                              ↷
-                            </button>
-                          </>
-                        }
-                        trailing={
-                          !game.winner &&
-                          !game.recorded_winner &&
-                          game.creation_policy === 1 &&
-                          (game.mode !== 'ai-ai' || account?.permissions.includes('all_data')) && (
-                            <button
-                              className="icon-button"
-                              aria-label={t('Restart game')}
-                              aria-haspopup="dialog"
-                              title={t('Restart')}
-                              onClick={() => setRestartOpen(true)}
-                              disabled={busy}
-                            >
-                              ⟲
-                            </button>
-                          )
-                        }
                       />
                     }
                   />
                 }
                 history={
                   <HistoryPanel
+                    status={
+                      playHistory.reviewing && (
+                        <div className="history-review-status">
+                          <span>{t('Read-only history')}</span>
+                          <button
+                            className="button secondary small"
+                            onClick={() => void returnToLive()}
+                            disabled={busy}
+                          >
+                            {t('Return to live board')}
+                          </button>
+                          {playHistory.loading && (
+                            <span role="status">{t('Loading history…')}</span>
+                          )}
+                          {playHistory.error && (
+                            <>
+                              <span role="alert">{t('Replay unavailable.')}</span>
+                              <button className="text-button" onClick={playHistory.retry}>
+                                {t('Retry')}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )
+                    }
                     count={game.total_moves}
                     entries={game.moves.map((move, i) => ({
                       ply: i + 1,
@@ -475,11 +507,11 @@ export default function App() {
                       side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
                       current: i === game.cursor - 1,
                       future: i >= game.cursor,
-                      onSeek: () => void action('seek', { cursor: i + 1 }),
+                      onSeek: () => showHistory(i + 1),
                       disabled: busy,
                     }))}
                     startAction={{
-                      onClick: () => void action('seek', { cursor: 0 }),
+                      onClick: () => showHistory(0),
                       disabled: busy || game.cursor === 0,
                     }}
                     footer={
@@ -521,35 +553,6 @@ export default function App() {
         <p>{t('An ancient game. An open horizon.')}</p>
         <span>{t('Made for thoughtful moves.')}</span>
       </footer>
-      {tab === 'play' && restartOpen && game && !outcome && (
-        <Modal
-          title={t('Restart game?')}
-          onClose={() => setRestartOpen(false)}
-          initialFocus=".restart-cancel"
-        >
-          <p className="confirmation-copy">
-            {t('Start a new game with the same setup? The current game will be kept.')}
-          </p>
-          <div className="modal-actions">
-            <button
-              className="button secondary restart-cancel"
-              onClick={() => setRestartOpen(false)}
-            >
-              {t('Cancel')}
-            </button>
-            <button
-              className="button"
-              disabled={busy}
-              onClick={() => {
-                setRestartOpen(false);
-                void action('restart');
-              }}
-            >
-              {t('Confirm restart')}
-            </button>
-          </div>
-        </Modal>
-      )}
       {tab !== 'online' && newOpen && (
         <NewGame
           rulesets={rulesets}

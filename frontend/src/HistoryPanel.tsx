@@ -17,12 +17,14 @@ export type HistoryEntry = {
 export default function HistoryPanel({
   count,
   entries,
+  status,
   startAction,
   footer,
   children,
 }: {
   count: number;
   entries: HistoryEntry[];
+  status?: ReactNode;
   startAction?: { onClick: () => void; disabled: boolean };
   footer?: ReactNode;
   children?: ReactNode;
@@ -65,7 +67,19 @@ export default function HistoryPanel({
         <span>{t('JOURNEY')}</span>
         <span>{t('SIDE')}</span>
       </div>
+      {status}
       <ol className="move-list" ref={list}>
+        {startAction && (
+          <li>
+            <button
+              className="history-start"
+              onClick={startAction.onClick}
+              disabled={startAction.disabled}
+            >
+              {t('↤ Starting position')}
+            </button>
+          </li>
+        )}
         {entries.map((entry) => (
           <li key={entry.ply} className={entry.current ? 'current' : entry.future ? 'future' : ''}>
             <button
@@ -90,15 +104,6 @@ export default function HistoryPanel({
             {t('with a first move.')}
           </p>
         </div>
-      )}
-      {startAction && (
-        <button
-          className="history-start text-button"
-          onClick={startAction.onClick}
-          disabled={startAction.disabled}
-        >
-          {t('↤ Starting position')}
-        </button>
       )}
       {!compact && footer}
       {!compact && children}

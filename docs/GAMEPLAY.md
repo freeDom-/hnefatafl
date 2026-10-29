@@ -23,9 +23,9 @@ the available viewport. Landscape places the panel beside the board.
 
 Move history scrolls inside the panel, keeping the board in place. All recorded
 moves are available in one list. Selecting a move still uses the existing replay
-and version-guarded seek behavior.
+without changing the saved game. AI turns and player input stop while viewing past positions.
 
-The AI plays automatically whenever it is its turn in an unfinished game;
+The AI plays automatically at the live position whenever it is its turn in an unfinished game;
 there are no pause/resume controls on mobile or desktop.
 Open **Game options** (the three dots) for advisor settings.
 **My games** lists your unfinished single-player games and active or waiting
@@ -75,26 +75,25 @@ failed creation does not replace it. Games live on the server; browser preferenc
 hold the current selection, language and appearance. Clearing browser storage
 is not deletion of saved games. A connection to the server is required.
 
-## Replay, undo and restart
+## Read-only history and live play
 
-Account gameplay uses `/games/{id}`, including refresh/reconnect. **Resume single-player**
-on Dashboard opens an unfinished account game. Seek, undo and redo inspect retained
-positions without changing the recorded final outcome or discarding future moves.
-Making a different legal continuation branches history. In unfinished games,
-returning to an AI turn resumes automatic play, including after undo or seek.
-Completed-game controls disable further play/restart even when viewing an earlier
-position. **Restart** is for unfinished games created under the current
-account/preset policy. A confirmation
-dialog lets you cancel before restarting. Confirming creates a
-new game with a fresh seed and preserves the old record. Historical pass-and-play
-or custom-model setups remain readable/playable but cannot create another game
-through Restart. AI vs AI restart rechecks administrator permission. Use New game for a new match after completion.
+Account gameplay uses `/games/{id}`, including refresh/reconnect. Select a move
+in the history list to inspect its position. History is local to your viewer:
+browsing never seeks, branches, or overwrites the saved game, and does not start
+new AI searches. Analytics shows retained estimates for past positions.
 
-Moves include expected versions; a stale concurrent request is rejected rather
-than overwriting another move. Replay uses saved moves, so completed histories
-remain viewable after deleting source models. The existing version-guarded game deletion API
-removes its moves/result and recalculates statistics. Existing local-player
-identities/tombstones remain readable in saved games; their CRUD routes are removed.
+Select **Return to live board**, or the latest move, to continue. Only the account
+bound to the active human seat can move; the AI plays automatically on its turn
+at the live position. Completed games remain read-only. The play screen has no
+previous/next move, undo/redo, restart, or New game buttons. Create new games on
+Dashboard instead. On mobile, the space beneath the board goes to the tabs.
+
+Moves include expected versions; stale concurrent requests cannot overwrite a
+newer move. The server also rejects human and AI moves from a rewound saved
+position. Existing administrative seek/restart APIs remain for compatibility;
+the play screen browses history through validated replay reads. Saved histories
+remain viewable after deleting source models. Deleting a game through the
+existing version-guarded API recalculates statistics.
 
 ## Get advice and read results
 

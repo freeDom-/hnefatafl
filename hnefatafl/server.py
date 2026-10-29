@@ -486,23 +486,7 @@ def create_app(
     def append_move(game: dict, move: Move, version: int, analysis: dict | None = None) -> dict:
         with catalog_lock:
             if game["cursor"] < len(game["moves"]):
-                available = (
-                    {model["id"] for model in models_list()}
-                    if any(
-                        player.get("config", {}).get("model_id")
-                        for player in referenced_agents(game)
-                    )
-                    else set()
-                )
-                if any(
-                    player.get("config", {}).get("model_id") not in available
-                    for player in referenced_agents(game)
-                    if player.get("config", {}).get("model_id")
-                ):
-                    fail(
-                        "This recorded game uses a deleted model. Start a new game to play another line.",
-                        409,
-                    )
+                fail("Past positions are read-only. Return to the live board to play.", 409)
             before = state_of(game)
             try:
                 after = apply_move(before, move)
@@ -883,8 +867,20 @@ def create_app(
             if request.background:
                 return background_analysis(game, state=state, cursor=request.cursor)
             settings = analytics_settings(game)
+            recorded = current_analysis(game, settings, state=state) or {
+                **missing_analysis(game),
+                "cursor": request.cursor,
+                "ply": state.ply,
+                "side_to_move": state.turn,
+                "position_key": position_key(state),
+            }
             return analysis_response(
-                current_analysis(game, settings, state=state) or missing_analysis(game)
+                {
+                    **recorded,
+                    "cursor": request.cursor,
+                    "status": "complete",
+                    "advisor_revision": settings["revision"],
+                }
             )
         if request.cursor != game["cursor"]:
             fail("This game changed. Reload it before analyzing again.", 409)
@@ -1111,9 +1107,14 @@ def create_app(
 
     @app.post("/api/games/{game_id}/moves")
     def make_move(game_id: str, request: MoveRequest):
+        from .security_context import principal
+
         game = game_or_404(game_id, request.version)
-        if game["players"][state_of(game).turn]["kind"] != "human":
+        player = game["players"][state_of(game).turn]
+        if player["kind"] != "human":
             fail("It is the computer's turn.", 409)
+        if player.get("account_id") and player["account_id"] != (principal.get() or {}).get("id"):
+            fail("Only the player whose turn it is may move.", 403)
         return append_move(game, Move(request.source, request.target), request.version)
 
     @app.post("/api/games/{game_id}/ai-move")
@@ -1121,6 +1122,8 @@ def create_app(
         from .ai import analysis_from_search, choose_move
 
         game = game_or_404(game_id, request.version)
+        if game["cursor"] < len(game["moves"]):
+            fail("Past positions are read-only. Return to the live board to play.", 409)
         state = state_of(game)
         player = game["players"][state.turn]
         if player["kind"] != "ai":

@@ -13,14 +13,12 @@ async function fits(page: Page) {
     .poll(() =>
       page.evaluate(() => {
         const board = document.querySelector('.board')!.getBoundingClientRect();
-        const toolbar = document.querySelector('.board-toolbar')!.getBoundingClientRect();
         const panel = document.querySelector('.mobile-inspector')!.getBoundingClientRect();
         return (
           document.documentElement.scrollHeight <= innerHeight &&
           document.documentElement.scrollWidth <= innerWidth &&
           board.top >= 0 &&
-          board.bottom <= toolbar.top &&
-          (innerWidth > innerHeight ? board.right <= panel.left : toolbar.bottom <= panel.top) &&
+          (innerWidth > innerHeight ? board.right <= panel.left : board.bottom <= panel.top) &&
           panel.bottom <= innerHeight &&
           Math.abs(board.width - board.height) < 2
         );
@@ -60,6 +58,24 @@ test('mobile board, tabs, scrollable replay and advisor stay within the viewport
     await page.goto('/games/' + game.id);
     await expect(page.getByRole('gridcell')).toHaveCount(size * size);
     await fits(page);
+    await expect(page.locator('.board-toolbar')).toHaveCount(0);
+    expect((await page.locator('.mobile-inspector').boundingBox())!.height).toBeGreaterThanOrEqual(
+      268,
+    );
+    const runes = await page.locator('.army-symbol .identity-rune').evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const rune = node.getBoundingClientRect(),
+          parent = node.parentElement!.getBoundingClientRect();
+        return (
+          Math.abs((rune.left + rune.right) / 2 - (parent.left + parent.right) / 2) < 1 &&
+          Math.abs((rune.top + rune.bottom) / 2 - (parent.top + parent.bottom) / 2) < 1 &&
+          rune.width <= parent.width + 1 &&
+          rune.height <= parent.height + 1
+        );
+      }),
+    );
+    expect(runes.length).toBeGreaterThan(0);
+    expect(runes.every(Boolean)).toBe(true);
     const original = await page.locator('.board').boundingBox();
     await gameTab(page, 'games');
     await expect(
@@ -119,13 +135,6 @@ test('mobile board, tabs, scrollable replay and advisor stay within the viewport
     expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(browsed);
     expect(await page.locator('.board').boundingBox()).toEqual(beforeScroll);
     await seek.scrollIntoViewIfNeeded();
-    await gameTab(page, 'games');
-    await page.getByRole('button', { name: 'Undo move', exact: true }).click();
-    await expect(page.locator('.mobile-play-subtitle')).toContainText(
-      'Move ' + (game.moves.length - 1),
-    );
-    await gameTab(page, 'moves');
-    await expect(list.locator('li.current')).toBeInViewport();
     const ply = Number((await seek.getAttribute('aria-label'))!.match(/\d+/)![0]);
     await seek.click();
     await expect(page.locator('.mobile-play-subtitle')).toContainText('Move ' + ply);

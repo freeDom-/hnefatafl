@@ -94,9 +94,13 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await expect(page.getByRole('button', { name: 'Replay to move 1', exact: true })).toBeVisible();
   await gameTab(page, 'analytics');
   await expect(panel).toHaveAttribute('aria-busy', 'false');
-  await page.getByRole('button', { name: 'Undo move', exact: true }).click();
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await gameTab(page, 'analytics');
   await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
   await page.reload();
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
   await gameTab(page, 'analytics');
   await expect(advisorOpinion.getByRole('meter')).toHaveAttribute('aria-valuenow', initialValue!);
   await openGameOptions(page);
@@ -183,9 +187,7 @@ test('the actual AI decision and the opponent’s background estimate survive re
     target: after.moves[0].target,
   });
   expect(replay.analysis.evaluations).toHaveLength(2);
-  // Hold the automatic move request while inspecting this retained position.
-  // The recorded searches/moves above and all analysis requests use the real API.
-  await page.route(`**/api/games/${game.id}/ai-move`, () => {});
+  // Loading an older saved position opens read-only history without advancing AI.
   await page.goto('/games/' + game.id);
   // The advisor selection is the display trigger; stored playing-agent evidence
   // still appears alongside the advisor.

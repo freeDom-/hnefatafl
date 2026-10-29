@@ -18,6 +18,7 @@ export function useGameAnalysis(
   visible: boolean,
   historical = false,
   basePath = '/games',
+  readOnlyHistory = false,
 ) {
   const gameId = game?.id ?? '';
   const currentGame = useRef(gameId);
@@ -164,7 +165,7 @@ export function useGameAnalysis(
         const report = await api<PositionAnalysis>(`${basePath}/${game.id}/analysis`, {
           version: game.version,
           cursor: game.cursor,
-          background: true,
+          background: !readOnlyHistory,
           historical,
         });
         if (!alive) return;
@@ -196,7 +197,16 @@ export function useGameAnalysis(
     };
     // Stored reports arrive with gameplay responses; requests are keyed explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, visible, needed, settingsPending, settingsConfirmed, attempt, historical]);
+  }, [
+    key,
+    visible,
+    needed,
+    settingsPending,
+    settingsConfirmed,
+    attempt,
+    historical,
+    readOnlyHistory,
+  ]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;
   return {

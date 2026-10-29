@@ -68,7 +68,7 @@ def test_version_is_required_and_strict(client):
     assert client.get("/api/games/nonexistent").status_code == 404
 
 
-def test_undo_redo_seek_and_branching_history(client):
+def test_history_navigation_is_read_only_until_returning_to_live(client):
     game = create(client, ruleset="brandubh")
     initial = game["board"]
     game = move(client, game)
@@ -86,9 +86,15 @@ def test_undo_redo_seek_and_branching_history(client):
         client.post(path + "/seek", json={"version": game["version"], "cursor": 999}).status_code
         == 400
     )
-    game = move(client, game, game["legal_moves"][-1])
-    assert game["total_moves"] == 1 and game["cursor"] == 1
-    assert client.post(path + "/redo", json={"version": game["version"]}).status_code == 400
+    before = client.get(path).json()
+    denied = client.post(
+        path + "/moves", json={**game["legal_moves"][-1], "version": game["version"]}
+    )
+    assert denied.status_code == 409 and "read-only" in denied.json()["detail"]
+    assert client.get(path).json() == before
+    game = client.post(path + "/seek", json={"version": game["version"], "cursor": 2}).json()
+    game = move(client, game)
+    assert game["total_moves"] == 3 and game["cursor"] == 3
     validated = client.get(path + "/replay")
     assert validated.status_code == 200
     assert validated.json()["validated"] is True
@@ -432,7 +438,7 @@ def test_upload_limit_uses_the_checkpoint_validator_limit(client, monkeypatch):
     assert not list((client.app.state.data_dir / "models").glob("upload-*.pt"))
 
 
-def test_replaying_finished_game_preserves_result_until_a_new_branch(client):
+def test_replaying_finished_game_preserves_result_and_cannot_branch(client):
     game = create(client, ruleset="brandubh")
     # A complete, legal king capture from the standard initial arrangement.
     for source, target in [(10, 8), (25, 46), (26, 25), (23, 44), (22, 23)]:
@@ -457,10 +463,13 @@ def test_replaying_finished_game_preserves_result_until_a_new_branch(client):
         "by_ruleset",
     ]:
         assert replay_stats[key] == before[key]
-    game = move(client, game, game["legal_moves"][-1])
-    assert game["recorded_winner"] is None and game["ended_at"] is None
-    assert game["total_moves"] == 1
-    assert client.get("/api/stats").json()["completed_games"] == 0
+    denied = client.post(
+        f"/api/games/{game['id']}/moves",
+        json={**game["legal_moves"][-1], "version": game["version"]},
+    )
+    assert denied.status_code == 409
+    assert client.get(f"/api/games/{game['id']}").json() == game
+    assert client.get("/api/stats").json()["completed_games"] == 1
 
 
 def test_cancellation_waits_for_actual_worker_exit(client):
@@ -739,7 +748,7 @@ def test_model_delete_preserves_completed_legacy_names_records_and_checkpoints(c
         f"/api/games/{game['id']}/seek", json={"cursor": 0, "version": record["version"]}
     ).json()
     branch = client.post(f"/api/games/{game['id']}/ai-move", json={"version": viewed["version"]})
-    assert branch.status_code == 404
+    assert branch.status_code == 409
     viewed = client.post(
         f"/api/games/{game['id']}/seek", json={"cursor": 1, "version": viewed["version"]}
     ).json()
@@ -911,3 +920,18 @@ def test_mcts_parameter_variants_keep_separate_records(client, parameter, value)
     assert len({row["variant_id"] for row in rows}) == 2
     assert rows[0]["config"][parameter] != rows[1]["config"][parameter]
     assert all(row["games"] == 1 and row["wins"] == 1 for row in rows)
+
+
+def test_historical_ai_turn_is_rejected_before_search(client, monkeypatch):
+    game = create(client, ruleset="brandubh", mode="ai-ai", seed=3)
+    path = f"/api/games/{game['id']}"
+    game = client.post(path + "/ai-move", json={"version": game["version"]}).json()
+    viewed = client.post(path + "/seek", json={"version": game["version"], "cursor": 0}).json()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Historical positions must not start an AI search")
+
+    monkeypatch.setattr("hnefatafl.ai.choose_move", forbidden)
+    denied = client.post(path + "/ai-move", json={"version": viewed["version"]})
+    assert denied.status_code == 409
+    assert client.get(path).json() == viewed

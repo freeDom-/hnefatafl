@@ -43,6 +43,9 @@
     gap: 8px;
     padding: 0 12px max(8px, env(safe-area-inset-bottom));
   }
+  .mobile-game-layout:has(> .battlefield:not(.has-toolbar)) {
+    --mobile-inspector-height: 268px;
+  }
   .mobile-play-header {
     display: flex;
     align-items: center;
@@ -131,11 +134,15 @@
   }
   .mobile-game-layout > .battlefield {
     display: grid;
-    grid-template-rows: minmax(0, 1fr) 44px auto;
-    gap: 4px;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
     width: 100%;
     min-height: 0;
     min-width: 0;
+  }
+  .mobile-game-layout > .battlefield.has-toolbar {
+    grid-template-rows: minmax(0, 1fr) 44px auto;
+    gap: 4px;
   }
   .mobile-game-layout .board-stage {
     display: grid;
@@ -278,11 +285,9 @@
     margin: 0;
     line-height: 1.4;
   }
-  .compact-history .history-start {
-    flex-shrink: 0;
-    min-height: 44px;
+  .compact-history .move-list .history-start {
+    display: block;
     margin: 0;
-    border-top: 1px solid var(--line);
     font-size: 11px;
   }
   .compact-analysis.panel {
@@ -381,6 +386,9 @@
     --mobile-inspector-height: 192px;
     grid-template-rows: 48px 52px minmax(0, 1fr) var(--mobile-inspector-height);
     gap: 6px;
+  }
+  .mobile-game-layout:has(> .battlefield:not(.has-toolbar)) {
+    --mobile-inspector-height: 240px;
   }
 }
 

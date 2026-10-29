@@ -906,9 +906,32 @@ h1 {
   line-height: 1.85;
 }
 .history-start {
-  margin: var(--gap-card) var(--gap-card) var(--gap-card);
+  margin: 0;
   color: var(--ui-subtle, #9ba28a);
   font-size: 0.5625rem;
+}
+.move-list .history-start {
+  display: block;
+}
+.history-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.history-review-status [role] {
+  flex-basis: 100%;
+}
+.history-review-status .button {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  white-space: normal;
+  font-size: 11px;
 }
 .history-footer {
   padding: var(--pad-panel-sm);

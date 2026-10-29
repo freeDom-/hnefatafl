@@ -44,12 +44,16 @@ export async function showMove(page: Page, ply: number) {
 }
 
 export async function openGameNavigation(page: Page) {
-  if (/^\/(games|online\/games)\//.test(new URL(page.url()).pathname))
-    await expect(page.getByRole('grid')).toBeVisible();
+  const play = /^\/(games|online\/games)\//.test(new URL(page.url()).pathname);
+  if (play) await expect(page.getByRole('grid')).toBeVisible();
   await closeGameOptions(page);
   const back = page.locator('.mobile-play-header a');
   if (await back.isVisible()) {
     await back.click();
+  } else if (play) {
+    await page.getByRole('button', { name: /^(Dashboard|Übersicht)$/ }).click();
+  }
+  if (play) {
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole('combobox', { name: /^(Language|Sprache)$/ })).toBeVisible();
   }

@@ -1,10 +1,19 @@
-import { openGameNavigation, openGameOptions, closeGameOptions, showMove } from './play-helpers';
+import {
+  openGameNavigation,
+  openGameOptions,
+  closeGameOptions,
+  showMove,
+  gameTab,
+} from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
-test('real gameplay, undo, redo, rules, records and mobile layout', async ({ page }) => {
-  // Hold browser time for the undo/redo assertions; live AI turns are covered below.
+test('real gameplay, read-only history, rules, records and mobile layout', async ({
+  page,
+  request,
+}) => {
+  // Control time while checking that history cannot start another AI turn.
   await page.clock.install({ time: new Date() });
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   const errors: string[] = [];
@@ -26,9 +35,19 @@ test('real gameplay, undo, redo, rules, records and mobile layout', async ({ pag
       exact: true,
     }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Undo move' }).click();
-  await expect(page.getByLabel('Defenders to move')).toBeVisible();
-  await page.getByRole('button', { name: 'Redo move' }).click();
+  const id = new URL(page.url()).pathname.split('/').pop()!;
+  const live = await (await request.get(`http://127.0.0.1:8001/api/games/${id}`)).json();
+  await expect(
+    page.getByRole('button', { name: /Undo move|Redo move|Restart game|New game/ }),
+  ).toHaveCount(0);
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await expect(page.getByText('Read-only history', { exact: true })).toBeVisible();
+  await expect(board.getByRole('gridcell').first()).toBeDisabled();
+  await page.clock.runFor(2500);
+  const retained = await (await request.get(`http://127.0.0.1:8001/api/games/${id}`)).json();
+  expect(retained).toEqual(live);
+  await page.getByRole('button', { name: 'Return to live board', exact: true }).click();
   await expect(page.getByLabel('Attackers to move')).toBeVisible();
   if (!(await page.locator('.mobile-game-layout').isVisible())) {
     await openGameOptions(page);
@@ -115,12 +134,25 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await openGameOptions(page);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
   await expect(analytics).toBeVisible();
+  const historicalAnalysis = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/games/${configured.id}/analysis`) &&
+      response.request().postDataJSON()?.historical === true,
+  );
   await analytics
     .getByRole('combobox', { name: 'Move advisor', exact: true })
     .selectOption('profile:baseline');
+  const retainedAnalysis = await historicalAnalysis;
+  expect(retainedAnalysis.request().postDataJSON()).toMatchObject({
+    historical: true,
+    background: false,
+    cursor: 0,
+  });
+  expect((await retainedAnalysis.json()).status).toBe('complete');
+  await closeGameOptions(page);
   await expect(
     page.getByRole('grid', { name: 'brandubh game board' }).locator('.hint-overlay'),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
   await openGameNavigation(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();

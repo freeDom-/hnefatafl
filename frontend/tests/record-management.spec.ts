@@ -1,4 +1,4 @@
-import { openGameNavigation, openGameOptions, closeGameOptions } from './play-helpers';
+import { openGameNavigation, openGameOptions, closeGameOptions, gameTab } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
@@ -48,7 +48,7 @@ async function statistics(request: APIRequestContext, query = '') {
   return response.json();
 }
 
-test('completed games have no restart control, including after undo in replay', async ({
+test('completed games have no restart control, including while browsing history', async ({
   page,
   request,
 }, info) => {
@@ -58,10 +58,10 @@ test('completed games have no restart control, including after undo in replay', 
   await page.goto('/games/' + completed.id);
   await expect(page.getByRole('grid')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Undo move', exact: true }).click();
-  await expect
-    .poll(async () => (await currentGame(page, request)).cursor)
-    .toBe(completed.cursor - 1);
+  await gameTab(page, 'moves');
+  await page.getByRole('button', { name: /Starting position/ }).click();
+  await expect(page.getByText('Read-only history', { exact: true })).toBeVisible();
+  expect((await currentGame(page, request)).cursor).toBe(completed.cursor);
   await expect(page.getByRole('button', { name: 'Restart game', exact: true })).toHaveCount(0);
   const replay = await currentGame(page, request);
   const denied = await request.post(`${api}/games/${replay.id}/restart`, {
@@ -70,7 +70,7 @@ test('completed games have no restart control, including after undo in replay', 
   expect(denied.status()).toBe(409);
 });
 
-test('new games and restarts receive fresh seeds; record deletion refreshes prominent statistics', async ({
+test('new games receive fresh seeds; record deletion refreshes prominent statistics', async ({
   page,
   request,
 }, info) => {
@@ -90,40 +90,18 @@ test('new games and restarts receive fresh seeds; record deletion refreshes prom
   }
 
   await closeGameOptions(page);
-  const restartRequests: string[] = [];
-  page.on('request', (request) => {
-    if (request.method() === 'POST' && request.url().endsWith('/restart'))
-      restartRequests.push(request.url());
-  });
-  await page.getByRole('button', { name: 'Restart game', exact: true }).click();
-  const confirmation = page.getByRole('dialog', { name: 'Restart game?', exact: true });
-  await expect(confirmation).toBeVisible();
-  await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
-  expect(restartRequests).toHaveLength(0);
-  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(confirmation).toHaveCount(0);
-  expect(restartRequests).toHaveLength(0);
-  expect(await page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBe(first.id);
-  await page.getByRole('button', { name: 'Restart game', exact: true }).click();
-  await confirmation.getByRole('button', { name: 'Confirm restart', exact: true }).click();
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game')))
-    .not.toBe(first.id);
-  const restarted = await currentGame(page, request);
-  expect(restartRequests).toHaveLength(1);
-  expect(restarted.seed).not.toBe(first.seed);
-  expect((await request.get(`${api}/games/${first.id}`)).ok()).toBe(true);
-
+  await expect(
+    page.getByRole('button', { name: /Undo move|Redo move|Restart game|New game/ }),
+  ).toHaveCount(0);
   await openGameNavigation(page);
   await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game')))
-    .not.toBe(restarted.id);
+    .not.toBe(first.id);
   const active = await currentGame(page, request);
   expect(active.seed).not.toBe(first.seed);
-  expect(active.seed).not.toBe(restarted.seed);
   await openGameNavigation(page);
   await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
 
