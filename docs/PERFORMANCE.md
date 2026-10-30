@@ -671,6 +671,13 @@ instead of overrunning by a full ~45 ms stabilizer. Raw numbers are in the
 
 ## Alpha-beta profiling and root-window pruning
 
+The follow-up [lazy Jarl measurements](benchmarks/training-lazy-jarl.md) implement
+priority-group successor construction for interior optimized searches. Known
+TT/killer/history order is frozen before recursion; stable static ordering is
+computed only inside demanded groups. Root and legacy construction remain eager.
+Equal-depth moves, values and searched nodes match the eager reference; the
+reported training-evaluation gains apply to the measured fixed-depth CPU suite.
+
 A follow-up investigation reproduced the reported bottlenecks. The full report is
 in [alpha-beta profiling and comparison](benchmarks/alpha-beta-profiling.md).
 The two findings that changed the code are:
