@@ -79,6 +79,11 @@ checkpoint settings and saved learning state. Update remote-worker code with the
 server so workers recognize the new parameters; no new worker protocol, model
 format or storage migration is needed.
 
+Pure-engine existence queries avoid building complete move lists during terminal
+adjudication; immutable board geometry is cached, and encirclement stops once an
+accessible defender disproves enclosure. Move order and adjudication remain the
+same. See [engine and self-play measurements](benchmarks/training-engine-fast-paths.md).
+
 ## Two different batch sizes
 
 | Setting | Default and accepted range | What changes |
