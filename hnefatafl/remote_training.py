@@ -136,20 +136,20 @@ def validate_inference_capabilities(capabilities: dict) -> None:
 
 
 def worker_compatible(config: dict, capabilities: dict) -> bool:
-    if config.get("replay_pipeline") == "packed" and "packed" not in capabilities.get(
-        "replay_pipelines", ["legacy"]
-    ):
-        return False
-    if config.get("replay_pipeline", "auto") == "legacy" and "legacy" not in capabilities.get(
-        "replay_pipelines", ["legacy"]
-    ):
-        return False
     if config.get("training_symmetry_mode", "off") not in capabilities.get(
         "training_symmetry_modes", ["off"]
     ):
         return False
     if config.get("inference_cache_mode", "off") not in capabilities.get(
         "inference_cache_modes", ["off"]
+    ):
+        return False
+    if config.get("replay_pipeline") == "packed" and "packed" not in capabilities.get(
+        "replay_pipelines", ["legacy"]
+    ):
+        return False
+    if config.get("replay_pipeline", "auto") == "legacy" and "legacy" not in capabilities.get(
+        "replay_pipelines", ["legacy"]
     ):
         return False
     device = config.get("device", "auto")
@@ -752,13 +752,6 @@ class RemoteTraining:
                         # reject unknown configuration keys, even default values.
                         configuration.pop("inference_backend", None)
                         configuration.pop("inference_device", None)
-                    if "training_symmetry_modes" not in worker.get("capabilities", {}):
-                        # Workers predating augmentation reject unknown keys; OFF is
-                        # their behavior and worker_compatible() excludes random_d4.
-                        configuration.pop("training_symmetry_mode", None)
-                    if "inference_cache_modes" not in worker.get("capabilities", {}):
-                        configuration.pop("inference_cache_mode", None)
-                        configuration.pop("inference_cache_capacity", None)
                     if "replay_pipelines" not in worker.get("capabilities", {}):
                         configuration.pop("replay_pipeline", None)
                     elif (
@@ -766,6 +759,13 @@ class RemoteTraining:
                         and "auto" not in worker["capabilities"]["replay_pipelines"]
                     ):
                         configuration["replay_pipeline"] = "legacy"
+                    if "training_symmetry_modes" not in worker.get("capabilities", {}):
+                        # Workers predating augmentation reject unknown keys; OFF is
+                        # their behavior and worker_compatible() excludes random_d4.
+                        configuration.pop("training_symmetry_mode", None)
+                    if "inference_cache_modes" not in worker.get("capabilities", {}):
+                        configuration.pop("inference_cache_mode", None)
+                        configuration.pop("inference_cache_capacity", None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
@@ -842,10 +842,10 @@ class RemoteTraining:
                     omitted.add("training_symmetry_mode")
                 if "inference_cache_modes" not in worker.get("capabilities", {}):
                     omitted.update({"inference_cache_mode", "inference_cache_capacity"})
-                if "inference_backends" not in worker.get("capabilities", {}):
-                    omitted.update({"inference_backend", "inference_device"})
                 if "replay_pipelines" not in worker.get("capabilities", {}):
                     omitted.add("replay_pipeline")
+                if "inference_backends" not in worker.get("capabilities", {}):
+                    omitted.update({"inference_backend", "inference_device"})
                 if omitted:
                     from .models import load_checkpoint
                     import torch
