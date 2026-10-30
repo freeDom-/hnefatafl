@@ -213,6 +213,8 @@ export default function TrainingResumeDialog({
                 [
                   'model_name',
                   'evaluation_opponent',
+                  'evaluation_mode',
+                  'evaluation_inference_backend',
                   'device',
                   'mixed_precision',
                   'save_all_best',
