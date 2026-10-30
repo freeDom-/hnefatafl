@@ -154,6 +154,34 @@ def test_legacy_workers_keep_default_jobs_but_reject_explicit_new_modes():
     assert worker_compatible({**cfg, "evaluation_mode": "batched"}, {"evaluation_batching": True})
 
 
+def test_real_openvino_cpu_training_reports_selected_evaluation_backend(tmp_path):
+    pytest.importorskip("openvino")
+    from hnefatafl.inference_backends import openvino_capabilities, supports_openvino
+
+    if not supports_openvino(openvino_capabilities(), "CPU"):
+        pytest.skip("Operational OpenVINO CPU plugin unavailable")
+    result = train(
+        {
+            "preset": "smoke",
+            "device": "cpu",
+            "cpu_threads": 1,
+            "inference_backend": "openvino",
+            "inference_device": "CPU",
+            "evaluation_inference_backend": "training",
+            "max_game_plies": 2,
+            "evaluation_max_plies": 2,
+            "evaluation_time_limit": 30,
+            "output_dir": str(tmp_path / "run"),
+            "registry_dir": str(tmp_path / "models"),
+        }
+    )
+    assert result["metrics"]["updates"] > 0
+    performance = result["metrics"]["performance"]
+    assert performance["evaluation_inference_backend"] == "openvino"
+    assert performance["evaluation_inference_device"] == "CPU"
+    assert result["metrics"]["evaluation"]["performance"]["inference_backend"] == "openvino"
+
+
 def test_real_updates_resume_and_batched_evaluation(tmp_path):
     config = {
         "preset": "smoke",
