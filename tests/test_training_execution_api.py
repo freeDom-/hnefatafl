@@ -46,6 +46,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         "inference_batch_size": 12,
         "inference_cache_mode": "exact",
         "inference_cache_capacity": 128,
+        "search_workers": 2,
     }
     response = client.post(
         "/api/training/jobs",
@@ -66,6 +67,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
                     "package_version": client.app.version,
                     "evaluation_batching": True,
                     "inference_cache_modes": ["off", "exact"],
+                    "parallel_search": True,
                     "training_symmetry_modes": ["off", "random_d4"],
                 }
             },

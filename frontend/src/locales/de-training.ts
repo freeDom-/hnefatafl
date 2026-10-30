@@ -1,4 +1,5 @@
 const translations: Record<string, string> = {
+  'CPU search processes (0 disables)': 'CPU-Suchprozesse (0 deaktiviert)',
   'Import config.json': 'config.json importieren',
   'Importing configuration…': 'Konfiguration wird importiert…',
   'Load parameters from an exported config.json. Review them before starting; importing never starts a job.':

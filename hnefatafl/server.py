@@ -1893,6 +1893,7 @@ def create_app(
         "mixed_precision",
         "save_all_best",
         "cpu_threads",
+        "search_workers",
         "resume",
         "model_name",
     }

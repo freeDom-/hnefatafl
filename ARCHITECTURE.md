@@ -154,7 +154,10 @@ online games are rejected by the backend and never expose assistance.
 ## Training execution and inference
 
 Self-play uses sequential execution or cooperatively interleaves independent games
-through one shared model. Each dependent MCTS simulation waits for its own leaf
+through one shared model. Optional `search_workers` adds persistent spawned CPU
+actors: CPU inference uses frozen actor snapshots, while CUDA/OpenVINO inference
+stays parent-owned. Replay remains ordered and buffered work bounded; failure or
+cancellation closes the pool. The default remains zero process workers. Each dependent MCTS simulation waits for its own leaf
 inference result; independent pending leaves can share a forward pass. Replay commits
 remain in game-index order. CUDA auto selects batching; PyTorch CPU/MPS auto stays sequential. Explicit
 OpenVINO auto selects batching with CPU optimization. An optional frozen

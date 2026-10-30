@@ -13,7 +13,7 @@ import random
 import time
 from copy import deepcopy
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 from torch.nn import functional as F
@@ -93,6 +93,7 @@ DEFAULTS = {
     "inference_device": "auto",
     "mixed_precision": True,
     "cpu_threads": 2,
+    "search_workers": 0,
     "output_dir": "data/training",
     "model_name": "Self-play learner",
     "save_all_best": False,
@@ -166,6 +167,7 @@ def normalize_config(configuration: dict) -> dict:
         "evaluation_concurrency": (1, 1024),
         "evaluation_batch_size": (1, 4096),
         "cpu_threads": (1, 64),
+        "search_workers": (0, 32),
         "self_play_concurrency": (1, 1024),
         "inference_batch_size": (1, 4096),
         "inference_cache_capacity": (1, 65536),
@@ -433,6 +435,7 @@ def generate_self_play(
     measure_cuda: bool = False,
     retain_examples: bool = True,
     backend: InferenceBackend | None = None,
+    search_pool=None,
 ) -> tuple[list[tuple[list[dict], dict]], dict]:
     """Generate an iteration's games, retaining a sequential reference path.
 
@@ -456,11 +459,28 @@ def generate_self_play(
                 measure_cuda=measure_cuda,
                 retain_examples=retain_examples,
                 backend=owned,
+                search_pool=search_pool,
             )
             performance.update(refresh)
             return games, performance
         finally:
             owned.close()
+
+    if config.get("search_workers", 0):
+        from .parallel_search import parallel_self_play
+
+        return parallel_self_play(
+            model,
+            config,
+            seed=seed,
+            should_stop=should_stop,
+            progress=progress,
+            on_game=on_game,
+            measure_cuda=measure_cuda,
+            retain_examples=retain_examples,
+            backend=backend,
+            search_pool=search_pool,
+        )
 
     from .self_play import SelfPlayMetrics, batched_self_play
 
@@ -811,7 +831,15 @@ def train(
 
     publish(stage="initializing")
     backend = None
+    search_pool = None
     try:
+        if config.get("search_workers", 0):
+            from .parallel_search import SearchPool
+
+            search_pool = SearchPool(config["search_workers"])
+        pool_options: dict[str, Any] = (
+            {"search_pool": search_pool} if search_pool is not None else {}
+        )
         initialization_started = time.monotonic()
         backend = create_inference(model, config)
         initialization_seconds = time.monotonic() - initialization_started
@@ -840,6 +868,7 @@ def train(
                 on_game=commit_game,
                 retain_examples=False,
                 backend=backend,
+                **pool_options,
             )
             performance.update(backend.info)
             performance.update(refresh)
@@ -919,6 +948,7 @@ def train(
                     seed=selection.context["seed"]
                     + (iteration * 1000000 if incumbent is not None else 0),
                     should_stop=should_stop,
+                    **pool_options,
                 )
             performance["evaluation_seconds"] = time.monotonic() - evaluation_started
             if device.type == "cuda":
@@ -1054,6 +1084,8 @@ def train(
     finally:
         if backend is not None:
             backend.close()
+        if search_pool is not None:
+            search_pool.close()
     if not checkpoint.exists():
         checkpoint_now(checkpoint)
     if not best_checkpoint.exists():

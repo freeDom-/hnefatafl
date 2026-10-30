@@ -1114,12 +1114,15 @@ def mcts_context(
     diagnostics: dict | None = None,
     progress: Callable[[dict], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    neural: bool | None = None,
 ) -> Generator[State, tuple[dict[Move, float], float], dict[Move, float]]:
     """Cooperative PUCT search yielding one dependent evaluation at a time.
 
     Send legal priors and a defender-relative value for each yielded position.
     Independent searches can share inference batches; this context never advances
     a dependent simulation until its evaluation has been supplied.
+    An explicit ``neural=True`` lets an external inference owner supply neural
+    leaves without passing a model object into the search process.
     """
     config = {"algorithm": "mcts", **(config or {})}
     budget = int(config.get("iterations", 80))
@@ -1137,7 +1140,7 @@ def mcts_context(
     rng = random.Random(config.get("seed", 0))
     model_path = config.get("model_path")
     model = config.get("_model")
-    neural = bool(model_path) or model is not None
+    neural = (bool(model_path) or model is not None) if neural is None else neural
     evaluator = _heuristic_evaluator(_heuristic_name(config))
     deadline = time.monotonic() + seconds
     root = _Node(state)

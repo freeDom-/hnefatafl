@@ -309,6 +309,7 @@ export default function TrainingCreationPanel({
             {numberField('checkpoint_frequency', config, update)}
             {numberField('max_game_plies', config, update)}
             {numberField('cpu_threads', config, update)}
+            {numberField('search_workers', config, update)}
             {numberField('seed', config, update)}
             <label className="checkbox-label">
               <input
