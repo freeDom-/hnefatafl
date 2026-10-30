@@ -47,6 +47,8 @@ export const trainingParameterLabels: Record<string, string> = {
   optimizer: 'Optimizer',
   self_play_mode: 'Self-play execution',
   evaluation_opponent: 'Evaluation opponent',
+  evaluation_mode: 'Evaluation execution',
+  evaluation_inference_backend: 'Evaluation inference backend',
   model_name: 'Model name',
   ruleset: 'Battlefield',
   search_space: 'Parameter search space (JSON)',
