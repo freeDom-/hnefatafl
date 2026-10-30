@@ -20,7 +20,18 @@ import time
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--feature", choices=["evaluation", "engine", "workers", "replay", "jarl"], required=True
+        "--feature",
+        choices=[
+            "evaluation",
+            "engine",
+            "selfplay",
+            "workers",
+            "workers-selfplay",
+            "replay",
+            "jarl",
+            "jarl-evaluation",
+        ],
+        required=True,
     )
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--variant", choices=["baseline", "candidate"], required=True)
@@ -28,6 +39,7 @@ def main():
         "--ruleset", default="brandubh", choices=["brandubh", "tablut", "copenhagen"]
     )
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
+    parser.add_argument("--replay-pipeline", choices=["auto", "packed", "legacy"], default="auto")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -36,7 +48,7 @@ def main():
     from hnefatafl.ai import choose_move
     from hnefatafl.engine import apply_move, legal_moves, new_game
     from hnefatafl.models import PolicyValueNet, encode_state
-    from hnefatafl.training import normalize_config, optimize_replay
+    from hnefatafl.training import generate_self_play, normalize_config, optimize_replay
     from hnefatafl.training_evaluation import evaluate_model
 
     torch.set_num_threads(1)
@@ -63,11 +75,45 @@ def main():
         }
     )
     if args.variant == "candidate":
+        required = {
+            "evaluation": "evaluation_mode",
+            "workers": "search_workers",
+            "workers-selfplay": "search_workers",
+            "replay": "replay_pipeline",
+        }.get(args.feature)
+        if required is not None and required not in config:
+            parser.error(
+                "Check out the corresponding optimization branch before measuring a candidate"
+            )
+        if args.feature == "engine":
+            import hnefatafl.engine as engine_module
+
+            if not hasattr(engine_module, "has_legal_move"):
+                parser.error(
+                    "Check out the engine optimization branch before measuring a candidate"
+                )
+        if args.feature in ("jarl", "jarl-evaluation"):
+            import hnefatafl.ai as ai_module
+
+            if not hasattr(ai_module, "_lazy_ordered"):
+                parser.error("Check out the Jarl optimization branch before measuring a candidate")
+    if args.feature == "jarl-evaluation":
+        config.update(
+            evaluation_opponent="jarl",
+            evaluation_games=4,
+            evaluation_max_plies=4,
+            evaluation_iterations=8,
+            evaluation_jarl_depth=2,
+            evaluation_mode="sequential",
+        )
+    if args.variant == "candidate":
         if args.feature == "evaluation":
             config.update(
                 evaluation_mode="batched", evaluation_concurrency=8, evaluation_batch_size=8
             )
-        if args.feature == "workers":
+        if args.feature == "replay":
+            config["replay_pipeline"] = args.replay_pipeline
+        if args.feature.startswith("workers"):
             config.update(search_workers=2, cpu_threads=1)
     elif args.feature == "evaluation":
         config["evaluation_mode"] = "sequential"
@@ -98,7 +144,14 @@ def main():
         )
     replay = (replay * (512 // len(replay) + 1))[:512]
     weights = {key: value.detach().clone() for key, value in model.state_dict().items()}
+    pool = None
+    if args.variant == "candidate" and args.feature.startswith("workers"):
+        from hnefatafl.parallel_search import SearchPool
+
+        pool = SearchPool(2)
+    options = {"search_pool": pool} if pool is not None else {}
     samples = []
+    warmup_seconds = None
     for repetition in range(args.repeats + 1):
         model.load_state_dict(weights)
         model.eval()
@@ -106,8 +159,44 @@ def main():
         if args.device == "cuda":
             torch.cuda.synchronize()
         started = time.perf_counter()
-        if args.feature in ("evaluation", "workers"):
-            result = evaluate_model(model, config)
+        if args.feature in ("evaluation", "workers", "jarl-evaluation"):
+            import hnefatafl.training_evaluation as evaluation_module
+
+            original = evaluation_module.choose_move
+            trace = {
+                "jarl_successors": 0,
+                "jarl_nodes": 0,
+                "jarl_evaluations": 0,
+                "jarl_lazy_successors_skipped": 0,
+                "jarl_interruptions": 0,
+            }
+            decisions = []
+
+            def measured_choice(state, settings, **kwargs):
+                details = kwargs.pop("diagnostics", {})
+                move = original(state, settings, diagnostics=details, **kwargs)
+                decisions.append(
+                    (
+                        state.board,
+                        state.turn,
+                        move.source,
+                        move.target,
+                        details.get("value"),
+                        details.get("completed_depth"),
+                    )
+                )
+                if settings["algorithm"] == "alpha_beta":
+                    for key in ("successors", "nodes", "evaluations", "lazy_successors_skipped"):
+                        trace["jarl_" + key] += details.get(key, 0)
+                    trace["jarl_interruptions"] += int("interrupted_depth" in details)
+                return move
+
+            if args.feature == "jarl-evaluation":
+                evaluation_module.choose_move = measured_choice
+            try:
+                result = evaluate_model(model, config, **options)
+            finally:
+                evaluation_module.choose_move = original
             work = [
                 {
                     key: row[key]
@@ -116,6 +205,23 @@ def main():
                 for row in result["games"]
             ]
             counters = result.get("performance", {})
+            if args.feature == "jarl-evaluation":
+                work = {"games": work, "decisions": decisions}
+                counters.update(trace)
+        elif args.feature in ("selfplay", "workers-selfplay"):
+            games, counters = generate_self_play(model, config, seed=42, **options)
+            work = [
+                (
+                    tuple(
+                        (row["input"].tolist(), row["actions"], row["probabilities"])
+                        for row in examples
+                    ),
+                    result["winner"],
+                    result["plies"],
+                    result["simulations"],
+                )
+                for examples, result in games
+            ]
         elif args.feature == "engine":
             work = []
             for _ in range(8):
@@ -125,7 +231,9 @@ def main():
                         work.append((child.board, child.winner, child.reason))
             counters = {"successors": len(work)}
         elif args.feature == "replay":
-            optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
+            optimizer = torch.optim.AdamW(
+                model.parameters(), lr=config["learning_rate"], weight_decay=config["weight_decay"]
+            )
             scaler = torch.amp.GradScaler("cuda", enabled=False)
             result = optimize_replay(
                 model,
@@ -145,7 +253,7 @@ def main():
             }
         else:
             work = []
-            counters = {"successors": 0, "evaluations": 0, "nodes": 0}
+            counters = {"successors": 0, "evaluations": 0, "nodes": 0, "lazy_successors_skipped": 0}
             for state in positions:
                 details = {}
                 move = choose_move(
@@ -158,13 +266,23 @@ def main():
                     },
                     diagnostics=details,
                 )
-                work.append((details["value"], details["completed_depth"]))
+                work.append(
+                    (details["value"], details["completed_depth"], move.source, move.target)
+                )
                 assert move in legal_moves(state)
                 for key in counters:
                     counters[key] += details.get(key, 0)
         if args.device == "cuda":
             torch.cuda.synchronize()
         elapsed = time.perf_counter() - started
+        if args.feature == "replay":
+            digest = hashlib.sha256()
+            for key, value in sorted(model.state_dict().items()):
+                digest.update(key.encode())
+                digest.update(value.detach().cpu().contiguous().numpy().tobytes())
+            work["weights_sha256"] = digest.hexdigest()
+        if not repetition:
+            warmup_seconds = elapsed
         if repetition:
             samples.append(
                 {
@@ -175,6 +293,8 @@ def main():
                     "counters": counters,
                 }
             )
+    if pool is not None:
+        pool.close()
     sources = {
         str(path.relative_to(args.source)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted((args.source / "hnefatafl").glob("*.py"))
@@ -186,6 +306,7 @@ def main():
         "device": args.device,
         "configuration": config,
         "samples": samples,
+        "warmup_seconds": warmup_seconds,
         "environment": {
             "platform": platform.platform(),
             "python": sys.version,
