@@ -76,6 +76,7 @@ def device_info() -> dict[str, Any]:
         **openvino_capabilities(),
         "inference_cache_modes": ["off", "exact"],
         "training_symmetry_modes": ["off", "random_d4"],
+        "replay_pipelines": ["auto", "packed", "legacy"],
         "cpu_available": True,
         "torch_version": str(torch.__version__),
         "cuda_available": torch.cuda.is_available(),

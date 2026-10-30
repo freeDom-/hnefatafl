@@ -53,6 +53,7 @@ export const trainingParameterLabels: Record<string, string> = {
   study_seed: 'Study random seed',
   inference_cache_mode: 'Inference cache',
   training_symmetry_mode: 'Training symmetry augmentation',
+  replay_pipeline: 'Replay batching',
 };
 
 /** Human label (translation key) for one importable training parameter. */
@@ -76,6 +77,27 @@ export function SelfPlayModeField({
         <option value="auto">{t('Automatic · batched on CUDA/OpenVINO')}</option>
         <option value="sequential">{t('Sequential')}</option>
         <option value="batched">{t('Batched')}</option>
+      </select>
+    </label>
+  );
+}
+
+export function ReplayPipelineField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label>
+      {t('Replay batching')}
+      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        <option value="auto">{t('Automatic')}</option>
+        <option value="packed">{t('Packed replay')}</option>
+        <option value="legacy">{t('Legacy batching')}</option>
       </select>
     </label>
   );
