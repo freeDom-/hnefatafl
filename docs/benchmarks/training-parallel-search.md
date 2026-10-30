@@ -10,7 +10,9 @@ the parent/baseline also uses one math thread. CPU actors bind frozen CPU weight
 GPU/OpenVINO inference stays in the parent, with separate model queues/caches.
 CPU caches are per actor/model and never cross a weight generation. Ordered
 replay is bounded behind a slow earlier game. Default `search_workers: 0` keeps
-the existing scheduler. Workers advertise `parallel_search`; legacy workers can
+the existing scheduler. In combination with evaluation execution controls, an
+explicit `evaluation_mode: sequential` keeps evaluation serial while self-play
+can still use processes. Workers advertise `parallel_search`; legacy workers can
 claim disabled/default jobs without the unknown key, but cannot claim a positive
 worker count. Resume downloads apply the same legacy-config filtering.
 

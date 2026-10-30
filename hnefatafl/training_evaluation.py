@@ -162,8 +162,8 @@ def evaluate_model(
     model.eval()
     if previous is not None:
         previous.eval()
-    started = time.monotonic()
-    if config.get("search_workers", 0):
+    if config.get("search_workers", 0) and config.get("evaluation_mode", "auto") != "sequential":
+        parallel_started = time.monotonic()
         from .parallel_search import parallel_evaluation
 
         outcomes, performance = parallel_evaluation(
@@ -184,10 +184,11 @@ def evaluate_model(
             "candidate_as_attacker": _summary(outcomes[::2]),
             "candidate_as_defender": _summary(outcomes[1::2]),
             "games": outcomes,
-            "duration": time.monotonic() - started,
+            "duration": time.monotonic() - parallel_started,
             "seed": seed,
             "performance": performance,
         }
+    started = time.monotonic()
     for game in range(config["evaluation_games"]):
         state = new_game(config["ruleset"])
         candidate_side = "attackers" if game % 2 == 0 else "defenders"

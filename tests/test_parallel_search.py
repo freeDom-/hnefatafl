@@ -198,6 +198,17 @@ def test_legacy_workers_can_claim_disabled_but_not_parallel_jobs():
     assert worker_compatible({**config, "search_workers": 2}, {"parallel_search": True})
 
 
+def test_explicit_sequential_evaluation_bypasses_process_pool(monkeypatch):
+    def forbidden(*args):
+        raise AssertionError("Explicit sequential evaluation must not create actors")
+
+    monkeypatch.setattr("hnefatafl.parallel_search.SearchPool", forbidden)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = {**settings(search_workers=2), "evaluation_mode": "sequential"}
+    result = evaluate_model(model, config)
+    assert result["game_count"] == 2 and "performance" not in result
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable")
 def test_cuda_models_stay_in_parent():
     model = PolicyValueNet("brandubh", 4, 0).cuda().eval()
