@@ -37,6 +37,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         defaults["inference_batch_size"],
     ) == ("auto", 16, 32)
     settings = {
+        "search_workers": 2,
         "self_play_mode": "batched",
         "self_play_concurrency": 7,
         "inference_batch_size": 12,
@@ -60,6 +61,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
             json={
                 "capabilities": {
                     "package_version": client.app.version,
+                    "parallel_search": True,
                     "inference_cache_modes": ["off", "exact"],
                     "training_symmetry_modes": ["off", "random_d4"],
                 }

@@ -77,6 +77,7 @@ def device_info() -> dict[str, Any]:
         "inference_cache_modes": ["off", "exact"],
         "training_symmetry_modes": ["off", "random_d4"],
         "cpu_available": True,
+        "parallel_search": True,
         "torch_version": str(torch.__version__),
         "cuda_available": torch.cuda.is_available(),
         "cuda_version": torch.version.cuda,

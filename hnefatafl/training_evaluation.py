@@ -147,6 +147,7 @@ def evaluate_model(
     previous: PolicyValueNet | None = None,
     seed: int | None = None,
     should_stop: Callable[[], bool] | None = None,
+    search_pool=None,
 ) -> dict:
     """Evaluate exactly the selected opponent with equal neural budgets per side."""
     context = evaluation_context(config)
@@ -162,6 +163,31 @@ def evaluate_model(
     if previous is not None:
         previous.eval()
     started = time.monotonic()
+    if config.get("search_workers", 0):
+        from .parallel_search import parallel_evaluation
+
+        outcomes, performance = parallel_evaluation(
+            model,
+            config,
+            context,
+            seed=seed,
+            previous=previous,
+            should_stop=should_stop,
+            search_pool=search_pool,
+        )
+        return {
+            **_summary(outcomes),
+            "opponent": context["opponent"],
+            "opponent_config": context["opponent_config"],
+            "context": context,
+            "opponent_identity": context_identity(context),
+            "candidate_as_attacker": _summary(outcomes[::2]),
+            "candidate_as_defender": _summary(outcomes[1::2]),
+            "games": outcomes,
+            "duration": time.monotonic() - started,
+            "seed": seed,
+            "performance": performance,
+        }
     for game in range(config["evaluation_games"]):
         state = new_game(config["ruleset"])
         candidate_side = "attackers" if game % 2 == 0 else "defenders"

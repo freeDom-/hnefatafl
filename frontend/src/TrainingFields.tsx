@@ -34,6 +34,7 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   max_game_plies: ['Self-play move limit', 2, 5000],
   evaluation_max_plies: ['Evaluation move limit', 2, 5000],
   cpu_threads: ['CPU threads', 1, 64],
+  search_workers: ['CPU search processes (0 disables)', 0, 32],
   seed: ['Random seed', 0, 4294967295],
 };
 
