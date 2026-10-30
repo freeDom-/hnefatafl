@@ -255,23 +255,24 @@ def test_cleanup_failure_keeps_job_available_for_retry(client, monkeypatch):
     assert client.delete("/api/training/jobs/not-a-valid-id").status_code == 404
 
 
-def test_training_list_cannot_reinsert_a_job_during_deletion(client, monkeypatch):
+@pytest.mark.parametrize("query", ["", "?summary=true"])
+def test_training_list_cannot_reinsert_a_job_during_deletion(client, monkeypatch, query):
     job, directory = saved_job(client)
     entered = threading.Event()
     release = threading.Event()
     store = client.app.state.store
     original = store.jobs
 
-    def paused():
-        jobs = original()
-        if not entered.is_set():
+    def paused(*, statuses=None, summary=False):
+        jobs = original(statuses=statuses, summary=summary)
+        if statuses is None and not entered.is_set():
             entered.set()
             assert release.wait(5)
         return jobs
 
     monkeypatch.setattr(store, "jobs", paused)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        listing = pool.submit(client.get, "/api/training/jobs")
+        listing = pool.submit(client.get, "/api/training/jobs" + query)
         assert entered.wait(5)
         deletion = pool.submit(client.delete, f"/api/training/jobs/{job['id']}")
         release.set()
