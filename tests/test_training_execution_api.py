@@ -64,6 +64,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
             json={
                 "capabilities": {
                     "package_version": client.app.version,
+                    "evaluation_batching": True,
                     "inference_cache_modes": ["off", "exact"],
                     "training_symmetry_modes": ["off", "random_d4"],
                 }

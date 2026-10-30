@@ -210,6 +210,9 @@ and cache. Evaluation stays FP32. `evaluation_inference_backend: training` opts
 into a fresh post-update OpenVINO graph when that backend is selected; default
 `pytorch` preserves the historical numerical backend. Alternate backend results
 use a separate benchmark identity. See [isolated evaluation evidence](benchmarks/training-evaluation-batching.md).
+Workers advertise `evaluation_batching`; legacy workers retain the sequential
+default and do not receive unknown execution keys, while explicit new modes
+require that capability. Resume downloads apply the same filtering.
 Queue waiting counts against wall deadlines, so compare completed search work
 and cutoff counts on the target worker before choosing concurrency.
 

@@ -145,6 +145,15 @@ def test_backend_separates_protocol_but_scheduling_does_not():
     )
 
 
+def test_legacy_workers_keep_default_jobs_but_reject_explicit_new_modes():
+    from hnefatafl.remote_training import worker_compatible
+
+    cfg = normalize_config({"preset": "smoke", "training_symmetry_mode": "off"})
+    assert worker_compatible(cfg, {})
+    assert not worker_compatible({**cfg, "evaluation_mode": "batched"}, {})
+    assert worker_compatible({**cfg, "evaluation_mode": "batched"}, {"evaluation_batching": True})
+
+
 def test_real_updates_resume_and_batched_evaluation(tmp_path):
     config = {
         "preset": "smoke",

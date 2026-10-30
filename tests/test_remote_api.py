@@ -394,6 +394,7 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
             "capabilities": {
                 "package_version": client.app.version,
                 "inference_backends": ["pytorch"],
+                "evaluation_batching": True,
                 "inference_cache_modes": ["off", "exact"],
                 "training_symmetry_modes": ["off", "random_d4"],
             }
