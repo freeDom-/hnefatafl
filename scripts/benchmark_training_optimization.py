@@ -74,6 +74,29 @@ def main():
             "training_symmetry_mode": "random_d4",
         }
     )
+    if args.variant == "candidate":
+        required = {
+            "evaluation": "evaluation_mode",
+            "workers": "search_workers",
+            "workers-selfplay": "search_workers",
+            "replay": "replay_pipeline",
+        }.get(args.feature)
+        if required is not None and required not in config:
+            parser.error(
+                "Check out the corresponding optimization branch before measuring a candidate"
+            )
+        if args.feature == "engine":
+            import hnefatafl.engine as engine_module
+
+            if not hasattr(engine_module, "has_legal_move"):
+                parser.error(
+                    "Check out the engine optimization branch before measuring a candidate"
+                )
+        if args.feature in ("jarl", "jarl-evaluation"):
+            import hnefatafl.ai as ai_module
+
+            if not hasattr(ai_module, "_lazy_ordered"):
+                parser.error("Check out the Jarl optimization branch before measuring a candidate")
     if args.feature == "jarl-evaluation":
         config.update(
             evaluation_opponent="jarl",
