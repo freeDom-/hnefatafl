@@ -29,6 +29,10 @@ const base: TrainingConfig = {
   training_symmetry_mode: 'random_d4',
   checkpoint_frequency: 1,
   evaluation_frequency: 1,
+  evaluation_mode: 'auto',
+  evaluation_concurrency: 16,
+  evaluation_batch_size: 32,
+  evaluation_inference_backend: 'pytorch',
   evaluation_opponent: 'shield_bearer',
   evaluation_time_limit: 10,
   evaluation_jarl_depth: 5,
@@ -62,6 +66,8 @@ export const trainingChoices: Record<string, string[]> = {
   inference_backend: ['pytorch', 'openvino'],
   optimizer: ['adamw', 'adam', 'sgd'],
   self_play_mode: ['auto', 'sequential', 'batched'],
+  evaluation_mode: ['auto', 'sequential', 'batched'],
+  evaluation_inference_backend: ['pytorch', 'training'],
   evaluation_opponent: ['shield_bearer', 'shield_maiden', 'jarl', 'champion'],
 };
 

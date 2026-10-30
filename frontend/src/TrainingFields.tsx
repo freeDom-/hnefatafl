@@ -23,6 +23,8 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   momentum: ['Momentum', 0, 1, 0.01],
   checkpoint_frequency: ['Checkpoint every (iterations)', 1, 10000],
   evaluation_frequency: ['Evaluate every (iterations)', 1, 10000],
+  evaluation_concurrency: ['Concurrent evaluation games', 1, 1024],
+  evaluation_batch_size: ['Evaluation inference batch size', 1, 4096],
   evaluation_games: ['Evaluation games (even)', 2, 10000, 2],
   evaluation_iterations: ['Evaluation search iterations', 1, 100000],
   evaluation_time_limit: ['Evaluation search time limit (seconds)', 0.001, 300, 0.01],

@@ -37,6 +37,10 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         defaults["inference_batch_size"],
     ) == ("auto", 16, 32)
     settings = {
+        "evaluation_mode": "batched",
+        "evaluation_concurrency": 4,
+        "evaluation_batch_size": 8,
+        "evaluation_inference_backend": "training",
         "self_play_mode": "batched",
         "self_play_concurrency": 7,
         "inference_batch_size": 12,
