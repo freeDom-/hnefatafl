@@ -234,7 +234,13 @@ InferenceBackend = TorchInference | OpenVINOInference
 
 def create_inference(model: PolicyValueNet, config: dict) -> InferenceBackend:
     if config.get("inference_backend", "pytorch") == "openvino":
-        return OpenVINOInference(model, config)
+        backend = OpenVINOInference(model, config)
+        if config.get("evaluation_inference_backend") == "training":
+            backend.info.update(
+                evaluation_inference_backend="openvino",
+                evaluation_inference_device=backend.target,
+            )
+        return backend
     return TorchInference(model, config)
 
 

@@ -74,6 +74,7 @@ def device_info() -> dict[str, Any]:
 
     return {
         **openvino_capabilities(),
+        "evaluation_batching": True,
         "inference_cache_modes": ["off", "exact"],
         "training_symmetry_modes": ["off", "random_d4"],
         "cpu_available": True,
