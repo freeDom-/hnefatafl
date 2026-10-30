@@ -27,6 +27,7 @@ const base: TrainingConfig = {
   weight_decay: 0.0001,
   momentum: 0.9,
   training_symmetry_mode: 'random_d4',
+  replay_pipeline: 'auto',
   checkpoint_frequency: 1,
   evaluation_frequency: 1,
   evaluation_mode: 'auto',
@@ -64,6 +65,7 @@ export const trainingChoices: Record<string, string[]> = {
   device: ['auto', 'cpu', 'cuda', 'mps'],
   inference_cache_mode: ['off', 'exact'],
   training_symmetry_mode: ['off', 'random_d4'],
+  replay_pipeline: ['auto', 'packed', 'legacy'],
   inference_backend: ['pytorch', 'openvino'],
   optimizer: ['adamw', 'adam', 'sgd'],
   self_play_mode: ['auto', 'sequential', 'batched'],
@@ -213,6 +215,7 @@ export function changeTrainingPlan(
     inference_cache_mode: previous.inference_cache_mode ?? 'off',
     inference_cache_capacity: previous.inference_cache_capacity ?? 4096,
     training_symmetry_mode: previous.training_symmetry_mode ?? 'random_d4',
+    replay_pipeline: previous.replay_pipeline ?? 'auto',
   };
 }
 

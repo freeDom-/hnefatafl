@@ -4,7 +4,7 @@ import { t } from './i18n';
 import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import { changeTrainingPlan, type TrainingPreset, type TrainingConfig } from './trainingPresets';
-import { numberField, SelfPlayModeField } from './TrainingFields';
+import { numberField, SelfPlayModeField, ReplayPipelineField } from './TrainingFields';
 import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
@@ -244,6 +244,11 @@ export default function TrainingCreationPanel({
           <div className="form-grid">
             {numberField('games', config, update)}
             {numberField('mcts_iterations', config, update)}
+            <ReplayPipelineField
+              value={String(config.replay_pipeline ?? 'auto')}
+              onChange={(value) => update('replay_pipeline', value)}
+              disabled={busy}
+            />
             <SelfPlayModeField
               value={String(config.self_play_mode)}
               onChange={(value) => update('self_play_mode', value)}

@@ -70,6 +70,7 @@ DEFAULTS = {
     "weight_decay": 0.0001,
     "momentum": 0.9,
     "training_symmetry_mode": "random_d4",
+    "replay_pipeline": "auto",
     "checkpoint_frequency": 1,
     "evaluation_opponent": "shield_bearer",
     "evaluation_mode": "auto",
@@ -217,6 +218,8 @@ def normalize_config(configuration: dict) -> dict:
         raise ValueError("model_name must contain 1–100 characters")
     if config["inference_cache_mode"] not in ("off", "exact"):
         raise ValueError("inference_cache_mode must be off or exact")
+    if config["replay_pipeline"] not in ("auto", "packed", "legacy"):
+        raise ValueError("replay_pipeline must be auto, packed or legacy")
     validate_mode(config["training_symmetry_mode"])
     normalize_inference(config)
     return config
@@ -583,49 +586,86 @@ def optimize_replay(
     in ``random_d4`` mode (one uniform D4 draw per presented example), so OFF
     consumes no extra random values and keeps its exact baseline stream.
     """
+    from .replay_pipeline import PackedReplay, ReplayBatches
+
     model.train()
     policy_losses: list[float] = []
     value_losses: list[float] = []
     updates = presented = 0
     augmenting = config["training_symmetry_mode"] == "random_d4"
     augmentation = AugmentationStats()
-    for epoch in range(config["epochs"]):
-        order = list(range(len(replay)))
-        rng.shuffle(order)
-        for start in range(0, len(order), config["batch_size"]):
-            if should_stop and should_stop():
-                raise InterruptedError("Training was cancelled")
-            batch = [replay[index] for index in order[start : start + config["batch_size"]]]
-            symmetries = sample_symmetries(augment_rng, len(batch)) if augmenting else None
-            inputs, target_policy, legal_mask, values = collate_batch(
-                batch, device, symmetries, augmentation
+    loader = (
+        ReplayBatches(PackedReplay(replay), device)
+        if config.get("replay_pipeline", "auto") == "packed"
+        or (config.get("replay_pipeline", "auto") == "auto" and device.type == "cuda")
+        else None
+    )
+    try:
+        for epoch in range(config["epochs"]):
+            order = list(range(len(replay)))
+            rng.shuffle(order)
+            batches = (
+                loader.epoch(order, config["batch_size"], augment_rng, augmenting, augmentation)
+                if loader
+                else None
             )
-            presented += len(batch)
-            optimizer.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device.type, enabled=mixed):
-                logits, predicted = model(inputs)
-                logits = logits.float().masked_fill(~legal_mask, -1e9)
-                policy_loss = -(target_policy * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
-                value_loss = F.mse_loss(predicted.float(), values)
-                loss = policy_loss + value_loss
-            if not torch.isfinite(loss):
-                raise ValueError("Non-finite training loss; reduce learning rate")
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-            scaler.step(optimizer)
-            scaler.update()
-            policy_losses.append(float(policy_loss.detach()))
-            value_losses.append(float(value_loss.detach()))
-            updates += 1
-        if on_epoch:
-            on_epoch(epoch + 1)
+            policy_epoch = []
+            value_epoch = []
+            for start in range(0, len(order), config["batch_size"]):
+                if should_stop and should_stop():
+                    raise InterruptedError("Training was cancelled")
+                count = min(config["batch_size"], len(order) - start)
+                if batches is not None:
+                    inputs, target_policy, legal_mask, values = next(batches)
+                else:
+                    batch = [replay[index] for index in order[start : start + config["batch_size"]]]
+                    symmetries = sample_symmetries(augment_rng, len(batch)) if augmenting else None
+                    inputs, target_policy, legal_mask, values = collate_batch(
+                        batch, device, symmetries, augmentation
+                    )
+                presented += count
+                optimizer.zero_grad(set_to_none=True)
+                with torch.autocast(device_type=device.type, enabled=mixed):
+                    logits, predicted = model(inputs)
+                    logits = logits.float().masked_fill(~legal_mask, -1e9)
+                    policy_loss = -(target_policy * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
+                    value_loss = F.mse_loss(predicted.float(), values)
+                    loss = policy_loss + value_loss
+                if not torch.isfinite(loss):
+                    raise ValueError("Non-finite training loss; reduce learning rate")
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+                scaler.step(optimizer)
+                scaler.update()
+                if device.type == "cuda":
+                    policy_epoch.append(policy_loss.detach())
+                    value_epoch.append(value_loss.detach())
+                else:
+                    policy_losses.append(float(policy_loss.detach()))
+                    value_losses.append(float(value_loss.detach()))
+                updates += 1
+            # Preserve individual batch metrics while avoiding two host scalar
+            # synchronizations on every CUDA update. Numerical checks stay live.
+            if policy_epoch:
+                policy_losses.extend(torch.stack(policy_epoch).cpu().tolist())
+                value_losses.extend(torch.stack(value_epoch).cpu().tolist())
+            if on_epoch:
+                on_epoch(epoch + 1)
+    finally:
+        if loader is not None:
+            loader.close()
     return {
         "policy_losses": policy_losses,
         "value_losses": value_losses,
         "updates": updates,
         "presented": presented,
         "augmentation": augmentation,
+        "pipeline": "legacy"
+        if loader is None
+        else "cuda_prefetch"
+        if device.type == "cuda"
+        else "packed",
     }
 
 
@@ -896,6 +936,7 @@ def train(
             policy_losses, value_losses = optimized["policy_losses"], optimized["value_losses"]
             updates, presented = optimized["updates"], optimized["presented"]
             augmentation = optimized["augmentation"]
+            performance["replay_pipeline"] = optimized["pipeline"]
             model.eval()
             performance["optimization_seconds"] = time.monotonic() - optimization_started
             summary = augmentation.summary(

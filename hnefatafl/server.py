@@ -1871,6 +1871,7 @@ def create_app(
         "weight_decay",
         "momentum",
         "training_symmetry_mode",
+        "replay_pipeline",
         "checkpoint_frequency",
         "evaluation_frequency",
         "evaluation_opponent",

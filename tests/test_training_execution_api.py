@@ -45,6 +45,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         "evaluation_inference_backend": "training",
         "inference_batch_size": 12,
         "inference_cache_mode": "exact",
+        "replay_pipeline": "packed",
         "inference_cache_capacity": 128,
         "search_workers": 2,
     }
@@ -69,6 +70,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
                     "inference_cache_modes": ["off", "exact"],
                     "parallel_search": True,
                     "training_symmetry_modes": ["off", "random_d4"],
+                    "replay_pipelines": ["auto", "packed", "legacy"],
                 }
             },
         ).status_code

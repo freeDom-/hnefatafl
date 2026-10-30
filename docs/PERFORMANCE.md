@@ -107,6 +107,14 @@ batch changes learning updates and memory use; it does not create more concurren
 searches. CPU traversal, legal-move generation and policy decoding can dominate a
 small network, so fewer forward passes need not mean faster generation.
 
+Replay batching uses `replay_pipeline`: `auto` retains legacy collation on
+CPU/MPS and enables packed, pinned, bounded prefetch on CUDA; `packed` explicitly
+selects packed replay on any training device; `legacy` disables packing/prefetch.
+Packing retains sparse replay indices and creates dense targets per minibatch.
+CUDA loss metrics transfer once per epoch while finite-loss checks and scaler
+behavior remain unchanged. See [replay pipeline evidence](benchmarks/training-replay-pipeline.md)
+for mixed CPU results, memory risks, RNG ownership and GPU validation limits.
+
 ## Reading performance metrics
 
 Optional `search_workers` (0 disables; 1–32 processes) moves independent search

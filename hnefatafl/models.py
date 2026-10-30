@@ -77,6 +77,7 @@ def device_info() -> dict[str, Any]:
         "evaluation_batching": True,
         "inference_cache_modes": ["off", "exact"],
         "training_symmetry_modes": ["off", "random_d4"],
+        "replay_pipelines": ["auto", "packed", "legacy"],
         "cpu_available": True,
         "parallel_search": True,
         "torch_version": str(torch.__version__),
