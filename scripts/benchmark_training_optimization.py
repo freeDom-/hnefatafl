@@ -29,6 +29,7 @@ def main():
             "workers-selfplay",
             "replay",
             "jarl",
+            "jarl-evaluation",
         ],
         required=True,
     )
@@ -73,6 +74,38 @@ def main():
             "training_symmetry_mode": "random_d4",
         }
     )
+    if args.variant == "candidate":
+        required = {
+            "evaluation": "evaluation_mode",
+            "workers": "search_workers",
+            "workers-selfplay": "search_workers",
+            "replay": "replay_pipeline",
+        }.get(args.feature)
+        if required is not None and required not in config:
+            parser.error(
+                "Check out the corresponding optimization branch before measuring a candidate"
+            )
+        if args.feature == "engine":
+            import hnefatafl.engine as engine_module
+
+            if not hasattr(engine_module, "has_legal_move"):
+                parser.error(
+                    "Check out the engine optimization branch before measuring a candidate"
+                )
+        if args.feature in ("jarl", "jarl-evaluation"):
+            import hnefatafl.ai as ai_module
+
+            if not hasattr(ai_module, "_lazy_ordered"):
+                parser.error("Check out the Jarl optimization branch before measuring a candidate")
+    if args.feature == "jarl-evaluation":
+        config.update(
+            evaluation_opponent="jarl",
+            evaluation_games=4,
+            evaluation_max_plies=4,
+            evaluation_iterations=8,
+            evaluation_jarl_depth=2,
+            evaluation_mode="sequential",
+        )
     if args.variant == "candidate":
         if args.feature == "evaluation":
             config.update(
@@ -126,8 +159,44 @@ def main():
         if args.device == "cuda":
             torch.cuda.synchronize()
         started = time.perf_counter()
-        if args.feature in ("evaluation", "workers"):
-            result = evaluate_model(model, config, **options)
+        if args.feature in ("evaluation", "workers", "jarl-evaluation"):
+            import hnefatafl.training_evaluation as evaluation_module
+
+            original = evaluation_module.choose_move
+            trace = {
+                "jarl_successors": 0,
+                "jarl_nodes": 0,
+                "jarl_evaluations": 0,
+                "jarl_lazy_successors_skipped": 0,
+                "jarl_interruptions": 0,
+            }
+            decisions = []
+
+            def measured_choice(state, settings, **kwargs):
+                details = kwargs.pop("diagnostics", {})
+                move = original(state, settings, diagnostics=details, **kwargs)
+                decisions.append(
+                    (
+                        state.board,
+                        state.turn,
+                        move.source,
+                        move.target,
+                        details.get("value"),
+                        details.get("completed_depth"),
+                    )
+                )
+                if settings["algorithm"] == "alpha_beta":
+                    for key in ("successors", "nodes", "evaluations", "lazy_successors_skipped"):
+                        trace["jarl_" + key] += details.get(key, 0)
+                    trace["jarl_interruptions"] += int("interrupted_depth" in details)
+                return move
+
+            if args.feature == "jarl-evaluation":
+                evaluation_module.choose_move = measured_choice
+            try:
+                result = evaluate_model(model, config, **options)
+            finally:
+                evaluation_module.choose_move = original
             work = [
                 {
                     key: row[key]
@@ -136,6 +205,9 @@ def main():
                 for row in result["games"]
             ]
             counters = result.get("performance", {})
+            if args.feature == "jarl-evaluation":
+                work = {"games": work, "decisions": decisions}
+                counters.update(trace)
         elif args.feature in ("selfplay", "workers-selfplay"):
             games, counters = generate_self_play(model, config, seed=42, **options)
             work = [
@@ -181,7 +253,7 @@ def main():
             }
         else:
             work = []
-            counters = {"successors": 0, "evaluations": 0, "nodes": 0}
+            counters = {"successors": 0, "evaluations": 0, "nodes": 0, "lazy_successors_skipped": 0}
             for state in positions:
                 details = {}
                 move = choose_move(
@@ -194,7 +266,9 @@ def main():
                     },
                     diagnostics=details,
                 )
-                work.append((details["value"], details["completed_depth"]))
+                work.append(
+                    (details["value"], details["completed_depth"], move.source, move.target)
+                )
                 assert move in legal_moves(state)
                 for key in counters:
                     counters[key] += details.get(key, 0)
