@@ -9,6 +9,7 @@ import TrainingTarget, { jobTarget, targetRequest, workerEligible } from './Trai
 import {
   numberField,
   SelfPlayModeField,
+  ReplayPipelineField,
   trainingNumberFields,
   trainingParameterLabel,
   validTrainingNumbers,
@@ -221,6 +222,7 @@ export default function TrainingResumeDialog({
                   'inference_cache_mode',
                   'inference_device',
                   'training_symmetry_mode',
+                  'replay_pipeline',
                 ].includes(key)) &&
               value !== savedConfig.current[key],
           ),
@@ -368,6 +370,11 @@ export default function TrainingResumeDialog({
                         disabled={busy}
                       />
                     )}
+                    <ReplayPipelineField
+                      value={String(config.replay_pipeline ?? 'auto')}
+                      onChange={(value) => update('replay_pipeline', value)}
+                      disabled={busy}
+                    />
                     {config.self_play_mode !== undefined && (
                       <SelfPlayModeField
                         value={String(config.self_play_mode)}

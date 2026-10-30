@@ -1,4 +1,7 @@
 const translations: Record<string, string> = {
+  'Packed replay': 'Gepacktes Replay',
+  'Replay batching': 'Replay-Stapelverarbeitung',
+  'Legacy batching': 'Bisherige Stapelverarbeitung',
   'Import config.json': 'config.json importieren',
   'Importing configuration…': 'Konfiguration wird importiert…',
   'Load parameters from an exported config.json. Review them before starting; importing never starts a job.':
