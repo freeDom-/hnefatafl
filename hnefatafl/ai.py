@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import lru_cache
 from itertools import combinations
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Iterator
 
 from .engine import Move, State, apply_move, legal_moves, new_game
 from .symmetry import Symmetry, canonical_state_key, inverse, state_stabilizer, transform_move
@@ -564,6 +564,78 @@ def _prioritise(
     return preferred + rest
 
 
+def _lazy_ordered(
+    state: State,
+    moves: list[Move],
+    rng: random.Random,
+    settings: _SearchSettings,
+    remaining: int,
+    tt_move: Move | None,
+    killers: tuple[Move, ...],
+    history: dict[Move, int],
+    maiden: bool,
+    check: Callable[[], None],
+    counters: dict[str, Any],
+    profile: bool,
+) -> Generator[tuple[Move, State, float], None, None]:
+    """Produce the exact eager order, constructing only demanded priority groups.
+
+    Static scores are needed only to order moves in the same known priority and
+    history bucket. The shuffle still consumes its original RNG stream up front.
+    """
+    rng.shuffle(moves)
+    strategy = settings.ordering if settings.move_ordering else "static"
+    preferred: dict[Move, int] = {}
+    use_tt = strategy in ("full", "tt", "depth")
+    use_killers = strategy in ("full", "killer") or (strategy == "depth" and remaining <= 3)
+    use_history = strategy in ("full", "history") or (strategy == "depth" and remaining <= 3)
+    if use_tt and tt_move is not None:
+        preferred[tt_move] = 1
+    if use_killers:
+        for index, move in enumerate(killers):
+            preferred.setdefault(move, 2 + index)
+    # Freeze priorities now: recursive cutoffs mutate the shared history table
+    # while this generator is suspended between groups.
+    groups: dict[tuple[int, int], list[Move]] = {}
+    for move in moves:
+        key = (
+            (preferred[move], 0)
+            if move in preferred
+            else (2 + len(killers), -history.get(move, 0) if use_history else 0)
+        )
+        groups.setdefault(key, []).append(move)
+    context = None
+    if maiden:
+        from .shield_maiden import DecisionContext, normalise
+
+        context = DecisionContext(state)
+    sign = 1 if state.turn == "defenders" else -1
+    generated = 0
+    try:
+        for key in sorted(groups):
+            started = time.perf_counter() if profile else 0
+            children = []
+            for move in groups[key]:
+                check()
+                child = apply_move(state, move)
+                if context is not None:
+                    value = normalise(context.score(child, move))
+                else:
+                    value = evaluate(child)
+                children.append((move, child, value))
+                generated += 1
+                counters["successors"] += 1
+                counters["ordered_moves"] += 1
+            children.sort(key=lambda item: sign * item[2], reverse=True)
+            if profile:
+                counters["successor_seconds"] += time.perf_counter() - started
+            for item in children:
+                check()
+                yield item
+    finally:
+        counters["lazy_successors_skipped"] += len(moves) - generated
+
+
 def _symmetry_move_pruning(
     position: State,
     moves: list[Move],
@@ -734,6 +806,9 @@ def _alpha_beta(
     model = config.get("_model")
     model_backed = bool(model_path) or model is not None
     settings = _search_settings(config, model_backed)
+    lazy_successors = config.get("_lazy_successors", True)
+    if type(lazy_successors) is not bool:
+        raise ValueError("Internal lazy_successors flag must be a boolean")
     heuristic = _heuristic_name(config)
     evaluator = _heuristic_evaluator(heuristic)
     maiden = heuristic == "shield_maiden" and not model_backed
@@ -763,6 +838,7 @@ def _alpha_beta(
         "evaluations": 0,
         "cutoffs": 0,
         "successors": 0,
+        "lazy_successors_skipped": 0,
         "ordered_moves": 0,
         "symmetry_hits": 0,
         "transposition_cross_orientation_hits": 0,
@@ -894,52 +970,79 @@ def _alpha_beta(
             if profile:
                 counters["pruning_seconds"] += time.perf_counter() - pruning_started
             counters["symmetry_moves_skipped"] += skipped
-        if profile:
-            successor_started = time.perf_counter()
-        children = _ordered(position, moves, rng, maiden=maiden, check=check_search)
-        if profile:
-            counters["successor_seconds"] += time.perf_counter() - successor_started
-        counters["successors"] += len(children)
-        counters["ordered_moves"] += len(children)
-        if settings.move_ordering:
-            if profile:
-                sort_started = time.perf_counter()
-            children = _order_children(
-                children,
-                strategy=settings.ordering,
-                remaining=remaining,
-                tt_move=tt_move,
-                pv_move=None,
-                killers=tuple(killers.get(ply, ())),
-                history=history,
+        lazy_iterator = (
+            _lazy_ordered(
+                position,
+                moves,
+                rng,
+                settings,
+                remaining,
+                tt_move,
+                tuple(killers.get(ply, ())),
+                history,
+                maiden,
+                check_search,
+                counters,
+                profile,
             )
+            if lazy_successors
+            else None
+        )
+        iterator: Iterator[tuple[Move, State, float]]
+        if lazy_iterator is not None:
+            iterator = lazy_iterator
+        else:
             if profile:
-                counters["sort_seconds"] += time.perf_counter() - sort_started
-        for move, child, maiden_value in children:
-            score = search(
-                child,
-                remaining - 1,
-                alpha,
-                beta,
-                ply + 1,
-                None if model_backed else maiden_value,
-            )
-            if maximizing:
-                if score > value:
-                    value, best_child_move = score, move
-                alpha = max(alpha, value)
-            else:
-                if score < value:
-                    value, best_child_move = score, move
-                beta = min(beta, value)
-            if beta <= alpha:
-                counters["cutoffs"] += 1
-                current = killers.setdefault(ply, [])
-                if move not in current:
-                    current.insert(0, move)
-                    del current[2:]
-                history[move] = history.get(move, 0) + remaining * remaining
-                break
+                successor_started = time.perf_counter()
+            children = _ordered(position, moves, rng, maiden=maiden, check=check_search)
+            if profile:
+                counters["successor_seconds"] += time.perf_counter() - successor_started
+            counters["successors"] += len(children)
+            counters["ordered_moves"] += len(children)
+            if settings.move_ordering:
+                if profile:
+                    sort_started = time.perf_counter()
+                children = _order_children(
+                    children,
+                    strategy=settings.ordering,
+                    remaining=remaining,
+                    tt_move=tt_move,
+                    pv_move=None,
+                    killers=tuple(killers.get(ply, ())),
+                    history=history,
+                )
+                if profile:
+                    counters["sort_seconds"] += time.perf_counter() - sort_started
+            iterator = iter(children)
+        try:
+            for move, child, maiden_value in iterator:
+                score = search(
+                    child,
+                    remaining - 1,
+                    alpha,
+                    beta,
+                    ply + 1,
+                    None if model_backed else maiden_value,
+                )
+                if maximizing:
+                    if score > value:
+                        value, best_child_move = score, move
+                    alpha = max(alpha, value)
+                else:
+                    if score < value:
+                        value, best_child_move = score, move
+                    beta = min(beta, value)
+                if beta <= alpha:
+                    counters["cutoffs"] += 1
+                    current = killers.setdefault(ply, [])
+                    if move not in current:
+                        current.insert(0, move)
+                        del current[2:]
+                    history[move] = history.get(move, 0) + remaining * remaining
+                    break
+        finally:
+            if lazy_iterator is not None:
+                lazy_iterator.close()
         if table is not None:
             bound = _bound_for(value, alpha_window, beta_window)
             stored_move = best_child_move
@@ -1032,6 +1135,7 @@ def _alpha_beta(
                 evaluations=counters["evaluations"],
                 cutoffs=counters["cutoffs"],
                 successors=counters["successors"],
+                lazy_successors_skipped=counters["lazy_successors_skipped"],
                 ordered_moves=counters["ordered_moves"],
                 searched_moves=len(root_moves),
                 symmetry_hits=counters["symmetry_hits"],
