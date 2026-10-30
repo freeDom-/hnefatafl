@@ -32,7 +32,7 @@ it('uploads a job with a loading state, refreshes models and selects its history
         finish = resolve;
       });
     }
-    return json(path === '/api/training/jobs' ? (imported ? [job] : []) : []);
+    return json(path.split('?')[0] === '/api/training/jobs' ? (imported ? [job] : []) : []);
   });
   vi.stubGlobal('fetch', fetcher);
   const changed = vi.fn();
@@ -54,7 +54,7 @@ it('uploads a job with a loading state, refreshes models and selects its history
   expect(screen.getByRole('button', { name: 'Resume from checkpoint' })).toBeEnabled();
   expect(changed).toHaveBeenCalled();
   expect(
-    fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs').length,
+    fetcher.mock.calls.filter(([path]) => path.split('?')[0] === '/api/training/jobs').length,
   ).toBeGreaterThan(1);
 });
 
@@ -86,7 +86,7 @@ it.each(['completed', 'running'])('only offers export for an inactive job (%s)',
   const saved = { ...job, status };
   vi.stubGlobal(
     'fetch',
-    vi.fn((path: string) => json(path === '/api/training/jobs' ? [saved] : [])),
+    vi.fn((path: string) => json(path.split('?')[0] === '/api/training/jobs' ? [saved] : [])),
   );
   render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: new RegExp('Migrated raven') }));
@@ -100,7 +100,7 @@ it('localizes transfer actions and disables resume for an inference-only importe
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) =>
-      json(path === '/api/training/jobs' ? [{ ...job, resumable: false }] : []),
+      json(path.split('?')[0] === '/api/training/jobs' ? [{ ...job, resumable: false }] : []),
     ),
   );
   render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
@@ -121,7 +121,7 @@ it('reports export validation errors', async () => {
       json(
         path.endsWith('/export')
           ? { detail: 'Stop this training job before exporting its data.' }
-          : path === '/api/training/jobs'
+          : path.split('?')[0] === '/api/training/jobs'
             ? [job]
             : [],
         !path.endsWith('/export'),

@@ -67,6 +67,18 @@ Driver/device passthrough is host administration, not supplied by installing a w
 
 ## Concurrent self-play and performance comparisons
 
+Keep the number of games, model, precision and inference settings identical when
+comparing code versions. Effective self-play concurrency cannot exceed the number
+of games: eight games limit a worker to eight active games even if concurrency
+is set to sixteen. A small benchmark can therefore underutilize a GPU compared
+with the normal Brandubh plan's sixteen games and concurrency sixteen. Turning
+off CUDA mixed precision also changes the workload; compare FP32 with FP32 or
+mixed precision with mixed precision. OpenVINO remains FP32 with CPU optimization.
+
+Use the completed self-play phase's simulations/second for comparisons. Live
+snapshots count finished games while their elapsed time also includes ongoing
+games, so an intermediate rate can be lower than the completed phase's rate.
+
 Batched execution preserves legal masking, PUCT/backup semantics, root noise,
 policy targets, defender-relative values and truncated-game bootstrapping. Per-game
 RNGs/seeds stay independent. Reproducibility within one execution mode does not
