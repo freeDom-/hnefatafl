@@ -37,7 +37,8 @@ it('imports an exporter-compatible train config into the new-job form without st
   const fetcher = vi.fn((path: string, init?: RequestInit) => {
     if (path === '/api/training/device') return json({});
     if (path === '/api/training/workers') return json([]);
-    if (path === '/api/training/jobs') return json(init?.method === 'POST' ? created : []);
+    if (path.split('?')[0] === '/api/training/jobs')
+      return json(init?.method === 'POST' ? created : []);
     return json([]);
   });
   vi.stubGlobal('fetch', fetcher);
@@ -61,7 +62,7 @@ it('imports an exporter-compatible train config into the new-job form without st
   expect(screen.getByRole('spinbutton', { name: 'Random seed' })).toHaveValue(0);
   expect(
     fetcher.mock.calls.filter(
-      ([path, init]) => path === '/api/training/jobs' && init?.method === 'POST',
+      ([path, init]) => path.split('?')[0] === '/api/training/jobs' && init?.method === 'POST',
     ),
   ).toHaveLength(0);
 });
@@ -71,7 +72,13 @@ it('localizes the config import action in German', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) =>
-      json(path === '/api/training/jobs' ? [] : path === '/api/training/workers' ? [] : {}),
+      json(
+        path.split('?')[0] === '/api/training/jobs'
+          ? []
+          : path === '/api/training/workers'
+            ? []
+            : {},
+      ),
     ),
   );
   render(<Training rulesets={rules} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
@@ -82,7 +89,13 @@ it('imports an optimization config and fills the tuning fields', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) =>
-      json(path === '/api/training/workers' ? [] : path === '/api/training/jobs' ? [] : {}),
+      json(
+        path === '/api/training/workers'
+          ? []
+          : path.split('?')[0] === '/api/training/jobs'
+            ? []
+            : {},
+      ),
     ),
   );
   render(<Training rulesets={rules} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
@@ -119,7 +132,13 @@ it('reports malformed and invalid imports and leaves the form untouched', async 
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) =>
-      json(path === '/api/training/jobs' ? [] : path === '/api/training/workers' ? [] : {}),
+      json(
+        path.split('?')[0] === '/api/training/jobs'
+          ? []
+          : path === '/api/training/workers'
+            ? []
+            : {},
+      ),
     ),
   );
   render(<Training rulesets={rules} models={[]} onError={error} onModelsChanged={vi.fn()} />);
@@ -146,7 +165,7 @@ it('keeps an unavailable imported target and lets the user adjust it before star
     if (path === '/api/training/device')
       return json({ cuda_available: false, mps_available: false });
     if (path === '/api/training/workers') return json([]);
-    if (path === '/api/training/jobs') {
+    if (path.split('?')[0] === '/api/training/jobs') {
       if (init?.method === 'POST') {
         posts += 1;
         return posts === 1
@@ -173,7 +192,9 @@ it('keeps an unavailable imported target and lets the user adjust it before star
   fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
   await waitFor(() => expect(posts).toBe(2));
   const bodies = fetcher.mock.calls
-    .filter(([path, init]) => path === '/api/training/jobs' && init?.method === 'POST')
+    .filter(
+      ([path, init]) => path.split('?')[0] === '/api/training/jobs' && init?.method === 'POST',
+    )
     .map(([, init]) => JSON.parse(String(init?.body)));
   expect(bodies[0]).toMatchObject({ device: 'cuda' });
   expect(bodies[1]).toMatchObject({ device: 'cpu' });
@@ -184,7 +205,8 @@ it('edits an imported value and submits the resulting payload', async () => {
   const fetcher = vi.fn((path: string, init?: RequestInit) => {
     if (path === '/api/training/device') return json({});
     if (path === '/api/training/workers') return json([]);
-    if (path === '/api/training/jobs') return json(init?.method === 'POST' ? created : []);
+    if (path.split('?')[0] === '/api/training/jobs')
+      return json(init?.method === 'POST' ? created : []);
     return json([]);
   });
   vi.stubGlobal('fetch', fetcher);
@@ -210,12 +232,12 @@ it('edits an imported value and submits the resulting payload', async () => {
   await waitFor(() =>
     expect(
       fetcher.mock.calls.some(
-        ([path, init]) => path === '/api/training/jobs' && init?.method === 'POST',
+        ([path, init]) => path.split('?')[0] === '/api/training/jobs' && init?.method === 'POST',
       ),
     ).toBe(true),
   );
   const post = fetcher.mock.calls.find(
-    ([path, init]) => path === '/api/training/jobs' && init?.method === 'POST',
+    ([path, init]) => path.split('?')[0] === '/api/training/jobs' && init?.method === 'POST',
   )!;
   expect(JSON.parse(String(post[1]?.body))).toMatchObject({
     kind: 'train',
