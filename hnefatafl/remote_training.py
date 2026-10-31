@@ -380,7 +380,7 @@ class RemoteTraining:
         return visible
 
     def reconcile(self) -> None:
-        for job in self.store.jobs():
+        for job in self.store.jobs(statuses=("running", "cancelling")):
             if job.get("execution") != "remote" or job["status"] not in {"running", "cancelling"}:
                 continue
             if job.get("lease_expires", 0) <= timestamp():
@@ -391,10 +391,9 @@ class RemoteTraining:
                 )
                 self.store.save_job(job)
 
-    def public_worker(self, worker: dict) -> dict:
-        active = sum(
-            job.get("worker_id") == worker["id"] and job["status"] in {"running", "cancelling"}
-            for job in self.store.jobs()
+    def public_worker(self, worker: dict, active_jobs: dict[str, int] | None = None) -> dict:
+        active = (self.store.active_worker_jobs() if active_jobs is None else active_jobs).get(
+            worker["id"], 0
         )
         last = worker.get("last_seen_epoch")
         return {
@@ -578,8 +577,9 @@ class RemoteTraining:
         def workers():
             with self.lock:
                 self.reconcile()
+                active_jobs = self.store.active_worker_jobs()
                 return [
-                    self.public_worker(worker)
+                    self.public_worker(worker, active_jobs)
                     for worker in self.store.workers()
                     if not worker.get("revoked_at")
                 ]

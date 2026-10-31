@@ -1775,22 +1775,49 @@ def create_app(
         with job_lock:
             return read_job_locked(identifier)
 
-    def read_job_locked(identifier: str, *, reconcile: bool = True) -> dict:
+    def read_job_locked(
+        identifier: str,
+        *,
+        reconcile: bool = True,
+        snapshot: dict | None = None,
+        summary: bool = False,
+    ) -> dict:
         if reconcile:
             remote_training.reconcile()
-        job = store.get_job(identifier)
+        job = snapshot if snapshot is not None else store.get_job(identifier)
         if job is None:
             fail("Training job not found.", 404)
         if job.get("execution") == "remote":
-            return remote_training.public_job(job)
+            visible = remote_training.public_job(job)
+            if summary:
+                from .training_monitoring import job_summary
+
+                return job_summary(visible)
+            return visible
+        if summary and job["status"] in {"running", "cancelling"}:
+            # Reconciliation can persist a terminal transition. Never save a
+            # projected navigator snapshot over the full retained history.
+            job = store.get_job(identifier) or job
         directory = job_path(identifier)
+        recovered_result = False
         for filename, key in (("progress.json", "progress"), ("result.json", "result")):
+            if summary and job["status"] not in {"running", "cancelling", "pending"}:
+                if key != "result" or isinstance(job.get("result"), dict):
+                    continue
             path = directory / filename
             if path.exists():
                 try:
-                    job[key] = json.loads(path.read_text())
+                    retained = json.loads(path.read_text())
+                    if summary and job["status"] not in {"running", "cancelling", "pending"}:
+                        # A legacy row or a completion race can predate the final
+                        # result file. Recover it once without losing history.
+                        job = store.get_job(identifier) or job
+                        recovered_result = True
+                    job[key] = retained
                 except (json.JSONDecodeError, OSError):
                     pass
+        if recovered_result:
+            store.save_job(job)
         process = processes.get(identifier)
         worker_alive = process is not None and process.poll() is None
         if process is None and job.get("pid"):
@@ -1803,6 +1830,7 @@ def create_app(
             except OSError:
                 pass
         if job["status"] in {"running", "cancelling"}:
+            previous_status = job["status"]
             result = job.get("result")
             pending_cancel = job["status"] == "cancelling"
             if result and not worker_alive:
@@ -1827,7 +1855,8 @@ def create_app(
                     if pending_cancel
                     else "The training worker stopped before a result was saved; resume its checkpoint.",
                 )
-            store.save_job(job)
+            if job["status"] != previous_status:
+                store.save_job(job)
         if process is not None and process.poll() is not None:
             processes.pop(identifier, None)
         checkpoint = directory / "last.pt"
@@ -1837,10 +1866,14 @@ def create_app(
         if registered:
             job["model_id"] = registered.get("id")
         logfile = directory / "worker.log"
-        if logfile.exists():
+        if not summary and logfile.exists():
             with logfile.open("rb") as handle:
                 handle.seek(max(0, logfile.stat().st_size - 16000))
                 job["logs"] = handle.read().decode(errors="replace")
+        if summary:
+            from .training_monitoring import job_summary
+
+            return job_summary(job)
         return job
 
     training_fields = {
@@ -1898,10 +1931,13 @@ def create_app(
     }
 
     @app.get("/api/training/jobs")
-    def training_jobs():
+    def training_jobs(summary: bool = False):
         with job_lock:
             remote_training.reconcile()
-            return [read_job_locked(j["id"], reconcile=False) for j in store.jobs()]
+            return [
+                read_job_locked(j["id"], reconcile=False, snapshot=j, summary=summary)
+                for j in store.jobs(summary=summary)
+            ]
 
     @app.get("/api/training/jobs/{job_id}/export")
     def export_training_job(job_id: str):
