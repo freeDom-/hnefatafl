@@ -1,5 +1,11 @@
 # Training monitoring responsiveness
 
+The original optimization-branch measurement and the isolated port to main are
+recorded separately. The [main comparison](#isolated-main-port) measures the
+monitoring changes without the engine or evaluation optimizations.
+
+## Original optimization-branch measurement
+
 Baseline: merged training optimization branch
 `49dd32a682d6eae13de8f7daa784f38ca2aaeb72`. The [raw report](
 training-monitoring-responsiveness.json) retains every request sample, response
@@ -56,3 +62,31 @@ Absolute timings depend on the server and data size. This evidence establishes
 monitoring API latency and payload reduction; it does not establish recovery of
 any reported GPU simulations/second. Compare completed self-play phases with
 identical game counts, concurrency, precision, model, backend and search budgets.
+
+## Isolated main port
+
+Baseline: main at `5a343668411033ed3283ed51e01323454975723a`. Candidate:
+`228178c2b09426cbf23b4b01a2ea12a47487c398`, containing only the two monitoring
+fix commits cherry-picked from PR #43. The [main raw report](
+training-monitoring-main.json) retains the separate samples and source hashes;
+the original report above is unchanged.
+
+This collection uses the same synthetic fixture and three alternating
+fresh-process pairs described above, without other tests or benchmarks running.
+All shared navigator and worker fingerprints match.
+
+| Endpoint used by monitoring | Main median | Isolated fix median |
+| --- | ---: | ---: |
+| Job navigator | 1.20172 s | 0.02644 s |
+| Worker list | 0.58048 s | 0.00449 s |
+
+Only `server.py`, `remote_training.py`, `storage.py` and the new
+`training_monitoring.py` change within the Python package. The other 47 existing
+package files are byte-identical to the main baseline, including engine, search,
+self-play, evaluation, network and optimizer code. Neither PR #37 nor PR #38 is
+an ancestor of the isolated candidate. These API timings do not measure CUDA
+training throughput.
+
+To reproduce against main, use the commands above with
+`5a343668411033ed3283ed51e01323454975723a` as the archived baseline and run the
+candidate from the isolated monitoring branch. Keep the same three-pair protocol.
