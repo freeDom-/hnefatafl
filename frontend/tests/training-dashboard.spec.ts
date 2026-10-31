@@ -245,3 +245,47 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
     fullPage: true,
   });
 });
+
+test('advances live phase monitoring and reports stale publication', async ({ page }) => {
+  await page.clock.install();
+  const job = workshopFixture('running', 1);
+  const monitored = {
+    ...job,
+    progress: {
+      ...job.progress,
+      stage: 'self_play',
+      duration: 100,
+      updated_at: '2026-01-01T00:00:00.000Z',
+      phase_started_at: '2026-01-01T00:00:00.000Z',
+      phase_elapsed: 30,
+      last_progress_seconds: 2,
+      revision: 5,
+      phase_progress: {
+        games_completed: 18,
+        games_total: 32,
+        games_active: 14,
+        positions: 4820,
+      },
+    },
+  };
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: [monitored] }),
+  );
+  await open(page);
+  await expect(page.getByText('Elapsed 1m 40s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 30s')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
+  const live = page.locator('.live-phase');
+  await expect(live.getByText('Games', { exact: true }).locator('..')).toContainText('18 / 32');
+  await expect(live.getByText('Active games', { exact: true }).locator('..')).toContainText('14');
+  await expect(live.getByText('Positions', { exact: true }).locator('..')).toContainText('4,820');
+
+  // Timers keep advancing although no new progress snapshot arrived.
+  await page.clock.runFor(3000);
+  await expect(page.getByText('Elapsed 1m 43s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 33s')).toBeVisible();
+
+  // A worker that stops publishing is reported instead of looking frozen.
+  await page.clock.runFor(25000);
+  await expect(page.getByRole('status').filter({ hasText: 'No recent updates' })).toBeVisible();
+});

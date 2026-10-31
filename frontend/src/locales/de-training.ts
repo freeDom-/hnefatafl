@@ -282,5 +282,19 @@ const translations: Record<string, string> = {
     'Das Umbenennen ändert nur den angezeigten Auftragsnamen. ID, Kontrollpunkt, Parameter und Ausführung bleiben unverändert.',
   'Training job renamed. Its identity, checkpoint, parameters and execution are unchanged.':
     'Trainingsauftrag umbenannt. Identität, Kontrollpunkt, Parameter und Ausführung bleiben unverändert.',
+  'Live phase progress': 'Live-Phasenfortschritt',
+  'Phase progress': 'Phasenfortschritt',
+  'Phase elapsed {time}': 'Phasendauer {time}',
+  'Last progress {seconds}s ago': 'Letzter Fortschritt vor {seconds}s',
+  'Worker active': 'Worker aktiv',
+  'Running, long operation': 'Läuft, langwieriger Schritt',
+  'Potentially stalled': 'Möglicherweise hängend',
+  'No recent updates': 'Keine aktuellen Meldungen',
+  'Waiting for a worker': 'Warten auf einen Worker',
+  Games: 'Spiele',
+  Epoch: 'Epoche',
+  Opponent: 'Gegner',
+  'MCTS simulations': 'MCTS-Simulationen',
+  'Optimization steps': 'Optimierungsschritte',
 };
 export default translations;

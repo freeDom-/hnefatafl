@@ -244,6 +244,77 @@
 .training-workshop .dashboard-progress > span {
   color: var(--ui-copy);
 }
+/* Live phase monitoring: advancing phase timer, counters and heartbeat state. */
+.training-workshop .live-phase {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-inline) var(--gap-stack);
+  margin-top: var(--gap-inline);
+  font-size: 0.8125rem;
+}
+.training-workshop .live-phase .job-heartbeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--ui-copy);
+  white-space: nowrap;
+}
+.training-workshop .live-phase .job-heartbeat::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.training-workshop .live-phase .job-heartbeat.active::before {
+  background: var(--gold);
+}
+.training-workshop .live-phase .job-heartbeat.long_operation::before {
+  background: var(--gold);
+  opacity: 0.55;
+}
+.training-workshop .live-phase .job-heartbeat.stalled,
+.training-workshop .live-phase .job-heartbeat.unresponsive {
+  border-color: transparent;
+  background: var(--ui-error-surface, #f5e9dc);
+}
+.training-workshop .live-phase .job-heartbeat.stalled::before,
+.training-workshop .live-phase .job-heartbeat.unresponsive::before {
+  background: var(--ui-heading, #a95c40);
+}
+.training-workshop .live-phase-time,
+.training-workshop .live-phase-progress-age {
+  color: var(--ui-copy);
+  font-variant-numeric: tabular-nums;
+}
+.training-workshop .live-phase-bar {
+  flex: 1;
+  min-width: 100px;
+  max-width: 320px;
+  height: 6px;
+  accent-color: var(--gold);
+}
+.training-workshop .live-phase-counters {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--gap-inline) var(--gap-card);
+  margin: 0;
+}
+.training-workshop .live-phase-counters dt {
+  font-size: 0.75rem;
+  color: var(--ui-copy);
+}
+.training-workshop .live-phase-counters dd {
+  margin: 0.1rem 0 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 .training-workshop .training-job-dashboard .job-actions {
   display: flex;
   flex-wrap: wrap;
