@@ -25,7 +25,7 @@ beforeEach(() => {
     json(
       init?.method === 'POST'
         ? jobs[1]
-        : path === '/api/training/jobs'
+        : path.split('?')[0] === '/api/training/jobs'
           ? jobs
           : path.endsWith('/device')
             ? { device: 'cpu' }
@@ -331,7 +331,9 @@ it('selects an active job initially and preserves form state across disclosure a
   jobs = [...jobs].reverse();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
   await waitFor(() =>
-    expect(fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs')).toHaveLength(2),
+    expect(
+      fetcher.mock.calls.filter(([path]) => path.split('?')[0] === '/api/training/jobs'),
+    ).toHaveLength(2),
   );
   fireEvent.click(screen.getByRole('button', { name: /New training/ }));
   expect(screen.getByLabelText('Model name')).toHaveValue('Unfinished draft');
@@ -420,17 +422,28 @@ it('resets per-job analysis state when switching jobs while preserving the tab',
   expect(screen.getByLabelText('Evaluation series')).toHaveValue('latest');
 });
 it('keeps the latest job and preserved tab when rapid switches resolve out of order', async () => {
-  const pending: ((response: Response) => void)[] = [];
+  const pending = new Map<string, (response: Response) => void>();
   show();
   await loaded();
-  fetcher.mockImplementation((path: string) =>
-    path.endsWith('/jobs') ? new Promise<Response>((resolve) => pending.push(resolve)) : json([]),
-  );
+  fetcher.mockImplementation((path: string) => {
+    if (path.split('?')[0] === '/api/training/jobs')
+      return json(jobs.map((job) => ({ ...job, summary: true })));
+    if (path.startsWith('/api/training/jobs/'))
+      return new Promise<Response>((resolve) => pending.set(path.split('/').at(-1)!, resolve));
+    return json([]);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  await waitFor(() => expect(pending.has('running')).toBe(true));
   fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
   fireEvent.click(screen.getByRole('button', { name: /Bjorn · Northern campaign/ }));
   fireEvent.click(screen.getByRole('button', { name: /failed strategist/ }));
-  await act(async () => pending[1](await json(jobs)));
-  await act(async () => pending[0](await json([jobs[0]])));
+  await waitFor(() => expect(pending.has('failed')).toBe(true));
+  await act(async () =>
+    pending.get('failed')!(await json(jobs.find((job) => job.id === 'failed'))),
+  );
+  await act(async () =>
+    pending.get('completed')!(await json(jobs.find((job) => job.id === 'completed'))),
+  );
   expect(screen.getByRole('heading', { name: 'failed strategist' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Performance' })).toHaveAttribute('aria-selected', 'true');
   expect(document.querySelector('.training-performance')).toBeInTheDocument();
@@ -464,7 +477,7 @@ it('opens creation for an empty workshop and preserves tuning settings after sta
   fireEvent.change(screen.getByLabelText('Trial budget'), { target: { value: '7' } });
   const created = { ...workshopFixtures()[1], id: 'study', kind: 'tune' };
   fetcher.mockImplementation((path: string, init?: RequestInit) =>
-    json(init?.method === 'POST' ? created : path.endsWith('/jobs') ? jobs : []),
+    json(init?.method === 'POST' ? created : path.split('?')[0].endsWith('/jobs') ? jobs : []),
   );
   fireEvent.click(screen.getByRole('button', { name: /Start tuning/ }));
   await loaded();
@@ -671,11 +684,13 @@ it('keeps an explicit selection safe when an older response completes later', as
   show();
   await loaded();
   fetcher.mockImplementation((path: string) =>
-    path.endsWith('/jobs') ? new Promise<Response>((resolve) => pending.push(resolve)) : json([]),
+    path.split('?')[0] === '/api/training/jobs'
+      ? new Promise<Response>((resolve) => pending.push(resolve))
+      : json([]),
   );
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
   fireEvent.click(screen.getByRole('button', { name: /Legacy raven/ }));
-  await act(async () => pending[1](await json(jobs)));
+  expect(pending).toHaveLength(1);
   await act(async () => pending[0](await json([jobs[1]])));
   expect(screen.getByRole('heading', { name: 'Legacy raven' })).toBeInTheDocument();
 });

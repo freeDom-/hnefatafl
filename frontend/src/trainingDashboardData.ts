@@ -10,6 +10,20 @@ export const finite = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 export const activeJob = (job: Job) =>
   ['running', 'pending', 'queued', 'cancelling'].includes(job.status);
+export function mergeJobSummary(previous: Job | null, next: Job): Job {
+  if (!next.summary || previous?.id !== next.id) return next;
+  const oldProgress = object(previous.progress) ?? {};
+  const progress = object(next.progress) ?? {};
+  return {
+    ...previous,
+    ...next,
+    progress: {
+      ...oldProgress,
+      ...progress,
+      metrics: { ...object(oldProgress.metrics), ...object(progress.metrics) },
+    },
+  };
+}
 export const jobName = (job: Job) =>
   String(
     // An explicit rename wins over derived configuration names; job IDs and

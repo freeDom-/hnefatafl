@@ -173,7 +173,9 @@ it('removes a revoked worker from the workshop count and training targets before
         return json({ revoked: true });
       }
       if (revoked) return new Promise<Response>(() => {});
-      return json(path.endsWith('/workers') ? [worker] : path.endsWith('/jobs') ? [] : {});
+      return json(
+        path.endsWith('/workers') ? [worker] : path.split('?')[0].endsWith('/jobs') ? [] : {},
+      );
     }),
   );
   render(<Training rulesets={rulesets} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
@@ -273,7 +275,7 @@ it('refreshes completed models from another job without changing the selected pr
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) =>
-      json(path.endsWith('/jobs') ? jobs : path.endsWith('/workers') ? [worker] : {}),
+      json(path.split('?')[0].endsWith('/jobs') ? jobs : path.endsWith('/workers') ? [worker] : {}),
     ),
   );
   const changed = vi.fn();
@@ -306,17 +308,24 @@ it('does not replace a newly selected job with an earlier refresh response', asy
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) => {
-      if (path.endsWith('/jobs') && ++calls > 1)
+      if (path.split('?')[0].endsWith('/jobs') && ++calls > 1)
         return new Promise<Response>((resolve) => pending.push(resolve));
-      return json(path.endsWith('/jobs') ? [first, second] : path.endsWith('/workers') ? [] : {});
+      return json(
+        path.split('?')[0].endsWith('/jobs')
+          ? [first, second]
+          : path.endsWith('/workers')
+            ? []
+            : {},
+      );
     }),
   );
   render(<Training rulesets={rulesets} models={[]} onModelsChanged={vi.fn()} onError={vi.fn()} />);
   fireEvent.click(
     (await screen.findByText('Cloud Ulf', { selector: 'strong' })).closest('button')!,
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
   fireEvent.click(screen.getByRole('button', { name: /Cloud Freydis/ }));
-  await act(async () => pending[1](await json([first, second])));
+  expect(pending).toHaveLength(1);
   await act(async () => pending[0](await json([first])));
   expect(
     screen.getByRole('img', { name: 'Loss by iteration' }).querySelectorAll('circle'),

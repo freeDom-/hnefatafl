@@ -169,9 +169,17 @@ more games. Model and job export/import preserve recorded counters.
 Version 0.25.0 adds optional versioned counter metadata to existing progress and
 model/checkpoint metadata. Engine/training algorithms and tensor format 1 remain
 unchanged; no database migration is required. Update workers for job-local counters.
-Older workers may omit newer metrics; missing measurements display as absent. Existing
-job-list polling is retained, including its bounded server-provided log tails;
-Details does not add log requests.
+Older workers may omit newer metrics; missing measurements display as absent.
+
+Monitoring polls every 2.5 seconds while jobs or registered workers need updates.
+Slow requests are coalesced so their eventual responses can update the dashboard.
+Hardware detection and worker connectivity load independently from job progress.
+The navigator requests compact job summaries; full history and the bounded log
+tail load for the selected job. Switching jobs cancels obsolete detail requests
+and preserves the selected analysis tab. Full histories, exports and checkpoints
+remain retained. See the [monitoring responsiveness measurements](
+benchmarks/training-monitoring-responsiveness.md) for the synthetic API workload
+and reproduction commands.
 
 ## Browser evidence
 

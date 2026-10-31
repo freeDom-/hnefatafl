@@ -57,7 +57,7 @@ describe('training job rename', () => {
         current = { ...job, name: 'Raven campaign' };
         return json(current);
       }
-      if (path === '/api/training/jobs') return json([current]);
+      if (path.split('?')[0] === '/api/training/jobs') return json([current]);
       return json([]);
     });
     show(fetcher);
@@ -79,7 +79,7 @@ describe('training job rename', () => {
 
   it('cancels without sending a request', async () => {
     const fetcher = vi.fn((path: string, _init?: RequestInit) =>
-      path === '/api/training/jobs' ? json([job]) : json([]),
+      path.split('?')[0] === '/api/training/jobs' ? json([job]) : json([]),
     );
     show(fetcher);
     const dialog = await openRename();
@@ -93,7 +93,7 @@ describe('training job rename', () => {
     const fetcher = vi.fn((path: string, init?: RequestInit) => {
       if (path === `/api/training/jobs/${job.id}` && init?.method === 'PATCH')
         return json({ detail: 'Training job names must contain 1–100 characters.' }, false);
-      if (path === '/api/training/jobs') return json([job]);
+      if (path.split('?')[0] === '/api/training/jobs') return json([job]);
       return json([]);
     });
     show(fetcher);
