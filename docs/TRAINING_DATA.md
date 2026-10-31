@@ -20,6 +20,7 @@ data/
     config.json
     worker.log           # local subprocess stdout/stderr; remote reports retain log tails
     progress.json
+    heartbeat.json       # bounded live phase/heartbeat snapshot between progress events
     last.pt              # once a full checkpoint exists
     best.pt
     inference.pt
@@ -158,6 +159,9 @@ JSON; they need not mirror every local file. Tuning has its own study/trial tree
 - `inference.pt`: compact weights plus model/training/evaluation metadata,
   without optimizer, replay or RNG state.
 - `config.json`, `progress.json`, `result.json`: human-readable provenance.
+- `heartbeat.json`: transient live monitoring state; refreshed about once per
+  second and replaced by the next job, so it is not part of an exported job
+  archive.
 
 The compact model is automatically registered with name/version, ruleset,
 architecture, date, configuration and metrics. Select that model in Human vs AI

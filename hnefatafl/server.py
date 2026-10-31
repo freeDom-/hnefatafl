@@ -1799,6 +1799,8 @@ def create_app(
             # projected navigator snapshot over the full retained history.
             job = store.get_job(identifier) or job
         directory = job_path(identifier)
+        from .training_monitoring import overlay_heartbeat, read_heartbeat
+
         recovered_result = False
         for filename, key in (("progress.json", "progress"), ("result.json", "result")):
             if summary and job["status"] not in {"running", "cancelling", "pending"}:
@@ -1813,6 +1815,10 @@ def create_app(
                         # result file. Recover it once without losing history.
                         job = store.get_job(identifier) or job
                         recovered_result = True
+                    if key == "progress":
+                        # The worker republishes timings and counters to a small
+                        # heartbeat file between real progress events.
+                        retained = overlay_heartbeat(retained, read_heartbeat(directory))
                     job[key] = retained
                 except (json.JSONDecodeError, OSError):
                     pass

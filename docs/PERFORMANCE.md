@@ -208,6 +208,19 @@ numbers are evidence for those exact runs, not hardware-independent expectations
   oversubscribe the host. Measure a small representative budget before scaling.
 
 
+## Training monitoring overhead
+
+Live monitoring updates one aggregated counter per searched position and per
+optimizer batch, and republishes a bounded `heartbeat.json` about once per second.
+The retained `progress.json` with the full iteration history is still written only
+on real progress events. Measured single-threaded CPU costs are 0.74 µs per
+counter update and 0.17 ms per heartbeat write (294 B) against 6.33 ms for a
+120 KB retained snapshot, and paired workload comparisons put the instrumentation
+delta inside the workload's own run-to-run noise. Full samples, sizes and the
+reproduction command are in the
+[monitoring overhead measurements](benchmarks/training-monitoring-heartbeat.md).
+
+
 ## Training evaluation cost
 
 Training runs one selected evaluator, rather than baseline plus previous-best.

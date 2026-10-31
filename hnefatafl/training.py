@@ -10,6 +10,7 @@ import json
 import math
 import os
 import random
+import threading
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -42,6 +43,12 @@ from .training_augmentation import (
 from .training_presets import RECOMMENDED
 from .game_statistics import checkpoint_cumulative, self_play_statistics
 from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
+from .training_monitoring import (
+    HEARTBEAT_FILENAME,
+    ProgressSink,
+    TrainingMonitor,
+    heartbeat_projection,
+)
 
 
 DEFAULTS = {
@@ -244,6 +251,16 @@ def compact_progress(state: dict) -> dict:
             "completed_trials",
             "trials_requested",
             "best_score",
+            "phase_started_at",
+            "phase_elapsed",
+            "iteration_started_at",
+            "iteration_elapsed",
+            "started_at",
+            "updated_at",
+            "last_progress_at",
+            "last_progress_seconds",
+            "revision",
+            "phase_progress",
         )
         if key in state
     }
@@ -291,6 +308,7 @@ def self_play(
     inference_metrics=None,
     backend: InferenceBackend | None = None,
     cache: ExactInferenceCache | None = None,
+    monitor: ProgressSink | None = None,
 ) -> tuple[list[dict], dict]:
     """Generate legal MCTS policy targets and final defender-perspective returns."""
     if backend is None and config.get("inference_backend") == "openvino":
@@ -305,6 +323,7 @@ def self_play(
                 inference_metrics=inference_metrics,
                 backend=owned,
                 cache=cache,
+                monitor=monitor,
             )
         finally:
             owned.close()
@@ -352,6 +371,8 @@ def self_play(
         cutoffs += details.get("deadline_cutoffs", 0)
         neural_requests += details.get("mcts_neural_requests", 0)
         prediction_reuses += details.get("mcts_node_prediction_reuses", 0)
+        if monitor is not None:
+            monitor.tick(positions=1, simulations=details.get("simulations", 0))
         area = state.size**2
         examples.append(
             {
@@ -423,6 +444,7 @@ def generate_self_play(
     measure_cuda: bool = False,
     retain_examples: bool = True,
     backend: InferenceBackend | None = None,
+    monitor: ProgressSink | None = None,
 ) -> tuple[list[tuple[list[dict], dict]], dict]:
     """Generate an iteration's games, retaining a sequential reference path.
 
@@ -446,6 +468,7 @@ def generate_self_play(
                 measure_cuda=measure_cuda,
                 retain_examples=retain_examples,
                 backend=owned,
+                monitor=monitor,
             )
             performance.update(refresh)
             return games, performance
@@ -486,9 +509,12 @@ def generate_self_play(
             retain_examples=retain_examples,
             backend=backend,
             cache=cache,
+            monitor=monitor,
         )
     else:
         games = []
+        if monitor is not None:
+            monitor.counts(games_total=config["games"], games_active=1)
         for index in range(config["games"]):
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
@@ -506,6 +532,7 @@ def generate_self_play(
                 inference_metrics=metrics.inference,
                 backend=backend,
                 cache=cache,
+                monitor=monitor,
             )
             metrics.cpu_search_seconds += max(
                 0.0,
@@ -517,6 +544,10 @@ def generate_self_play(
             )
             games.append((examples if retain_examples else [], result))
             metrics.record(result)
+            if monitor is not None:
+                # One completion per game; the next game starts immediately.
+                monitor.tick(games_completed=1)
+                monitor.counts(games_active=0 if index + 1 == config["games"] else 1)
             if on_game:
                 on_game(index, examples, result)
             if progress:
@@ -546,6 +577,7 @@ def optimize_replay(
     *,
     should_stop: Callable[[], bool] | None = None,
     on_epoch: Callable[[int], None] | None = None,
+    monitor: ProgressSink | None = None,
 ) -> dict:
     """One iteration's optimizer updates over shuffled replay minibatches.
 
@@ -557,8 +589,15 @@ def optimize_replay(
     policy_losses: list[float] = []
     value_losses: list[float] = []
     updates = presented = 0
+    loss_sum = value_sum = 0.0
     augmenting = config["training_symmetry_mode"] == "random_d4"
     augmentation = AugmentationStats()
+    batches_per_epoch = math.ceil(len(replay) / config["batch_size"]) if replay else 0
+    if monitor is not None:
+        monitor.counts(
+            optimizer_total_steps=config["epochs"] * batches_per_epoch,
+            epoch=0,
+        )
     for epoch in range(config["epochs"]):
         order = list(range(len(replay)))
         rng.shuffle(order)
@@ -588,6 +627,16 @@ def optimize_replay(
             policy_losses.append(float(policy_loss.detach()))
             value_losses.append(float(value_loss.detach()))
             updates += 1
+            if monitor is not None:
+                # Completed-step counter plus the running means of the losses the
+                # dashboard shows; the authoritative means are still computed
+                # from the same lists after the phase.
+                loss_sum += policy_losses[-1]
+                value_sum += value_losses[-1]
+                monitor.tick(optimizer_steps=1)
+                monitor.counts(policy_loss=loss_sum / updates, value_loss=value_sum / updates)
+        if monitor is not None:
+            monitor.counts(epoch=epoch + 1)
         if on_epoch:
             on_epoch(epoch + 1)
     return {
@@ -743,6 +792,7 @@ def train(
     if resume_payload and resume_payload["extra"].get("grad_scaler"):
         scaler.load_state_dict(resume_payload["extra"]["grad_scaler"])
     started = time.monotonic()
+    publish_lock = threading.Lock()
     state = {
         "status": "running",
         "iteration": completed,
@@ -759,16 +809,38 @@ def train(
     }
     _write_json(output / "config.json", config)
 
+    def write_snapshot(heartbeat: bool, changes: dict) -> None:
+        """Serialize one monitoring snapshot and publish it.
+
+        ``heartbeat`` republishes the current state with refreshed timings from
+        the monitor thread. It writes only the bounded heartbeat projection
+        (never the retained history) and skips the GPU query, so no CUDA call
+        runs off the training thread.
+        """
+        with publish_lock:
+            state.update(changes)
+            if not heartbeat:
+                monitor.published()
+            state.update(monitor.snapshot())
+            state["self_play_games"] = self_play_statistics(job_games, baseline)
+            state["games_generated"] = state["self_play_games"]["cumulative"]
+            state["duration"] = time.monotonic() - started
+            if heartbeat:
+                _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(state))
+            else:
+                if device.type == "cuda":
+                    state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
+                _write_json(output / "progress.json", state)
+            if progress:
+                progress(dict(state))
+
+    monitor = TrainingMonitor(
+        lambda **flags: write_snapshot(bool(flags.get("heartbeat")), {}), phase="initializing"
+    )
+
     def publish(**changes):
-        state.update(changes)
-        state["self_play_games"] = self_play_statistics(job_games, baseline)
-        state["games_generated"] = state["self_play_games"]["cumulative"]
-        state["duration"] = time.monotonic() - started
-        if device.type == "cuda":
-            state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
-        _write_json(output / "progress.json", state)
-        if progress:
-            progress(dict(state))
+        """Publish a real progress event from the training thread."""
+        write_snapshot(False, changes)
 
     def current_metadata():
         return {
@@ -799,9 +871,10 @@ def train(
         }
         save_checkpoint(path, model, current_metadata(), optimizer, extra)
 
-    publish(stage="initializing")
     backend = None
+    monitor.start()
     try:
+        publish()
         initialization_started = time.monotonic()
         backend = create_inference(model, config)
         initialization_seconds = time.monotonic() - initialization_started
@@ -818,18 +891,23 @@ def train(
                 replay = replay[-config["replay_buffer_size"] :]
                 job_games += 1
 
+            # Device/graph preparation can block for seconds on a cold backend
+            # (TorchScript/OpenVINO compile); report it as its own phase.
+            monitor.phase("preparing", iteration=iteration)
             refresh = backend.refresh()
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
+            monitor.phase("self_play", iteration=iteration)
             generated_games, performance = generate_self_play(
                 model,
                 config,
                 seed=config["seed"] + iteration * 100000,
                 should_stop=should_stop,
-                progress=lambda info: publish(stage="self_play", iteration=iteration, **info),
+                progress=lambda info: publish(iteration=iteration, **info),
                 on_game=commit_game,
                 retain_examples=False,
                 backend=backend,
+                monitor=monitor,
             )
             performance.update(backend.info)
             performance.update(refresh)
@@ -840,6 +918,7 @@ def train(
             if not replay:
                 raise ValueError("Self-play generated no training examples")
             optimization_started = time.monotonic()
+            monitor.phase("optimization", iteration=iteration)
             model.train()
             optimized = optimize_replay(
                 model,
@@ -852,7 +931,8 @@ def train(
                 rng,
                 augment_rng,
                 should_stop=should_stop,
-                on_epoch=lambda epoch: publish(stage="optimization", epoch=epoch),
+                monitor=monitor,
+                on_epoch=lambda epoch: publish(epoch=epoch),
             )
             policy_losses, value_losses = optimized["policy_losses"], optimized["value_losses"]
             updates, presented = optimized["updates"], optimized["presented"]
@@ -894,7 +974,8 @@ def train(
             completed = iteration
             evaluation_started = time.monotonic()
             if iteration % config["evaluation_frequency"] == 0 or iteration == config["iterations"]:
-                publish(stage="evaluation", metrics=metrics)
+                monitor.phase("evaluation", iteration=iteration)
+                publish(metrics=metrics)
                 incumbent = (
                     frozen_model(model, selection.data["champion"]["snapshot"])
                     if config["evaluation_opponent"] == "champion"
@@ -909,6 +990,7 @@ def train(
                     seed=selection.context["seed"]
                     + (iteration * 1000000 if incumbent is not None else 0),
                     should_stop=should_stop,
+                    monitor=monitor,
                 )
             performance["evaluation_seconds"] = time.monotonic() - evaluation_started
             if device.type == "cuda":
@@ -951,6 +1033,9 @@ def train(
                     },
                 )
             history.append(point)
+            # Model selection, checkpoint writes and registry publication are a
+            # real phase: they can take seconds and must show as such.
+            monitor.phase("checkpoint", iteration=iteration)
             artifact_started = time.monotonic()
             if record_improvement:
                 assert evaluation is not None
@@ -984,8 +1069,8 @@ def train(
                 "iteration_wall_seconds": time.monotonic() - iteration_start,
             }
             metrics["performance"] = performance
+            monitor.phase("iteration_complete", iteration=iteration)
             publish(
-                stage="iteration_complete",
                 iteration=iteration,
                 policy_loss=metrics["policy_loss"],
                 value_loss=metrics["value_loss"],
@@ -1005,9 +1090,9 @@ def train(
                 }
             )
         checkpoint_now(checkpoint)
+        monitor.phase("cancelled", iteration=completed)
         publish(
             status="cancelled",
-            stage="cancelled",
             iteration=completed,
             checkpoint=str(checkpoint),
         )
@@ -1033,17 +1118,22 @@ def train(
                 }
             )
         checkpoint_now(checkpoint)
+        monitor.phase(status, iteration=completed)
         publish(
             status=status,
-            stage=status,
             error=str(error),
             iteration=completed,
             checkpoint=str(checkpoint),
         )
         raise
     finally:
+        # The terminal publication is the last state any consumer may see; stop
+        # the heartbeat so no later snapshot can revive a running status.
+        monitor.stop()
         if backend is not None:
             backend.close()
+    monitor.phase("finalizing", iteration=completed)
+    publish()
     if not checkpoint.exists():
         checkpoint_now(checkpoint)
     if not best_checkpoint.exists():
@@ -1053,9 +1143,9 @@ def train(
     registered = ModelRegistry(registry_root).register(
         inference_checkpoint, name=config["model_name"]
     )
+    monitor.phase("completed", iteration=completed)
     publish(
         status="completed",
-        stage="completed",
         checkpoint=str(checkpoint),
         model=registered,
         best_checkpoint=str(best_checkpoint),
@@ -1116,6 +1206,9 @@ def tune(
         "completed_trials": len(study.trials),
         "trials_requested": trials,
     }
+    # The inner training heartbeat republishes through this report callback, so
+    # the outer progress file is refreshed from another thread than the trial's.
+    tune_lock = threading.Lock()
 
     def objective(trial):
         if should_stop and should_stop():
@@ -1150,11 +1243,35 @@ def tune(
             "output_dir": str(output / f"trial-{trial.number}"),
         }
 
+        latest_revision = None
+
         def report(state):
-            latest.update(trial=trial.number, trial_progress=state)
-            _write_json(output / "progress.json", latest)
-            if progress:
-                progress(dict(latest))
+            nonlocal latest_revision
+            revision = state.get("revision")
+            heartbeat = revision == latest_revision
+            with tune_lock:
+                latest.update(trial=trial.number, revision=revision, trial_progress=state)
+                if heartbeat:
+                    # Liveness refresh: keep the retained outer snapshot intact and
+                    # publish only the bounded trial projection.
+                    _write_json(
+                        output / HEARTBEAT_FILENAME,
+                        {
+                            "status": latest["status"],
+                            "completed_trials": latest["completed_trials"],
+                            "trials_requested": latest["trials_requested"],
+                            "trial": trial.number,
+                            "revision": revision,
+                            "trial_progress": heartbeat_projection(state),
+                        },
+                    )
+                else:
+                    _write_json(output / "progress.json", latest)
+                if progress:
+                    progress(dict(latest))
+            if heartbeat:
+                return
+            latest_revision = revision
             evaluation = state.get("metrics", {}).get("evaluation")
             if state.get("stage") == "iteration_complete" and evaluation:
                 trial.report(evaluation["score"], step=state["iteration"])

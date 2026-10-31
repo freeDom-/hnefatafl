@@ -178,6 +178,18 @@ distinct. Evaluation remains sequential with separate frozen models; self-play's
 single-model batching is not reused across model identities. Compact stdout events
 exclude history; atomic JSON/checkpoints retain it for local and remote polling.
 
+`training_monitoring.py` owns phase-independent progress: the training process
+keeps a `TrainingMonitor` whose hot path only accumulates plain counters, while a
+daemon thread republishes a bounded `heartbeat.json` (phase, phase/iteration
+durations, time since meaningful progress, phase counters) about once per second.
+Retained `progress.json` is still rewritten only on real progress events, and a
+reader overlays a heartbeat only when its publication revision matches. Worker
+liveness, computational progress and publication therefore stay independent, and
+a long self-play game, optimization epoch or evaluation match cannot freeze
+timers or counters. Durations are monotonic and publication is bounded; the
+dashboard anchors them to a local ticker instead of trusting a worker clock. See
+[the training dashboard](docs/TRAINING_DASHBOARD.md#live-monitoring).
+
 Exact-input inference reuse is opt-in (`inference_cache_mode: "exact"`, default
 `"off"`). One bounded LRU belongs to one self-play generation and is discarded
 before optimization; sequential and cooperative search share its legal-policy

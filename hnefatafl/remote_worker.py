@@ -30,6 +30,11 @@ from uuid import uuid4
 PROTOCOL_VERSION = 1
 MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+# Upper bound for republishing a job's progress snapshot to the server. The
+# training process refreshes its bounded heartbeat about once per second;
+# forwarding that at the same cadence would multiply lease renewals for no
+# visible benefit.
+PROGRESS_REPORT_SECONDS = 2.0
 _IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
 _TOKEN = re.compile(r"[A-Za-z0-9._~-]{16,512}\Z")
 _BEST = re.compile(r"iteration-([0-9]{1,6})\.pt\Z")
@@ -285,6 +290,10 @@ class JobRunner:
         self.directory = directory
         self.stop = stop
         self.interval = max(0.05, min(float(lease.interval), 30))
+        # Progress is republished independently of the lease/heartbeat interval so
+        # intermediate counters reach the server while a long phase runs. Each
+        # report also renews the lease, which is harmless.
+        self.progress_interval = min(self.interval, PROGRESS_REPORT_SECONDS)
         self.lease_seconds = max(1.0, float(lease.seconds))
         self.token = self.job["lease_token"]
         self.job_id = self.job["id"]
@@ -352,12 +361,19 @@ class JobRunner:
                 self.cancel.set()
                 self._signal_child()
                 return
-            self.report_stop.wait(self.interval if pending is None else min(2, self.interval))
+            self.report_stop.wait(
+                self.progress_interval if pending is None else min(2, self.interval)
+            )
 
     def _progress_report(self) -> tuple[dict, int, bool]:
         """Keep the original small-report contract; stream large history in chunks."""
+        from .training_monitoring import overlay_heartbeat, read_heartbeat
+
         progress = safe_progress(
-            _read_json(self.directory / "progress.json") or {"stage": "starting"}
+            overlay_heartbeat(
+                _read_json(self.directory / "progress.json") or {"stage": "starting"},
+                read_heartbeat(self.directory),
+            )
         )
         history = progress.get("history", [])
         offset = None

@@ -1,0 +1,157 @@
+{
+  "environment": {
+    "python": "3.12.15",
+    "torch": "2.14.1+cpu",
+    "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "threads": 1
+  },
+  "hot_path": {
+    "calls": 200000,
+    "total_seconds": 0.14841573999910906,
+    "nanoseconds_per_call": 742.0786999955453
+  },
+  "publication": {
+    "heartbeat": {
+      "median_seconds": 0.00016594849967077607,
+      "samples": [
+        0.00036639600148191676,
+        0.00020809699890378397,
+        0.0002006979993893765,
+        0.00013119899995217565,
+        0.00012289799997233786,
+        0.00012589899961312767,
+        0.00025309699958597776,
+        0.00012079900079697836
+      ],
+      "bytes": 294
+    },
+    "progress": {
+      "median_seconds": 0.006331229499664914,
+      "samples": [
+        0.006762425000488292,
+        0.006162731000586064,
+        0.006296029001532588,
+        0.006321729999399395,
+        0.006054831999790622,
+        0.006340728999930434,
+        0.008097510000879993,
+        0.007031322000329965
+      ],
+      "bytes": 119775
+    },
+    "heartbeat_bytes_per_second": 294.0,
+    "progress_bytes_per_second": 119775.0
+  },
+  "self_play_workload": {
+    "pairs": [
+      {
+        "baseline_seconds": 0.6865792219996365,
+        "monitored_seconds": 0.5690279369991913,
+        "monitor_calls": 121
+      },
+      {
+        "baseline_seconds": 0.6811754830014252,
+        "monitored_seconds": 0.6740941550015123,
+        "monitor_calls": 128
+      },
+      {
+        "baseline_seconds": 0.6425664060006966,
+        "monitored_seconds": 0.6283894659991347,
+        "monitor_calls": 119
+      },
+      {
+        "baseline_seconds": 0.6266031850009313,
+        "monitored_seconds": 0.6861590190001152,
+        "monitor_calls": 124
+      },
+      {
+        "baseline_seconds": 0.5893040030005068,
+        "monitored_seconds": 0.5416328370010888,
+        "monitor_calls": 115
+      },
+      {
+        "baseline_seconds": 0.547929666001437,
+        "monitored_seconds": 0.5638105889993312,
+        "monitor_calls": 111
+      },
+      {
+        "baseline_seconds": 0.5277179919994524,
+        "monitored_seconds": 0.5927160649989673,
+        "monitor_calls": 114
+      },
+      {
+        "baseline_seconds": 0.4897116180000012,
+        "monitored_seconds": 0.6129873379995843,
+        "monitor_calls": 114
+      }
+    ],
+    "discarded_warmup_pairs": 1,
+    "median_baseline_seconds": 0.607953594000719,
+    "median_monitored_seconds": 0.6028517014992758,
+    "median_delta_seconds": 0.004399797498990665,
+    "delta_range_seconds": [
+      -0.1175512850004452,
+      0.12327571999958309
+    ],
+    "noise_seconds": 0.12041350250001415,
+    "within_noise": true,
+    "monitor_calls_per_run": 117.0,
+    "attributed_nanoseconds_per_call": 37605.106828980046
+  },
+  "optimization_workload": {
+    "pairs": [
+      {
+        "baseline_seconds": 0.029522868999265484,
+        "monitored_seconds": 0.025748612000825233,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.021471359999850392,
+        "monitored_seconds": 0.023414937999405083,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.027070796000771224,
+        "monitored_seconds": 0.025882910998916486,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.021176963000471005,
+        "monitored_seconds": 0.02762109100149246,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.025156017998597235,
+        "monitored_seconds": 0.01823339600014151,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.032058240998594556,
+        "monitored_seconds": 0.030188961998646846,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.0335241250013496,
+        "monitored_seconds": 0.025382816000274033,
+        "monitor_calls": 4
+      },
+      {
+        "baseline_seconds": 0.019932876999519067,
+        "monitored_seconds": 0.030760855001062737,
+        "monitor_calls": 4
+      }
+    ],
+    "discarded_warmup_pairs": 1,
+    "median_baseline_seconds": 0.02611340699968423,
+    "median_monitored_seconds": 0.02581576149987086,
+    "median_delta_seconds": -0.001528582000901224,
+    "delta_range_seconds": [
+      -0.00814130900107557,
+      0.01082797800154367
+    ],
+    "noise_seconds": 0.00948464350130962,
+    "within_noise": true,
+    "monitor_calls_per_run": 4.0,
+    "attributed_nanoseconds_per_call": -382145.500225306
+  }
+}

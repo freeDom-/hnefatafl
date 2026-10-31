@@ -7,6 +7,7 @@ import io
 import json
 import stat
 import threading
+import time
 from types import SimpleNamespace
 import urllib.request
 
@@ -467,3 +468,61 @@ def test_large_progress_flushes_incremental_history_without_losing_rows(tmp_path
     assert len(sizes) > 1 and max(sizes) < 200_000
     assert runner.history_sent == 3000
     assert json.loads((tmp_path / "progress.json").read_text())["history"] == history
+
+
+def test_progress_report_overlays_a_matching_heartbeat_only(tmp_path):
+    (tmp_path / "progress.json").write_text(
+        json.dumps({"revision": 4, "duration": 10.0, "history": [{"iteration": 1}]})
+    )
+    (tmp_path / "heartbeat.json").write_text(
+        json.dumps({"revision": 4, "duration": 12.5, "stage": "self_play", "phase_elapsed": 4.0})
+    )
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    report, _, _ = runner._progress_report()
+    assert report["progress"]["duration"] == 12.5
+    assert report["progress"]["stage"] == "self_play"
+    # The retained history still travels with the report.
+    assert report["progress"]["history"] == [{"iteration": 1}]
+
+    (tmp_path / "heartbeat.json").write_text(json.dumps({"revision": 3, "duration": 1.0}))
+    stale, _, _ = runner._progress_report()
+    assert stale["progress"]["duration"] == 10.0
+    assert "stage" not in stale["progress"]
+
+
+def test_progress_publication_is_decoupled_from_the_lease_interval(tmp_path):
+    assert remote.PROGRESS_REPORT_SECONDS == 2.0
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    assert runner.interval == 10 and runner.progress_interval == 2.0
+    quick = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 1, 120), tmp_path, threading.Event())
+    assert quick.progress_interval == 1.0
+
+
+def test_worker_republishes_progress_while_the_training_process_runs(tmp_path, monkeypatch):
+    reports = []
+    (tmp_path / "progress.json").write_text(
+        json.dumps({"revision": 1, "duration": 5.0, "history": [{"iteration": 1}]})
+    )
+    (tmp_path / "heartbeat.json").write_text(json.dumps({"revision": 1, "duration": 6.0}))
+
+    class API(ReplyAPI):
+        def request(self, route, payload=None, **kwargs):
+            assert route.endswith("/progress")
+            reports.append(payload["progress"])
+            return {"lease_seconds": 120, "cancel_requested": False}
+
+    monkeypatch.setattr(remote, "PROGRESS_REPORT_SECONDS", 0.05)
+    runner = remote.JobRunner(API(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    assert runner.progress_interval == 0.05
+    reporter = threading.Thread(target=runner._report, daemon=True)
+    reporter.start()
+    try:
+        deadline = time.monotonic() + 10
+        while len(reports) < 3 and time.monotonic() < deadline:
+            time.sleep(0.02)
+    finally:
+        runner.report_stop.set()
+        reporter.join(timeout=5)
+    assert len(reports) >= 3
+    assert all(report["duration"] == 6.0 for report in reports)
+    assert runner.sequence >= 3
