@@ -436,3 +436,47 @@ def test_terminal_job_stops_publishing_and_keeps_its_duration(tmp_path, monkeypa
     # Completed jobs stop accumulating active duration.
     assert read_json(heartbeat_path) == heartbeat
     assert read_json(output / "progress.json") == final
+
+
+def test_evaluation_phase_keeps_publishing_while_a_game_blocks(tmp_path, monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+
+    def blocking_move(state, _config, **_kwargs):
+        entered.set()
+        assert released.wait(30)
+        return legal_moves(state)[0]
+
+    monkeypatch.setattr("hnefatafl.training_evaluation.choose_move", blocking_move)
+    config = tiny_config(
+        tmp_path, games=1, iterations=1, evaluation_games=2, evaluation_frequency=1
+    )
+    output = Path(config["output_dir"])
+    worker = threading.Thread(target=lambda: train(config), daemon=True)
+    worker.start()
+    assert entered.wait(30)
+
+    deadline = time.monotonic() + 15
+    first = None
+    while first is None and time.monotonic() < deadline:
+        snapshot = read_heartbeat(output)
+        if snapshot is not None and snapshot.get("stage") == "evaluation":
+            first = snapshot
+        else:
+            time.sleep(0.05)
+    assert first is not None, "the blocked evaluation published no heartbeat"
+    time.sleep(1.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "evaluation"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["last_progress_seconds"] >= first["last_progress_seconds"] + 1.0
+    # The first evaluation game is still unfinished, so its tally has not moved.
+    assert second["phase_progress"]["evaluation_games"] == 0
+    assert second["revision"] == first["revision"]
+
+    released.set()
+    worker.join(timeout=120)
+    assert not worker.is_alive()
+    result = read_json(output / "progress.json")
+    assert result["status"] == "completed"
+    assert result["metrics"]["evaluation"]["game_count"] == 2
