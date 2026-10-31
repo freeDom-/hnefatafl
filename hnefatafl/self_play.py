@@ -96,7 +96,7 @@ class SelfPlayMetrics:
 
 
 def _game_context(
-    model: PolicyValueNet,
+    model: PolicyValueNet | None,
     config: dict,
     seed: int,
     should_stop: Callable[[], bool] | None,
@@ -125,7 +125,7 @@ def _game_context(
         }
         details: dict = {}
         policy = yield from mcts_context(
-            state, search_config, diagnostics=details, should_stop=should_stop
+            state, search_config, diagnostics=details, should_stop=should_stop, neural=True
         )
         simulations += details.get("simulations", 0)
         shortcuts += details.get("immediate_win_shortcuts", 0)

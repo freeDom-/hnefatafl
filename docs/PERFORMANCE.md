@@ -109,6 +109,14 @@ small network, so fewer forward passes need not mean faster generation.
 
 ## Reading performance metrics
 
+Optional `search_workers` (0 disables; 1–32 processes) moves independent search
+into persistent spawned CPU actors. CPU inference uses read-only actor snapshots;
+CUDA/OpenVINO inference stays in the parent and batches pending leaves by model.
+Each actor uses one math thread; GPU job slots remain separate. More processes
+consume more RAM and can be slower. Pools span a training run; standalone calls
+pay startup. Parallel traversal wall contribution is reported as unavailable
+because actor activity overlaps. See [isolated worker measurements](benchmarks/training-parallel-search.md).
+
 Metrics live under `metrics.performance` in progress/result JSON and under
 `history[].performance` for completed history points. The workshop shows live and
 completed throughput, batch sizes, outcomes, phase times and throughput history

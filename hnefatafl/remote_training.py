@@ -78,6 +78,7 @@ TRAINING_FIELDS = {
     "mixed_precision",
     "save_all_best",
     "cpu_threads",
+    "search_workers",
     "resume",
     "model_name",
 }
@@ -85,6 +86,8 @@ TRAINING_FIELDS = {
 
 def validate_inference_capabilities(capabilities: dict) -> None:
     """Validate optional extension fields without rejecting legacy reports."""
+    if "parallel_search" in capabilities and type(capabilities["parallel_search"]) is not bool:
+        fail("Invalid worker parallel_search capability.")
     cache_modes = capabilities.get("inference_cache_modes", ["off"])
     if (
         not isinstance(cache_modes, list)
@@ -136,6 +139,8 @@ def validate_inference_capabilities(capabilities: dict) -> None:
 
 
 def worker_compatible(config: dict, capabilities: dict) -> bool:
+    if config.get("search_workers", 0) and capabilities.get("parallel_search") is not True:
+        return False
     if config.get("training_symmetry_mode", "off") not in capabilities.get(
         "training_symmetry_modes", ["off"]
     ):
@@ -743,6 +748,8 @@ class RemoteTraining:
                     self.renew(available)
                     self.store.save_job(available)
                     configuration = dict(available["config"])
+                    if worker.get("capabilities", {}).get("parallel_search") is not True:
+                        configuration.pop("search_workers", None)
                     if (
                         "inference_backends" not in worker.get("capabilities", {})
                         and configuration.get("inference_backend", "pytorch") == "pytorch"
@@ -838,6 +845,8 @@ class RemoteTraining:
                 if not job.get("resume_source") or not checkpoint.is_file():
                     fail("The saved checkpoint was not found.", 404)
                 omitted = set()
+                if worker.get("capabilities", {}).get("parallel_search") is not True:
+                    omitted.add("search_workers")
                 if "training_symmetry_modes" not in worker.get("capabilities", {}):
                     omitted.add("training_symmetry_mode")
                 if "inference_cache_modes" not in worker.get("capabilities", {}):

@@ -152,6 +152,7 @@ def evaluate_model(
     previous: PolicyValueNet | None = None,
     seed: int | None = None,
     should_stop: Callable[[], bool] | None = None,
+    search_pool=None,
 ) -> dict:
     """Evaluate exactly the selected opponent with equal neural budgets per side."""
     context = evaluation_context(config)
@@ -166,6 +167,32 @@ def evaluate_model(
     model.eval()
     if previous is not None:
         previous.eval()
+    if config.get("search_workers", 0) and config.get("evaluation_mode", "auto") != "sequential":
+        parallel_started = time.monotonic()
+        from .parallel_search import parallel_evaluation
+
+        outcomes, performance = parallel_evaluation(
+            model,
+            config,
+            context,
+            seed=seed,
+            previous=previous,
+            should_stop=should_stop,
+            search_pool=search_pool,
+        )
+        return {
+            **_summary(outcomes),
+            "opponent": context["opponent"],
+            "opponent_config": context["opponent_config"],
+            "context": context,
+            "opponent_identity": context_identity(context),
+            "candidate_as_attacker": _summary(outcomes[::2]),
+            "candidate_as_defender": _summary(outcomes[1::2]),
+            "games": outcomes,
+            "duration": time.monotonic() - parallel_started,
+            "seed": seed,
+            "performance": performance,
+        }
     started = time.monotonic()
     from .evaluation_play import batched_evaluation, evaluation_backend
 

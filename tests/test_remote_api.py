@@ -397,6 +397,7 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
                 "inference_backends": ["pytorch"],
                 "inference_cache_modes": ["off", "exact"],
                 "training_symmetry_modes": ["off", "random_d4"],
+                "parallel_search": True,
             }
         },
     )
