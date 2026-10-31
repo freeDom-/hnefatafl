@@ -87,8 +87,8 @@ trial rather than all trials, so study-wide totals show **Not recorded**.
 ## Analysis views
 
 The summary above the tabs keeps the selected name, status, ruleset, execution
-location, recorded iteration/total, stage, elapsed time and remote update time
-available. Rename, stop, checkpoint/study resume, job export, training-data
+location, recorded iteration/total, stage, live elapsed time and remote update
+time available. Rename, stop, checkpoint/study resume, job export, training-data
 deletion and refresh use their existing state restrictions and confirmation
 dialogs. Progress uses recorded iteration counts; the interface does not invent
 an ETA.
@@ -133,6 +133,53 @@ selected during polling; switching jobs resets them for the new job. Data tables
 mount when opened, keeping long histories out of the DOM during ordinary
 monitoring.
 
+## Live monitoring
+
+The training process separates three things that must not depend on each other:
+the worker heartbeat (the process is alive), computational progress (training work
+advanced) and publication (a snapshot reached the file the server or a remote
+worker reads). A long self-play game, optimization epoch or evaluation match
+therefore keeps advancing the dashboard even while no counter moves.
+
+The job summary keeps an advancing elapsed time and a live phase block. Every
+phase reports its own elapsed duration, a heartbeat state and, where the counters
+exist, phase-specific progress:
+
+- **Self-play** shows completed and scheduled games, active games, searched
+  positions and MCTS simulations.
+- **Model training** shows completed and total optimization steps, the current
+  epoch and the running policy/value loss means.
+- **Evaluation** shows completed and scheduled games, wins, draws, losses and the
+  effective opponent.
+- **Preparation, checkpointing and finalization** show phase and elapsed time
+  only, because no meaningful unit counter exists there.
+
+Elapsed time is published as a monotonic duration, never as a worker timestamp.
+The browser anchors each reported value when the response arrives and advances it
+with a one-second local ticker, so an unsynchronised or skewed remote worker clock
+cannot affect the display. Timers never move backwards, a new phase restarts only
+the phase timer, and a completed, cancelled or failed job shows a fixed duration.
+
+Heartbeat states are informational and never change job management or outcome:
+
+| State | Meaning |
+| --- | --- |
+| **Worker active** | Publication is fresh and work is progressing. |
+| **Running, long operation** | Publication is fresh, but no meaningful progress for two minutes. One self-play or evaluation game may legitimately take that long. |
+| **Potentially stalled** | Publication is fresh, but no meaningful progress for ten minutes. |
+| **No recent updates** | No refreshed snapshot for twenty seconds: the worker, its process or its connection stopped reporting. |
+| **Waiting for a worker** | The job is queued. |
+
+Jobs recorded before these fields existed omit the heartbeat state, phase timer
+and counters instead of inventing values.
+
+Heartbeats are written to a bounded `heartbeat.json` beside the retained
+`progress.json`, and a reader overlays a heartbeat only when it belongs to the
+same publication generation. A stale heartbeat can therefore never revive a
+terminal state or replace newer progress. See the
+[monitoring overhead measurements](benchmarks/training-monitoring-heartbeat.md)
+for the measured cost.
+
 ## Reading charts correctly
 
 Charts adapt their SVG coordinate width to the available space, keep readable
@@ -174,6 +221,10 @@ Older workers may omit newer metrics; missing measurements display as absent.
 Monitoring polls every 2.5 seconds while jobs or registered workers need updates.
 Slow requests are coalesced so their eventual responses can update the dashboard.
 Hardware detection and worker connectivity load independently from job progress.
+A local job's live state comes from the worker's retained progress file plus its
+bounded heartbeat; a remote worker republishes its snapshot at a bounded cadence
+that is independent of its lease heartbeat, so intermediate counters reach the
+server while a phase is still running.
 The navigator requests compact job summaries; full history and the bounded log
 tail load for the selected job. Switching jobs cancels obsolete detail requests
 and preserves the selected analysis tab. Full histories, exports and checkpoints

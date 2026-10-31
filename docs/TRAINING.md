@@ -179,6 +179,14 @@ an event summary, including the final event; complete history stays in the JSON
 files and checkpoint. Logs omit accumulated history, detailed game arrays and
 model metadata. Remote workers use the same CLI and retain full polling data.
 
+Between real progress events the worker keeps a bounded `heartbeat.json` beside
+`progress.json` with the current phase, phase and iteration elapsed durations,
+the time since meaningful progress and the live phase counters. It is refreshed
+about once per second, so a long self-play game, optimization epoch or evaluation
+match keeps monitoring and timers advancing without rewriting the retained
+history. Readers overlay a heartbeat only when it belongs to the same publication
+generation. See [the training dashboard](TRAINING_DASHBOARD.md#live-monitoring).
+
 The progress panel plots policy/value losses and completion-aware evaluation
 score against completed iterations, including while a worker is running. An
 accessible data table contains the same points. History survives reopening and
