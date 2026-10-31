@@ -246,8 +246,12 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
   });
 });
 
-test('advances live phase monitoring and reports stale publication', async ({ page }) => {
-  await page.clock.install();
+test('advances live phase monitoring and reports stale publication', async ({ page }, info) => {
+  // A paused clock makes the displayed seconds deterministic: they can only
+  // move when this test advances them.
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
   const job = workshopFixture('running', 1);
   const monitored = {
     ...job,
@@ -279,6 +283,7 @@ test('advances live phase monitoring and reports stale publication', async ({ pa
   await expect(live.getByText('Games', { exact: true }).locator('..')).toContainText('18 / 32');
   await expect(live.getByText('Active games', { exact: true }).locator('..')).toContainText('14');
   await expect(live.getByText('Positions', { exact: true }).locator('..')).toContainText('4,820');
+  await page.screenshot({ path: info.outputPath('live-monitoring.png'), fullPage: true });
 
   // Timers keep advancing although no new progress snapshot arrived.
   await page.clock.runFor(3000);
