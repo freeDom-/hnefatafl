@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import time
 from collections import deque
-from typing import Callable, Generator
+from typing import TYPE_CHECKING, Callable, Generator
 
 import torch
 
@@ -14,6 +14,9 @@ from .engine import Move, State, apply_move, legal_moves, new_game
 from .inference import ExactInferenceCache, InferenceMetrics, policy_value_batch
 from .inference_backends import InferenceBackend
 from .models import PolicyValueNet, encode_state
+
+if TYPE_CHECKING:
+    from .training_monitoring import ProgressSink
 
 
 GameResult = tuple[list[dict], dict]
@@ -100,6 +103,7 @@ def _game_context(
     config: dict,
     seed: int,
     should_stop: Callable[[], bool] | None,
+    monitor: ProgressSink | None = None,
 ) -> Generator[State, Evaluation, GameResult]:
     rng = random.Random(seed)
     state = new_game(config["ruleset"])
@@ -132,6 +136,10 @@ def _game_context(
         cutoffs += details.get("deadline_cutoffs", 0)
         neural_requests += details.get("mcts_neural_requests", 0)
         prediction_reuses += details.get("mcts_node_prediction_reuses", 0)
+        if monitor is not None:
+            # One cheap counter update per searched position: enough to keep the
+            # dashboard live without touching the per-simulation MCTS loop.
+            monitor.tick(positions=1, simulations=details.get("simulations", 0))
         area = state.size**2
         examples.append(
             {
@@ -182,6 +190,7 @@ def batched_self_play(
     retain_examples: bool = True,
     backend: InferenceBackend | None = None,
     cache: ExactInferenceCache | None = None,
+    monitor: ProgressSink | None = None,
 ) -> list[GameResult]:
     """Interleave independent searches, replacing finished games immediately.
 
@@ -196,6 +205,10 @@ def batched_self_play(
     completed: dict[int, GameResult] = {}
     started = flushed = 0
     model.eval()
+    if monitor is not None:
+        # Scheduled/completed/active games are aggregated by the driver itself;
+        # per-position counters come from the game contexts.
+        monitor.counts(games_total=count, games_active=0)
 
     def cancelled() -> None:
         if should_stop and should_stop():
@@ -210,6 +223,9 @@ def batched_self_play(
         except StopIteration as stopped:
             completed[index] = stopped.value
             metrics.record(stopped.value[1])
+            if monitor is not None:
+                # Exactly one completion per game: the generator only stops once.
+                monitor.tick(games_completed=1)
             return None
         finally:
             metrics.cpu_search_seconds += time.process_time() - cpu_started
@@ -220,7 +236,7 @@ def batched_self_play(
         nonlocal started
         index = started
         started += 1
-        return advance(index, _game_context(model, config, seed + index, should_stop))
+        return advance(index, _game_context(model, config, seed + index, should_stop, monitor))
 
     def flush_completed():
         nonlocal flushed
@@ -267,4 +283,6 @@ def batched_self_play(
             if request is None and progress:
                 progress({"game": metrics.games, "performance": metrics.snapshot()})
         fill_slots()
+        if monitor is not None:
+            monitor.counts(games_active=len(pending))
     return [completed[index] for index in range(count)]

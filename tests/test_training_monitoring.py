@@ -179,3 +179,59 @@ def test_summary_preserves_result_only_counters_and_current_progress_precedence(
     assert (
         client.get("/api/training/jobs?summary=true").json()[0]["progress"]["games_generated"] == 20
     )
+
+
+def test_live_local_job_reports_a_matching_heartbeat_between_progress_events(client, monkeypatch):
+    job = saved_job("f" * 32, execution="local", status="running")
+    job["pid"] = 424242
+    store = client.app.state.store
+    store.save_job(job)
+    directory = client.app.state.data_dir / "jobs" / job["id"]
+    directory.mkdir()
+    (directory / "progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "revision": 3,
+                "iteration": 5,
+                "duration": 10.0,
+                "history": [{"iteration": 5, "policy_loss": 0.4}],
+            }
+        )
+    )
+    (directory / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "revision": 3,
+                "iteration": 5,
+                "duration": 12.5,
+                "stage": "self_play",
+                "phase_elapsed": 4.0,
+                "last_progress_seconds": 2.0,
+                "phase_progress": {"games_completed": 2, "games_total": 8, "games_active": 3},
+            }
+        )
+    )
+    original = Path.read_bytes
+
+    def command(path):
+        if str(path) == "/proc/424242/cmdline":
+            return b"hnefatafl.cli\0" + str(directory / "config.json").encode()
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", command)
+
+    item = client.get("/api/training/jobs?summary=true").json()[0]
+    assert item["progress"]["duration"] == 12.5
+    assert item["progress"]["stage"] == "self_play"
+    assert item["progress"]["phase_progress"]["games_active"] == 3
+    # The retained history stays available to the selected job's detail view.
+    detail = client.get(f"/api/training/jobs/{job['id']}").json()
+    assert detail["progress"]["history"] == [{"iteration": 5, "policy_loss": 0.4}]
+
+    # A heartbeat from an earlier generation must never replace newer progress.
+    (directory / "heartbeat.json").write_text(json.dumps({"revision": 2, "duration": 1.0}))
+    stale = client.get("/api/training/jobs?summary=true").json()[0]
+    assert stale["progress"]["duration"] == 10.0
+    assert "phase_progress" not in stale["progress"]

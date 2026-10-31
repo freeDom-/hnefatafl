@@ -13,11 +13,14 @@ import hashlib
 import json
 import math
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from .ai import choose_move
 from .engine import apply_move, new_game
 from .models import PolicyValueNet
+
+if TYPE_CHECKING:
+    from .training_monitoring import ProgressSink
 
 
 def evaluation_context(config: dict) -> dict:
@@ -147,6 +150,7 @@ def evaluate_model(
     previous: PolicyValueNet | None = None,
     seed: int | None = None,
     should_stop: Callable[[], bool] | None = None,
+    monitor: ProgressSink | None = None,
 ) -> dict:
     """Evaluate exactly the selected opponent with equal neural budgets per side."""
     context = evaluation_context(config)
@@ -158,10 +162,20 @@ def evaluate_model(
         raise ValueError("Champion architecture and ruleset must match the candidate")
     seed = context["seed"] if seed is None else seed
     outcomes: list[dict] = []
+    wins = draws = losses = 0
     model.eval()
     if previous is not None:
         previous.eval()
     started = time.monotonic()
+    if monitor is not None:
+        monitor.counts(
+            evaluation_opponent=context["opponent"],
+            evaluation_total=config["evaluation_games"],
+            evaluation_games=0,
+            evaluation_wins=0,
+            evaluation_draws=0,
+            evaluation_losses=0,
+        )
     for game in range(config["evaluation_games"]):
         state = new_game(config["ruleset"])
         candidate_side = "attackers" if game % 2 == 0 else "defenders"
@@ -179,6 +193,9 @@ def evaluate_model(
                 ai_config["_model"] = model if candidate else previous
             ai_config["seed"] = pair_seed + ply
             state = apply_move(state, choose_move(state, ai_config, should_stop=should_stop))
+            if monitor is not None:
+                # One cheap update per searched position keeps long games live.
+                monitor.tick(evaluation_plies=1)
         outcomes.append(
             {
                 "pair": game // 2,
@@ -191,6 +208,20 @@ def evaluate_model(
                 "reason": state.reason or "evaluation_ply_limit",
             }
         )
+        if monitor is not None:
+            # Running, clearly partial tallies; the final result still comes from
+            # _summary() over the same outcomes. Truncated games count as neither
+            # a win nor a loss, matching the final scoring.
+            winner = state.winner
+            wins += int(winner == candidate_side)
+            draws += int(winner == "draw")
+            losses += int(winner not in (None, "draw") and winner != candidate_side)
+            monitor.tick(evaluation_games=1)
+            monitor.counts(
+                evaluation_wins=wins,
+                evaluation_draws=draws,
+                evaluation_losses=losses,
+            )
     return {
         **_summary(outcomes),
         "opponent": context["opponent"],

@@ -366,7 +366,7 @@ def test_training_backpressure_bounds_out_of_order_game_backlog(tmp_path, monkey
     active = maximum_active = 0
     first_finished = False
 
-    def controlled_game(model, config, seed, should_stop):
+    def controlled_game(model, config, seed, should_stop, monitor=None):
         nonlocal active, maximum_active, first_finished
         index = seed - 23
         started.append(index)

@@ -175,7 +175,17 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 from .training import compact_progress, train, tune
 
+                seen_publication = None
+
                 def report(progress):
+                    # Heartbeat snapshots keep the revision of the last real
+                    # progress event; logging them would flood the job log with
+                    # one line per second while a long phase runs.
+                    nonlocal seen_publication
+                    identity = (progress.get("trial"), progress.get("revision"))
+                    if identity == seen_publication:
+                        return
+                    seen_publication = identity
                     print(json.dumps(compact_progress(progress), allow_nan=False), flush=True)
 
                 if args.command == "train":
