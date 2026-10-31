@@ -72,6 +72,10 @@ DEFAULTS = {
     "training_symmetry_mode": "random_d4",
     "checkpoint_frequency": 1,
     "evaluation_opponent": "shield_bearer",
+    "evaluation_mode": "auto",
+    "evaluation_concurrency": 16,
+    "evaluation_batch_size": 32,
+    "evaluation_inference_backend": "pytorch",
     "evaluation_frequency": 1,
     "evaluation_time_limit": 10.0,
     "evaluation_jarl_depth": 5,
@@ -159,6 +163,8 @@ def normalize_config(configuration: dict) -> dict:
         "evaluation_jarl_depth": (1, 8),
         "champion_min_pairs": (2, 5000),
         "evaluation_games": (2, 10000),
+        "evaluation_concurrency": (1, 1024),
+        "evaluation_batch_size": (1, 4096),
         "cpu_threads": (1, 64),
         "self_play_concurrency": (1, 1024),
         "inference_batch_size": (1, 4096),
@@ -169,6 +175,10 @@ def normalize_config(configuration: dict) -> dict:
             raise ValueError(f"{key} must be an integer between {low} and {high}")
     if config["self_play_mode"] not in ("auto", "sequential", "batched"):
         raise ValueError("self_play_mode must be auto, sequential or batched")
+    if config["evaluation_mode"] not in ("auto", "sequential", "batched"):
+        raise ValueError("evaluation_mode must be auto, sequential or batched")
+    if config["evaluation_inference_backend"] not in ("pytorch", "training"):
+        raise ValueError("evaluation_inference_backend must be pytorch or training")
     if config["evaluation_opponent"] not in ("shield_bearer", "shield_maiden", "jarl", "champion"):
         raise ValueError(
             "evaluation_opponent must be shield_bearer, shield_maiden, jarl or champion"

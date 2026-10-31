@@ -91,6 +91,11 @@ checkpoint settings and saved learning state. Update remote-worker code with the
 server so workers recognize the new parameters; no new worker protocol, model
 format or storage migration is needed.
 
+Pure-engine existence queries avoid building complete move lists during terminal
+adjudication; immutable board geometry is cached, and encirclement stops once an
+accessible defender disproves enclosure. Move order and adjudication remain the
+same. See [engine and self-play measurements](benchmarks/training-engine-fast-paths.md).
+
 ## Two different batch sizes
 
 | Setting | Default and accepted range | What changes |
@@ -214,11 +219,19 @@ Training runs one selected evaluator, rather than baseline plus previous-best.
 Use `evaluation_frequency` independently of checkpoint cadence and inspect
 `evaluation_seconds` and each evaluation record's `duration`. Jarl uses the real
 alpha-beta search and its own depth/deadline; it may cost more than neural play.
-Champion uses equal neural budgets on both models, but remains sequential.
-The self-play scheduler assumes one model: reusing it unchanged for two opponents
-would mix model inference. Cross-model batching is deferred pending a separate
-correctness and measured performance comparison. No evaluation batching speedup
-or RTX 3060 throughput gain is claimed by this release.
+Champion uses equal neural budgets on both models. `evaluation_mode` selects
+`auto`, `sequential` or `batched`; auto batches CUDA and keeps PyTorch CPU/MPS
+sequential. `evaluation_concurrency` (default 16) and `evaluation_batch_size`
+(default 32) are independent of self-play settings. Each model has its own queue
+and cache. Evaluation stays FP32. `evaluation_inference_backend: training` opts
+into a fresh post-update OpenVINO graph when that backend is selected; default
+`pytorch` preserves the historical numerical backend. Alternate backend results
+use a separate benchmark identity. See [isolated evaluation evidence](benchmarks/training-evaluation-batching.md).
+Workers advertise `evaluation_batching`; legacy workers retain the sequential
+default and do not receive unknown execution keys, while explicit new modes
+require that capability. Resume downloads apply the same filtering.
+Queue waiting counts against wall deadlines, so compare completed search work
+and cutoff counts on the target worker before choosing concurrency.
 
 CLI logs project bounded incremental summaries while persistent JSON retains
 complete history. This removes repeated history/game serialization from worker
