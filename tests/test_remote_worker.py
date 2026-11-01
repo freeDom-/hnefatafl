@@ -526,3 +526,40 @@ def test_worker_republishes_progress_while_the_training_process_runs(tmp_path, m
     assert len(reports) >= 3
     assert all(report["duration"] == 6.0 for report in reports)
     assert runner.sequence >= 3
+
+
+def test_initialization_progress_reaches_the_server_unchanged(tmp_path):
+    # Monitoring starts before a model exists, so the first reports a remote
+    # worker forwards describe an initialization stage with no counters.
+    (tmp_path / "progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "stage": "loading_checkpoint",
+                "revision": 1,
+                "total_iterations": 20,
+                "history": [],
+            }
+        )
+    )
+    (tmp_path / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "stage": "loading_checkpoint",
+                "revision": 1,
+                "duration": 3.5,
+                "phase_elapsed": 3.5,
+                "last_progress_seconds": 0.2,
+            }
+        )
+    )
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    report, _, _ = runner._progress_report()
+    progress = report["progress"]
+    assert progress["stage"] == "loading_checkpoint"
+    assert progress["phase_elapsed"] == 3.5
+    assert progress["duration"] == 3.5
+    assert progress["total_iterations"] == 20
+    # No counter is invented before the first self-play game.
+    assert "phase_progress" not in progress

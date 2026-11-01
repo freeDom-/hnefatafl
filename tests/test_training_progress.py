@@ -682,3 +682,262 @@ def test_progress_reports_the_new_iteration_before_its_first_game_starts(tmp_pat
     result = read_json(output / "progress.json")
     assert result["status"] == "completed"
     assert result["active_iteration"] == 2
+
+
+# --- initialization monitoring ----------------------------------------------
+
+
+def resumable_checkpoint(tmp_path: Path) -> tuple[str, Path]:
+    """One real completed run whose full last.pt can be resumed."""
+    config = tiny_config(tmp_path, games=1, iterations=1)
+    result = train(config)
+    assert result["status"] == "completed"
+    return result["checkpoint"], Path(config["output_dir"])
+
+
+def wait_for_stage(output: Path, stage: str, *, deadline: float = 30.0) -> dict:
+    """Wait until the bounded heartbeat reports the requested initialization stage."""
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        snapshot = read_heartbeat(output)
+        if snapshot is not None and snapshot.get("stage") == stage:
+            return snapshot
+        time.sleep(0.05)
+    raise AssertionError(f"the {stage} stage was never published")
+
+
+def run_train(config: dict, results: list, *, should_stop=None) -> threading.Thread:
+    def run():
+        try:
+            results.append(train(config, should_stop=should_stop))
+        except Exception as error:  # pragma: no cover - surfaced by the assertions
+            results.append(error)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    return worker
+
+
+def test_heartbeat_covers_slow_checkpoint_loading(tmp_path, monkeypatch):
+    checkpoint, _ = resumable_checkpoint(tmp_path)
+    entered = threading.Event()
+    released = threading.Event()
+    real_load = training_module.load_checkpoint
+
+    def blocking_load(path):
+        entered.set()
+        assert released.wait(30)
+        return real_load(path)
+
+    monkeypatch.setattr(training_module, "load_checkpoint", blocking_load)
+    config = tiny_config(
+        tmp_path, games=1, iterations=2, output_dir=str(tmp_path / "resumed"), resume=checkpoint
+    )
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_train(config, results)
+    assert entered.wait(30)
+
+    # No model, optimizer or device exists yet, but the job already reports.
+    first = wait_for_stage(output, "loading_checkpoint")
+    assert first["total_iterations"] == 2 and first["revision"] >= 1
+    assert publication_age(output) is not None and publication_age(output) < 5
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "running" and progress["stage"] == "loading_checkpoint"
+    time.sleep(1.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "loading_checkpoint"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["duration"] >= first["duration"] + 1.0
+    assert second["updated_at"] != first["updated_at"]
+    assert second["revision"] == first["revision"]
+
+    released.set()
+    worker.join(timeout=180)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+    assert read_json(output / "progress.json")["stage"] == "completed"
+
+
+def test_heartbeat_covers_slow_model_initialization(tmp_path, monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+    real_model = training_module.PolicyValueNet
+
+    def blocking_model(*args, **kwargs):
+        entered.set()
+        assert released.wait(30)
+        return real_model(*args, **kwargs)
+
+    monkeypatch.setattr(training_module, "PolicyValueNet", blocking_model)
+    config = tiny_config(tmp_path, games=1, iterations=1)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_train(config, results)
+    assert entered.wait(30)
+
+    first = wait_for_stage(output, "initializing")
+    time.sleep(1.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "initializing"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["duration"] >= first["duration"] + 1.0
+
+    released.set()
+    worker.join(timeout=180)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+
+
+def test_heartbeat_covers_slow_optimizer_state_restoration(tmp_path, monkeypatch):
+    checkpoint, _ = resumable_checkpoint(tmp_path)
+    entered = threading.Event()
+    released = threading.Event()
+    real_restore = torch.optim.AdamW.load_state_dict
+
+    def blocking_restore(self, state_dict):
+        entered.set()
+        assert released.wait(30)
+        return real_restore(self, state_dict)
+
+    monkeypatch.setattr(torch.optim.AdamW, "load_state_dict", blocking_restore)
+    config = tiny_config(
+        tmp_path, games=1, iterations=2, output_dir=str(tmp_path / "resumed"), resume=checkpoint
+    )
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_train(config, results)
+    assert entered.wait(30)
+
+    first = wait_for_stage(output, "restoring_state")
+    time.sleep(1.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "restoring_state"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+
+    released.set()
+    worker.join(timeout=180)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+
+
+def test_heartbeat_covers_slow_inference_backend_initialization(tmp_path, monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+    real_create = training_module.create_inference
+
+    def blocking_create(model, config):
+        entered.set()
+        assert released.wait(30)
+        return real_create(model, config)
+
+    monkeypatch.setattr(training_module, "create_inference", blocking_create)
+    config = tiny_config(tmp_path, games=1, iterations=1)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_train(config, results)
+    assert entered.wait(30)
+
+    first = wait_for_stage(output, "initializing_inference")
+    # The model and its restored settings are already visible while the backend
+    # compiles, so the dashboard is never blank during a cold start.
+    assert read_json(output / "progress.json")["status"] == "running"
+    time.sleep(1.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "initializing_inference"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+
+    released.set()
+    worker.join(timeout=180)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+
+
+def test_initialization_reports_the_stage_sequence_before_self_play(tmp_path):
+    checkpoint, _ = resumable_checkpoint(tmp_path)
+    config = tiny_config(
+        tmp_path, games=1, iterations=2, output_dir=str(tmp_path / "resumed"), resume=checkpoint
+    )
+    stages: list[str] = []
+
+    def record(state):
+        stage = state.get("stage")
+        if not stages or stages[-1] != stage:
+            stages.append(stage)
+
+    result = train(config, record)
+    assert result["status"] == "completed"
+    assert stages[:4] == [
+        "starting",
+        "loading_checkpoint",
+        "restoring_state",
+        "initializing",
+    ]
+    assert "initializing_inference" in stages
+    assert "self_play" in stages
+    # Every initialization stage precedes the first self-play game.
+    assert stages.index("initializing_inference") < stages.index("self_play")
+
+
+def test_initialization_failure_reports_a_terminal_failed_job(tmp_path, monkeypatch):
+    def failing_load(path):
+        raise RuntimeError("checkpoint is unreadable")
+
+    monkeypatch.setattr(training_module, "load_checkpoint", failing_load)
+    config = tiny_config(
+        tmp_path, games=1, iterations=1, output_dir=str(tmp_path / "resumed"), resume="missing.pt"
+    )
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="checkpoint is unreadable"):
+        train(config)
+
+    final = read_json(output / "progress.json")
+    assert final["status"] == "failed" and final["stage"] == "failed"
+    assert final["error"] == "checkpoint is unreadable"
+    # No heartbeat may arrive after the terminal publication.
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+
+def test_initialization_failure_without_a_checkpoint_still_ends_failed(tmp_path, monkeypatch):
+    def failing_model(*args, **kwargs):
+        raise RuntimeError("the model could not be created")
+
+    monkeypatch.setattr(training_module, "PolicyValueNet", failing_model)
+    config = tiny_config(tmp_path, games=1, iterations=1)
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="the model could not be created"):
+        train(config)
+
+    final = read_json(output / "progress.json")
+    assert final["status"] == "failed" and final["stage"] == "failed"
+    assert final["error"] == "the model could not be created"
+    # No result file pretends a checkpoint was written.
+    assert not (output / "result.json").exists()
+
+
+def test_cancellation_before_the_first_iteration_keeps_the_restored_checkpoint(tmp_path):
+    checkpoint, _ = resumable_checkpoint(tmp_path)
+    config = tiny_config(
+        tmp_path, games=1, iterations=2, output_dir=str(tmp_path / "resumed"), resume=checkpoint
+    )
+    output = Path(config["output_dir"])
+    stages: list[str] = []
+
+    def record(state):
+        stage = state.get("stage")
+        if not stages or stages[-1] != stage:
+            stages.append(stage)
+
+    result = train(config, record, should_stop=lambda: True)
+    assert result["status"] == "cancelled"
+    # The restored state is checkpointed, so the source run stays resumable.
+    assert Path(result["checkpoint"]).is_file()
+    assert "restoring_state" in stages
+    assert "self_play" not in stages
+    final = read_json(output / "progress.json")
+    assert final["status"] == "cancelled"
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled

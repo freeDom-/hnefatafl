@@ -659,155 +659,33 @@ def train(
     state and iteration are restored; ruleset and network architecture cannot
     change. A callback can monitor progress or raise Optuna TrialPruned.
     """
-    # CLI resumes inherit saved settings too; only explicitly supplied inputs override them.
-    saved_inputs = {}
-    resume_model = None
-    source: dict = {}
-    if configuration.get("resume"):
-        if "output_dir" not in configuration:
-            raise ValueError(
-                "Resume requires a new output_dir to preserve the source training files"
-            )
-        resume_model, source = load_checkpoint(configuration["resume"])
-        saved_inputs = source["metadata"].get("training_config", {})
-        if "training_symmetry_mode" not in saved_inputs:
-            # Checkpoints written before D4 augmentation existed omitted this
-            # setting. Keep their historical OFF behavior even though new jobs
-            # now default to random D4; an explicit override still wins below.
-            saved_inputs = {**saved_inputs, "training_symmetry_mode": "off"}
-    config = normalize_config({**saved_inputs, **configuration})
-    output = Path(config["output_dir"]).resolve()
-    if config.get("resume") and output / "last.pt" == Path(config["resume"]).resolve():
+    if configuration.get("resume") and "output_dir" not in configuration:
+        raise ValueError("Resume requires a new output_dir to preserve the source training files")
+    # Monitoring starts before any expensive initialization. Loading a
+    # checkpoint, building the model and moving it to the device can take a long
+    # time, and a job that is already running must never look like a dead worker.
+    # The explicit inputs are validated first so an invalid configuration still
+    # fails before anything is written.
+    provisional = normalize_config(configuration)
+    output = Path(provisional["output_dir"]).resolve()
+    if provisional.get("resume") and (output / "last.pt" == Path(provisional["resume"]).resolve()):
         raise ValueError("Resume output_dir must preserve the source checkpoint path")
-    output.mkdir(parents=True, exist_ok=True)
-    torch.set_num_threads(config["cpu_threads"])
-    device = resolve_device(config["device"])
-    torch.manual_seed(config["seed"])
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(config["seed"])
-    rng = random.Random(config["seed"])
-    # Dedicated stream: OFF never draws from it, and neither replay shuffling nor
-    # self-play scheduling can shift augmentation choices (or vice versa).
-    augment_rng = augmentation_rng(config["seed"], 0)
-    model = (
-        resume_model
-        if resume_model is not None
-        else PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
-    ).to(device)
-    optimizer = _make_optimizer(model, config)
-    replay: list[dict] = []
-    completed = job_games = 0
-    baseline: int | None = 0
-    best_score = -1.0
-    best_snapshot: dict | None = None
-    metrics: dict = {}
-    history: list[dict] = []
-    best_models: list[dict] = []
-    resume_payload = None
-    saved_config: dict = {}
-    extra: dict = {}
-    if config.get("resume"):
-        payload = source
-        resume_payload = payload
-        if model.config != {
-            "ruleset": config["ruleset"],
-            "channels": config["channels"],
-            "blocks": config["blocks"],
-        }:
-            raise ValueError("Resume ruleset and architecture must match the checkpoint")
-        saved_config = payload["metadata"].get("training_config", {})
-        if saved_config.get("optimizer") != config["optimizer"]:
-            raise ValueError("Resume optimizer must match the checkpoint")
-        if "seed" in saved_config and config["seed"] != saved_config["seed"]:
-            raise ValueError("Resume seed must match the checkpoint")
-        optimizer = _make_optimizer(model, config)
-        if payload.get("optimizer_state") is None:
-            raise ValueError("This checkpoint has no optimizer state and cannot resume training")
-        optimizer.load_state_dict(payload["optimizer_state"])
-        # Loading optimizer state restores its parameter groups too. Apply each
-        # explicit override afterwards, while preserving accumulated moments and
-        # momentum buffers. Record the effective values even for older snapshots
-        # whose metadata did not reflect their restored optimizer settings.
-        settings = {"learning_rate": "lr", "weight_decay": "weight_decay"}
-        if config["optimizer"] == "sgd":
-            settings["momentum"] = "momentum"
-        for name, parameter in settings.items():
-            for group in optimizer.param_groups:
-                if name in configuration:
-                    group[parameter] = config[name]
-            config[name] = float(optimizer.param_groups[0][parameter])
-        extra = payload.get("extra", {})
-        if extra.get("training_state_version", 1) not in (1, 2):
-            raise ValueError("Unsupported training checkpoint state version")
-        history = extra.get("history", [])
-        best_models = extra.get("best_models", [])
-        completed = int(extra.get("iteration", 0))
-        baseline = checkpoint_cumulative(payload)
-        replay = extra.get("replay", [])[-config["replay_buffer_size"] :]
-        best_score = float(extra.get("best_score", -1))
-        best_snapshot = extra.get("best_snapshot")
-        if best_score >= 0 and not best_snapshot:
-            raise ValueError("Resume checkpoint is missing its portable best-model snapshot")
-        if "python_rng" in extra:
-            rng.setstate(extra["python_rng"])
-        if "augmentation_rng" in extra:
-            augment_rng.setstate(extra["augmentation_rng"])
-        else:
-            # Legacy checkpoints: reproducible derivation from seed and progress.
-            augment_rng = augmentation_rng(config["seed"], completed)
-        if "torch_rng" in extra:
-            torch.set_rng_state(extra["torch_rng"].cpu())
-        if device.type == "cuda" and extra.get("cuda_rng"):
-            torch.cuda.set_rng_state_all(extra["cuda_rng"])
-        metrics = payload["metadata"].get("metrics", {})
-        if completed >= config["iterations"]:
-            raise ValueError("Resume iterations must exceed the saved completed iteration")
-    checkpoint = output / "last.pt"
-    best_checkpoint = output / "best.pt"
-    selection = EvaluationSelection(extra, saved_config, config, metrics.get("evaluation"))
-    # Keep legacy baseline fields in their original scale. Other benchmarks and
-    # champion promotion never overwrite these portable historical values.
-    legacy_identity = selection.data.get("legacy_identity")
-    if legacy_identity is None and config["evaluation_opponent"] == "shield_bearer":
-        legacy_identity = selection.identity
-        selection.data["legacy_identity"] = legacy_identity
-    if config["evaluation_opponent"] == "champion":
-        selection.initialize_champion(
-            model,
-            {
-                "name": config["model_name"],
-                "version": completed,
-                "training_config": config,
-                "metrics": {},
-                "evaluation": {},
-                "self_play_games": self_play_statistics(job_games, baseline),
-            },
-            best_snapshot,
-        )
-    selected = selection.selected_snapshot() or best_snapshot
-    if selected:
-        save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
-    mixed = bool(config["mixed_precision"] and device.type == "cuda")
-    scaler = torch.amp.GradScaler("cuda", enabled=mixed)
-    if resume_payload and resume_payload["extra"].get("grad_scaler"):
-        scaler.load_state_dict(resume_payload["extra"]["grad_scaler"])
     started = time.monotonic()
     publish_lock = threading.Lock()
-    state = {
+    device: torch.device | None = None
+    job_games = 0
+    baseline: int | None = 0
+    state: dict = {
         "status": "running",
-        "iteration": completed,
-        "total_iterations": config["iterations"],
-        "games_generated": baseline,
-        "self_play_games": self_play_statistics(job_games, baseline),
-        "device": str(device),
-        "mixed_precision": mixed,
+        "total_iterations": provisional["iterations"],
+        "device": str(provisional["device"]),
+        "mixed_precision": bool(provisional["mixed_precision"]),
         "checkpoint": None,
-        "metrics": metrics,
-        "history": history,
-        "best_models": best_models,
-        "evaluation_selection": selection.summary(),
+        "metrics": {},
+        "history": [],
+        "best_models": [],
+        "evaluation_selection": {},
     }
-    _write_json(output / "config.json", config)
 
     def write_snapshot(heartbeat: bool, changes: dict) -> None:
         """Serialize one monitoring snapshot and publish it.
@@ -815,7 +693,8 @@ def train(
         ``heartbeat`` republishes the current state with refreshed timings from
         the monitor thread. It writes only the bounded heartbeat projection
         (never the retained history) and skips the GPU query, so no CUDA call
-        runs off the training thread.
+        runs off the training thread. It runs during initialization too, where
+        no device, model or optimizer exists yet.
         """
         with publish_lock:
             state.update(changes)
@@ -832,14 +711,14 @@ def train(
             if heartbeat:
                 _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(state))
             else:
-                if device.type == "cuda":
+                if device is not None and device.type == "cuda":
                     state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
                 _write_json(output / "progress.json", state)
             if progress:
                 progress(dict(state))
 
     monitor = TrainingMonitor(
-        lambda **flags: write_snapshot(bool(flags.get("heartbeat")), {}), phase="initializing"
+        lambda **flags: write_snapshot(bool(flags.get("heartbeat")), {}), phase="starting"
     )
 
     def publish(**changes):
@@ -857,6 +736,9 @@ def train(
         }
 
     def checkpoint_now(path: Path):
+        # Only reached once the training state exists; see ``initialized``.
+        assert model is not None and optimizer is not None
+        assert selection is not None and scaler is not None and device is not None
         extra = {
             "iteration": completed,
             "games_generated": self_play_statistics(job_games, baseline)["cumulative"],
@@ -875,10 +757,188 @@ def train(
         }
         save_checkpoint(path, model, current_metadata(), optimizer, extra)
 
+    def stopped() -> None:
+        """Honor a cancellation request once the training state can be checkpointed."""
+        if should_stop and should_stop():
+            raise InterruptedError("Training was cancelled")
+
+    # Initialization state, filled in as each slow step completes. ``initialized``
+    # marks the point where a checkpoint can be written and a terminal state
+    # reported with full training metadata.
+    config = provisional
+    saved_inputs: dict = {}
+    resume_model = None
+    source: dict = {}
+    completed = 0
+    replay: list[dict] = []
+    best_score = -1.0
+    best_snapshot: dict | None = None
+    metrics: dict = {}
+    history: list[dict] = []
+    best_models: list[dict] = []
+    resume_payload: dict | None = None
+    saved_config: dict = {}
+    extra: dict = {}
+    selection: EvaluationSelection | None = None
+    scaler: torch.amp.GradScaler | None = None
+    optimizer: torch.optim.Optimizer | None = None
+    model: PolicyValueNet | None = None
+    initialized = False
     backend = None
+    checkpoint = output / "last.pt"
+    best_checkpoint = output / "best.pt"
+
     monitor.start()
     try:
+        output.mkdir(parents=True, exist_ok=True)
         publish()
+        if provisional.get("resume"):
+            monitor.phase("loading_checkpoint")
+            # Publish each initialization stage so the retained progress file
+            # names it immediately, not only through the heartbeat overlay.
+            publish()
+            resume_model, source = load_checkpoint(provisional["resume"])
+            saved_inputs = source["metadata"].get("training_config", {})
+            if "training_symmetry_mode" not in saved_inputs:
+                # Checkpoints written before D4 augmentation existed omitted this
+                # setting. Keep their historical OFF behavior even though new jobs
+                # now default to random D4; an explicit override still wins below.
+                saved_inputs = {**saved_inputs, "training_symmetry_mode": "off"}
+            # CLI resumes inherit saved settings too; only explicit inputs override them.
+            config = normalize_config({**saved_inputs, **configuration})
+        # Building the model can take a while; the heartbeat reports this stage
+        # without a retained publication, so no counter is published before the
+        # training state it would describe exists.
+        monitor.phase("initializing")
+        torch.set_num_threads(config["cpu_threads"])
+        device = resolve_device(config["device"])
+        torch.manual_seed(config["seed"])
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(config["seed"])
+        rng = random.Random(config["seed"])
+        # Dedicated stream: OFF never draws from it, and neither replay shuffling
+        # nor self-play scheduling can shift augmentation choices (or vice versa).
+        augment_rng = augmentation_rng(config["seed"], 0)
+        model = (
+            resume_model
+            if resume_model is not None
+            else PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
+        ).to(device)
+        optimizer = _make_optimizer(model, config)
+        if config.get("resume"):
+            monitor.phase("restoring_state")
+            publish()
+            payload = source
+            resume_payload = payload
+            if model.config != {
+                "ruleset": config["ruleset"],
+                "channels": config["channels"],
+                "blocks": config["blocks"],
+            }:
+                raise ValueError("Resume ruleset and architecture must match the checkpoint")
+            saved_config = payload["metadata"].get("training_config", {})
+            if saved_config.get("optimizer") != config["optimizer"]:
+                raise ValueError("Resume optimizer must match the checkpoint")
+            if "seed" in saved_config and config["seed"] != saved_config["seed"]:
+                raise ValueError("Resume seed must match the checkpoint")
+            optimizer = _make_optimizer(model, config)
+            if payload.get("optimizer_state") is None:
+                raise ValueError(
+                    "This checkpoint has no optimizer state and cannot resume training"
+                )
+            optimizer.load_state_dict(payload["optimizer_state"])
+            # Loading optimizer state restores its parameter groups too. Apply each
+            # explicit override afterwards, while preserving accumulated moments and
+            # momentum buffers. Record the effective values even for older snapshots
+            # whose metadata did not reflect their restored optimizer settings.
+            settings = {"learning_rate": "lr", "weight_decay": "weight_decay"}
+            if config["optimizer"] == "sgd":
+                settings["momentum"] = "momentum"
+            for name, parameter in settings.items():
+                for group in optimizer.param_groups:
+                    if name in configuration:
+                        group[parameter] = config[name]
+                config[name] = float(optimizer.param_groups[0][parameter])
+            extra = payload.get("extra", {})
+            if extra.get("training_state_version", 1) not in (1, 2):
+                raise ValueError("Unsupported training checkpoint state version")
+            history = extra.get("history", [])
+            best_models = extra.get("best_models", [])
+            completed = int(extra.get("iteration", 0))
+            baseline = checkpoint_cumulative(payload)
+            replay = extra.get("replay", [])[-config["replay_buffer_size"] :]
+            best_score = float(extra.get("best_score", -1))
+            best_snapshot = extra.get("best_snapshot")
+            if best_score >= 0 and not best_snapshot:
+                raise ValueError("Resume checkpoint is missing its portable best-model snapshot")
+            if "python_rng" in extra:
+                rng.setstate(extra["python_rng"])
+            if "augmentation_rng" in extra:
+                augment_rng.setstate(extra["augmentation_rng"])
+            else:
+                # Legacy checkpoints: reproducible derivation from seed and progress.
+                augment_rng = augmentation_rng(config["seed"], completed)
+            if "torch_rng" in extra:
+                torch.set_rng_state(extra["torch_rng"].cpu())
+            if device.type == "cuda" and extra.get("cuda_rng"):
+                torch.cuda.set_rng_state_all(extra["cuda_rng"])
+            metrics = payload["metadata"].get("metrics", {})
+            if completed >= config["iterations"]:
+                raise ValueError("Resume iterations must exceed the saved completed iteration")
+            # The restored state is part of initialization, not a separate phase.
+            monitor.phase("initializing")
+            publish()
+        selection = EvaluationSelection(extra, saved_config, config, metrics.get("evaluation"))
+        # Keep legacy baseline fields in their original scale. Other benchmarks and
+        # champion promotion never overwrite these portable historical values.
+        legacy_identity = selection.data.get("legacy_identity")
+        if legacy_identity is None and config["evaluation_opponent"] == "shield_bearer":
+            legacy_identity = selection.identity
+            selection.data["legacy_identity"] = legacy_identity
+        if config["evaluation_opponent"] == "champion":
+            selection.initialize_champion(
+                model,
+                {
+                    "name": config["model_name"],
+                    "version": completed,
+                    "training_config": config,
+                    "metrics": {},
+                    "evaluation": {},
+                    "self_play_games": self_play_statistics(job_games, baseline),
+                },
+                best_snapshot,
+            )
+        selected = selection.selected_snapshot() or best_snapshot
+        if selected:
+            save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
+        mixed = bool(config["mixed_precision"] and device.type == "cuda")
+        scaler = torch.amp.GradScaler("cuda", enabled=mixed)
+        if resume_payload and resume_payload["extra"].get("grad_scaler"):
+            scaler.load_state_dict(resume_payload["extra"]["grad_scaler"])
+        state.update(
+            {
+                "iteration": completed,
+                "total_iterations": config["iterations"],
+                "games_generated": baseline,
+                "self_play_games": self_play_statistics(job_games, baseline),
+                "device": str(device),
+                "mixed_precision": mixed,
+                "checkpoint": None,
+                "metrics": metrics,
+                "history": history,
+                "best_models": best_models,
+                "evaluation_selection": selection.summary(),
+            }
+        )
+        _write_json(output / "config.json", config)
+        # From here a checkpoint can be written and a terminal state reported
+        # with full training metadata. Publish the completed initialization so a
+        # restored history and its optimizer settings are visible before the
+        # first self-play game.
+        initialized = True
+        publish()
+        stopped()
+        monitor.phase("initializing_inference")
         initialization_started = time.monotonic()
         backend = create_inference(model, config)
         initialization_seconds = time.monotonic() - initialization_started
@@ -1111,6 +1171,14 @@ def train(
         _write_json(output / "result.json", result)
         return result
     except InterruptedError:
+        if not initialized:
+            # Cancelled before any training state existed: report the terminal
+            # state without pretending a checkpoint was written.
+            monitor.phase("cancelled")
+            publish(status="cancelled")
+            result = {**state, "output_dir": str(output), "model": None, "best_checkpoint": None}
+            _write_json(output / "result.json", result)
+            return result
         if completed and (not history or history[-1]["iteration"] < completed):
             history.append(
                 {
@@ -1139,6 +1207,13 @@ def train(
     except Exception as error:
         # TrialPruned also preserves the most recent completed checkpoint.
         status = "pruned" if type(error).__name__ == "TrialPruned" else "failed"
+        if not initialized:
+            # A failure during initialization has no checkpoint to preserve, but
+            # it must still end as a named terminal state instead of a job that
+            # looks like it is still starting.
+            monitor.phase(status)
+            publish(status=status, error=str(error))
+            raise
         if completed and (not history or history[-1]["iteration"] < completed):
             history.append(
                 {
