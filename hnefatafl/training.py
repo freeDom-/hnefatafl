@@ -708,12 +708,14 @@ def train(
             state["self_play_games"] = self_play_statistics(job_games, baseline)
             state["games_generated"] = state["self_play_games"]["cumulative"]
             state["duration"] = time.monotonic() - started
-            if heartbeat:
-                _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(state))
-            else:
+            if not heartbeat:
                 if device is not None and device.type == "cuda":
                     state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
                 _write_json(output / "progress.json", state)
+            # The bounded file always carries the current revision, so a reader can
+            # tell a new publication from a liveness refresh without re-reading the
+            # retained history. It stays a bounded projection in both cases.
+            _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(state))
             if progress:
                 progress(dict(state))
 
@@ -1334,24 +1336,28 @@ def tune(
             nonlocal latest_revision
             revision = state.get("revision")
             heartbeat = revision == latest_revision
+            # Each trial is a new training run whose revisions restart, so the
+            # outer files carry the identity of the run that produced them. A
+            # heartbeat from an earlier trial can then never overlay this one.
+            run = state.get("run")
             with tune_lock:
-                latest.update(trial=trial.number, revision=revision, trial_progress=state)
-                if heartbeat:
-                    # Liveness refresh: keep the retained outer snapshot intact and
-                    # publish only the bounded trial projection.
-                    _write_json(
-                        output / HEARTBEAT_FILENAME,
-                        {
-                            "status": latest["status"],
-                            "completed_trials": latest["completed_trials"],
-                            "trials_requested": latest["trials_requested"],
-                            "trial": trial.number,
-                            "revision": revision,
-                            "trial_progress": heartbeat_projection(state),
-                        },
-                    )
-                else:
+                latest.update(trial=trial.number, revision=revision, run=run, trial_progress=state)
+                if not heartbeat:
+                    # A real progress event keeps the retained outer snapshot.
                     _write_json(output / "progress.json", latest)
+                # The bounded file always carries the current trial and revision.
+                _write_json(
+                    output / HEARTBEAT_FILENAME,
+                    {
+                        "status": latest["status"],
+                        "completed_trials": latest["completed_trials"],
+                        "trials_requested": latest["trials_requested"],
+                        "trial": trial.number,
+                        "revision": revision,
+                        "run": run,
+                        "trial_progress": heartbeat_projection(state),
+                    },
+                )
                 if progress:
                     progress(dict(latest))
             if heartbeat:

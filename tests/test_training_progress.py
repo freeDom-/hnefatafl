@@ -28,6 +28,7 @@ from hnefatafl.training import (
     normalize_config,
     optimize_replay,
     train,
+    tune,
 )
 from hnefatafl.training_augmentation import augmentation_rng
 from hnefatafl.training_monitoring import (
@@ -385,8 +386,15 @@ def test_timing_and_heartbeat_advance_while_a_phase_makes_no_progress(tmp_path, 
 
     progress_before = read_json(output / "progress.json")
     progress_mtime = (output / "progress.json").stat().st_mtime_ns
+    # Wait for the phase counters the blocked game established, then check they
+    # stay put: only the timings may move while no work completes.
+    deadline = time.monotonic() + 15
     first = read_json(heartbeat_path)
-    time.sleep(1.5)
+    while not first["phase_progress"].get("games_active") and time.monotonic() < deadline:
+        time.sleep(0.02)
+        first = read_json(heartbeat_path)
+    assert first["phase_progress"].get("games_active") == 1
+    time.sleep(2.5)
     second = read_json(heartbeat_path)
 
     assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
@@ -469,7 +477,7 @@ def test_evaluation_phase_keeps_publishing_while_a_game_blocks(tmp_path, monkeyp
         else:
             time.sleep(0.05)
     assert first is not None, "the blocked evaluation published no heartbeat"
-    time.sleep(1.5)
+    time.sleep(2.5)
     second = read_heartbeat(output)
     assert second["stage"] == "evaluation"
     assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
@@ -585,7 +593,7 @@ def test_heartbeat_keeps_running_through_model_finalization(tmp_path, monkeypatc
         else:
             time.sleep(0.05)
     assert first is not None, "finalization published no heartbeat"
-    time.sleep(1.5)
+    time.sleep(2.5)
     second = read_json(heartbeat_path)
     # The heartbeat stays live while export blocks: timings advance, the phase is
     # finalizing and the publication generation has not moved.
@@ -744,7 +752,7 @@ def test_heartbeat_covers_slow_checkpoint_loading(tmp_path, monkeypatch):
     assert publication_age(output) is not None and publication_age(output) < 5
     progress = read_json(output / "progress.json")
     assert progress["status"] == "running" and progress["stage"] == "loading_checkpoint"
-    time.sleep(1.5)
+    time.sleep(2.5)
     second = read_heartbeat(output)
     assert second["stage"] == "loading_checkpoint"
     assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
@@ -777,7 +785,7 @@ def test_heartbeat_covers_slow_model_initialization(tmp_path, monkeypatch):
     assert entered.wait(30)
 
     first = wait_for_stage(output, "initializing")
-    time.sleep(1.5)
+    time.sleep(2.5)
     second = read_heartbeat(output)
     assert second["stage"] == "initializing"
     assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
@@ -810,7 +818,7 @@ def test_heartbeat_covers_slow_optimizer_state_restoration(tmp_path, monkeypatch
     assert entered.wait(30)
 
     first = wait_for_stage(output, "restoring_state")
-    time.sleep(1.5)
+    time.sleep(2.5)
     second = read_heartbeat(output)
     assert second["stage"] == "restoring_state"
     assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
@@ -842,7 +850,7 @@ def test_heartbeat_covers_slow_inference_backend_initialization(tmp_path, monkey
     # The model and its restored settings are already visible while the backend
     # compiles, so the dashboard is never blank during a cold start.
     assert read_json(output / "progress.json")["status"] == "running"
-    time.sleep(1.5)
+    time.sleep(2.5)
     second = read_heartbeat(output)
     assert second["stage"] == "initializing_inference"
     assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
@@ -941,3 +949,155 @@ def test_cancellation_before_the_first_iteration_keeps_the_restored_checkpoint(t
     settled = read_heartbeat(output)
     time.sleep(1.2)
     assert read_heartbeat(output) == settled
+
+
+# --- publication identity ----------------------------------------------------
+
+
+def run_state(run: str, revision: int, *, trial: int | None = None, **changes) -> dict:
+    state = {"run": run, "revision": revision, "status": "running", "stage": "self_play"}
+    if trial is not None:
+        state["trial"] = trial
+    state.update(changes)
+    return state
+
+
+def test_monitor_publishes_one_identity_per_run():
+    first = TrainingMonitor(lambda **flags: None, clock=lambda: 0.0, wall=lambda: 0.0)
+    second = TrainingMonitor(lambda **flags: None, clock=lambda: 0.0, wall=lambda: 0.0)
+    run = first.snapshot()["run"]
+    assert run and second.snapshot()["run"] != run
+    # The identity never changes for the life of one run.
+    first.published()
+    assert first.snapshot()["run"] == run
+    assert heartbeat_projection(first.snapshot())["run"] == run
+    # An explicit identity keeps tests and recovery deterministic.
+    pinned = TrainingMonitor(lambda **flags: None, run="fixed")
+    assert pinned.snapshot()["run"] == "fixed"
+
+
+def test_heartbeat_is_only_applied_to_the_run_that_published_it():
+    progress = run_state("run-b", 5, duration=10.0)
+    # Same revision, different run: an earlier trial, worker or reused directory.
+    assert overlay_heartbeat(progress, run_state("run-a", 5, duration=99.0)) == progress
+    # Same run, stale revision: a delayed publication of the same run.
+    assert overlay_heartbeat(progress, run_state("run-b", 4, duration=99.0)) == progress
+    # Same run and revision: a legitimate liveness refresh.
+    merged = overlay_heartbeat(progress, run_state("run-b", 5, duration=12.5))
+    assert merged["duration"] == 12.5 and merged["run"] == "run-b"
+
+
+def test_heartbeat_without_an_identity_falls_back_to_revision():
+    # Historical files written before identities existed keep working.
+    legacy_progress = {"status": "running", "revision": 3, "duration": 5.0}
+    legacy_heartbeat = {"revision": 3, "duration": 7.0}
+    assert overlay_heartbeat(legacy_progress, legacy_heartbeat)["duration"] == 7.0
+    # A half-identified pair is ambiguous and is never applied.
+    assert overlay_heartbeat(run_state("run-a", 3), legacy_heartbeat) == run_state("run-a", 3)
+    assert (
+        overlay_heartbeat(legacy_progress, run_state("run-a", 3, duration=9.0)) == legacy_progress
+    )
+
+
+def test_a_trial_transition_cannot_overlay_the_previous_trial():
+    # Trial 1 reached revision 5 and left both outer files behind.
+    stale = {
+        "status": "running",
+        "completed_trials": 0,
+        "trials_requested": 2,
+        "trial": 1,
+        "revision": 5,
+        "run": "trial-1",
+        "trial_progress": run_state("trial-1", 5, duration=99.0),
+    }
+    # Trial 2 starts and reaches the same revision before its first heartbeat,
+    # which is exactly when the stale file is still on disk.
+    current = {
+        **stale,
+        "trial": 2,
+        "run": "trial-2",
+        "trial_progress": run_state("trial-2", 5, duration=1.0),
+    }
+    assert overlay_heartbeat(current, stale) == current
+    # Its own heartbeat still refreshes it.
+    refreshed = {**current, "trial_progress": run_state("trial-2", 5, duration=3.0)}
+    assert overlay_heartbeat(current, refreshed)["trial_progress"]["duration"] == 3.0
+    # An earlier trial is also rejected when the nested identity differs.
+    nested_stale = {
+        "trial": 2,
+        "revision": 5,
+        "run": "trial-2",
+        "trial_progress": run_state("trial-1", 5, duration=99.0),
+    }
+    assert overlay_heartbeat(current, nested_stale)["trial_progress"]["run"] == "trial-2"
+
+
+def test_heartbeat_never_revives_a_terminal_state_of_another_run():
+    finished = {
+        "status": "completed",
+        "revision": 9,
+        "run": "run-a",
+        "duration": 40.0,
+        "history": [1],
+    }
+    # Another run (a new trial, a reused directory or a restarted worker) can
+    # never revive it, and neither can a delayed publication of the same run.
+    assert overlay_heartbeat(finished, run_state("run-b", 9, status="running")) == finished
+    assert overlay_heartbeat(finished, run_state("run-a", 8, status="running")) == finished
+    # A refresh of the same generation keeps the terminal status it carries.
+    assert (
+        overlay_heartbeat(finished, run_state("run-a", 9, status="completed"))["status"]
+        == "completed"
+    )
+
+
+def test_tuning_files_carry_the_run_identity_of_the_active_trial(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    class QuickMonitor(training_module.TrainingMonitor):
+        """A smoke trial finishes in well under a second; tick faster to observe it."""
+
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("interval", 0.05)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(training_module, "TrainingMonitor", QuickMonitor)
+    output = tmp_path / "tuning"
+    snapshots: list[dict] = []
+    result = tune(
+        {
+            "output_dir": str(output),
+            "study_name": "identity",
+            "trials": 1,
+            "seed": 0,
+            "search_space": {"channels": {"type": "categorical", "choices": [4]}},
+            "training": tiny_config(
+                tmp_path,
+                ruleset="brandubh",
+                preset="smoke",
+                games=1,
+                iterations=1,
+                channels=4,
+                blocks=0,
+            ),
+        },
+        snapshots.append,
+    )
+    assert result["status"] == "completed"
+    # The last trial-shaped publication is the study snapshot the dashboard reads.
+    active = next(state for state in reversed(snapshots) if state.get("trial_progress"))
+    heartbeat = read_heartbeat(output)
+    assert active["run"] and active["run"] == heartbeat["run"]
+    assert active["trial_progress"]["run"] == active["run"]
+    # A heartbeat from another run can never overlay the active trial, while the
+    # same run still refreshes it.
+    foreign = {
+        **heartbeat,
+        "run": "other-run",
+        "trial_progress": {**heartbeat["trial_progress"], "run": "other-run"},
+    }
+    assert overlay_heartbeat(active, foreign) == active
+    matching = {**heartbeat, "revision": active["revision"]}
+    assert overlay_heartbeat(active, matching)["trial_progress"]["run"] == active["run"]

@@ -24,6 +24,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol
+from uuid import uuid4
 
 
 # One second matches the dashboard's expected timer resolution. Publication is a
@@ -36,6 +37,7 @@ HEARTBEAT_SECONDS = 1.0
 HEARTBEAT_FILENAME = "heartbeat.json"
 
 _HEARTBEAT_KEYS = (
+    "run",
     "status",
     "stage",
     "iteration",
@@ -69,22 +71,48 @@ def heartbeat_projection(state: dict) -> dict:
     return {key: state[key] for key in _HEARTBEAT_KEYS if key in state}
 
 
+def same_run(retained: dict, incoming: dict) -> bool:
+    """Whether an incoming snapshot describes the run that wrote the retained one.
+
+    Revisions restart with every training process, so a new Optuna trial, a
+    resumed job or a restarted worker can reach the revision of an older run.
+    Each monitor publishes a ``run`` identity beside its revision; a heartbeat
+    may only be applied to the exact run (and trial) that produced it. Files
+    written before identities existed fall back to the revision check alone.
+    """
+    current, arriving = retained.get("run"), incoming.get("run")
+    if current is None and arriving is None:
+        return True
+    if current != arriving:
+        return False
+    trial, other = retained.get("trial"), incoming.get("trial")
+    return trial is None or other is None or trial == other
+
+
 def overlay_heartbeat(progress: dict, heartbeat: dict | None) -> dict:
     """Apply a heartbeat snapshot that belongs to the same publication generation.
 
-    Revisions only increase and every real progress event bumps one, so a
-    heartbeat can refresh a snapshot but never replace a newer terminal state.
+    Revisions only increase within one run and every real progress event bumps
+    one, so a heartbeat can refresh a snapshot but never replace a newer terminal
+    state, and a heartbeat from another run or trial is never applied at all.
     """
     if not isinstance(heartbeat, dict):
         return progress
     revision = heartbeat.get("revision")
     if type(revision) is not int or revision != progress.get("revision"):
         return progress
+    if not same_run(progress, heartbeat):
+        return progress
     merged = {**progress, **heartbeat}
     nested, retained = heartbeat.get("trial_progress"), progress.get("trial_progress")
-    if isinstance(nested, dict) and isinstance(retained, dict):
-        # Tuning jobs nest the running trial's snapshot one level deep.
-        merged["trial_progress"] = {**retained, **nested}
+    if isinstance(retained, dict):
+        # Tuning jobs nest the running trial's snapshot one level deep, so the
+        # retained trial is never replaced by another trial's projection.
+        merged["trial_progress"] = (
+            {**retained, **nested}
+            if isinstance(nested, dict) and same_run(retained, nested)
+            else retained
+        )
     return merged
 
 
@@ -151,12 +179,17 @@ class TrainingMonitor:
         phase: str = "starting",
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
+        run: str | None = None,
     ) -> None:
         self._writer = writer
         self._interval = max(float(interval), 0.05)
         self._clock = clock
         self._wall = wall
         self._lock = threading.Lock()
+        # Identity of this training process. Revisions restart with every run, so
+        # consumers need it to reject a heartbeat from an earlier trial or worker.
+        # Never named `_run`: that is the heartbeat thread's target.
+        self._run_id = run or uuid4().hex[:16]
         self._phase = phase
         self._phase_started = clock()
         self._iteration: int | None = None
@@ -218,6 +251,7 @@ class TrainingMonitor:
             last_progress, counters = self._last_progress, dict(self._counters)
             revision = self._revision
         snapshot = {
+            "run": self._run_id,
             "stage": phase,
             "phase_started_at": iso(self._started_at + (phase_started - self._started)),
             "phase_elapsed": max(now - phase_started, 0.0),
