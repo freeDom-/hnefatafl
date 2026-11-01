@@ -174,11 +174,19 @@ adopts the authoritative backend duration and stops advancing.
 Publication freshness is measured by the server, not by the browser, and is only
 reported for a live (running or cancelling) job. A local job
 uses the newest modification time of its `progress.json` and `heartbeat.json` on
-the server host; a remote worker's reports are stamped with the server clock when
-they arrive. The server sends the resulting age, and the browser only anchors and
-advances it. Reloading the dashboard therefore classifies an already-stale worker
-immediately instead of granting it a fresh twenty-second grace period, and an
-unsynchronised remote worker clock never enters the calculation.
+the server host. A remote job reports two independent ages: the child's own
+publication age, measured on the worker host that runs it, and how long ago the
+server last heard from the supervisor. The server extends both with its own clock,
+and the browser only anchors and advances them, so reloading the dashboard
+classifies an already-stale worker immediately instead of granting it a fresh
+twenty-second grace period and an unsynchronised remote worker clock never enters
+the calculation.
+
+A supervisor can stay connected while the training process behind it stops
+publishing, so a repeated report of an unchanged child snapshot never counts as a
+fresh child heartbeat. That case reports **No recent updates** (the child), while a
+silent supervisor reports **Worker connection lost**; a job whose lease then
+expires ends as failed with the reason recorded.
 
 The live header follows the iteration currently being trained (`active_iteration`),
 while the overview's **Iteration** KPI keeps the last completed iteration used by
@@ -195,7 +203,8 @@ Heartbeat states are informational and never change job management or outcome:
 | **Worker active** | Publication is fresh and work is progressing. |
 | **Running, long operation** | Publication is fresh, but no meaningful progress for two minutes. One self-play or evaluation game may legitimately take that long. |
 | **Potentially stalled** | Publication is fresh, but no meaningful progress for ten minutes. |
-| **No recent updates** | No refreshed snapshot for twenty seconds: the worker, its process or its connection stopped reporting. |
+| **No recent updates** | The training process published nothing for twenty seconds, even though its supervisor is still reporting. |
+| **Worker connection lost** | A remote supervisor has not reached the server for twenty seconds; the job ends as failed when its lease expires. |
 | **Waiting for a worker** | The job is queued. |
 
 Jobs recorded before these fields existed omit the heartbeat state, phase timer

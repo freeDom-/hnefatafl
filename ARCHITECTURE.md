@@ -377,7 +377,13 @@ vocabulary shared with the API through `frontend/src/trainingContract.json`, whi
 both test suites assert, and a refused field is named back to the form.
 `training.py` starts its monitor before checkpoint loading, model construction and
 inference setup, so initialization publishes its own stages with the heartbeat
-running. `game_statistics.py` records
+running. Each run publishes a `run` identity beside its revision, so a heartbeat
+can only refresh the exact run or trial that produced it, and a remote report
+carries the child's own publication age next to the supervisor's, so a connected
+supervisor forwarding an unchanged snapshot is never read as a live child. A
+worker that the server has confirmed merges partial snapshots sends only changed
+keys, so an unchanged history, metrics or log tail never crosses the network
+again. `game_statistics.py` records
 versioned job-local/baseline/cumulative self-play counters in existing JSON and
 checkpoint metadata; immutable selection snapshots retain their own totals.
 Tensor format and database schema remain unchanged. See the
