@@ -157,8 +157,26 @@ exist, phase-specific progress:
 Elapsed time is published as a monotonic duration, never as a worker timestamp.
 The browser anchors each reported value when the response arrives and advances it
 with a one-second local ticker, so an unsynchronised or skewed remote worker clock
-cannot affect the display. Timers never move backwards, a new phase restarts only
-the phase timer, and a completed, cancelled or failed job shows a fixed duration.
+cannot affect the display. Timers never move backwards while a job runs, a new
+phase restarts only the phase timer, and a completed, cancelled or failed job
+adopts the authoritative backend duration and stops advancing.
+
+Publication freshness is measured by the server, not by the browser, and is only
+reported for a live (running or cancelling) job. A local job
+uses the newest modification time of its `progress.json` and `heartbeat.json` on
+the server host; a remote worker's reports are stamped with the server clock when
+they arrive. The server sends the resulting age, and the browser only anchors and
+advances it. Reloading the dashboard therefore classifies an already-stale worker
+immediately instead of granting it a fresh twenty-second grace period, and an
+unsynchronised remote worker clock never enters the calculation.
+
+The live header follows the iteration currently being trained (`active_iteration`),
+while the overview's **Iteration** KPI keeps the last completed iteration used by
+checkpointing and resume. Entering a new iteration updates the header at once,
+without waiting for its first game to finish. Finalization (checkpoint
+verification, model export and registration) keeps the heartbeat running, so a
+slow export reports `finalizing` rather than "No recent updates"; a failure there
+ends the job as failed rather than leaving it running.
 
 Heartbeat states are informational and never change job management or outcome:
 
