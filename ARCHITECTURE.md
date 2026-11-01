@@ -67,6 +67,15 @@ win against columns, indexed by tournament seat rather than model/name identity.
 They exclude draws and unfinished games and use existing runes on the diagonal;
 no additional aggregate or storage migration is required.
 
+A tournament carries an explicit `mode`: `round_robin` (the default when the
+field is absent, preserving every earlier record) or `fixed_roles`. A fixed-role
+comparison has exactly two trained neural participants, one battlefield and one
+shared search configuration. Seat 0 always attacks and seat 1 always defends, so
+the scheduled total is the plain game count and odd counts are valid. The API and
+the worker both reject a pairing whose effective search settings differ after
+excluding the model identity. The collection endpoint projects the summary in
+SQLite, so listing saved tournaments never decodes retained match histories.
+
 ## Rules
 
 One engine applies configurable board sizes, initial arrangements, restricted

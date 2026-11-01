@@ -1715,19 +1715,52 @@ def play_game(
     }
 
 
+def validate_fixed_role_players(profiles: list) -> None:
+    """Normalise and validate a fixed-role pairing of two trained neural models.
+
+    Both participants must resolve to identical effective search settings, so the
+    browser API and the headless runner reject a mismatched pairing the same way.
+    Only the model identity may differ between the attacker and defender seats.
+    """
+    from .identities import effective_ai_config
+
+    if not isinstance(profiles, list) or len(profiles) != 2:
+        raise ValueError("A fixed-role comparison needs exactly two participants")
+    resolved = []
+    for profile in profiles:
+        config = effective_ai_config(profile)
+        if config.get("algorithm") != "neural" or not config.get("model_id"):
+            raise ValueError("A fixed-role comparison requires two trained neural models")
+        resolved.append({key: value for key, value in config.items() if key != "model_id"})
+    if resolved[0] != resolved[1]:
+        raise ValueError("Both fixed-role participants must use identical search settings")
+
+
 def tournament(
     config: dict,
     report: Callable[[dict], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict:
+    mode = config.get("mode", "round_robin")
+    if mode not in ("round_robin", "fixed_roles"):
+        raise ValueError("Unknown tournament mode")
     profiles = config.get(
         "players", [{"algorithm": "baseline"}, {"algorithm": "mcts", "iterations": 20}]
     )
     if not isinstance(profiles, list) or not 2 <= len(profiles) <= 4:
         raise ValueError("A tournament compares between two and four profiles")
     games_per_ruleset = int(config.get("games", 2))
-    if not 2 <= games_per_ruleset <= 10000 or games_per_ruleset % 2:
-        raise ValueError("Use an even number of games (2–10000) to alternate sides fairly")
+    if mode == "fixed_roles":
+        # Seat 0 always attacks and seat 1 always defends, so the scheduled total
+        # is the plain game count and odd counts are valid.
+        validate_fixed_role_players(profiles)
+        if not 1 <= games_per_ruleset <= 10000:
+            raise ValueError("Use between 1 and 10000 games for a fixed-role comparison")
+        pairings = [(0, 1)]
+    else:
+        if not 2 <= games_per_ruleset <= 10000 or games_per_ruleset % 2:
+            raise ValueError("Use an even number of games (2–10000) to alternate sides fairly")
+        pairings = list(combinations(range(len(profiles)), 2))
     results: list[dict] = []
     scores = [0.0] * len(profiles)
     standings: list[dict] = [
@@ -1770,14 +1803,20 @@ def tournament(
             "truncated": 0,
             "games": 0,
         }
-        for first, second in combinations(range(len(profiles)), 2):
+        for first, second in pairings:
             for game in range(games_per_ruleset):
                 if should_stop and should_stop():
                     return snapshot()
-                attacker, defender = (first, second) if game % 2 == 0 else (second, first)
-                # Preserve existing two-opponent comparisons; larger round robins
-                # use a distinct derived seed for every scheduled match.
-                game_seed = game if len(profiles) == 2 else len(results)
+                if mode == "fixed_roles":
+                    # Fixed seats: the attacker never defends and vice versa.
+                    attacker, defender = 0, 1
+                    # Every scheduled game gets a distinct, deterministic seed.
+                    game_seed = len(results)
+                else:
+                    attacker, defender = (first, second) if game % 2 == 0 else (second, first)
+                    # Preserve existing two-opponent comparisons; larger round robins
+                    # use a distinct derived seed for every scheduled match.
+                    game_seed = game if len(profiles) == 2 else len(results)
                 try:
                     result = play_game(
                         ruleset,

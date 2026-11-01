@@ -311,3 +311,97 @@ it('parses and validates the model-free search heuristic', () => {
     ).toThrow(TournamentConfigImportError);
   }
 });
+
+const fixedRoles = {
+  name: 'Model side performance',
+  mode: 'fixed_roles',
+  rulesets: ['brandubh'],
+  players: [
+    {
+      config: {
+        algorithm: 'neural',
+        model_id: 'model-brandubh',
+        search_wrapper: 'mcts',
+        iterations: 120,
+        time_limit: 2,
+      },
+    },
+    {
+      config: {
+        algorithm: 'neural',
+        model_id: 'model-brandubh',
+        search_wrapper: 'mcts',
+        iterations: 120,
+        time_limit: 2,
+      },
+    },
+  ],
+  games: 7,
+  max_plies: 200,
+  seed: 5,
+};
+
+it('parses a fixed-role document with its shared search configuration', () => {
+  const result = parseTournamentConfig(fixedRoles, profiles, models);
+  expect(result.config.mode).toBe('fixed_roles');
+  expect(result.config.games).toBe(7);
+  expect(result.config.players.map((player) => player.config.model_id)).toEqual([
+    'model-brandubh',
+    'model-brandubh',
+  ]);
+  // A missing mode keeps the historical balanced round robin.
+  expect(parseTournamentConfig(valid, profiles, models).config.mode).toBe('round_robin');
+});
+
+it('rejects fixed-role documents that break the shared-search contract', () => {
+  const rejected = [
+    { ...fixedRoles, mode: 'unknown' },
+    { ...fixedRoles, games: 0 },
+    { ...fixedRoles, games: 101 },
+    { ...fixedRoles, games: 3.5 },
+    { ...fixedRoles, rulesets: ['brandubh', 'tablut'] },
+    { ...fixedRoles, players: [fixedRoles.players[0]] },
+    {
+      ...fixedRoles,
+      players: [
+        fixedRoles.players[0],
+        {
+          config: {
+            algorithm: 'neural',
+            model_id: 'model-tablut',
+            search_wrapper: 'mcts',
+            iterations: 120,
+            time_limit: 2,
+          },
+        },
+      ],
+    },
+    {
+      ...fixedRoles,
+      players: [
+        fixedRoles.players[0],
+        {
+          config: {
+            algorithm: 'neural',
+            model_id: 'model-brandubh',
+            search_wrapper: 'mcts',
+            iterations: 121,
+            time_limit: 2,
+          },
+        },
+      ],
+    },
+    {
+      ...fixedRoles,
+      players: [fixedRoles.players[0], { config: { algorithm: 'baseline', time_limit: 2 } }],
+    },
+  ];
+  for (const document of rejected)
+    expect(() => parseTournamentConfig(document, profiles, models)).toThrow(
+      TournamentConfigImportError,
+    );
+  // A round-robin document still needs an even game count.
+  expect(() => parseTournamentConfig({ ...valid, games: 3 }, profiles, models)).toThrow(
+    TournamentConfigImportError,
+  );
+});

@@ -90,6 +90,11 @@ class TournamentManager:
             for key, value in tournament.items()
             if key != "pid" and not (summary and key == "result")
         }
+        if summary:
+            result["summary"] = True
+        # The mode is additive inside the saved configuration; older records
+        # without one keep their original balanced round-robin behaviour.
+        result["mode"] = tournament.get("config", {}).get("mode", "round_robin")
         # Present the canonical recorded model/profile name and underlying agent rune.
         # Copies backfill legacy aliases and seat runes without rewriting saved JSON.
         result["config"] = {
@@ -108,12 +113,14 @@ class TournamentManager:
         }
         return result
 
-    def list(self) -> list[dict]:
+    def list(self, *, summary: bool = False) -> list[dict]:
         with self.lock:
+            records = self.store.tournaments(summary=summary)
+            # Only a running tournament needs the live-worker reconciliation;
+            # inactive history is presented without reading its retained matches.
             return [
-                record
-                for item in self.store.tournaments()
-                if (record := self.read(item["id"])) is not None
+                record if record["status"] != "running" else (self.read(record["id"]) or record)
+                for record in records
             ]
 
     def export(self, identifier: str) -> dict | None:
@@ -133,6 +140,7 @@ class TournamentManager:
                 "format": "hnefatafl-tournament-configuration",
                 "format_version": 1,
                 "name": public["name"],
+                "mode": config.get("mode", "round_robin"),
                 "rulesets": config["rulesets"],
                 "players": [
                     {
@@ -180,7 +188,14 @@ class TournamentManager:
                 ],
             }
             player_count = len(config["players"])
-            pair_count = player_count * (player_count - 1) // 2
+            mode = config.get("mode", "round_robin")
+            if mode == "fixed_roles":
+                # Seat 0 always attacks, seat 1 always defends: the plain game
+                # count is the scheduled total for every selected battlefield.
+                total_games = len(config["rulesets"]) * config["games"]
+            else:
+                pair_count = player_count * (player_count - 1) // 2
+                total_games = len(config["rulesets"]) * config["games"] * pair_count
             tournament = {
                 "id": identifier,
                 "name": name,
@@ -190,7 +205,7 @@ class TournamentManager:
                 "config": config,
                 "progress": {
                     "completed_games": 0,
-                    "total_games": len(config["rulesets"]) * config["games"] * pair_count,
+                    "total_games": total_games,
                 },
                 "result": {
                     "players": [player["config"] for player in config["players"]],

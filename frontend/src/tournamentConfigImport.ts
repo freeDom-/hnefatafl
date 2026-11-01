@@ -6,7 +6,7 @@ import {
   type AlphaBetaSearchSettings,
 } from './alphaBetaSearch';
 import type { AIProfile, Config, Model } from './types';
-import type { TournamentConfig, TournamentPlayer } from './tournamentTypes';
+import type { TournamentConfig, TournamentMode, TournamentPlayer } from './tournamentTypes';
 
 /**
  * One portable, reviewable tournament-configuration document. This mirrors the
@@ -41,6 +41,7 @@ export const MAX_TOURNAMENT_CONFIG_BYTES = 1024 * 1024;
 const RULESETS = ['brandubh', 'tablut', 'copenhagen'];
 const ALGORITHMS = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts', 'neural'];
 const FIXED_PRESETS = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'];
+const MODES = ['round_robin', 'fixed_roles'];
 const AI_BOUNDS: Record<string, [number, number, boolean]> = {
   depth: [1, 5, true],
   iterations: [1, 5000, true],
@@ -72,6 +73,27 @@ const object = (value: unknown): Record<string, unknown> | null =>
 
 const integer = (value: unknown, low: number, high: number): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high;
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([first], [second]) => first.localeCompare(second))
+        .map(([key, item]) => [key, canonical(item)]),
+    );
+  return value;
+}
+
+/**
+ * Canonical, model-independent form of one participant's search settings. Both
+ * fixed-role seats have to agree on this; only the model identity may differ.
+ */
+function searchSettings(config: Config): string {
+  const shared: Config = { ...config };
+  delete shared.model_id;
+  return JSON.stringify(canonical(shared));
+}
 
 const SEARCH_KEYS = new Set([
   'legacy',
@@ -294,6 +316,11 @@ export function parseTournamentConfig(
     throw new TournamentConfigImportError('The configuration must be a JSON object.');
   }
   const fields: string[] = [];
+  let mode: TournamentMode = 'round_robin';
+  if (root.mode !== undefined) {
+    if (typeof root.mode !== 'string' || !MODES.includes(root.mode)) fields.push('mode');
+    else mode = root.mode as TournamentMode;
+  }
   let name: string | undefined;
   if (root.name !== undefined) {
     if (typeof root.name !== 'string' || !root.name.trim() || root.name.trim().length > 80) {
@@ -309,7 +336,21 @@ export function parseTournamentConfig(
   } else {
     players = root.players.map((player) => parsePlayer(player, rulesets, profiles, models, fields));
   }
-  if (!integer(root.games, 2, 100) || root.games % 2) fields.push('games');
+  if (mode === 'fixed_roles') {
+    // One battlefield, exactly two trained models and one shared search
+    // configuration; only the model identity may differ between the seats.
+    if (rulesets.length !== 1) fields.push('rulesets');
+    if (players.length !== 2) fields.push('players');
+    if (!integer(root.games, 1, 100)) fields.push('games');
+    if (players.length === 2) {
+      if (players.some((player) => player.config.algorithm !== 'neural' || !player.config.model_id))
+        fields.push('players');
+      else if (searchSettings(players[0].config) !== searchSettings(players[1].config))
+        fields.push('config');
+    }
+  } else {
+    if (!integer(root.games, 2, 100) || root.games % 2) fields.push('games');
+  }
   if (!integer(root.max_plies, 1, 1000)) fields.push('max_plies');
   if (!integer(root.seed, 0, 2 ** 32 - 1)) fields.push('seed');
   if (fields.length) {
@@ -320,6 +361,7 @@ export function parseTournamentConfig(
   return {
     name,
     config: {
+      mode,
       players,
       rulesets,
       games: root.games as number,

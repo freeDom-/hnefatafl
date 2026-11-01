@@ -562,10 +562,13 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
-    def tournaments(self) -> list[dict]:
+    def tournaments(self, *, summary: bool = False) -> list[dict]:
+        # Avoid decoding retained match histories merely to render the navigator
+        # or find an active worker. The projection never changes the stored row.
+        column = "json_remove(data, '$.result')" if summary else "data"
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT data FROM tournaments ORDER BY created_at DESC,id"
+                f"SELECT {column} AS data FROM tournaments ORDER BY created_at DESC,id"
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 

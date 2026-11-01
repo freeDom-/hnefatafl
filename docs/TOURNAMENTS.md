@@ -2,9 +2,12 @@
 
 [Documentation index](README.md) · [Opponent settings](AI.md)
 
-Use **Tournaments** in the main navigation to set up a balanced comparison and
-return to its saved results later. Compare two, three or four opponents: each
-opponent can use a different algorithm, budget or compatible trained model.
+Use **Tournaments** in the main navigation to set up a comparison and
+return to its saved results later. Two creation actions are available:
+**New tournament** builds the balanced round robin described below, and
+**Fixed-role comparison** pins one trained model as attackers and another as
+defenders. The saved collection shows both kinds side by side, and fixed-role
+runs carry a **Fixed-role comparison** label.
 
 ![Saved four-player tournament standings and match results](screenshots/four-player-tournament.png)
 
@@ -12,6 +15,9 @@ The [setup dialog](screenshots/tournament-setup.png) and
 [mobile dark view](screenshots/tournaments-mobile.png) use the same saved collection.
 
 ## Set up a comparison
+
+**New tournament** compares two, three or four opponents. Each opponent can use a
+different algorithm, budget or compatible trained model.
 
 1. Choose **New tournament** and give the run a recognizable name.
 2. Select one or more battlefields, listed in board-size order.
@@ -54,6 +60,68 @@ The browser API accepts an even `games` count from 2–100 per pairing, `max_pli
 from 1–1,000 and a seed from 0–4,294,967,295. Defaults are 2 games, 300 plies and
 seed 0. The headless tournament accepts even game counts 2–10,000 and move caps
 1–5,000; do not assume its wider limits are accepted by the browser API.
+
+## Fixed-role comparison
+
+**Fixed-role comparison** measures how one trained model performs on a specific
+side. Choose exactly one battlefield — trained models belong to a ruleset — and
+two trained models:
+
+- **Attackers** plays the attacking side in every game.
+- **Defenders** plays the defending side in every game.
+
+The same model can be selected for both seats; that is a self-play comparison of
+one model against itself, and the two seats stay separate in every result. A
+model that does not belong to the selected battlefield is reported as
+incompatible and kept visible rather than silently replaced, and the comparison
+cannot start until both seats match the battlefield.
+
+Both seats share exactly one **Shared search configuration**: the wrapper (MCTS,
+alpha-beta or none), the applicable parameters (time limit, search iterations,
+exploration, search depth, temperature and the alpha-beta optimization switches)
+and the move limit. The form submits the identical settings for both seats and
+only the model identity differs; there are no per-seat defaults that could drift
+apart. The browser API and the headless runner both normalise the two effective
+configurations and reject a request whose settings differ after excluding the
+model identity. Because the search is neural, the alpha-beta symmetry switches
+are unavailable: a value head is not guaranteed to be D4-equivariant.
+
+Unlike the round robin, sides are never swapped. The game count is therefore the
+total number of scheduled games — 50 games means the attacker model attacks the
+defender model exactly 50 times — so 1–100 games are accepted and odd counts are
+valid. The move limit, seed and progress reporting behave as in the round robin.
+
+The saved view reports side-specific results: games played, attacker wins,
+defender wins, rule draws and unfinished games, plus the attacker and defender
+win rates and score rates, the average game length and the per-opponent search
+diagnostics. The win rate and score rate use completed games only and exclude
+unfinished games; a placeholder appears while no game has finished. A stacked
+outcome bar shows the same split visually. These numbers are not a balanced
+overall-strength comparison, because the roles are deliberately not alternated.
+
+The headless runner accepts the same document through
+`tournament --config FILE`. Headless neural opponents still need their resolved
+`model_path` in the configuration, exactly as before; the browser resolves it from
+the model registry. The document below shows the browser-facing shape:
+
+```json
+{
+  "name": "Model side performance",
+  "mode": "fixed_roles",
+  "rulesets": ["brandubh"],
+  "players": [
+    { "config": { "algorithm": "neural", "model_id": "<model A>", "search_wrapper": "mcts", "iterations": 200, "exploration": 1.4, "time_limit": 1 } },
+    { "config": { "algorithm": "neural", "model_id": "<model B>", "search_wrapper": "mcts", "iterations": 200, "exploration": 1.4, "time_limit": 1 } }
+  ],
+  "games": 50,
+  "max_plies": 300,
+  "seed": 42
+}
+```
+
+Player index 0 is always the attacker and index 1 always the defender. Omitting
+`mode` keeps the historical balanced round robin, and every record saved before
+this mode existed stays readable.
 
 ## Import and export configurations
 
@@ -110,7 +178,13 @@ A complete two-opponent alpha-beta comparison is shipped as
 browser, and the importer validates the file without touching the form until the
 whole document is accepted.
 
-`name` is optional. `rulesets` must list one to three supported, distinct
+`name` is optional. `mode` is optional and accepts `round_robin` (default) or
+`fixed_roles`. A fixed-role document must list exactly one battlefield, exactly
+two neural participants and 1–100 games; its two `config` objects must be
+identical apart from `model_id`. Each setup dialog accepts only its own mode and
+reports a document for the other mode instead of filling the form, so a
+fixed-role configuration is imported from the fixed-role setup. `rulesets` must
+list one to three supported, distinct
 battlefields. `players` must list two to four opponents; a named fixed profile
 (`baseline`, `shield_maiden`, `alpha_beta`, `mcts`) is snapshotted from the
 catalog exactly as the API does, while a custom opponent keeps its validated
@@ -130,13 +204,16 @@ model references are rejected as a whole; the form is never partially
 overwritten.
 
 **Export results** downloads the saved tournament as JSON. The top level uses the
-same importable configuration schema, and a nested `results` object carries the
+same importable configuration schema (including `mode` and the attacker/defender
+seat order), and a nested `results` object carries the
 status, timestamps, progress, standings, per-battlefield summary and match
 records for review. Because the configuration fields are at the top level, an
 exported file can be imported again as a fresh tournament; the `results` object is
 ignored by the importer. Server-managed identifiers, worker PIDs and runes are
 never included. Exported configs written before `training_symmetry_mode` existed
-are unaffected; the field belongs to training jobs, not tournaments.
+are unaffected; the field belongs to training jobs, not tournaments. Exports
+always contain the complete saved data, regardless of the lazy-loading behaviour
+described under [API and deployment](#api-and-deployment).
 
 ## Read the results
 
@@ -145,6 +222,10 @@ Wins earn one point, actual rule draws half a point for each opponent, and
 unfinished games no points. Reaching the experimental move limit is unfinished,
 even when one side appears to have an advantage. A stopped tournament can have
 fewer finished games than scheduled; an interrupted in-flight game is discarded.
+A fixed-role comparison labels its two seats **Attackers** and **Defenders**
+instead of numbered opponents, and adds the side-specific panel described under
+[Fixed-role comparison](#fixed-role-comparison); selecting the same model in both
+seats still reports two separate seats.
 
 Inspect the saved opponent parameters, results by battlefield, game lengths and
 decision timings. Each retained match includes its side assignments, recorded
@@ -200,7 +281,30 @@ downloadable `GET /{id}/export` result document.
 `GET /{id}/games/{index}/replay` validates and reconstructs a zero-indexed match.
 Request schemas are available at `/docs`; clients provide model IDs, never paths.
 
-Schema 3 adds a tournament table without rewriting existing game records.
+`GET /api/tournaments` returns lightweight summaries by default and accepts an
+explicit `?summary=true`. A summary carries the identity, mode, configuration,
+progress, status, timestamps and error plus each participant's recorded name and
+rune, but never the retained match records, per-game diagnostics or replay
+states. `?summary=false` returns the complete records. `GET /api/tournaments/{id}`
+stays the authoritative full-detail endpoint and always returns everything a
+saved view, an export or a replay needs.
+
+The summary is projected inside SQLite, so listing a saved collection never
+decodes the retained match history in Python: a collection of 24 tournaments
+with 200 games and 60 plies each decodes about 70 KiB instead of 20 MiB and reads
+one row instead of one row per tournament
+([`scripts/benchmark_tournament_summaries.py`](../scripts/benchmark_tournament_summaries.py)
+reproduces the measurement). The browser uses the summary list, fetches the
+selected tournament's full record only once, and polls the summary while a run is
+active. The full record is refreshed only when the selected tournament's status,
+completed game count or end time actually changes, so an unchanged match history
+is never re-downloaded; a finished, failed or cancelled run is detected through
+the same summary.
+
+Schema 3 adds a tournament table without rewriting existing game records, and the
+tournament mode is an additive configuration field, so saved records need no
+migration.
+
 Run a single API worker as documented in [DEPLOYMENT.md](DEPLOYMENT.md). Back up
 the entire data directory consistently before updating. Tournament endpoints have
 the same trusted-local-administrator scope as the model/training endpoints.

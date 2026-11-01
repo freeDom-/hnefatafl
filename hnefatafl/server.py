@@ -111,11 +111,14 @@ class TournamentPlayerRequest(BaseModel):
 class TournamentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=80)
+    # Missing mode keeps the historical balanced round-robin behaviour.
+    mode: Literal["round_robin", "fixed_roles"] = "round_robin"
     rulesets: list[Literal["brandubh", "tablut", "copenhagen"]] = Field(
         default=["brandubh"], min_length=1, max_length=3
     )
     players: list[TournamentPlayerRequest] = Field(min_length=2, max_length=4)
-    games: StrictInt = Field(default=2, ge=2, le=100)
+    # A fixed-role comparison accepts 1–100 games; round-robin still requires an even count.
+    games: StrictInt = Field(default=2, ge=1, le=100)
     max_plies: StrictInt = Field(default=300, ge=1, le=1000)
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
 
@@ -1423,18 +1426,29 @@ def create_app(
         return tournament
 
     @app.get("/api/tournaments")
-    def list_tournaments():
-        return [tournaments.public(item, summary=True) for item in tournaments.list()]
+    def list_tournaments(summary: bool = True):
+        # The collection defaults to lightweight summaries, so saved match
+        # histories are never decoded or transferred just to render the
+        # navigator. ``summary=false`` still returns the complete records.
+        return [
+            tournaments.public(item, summary=True) if summary else tournaments.public(item)
+            for item in tournaments.list(summary=summary)
+        ]
 
     @app.post("/api/tournaments", status_code=201)
     def create_tournament(request: TournamentRequest):
-        from .ai import ai_profiles
+        from .ai import ai_profiles, validate_fixed_role_players
 
         if not request.name.strip():
             fail("Tournament names must contain 1–80 characters.")
         if len(set(request.rulesets)) != len(request.rulesets):
             fail("Select each tournament battlefield only once.")
-        if request.games % 2:
+        if request.mode == "fixed_roles":
+            if len(request.players) != 2:
+                fail("A fixed-role comparison needs exactly two participants.")
+            if len(request.rulesets) != 1:
+                fail("A fixed-role comparison uses exactly one battlefield.")
+        elif request.games % 2:
             fail("Use an even number of games so both opponents play each side equally.")
         with catalog_lock:
             profiles = {item["algorithm"]: item for item in ai_profiles()}
@@ -1490,7 +1504,16 @@ def create_app(
                             if key in training_fields - {"resume"}
                         }
                 players.append(snapshot)
+            if request.mode == "fixed_roles":
+                # Both seats must resolve to identical effective search settings;
+                # only the model identity may differ. This guards requests that
+                # bypass the browser UI.
+                try:
+                    validate_fixed_role_players([player["config"] for player in players])
+                except ValueError as exc:
+                    fail(str(exc))
             config = {
+                "mode": request.mode,
                 "players": players,
                 "rulesets": sorted(request.rulesets, key=lambda item: RULESETS[item].size),
                 "games": request.games,
@@ -1641,7 +1664,7 @@ def create_app(
     def running_model_tournaments(model_id: str) -> list[dict]:
         return [
             {key: tournament[key] for key in ("id", "name", "status")}
-            for tournament in tournaments.list()
+            for tournament in tournaments.list(summary=True)
             if tournament["status"] == "running"
             and tournaments.alive(tournament)
             and any(

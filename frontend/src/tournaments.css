@@ -835,7 +835,154 @@
     font-size: var(--text-section);
   }
 }
+.tournament-create {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--gap-inline);
+}
+.tournament-saved-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-inline);
+}
+.tournament-mode-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 650;
+  color: var(--gold);
+}
+.tournament-side-stats {
+  margin: var(--gap-card) 0;
+  padding-top: var(--pad-panel-sm);
+  border-top: 1px solid var(--line);
+}
+.tournament-role-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-card);
+  margin-bottom: var(--gap-card);
+}
+.tournament-role-card {
+  padding: var(--pad-panel-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.tournament-role-card small {
+  display: block;
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.tournament-role-card.attackers small {
+  color: var(--green);
+}
+.tournament-role-card.defenders small {
+  color: var(--gold);
+}
+.tournament-role-card h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  margin: 6px 0 var(--gap-inline);
+  font-family: Georgia, serif;
+  font-size: 1rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.tournament-role-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-inline);
+  margin: 0;
+}
+.tournament-role-card dt {
+  font-size: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+.tournament-role-card dd {
+  margin: 2px 0 0;
+  font-family: Georgia, serif;
+  font-size: 1.0625rem;
+}
+.tournament-outcome-bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+.tournament-outcome-bar > span {
+  display: block;
+  flex-basis: 0;
+  min-width: 3px;
+}
+.outcome-attackers {
+  background: var(--green);
+}
+.outcome-defenders {
+  background: var(--gold);
+}
+.outcome-draws {
+  background: var(--muted);
+}
+.outcome-unfinished {
+  background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.tournament-outcome-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-inline) var(--gap-card);
+  margin: var(--gap-inline) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.625rem;
+  color: var(--muted);
+}
+.tournament-outcome-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tournament-outcome-legend strong {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+.tournament-outcome-legend .swatch {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.tournament-setup-opponents.fixed-roles .tournament-player {
+  margin-top: var(--gap-card);
+}
 @media (max-width: 540px) {
+  .tournament-create {
+    justify-content: stretch;
+  }
+  .tournament-create .button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .tournament-role-cards {
+    grid-template-columns: 1fr;
+  }
   .tournament-intro {
     align-items: flex-start;
   }
