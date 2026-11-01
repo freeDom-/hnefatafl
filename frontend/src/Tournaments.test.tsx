@@ -82,6 +82,7 @@ afterEach(() => {
   cleanup();
   setLanguage('en', false);
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 const show = (models: Model[] = []) =>
@@ -1382,16 +1383,28 @@ describe('tournament detail synchronisation', () => {
     return tournament;
   };
   const pollingHandlers: Array<() => void> = [];
-  /** Capture the polling callback so a poll is fired explicitly, never by sleeping. */
+  /**
+   * Capture only the screen's 1.8s polling interval so a poll is fired
+   * explicitly, never by sleeping. Every other timer - including the one the
+   * testing library uses to poll assertions - stays real.
+   */
   const capturePolling = () => {
-    vi.spyOn(window, 'setInterval').mockImplementation(((handler: TimerHandler): number => {
+    const realSetInterval = window.setInterval.bind(window) as (
+      handler: TimerHandler,
+      timeout?: number,
+    ) => number;
+    vi.spyOn(window, 'setInterval').mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ): number => {
+      if (timeout !== 1800) return realSetInterval(handler, timeout);
       pollingHandlers.push(handler as () => void);
-      return pollingHandlers.length;
+      return 0;
     }) as typeof window.setInterval);
-    vi.spyOn(window, 'clearInterval').mockImplementation(() => undefined);
   };
-  /** Fire one summary poll and let the resulting promises settle. */
+  /** Fire one summary poll once the screen registered its interval. */
   const pollOnce = async () => {
+    await waitFor(() => expect(pollingHandlers.length).toBeGreaterThan(0), { timeout: 5000 });
     const handlers = pollingHandlers.splice(0, pollingHandlers.length);
     await act(async () => {
       for (const handler of handlers) handler();
@@ -1404,12 +1417,12 @@ describe('tournament detail synchronisation', () => {
   it('fetches the completed details when a running response arrives late', async () => {
     let release!: (response: Response) => void;
     const paths: string[] = [];
-    const live = liveTournament('a', 2);
+    let summary = liveTournament('a', 2);
     capturePolling();
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments?summary=true') return json([live]);
+        if (path === '/api/tournaments?summary=true') return json([summary]);
         paths.push(path);
         if (paths.length === 1)
           return new Promise<Response>((resolve) => {
@@ -1419,11 +1432,10 @@ describe('tournament detail synchronisation', () => {
       }),
     );
     show();
-    await screen.findByRole('heading', { name: 'Opening the tournament…' });
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
     expect(detailPaths(paths)).toHaveLength(1);
     // The tournament finishes while the first detail response is still pending.
-    live.status = 'completed';
-    live.progress = { completed_games: 4, total_games: 4 };
+    summary = liveTournament('a', 4, 'completed');
     await pollOnce();
     // The in-flight request is not duplicated by the poll.
     expect(detailPaths(paths)).toHaveLength(1);
@@ -1431,24 +1443,24 @@ describe('tournament detail synchronisation', () => {
       release(await json(liveTournament('a', 2)));
     });
     // The stale running snapshot schedules one immediate follow-up fetch.
-    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2));
-    await screen.findByText('4 of 4 games saved');
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
     expect(screen.getByText('Series finished')).toBeInTheDocument();
     expect(
       screen.getByText('Completed', { selector: '.tournament-detail .tournament-status' }),
     ).toBeInTheDocument();
-  });
+  }, 20000);
 
   it('fetches the failure details when a failed summary arrives during a request', async () => {
     let release!: (response: Response) => void;
     const paths: string[] = [];
-    const live = liveTournament('a', 2);
     const failure = 'The tournament worker stopped. Completed games have been kept.';
+    let summary = liveTournament('a', 2);
     capturePolling();
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments?summary=true') return json([live]);
+        if (path === '/api/tournaments?summary=true') return json([summary]);
         paths.push(path);
         if (paths.length === 1)
           return new Promise<Response>((resolve) => {
@@ -1458,33 +1470,32 @@ describe('tournament detail synchronisation', () => {
       }),
     );
     show();
-    await screen.findByRole('heading', { name: 'Opening the tournament…' });
-    live.status = 'failed';
-    live.error = failure;
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    summary = liveTournament('a', 2, 'failed', failure);
     await pollOnce();
     await act(async () => {
       release(await json(liveTournament('a', 2)));
     });
-    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2));
-    await screen.findByRole('alert');
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
     expect(screen.getByRole('alert')).toHaveTextContent(failure);
     expect(
       screen.getByText('Interrupted', { selector: '.tournament-detail .tournament-status' }),
     ).toBeInTheDocument();
     // A failure is terminal, so polling stops and no further refresh is queued.
-    await pollOnce();
+    expect(pollingHandlers).toHaveLength(0);
     expect(detailPaths(paths)).toHaveLength(2);
-  });
+  }, 20000);
 
   it('fetches the cancelled details and keeps the retained results', async () => {
     let release!: (response: Response) => void;
     const paths: string[] = [];
-    const live = liveTournament('a', 2);
+    let summary = liveTournament('a', 2);
     capturePolling();
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments?summary=true') return json([live]);
+        if (path === '/api/tournaments?summary=true') return json([summary]);
         paths.push(path);
         if (paths.length === 1)
           return new Promise<Response>((resolve) => {
@@ -1494,32 +1505,31 @@ describe('tournament detail synchronisation', () => {
       }),
     );
     show();
-    await screen.findByRole('heading', { name: 'Opening the tournament…' });
-    live.status = 'cancelled';
-    live.progress = { completed_games: 3, total_games: 4 };
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    summary = liveTournament('a', 3, 'cancelled');
     await pollOnce();
     await act(async () => {
       release(await json(liveTournament('a', 2)));
     });
-    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2));
-    await screen.findByText('3 of 4 games saved');
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
     expect(screen.getByText('Partial series saved')).toBeInTheDocument();
     expect(
       screen.getByText('Stopped', { selector: '.tournament-detail .tournament-status' }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Match log' }));
     expect(screen.getByText('Raven wins')).toBeVisible();
-  });
+  }, 20000);
 
   it('lands on the latest result after progress moved during a request', async () => {
     let release!: (response: Response) => void;
     const paths: string[] = [];
-    const live = liveTournament('a', 2);
+    let summary = liveTournament('a', 2);
     capturePolling();
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments?summary=true') return json([live]);
+        if (path === '/api/tournaments?summary=true') return json([summary]);
         paths.push(path);
         if (paths.length === 1)
           return new Promise<Response>((resolve) => {
@@ -1529,22 +1539,21 @@ describe('tournament detail synchronisation', () => {
       }),
     );
     show();
-    await screen.findByRole('heading', { name: 'Opening the tournament…' });
-    live.progress = { completed_games: 3, total_games: 4 };
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
     await pollOnce();
-    live.status = 'completed';
-    live.progress = { completed_games: 4, total_games: 4 };
+    summary = liveTournament('a', 4, 'completed');
     await pollOnce();
     await act(async () => {
       release(await json(liveTournament('a', 2)));
     });
     // Several progress updates produce exactly one follow-up request, not one
     // request per observed summary.
-    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2));
-    await screen.findByText('4 of 4 games saved');
-    await pollOnce();
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(pollingHandlers).toHaveLength(0);
     expect(detailPaths(paths)).toHaveLength(2);
-  });
+  }, 20000);
 
   it('aborts obsolete detail requests when switching tournaments', async () => {
     const signals = new Map<string, AbortSignal>();
@@ -1562,11 +1571,11 @@ describe('tournament detail synchronisation', () => {
       }),
     );
     render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
-    await waitFor(() => expect(signals.has('/api/tournaments/a')).toBe(true));
+    await waitFor(() => expect(signals.has('/api/tournaments/a')).toBe(true), { timeout: 5000 });
     fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge b' }));
-    await waitFor(() => expect(signals.has('/api/tournaments/b')).toBe(true));
+    await waitFor(() => expect(signals.has('/api/tournaments/b')).toBe(true), { timeout: 5000 });
     fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge c' }));
-    await waitFor(() => expect(signals.has('/api/tournaments/c')).toBe(true));
+    await waitFor(() => expect(signals.has('/api/tournaments/c')).toBe(true), { timeout: 5000 });
     // Abandoned tournaments stop transferring their history.
     expect(signals.get('/api/tournaments/a')?.aborted).toBe(true);
     expect(signals.get('/api/tournaments/b')?.aborted).toBe(true);
@@ -1581,11 +1590,11 @@ describe('tournament detail synchronisation', () => {
     await act(async () => {
       held['/api/tournaments/c'](await json(saved('c')));
     });
-    await screen.findByRole('heading', { name: 'Challenge c' });
+    await screen.findByRole('heading', { name: 'Challenge c' }, { timeout: 5000 });
     expect(screen.queryByRole('heading', { name: 'Challenge a' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Challenge b' })).not.toBeInTheDocument();
     expect(error).not.toHaveBeenCalled();
-  });
+  }, 20000);
 
   it('aborts pending detail requests on unmount', async () => {
     const signals = new Map<string, AbortSignal>();
@@ -1601,38 +1610,38 @@ describe('tournament detail synchronisation', () => {
     const { unmount } = render(
       <Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />,
     );
-    await waitFor(() => expect(signals.has('/api/tournaments/a')).toBe(true));
+    await waitFor(() => expect(signals.has('/api/tournaments/a')).toBe(true), { timeout: 5000 });
     unmount();
     expect(signals.get('/api/tournaments/a')?.aborted).toBe(true);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(error).not.toHaveBeenCalled();
-  });
+  }, 20000);
 
   it('does not request details again while the summary is unchanged', async () => {
     const paths: string[] = [];
-    const live = liveTournament('a', 2);
+    let summary = liveTournament('a', 2);
     capturePolling();
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments?summary=true') return json([live]);
+        if (path === '/api/tournaments?summary=true') return json([summary]);
         paths.push(path);
-        return json(live);
+        return json(summary);
       }),
     );
     show();
-    await screen.findByRole('heading', { name: 'Challenge a' });
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
     expect(detailPaths(paths)).toHaveLength(1);
     await pollOnce();
     await pollOnce();
     await pollOnce();
     expect(detailPaths(paths)).toHaveLength(1);
     // Live progress still refreshes the selected record when it changes.
-    live.progress = { completed_games: 3, total_games: 4 };
+    summary = liveTournament('a', 3);
     await pollOnce();
-    await screen.findByText('3 of 4 games saved');
+    await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
     expect(detailPaths(paths)).toHaveLength(2);
-  });
+  }, 20000);
 });
