@@ -294,12 +294,14 @@ decodes the retained match history in Python: a collection of 24 tournaments
 with 200 games and 60 plies each decodes about 70 KiB instead of 20 MiB and reads
 one row instead of one row per tournament
 ([`scripts/benchmark_tournament_summaries.py`](../scripts/benchmark_tournament_summaries.py)
-reproduces the measurement). The browser uses the summary list, fetches the
-selected tournament's full record only once, and polls the summary while a run is
-active. The full record is refreshed only when the selected tournament's status,
-completed game count or end time actually changes, so an unchanged match history
-is never re-downloaded; a finished, failed or cancelled run is detected through
-the same summary.
+reproduces the measurement). The browser renders the navigator from
+the summary list and fetches the selected tournament's full record on demand.
+While a run is active it polls summaries and refreshes that record only when the
+selected tournament's status, completed game count or end time changes, so an
+unchanged match history is never re-downloaded. Selecting another tournament
+abandons the in-flight history request, and a response that is already older than
+the latest summary triggers one immediate follow-up fetch, so a finished, failed
+or cancelled run always reaches the screen without a manual refresh.
 
 Schema 3 adds a tournament table without rewriting existing game records, and the
 tournament mode is an additive configuration field, so saved records need no
