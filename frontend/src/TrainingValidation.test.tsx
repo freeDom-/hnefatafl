@@ -349,3 +349,38 @@ it('clears a rejection that the other form cannot own', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Train a model' }));
   expect(screen.queryByRole('alert')).toBeNull();
 });
+
+it('marks and describes a rejected symmetry setting next to its help text', async () => {
+  setLanguage('en', false);
+  harness([
+    rejection(
+      ['training_symmetry_mode'],
+      'Unsupported training configuration field: training_symmetry_mode',
+    ),
+  ]);
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.click(screen.getByRole('button', { name: START }));
+
+  const alert = await screen.findByRole('alert');
+  const select = screen.getByRole('combobox', { name: 'Training symmetry augmentation' });
+  await waitFor(() => expect(select).toHaveAttribute('aria-invalid', 'true'));
+  expect(select).toHaveClass('field-invalid');
+  // Both the field help and the rejection alert describe the control.
+  const described = (await select.getAttribute('aria-describedby'))!.split(' ');
+  expect(described).toContain(alert.id);
+  expect(described.length).toBe(2);
+});
+
+it('marks a rejected checkbox setting', async () => {
+  setLanguage('en', false);
+  harness([
+    rejection(['save_all_best'], 'Unsupported training configuration field: save_all_best'),
+  ]);
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.click(screen.getByRole('button', { name: START }));
+
+  await screen.findByRole('alert');
+  const checkbox = screen.getByRole('checkbox', { name: 'Save every new best model' });
+  await waitFor(() => expect(checkbox).toHaveAttribute('aria-invalid', 'true'));
+  expect(checkbox).toHaveClass('field-invalid');
+});

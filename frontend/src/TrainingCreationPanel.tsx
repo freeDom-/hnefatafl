@@ -473,6 +473,8 @@ export default function TrainingCreationPanel({
         <label className="checkbox-label training-retain-best">
           <input
             type="checkbox"
+            data-training-field="save_all_best"
+            {...invalid('save_all_best')}
             checked={Boolean(config.save_all_best)}
             onChange={(event) => update('save_all_best', event.target.checked)}
           />
@@ -507,6 +509,8 @@ export default function TrainingCreationPanel({
             <label className="checkbox-label">
               <input
                 type="checkbox"
+                data-training-field="mixed_precision"
+                {...invalid('mixed_precision')}
                 checked={Boolean(config.mixed_precision)}
                 onChange={(e) => update('mixed_precision', e.target.checked)}
               />
