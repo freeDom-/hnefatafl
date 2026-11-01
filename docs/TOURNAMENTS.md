@@ -100,9 +100,15 @@ outcome bar shows the same split visually. These numbers are not a balanced
 overall-strength comparison, because the roles are deliberately not alternated.
 
 The headless runner accepts the same document through
-`tournament --config FILE`. Headless neural opponents still need their resolved
-`model_path` in the configuration, exactly as before; the browser resolves it from
-the model registry. The document below shows the browser-facing shape:
+`tournament --config FILE`. It also accepts the historical flattened layout,
+where each `players[i]` *is* the AI configuration, and a single document may not
+mix the two representations. Seat order is always preserved: index 0 attacks and
+index 1 defends.
+
+Headless neural opponents need a resolvable `model_path`, exactly as before: the
+model registry belongs to the server, and a `model_id` is never turned into a
+filesystem path. Add the checkpoint to each participant's `config` to run an
+exported comparison:
 
 ```json
 {
@@ -110,8 +116,8 @@ the model registry. The document below shows the browser-facing shape:
   "mode": "fixed_roles",
   "rulesets": ["brandubh"],
   "players": [
-    { "config": { "algorithm": "neural", "model_id": "<model A>", "search_wrapper": "mcts", "iterations": 200, "exploration": 1.4, "time_limit": 1 } },
-    { "config": { "algorithm": "neural", "model_id": "<model B>", "search_wrapper": "mcts", "iterations": 200, "exploration": 1.4, "time_limit": 1 } }
+    { "config": { "algorithm": "neural", "model_id": "<model A>", "model_path": "/models/a.pt", "search_wrapper": "mcts", "iterations": 200, "exploration": 1.4, "time_limit": 1 } },
+    { "config": { "algorithm": "neural", "model_id": "<model B>", "model_path": "/models/b.pt", "search_wrapper": "mcts", "iterations": 200, "exploration": 1.4, "time_limit": 1 } }
   ],
   "games": 50,
   "max_plies": 300,
@@ -119,9 +125,13 @@ the model registry. The document below shows the browser-facing shape:
 }
 ```
 
-Player index 0 is always the attacker and index 1 always the defender. Omitting
-`mode` keeps the historical balanced round robin, and every record saved before
-this mode existed stays readable.
+A neural participant without a `model_path`, or with a path that does not exist,
+is rejected before any game starts. Both representations are validated with the
+same rules as the browser API, including the shared effective search settings of
+a fixed-role comparison.
+
+Omitting `mode` keeps the historical balanced round robin, and every record saved
+before this mode existed stays readable.
 
 ## Import and export configurations
 

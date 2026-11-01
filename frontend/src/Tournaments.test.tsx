@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Tournaments from './Tournaments';
+import Tournaments, { DETAIL_RETRY_DELAYS } from './Tournaments';
 import type { AIProfile, Model, Ruleset } from './types';
 import type { Tournament } from './tournamentTypes';
 import { setLanguage } from './i18n';
@@ -84,6 +84,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  pollingHandlers.length = 0;
+  retryTimers.clear();
 });
 const show = (models: Model[] = []) =>
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={models} onError={vi.fn()} />);
@@ -1369,51 +1371,89 @@ describe('fixed-role comparison setup', () => {
   });
 });
 
-describe('tournament detail synchronisation', () => {
-  const liveTournament = (
-    id: string,
-    completed: number,
-    status: Tournament['status'] = 'running',
-    error?: string,
-  ): Tournament => {
-    const tournament = withMatches(id);
-    tournament.status = status;
-    tournament.progress = { completed_games: completed, total_games: 4 };
-    if (error) tournament.error = error;
-    return tournament;
-  };
-  const pollingHandlers: Array<() => void> = [];
-  /**
-   * Capture only the screen's 1.8s polling interval so a poll is fired
-   * explicitly, never by sleeping. Every other timer - including the one the
-   * testing library uses to poll assertions - stays real.
-   */
-  const capturePolling = () => {
-    const realSetInterval = window.setInterval.bind(window) as (
-      handler: TimerHandler,
-      timeout?: number,
-    ) => number;
-    vi.spyOn(window, 'setInterval').mockImplementation(((
-      handler: TimerHandler,
-      timeout?: number,
-    ): number => {
-      if (timeout !== 1800) return realSetInterval(handler, timeout);
-      pollingHandlers.push(handler as () => void);
-      return 0;
-    }) as typeof window.setInterval);
-  };
-  /** Fire one summary poll once the screen registered its interval. */
-  const pollOnce = async () => {
-    await waitFor(() => expect(pollingHandlers.length).toBeGreaterThan(0), { timeout: 5000 });
-    const handlers = pollingHandlers.splice(0, pollingHandlers.length);
-    await act(async () => {
-      for (const handler of handlers) handler();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  };
-  const detailPaths = (paths: string[]) => paths.filter((path) => path.endsWith('/a'));
+const liveTournament = (
+  id: string,
+  completed: number,
+  status: Tournament['status'] = 'running',
+  error?: string,
+): Tournament => {
+  const tournament = withMatches(id);
+  tournament.status = status;
+  tournament.progress = { completed_games: completed, total_games: 4 };
+  if (error) tournament.error = error;
+  return tournament;
+};
+const pollingHandlers: Array<() => void> = [];
+/**
+ * Capture only the screen's 1.8s polling interval so a poll is fired
+ * explicitly, never by sleeping. Every other timer - including the one the
+ * testing library uses to poll assertions - stays real.
+ */
+const capturePolling = () => {
+  const realSetInterval = window.setInterval.bind(window) as (
+    handler: TimerHandler,
+    timeout?: number,
+  ) => number;
+  vi.spyOn(window, 'setInterval').mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+  ): number => {
+    if (timeout !== 1800) return realSetInterval(handler, timeout);
+    pollingHandlers.push(handler as () => void);
+    return 0;
+  }) as typeof window.setInterval);
+};
+/** Fire one summary poll once the screen registered its interval. */
+const pollOnce = async () => {
+  await waitFor(() => expect(pollingHandlers.length).toBeGreaterThan(0), { timeout: 5000 });
+  const handlers = pollingHandlers.splice(0, pollingHandlers.length);
+  await act(async () => {
+    for (const handler of handlers) handler();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+const retryTimers = new Map<number, () => void>();
+let retryTimerId = 0;
+/**
+ * Capture the bounded retry timers so a retry is fired explicitly. Every
+ * other timer, including the one the testing library uses to bound an
+ * assertion, keeps its real implementation.
+ */
+const captureRetries = () => {
+  const realSetTimeout = window.setTimeout.bind(window) as (
+    handler: TimerHandler,
+    timeout?: number,
+  ) => number;
+  const realClearTimeout = window.clearTimeout.bind(window) as (id?: number) => void;
+  vi.spyOn(window, 'setTimeout').mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+  ): number => {
+    if (timeout === undefined || !DETAIL_RETRY_DELAYS.includes(timeout))
+      return realSetTimeout(handler, timeout);
+    retryTimerId += 1;
+    retryTimers.set(retryTimerId, handler as () => void);
+    return retryTimerId;
+  }) as typeof window.setTimeout);
+  vi.spyOn(window, 'clearTimeout').mockImplementation(((id?: number) => {
+    if (!retryTimers.delete(id ?? -1)) realClearTimeout(id);
+  }) as typeof window.clearTimeout);
+};
+/** Fire the pending automatic retry and let the resulting promises settle. */
+const flushRetry = async () => {
+  await waitFor(() => expect(retryTimers.size).toBeGreaterThan(0), { timeout: 4000 });
+  const handlers = [...retryTimers.values()];
+  retryTimers.clear();
+  await act(async () => {
+    for (const handler of handlers) handler();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+const detailPaths = (paths: string[]) => paths.filter((path) => path.endsWith('/a'));
 
+describe('tournament detail synchronisation', () => {
   it('fetches the completed details when a running response arrives late', async () => {
     let release!: (response: Response) => void;
     const paths: string[] = [];
@@ -1644,4 +1684,324 @@ describe('tournament detail synchronisation', () => {
     await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
     expect(detailPaths(paths)).toHaveLength(2);
   }, 20000);
+});
+
+describe('tournament detail recovery', () => {
+  /**
+   * A fetcher whose first detail response succeeds, whose next `failures`
+   * responses fail, and whose later responses return the settled record.
+   */
+  const transientFetcher = (
+    summary: () => Tournament,
+    first: Tournament,
+    settled: Tournament,
+    failures: number,
+  ) => {
+    let detailCalls = 0;
+    const fetcher = vi.fn((path: string) => {
+      if (path === '/api/tournaments?summary=true') return json([summary()]);
+      detailCalls += 1;
+      if (detailCalls === 1) return json(first);
+      if (detailCalls <= 1 + failures) return Promise.reject(new Error('Network error'));
+      return json(settled);
+    });
+    return { fetcher, detailCalls: () => detailCalls };
+  };
+
+  it('recovers the completed details after a transient failure', async () => {
+    let summary = liveTournament('a', 2);
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    const { fetcher, detailCalls } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 4, 'completed'),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    // The failed refresh is reported once and stays recoverable.
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('Network error');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await flushRetry();
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(retryTimers.size).toBe(0);
+    expect(detailCalls()).toBe(3);
+  }, 20000);
+
+  it('recovers the failed details after a transient failure', async () => {
+    const failure = 'The tournament worker stopped. Completed games have been kept.';
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    captureRetries();
+    const { fetcher } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 2, 'failed', failure),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 2, 'failed', failure);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    await flushRetry();
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(failure), {
+      timeout: 5000,
+    });
+    expect(
+      screen.getByText('Interrupted', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+    expect(retryTimers.size).toBe(0);
+  }, 20000);
+
+  it('recovers the cancelled details and keeps the retained results', async () => {
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    captureRetries();
+    const { fetcher } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 3, 'cancelled'),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3, 'cancelled');
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    await flushRetry();
+    await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
+    expect(
+      screen.getByText('Stopped', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Match log' }));
+    expect(screen.getByText('Raven wins')).toBeVisible();
+  }, 20000);
+
+  it('stops after a bounded number of retries and offers a manual retry', async () => {
+    let summary = liveTournament('a', 2);
+    let failing = false;
+    let detailCalls = 0;
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        if (failing) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 4, 'completed'));
+      }),
+    );
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    failing = true;
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    for (let attempt = 0; attempt < DETAIL_RETRY_DELAYS.length; attempt += 1) await flushRetry();
+    // One notification and one retry per scheduled delay, and no more.
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    expect(retryTimers.size).toBe(0);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // The manual retry recovers as soon as the server answers again.
+    failing = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  }, 20000);
+
+  it('does not carry a pending retry into a newly selected tournament', async () => {
+    let summary = liveTournament('a', 2);
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    let failDetail = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary, saved('b')]);
+        if (path.endsWith('/b')) return json(saved('b'));
+        if (failDetail) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 2));
+      }),
+    );
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    failDetail = true;
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(retryTimers.size).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge b' }));
+    await screen.findByRole('heading', { name: 'Challenge b' }, { timeout: 5000 });
+    // The obsolete retry is cancelled and cannot overwrite the new selection.
+    expect(retryTimers.size).toBe(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole('heading', { name: 'Challenge b' })).toBeInTheDocument();
+  }, 20000);
+
+  it('cancels a pending retry when the screen unmounts', async () => {
+    let summary = liveTournament('a', 2);
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    let detailCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        return Promise.reject(new Error('Network error'));
+      }),
+    );
+    const { unmount } = render(
+      <Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />,
+    );
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(retryTimers.size).toBe(1);
+    unmount();
+    expect(retryTimers.size).toBe(0);
+    const calls = detailCalls;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(detailCalls).toBe(calls);
+  }, 20000);
+
+  it('does not request anything further once the terminal record is shown', async () => {
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    captureRetries();
+    const { fetcher, detailCalls } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 4, 'completed'),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    await flushRetry();
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    const settled = detailCalls();
+    // Nothing is running any more, so polling has stopped and no retry remains.
+    expect(pollingHandlers).toHaveLength(0);
+    expect(retryTimers.size).toBe(0);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(detailCalls()).toBe(settled);
+  }, 20000);
+});
+
+describe('fixed-role outcome chart', () => {
+  const fixedRoleTournament = (
+    outcomes: ('attackers' | 'defenders' | 'draw' | null)[],
+  ): Tournament => {
+    const tournament = saved('fixed');
+    tournament.mode = 'fixed_roles';
+    tournament.config.mode = 'fixed_roles';
+    tournament.result = {
+      scores: [0, 0],
+      standings: tournament.config.players.map((_, player) => ({
+        player,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        truncated: 0,
+        games: outcomes.length,
+        score: 0,
+      })),
+      by_ruleset: { brandubh: { wins: [0, 0], draws: 0, truncated: 0, games: outcomes.length } },
+      games: outcomes.map((winner) => ({
+        ruleset: 'brandubh',
+        winner,
+        outcome: winner ? ('completed' as const) : ('truncated' as const),
+        reason: winner ? 'king_captured' : 'experiment_ply_limit',
+        plies: 12,
+        moves: [],
+        attacker_player: 0,
+        defender_player: 1,
+        average_decision_time: 0.01,
+        total_decision_time: 0.12,
+      })),
+      truncated: outcomes.filter((winner) => winner === null).length,
+      average_game_length: 12,
+      average_decision_time: 0.01,
+    };
+    return tournament;
+  };
+  const showChart = async (outcomes: ('attackers' | 'defenders' | 'draw' | null)[]) => {
+    const tournament = fixedRoleTournament(outcomes);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge fixed' }, { timeout: 5000 });
+  };
+
+  it('draws a segment only for outcome categories that happened', async () => {
+    const cases: [('attackers' | 'defenders' | 'draw' | null)[], number][] = [
+      [['attackers', 'attackers', 'attackers'], 1],
+      [['defenders', 'defenders'], 1],
+      [['draw'], 1],
+      [['attackers', 'draw', 'attackers'], 2],
+      [[null, 'defenders'], 2],
+      [['attackers', 'defenders', 'draw', null], 4],
+    ];
+    for (const [outcomes, expected] of cases) {
+      await showChart(outcomes);
+      expect(document.querySelectorAll('.tournament-outcome-bar > span')).toHaveLength(expected);
+      // The legend always documents every outcome, including the empty ones.
+      expect(document.querySelectorAll('.tournament-outcome-legend li')).toHaveLength(4);
+      cleanup();
+    }
+  }, 20000);
+
+  it('describes the same outcome counts as the chart', async () => {
+    await showChart(['attackers', 'attackers', 'defenders', 'draw', null]);
+    expect(
+      screen.getByRole('img', {
+        name: '5 games: 2 attacker wins, 1 defender wins, 1 draws, 1 unfinished.',
+      }),
+    ).toBeInTheDocument();
+    expect(document.querySelectorAll('.tournament-outcome-bar > span')).toHaveLength(4);
+    const legend = [...document.querySelectorAll('.tournament-outcome-legend li')].map((item) =>
+      item.textContent?.trim(),
+    );
+    expect(legend).toEqual(['Attacker wins2', 'Defender wins1', 'Rule draws1', 'Unfinished1']);
+  });
+
+  it('shows a placeholder instead of an empty chart', async () => {
+    await showChart([]);
+    expect(document.querySelector('.tournament-outcome-bar')).toBeNull();
+    expect(screen.getByText('No completed games yet.')).toBeInTheDocument();
+  });
 });

@@ -630,3 +630,78 @@ test('a fixed-role comparison keeps one model attacking and one defending', asyn
   expect(errors).toEqual([]);
   expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
 });
+
+/** Apply one colour mode and interface scale through the shared appearance dialog. */
+async function setAppearance(page: Page, mode: string, density: string) {
+  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await page.getByRole('radio', { name: mode, exact: true }).check();
+  await page.getByRole('radio', { name: density, exact: true }).check();
+  await page.getByRole('button', { name: 'Close appearance settings' }).click();
+}
+
+const fitsViewport = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+
+test('the fixed-role dialog and results follow the shared appearance settings', async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(240000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const attacker = await (
+    await fixtureModel(request, { data: { name: `Layout attacker ${info.project.name}` } })
+  ).json();
+  const defender = await (
+    await fixtureModel(request, { data: { name: `Layout defender ${info.project.name}` } })
+  ).json();
+  const name = `Fixed layout ${info.project.name}`;
+  const appearances = [
+    ['Light', 'Compact'],
+    ['Dark', 'Default'],
+    ['Wood', 'Large'],
+  ] as const;
+  await openTournaments(page);
+  // The setup dialog stays inside the viewport at every colour mode and scale.
+  for (const [mode, density] of appearances) {
+    await setAppearance(page, mode, density);
+    await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
+    const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
+    await expect(setup.getByLabel('Attackers trained model', { exact: true })).toBeVisible();
+    await expect(setup.getByLabel('Shared search iterations', { exact: true })).toBeVisible();
+    const box = await setup.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    expect(await fitsViewport(page)).toBe(true);
+    await setup.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
+  // Create one comparison and re-check the results panel at every appearance.
+  await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
+  const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
+  await setup.getByRole('textbox', { name: 'Tournament name', exact: true }).fill(name);
+  await setup.getByLabel('Attackers trained model', { exact: true }).selectOption(attacker.id);
+  await setup.getByLabel('Defenders trained model', { exact: true }).selectOption(defender.id);
+  await setup.getByLabel('Number of games', { exact: true }).fill('3');
+  await setup.getByLabel('Move limit per game', { exact: true }).fill('2');
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/tournaments') && response.request().method() === 'POST',
+  );
+  await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
+  const tournament = (await (await created).json()) as Tournament;
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 120000,
+  });
+  for (const [mode, density] of appearances) {
+    await setAppearance(page, mode, density);
+    await expect(page.locator('.tournament-role-card.attackers')).toBeVisible();
+    await expect(page.locator('.tournament-role-card.defenders')).toBeVisible();
+    await expect(page.locator('.tournament-outcome-legend li')).toHaveCount(4);
+    const card = await page.locator('.tournament-role-card.attackers').boundingBox();
+    expect(card!.width).toBeGreaterThan(0);
+    expect(await fitsViewport(page)).toBe(true);
+  }
+  await expect.poll(() => fitsViewport(page)).toBe(true);
+  expect(errors).toEqual([]);
+  expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
+});

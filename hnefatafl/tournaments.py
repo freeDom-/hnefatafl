@@ -58,6 +58,17 @@ class TournamentManager:
         except OSError:
             return False
 
+    def reap(self, identifier: str) -> None:
+        """Drop a finished worker handle without blocking.
+
+        ``poll`` collects the child's exit status, so calling it here prevents a
+        completed worker from being retained as a zombie when nobody opens its
+        detail view. A worker that is still running keeps its handle.
+        """
+        process = self.processes.get(identifier)
+        if process is not None and process.poll() is not None:
+            self.processes.pop(identifier, None)
+
     def read(self, identifier: str) -> dict | None:
         with self.lock:
             tournament = self.store.get_tournament(identifier)
@@ -80,8 +91,7 @@ class TournamentManager:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     pass
-            if process is not None and process.poll() is not None:
-                self.processes.pop(identifier, None)
+            self.reap(identifier)
             return tournament
 
     def public(self, tournament: dict, *, summary: bool = False) -> dict:
@@ -117,21 +127,27 @@ class TournamentManager:
         with self.lock:
             listed = []
             for record in self.store.tournaments(summary=summary):
-                if record["status"] != "running" or self.alive(record):
+                identifier = record["id"]
+                if record["status"] != "running":
+                    # A worker publishes its terminal state immediately before it
+                    # exits, so its finished handle is collected here even when
+                    # nobody opens the detail view.
+                    self.reap(identifier)
+                    listed.append(record)
+                    continue
+                if self.alive(record):
                     listed.append(record)
                     continue
                 # Liveness uses only the loaded id and pid, so a running
                 # tournament is never decoded merely to poll its status.
                 updated = self.store.fail_running_tournament(
-                    record["id"], ended_at=timestamp(), error=STOPPED_WORKER_ERROR
+                    identifier, ended_at=timestamp(), error=STOPPED_WORKER_ERROR
                 )
-                process = self.processes.get(record["id"])
-                if process is not None and process.poll() is not None:
-                    self.processes.pop(record["id"], None)
+                self.reap(identifier)
                 if updated is None:
                     continue  # deleted concurrently
                 listed.append(
-                    updated if summary else (self.store.get_tournament(record["id"]) or updated)
+                    updated if summary else (self.store.get_tournament(identifier) or updated)
                 )
             return listed
 

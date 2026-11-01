@@ -847,39 +847,26 @@
   align-items: center;
   gap: var(--gap-inline);
 }
+/* Extends the shared `.badge` with the fixed-role colour and label casing. */
 .tournament-mode-tag {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 1px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 0.5625rem;
+  color: var(--gold);
   text-transform: uppercase;
   letter-spacing: 0.8px;
   font-weight: 650;
-  color: var(--gold);
 }
 .tournament-side-stats {
   margin: var(--gap-card) 0;
   padding-top: var(--pad-panel-sm);
   border-top: 1px solid var(--line);
 }
+/* Extends `.tournament-opponents` with the fixed-role seat cards. */
 .tournament-role-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gap-card);
   margin-bottom: var(--gap-card);
 }
-.tournament-role-card {
-  padding: var(--pad-panel-sm);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-}
+/* Extends `.tournament-standing` and `.tournament-score-stats`. */
 .tournament-role-card small {
   display: block;
-  font-size: 0.5625rem;
+  font-size: var(--text-caption);
   text-transform: uppercase;
   letter-spacing: 0.8px;
   font-weight: 650;
@@ -895,28 +882,15 @@
   display: flex;
   align-items: center;
   gap: var(--gap-inline);
-  margin: 6px 0 var(--gap-inline);
+  margin: 4px 0 var(--gap-inline);
   font-family: Georgia, serif;
-  font-size: 1rem;
+  font-size: var(--text-subsection);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
-.tournament-role-card dl {
-  display: grid;
+.tournament-role-card .tournament-score-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gap-inline);
-  margin: 0;
-}
-.tournament-role-card dt {
-  font-size: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
-}
-.tournament-role-card dd {
-  margin: 2px 0 0;
-  font-family: Georgia, serif;
-  font-size: 1.0625rem;
+  margin-bottom: 0;
 }
 .tournament-outcome-bar {
   display: flex;
@@ -929,7 +903,6 @@
 .tournament-outcome-bar > span {
   display: block;
   flex-basis: 0;
-  min-width: 3px;
 }
 .outcome-attackers {
   background: var(--green);
@@ -951,16 +924,16 @@
   margin: var(--gap-inline) 0 0;
   padding: 0;
   list-style: none;
-  font-size: 0.625rem;
+  font-size: var(--text-caption);
   color: var(--muted);
 }
 .tournament-outcome-legend li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gap-inline);
 }
 .tournament-outcome-legend strong {
-  font-size: 0.75rem;
+  font-size: var(--text-label);
   color: var(--text);
 }
 .tournament-outcome-legend .swatch {
@@ -969,9 +942,6 @@
   height: 10px;
   border-radius: 3px;
 }
-.tournament-setup-opponents.fixed-roles .tournament-player {
-  margin-top: var(--gap-card);
-}
 @media (max-width: 540px) {
   .tournament-create {
     justify-content: stretch;
@@ -979,9 +949,6 @@
   .tournament-create .button {
     flex: 1 1 auto;
     justify-content: center;
-  }
-  .tournament-role-cards {
-    grid-template-columns: 1fr;
   }
   .tournament-intro {
     align-items: flex-start;

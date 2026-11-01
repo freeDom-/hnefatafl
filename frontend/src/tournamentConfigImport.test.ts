@@ -405,3 +405,86 @@ it('rejects fixed-role documents that break the shared-search contract', () => {
     TournamentConfigImportError,
   );
 });
+
+const fixedRoleDocument = (
+  attacker: Record<string, unknown>,
+  defender: Record<string, unknown>,
+) => ({
+  name: 'Fixed roles',
+  mode: 'fixed_roles',
+  rulesets: ['brandubh'],
+  players: [
+    { config: { algorithm: 'neural', model_id: 'model-brandubh', ...attacker } },
+    { config: { algorithm: 'neural', model_id: 'model-brandubh', ...defender } },
+  ],
+  games: 7,
+  max_plies: 200,
+  seed: 5,
+});
+
+const parseSeats = (
+  attacker: Record<string, unknown>,
+  defender: Record<string, unknown>,
+  modelsForSeats = models,
+) => parseTournamentConfig(fixedRoleDocument(attacker, defender), profiles, modelsForSeats);
+
+it('compares effective fixed-role search settings instead of raw objects', () => {
+  // An omitted default and the same value recorded explicitly are one setting.
+  expect(() => parseSeats({}, { time_limit: 2 })).not.toThrow();
+  expect(() =>
+    parseSeats({}, { iterations: 80, rollout_depth: 8, exploration: 1.4, temperature: 0 }),
+  ).not.toThrow();
+  expect(() =>
+    parseSeats({ search_wrapper: 'alpha_beta' }, { search_wrapper: 'alpha_beta', depth: 2 }),
+  ).not.toThrow();
+  expect(() =>
+    parseSeats({ search_wrapper: 'none' }, { search_wrapper: 'none', temperature: 0 }),
+  ).not.toThrow();
+  // Different model identities with equivalent settings are still valid.
+  const secondBrandubh = [
+    ...models,
+    { id: 'model-brandubh-two', name: 'Raven two', ruleset: 'brandubh' },
+  ];
+  const parsed = parseTournamentConfig(
+    {
+      ...fixedRoleDocument({ iterations: 80 }, {}),
+      players: [
+        { config: { algorithm: 'neural', model_id: 'model-brandubh' } },
+        { config: { algorithm: 'neural', model_id: 'model-brandubh-two', iterations: 80 } },
+      ],
+    },
+    profiles,
+    secondBrandubh,
+  );
+  expect(parsed.config.players.map((player) => player.config.model_id)).toEqual([
+    'model-brandubh',
+    'model-brandubh-two',
+  ]);
+});
+
+it('still rejects genuinely different fixed-role search settings', () => {
+  const rejected: [Record<string, unknown>, Record<string, unknown>][] = [
+    [{ iterations: 81 }, {}],
+    [{ exploration: 2 }, {}],
+    [{ rollout_depth: 4 }, {}],
+    [{ temperature: 0.5 }, {}],
+    [{ time_limit: 1 }, {}],
+    [{ search_wrapper: 'none' }, { search_wrapper: 'mcts' }],
+    [{ search_wrapper: 'alpha_beta', depth: 3 }, { search_wrapper: 'alpha_beta' }],
+    [{ search_wrapper: 'alpha_beta', search: {} }, { search_wrapper: 'alpha_beta' }],
+    [
+      { search_wrapper: 'alpha_beta', search: { legacy: true } },
+      { search_wrapper: 'alpha_beta', search: {} },
+    ],
+    [
+      { search_wrapper: 'alpha_beta', search: { move_ordering: false } },
+      { search_wrapper: 'alpha_beta', search: {} },
+    ],
+    [
+      { search_wrapper: 'alpha_beta', search: { table_capacity: 2048 } },
+      { search_wrapper: 'alpha_beta', search: {} },
+    ],
+  ];
+  for (const [attacker, defender] of rejected)
+    expect(() => parseSeats(attacker, defender)).toThrow(TournamentConfigImportError);
+});

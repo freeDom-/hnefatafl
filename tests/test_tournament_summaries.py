@@ -17,11 +17,15 @@ class LiveProcess:
 
     def __init__(self, *, running: bool = True):
         self.running = running
+        self.polls = 0
+        self.waits = 0
 
     def poll(self):
+        self.polls += 1
         return None if self.running else 0
 
     def wait(self, timeout=None):
+        self.waits += 1
         return 0
 
 
@@ -326,3 +330,99 @@ def test_interrupted_worker_is_reconciled_through_the_summary_listing(tmp_path):
         assert len(detail["result"]["games"]) == 120
         assert detail["error"] == summary["error"]
         assert client.delete(f"/api/tournaments/{'f' * 32}").status_code == 200
+
+
+def test_summary_listing_reaps_a_finished_worker(tmp_path, monkeypatch):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    completed = stored_tournament("a" * 32)
+    store.save_tournament(completed)
+    reads = []
+    original = Store.get_tournament
+
+    def spy(self, identifier):
+        reads.append(identifier)
+        return original(self, identifier)
+
+    monkeypatch.setattr(Store, "get_tournament", spy)
+    sizes = decode_sizes(monkeypatch)
+    manager = TournamentManager(store, tmp_path)
+    process = LiveProcess(running=False)
+    manager.processes["a" * 32] = process
+    for _ in range(3):
+        records = manager.list(summary=True)
+        assert records[0]["status"] == "completed"
+    # The finished handle is collected without blocking and without reading or
+    # decoding the retained match history.
+    assert manager.processes == {}
+    assert process.polls >= 1
+    assert process.waits == 0
+    assert reads == []
+    assert max(sizes) < len(json.dumps(completed)) / 10
+
+
+def test_listing_keeps_a_handle_until_the_worker_exits(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    store.save_tournament(stored_tournament("b" * 32))
+    manager = TournamentManager(store, tmp_path)
+    process = LiveProcess()
+    manager.processes["b" * 32] = process
+    # A worker publishes its terminal state immediately before it exits, so the
+    # handle is retained (and never blocked on) while the process is alive.
+    assert manager.list(summary=True)[0]["status"] == "completed"
+    assert manager.processes == {"b" * 32: process}
+    assert process.waits == 0
+    process.running = False
+    assert manager.list(summary=True)[0]["status"] == "completed"
+    assert manager.processes == {}
+
+
+def test_unexpected_termination_fails_and_reaps_the_worker(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    interrupted = stored_tournament("c" * 32, status="running")
+    store.save_tournament(interrupted)
+    manager = TournamentManager(store, tmp_path)
+    manager.processes["c" * 32] = LiveProcess(running=False)
+    record = manager.list(summary=True)[0]
+    assert record["status"] == "failed"
+    assert record["ended_at"] and record["error"]
+    assert manager.processes == {}
+    assert len(store.get_tournament("c" * 32)["result"]["games"]) == 120
+
+
+def test_cancellation_and_deletion_after_a_reaped_completion(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    store.save_tournament(stored_tournament("d" * 32))
+    manager = TournamentManager(store, tmp_path)
+    manager.processes["d" * 32] = LiveProcess(running=False)
+    assert manager.list(summary=True)[0]["status"] == "completed"
+    assert manager.processes == {}
+    # A finished run is not "cancelled" into a different state, and it stays
+    # deletable.
+    assert manager.cancel("d" * 32)["status"] == "completed"
+    assert manager.delete("d" * 32) is True
+    assert store.get_tournament("d" * 32) is None
+
+
+def test_a_finished_worker_does_not_block_the_next_tournament(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    store.save_tournament(stored_tournament("e" * 32))
+    manager = TournamentManager(store, tmp_path)
+    manager.processes["e" * 32] = LiveProcess(running=False)
+    assert manager.list(summary=True)[0]["status"] == "completed"
+    assert manager.processes == {}
+    launched = manager.launch(
+        "Next run",
+        {
+            "players": [
+                {"name": "Raven", "config": {"algorithm": "baseline", "time_limit": 0.01}},
+                {"name": "Wolf", "config": {"algorithm": "baseline", "time_limit": 0.01}},
+            ],
+            "rulesets": ["brandubh"],
+            "games": 2,
+            "max_plies": 1,
+            "seed": 1,
+        },
+    )
+    assert launched["status"] == "running"
+    assert manager.cancel(launched["id"])["status"] == "cancelled"
+    assert manager.delete(launched["id"]) is True

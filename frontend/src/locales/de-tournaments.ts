@@ -263,5 +263,8 @@ const german: Record<string, string> = {
   'Select a trained model for the defenders.': 'Wähle ein trainiertes Modell für die Verteidiger.',
   'incompatible battlefield': 'unpassendes Schlachtfeld',
   'Unavailable model': 'Nicht verfügbares Modell',
+  'The latest results could not be loaded.':
+    'Die neuesten Ergebnisse konnten nicht geladen werden.',
+  'Try again': 'Erneut versuchen',
 };
 export default german;

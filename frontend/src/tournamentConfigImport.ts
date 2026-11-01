@@ -86,13 +86,38 @@ function canonical(value: unknown): unknown {
 }
 
 /**
- * Canonical, model-independent form of one participant's search settings. Both
- * fixed-role seats have to agree on this; only the model identity may differ.
+ * Effective search settings for one fixed-role seat, mirroring the server's
+ * `effective_ai_config` defaults. The server compares these after dropping the
+ * model identity, so an omitted default and an explicitly recorded one have to
+ * agree instead of being rejected as different settings.
+ *
+ * The per-participant seed is deliberately excluded: the tournament seed
+ * supersedes it, and the server overwrites every seat with that value before it
+ * compares the effective configurations.
  */
-function searchSettings(config: Config): string {
-  const shared: Config = { ...config };
-  delete shared.model_id;
-  return JSON.stringify(canonical(shared));
+function effectiveSearchSettings(config: Config): string {
+  const wrapper = typeof config.search_wrapper === 'string' ? config.search_wrapper : 'mcts';
+  const effective: Record<string, unknown> = {
+    algorithm: 'neural',
+    time_limit: typeof config.time_limit === 'number' ? config.time_limit : 2,
+    evaluation: 'neural',
+  };
+  if (wrapper === 'alpha_beta') {
+    effective.search_wrapper = 'alpha_beta';
+    effective.depth = typeof config.depth === 'number' ? config.depth : 2;
+    // The server keeps the nested search object only when it was recorded, so a
+    // missing object stays distinct from the default one.
+    if (config.search !== undefined) effective.search = config.search;
+  } else if (wrapper === 'none') {
+    effective.search_wrapper = 'none';
+    effective.temperature = typeof config.temperature === 'number' ? config.temperature : 0;
+  } else {
+    effective.iterations = typeof config.iterations === 'number' ? config.iterations : 80;
+    effective.rollout_depth = typeof config.rollout_depth === 'number' ? config.rollout_depth : 8;
+    effective.exploration = typeof config.exploration === 'number' ? config.exploration : 1.4;
+    effective.temperature = typeof config.temperature === 'number' ? config.temperature : 0;
+  }
+  return JSON.stringify(canonical(effective));
 }
 
 const SEARCH_KEYS = new Set([
@@ -345,7 +370,9 @@ export function parseTournamentConfig(
     if (players.length === 2) {
       if (players.some((player) => player.config.algorithm !== 'neural' || !player.config.model_id))
         fields.push('players');
-      else if (searchSettings(players[0].config) !== searchSettings(players[1].config))
+      else if (
+        effectiveSearchSettings(players[0].config) !== effectiveSearchSettings(players[1].config)
+      )
         fields.push('config');
     }
   } else {

@@ -86,6 +86,13 @@ const champion = (tournament: Tournament) => {
   });
 };
 const defender = (match: TournamentGame) => match.defender_player ?? 1 - match.attacker_player;
+/**
+ * Bounded automatic retries for a full-detail refresh that failed transiently.
+ * A terminal summary must never be lost because one request failed, and the
+ * budget keeps a persistent outage from turning into a retry loop.
+ */
+export const DETAIL_RETRY_DELAYS = [1000, 3000, 8000];
+
 /** Missing mode means the historical balanced round-robin tournament. */
 const modeOf = (tournament: Tournament): TournamentMode =>
   tournament.mode ?? tournament.config.mode ?? 'round_robin';
@@ -173,6 +180,8 @@ export default function Tournaments({
   const [replay, setReplay] = useState<{ index: number; data: TournamentReplay } | null>(null);
   const [replaying, setReplaying] = useState<number | null>(null);
   const [matchesOpen, setMatchesOpen] = useState(false);
+  /** A refresh that failed for the selected tournament, recoverable by hand. */
+  const [detailError, setDetailError] = useState('');
   const selectedId = useRef<string | null>(null);
   const requestNumber = useRef(0);
   const refreshRevision = useRef(0);
@@ -187,6 +196,11 @@ export default function Tournaments({
     controller: AbortController;
   } | null>(null);
   const listRequest = useRef<{ revision: number; promise: Promise<void> } | null>(null);
+  /** Pending automatic retry of a failed detail refresh. */
+  const retryTimer = useRef<number | null>(null);
+  /** Summary marker the current retry budget belongs to. */
+  const retryKey = useRef<string | null>(null);
+  const retryAttempt = useRef(0);
   const mutating = useRef(false);
   const mounted = useRef(true);
   const errorHandler = useRef(onError);
@@ -215,16 +229,27 @@ export default function Tournaments({
     setFixedOpen(true);
   };
 
+  /** Drop a pending automatic retry; a newer request supersedes it. */
+  const cancelDetailRetry = () => {
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  };
+
   /**
    * Load the selected tournament's full record.
    *
    * An obsolete request is aborted, and a response that is older than a summary
    * already observed triggers exactly one immediate follow-up fetch, so a
-   * delayed running snapshot can never leave terminal results hidden.
+   * delayed running snapshot can never leave terminal results hidden. A failed
+   * request keeps that synchronization requirement and is retried a bounded
+   * number of times before the panel offers a manual retry.
    */
   const loadDetail = useCallback(
     async (id: string, resetLog: boolean, marker: string | null): Promise<void> => {
       const request = ++requestNumber.current;
+      cancelDetailRetry();
       detailRequest.current?.controller.abort();
       const controller = new AbortController();
       detailRequest.current = { id, marker, controller };
@@ -248,6 +273,9 @@ export default function Tournaments({
         const observed = summaryMarker.current;
         detailMarker.current = progressMarker(next);
         setSelected(next);
+        setDetailError('');
+        retryKey.current = null;
+        retryAttempt.current = 0;
         // The summary moved on while this response was in flight, so the record
         // is already stale: fetch the newer one instead of waiting for a poll.
         if (observed !== null && observed !== detailMarker.current && observed !== marker)
@@ -255,8 +283,28 @@ export default function Tournaments({
       } catch (error) {
         // A superseded or unmounted request aborts silently.
         if (controller.signal.aborted || (error as Error)?.name === 'AbortError') return;
-        if (mounted.current && request === requestNumber.current && selectedId.current === id)
-          errorHandler.current((error as Error).message);
+        if (!mounted.current || request !== requestNumber.current || selectedId.current !== id)
+          return;
+        const message = (error as Error).message;
+        const key = `${id}|${summaryMarker.current ?? ''}`;
+        if (retryKey.current !== key) {
+          // Report a first failure once; later attempts stay quiet and visible
+          // through the recoverable panel below.
+          retryKey.current = key;
+          retryAttempt.current = 0;
+          errorHandler.current(message);
+        }
+        setDetailError(message);
+        const delay = DETAIL_RETRY_DELAYS[retryAttempt.current];
+        if (delay !== undefined) {
+          retryAttempt.current += 1;
+          cancelDetailRetry();
+          retryTimer.current = window.setTimeout(() => {
+            retryTimer.current = null;
+            if (!mounted.current || selectedId.current !== id) return;
+            void loadDetail(id, false, summaryMarker.current);
+          }, delay);
+        }
       } finally {
         if (detailRequest.current?.controller === controller) {
           detailRequest.current = null;
@@ -267,6 +315,16 @@ export default function Tournaments({
     [],
   );
 
+  /** Re-run a failed refresh for the selected tournament after the user asks. */
+  const retryDetail = async () => {
+    const id = selectedId.current;
+    if (!id) return;
+    retryKey.current = null;
+    retryAttempt.current = 0;
+    setDetailError('');
+    await loadDetail(id, false, summaryMarker.current);
+  };
+
   const select = useCallback(
     async (id: string) => {
       selectedId.current = id;
@@ -275,6 +333,9 @@ export default function Tournaments({
       setSelected((current) => (current?.id === id ? current : null));
       detailMarker.current = null;
       summaryMarker.current = null;
+      retryKey.current = null;
+      retryAttempt.current = 0;
+      setDetailError('');
       await loadDetail(id, true, null);
     },
     [loadDetail],
@@ -305,6 +366,10 @@ export default function Tournaments({
         else {
           selectedId.current = null;
           summaryMarker.current = null;
+          cancelDetailRetry();
+          retryKey.current = null;
+          retryAttempt.current = 0;
+          setDetailError('');
           detailRequest.current?.controller.abort();
           detailRequest.current = null;
           setSelected(null);
@@ -342,6 +407,7 @@ export default function Tournaments({
       requestNumber.current++;
       refreshRevision.current++;
       listRequest.current = null;
+      cancelDetailRetry();
       detailRequest.current?.controller.abort();
       detailRequest.current = null;
     };
@@ -385,7 +451,12 @@ export default function Tournaments({
         selectedId.current = null;
         requestNumber.current++;
         summaryMarker.current = null;
-        // An in-flight history for the deleted tournament is now irrelevant.
+        // An in-flight history or a pending retry for the deleted tournament is
+        // now irrelevant.
+        cancelDetailRetry();
+        retryKey.current = null;
+        retryAttempt.current = 0;
+        setDetailError('');
         detailRequest.current?.controller.abort();
         detailRequest.current = null;
         setSelected(null);
@@ -502,7 +573,9 @@ export default function Tournaments({
                       {t(statusLabel[tournament.status])}
                     </span>
                     {modeOf(tournament) === 'fixed_roles' && (
-                      <span className="tournament-mode-tag">{t('Fixed-role comparison')}</span>
+                      <span className="badge tournament-mode-tag">
+                        {t('Fixed-role comparison')}
+                      </span>
                     )}
                   </span>
                   <strong>{tournament.name}</strong>
@@ -530,7 +603,22 @@ export default function Tournaments({
           )}
         </aside>
         <div className="tournament-main" aria-busy={detailLoading}>
-          {!selected ? (
+          {!selected && detailError ? (
+            <section className="panel tournament-welcome">
+              <span className="tournament-emblem" aria-hidden="true">
+                <Crown />
+              </span>
+              <h2>{t('The latest results could not be loaded.')}</h2>
+              <small role="alert">{t(detailError)}</small>
+              <button
+                className="button secondary"
+                onClick={() => void retryDetail()}
+                disabled={detailLoading}
+              >
+                {t('Try again')}
+              </button>
+            </section>
+          ) : !selected ? (
             detailLoading ? (
               <section className="panel tournament-welcome" aria-busy="true">
                 <span className="tournament-emblem" aria-hidden="true">
@@ -590,7 +678,9 @@ export default function Tournaments({
                       {t(statusLabel[selected.status])}
                     </span>
                     {modeOf(selected) === 'fixed_roles' && (
-                      <span className="tournament-mode-tag">{t('Fixed-role comparison')}</span>
+                      <span className="badge tournament-mode-tag">
+                        {t('Fixed-role comparison')}
+                      </span>
                     )}
                   </span>
                   <h2>{selected.name}</h2>
@@ -644,6 +734,19 @@ export default function Tournaments({
                   {t(selected.error)}
                 </p>
               )}
+              {detailError && (
+                <p role="alert" className="form-error">
+                  {t('The latest results could not be loaded.')} {t(detailError)}{' '}
+                  <button
+                    type="button"
+                    className="button secondary small"
+                    onClick={() => void retryDetail()}
+                    disabled={detailLoading}
+                  >
+                    {t('Try again')}
+                  </button>
+                </p>
+              )}
               <div className="tournament-progress">
                 <div>
                   <strong>
@@ -670,7 +773,7 @@ export default function Tournaments({
                     <h3>{t('Side performance')}</h3>
                     <span>{t('Attackers and defenders are never swapped.')}</span>
                   </div>
-                  <div className="tournament-role-cards">
+                  <div className="tournament-opponents tournament-role-cards">
                     {(['attackers', 'defenders'] as const).map((role, index) => {
                       const player = selected.config.players[index];
                       const stats = fixedRoleStats(selected.result!);
@@ -680,13 +783,16 @@ export default function Tournaments({
                       const scoreRate =
                         role === 'attackers' ? stats.attackerScoreRate : stats.defenderScoreRate;
                       return (
-                        <article className={`tournament-role-card ${role}`} key={role}>
+                        <article
+                          className={`tournament-standing tournament-role-card ${role}`}
+                          key={role}
+                        >
                           <small>{t(role === 'attackers' ? 'ATTACKERS' : 'DEFENDERS')}</small>
                           <h4>
                             {seatRune(player)}
                             {playerName(player)}
                           </h4>
-                          <dl>
+                          <dl className="tournament-score-stats">
                             <div>
                               <dt>{t('Wins')}</dt>
                               <dd>{wins}</dd>
@@ -706,12 +812,15 @@ export default function Tournaments({
                   </div>
                   {(() => {
                     const stats = fixedRoleStats(selected.result!);
-                    const segments = [
+                    const outcomes = [
                       { key: 'attackers', label: t('Attacker wins'), count: stats.attackerWins },
                       { key: 'defenders', label: t('Defender wins'), count: stats.defenderWins },
                       { key: 'draws', label: t('Rule draws'), count: stats.draws },
                       { key: 'unfinished', label: t('Unfinished'), count: stats.unfinished },
                     ];
+                    // A category without games takes no width, so the chart
+                    // never shows a colour for a result that did not happen.
+                    const visible = outcomes.filter((segment) => segment.count > 0);
                     return stats.played ? (
                       <>
                         <div
@@ -728,7 +837,7 @@ export default function Tournaments({
                             },
                           )}
                         >
-                          {segments.map((segment) => (
+                          {visible.map((segment) => (
                             <span
                               key={segment.key}
                               className={`outcome-${segment.key}`}
@@ -737,7 +846,7 @@ export default function Tournaments({
                           ))}
                         </div>
                         <ul className="tournament-outcome-legend">
-                          {segments.map((segment) => (
+                          {outcomes.map((segment) => (
                             <li key={segment.key}>
                               <span
                                 className={`swatch outcome-${segment.key}`}
