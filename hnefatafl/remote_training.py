@@ -355,6 +355,16 @@ class RemoteTraining:
         if isinstance(visible.get("progress"), dict):
             # The last worker snapshot precedes the authoritative finish/expiry.
             visible["progress"] = {**visible["progress"], "status": job["status"]}
+        reported = job.get("last_reported_at")
+        if job["status"] in {"running", "cancelling"} and isinstance(reported, str):
+            # The server stamps every report with its own clock, so the age of
+            # the last publication never depends on the worker's clock.
+            try:
+                reported_at = datetime.fromisoformat(reported).timestamp()
+            except ValueError:
+                pass
+            else:
+                visible["publication_age_seconds"] = max(0.0, timestamp() - reported_at)
         if job["status"] == "queued":
             visible["progress"] = {
                 **visible.get("progress", {}),

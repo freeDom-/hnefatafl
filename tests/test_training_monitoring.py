@@ -235,3 +235,54 @@ def test_live_local_job_reports_a_matching_heartbeat_between_progress_events(cli
     stale = client.get("/api/training/jobs?summary=true").json()[0]
     assert stale["progress"]["duration"] == 10.0
     assert "phase_progress" not in stale["progress"]
+
+
+def test_local_job_reports_the_server_observed_publication_age(client, monkeypatch):
+    import os
+    import time
+
+    job = saved_job("e" * 32, execution="local", status="running")
+    job["pid"] = 525252
+    store = client.app.state.store
+    store.save_job(job)
+    directory = client.app.state.data_dir / "jobs" / job["id"]
+    directory.mkdir()
+    progress = directory / "progress.json"
+    progress.write_text(
+        json.dumps({"status": "running", "revision": 2, "duration": 5.0, "iteration": 3})
+    )
+    heartbeat = directory / "heartbeat.json"
+    heartbeat.write_text(
+        json.dumps({"status": "running", "revision": 2, "duration": 6.0, "stage": "self_play"})
+    )
+    # Both files are ten minutes old: the job stopped publishing.
+    stale = time.time() - 600
+    os.utime(progress, (stale, stale))
+    os.utime(heartbeat, (stale, stale))
+
+    original = Path.read_bytes
+
+    def command(path):
+        if str(path) == "/proc/525252/cmdline":
+            return b"hnefatafl.cli\0" + str(directory / "config.json").encode()
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", command)
+
+    item = client.get("/api/training/jobs?summary=true").json()[0]
+    assert item["publication_age_seconds"] == pytest.approx(600, abs=10)
+
+    # A fresh heartbeat makes the same job fresh again without any client clock.
+    os.utime(heartbeat, None)
+    refreshed = client.get("/api/training/jobs?summary=true").json()[0]
+    assert refreshed["publication_age_seconds"] < 5
+
+    # Legacy jobs without local files simply omit the field.
+    other = saved_job("d" * 32, execution="local", status="completed")
+    store.save_job(other)
+    legacy = [
+        row
+        for row in client.get("/api/training/jobs?summary=true").json()
+        if row["id"] == other["id"]
+    ][0]
+    assert "publication_age_seconds" not in legacy

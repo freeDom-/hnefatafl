@@ -1876,6 +1876,16 @@ def create_app(
             with logfile.open("rb") as handle:
                 handle.seek(max(0, logfile.stat().st_size - 16000))
                 job["logs"] = handle.read().decode(errors="replace")
+        from .training_monitoring import publication_age
+
+        # A local worker's files share this server's clock, so their newest
+        # modification time is the authoritative publication freshness. A stale
+        # snapshot must not look fresh just because the dashboard just mounted.
+        # Only a live job can be unresponsive, so terminal payloads stay stable.
+        if job["status"] in {"running", "cancelling"}:
+            age = publication_age(directory)
+            if age is not None:
+                job["publication_age_seconds"] = age
         if summary:
             from .training_monitoring import job_summary
 

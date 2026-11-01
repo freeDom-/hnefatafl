@@ -819,6 +819,10 @@ def train(
         """
         with publish_lock:
             state.update(changes)
+            if heartbeat and state.get("status") not in {"running", "cancelling", "pending"}:
+                # A terminal publication is final. A heartbeat that races the
+                # shutdown must not extend its durations or overwrite its status.
+                return
             if not heartbeat:
                 monitor.published()
             state.update(monitor.snapshot())
@@ -1078,6 +1082,34 @@ def train(
                 metrics=metrics,
                 performance=performance,
             )
+
+        # Finalization is a real phase: checkpoint verification, model export and
+        # registration can take seconds, so the heartbeat must keep running until
+        # the terminal publication has been written. An export or registration
+        # failure surfaces through the handler below as a failed job rather than
+        # leaving a stalled "finalizing" state.
+        monitor.phase("finalizing", iteration=completed)
+        publish()
+        if not checkpoint.exists():
+            checkpoint_now(checkpoint)
+        if not best_checkpoint.exists():
+            raise ValueError("Training completed without a best-model snapshot")
+        registry_root = Path(config.get("registry_dir", output.parent / "models"))
+        inference_checkpoint = export_checkpoint(best_checkpoint, output / "inference.pt")
+        registered = ModelRegistry(registry_root).register(
+            inference_checkpoint, name=config["model_name"]
+        )
+        monitor.phase("completed", iteration=completed)
+        publish(
+            status="completed",
+            checkpoint=str(checkpoint),
+            model=registered,
+            best_checkpoint=str(best_checkpoint),
+            inference_checkpoint=str(inference_checkpoint),
+        )
+        result = {**state, "output_dir": str(output), "iterations": completed}
+        _write_json(output / "result.json", result)
+        return result
     except InterruptedError:
         if completed and (not history or history[-1]["iteration"] < completed):
             history.append(
@@ -1132,28 +1164,6 @@ def train(
         monitor.stop()
         if backend is not None:
             backend.close()
-    monitor.phase("finalizing", iteration=completed)
-    publish()
-    if not checkpoint.exists():
-        checkpoint_now(checkpoint)
-    if not best_checkpoint.exists():
-        raise ValueError("Training completed without a best-model snapshot")
-    registry_root = Path(config.get("registry_dir", output.parent / "models"))
-    inference_checkpoint = export_checkpoint(best_checkpoint, output / "inference.pt")
-    registered = ModelRegistry(registry_root).register(
-        inference_checkpoint, name=config["model_name"]
-    )
-    monitor.phase("completed", iteration=completed)
-    publish(
-        status="completed",
-        checkpoint=str(checkpoint),
-        model=registered,
-        best_checkpoint=str(best_checkpoint),
-        inference_checkpoint=str(inference_checkpoint),
-    )
-    result = {**state, "output_dir": str(output), "iterations": completed}
-    _write_json(output / "result.json", result)
-    return result
 
 
 def tune(

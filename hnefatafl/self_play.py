@@ -264,6 +264,10 @@ def batched_self_play(
                     progress({"game": metrics.games, "performance": metrics.snapshot()})
 
     fill_slots()
+    if monitor is not None:
+        # Report the scheduled games before the first inference batch runs; a
+        # long first batch must not show zero active games.
+        monitor.counts(games_active=len(pending))
     while pending:
         cancelled()
         requests = [pending.popleft() for _ in range(min(batch_size, len(pending)))]

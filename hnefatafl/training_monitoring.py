@@ -39,6 +39,7 @@ _HEARTBEAT_KEYS = (
     "status",
     "stage",
     "iteration",
+    "active_iteration",
     "total_iterations",
     "games_generated",
     "self_play_games",
@@ -93,6 +94,26 @@ def read_heartbeat(directory: Path) -> dict | None:
         return json.loads((directory / HEARTBEAT_FILENAME).read_text())
     except (OSError, ValueError):
         return None
+
+
+def publication_age(directory: Path, *, now: float | None = None) -> float | None:
+    """Seconds since a local worker last published a monitoring snapshot.
+
+    The retained ``progress.json`` and the bounded heartbeat file are written by
+    the worker on the same host as this server, so their modification times share
+    the server clock and never depend on an unsynchronised remote worker clock.
+    The newest of the two is authoritative; ``None`` means neither exists yet.
+    """
+    newest: float | None = None
+    for name in ("progress.json", HEARTBEAT_FILENAME):
+        try:
+            modified = (directory / name).stat().st_mtime
+        except OSError:
+            continue
+        newest = modified if newest is None else max(newest, modified)
+    if newest is None:
+        return None
+    return max(0.0, (time.time() if now is None else now) - newest)
 
 
 class ProgressSink(Protocol):
@@ -193,10 +214,10 @@ class TrainingMonitor:
         now = self._clock()
         with self._lock:
             phase, phase_started = self._phase, self._phase_started
-            iteration_started = self._iteration_started
+            iteration, iteration_started = self._iteration, self._iteration_started
             last_progress, counters = self._last_progress, dict(self._counters)
             revision = self._revision
-        return {
+        snapshot = {
             "stage": phase,
             "phase_started_at": iso(self._started_at + (phase_started - self._started)),
             "phase_elapsed": max(now - phase_started, 0.0),
@@ -209,6 +230,11 @@ class TrainingMonitor:
             "revision": revision,
             "phase_progress": counters,
         }
+        if iteration is not None:
+            # The active iteration is published immediately on entering it, not
+            # only when the first game or epoch of that iteration finishes.
+            snapshot["active_iteration"] = iteration
+        return snapshot
 
     def start(self) -> None:
         if self._thread is not None:

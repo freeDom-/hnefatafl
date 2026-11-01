@@ -8,6 +8,7 @@ recording sinks and a controlled clock; no GPU is required.
 
 import json
 import math
+import os
 import random
 import threading
 import time
@@ -16,7 +17,9 @@ from pathlib import Path
 import pytest
 import torch
 
+from hnefatafl import inference_backends
 from hnefatafl import self_play as self_play_module
+from hnefatafl import training as training_module
 from hnefatafl.engine import legal_moves, new_game
 from hnefatafl.models import PolicyValueNet, encode_state
 from hnefatafl.training import (
@@ -31,6 +34,7 @@ from hnefatafl.training_monitoring import (
     TrainingMonitor,
     heartbeat_projection,
     overlay_heartbeat,
+    publication_age,
     read_heartbeat,
 )
 
@@ -480,3 +484,201 @@ def test_evaluation_phase_keeps_publishing_while_a_game_blocks(tmp_path, monkeyp
     result = read_json(output / "progress.json")
     assert result["status"] == "completed"
     assert result["metrics"]["evaluation"]["game_count"] == 2
+
+
+def test_snapshot_reports_the_active_iteration_immediately():
+    monitor = TrainingMonitor(
+        lambda **flags: None, phase="initializing", clock=lambda: 0.0, wall=lambda: 0.0
+    )
+    # No iteration has been entered yet; the recorded iteration stays untouched.
+    assert "active_iteration" not in monitor.snapshot()
+
+    monitor.phase("self_play", iteration=42)
+    assert monitor.snapshot()["active_iteration"] == 42
+    # A phase change inside the same iteration keeps the active iteration.
+    monitor.phase("optimization", iteration=42)
+    assert monitor.snapshot()["active_iteration"] == 42
+    # Entering the next iteration publishes it before any work happens.
+    monitor.phase("preparing", iteration=43)
+    assert monitor.snapshot()["active_iteration"] == 43
+
+
+def test_publication_age_uses_the_newest_local_publication(tmp_path):
+    assert publication_age(tmp_path) is None
+    now = time.time()
+    progress = tmp_path / "progress.json"
+    progress.write_text("{}")
+    heartbeat = tmp_path / "heartbeat.json"
+    heartbeat.write_text("{}")
+    os.utime(progress, (now - 600, now - 600))
+    os.utime(heartbeat, (now - 4, now - 4))
+    assert publication_age(tmp_path, now=now) == pytest.approx(4, abs=0.5)
+    # A stalled heartbeat never hides a fresher retained progress file.
+    os.utime(heartbeat, (now - 900, now - 900))
+    assert publication_age(tmp_path, now=now) == pytest.approx(600, abs=0.5)
+
+
+def test_batched_self_play_reports_scheduled_games_before_the_first_batch(tmp_path, monkeypatch):
+    sink = RecordingSink()
+    observed = []
+    real_batch = self_play_module.policy_value_batch
+
+    def recording_batch(*args, **kwargs):
+        # Sampled exactly when the first inference batch begins: the scheduled
+        # games are already active, so a long batch must not report zero.
+        observed.append(sink.counters.get("games_active"))
+        return real_batch(*args, **kwargs)
+
+    monkeypatch.setattr(self_play_module, "policy_value_batch", recording_batch)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    games, _ = generate_self_play(
+        model,
+        tiny_config(
+            tmp_path,
+            games=4,
+            self_play_mode="batched",
+            self_play_concurrency=3,
+            inference_batch_size=2,
+        ),
+        seed=23,
+        retain_examples=False,
+        monitor=sink,
+    )
+    assert len(games) == 4
+    assert observed and observed[0] == 3
+    assert all(value is not None and value >= 1 for value in observed)
+    assert sink.counters["games_completed"] == 4
+    assert sink.counters["games_active"] == 0
+
+
+def test_heartbeat_keeps_running_through_model_finalization(tmp_path, monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+    real_export = training_module.export_checkpoint
+
+    def blocking_export(*args, **kwargs):
+        entered.set()
+        assert released.wait(30)
+        return real_export(*args, **kwargs)
+
+    monkeypatch.setattr(training_module, "export_checkpoint", blocking_export)
+    config = tiny_config(tmp_path, games=1, iterations=1)
+    output = Path(config["output_dir"])
+    failure = []
+
+    def run():
+        try:
+            train(config)
+        except Exception as error:  # pragma: no cover - surfaced below
+            failure.append(error)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert entered.wait(60)
+    heartbeat_path = output / "heartbeat.json"
+    deadline = time.monotonic() + 15
+    first = None
+    while first is None and time.monotonic() < deadline:
+        snapshot = read_heartbeat(output)
+        if snapshot is not None and snapshot.get("stage") == "finalizing":
+            first = snapshot
+        else:
+            time.sleep(0.05)
+    assert first is not None, "finalization published no heartbeat"
+    time.sleep(1.5)
+    second = read_json(heartbeat_path)
+    # The heartbeat stays live while export blocks: timings advance, the phase is
+    # finalizing and the publication generation has not moved.
+    assert second["stage"] == "finalizing"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["duration"] >= first["duration"] + 1.0
+    assert second["updated_at"] != first["updated_at"]
+    assert second["revision"] == first["revision"]
+
+    released.set()
+    worker.join(timeout=120)
+    assert not worker.is_alive() and failure == []
+    final = read_json(output / "progress.json")
+    assert final["status"] == "completed" and final["stage"] == "completed"
+    assert final["active_iteration"] == 1
+    # Monitor shutdown is clean: no heartbeat arrives after the terminal state.
+    settled = read_json(heartbeat_path)
+    time.sleep(1.2)
+    assert read_json(heartbeat_path) == settled
+
+
+def test_finalization_failure_reports_a_failed_job_and_stops_the_heartbeat(tmp_path, monkeypatch):
+    def failing_export(*args, **kwargs):
+        # Slow enough that the heartbeat keeps publishing while it runs.
+        time.sleep(1.3)
+        raise RuntimeError("model export failed")
+
+    monkeypatch.setattr(training_module, "export_checkpoint", failing_export)
+    config = tiny_config(tmp_path, games=1, iterations=1)
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="model export failed"):
+        train(config)
+
+    final = read_json(output / "progress.json")
+    # A failure during finalization is a failed job, never a stalled "finalizing".
+    assert final["status"] == "failed" and final["stage"] == "failed"
+    assert "model export failed" in final["error"]
+    # A heartbeat published before the terminal failure cannot overwrite it.
+    assert overlay_heartbeat(final, read_heartbeat(output)) == final
+    # Monitor shutdown is clean: nothing is published after the failure.
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+
+def test_progress_reports_the_new_iteration_before_its_first_game_starts(tmp_path, monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+    refreshes = []
+
+    def blocking_refresh(backend):
+        refreshes.append(1)
+        if len(refreshes) >= 2:
+            # Iteration 2's preparation: no substantive publication has happened
+            # yet, so only the monitor knows which iteration is active.
+            entered.set()
+            assert released.wait(30)
+        return real_refresh(backend)
+
+    real_refresh = inference_backends.TorchInference.refresh
+    monkeypatch.setattr(inference_backends.TorchInference, "refresh", blocking_refresh)
+    config = tiny_config(tmp_path, games=1, iterations=2)
+    output = Path(config["output_dir"])
+    failure = []
+
+    def run():
+        try:
+            train(config)
+        except Exception as error:  # pragma: no cover - surfaced below
+            failure.append(error)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert entered.wait(60)
+
+    deadline = time.monotonic() + 15
+    merged = None
+    while merged is None and time.monotonic() < deadline:
+        snapshot = overlay_heartbeat(read_json(output / "progress.json"), read_heartbeat(output))
+        if snapshot.get("active_iteration") == 2:
+            merged = snapshot
+        else:
+            time.sleep(0.05)
+    assert merged is not None, "iteration 2 was never published as active"
+    # The retained iteration is still the last completed one (1); the live
+    # iteration is already 2 while its first game has not started.
+    assert merged["iteration"] == 1
+    assert merged["stage"] == "preparing"
+    assert merged["active_iteration"] == 2
+
+    released.set()
+    worker.join(timeout=120)
+    assert not worker.is_alive() and failure == []
+    result = read_json(output / "progress.json")
+    assert result["status"] == "completed"
+    assert result["active_iteration"] == 2

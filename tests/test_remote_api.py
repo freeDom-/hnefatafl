@@ -720,3 +720,26 @@ def test_augmenting_worker_receives_setting_and_legacy_default_stays_off(client)
     job = queue(client, training_symmetry_mode="random_d4", worker_id=remote["id"])
     assert job["config"]["training_symmetry_mode"] == "random_d4"
     assert claim(client, headers)["config"]["training_symmetry_mode"] == "random_d4"
+
+
+def test_remote_job_reports_the_server_observed_publication_age(client):
+    from datetime import datetime, timedelta, timezone
+
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    assert report(client, headers, lease, sequence=1).status_code == 200
+    fresh = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert fresh["publication_age_seconds"] < 5
+
+    # Rewind the server-observed stamp: freshness follows the server clock and
+    # never the (possibly skewed) remote worker clock.
+    job = client.app.state.store.get_job(lease["id"])
+    job["last_reported_at"] = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+    client.app.state.store.save_job(job)
+    stale = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert stale["publication_age_seconds"] == pytest.approx(600, abs=10)
+
+    # A job that has never reported omits the field instead of inventing one.
+    queued = queue(client)
+    assert "publication_age_seconds" not in client.get(f"/api/training/jobs/{queued['id']}").json()
