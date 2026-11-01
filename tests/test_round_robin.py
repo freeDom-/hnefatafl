@@ -205,3 +205,58 @@ def test_fourth_opponent_model_is_protected_until_tournament_stops(tmp_path):
         assert len(stopped.json()["result"]["scores"]) == 4
         assert client.delete(f"/api/models/{model['id']}").status_code == 200
         assert checkpoint.exists()
+
+
+def test_round_robin_seed_derivation_and_alternation_are_unchanged(monkeypatch):
+    played = []
+
+    def play(_ruleset, attackers, defenders, **options):
+        played.append((options["seed"], attackers["algorithm"], defenders["algorithm"]))
+        return {
+            "winner": "attackers",
+            "outcome": "completed",
+            "plies": 1,
+            "moves": [],
+            "total_decision_time": 0.01,
+        }
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    two = tournament(
+        {
+            "players": [{"algorithm": "baseline", "time_limit": 0.01}] * 2,
+            "rulesets": ["brandubh"],
+            "games": 2,
+            "max_plies": 1,
+            "seed": 42,
+        }
+    )
+    assert [seed for seed, *_ in played] == [42, 43]
+    assert [game["attacker_player"] for game in two["games"]] == [0, 1]
+
+    played.clear()
+    four = tournament(
+        {
+            "players": [{"algorithm": "baseline", "time_limit": 0.01}] * 4,
+            "rulesets": ["brandubh"],
+            "games": 2,
+            "max_plies": 1,
+            "seed": 42,
+        }
+    )
+    # A larger round robin keeps one distinct derived seed per scheduled match:
+    # four opponents play six pairings, two games each.
+    assert [seed for seed, *_ in played] == list(range(42, 54))
+    assert [game["attacker_player"] for game in four["games"]] == [
+        0,
+        1,
+        0,
+        2,
+        0,
+        3,
+        1,
+        2,
+        1,
+        3,
+        2,
+        3,
+    ]

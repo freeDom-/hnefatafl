@@ -81,10 +81,13 @@ alpha-beta or none), the applicable parameters (time limit, search iterations,
 exploration, search depth, temperature and the alpha-beta optimization switches)
 and the move limit. The form submits the identical settings for both seats and
 only the model identity differs; there are no per-seat defaults that could drift
-apart. The browser API and the headless runner both normalise the two effective
-configurations and reject a request whose settings differ after excluding the
-model identity. Because the search is neural, the alpha-beta symmetry switches
-are unavailable: a value head is not guaranteed to be D4-equivariant.
+apart. The browser API, the headless runner and the configuration importer all
+normalise the two effective configurations and reject a pairing whose settings
+differ after excluding the model identity and the participant's own seed: the
+tournament seed supersedes per-participant seeds and derives every game and ply
+seed, so a recorded participant seed is not a search difference. Because the
+search is neural, the alpha-beta symmetry switches are unavailable: a value head
+is not guaranteed to be D4-equivariant.
 
 Unlike the round robin, sides are never swapped. The game count is therefore the
 total number of scheduled games — 50 games means the attacker model attacks the

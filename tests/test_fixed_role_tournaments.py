@@ -484,3 +484,174 @@ def test_round_robin_keeps_accepting_multiple_battlefields(monkeypatch):
     )
     assert played == ["brandubh", "brandubh", "tablut", "tablut"]
     assert sorted(result["by_ruleset"]) == ["brandubh", "tablut"]
+
+
+def played_seeds(monkeypatch, config):
+    """Run a tournament with a mocked engine and return the per-game seed sequence."""
+    played = []
+
+    def play(_ruleset, attackers, defenders, **options):
+        played.append(
+            (options["seed"], attackers["model_id"], defenders["model_id"], attackers.get("seed"))
+        )
+        return {
+            "winner": "attackers",
+            "outcome": "completed",
+            "plies": 1,
+            "moves": [],
+            "total_decision_time": 0.01,
+        }
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    return played, tournament(config)
+
+
+def fixed_role_config(players, **changes):
+    return {
+        "mode": "fixed_roles",
+        "rulesets": ["brandubh"],
+        "players": players,
+        "games": 5,
+        "max_plies": 1,
+        "seed": 42,
+        **changes,
+    }
+
+
+def test_different_participant_seeds_are_accepted(monkeypatch):
+    played, result = played_seeds(
+        monkeypatch,
+        fixed_role_config(
+            [
+                {"algorithm": "neural", "model_id": "model-a", "iterations": 5, "seed": 11},
+                {"algorithm": "neural", "model_id": "model-b", "iterations": 5, "seed": 12},
+            ]
+        ),
+    )
+    assert len(result["games"]) == 5
+    # The tournament seed alone derives every game seed; the participant seeds are
+    # irrelevant to the comparison and never reach the engine.
+    assert [seed for seed, _, _, _ in played] == [42, 43, 44, 45, 46]
+    assert [game["attacker_player"] for game in result["games"]] == [0] * 5
+    assert [game["defender_player"] for game in result["games"]] == [1] * 5
+
+
+def test_participant_seeds_do_not_change_the_game_seeds(monkeypatch):
+    first, _ = played_seeds(
+        monkeypatch,
+        fixed_role_config(
+            [
+                {"algorithm": "neural", "model_id": "model-a", "iterations": 5, "seed": 11},
+                {"algorithm": "neural", "model_id": "model-b", "iterations": 5, "seed": 12},
+            ]
+        ),
+    )
+    second, repeated = played_seeds(
+        monkeypatch,
+        fixed_role_config(
+            [
+                {"algorithm": "neural", "model_id": "model-a", "iterations": 5, "seed": 7},
+                {"algorithm": "neural", "model_id": "model-b", "iterations": 5, "seed": 999},
+            ]
+        ),
+    )
+    assert [seed for seed, *_ in first] == [seed for seed, *_ in second] == [42, 43, 44, 45, 46]
+    assert [attacker for _, attacker, _, _ in first] == ["model-a"] * 5
+    assert [defender for _, _, defender, _ in first] == ["model-b"] * 5
+    # Repeating the same configuration reproduces the same sequence.
+    third, _ = played_seeds(
+        monkeypatch,
+        fixed_role_config(
+            [
+                {"algorithm": "neural", "model_id": "model-a", "iterations": 5, "seed": 11},
+                {"algorithm": "neural", "model_id": "model-b", "iterations": 5, "seed": 12},
+            ]
+        ),
+    )
+    assert [seed for seed, *_ in third] == [seed for seed, *_ in first]
+    assert len(repeated["games"]) == 5
+
+
+def test_flat_fixed_role_configs_with_different_seeds_run(monkeypatch):
+    played, result = played_seeds(
+        monkeypatch,
+        {
+            "mode": "fixed_roles",
+            "rulesets": ["brandubh"],
+            "players": [
+                {"algorithm": "neural", "model_id": "model-a", "seed": 1},
+                {"algorithm": "neural", "model_id": "model-b", "seed": 2},
+            ],
+            "games": 3,
+            "seed": 7,
+        },
+    )
+    assert [seed for seed, *_ in played] == [7, 8, 9]
+    assert [game["attacker_player"] for game in result["games"]] == [0, 0, 0]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"iterations": 6},
+        {"exploration": 2.0},
+        {"search_wrapper": "none"},
+        {"search_wrapper": "alpha_beta", "depth": 3},
+        {"time_limit": 0.02},
+        {"temperature": 0.5},
+        {"search_wrapper": "alpha_beta", "search": {"move_ordering": False}},
+    ],
+)
+def test_effective_search_differences_still_fail(changes):
+    players = [
+        {"algorithm": "neural", "model_id": "model-a", "iterations": 5},
+        {"algorithm": "neural", "model_id": "model-b", "iterations": 5},
+    ]
+    players[1].update(changes)
+    with pytest.raises(ValueError, match="identical search settings"):
+        validate_fixed_role_players(players)
+
+
+def test_api_replaces_participant_seeds_before_validating(client, models):
+    response = client.post(
+        "/api/tournaments",
+        json={
+            "name": "Seeded comparison",
+            "mode": "fixed_roles",
+            "rulesets": ["brandubh"],
+            "players": [
+                model_player(models[0]["id"], iterations=1, time_limit=0.01, seed=11),
+                model_player(models[1]["id"], iterations=1, time_limit=0.01, seed=12),
+            ],
+            "games": 1,
+            "max_plies": 1,
+            "seed": 42,
+        },
+    )
+    assert response.status_code == 201, response.text
+    record = response.json()
+    # The tournament seed supersedes both participant seeds, so the comparison is
+    # accepted with the participants otherwise identical.
+    assert [player["config"]["seed"] for player in record["config"]["players"]] == [42, 42]
+    assert client.post(f"/api/tournaments/{record['id']}/cancel").status_code == 200
+
+
+@pytest.mark.parametrize("seed", [-1, 2**32, "42", 1.5, True])
+def test_api_still_rejects_invalid_participant_seeds(client, models, seed):
+    response = client.post(
+        "/api/tournaments",
+        json={
+            "name": "Invalid seed",
+            "mode": "fixed_roles",
+            "rulesets": ["brandubh"],
+            "players": [
+                model_player(models[0]["id"], iterations=1, time_limit=0.01, seed=seed),
+                model_player(models[1]["id"], iterations=1, time_limit=0.01),
+            ],
+            "games": 1,
+            "max_plies": 1,
+            "seed": 42,
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert client.get("/api/tournaments").json() == []

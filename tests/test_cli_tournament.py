@@ -496,3 +496,62 @@ def test_cli_rejects_a_misspelled_search_parameter_before_playing(tmp_path, caps
     assert captured.out == ""
     failure = json.loads(captured.err)
     assert "player 1 config has an unsupported field: iteratons" in failure["error"]
+
+
+def test_portable_fixed_role_participant_seeds_are_ignored(
+    tmp_path, checkpoints, capsys, monkeypatch
+):
+    played = []
+
+    def play(_ruleset, attackers, defenders, **options):
+        played.append((options["seed"], attackers["model_id"], defenders["model_id"]))
+        return {
+            "winner": "attackers",
+            "outcome": "completed",
+            "plies": 1,
+            "moves": [],
+            "total_decision_time": 0.01,
+        }
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    document = portable(
+        [
+            neural(
+                "model-a", model_path=str(checkpoints[0]), iterations=1, time_limit=0.01, seed=11
+            ),
+            neural(
+                "model-b", model_path=str(checkpoints[1]), iterations=1, time_limit=0.01, seed=12
+            ),
+        ],
+        mode="fixed_roles",
+        games=5,
+        max_plies=1,
+    )
+    path = tmp_path / "tournament.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert main(["tournament", "--config", str(path)]) == 0
+    report = json.loads(capsys.readouterr().out)
+    # The tournament seed derives every game seed; the participant seeds are not a
+    # search difference and never reach the engine.
+    assert [seed for seed, *_ in played] == [4, 5, 6, 7, 8]
+    assert [attacker for _, attacker, _ in played] == ["model-a"] * 5
+    assert [defender for _, _, defender in played] == ["model-b"] * 5
+    assert report["seed"] == 4
+    assert len(report["games"]) == 5
+    assert [game["attacker_player"] for game in report["games"]] == [0] * 5
+
+
+@pytest.mark.parametrize(
+    ("seed", "message"),
+    [
+        (-1, "player 1: AI seed must be between 0 and 4294967295"),
+        (2**32, "player 1: AI seed must be between 0 and 4294967295"),
+        ("42", "player 1: AI seed must be an integer"),
+        (1.5, "player 1: AI seed must be an integer"),
+        (True, "player 1: AI seed must be an integer"),
+        ([], "player 1: AI seed must be an integer"),
+    ],
+)
+def test_portable_participant_seeds_are_still_validated(seed, message):
+    with pytest.raises(ValueError, match=message):
+        normalise_tournament_config(portable([neural("model-a", seed=seed), neural("model-b")]))

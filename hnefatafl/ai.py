@@ -1832,7 +1832,11 @@ def validate_fixed_role_players(profiles: list) -> None:
 
     Both participants must resolve to identical effective search settings, so the
     browser API and the headless runner reject a mismatched pairing the same way.
-    Only the model identity may differ between the attacker and defender seats.
+    Only the model identity and the participant's own seed may differ: the
+    tournament seed supersedes the per-participant seeds and ``play_game`` derives
+    a seed per game and per ply from it, so a recorded participant seed is not a
+    search difference. The browser API and the frontend importer apply the same
+    rule.
     """
     from .identities import effective_ai_config
 
@@ -1843,7 +1847,9 @@ def validate_fixed_role_players(profiles: list) -> None:
         config = effective_ai_config(profile)
         if config.get("algorithm") != "neural" or not config.get("model_id"):
             raise ValueError("A fixed-role comparison requires two trained neural models")
-        resolved.append({key: value for key, value in config.items() if key != "model_id"})
+        resolved.append(
+            {key: value for key, value in config.items() if key not in ("model_id", "seed")}
+        )
     if resolved[0] != resolved[1]:
         raise ValueError("Both fixed-role participants must use identical search settings")
 
