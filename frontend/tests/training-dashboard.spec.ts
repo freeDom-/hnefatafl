@@ -272,13 +272,27 @@ test('advances live phase monitoring and reports stale publication', async ({ pa
       },
     },
   };
+  // The server reports how long ago the worker last published; a snapshot that
+  // stopped arriving ten minutes ago is stale the moment the page mounts.
+  let response: Record<string, unknown> = { ...monitored, publication_age_seconds: 900 };
   await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
-    route.fulfill({ json: [monitored] }),
+    route.fulfill({ json: [response] }),
   );
   await open(page);
+  await expect(page.getByRole('status').filter({ hasText: 'No recent updates' })).toBeVisible();
+
+  // A republished snapshot is classified fresh without a client-side grace period.
+  response = {
+    ...monitored,
+    publication_age_seconds: 0.5,
+    progress: { ...monitored.progress, updated_at: '2026-01-01T00:10:00.000Z' },
+  };
+  // An explicit refresh reconnects without advancing the paused clock, so the
+  // elapsed timer stays exactly on the snapshot's reported duration.
+  await page.getByRole('button', { name: 'Refresh job', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
   await expect(page.getByText('Elapsed 1m 40s')).toBeVisible();
   await expect(page.getByText('Phase elapsed 0m 30s')).toBeVisible();
-  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
   const live = page.locator('.live-phase');
   await expect(live.getByText('Games', { exact: true }).locator('..')).toContainText('18 / 32');
   await expect(live.getByText('Active games', { exact: true }).locator('..')).toContainText('14');

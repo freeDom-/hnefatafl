@@ -263,3 +263,150 @@ it('keeps the header elapsed time in its own ticking element', async () => {
   const { container } = render(<LiveElapsed job={runningJob({})} />);
   expect(container).toBeEmptyDOMElement();
 });
+
+/** A healthy monitored snapshot published by a running worker. */
+const monitored = {
+  duration: 100,
+  updated_at: '2026-01-01T00:00:00.000Z',
+  last_progress_seconds: 1,
+  stage: 'self_play',
+  phase_elapsed: 5,
+  phase_started_at: 'p',
+};
+
+it('classifies an already-stale snapshot as unresponsive immediately after mounting', () => {
+  setLanguage('en', false);
+  render(
+    <TrainingLiveStatus
+      job={{ id: 'job-1', status: 'running', publication_age_seconds: 600, progress: monitored }}
+    />,
+  );
+  // No client-side grace period: the server-observed age decides right away.
+  expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+});
+
+it('keeps a freshly published snapshot active on mount', () => {
+  setLanguage('en', false);
+  render(
+    <TrainingLiveStatus
+      job={{ id: 'job-1', status: 'running', publication_age_seconds: 0.5, progress: monitored }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('recovers from a stale snapshot when the worker republishes', () => {
+  setLanguage('en', false);
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={{ id: 'job-1', status: 'running', publication_age_seconds: 600, progress: monitored }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+  rerender(
+    <TrainingLiveStatus
+      job={{
+        id: 'job-1',
+        status: 'running',
+        publication_age_seconds: 0.2,
+        progress: { ...monitored, updated_at: '2026-01-01T00:10:00.000Z' },
+      }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('separates publication freshness from stalled computation on a skewed worker clock', () => {
+  setLanguage('en', false);
+  render(
+    <TrainingLiveStatus
+      job={{
+        id: 'job-1',
+        status: 'running',
+        publication_age_seconds: 0.5,
+        // The remote worker's wall clock is wildly wrong; only the server age counts.
+        progress: {
+          ...monitored,
+          updated_at: '1999-01-01T00:00:00.000Z',
+          last_progress_seconds: 700,
+        },
+      }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Potentially stalled');
+});
+
+it('ages the server publication timestamp with the local ticker', async () => {
+  vi.useFakeTimers();
+  setLanguage('en', false);
+  render(
+    <TrainingLiveStatus
+      job={{ id: 'job-1', status: 'running', publication_age_seconds: 5, progress: monitored }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20000);
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+});
+
+it('adopts the authoritative duration when a running job completes', async () => {
+  vi.useFakeTimers();
+  const progress = { ...monitored, duration: 40, phase_elapsed: 4 };
+  const { rerender } = render(<Timings job={runningJob(progress)} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20000);
+  });
+  // The browser had extrapolated a minute of elapsed time.
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('1m 0s');
+  rerender(
+    <Timings
+      job={{
+        id: 'job-1',
+        status: 'completed',
+        progress: {
+          ...progress,
+          duration: 58,
+          phase_elapsed: 6,
+          updated_at: 'b',
+          stage: 'completed',
+        },
+      }}
+    />,
+  );
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('0m 58s');
+  expect(screen.getByTestId('phase')).toHaveTextContent('0m 6s');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('0m 58s');
+});
+
+it.each(['failed', 'cancelled', 'pruned'])(
+  'freezes the authoritative duration for a %s job',
+  (status) => {
+    render(
+      <Timings
+        job={{
+          id: 'job-1',
+          status,
+          progress: { duration: 12, updated_at: 'a', last_progress_seconds: 0, stage: status },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('elapsed')).toHaveTextContent('0m 12s');
+    expect(screen.getByTestId('heartbeat')).toHaveTextContent('terminal');
+  },
+);
+
+it('shows the stored duration of a historical completed job', () => {
+  render(
+    <Timings
+      job={{ id: 'job-1', status: 'completed', progress: { duration: 3725, iteration: 3 } }}
+    />,
+  );
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('1h 2m 5s');
+  // Jobs recorded before the monitoring fields existed invent no heartbeat.
+  expect(screen.getByTestId('heartbeat')).toHaveTextContent('—');
+});

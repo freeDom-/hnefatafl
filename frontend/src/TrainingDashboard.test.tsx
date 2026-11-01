@@ -766,3 +766,26 @@ it('keeps small nonzero measurements readable in exact chart values', () => {
     'Policy loss: 0.00000037 · Value loss: 0.0000001',
   );
 });
+
+it('shows the active iteration in the live header before it completes', async () => {
+  jobs = [
+    {
+      id: 'active',
+      status: 'running',
+      config: { model_name: 'Active strategist', iterations: 120 },
+      progress: {
+        iteration: 41,
+        active_iteration: 42,
+        total_iterations: 120,
+        stage: 'self_play',
+        duration: 100,
+        updated_at: '2026-01-01T00:00:00.000Z',
+        last_progress_seconds: 1,
+      },
+    },
+  ];
+  show();
+  await loaded();
+  // The header follows the iteration being trained, not the last completed one.
+  expect(screen.getByText('Iteration 42 / 120')).toBeInTheDocument();
+});

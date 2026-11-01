@@ -71,7 +71,10 @@ export default function TrainingJobDashboard({
   const history = useMemo(() => trainingHistory(progress.history), [progress.history]);
   const rangedHistory = useMemo(() => recentHistory(history, range), [history, range]);
   const config = object(job.config?.training) ?? job.config;
-  const iteration = finite(progress.iteration) ? progress.iteration : history.at(-1)?.iteration;
+  // The live header follows the iteration currently being trained; the recorded
+  // iteration remains the last completed one for the analysis views.
+  const recorded = finite(progress.iteration) ? progress.iteration : history.at(-1)?.iteration;
+  const iteration = finite(progress.active_iteration) ? progress.active_iteration : recorded;
   const total = progress.total_iterations ?? config?.iterations;
   const ratio =
     finite(iteration) && finite(total) && total > 0

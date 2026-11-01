@@ -60,6 +60,8 @@ interface Anchor {
   duration: number;
   phase: number;
   progressAge: number;
+  /** Server-observed publication age at the anchor instant, when available. */
+  publicationAge?: number;
   snapshotKey: string;
   changedAt: number;
 }
@@ -77,11 +79,15 @@ export function useLiveProgress(job: Job): LiveProgress {
   const duration = number(progress.duration);
   const phaseElapsed = number(progress.phase_elapsed);
   const progressAge = number(progress.last_progress_seconds);
+  // The server measures how long ago the worker last published a snapshot with
+  // its own clock, so a reload never mistakes an old snapshot for a fresh one
+  // and an unsynchronised remote worker clock is never trusted.
+  const reportedPublicationAge = number(job.publication_age_seconds);
   const stage = typeof progress.stage === 'string' ? progress.stage : '';
   const phaseKey = `${stage}@${String(progress.phase_started_at ?? '')}@${String(progress.iteration ?? '')}`;
   // Every publication refreshes this key, including heartbeat-only refreshes.
   const snapshotKey = String(progress.updated_at ?? progress.duration ?? '');
-  const anchorKey = `${job.id}|${phaseKey}|${snapshotKey}|${duration}|${phaseElapsed}|${progressAge}`;
+  const anchorKey = `${job.id}|${phaseKey}|${snapshotKey}|${duration}|${phaseElapsed}|${progressAge}|${active}`;
 
   // Re-anchor during render so a new snapshot is reflected in the same commit
   // instead of one tick later.
@@ -90,8 +96,8 @@ export function useLiveProgress(job: Job): LiveProgress {
     const sameJob = anchor !== null && anchor.jobId === job.id;
     const samePhase = sameJob && anchor.phaseKey === phaseKey;
     const changed = !sameJob || anchor.snapshotKey !== snapshotKey;
-    // Everything already displayed stays displayed: an out-of-order or delayed
-    // snapshot must never undo elapsed time that was on screen.
+    // Everything already displayed stays displayed while the job runs: an
+    // out-of-order or delayed snapshot must never undo elapsed time on screen.
     const shown = sameJob ? anchor.duration + (at - anchor.at) / 1000 : 0;
     const shownPhase = samePhase ? anchor.phase + (at - anchor.at) / 1000 : 0;
     setAnchor({
@@ -99,11 +105,14 @@ export function useLiveProgress(job: Job): LiveProgress {
       jobId: job.id,
       phaseKey,
       at,
-      duration: Math.max(shown, duration ?? 0),
-      phase: Math.max(shownPhase, phaseElapsed ?? 0),
+      // A terminal job adopts the authoritative backend duration even when the
+      // browser had extrapolated a larger one; a running job keeps its maximum.
+      duration: active ? Math.max(shown, duration ?? 0) : (duration ?? 0),
+      phase: active ? Math.max(shownPhase, phaseElapsed ?? 0) : (phaseElapsed ?? 0),
       // Progress age legitimately resets when work resumes, so it follows the
       // newest report instead of the maximum.
       progressAge: progressAge ?? 0,
+      publicationAge: reportedPublicationAge,
       snapshotKey,
       changedAt: changed ? at : (anchor?.changedAt ?? at),
     });
@@ -125,7 +134,14 @@ export function useLiveProgress(job: Job): LiveProgress {
   if (monitored) {
     const ageBase = anchored ? current.progressAge : (progressAge ?? 0);
     live.progressAge = active ? ageBase + sinceAnchor : ageBase;
-    live.publicationAge = anchored ? Math.max((now - current.changedAt) / 1000, 0) : 0;
+    const publicationBase = anchored ? current.publicationAge : reportedPublicationAge;
+    const fallback = anchored ? Math.max((now - current.changedAt) / 1000, 0) : 0;
+    live.publicationAge =
+      publicationBase !== undefined
+        ? active
+          ? publicationBase + sinceAnchor
+          : publicationBase
+        : fallback;
     live.heartbeat = active ? classify(live.progressAge, live.publicationAge) : 'terminal';
   }
   if (active && ['pending', 'queued'].includes(job.status)) live.heartbeat = 'waiting';
