@@ -155,3 +155,197 @@ it('localizes the rejected-field report in German', async () => {
     'Der Server weist jedem Trainingsauftrag ein eigenes Ausgabeverzeichnis zu.',
   );
 });
+
+const START = 'Start training';
+const TUNE = 'Start tuning';
+const SEARCH_SPACE = 'Parameter search space (JSON)';
+
+function tune() {
+  fireEvent.click(screen.getByRole('button', { name: 'Tune parameters' }));
+}
+
+function typeSearchSpace(value: string) {
+  fireEvent.change(screen.getByRole('textbox', { name: SEARCH_SPACE }), { target: { value } });
+}
+
+it('submits ordinary training even when the tuning search space is malformed', async () => {
+  setLanguage('en', false);
+  const created = json({ id: 'new-job', status: 'running', config: {} });
+  const { posts } = harness([created]);
+  await screen.findByText('Your next opponent starts here.');
+  // Break the tuning text, then switch the form back to ordinary training.
+  tune();
+  typeSearchSpace('{ not json');
+  fireEvent.click(screen.getByRole('button', { name: 'Train a model' }));
+  fireEvent.click(screen.getByRole('button', { name: START }));
+
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0].kind).toBe('train');
+  expect(posts[0].search_space).toBeUndefined();
+  expect(posts[0].training).toBeUndefined();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('reports malformed tuning JSON against the search-space input', async () => {
+  setLanguage('en', false);
+  const { posts, error } = harness([json({ id: 'new-job', status: 'running', config: {} })]);
+  await screen.findByText('Your next opponent starts here.');
+  tune();
+  typeSearchSpace('{ broken');
+  fireEvent.click(screen.getByRole('button', { name: TUNE }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Parameter search space (JSON)');
+  expect(alert).toHaveTextContent('search_space');
+  expect(alert).toHaveTextContent('The parameter search space is not valid JSON.');
+  const input = screen.getByRole('textbox', { name: SEARCH_SPACE });
+  await waitFor(() => expect(input).toHaveAttribute('aria-invalid', 'true'));
+  await waitFor(() => expect(input).toHaveAttribute('aria-describedby', alert.id));
+  // Nothing is submitted, the entered text survives, and it is not a global notice.
+  expect(posts).toHaveLength(0);
+  expect(error).not.toHaveBeenCalled();
+  expect(input).toHaveValue('{ broken');
+
+  // Fixing the text clears the rejection so the tuning job can start.
+  typeSearchSpace('{"learning_rate": {"type": "float", "low": 0.0001, "high": 0.01}}');
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: TUNE }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0].kind).toBe('tune');
+  expect(posts[0].search_space).toEqual({
+    learning_rate: { type: 'float', low: 0.0001, high: 0.01 },
+  });
+});
+
+it('localizes the malformed tuning error in German', async () => {
+  setLanguage('de', false);
+  harness([json({ id: 'new-job', status: 'running', config: {} })]);
+  await screen.findByRole('button', { name: 'Parameter optimieren' });
+  fireEvent.click(screen.getByRole('button', { name: 'Parameter optimieren' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Parametersuchraum (JSON)' }), {
+    target: { value: '{' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Optimierung starten' }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Der Parameter-Suchraum ist kein gültiges JSON.');
+});
+
+it('clears a stale rejection when the plan is replaced', async () => {
+  setLanguage('en', false);
+  harness([rejection(['channels'], 'Unsupported training configuration field: channels')]);
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.click(screen.getByRole('button', { name: START }));
+  await screen.findByRole('alert');
+
+  // Changing the battlefield or preset replaces every training parameter.
+  fireEvent.change(screen.getByRole('combobox', { name: 'Battlefield' }), {
+    target: { value: 'brandubh' },
+  });
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: START }));
+  await screen.findByRole('alert');
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Training preset' }), {
+    target: { value: 'balanced' },
+  });
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+});
+
+it('expands Advanced to reach a rejected field and marks it', async () => {
+  setLanguage('en', false);
+  harness([rejection(['seed'], 'Unsupported training configuration field: seed')]);
+  await screen.findByText('Your next opponent starts here.');
+  // The model seed lives in the collapsed Advanced section.
+  expect(screen.queryByRole('spinbutton', { name: 'Random seed' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: START }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Random seed');
+  const seed = await screen.findByRole('spinbutton', { name: 'Random seed' });
+  await waitFor(() => expect(seed).toHaveAttribute('aria-invalid', 'true'));
+  await waitFor(() => expect(document.activeElement).toBe(seed));
+});
+
+it('keeps the study seed and the model seed distinct', async () => {
+  setLanguage('en', false);
+  harness([
+    rejection(
+      ['seed', 'training.seed'],
+      'Unsupported training configuration fields: seed, training.seed',
+    ),
+  ]);
+  await screen.findByText('Your next opponent starts here.');
+  tune();
+  fireEvent.click(screen.getByRole('button', { name: TUNE }));
+
+  const alert = await screen.findByRole('alert');
+  // Both seeds are named, and their full paths stay visible.
+  expect(alert).toHaveTextContent('Study random seed');
+  expect(alert).toHaveTextContent('Random seed');
+  expect(alert).toHaveTextContent('(seed)');
+  expect(alert).toHaveTextContent('(training.seed)');
+  const study = screen.getByRole('spinbutton', { name: 'Study random seed' });
+  const model = await screen.findByRole('spinbutton', { name: 'Random seed' });
+  await waitFor(() => expect(study).toHaveAttribute('aria-invalid', 'true'));
+  await waitFor(() => expect(model).toHaveAttribute('aria-invalid', 'true'));
+
+  // Correcting one seed clears only its own rejection.
+  fireEvent.change(study, { target: { value: '7' } });
+  await waitFor(() => expect(study).not.toHaveAttribute('aria-invalid'));
+  expect(model).toHaveAttribute('aria-invalid', 'true');
+  const remaining = screen.getByRole('alert');
+  expect(remaining).not.toHaveTextContent('Study random seed');
+  expect(remaining).toHaveTextContent('Random seed');
+});
+
+it('reports a rejected field that is hidden behind another setting', async () => {
+  setLanguage('en', false);
+  harness([
+    rejection(
+      ['evaluation_jarl_depth'],
+      'Unsupported training configuration field: evaluation_jarl_depth',
+    ),
+  ]);
+  await screen.findByText('Your next opponent starts here.');
+  // The Jarl depth only exists while the Jarl opponent is selected.
+  fireEvent.click(screen.getByRole('button', { name: START }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Jarl evaluation depth');
+  expect(alert).toHaveTextContent('evaluation_jarl_depth');
+  expect(document.querySelector('.field-invalid')).toBeNull();
+  // The fallback is focused so it is announced instead of silently ignored.
+  expect(document.activeElement).toBe(alert);
+});
+
+it('does not move focus when Advanced is toggled manually', async () => {
+  setLanguage('en', false);
+  harness([rejection(['channels'], 'Unsupported training configuration field: channels')]);
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.click(screen.getByRole('button', { name: START }));
+  await screen.findByRole('alert');
+
+  // The user moves focus to the toggle and activates it; the error must not
+  // pull focus back to the marked input.
+  const toggle = screen.getByRole('button', { name: /Advanced configuration/ });
+  toggle.focus();
+  fireEvent.click(toggle);
+  expect(document.activeElement).toBe(toggle);
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+});
+
+it('clears a rejection that the other form cannot own', async () => {
+  setLanguage('en', false);
+  harness([rejection(['seed'], 'Unsupported training configuration field: seed')]);
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.click(screen.getByRole('button', { name: START }));
+  await screen.findByRole('alert');
+
+  // `seed` is the study seed while tuning and the model seed while training, so
+  // switching forms drops the rejection instead of marking the other field.
+  fireEvent.click(screen.getByRole('button', { name: 'Tune parameters' }));
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Train a model' }));
+  expect(screen.queryByRole('alert')).toBeNull();
+});

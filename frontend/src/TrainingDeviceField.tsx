@@ -1,4 +1,5 @@
 import { t } from './i18n';
+import { fieldErrorAttributes } from './TrainingFields';
 import type { DeviceInfo } from './types';
 
 /**
@@ -22,12 +23,16 @@ export default function TrainingDeviceField({
   remote,
   capabilities,
   disabled = false,
+  invalid = false,
+  errorId,
 }: {
   value: string;
   onChange: (value: string) => void;
   remote: boolean;
   capabilities?: DeviceInfo;
   disabled?: boolean;
+  invalid?: boolean;
+  errorId?: string;
 }) {
   const cudaUnavailable = deviceUnavailable('cuda', remote, capabilities);
   const mpsUnavailable = deviceUnavailable('mps', remote, capabilities);
@@ -36,6 +41,7 @@ export default function TrainingDeviceField({
       {t('Training device')}
       <select
         data-training-field="device"
+        {...fieldErrorAttributes(invalid, errorId)}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}

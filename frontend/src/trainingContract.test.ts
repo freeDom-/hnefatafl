@@ -5,8 +5,12 @@ import contract from './trainingContract.json';
 import {
   EXECUTION_FIELDS,
   RESUME_IMMUTABLE_FIELDS,
+  STUDY_FIELDS,
   TUNE_FIELDS,
+  TrainingInputError,
+  fieldIdentity,
   launchPayload,
+  parseStudySpace,
   rejectedTrainingFields,
   resumeOverrides,
   type StudyInput,
@@ -34,11 +38,14 @@ import { ApiError } from './api';
 const RULESETS = ['brandubh', 'tablut', 'copenhagen'];
 const PRESETS = ['recommended', 'smoke', 'beginner', 'balanced'] as const;
 const TRAINING_FIELDS = new Set<string>(contract.training_fields);
+const SEARCH_SPACE = {
+  learning_rate: { type: 'float', low: 0.0001, high: 0.003, log: true },
+};
 const study: StudyInput = {
   trials: 3,
   studyName: 'hnefatafl-search',
   studySeed: 0,
-  search: { learning_rate: { type: 'float', low: 0.0001, high: 0.003, log: true } },
+  space: JSON.stringify(SEARCH_SPACE),
 };
 
 /** Every key a request may carry, including the server-removed controls. */
@@ -160,6 +167,7 @@ it('builds a tune payload from study controls and one nested configuration', () 
   expect(keysOf(payload)).toEqual([...contract.tune_fields, 'kind'].sort());
   expect(unexpected(payload, REQUEST_FIELDS)).toEqual([]);
   expect(payload.resume_study).toBe('study-id');
+  expect(payload.search_space).toEqual(SEARCH_SPACE);
   expect(unexpected(payload.training as Record<string, unknown>, TRAINING_FIELDS)).toEqual([]);
 });
 
@@ -189,7 +197,79 @@ it('sends only changed, resume-editable settings and never checkpoint identity',
   for (const key of RESUME_IMMUTABLE_FIELDS) expect(overrides).not.toHaveProperty(key);
 });
 
-it('names the rejected field and strips the nested tuning prefix', () => {
+it('never reads the tuning search space for ordinary training', () => {
+  const malformed = { ...study, space: '{ not json' };
+  for (const ruleset of RULESETS) {
+    for (const target of ['local', 'remote']) {
+      const payload = launchPayload(
+        'train',
+        trainingConfig(ruleset, 'recommended'),
+        target,
+        malformed,
+      );
+      // The invalid tuning text is never parsed, so it cannot block model training.
+      expect(payload.search_space).toBeUndefined();
+      expect(payload.training).toBeUndefined();
+      expect(unexpected(payload, REQUEST_FIELDS)).toEqual([]);
+      expect(payload.kind).toBe('train');
+      expect(payload.execution).toBe(target === 'local' ? undefined : 'remote');
+    }
+  }
+  // The same malformed text is only a problem while the form is tuning, and
+  // switching it back to training submits the ordinary payload again.
+  expect(() =>
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', malformed),
+  ).toThrow(TrainingInputError);
+  expect(launchPayload('train', trainingConfig('tablut', 'smoke'), 'local', malformed).kind).toBe(
+    'train',
+  );
+});
+
+it('reports malformed tuning JSON as a search-space field error', () => {
+  expect(() =>
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', { ...study, space: '{' }),
+  ).toThrow(TrainingInputError);
+  try {
+    parseStudySpace('{');
+  } catch (error) {
+    expect(rejectedTrainingFields(error)).toEqual(['search_space']);
+    expect((error as Error).message).toBe('The parameter search space is not valid JSON.');
+  }
+  // A valid search space still produces the tuning request unchanged.
+  expect(parseStudySpace(JSON.stringify(SEARCH_SPACE))).toEqual(SEARCH_SPACE);
+});
+
+it('keeps complete field paths and maps them to the right input', () => {
+  // `seed` is the Optuna study seed; `training.seed` is the model seed.
+  expect(fieldIdentity('seed', 'tune')).toBe('study.seed');
+  expect(fieldIdentity('training.seed', 'tune')).toBe('seed');
+  expect(fieldIdentity('seed', 'train')).toBe('seed');
+  expect(fieldIdentity('training.seed', 'train')).toBe('seed');
+  expect(fieldIdentity('training.channels', 'tune')).toBe('channels');
+  expect(fieldIdentity('channels', 'train')).toBe('channels');
+  // Study controls only exist in a tuning form.
+  for (const key of STUDY_FIELDS) {
+    expect(fieldIdentity(key, 'tune')).toBe(`study.${key}`);
+    expect(fieldIdentity(key, 'train')).toBe(key);
+  }
+  // An unknown nested path keeps a usable identity instead of collapsing.
+  expect(fieldIdentity('training.future_field', 'tune')).toBe('future_field');
+  expect(fieldIdentity('output_dir', 'tune')).toBe('output_dir');
+});
+
+it('keeps the two seeds distinct when both are rejected', () => {
+  const error = new ApiError(400, 'Unsupported', 'unsupported_training_field', [
+    'training.seed',
+    'seed',
+  ]);
+  expect(rejectedTrainingFields(error)).toEqual(['seed', 'training.seed']);
+  expect(rejectedTrainingFields(error).map((path) => fieldIdentity(path, 'tune'))).toEqual([
+    'study.seed',
+    'seed',
+  ]);
+});
+
+it('names rejected fields without collapsing or dropping any path', () => {
   expect(
     rejectedTrainingFields(
       new ApiError(400, 'Unsupported', 'unsupported_training_field', ['output_dir']),
@@ -201,9 +281,14 @@ it('names the rejected field and strips the nested tuning prefix', () => {
         'training.channels',
         'training.channels',
         'output_dir',
+        'training.seed',
+        'seed',
       ]),
     ),
-  ).toEqual(['channels', 'output_dir']);
+  ).toEqual(['output_dir', 'seed', 'training.channels', 'training.seed']);
+  expect(rejectedTrainingFields(new TrainingInputError(['search_space'], 'bad'))).toEqual([
+    'search_space',
+  ]);
   // A plain error carries no field information and must not be treated as one.
   expect(rejectedTrainingFields(new Error('Unsupported'))).toEqual([]);
 });

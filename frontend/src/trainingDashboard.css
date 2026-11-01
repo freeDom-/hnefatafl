@@ -244,6 +244,25 @@
 .training-workshop .dashboard-progress > span {
   color: var(--ui-copy);
 }
+/* A rejected training field: the form names the exact field and marks the input
+   it belongs to, so the user can correct it instead of guessing. Scoped to the
+   workshop form and drawn with the shared error token. */
+.training-config .rejected-fields ul {
+  margin: var(--gap-inline) 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+}
+.training-config .rejected-fields code {
+  font-size: 0.625rem;
+}
+.training-config .field-invalid {
+  /* A ring, not an outline: the shared focus outline stays visible on the same
+     control, so keyboard focus is never hidden by the error marker. */
+  box-shadow: 0 0 0 2px var(--ui-error, #b4573f);
+  border-radius: 3px;
+}
+
 /* Live phase monitoring: advancing phase timer, counters and heartbeat state. */
 .training-workshop .live-phase {
   display: flex;
@@ -279,13 +298,15 @@
   opacity: 0.55;
 }
 .training-workshop .live-phase .job-heartbeat.stalled,
-.training-workshop .live-phase .job-heartbeat.unresponsive {
+.training-workshop .live-phase .job-heartbeat.unresponsive,
+.training-workshop .live-phase .job-heartbeat.disconnected {
   border-color: transparent;
   background: var(--ui-error-surface, #f5e9dc);
 }
 .training-workshop .live-phase .job-heartbeat.stalled::before,
-.training-workshop .live-phase .job-heartbeat.unresponsive::before {
-  background: var(--ui-heading, #a95c40);
+.training-workshop .live-phase .job-heartbeat.unresponsive::before,
+.training-workshop .live-phase .job-heartbeat.disconnected::before {
+  background: var(--ui-error, #b4573f);
 }
 .training-workshop .live-phase-time,
 .training-workshop .live-phase-progress-age {

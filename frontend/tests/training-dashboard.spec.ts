@@ -1,15 +1,15 @@
 import { expect, test, type Page } from './auth-fixture';
 import { workshopFixture, workshopFixtures } from './workshop-fixtures';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
-async function open(page: Page) {
-  await page.addInitScript(() => {
+async function open(
+  page: Page,
+  appearance: Record<string, string> = { mode: 'wood', tokens: 'wood', board: 'walnut' },
+) {
+  await page.addInitScript((theme) => {
     if (!localStorage.getItem('hnefatafl-language'))
       localStorage.setItem('hnefatafl-language', 'en');
-    localStorage.setItem(
-      'hnefatafl-appearance',
-      JSON.stringify({ mode: 'wood', tokens: 'wood', board: 'walnut' }),
-    );
-  });
+    localStorage.setItem('hnefatafl-appearance', JSON.stringify(theme));
+  }, appearance);
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
@@ -343,4 +343,84 @@ test('shows a slow initialization stage as a live, responsive job', async ({ pag
   await page.clock.runFor(4000);
   await expect(page.getByText('Elapsed 0m 16s')).toBeVisible();
   await expect(page.getByText('Phase elapsed 0m 9s')).toBeVisible();
+});
+
+async function refuseTrainingFields(page: Page) {
+  // The server refuses fields the form edits, one inside Advanced, and one it
+  // does not own at all.
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({
+          status: 400,
+          json: {
+            detail: 'Unsupported training configuration fields: channels, seed, output_dir',
+            code: 'unsupported_training_field',
+            fields: ['channels', 'seed', 'output_dir'],
+          },
+        })
+      : route.fulfill({ json: [workshopFixture('running', 1)] }),
+  );
+}
+
+async function rejectTrainingFields(page: Page) {
+  // With a job present the workshop starts collapsed, so open it first.
+  const disclosure = page.getByRole('button', { name: /Forge a new strategist/ });
+  if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+  // The button carries an aria-hidden arrow, so match its name loosely.
+  await page.getByRole('button', { name: /Start training/ }).click();
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('Network channels');
+  await expect(alert).toContainText('channels');
+  await expect(alert).toContainText('Random seed');
+  await expect(alert).toContainText('output_dir');
+  await expect(alert).toContainText('assigns each training job its own output directory');
+  // A rejected Advanced field expands the section instead of hiding it.
+  const channels = page.getByRole('spinbutton', { name: 'Network channels' });
+  const seed = page.getByRole('spinbutton', { name: 'Random seed' });
+  await expect(channels).toHaveAttribute('aria-invalid', 'true');
+  await expect(seed).toHaveAttribute('aria-invalid', 'true');
+  await expect(channels).toHaveAttribute('aria-describedby', (await alert.getAttribute('id'))!);
+  await expect(channels).toHaveClass(/field-invalid/);
+  return channels;
+}
+
+test('names and marks a rejected training field in every appearance', async ({ page }, info) => {
+  const marker = (element: Element) => getComputedStyle(element).boxShadow;
+  await refuseTrainingFields(page);
+  await open(page);
+  const channels = await rejectTrainingFields(page);
+  const woodMarker = await channels.evaluate(marker);
+  expect(woodMarker).not.toBe('none');
+  // Keyboard focus keeps the shared focus outline on a marked control.
+  await channels.focus();
+  await expect(channels).toBeFocused();
+  const focus = await channels.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { width: style.outlineWidth, style: style.outlineStyle, color: style.outlineColor };
+  });
+  // The workshop's own focus outline survives the error marker, and the two are
+  // different colours so a focused rejected field is still recognizable.
+  expect(focus.style).toBe('solid');
+  expect(focus.width).toBe('2px');
+  const markerColor = /rgb\([^)]+\)/.exec(woodMarker)?.[0];
+  expect(markerColor).toBeTruthy();
+  expect(focus.color).not.toBe(markerColor);
+  await page.screenshot({ path: info.outputPath('rejected-field-wood.png'), fullPage: true });
+
+  // Every appearance defines the shared error token the marker uses. The latest
+  // init script wins, so it overrides the wood appearance registered by `open`.
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'hnefatafl-appearance',
+      JSON.stringify({ mode: 'dark', tokens: 'wood', board: 'walnut' }),
+    ),
+  );
+  await page.goto('/dashboard');
+  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
+  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  const darkChannels = await rejectTrainingFields(page);
+  const darkMarker = await darkChannels.evaluate(marker);
+  expect(darkMarker).not.toBe('none');
+  expect(darkMarker).not.toBe(woodMarker);
+  await page.screenshot({ path: info.outputPath('rejected-field-dark.png'), fullPage: true });
 });

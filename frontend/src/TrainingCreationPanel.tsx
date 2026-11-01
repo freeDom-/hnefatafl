@@ -1,10 +1,23 @@
-import { useEffect, useRef, type Dispatch, type SetStateAction, type FormEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+  type FormEvent,
+} from 'react';
 import type { DeviceInfo, Model, Ruleset, TrainingWorker } from './types';
 import { t } from './i18n';
 import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import { changeTrainingPlan, type TrainingPreset, type TrainingConfig } from './trainingPresets';
-import { numberField, SelfPlayModeField, trainingParameterLabel } from './TrainingFields';
+import {
+  fieldErrorAttributes,
+  numberField,
+  SelfPlayModeField,
+  trainingParameterLabel,
+} from './TrainingFields';
+import { fieldIdentity } from './trainingPayload';
 import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
@@ -15,12 +28,37 @@ import TrainingDeviceField from './TrainingDeviceField';
 /**
  * Why a field the server refuses is refused. Known server-owned outputs get a
  * specific reason; anything else is explained generically so the technical name
- * is never shown without an action.
+ * is never shown without an action. Looked up by the full path first, then by the
+ * form input it maps to.
  */
 const FIELD_EXPLANATIONS: Record<string, string> = {
   output_dir: 'The server assigns each training job its own output directory.',
   registry_dir: 'The server keeps trained models in its own model directory.',
 };
+
+/** Study controls share their names with model settings, so they read differently. */
+const FIELD_LABELS: Record<string, string> = {
+  'study.trials': 'Trial budget',
+  'study.study_name': 'Study name',
+  'study.seed': 'Study random seed',
+  'study.search_space': 'Parameter search space (JSON)',
+};
+
+/** Fields rendered inside the collapsed Advanced configuration section. */
+const ADVANCED_NUMBER_FIELDS = [
+  'mcts_time_limit',
+  'exploration',
+  'temperature',
+  'dirichlet_alpha',
+  'dirichlet_fraction',
+  'replay_buffer_size',
+  'weight_decay',
+  'checkpoint_frequency',
+  'max_game_plies',
+  'cpu_threads',
+  'seed',
+];
+const ADVANCED_FIELDS = [...ADVANCED_NUMBER_FIELDS, 'momentum'];
 
 interface Props {
   config: TrainingConfig;
@@ -48,10 +86,14 @@ interface Props {
   start: (event: FormEvent) => void;
   importingConfig: boolean;
   onImportConfig: (file: File) => void;
-  /** Training fields the server rejected; inputs for them are marked invalid. */
+  /** Full paths of the training fields the server rejected. */
   rejectedFields?: string[];
-  /** Called when the user edits a field so its rejection can be cleared. */
-  onFieldCorrected?: (key: string) => void;
+  /** Localized explanation for a request the form itself could not build. */
+  rejectedReason?: string;
+  /** Called with an input identity when the user edits that field. */
+  onFieldCorrected?: (identity: string) => void;
+  /** Called when the whole configuration is replaced (ruleset or preset). */
+  onFieldsCleared?: () => void;
 }
 
 export default function TrainingCreationPanel({
@@ -81,7 +123,9 @@ export default function TrainingCreationPanel({
   importingConfig,
   onImportConfig,
   rejectedFields = [],
+  rejectedReason = '',
   onFieldCorrected,
+  onFieldsCleared,
 }: Props) {
   const isRemote = kind === 'train' && target !== 'local';
   const selectedWorker = workers.find((worker) => `worker:${worker.id}` === target);
@@ -92,29 +136,37 @@ export default function TrainingCreationPanel({
   const targetDevice = isRemote ? selectedWorker?.capabilities : device;
   const form = useRef<HTMLFormElement>(null);
   const alert = useRef<HTMLDivElement>(null);
-  // Inputs are marked from the rendered form so a rejected field is highlighted
-  // wherever it lives, including inside a nested settings component. A field the
-  // form has no input for is reported by name in the alert instead.
+  const alertId = useId();
+  // The form edits one nested configuration, so a rejected path maps to the input
+  // that owns it. `training.seed` and `seed` stay distinct: the first is the model
+  // seed, the second the Optuna study seed.
+  const rejected = new Set(rejectedFields.map((path) => fieldIdentity(path, kind)));
+  const invalid = (identity: string) => fieldErrorAttributes(rejected.has(identity), alertId);
+  // A rejected field inside Advanced must be reachable instead of silently
+  // collapsed, but unrelated sections are never touched.
   useEffect(() => {
-    const element = form.current;
-    if (!element) return;
-    const selector = (field: string) =>
-      `[data-training-field="${field.replace(/[^a-zA-Z0-9_.-]/g, '')}"]`;
-    element.querySelectorAll<HTMLElement>('[data-training-field]').forEach((field) => {
-      field.removeAttribute('aria-invalid');
-      field.classList.remove('field-invalid');
-    });
-    if (!rejectedFields.length) return;
-    let first: HTMLElement | null = null;
-    for (const name of rejectedFields) {
-      const field = element.querySelector<HTMLElement>(selector(name));
-      if (!field) continue;
-      field.setAttribute('aria-invalid', 'true');
-      field.classList.add('field-invalid');
-      first ??= field;
+    if (advanced) return;
+    if (rejectedFields.some((path) => ADVANCED_FIELDS.includes(fieldIdentity(path, kind)))) {
+      setAdvanced(true);
     }
+  }, [advanced, rejectedFields, kind, setAdvanced]);
+  const focusKey = rejectedFields.join('|');
+  const focused = useRef('');
+  const revealPending = useRef(false);
+  // Focus the marked input once per rejection, and once more when our own
+  // expansion reveals it. A manual toggle never moves focus.
+  useEffect(() => {
+    if (!focusKey) {
+      focused.current = '';
+      revealPending.current = false;
+      return;
+    }
+    const first = form.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null;
+    if (focused.current === focusKey && !revealPending.current) return;
+    revealPending.current = !first;
+    focused.current = focusKey;
     (first ?? alert.current)?.focus();
-  }, [rejectedFields]);
+  }, [focusKey, advanced]);
   return (
     <>
       <p className="subtle">
@@ -124,7 +176,13 @@ export default function TrainingCreationPanel({
       </p>
       <form ref={form} onSubmit={start}>
         {!!rejectedFields.length && (
-          <div className="form-error rejected-fields" role="alert" tabIndex={-1} ref={alert}>
+          <div
+            className="form-error rejected-fields"
+            role="alert"
+            id={alertId}
+            tabIndex={-1}
+            ref={alert}
+          >
             <p>
               {t(
                 rejectedFields.length === 1
@@ -134,21 +192,24 @@ export default function TrainingCreationPanel({
               )}
             </p>
             <ul>
-              {rejectedFields.map((field) => {
-                const label = t(trainingParameterLabel(field));
+              {rejectedFields.map((path) => {
+                const identity = fieldIdentity(path, kind);
+                const label = t(FIELD_LABELS[identity] ?? trainingParameterLabel(identity));
                 return (
-                  <li key={field}>
-                    {label === field ? <code>{field}</code> : <strong>{label}</strong>}
-                    {label !== field && (
+                  <li key={path}>
+                    {label === path ? <code>{path}</code> : <strong>{label}</strong>}
+                    {label !== path && (
                       <>
                         {' '}
-                        (<code>{field}</code>)
+                        (<code>{path}</code>)
                       </>
                     )}
                     {' — '}
                     {t(
-                      FIELD_EXPLANATIONS[field] ??
-                        'This server does not accept this training field. Remove it from the configuration and try again.',
+                      FIELD_EXPLANATIONS[path] ??
+                        FIELD_EXPLANATIONS[identity] ??
+                        (rejectedReason ||
+                          'This server does not accept this training field. Remove it from the configuration and try again.'),
                     )}
                   </li>
                 );
@@ -160,7 +221,12 @@ export default function TrainingCreationPanel({
           <button
             type="button"
             className={kind === 'train' ? 'active' : ''}
-            onClick={() => setKind('train')}
+            onClick={() => {
+              // The same field name means a different setting per form, so a
+              // rejection from the other form no longer applies.
+              onFieldsCleared?.();
+              setKind('train');
+            }}
           >
             {t('Train a model')}
           </button>
@@ -168,6 +234,7 @@ export default function TrainingCreationPanel({
             type="button"
             className={kind === 'tune' ? 'active' : ''}
             onClick={() => {
+              onFieldsCleared?.();
               setKind('tune');
               update('evaluation_opponent', 'shield_bearer');
             }}
@@ -199,16 +266,18 @@ export default function TrainingCreationPanel({
               {t('Battlefield')}
               <select
                 data-training-field="ruleset"
+                {...invalid('ruleset')}
                 value={String(config.ruleset)}
-                onChange={(e) =>
+                onChange={(e) => {
+                  onFieldsCleared?.();
                   setConfig((previous) =>
                     changeTrainingPlan(
                       previous,
                       e.target.value,
                       String(previous.preset) as TrainingPreset,
                     ),
-                  )
-                }
+                  );
+                }}
               >
                 {sortRulesets(rulesets).map((rule) => (
                   <option value={rule.id} key={rule.id}>
@@ -221,16 +290,18 @@ export default function TrainingCreationPanel({
               {t('Training preset')}
               <select
                 data-training-field="preset"
+                {...invalid('preset')}
                 value={String(config.preset)}
-                onChange={(e) =>
+                onChange={(e) => {
+                  onFieldsCleared?.();
                   setConfig((previous) =>
                     changeTrainingPlan(
                       previous,
                       String(previous.ruleset),
                       e.target.value as TrainingPreset,
                     ),
-                  )
-                }
+                  );
+                }}
               >
                 <option value="recommended">
                   {t('Recommended · tailored to this battlefield')}
@@ -246,6 +317,7 @@ export default function TrainingCreationPanel({
                 <input
                   id="training-model-name"
                   data-training-field="model_name"
+                  {...invalid('model_name')}
                   required
                   maxLength={100}
                   value={String(config.model_name)}
@@ -275,6 +347,8 @@ export default function TrainingCreationPanel({
               onChange={(value) => update('device', value)}
               remote={isRemote}
               capabilities={targetDevice}
+              invalid={rejected.has('device')}
+              errorId={alertId}
             />
             <InferenceSettings
               config={config}
@@ -282,22 +356,43 @@ export default function TrainingCreationPanel({
               target={isRemote ? target : 'local'}
               workers={workers}
               local={device}
+              invalidFields={[...rejected]}
+              errorId={alertId}
             />
-            {numberField('iterations', config, update)}
+            {numberField('iterations', config, update, {
+              invalid: rejected.has('iterations'),
+              errorId: alertId,
+            })}
           </div>
         </fieldset>
         <fieldset className="creation-group">
           <legend>{t('Neural network and optimization')}</legend>
           <div className="form-grid">
-            {numberField('channels', config, update)}
-            {numberField('blocks', config, update)}
-            {numberField('batch_size', config, update)}
-            {numberField('epochs', config, update)}
-            {numberField('learning_rate', config, update)}
+            {numberField('channels', config, update, {
+              invalid: rejected.has('channels'),
+              errorId: alertId,
+            })}
+            {numberField('blocks', config, update, {
+              invalid: rejected.has('blocks'),
+              errorId: alertId,
+            })}
+            {numberField('batch_size', config, update, {
+              invalid: rejected.has('batch_size'),
+              errorId: alertId,
+            })}
+            {numberField('epochs', config, update, {
+              invalid: rejected.has('epochs'),
+              errorId: alertId,
+            })}
+            {numberField('learning_rate', config, update, {
+              invalid: rejected.has('learning_rate'),
+              errorId: alertId,
+            })}
             <label>
               {t('Optimizer')}
               <select
                 data-training-field="optimizer"
+                {...invalid('optimizer')}
                 value={String(config.optimizer)}
                 onChange={(e) => update('optimizer', e.target.value)}
               >
@@ -314,20 +409,36 @@ export default function TrainingCreationPanel({
                   ? workers.find((worker) => `worker:${worker.id}` === target)?.capabilities
                   : device
               }
+              invalid={rejected.has('training_symmetry_mode')}
+              errorId={alertId}
             />
           </div>
         </fieldset>
         <fieldset className="creation-group">
           <legend>{t('Self-play and MCTS')}</legend>
           <div className="form-grid">
-            {numberField('games', config, update)}
-            {numberField('mcts_iterations', config, update)}
+            {numberField('games', config, update, {
+              invalid: rejected.has('games'),
+              errorId: alertId,
+            })}
+            {numberField('mcts_iterations', config, update, {
+              invalid: rejected.has('mcts_iterations'),
+              errorId: alertId,
+            })}
             <SelfPlayModeField
               value={String(config.self_play_mode)}
               onChange={(value) => update('self_play_mode', value)}
+              invalid={rejected.has('self_play_mode')}
+              errorId={alertId}
             />
-            {numberField('self_play_concurrency', config, update)}
-            {numberField('inference_batch_size', config, update)}
+            {numberField('self_play_concurrency', config, update, {
+              invalid: rejected.has('self_play_concurrency'),
+              errorId: alertId,
+            })}
+            {numberField('inference_batch_size', config, update, {
+              invalid: rejected.has('inference_batch_size'),
+              errorId: alertId,
+            })}
           </div>
         </fieldset>
         {kind === 'tune' && (
@@ -352,7 +463,13 @@ export default function TrainingCreationPanel({
             )}
           </p>
         )}
-        <EvaluationSettings config={config} update={update} tuning={kind === 'tune'} />
+        <EvaluationSettings
+          config={config}
+          update={update}
+          tuning={kind === 'tune'}
+          invalidFields={[...rejected]}
+          errorId={alertId}
+        />
         <label className="checkbox-label training-retain-best">
           <input
             type="checkbox"
@@ -376,18 +493,17 @@ export default function TrainingCreationPanel({
         </button>
         {advanced && (
           <div className="advanced-config form-grid">
-            {numberField('mcts_time_limit', config, update)}
-            {numberField('exploration', config, update)}
-            {numberField('temperature', config, update)}
-            {numberField('dirichlet_alpha', config, update)}
-            {numberField('dirichlet_fraction', config, update)}
-            {numberField('replay_buffer_size', config, update)}
-            {numberField('weight_decay', config, update)}
-            {config.optimizer === 'sgd' && numberField('momentum', config, update)}
-            {numberField('checkpoint_frequency', config, update)}
-            {numberField('max_game_plies', config, update)}
-            {numberField('cpu_threads', config, update)}
-            {numberField('seed', config, update)}
+            {ADVANCED_NUMBER_FIELDS.map((key) =>
+              numberField(key, config, update, {
+                invalid: rejected.has(key),
+                errorId: alertId,
+              }),
+            )}
+            {config.optimizer === 'sgd' &&
+              numberField('momentum', config, update, {
+                invalid: rejected.has('momentum'),
+                errorId: alertId,
+              })}
             <label className="checkbox-label">
               <input
                 type="checkbox"
@@ -410,27 +526,29 @@ export default function TrainingCreationPanel({
                 {t('Trial budget')}
                 <input
                   type="number"
-                  data-training-field="trials"
+                  data-training-field="study.trials"
+                  {...invalid('study.trials')}
                   min="1"
                   max="10000"
                   required
                   value={trials}
                   onChange={(e) => {
                     setTrials(Number(e.target.value));
-                    onFieldCorrected?.('trials');
+                    onFieldCorrected?.('study.trials');
                   }}
                 />
               </label>
               <label>
                 {t('Study name')}
                 <input
-                  data-training-field="study_name"
+                  data-training-field="study.study_name"
+                  {...invalid('study.study_name')}
                   required
                   maxLength={100}
                   value={studyName}
                   onChange={(e) => {
                     setStudyName(e.target.value);
-                    onFieldCorrected?.('study_name');
+                    onFieldCorrected?.('study.study_name');
                   }}
                 />
               </label>
@@ -438,14 +556,15 @@ export default function TrainingCreationPanel({
                 {t('Study random seed')}
                 <input
                   type="number"
-                  data-training-field="seed"
+                  data-training-field="study.seed"
+                  {...invalid('study.seed')}
                   required
                   min="0"
                   max="4294967295"
                   value={studySeed}
                   onChange={(event) => {
                     setStudySeed(event.currentTarget.valueAsNumber);
-                    onFieldCorrected?.('seed');
+                    onFieldCorrected?.('study.seed');
                   }}
                 />
               </label>
@@ -453,11 +572,12 @@ export default function TrainingCreationPanel({
             <label>
               {t('Parameter search space (JSON)')}
               <textarea
-                data-training-field="search_space"
+                data-training-field="study.search_space"
+                {...invalid('study.search_space')}
                 value={space}
                 onChange={(e) => {
                   setSpace(e.target.value);
-                  onFieldCorrected?.('search_space');
+                  onFieldCorrected?.('study.search_space');
                 }}
                 rows={7}
                 spellCheck={false}

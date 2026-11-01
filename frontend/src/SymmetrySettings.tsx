@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { useI18n } from './i18n';
+import { fieldErrorAttributes } from './TrainingFields';
 import type { DeviceInfo } from './types';
 import type { TrainingConfig } from './trainingPresets';
 
@@ -17,11 +18,15 @@ export default function SymmetrySettings({
   update,
   capabilities,
   disabled = false,
+  invalid = false,
+  errorId,
 }: {
   config: TrainingConfig;
   update: (key: string, value: string | number | boolean) => void;
   capabilities?: DeviceInfo;
   disabled?: boolean;
+  invalid?: boolean;
+  errorId?: string;
 }) {
   const { t } = useI18n();
   const helpId = useId();
@@ -32,9 +37,10 @@ export default function SymmetrySettings({
         {t('Training symmetry augmentation')}
         <select
           data-training-field="training_symmetry_mode"
+          {...fieldErrorAttributes(invalid, errorId)}
           value={String(config.training_symmetry_mode ?? 'off')}
           disabled={disabled}
-          aria-describedby={helpId}
+          aria-describedby={error ? helpId : errorId}
           aria-invalid={error ? true : undefined}
           onChange={(event) => update('training_symmetry_mode', event.target.value)}
         >

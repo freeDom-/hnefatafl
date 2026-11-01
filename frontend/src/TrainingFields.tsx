@@ -55,6 +55,23 @@ export const trainingParameterLabels: Record<string, string> = {
   training_symmetry_mode: 'Training symmetry augmentation',
 };
 
+/**
+ * Attributes that mark one control as rejected by the server. The alert that
+ * lists every rejected field describes each marked input, so a screen reader
+ * announces the error with the field it belongs to.
+ */
+export interface FieldErrorAttributes {
+  'aria-invalid'?: true;
+  'aria-describedby'?: string;
+  className?: string;
+}
+
+export function fieldErrorAttributes(invalid: boolean, errorId?: string): FieldErrorAttributes {
+  return invalid
+    ? { 'aria-invalid': true, 'aria-describedby': errorId, className: 'field-invalid' }
+    : {};
+}
+
 /** Human label (translation key) for one importable training parameter. */
 export function trainingParameterLabel(key: string): string {
   return trainingNumberFields[key]?.[0] ?? trainingParameterLabels[key] ?? key;
@@ -64,16 +81,21 @@ export function SelfPlayModeField({
   value,
   onChange,
   disabled,
+  invalid,
+  errorId,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  invalid?: boolean;
+  errorId?: string;
 }) {
   return (
     <label>
       {t('Self-play execution')}
       <select
         data-training-field="self_play_mode"
+        {...fieldErrorAttributes(invalid === true, errorId)}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
@@ -104,7 +126,13 @@ export function numberField(
   key: string,
   config: TrainingConfig,
   update: (key: string, value: number) => void,
-  options: { label?: string; min?: number; disabled?: boolean } = {},
+  options: {
+    label?: string;
+    min?: number;
+    disabled?: boolean;
+    invalid?: boolean;
+    errorId?: string;
+  } = {},
 ) {
   const [label, min, max, step = 1] = trainingNumberFields[key];
   return (
@@ -120,6 +148,7 @@ export function numberField(
         disabled={options.disabled}
         // Lets the form mark this exact input when the server rejects the field.
         data-training-field={key}
+        {...fieldErrorAttributes(options.invalid === true, options.errorId)}
         onChange={(event) => update(key, event.currentTarget.valueAsNumber)}
       />
     </label>

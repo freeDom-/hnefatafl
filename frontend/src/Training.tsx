@@ -22,7 +22,12 @@ import JobRenameDialog from './JobRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { modelIteration } from './modelLabel';
 import TrainingWorkers from './TrainingWorkers';
-import { launchPayload, rejectedTrainingFields } from './trainingPayload';
+import {
+  TrainingInputError,
+  fieldIdentity,
+  launchPayload,
+  rejectedTrainingFields,
+} from './trainingPayload';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
@@ -109,8 +114,10 @@ export default function Training({
   const [exportingJob, setExportingJob] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [notice, setNotice] = useState('');
-  /** Training fields the server rejected; cleared as the user corrects them. */
+  /** Full paths of the training fields the server rejected, cleared on correction. */
   const [rejectedFields, setRejectedFields] = useState<string[]>([]);
+  /** Local explanation for a request the form itself could not build. */
+  const [rejectedReason, setRejectedReason] = useState('');
   const [deleteModel, setDeleteModel] = useState<Model | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -358,21 +365,30 @@ export default function Training({
     );
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
+  /** Drop the rejections that a form input identity owns. */
+  const clearRejectedFields = (identity: string) =>
+    setRejectedFields((previous) =>
+      previous.filter((path) => fieldIdentity(path, kind) !== identity),
+    );
+  const clearAllRejectedFields = () => {
+    setRejectedFields([]);
+    setRejectedReason('');
+  };
   const update = (key: string, value: string | number | boolean) => {
     setConfig((previous) => ({ ...previous, [key]: value }));
-    setRejectedFields((previous) => previous.filter((field) => field !== key));
+    clearRejectedFields(key);
   };
   const start = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setNotice('');
-    setRejectedFields([]);
+    clearAllRejectedFields();
     try {
       const params = launchPayload(kind, config, target, {
         trials,
         studyName,
         studySeed,
-        search: JSON.parse(space),
+        space,
       });
       const job = await api<Job>('/training/jobs', params);
       refreshRevision.current++;
@@ -394,6 +410,9 @@ export default function Training({
       const rejected = rejectedTrainingFields(e);
       if (rejected.length) {
         setRejectedFields(rejected);
+        // A locally detected problem explains itself; a server rejection uses the
+        // workshop's own wording for the field it names.
+        setRejectedReason(e instanceof TrainingInputError ? e.message : '');
         setNotice('');
       } else {
         onError((e as Error).message);
@@ -532,7 +551,7 @@ export default function Training({
   /** Replace the whole form configuration; stale field errors no longer apply. */
   const replaceConfig = (next: Record<string, string | number | boolean>) => {
     setConfig(next);
-    setRejectedFields([]);
+    clearAllRejectedFields();
   };
   const loadParameters = (model: Model) => {
     const loaded = recordedTrainingParameters(config, model, device);
@@ -777,8 +796,9 @@ export default function Training({
               importingConfig,
               onImportConfig: (file: File) => void importConfig(file),
               rejectedFields,
-              onFieldCorrected: (key: string) =>
-                setRejectedFields((previous) => previous.filter((field) => field !== key)),
+              rejectedReason,
+              onFieldCorrected: clearRejectedFields,
+              onFieldsCleared: clearAllRejectedFields,
             }}
           />
         </div>

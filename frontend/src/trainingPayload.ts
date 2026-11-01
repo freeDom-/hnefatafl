@@ -9,13 +9,58 @@ import type { TrainingConfig } from './trainingPresets';
  * shape a user can submit and compare it with the backend's accepted fields.
  */
 
-/** The form edits a tuning job's nested configuration, so its inputs are unprefixed. */
+/**
+ * A request the form could not build, named by the field the user must fix. The
+ * paths use the same vocabulary as the API, so one error pipeline handles both.
+ */
+export class TrainingInputError extends Error {
+  constructor(
+    /** Full request paths, exactly as the server would report them. */
+    public readonly fields: string[],
+    message: string,
+  ) {
+    super(message);
+    this.name = 'TrainingInputError';
+  }
+}
+
+/**
+ * Field paths a request was rejected for, kept complete. `seed` (the Optuna study
+ * seed) and `training.seed` (the model seed) are different settings, so collapsing
+ * the nested prefix would mark and clear the wrong input.
+ */
 export function rejectedTrainingFields(error: unknown): string[] {
-  if (!(error instanceof ApiError) || !error.fields?.length) return [];
-  const names = error.fields.map((field) =>
-    field.startsWith('training.') ? field.slice('training.'.length) : field,
-  );
-  return [...new Set(names)].sort();
+  const fields =
+    error instanceof ApiError
+      ? error.fields
+      : error instanceof TrainingInputError
+        ? error.fields
+        : undefined;
+  if (!fields?.length) return [];
+  return [...new Set(fields)].sort();
+}
+
+/** Study controls that share their names with model settings. */
+export const STUDY_FIELDS = ['trials', 'study_name', 'seed', 'search_space'];
+
+/**
+ * The input identity a rejected path refers to. A tuning job nests its training
+ * configuration, so `training.channels` belongs to the form's `channels`; a bare
+ * `seed` there is the study seed, which the form edits as `study.seed`.
+ */
+export function fieldIdentity(path: string, kind: 'train' | 'tune'): string {
+  if (path.startsWith('training.')) return path.slice('training.'.length);
+  if (kind === 'tune' && STUDY_FIELDS.includes(path)) return `study.${path}`;
+  return path;
+}
+
+/** Parse the tuning search space only when a tuning job actually needs it. */
+export function parseStudySpace(space: string): unknown {
+  try {
+    return JSON.parse(space);
+  } catch {
+    throw new TrainingInputError(['search_space'], 'The parameter search space is not valid JSON.');
+  }
 }
 
 /** Execution target fields, removed by the server before training validation. */
@@ -59,7 +104,8 @@ export interface StudyInput {
   trials: number;
   studyName: string;
   studySeed: number;
-  search: unknown;
+  /** Raw JSON text of the search space; parsed only for a tuning job. */
+  space: string;
   /** Set when a saved study is continued instead of started. */
   resumeStudy?: string;
 }
@@ -76,11 +122,13 @@ export function launchPayload(
       trials: study.trials,
       study_name: study.studyName,
       seed: study.studySeed,
-      search_space: study.search,
+      search_space: parseStudySpace(study.space),
       training: config,
       ...(study.resumeStudy ? { resume_study: study.resumeStudy } : {}),
     };
   }
+  // Ordinary training never reads the tuning search space, so malformed tuning
+  // JSON can never prevent a valid model-training job from starting.
   return { ...config, kind, ...(target !== 'local' ? targetRequest(target) : {}) };
 }
 

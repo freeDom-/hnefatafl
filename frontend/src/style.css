@@ -1056,23 +1056,6 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-/* A rejected training field: the form names the exact field and marks the input
-   it belongs to, so the user can correct it instead of guessing. */
-.rejected-fields ul {
-  margin: var(--gap-inline) 0 0;
-  padding-left: 1.1rem;
-  display: grid;
-  gap: 0.25rem;
-}
-.rejected-fields code {
-  font-size: 0.625rem;
-}
-.field-invalid {
-  outline: 2px solid var(--ui-heading, #a95c40);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-
 /* Shared transient notifications. The popover layer keeps them above dialogs
    and outside every scroll container. */
 .notification-viewport {
