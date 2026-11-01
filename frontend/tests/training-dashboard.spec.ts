@@ -308,3 +308,39 @@ test('advances live phase monitoring and reports stale publication', async ({ pa
   await page.clock.runFor(25000);
   await expect(page.getByRole('status').filter({ hasText: 'No recent updates' })).toBeVisible();
 });
+
+test('shows a slow initialization stage as a live, responsive job', async ({ page }, info) => {
+  // A job that is still loading a checkpoint must not look like a dead worker.
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
+  const job = workshopFixture('running', 1);
+  const initializing = {
+    ...job,
+    publication_age_seconds: 0.5,
+    progress: {
+      ...job.progress,
+      stage: 'loading_checkpoint',
+      duration: 12,
+      updated_at: '2026-01-01T00:00:00.000Z',
+      phase_started_at: '2026-01-01T00:00:00.000Z',
+      phase_elapsed: 5,
+      last_progress_seconds: 0,
+      revision: 1,
+      phase_progress: {},
+    },
+  };
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: [initializing] }),
+  );
+  await open(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
+  await expect(page.getByText('loading checkpoint')).toBeVisible();
+  await expect(page.getByText('Elapsed 0m 12s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 5s')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('initialization-monitoring.png'), fullPage: true });
+  // The elapsed time keeps advancing while the checkpoint is still loading.
+  await page.clock.runFor(4000);
+  await expect(page.getByText('Elapsed 0m 16s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 9s')).toBeVisible();
+});
