@@ -98,14 +98,19 @@ def synthetic(identifier: str, index: int) -> dict:
 
 
 class Meter:
-    """Count storage reads and Python-side JSON decoding while measuring."""
+    """Count storage reads, rune lookups and Python-side JSON decoding."""
 
     def __init__(self, store):
         self.store = store
         self.reads = 0
         self.decoded_bytes = 0
+        self.rune_calls = 0
+        self.connections = 0
         self.original_tournaments = store.tournaments
         self.original_get = store.get_tournament
+        self.original_runes = store.runes
+        self.original_rune = store.rune
+        self.original_connection = store.connection
 
     def __enter__(self):
         import hnefatafl.storage as storage
@@ -122,6 +127,18 @@ class Meter:
             self.reads += 1
             return self.original_get(identifier)
 
+        def runes(entity_keys):
+            self.rune_calls += 1
+            return self.original_runes(entity_keys)
+
+        def rune(entity_key):
+            self.rune_calls += 1
+            return self.original_rune(entity_key)
+
+        def connection():
+            self.connections += 1
+            return self.original_connection()
+
         def loads(payload, *args, **kwargs):
             if isinstance(payload, str):
                 self.decoded_bytes += len(payload)
@@ -129,12 +146,18 @@ class Meter:
 
         store.tournaments = tournaments
         store.get_tournament = get
+        store.runes = runes
+        store.rune = rune
+        store.connection = connection
         storage.json.loads = loads
         return self
 
     def __exit__(self, *_):
         self.store.tournaments = self.original_tournaments
         self.store.get_tournament = self.original_get
+        self.store.runes = self.original_runes
+        self.store.rune = self.original_rune
+        self.store.connection = self.original_connection
         self.storage.json.loads = self.original_loads
 
 
@@ -264,6 +287,43 @@ def main() -> int:
             },
         }
 
+        # Presentation runes: one batched lookup per collection instead of one
+        # transaction per participant. Passing an empty map to ``public``
+        # reproduces the previous per-participant resolution path.
+        summary_records = store.tournaments(summary=True)
+        with Meter(store) as meter:
+            runes_before_time, runes_before_bytes, runes_before = timed(
+                lambda: [
+                    manager.public(record, summary=True, runes={}) for record in summary_records
+                ]
+            )
+            before_rune_calls = meter.rune_calls
+            before_connections = meter.connections
+        with Meter(store) as meter:
+            runes_after_time, runes_after_bytes, runes_after = timed(
+                lambda: manager.public_collection(summary_records, summary=True)
+            )
+            after_rune_calls = meter.rune_calls
+            after_connections = meter.connections
+        assert runes_before == runes_after, "the batched view must not change runes"
+        assert runes_before_bytes == runes_after_bytes
+        report["runes"] = {
+            "participants": sum(len(record["config"]["players"]) for record in summary_records),
+            "distinct_runes": len(
+                {player["rune"] for record in runes_after for player in record["config"]["players"]}
+            ),
+            "before": {
+                "seconds": runes_before_time,
+                "rune_calls": before_rune_calls // REPEATS,
+                "connections": before_connections // REPEATS,
+            },
+            "after": {
+                "seconds": runes_after_time,
+                "rune_calls": after_rune_calls // REPEATS,
+                "connections": after_connections // REPEATS,
+            },
+        }
+
         # End-to-end: the HTTP collection response the browser actually receives.
         sys.path.insert(1, str(Path(__file__).resolve().parents[1] / "tests"))
         from auth_support import AuthenticatedClient
@@ -294,6 +354,12 @@ def main() -> int:
             report["running_polling"]["polling"]["before_bytes"]
             / report["running_polling"]["polling"]["after_bytes"],
             1,
+        ),
+        "rune_calls": round(
+            report["runes"]["before"]["rune_calls"] / report["runes"]["after"]["rune_calls"], 1
+        ),
+        "rune_connections": round(
+            report["runes"]["before"]["connections"] / report["runes"]["after"]["connections"], 1
         ),
     }
     print(json.dumps(report, indent=2))

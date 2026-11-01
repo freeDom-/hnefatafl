@@ -1,6 +1,7 @@
 """Lightweight tournament summaries: cheap listing without retained match history."""
 
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -426,3 +427,123 @@ def test_a_finished_worker_does_not_block_the_next_tournament(tmp_path):
     assert launched["status"] == "running"
     assert manager.cancel(launched["id"])["status"] == "cancelled"
     assert manager.delete(launched["id"]) is True
+
+
+RAVEN = {"name": "Raven", "config": {"algorithm": "baseline", "time_limit": 0.01}}
+WOLF = {"name": "Wolf", "config": {"algorithm": "alpha_beta", "depth": 1, "time_limit": 0.02}}
+EIR = {"name": "Eir", "config": {"algorithm": "mcts", "iterations": 5, "time_limit": 0.03}}
+
+
+def tournament_with(identifier, players, *, mode="round_robin", status="completed"):
+    record = stored_tournament(identifier, status=status, mode=mode)
+    record["config"]["players"] = players
+    return record
+
+
+def rune_rows(store):
+    with store.connection() as connection:
+        return connection.execute("SELECT count(*) FROM entity_runes").fetchone()[0]
+
+
+def test_collection_resolves_every_rune_in_one_batch(tmp_path, monkeypatch):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    for index, players in enumerate(
+        ([RAVEN, WOLF], [WOLF, EIR], [RAVEN, EIR], [RAVEN, WOLF], [EIR, EIR])
+    ):
+        store.save_tournament(tournament_with(f"{index:032x}", players))
+    manager = TournamentManager(store, tmp_path)
+    records = manager.list(summary=True)
+    calls = {"batch": 0, "single": 0}
+    original_runes, original_rune = Store.runes, Store.rune
+
+    def batch(self, entity_keys):
+        calls["batch"] += 1
+        return original_runes(self, entity_keys)
+
+    def single(self, entity_key):
+        calls["single"] += 1
+        return original_rune(self, entity_key)
+
+    monkeypatch.setattr(Store, "runes", batch)
+    monkeypatch.setattr(Store, "rune", single)
+    listed = manager.public_collection(records, summary=True)
+    # One batched lookup serves the whole collection.
+    assert calls == {"batch": 1, "single": 0}
+    # The batched view is identical to presenting each record on its own.
+    assert listed == [manager.public(record, summary=True) for record in records]
+    runes = [player["rune"] for record in listed for player in record["config"]["players"]]
+    assert all(rune for rune in runes)
+    # A repeated identity keeps one rune, including the same model in both seats.
+    assert listed[0]["config"]["players"][0]["rune"] == listed[3]["config"]["players"][0]["rune"]
+    assert listed[4]["config"]["players"][0]["rune"] == listed[4]["config"]["players"][1]["rune"]
+
+
+def test_collection_listing_allocates_no_duplicate_runes(tmp_path, monkeypatch):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    store.save_tournament(tournament_with("a" * 32, [RAVEN, WOLF]))
+    store.save_tournament(tournament_with("b" * 32, [WOLF, EIR]))
+    store.save_tournament(tournament_with("c" * 32, [RAVEN, EIR], mode="fixed_roles"))
+    manager = TournamentManager(store, tmp_path)
+    sizes = decode_sizes(monkeypatch)
+    for _ in range(3):
+        listed = manager.public_collection(manager.list(summary=True), summary=True)
+        assert len(listed) == 3
+    # Three distinct identities, allocated once and reused by every response.
+    assert rune_rows(store) == 3
+    assert max(sizes) < len(json.dumps(stored_tournament("d" * 32))) / 10
+
+
+def test_collection_runes_survive_a_store_reload(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    store.save_tournament(tournament_with("a" * 32, [RAVEN, WOLF]))
+    store.save_tournament(tournament_with("b" * 32, [EIR, RAVEN], mode="fixed_roles"))
+    manager = TournamentManager(store, tmp_path)
+    first = manager.public_collection(manager.list(summary=True), summary=True)
+    reopened = Store(tmp_path / "hnefatafl.sqlite3")
+    second = TournamentManager(reopened, tmp_path).public_collection(
+        TournamentManager(reopened, tmp_path).list(summary=True), summary=True
+    )
+    assert [[player["rune"] for player in record["config"]["players"]] for record in first] == [
+        [player["rune"] for player in record["config"]["players"]] for record in second
+    ]
+
+
+def test_concurrent_collection_listing_allocates_each_rune_once(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    for index, players in enumerate(([RAVEN, WOLF], [WOLF, EIR], [RAVEN, EIR])):
+        store.save_tournament(tournament_with(f"{index:032x}", players))
+    manager = TournamentManager(store, tmp_path)
+    results: list[list[str]] = []
+    lock = threading.Lock()
+
+    def collect():
+        listed = manager.public_collection(manager.list(summary=True), summary=True)
+        runes = [player["rune"] for record in listed for player in record["config"]["players"]]
+        with lock:
+            results.append(runes)
+
+    threads = [threading.Thread(target=collect) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 4
+    assert all(runes == results[0] for runes in results)
+    assert rune_rows(store) == 3
+
+
+def test_historical_records_keep_their_participant_runes(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    store.save_tournament(tournament_with("a" * 32, [RAVEN, WOLF], mode=None))
+    store.save_tournament(tournament_with("b" * 32, [RAVEN, WOLF]))
+    manager = TournamentManager(store, tmp_path)
+    historical, modern = manager.public_collection(manager.list(summary=True), summary=True)
+    assert historical["mode"] == "round_robin"
+    # A historical record without a mode resolves the same identity, and therefore
+    # the same rune, as a modern one.
+    assert historical["config"]["players"][0]["rune"] == modern["config"]["players"][0]["rune"]
+    assert (
+        historical["config"]["players"][0]["rune"]
+        == historical["config"]["players"][0]["agent_rune"]
+    )
+    assert historical["config"]["players"][0]["rune"]

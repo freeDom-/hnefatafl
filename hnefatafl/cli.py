@@ -31,32 +31,51 @@ PORTABLE_PLAYER_FIELDS = frozenset(
 
 
 def portable_player(player: dict, index: int) -> dict:
-    """Flatten one portable ``players[i]`` entry into an AI configuration."""
+    """Flatten one portable ``players[i]`` entry into an AI configuration.
+
+    The recorded search settings are validated exactly as the browser API
+    validates them, so a misspelled or unsupported parameter can never be
+    silently replaced by a default. A headless-only checkpoint path is the one
+    additional field accepted here, and the effective settings are returned so a
+    portable document runs with the same values the API would store.
+    """
     unknown = set(player) - PORTABLE_PLAYER_FIELDS
     if unknown:
-        raise ValueError(f"Unsupported tournament player field: {sorted(unknown)[0]}")
+        raise ValueError(
+            f"Tournament player {index + 1} has an unsupported field: {sorted(unknown)[0]}"
+        )
     configuration = player["config"]
     if not isinstance(configuration, dict):
         raise ValueError(f"Tournament player {index + 1} config must be an object")
     profile_id = player.get("profile_id")
-    if profile_id is None:
-        return dict(configuration)
-    if not isinstance(profile_id, str):
+    if profile_id is not None and not isinstance(profile_id, str):
         raise ValueError(f"Tournament player {index + 1} profile_id must be a string")
-    from .ai import FIXED_PROFILE_IDS, ai_profiles
+    from .ai import FIXED_PROFILE_IDS, SUPPORTED_AI_CONFIG_FIELDS, ai_profiles, resolve_ai_config
 
-    profile = next((item for item in ai_profiles() if item["id"] == profile_id), None)
-    if profile is None:
-        raise ValueError(f"Unknown tournament player profile: {profile_id}")
-    if profile_id in FIXED_PROFILE_IDS:
-        # The API treats a named fixed profile as authoritative and replaces any
-        # configuration recorded beside it, so the headless runner does the same.
-        return {**profile["parameters"], "algorithm": profile["algorithm"]}
-    # Any other recorded profile (a trained model, for example) contributes its
-    # catalog parameters only when the participant did not choose an algorithm.
-    if "algorithm" in configuration:
-        return dict(configuration)
-    return {**profile["parameters"], **configuration, "algorithm": profile["algorithm"]}
+    if profile_id is not None:
+        profile = next((item for item in ai_profiles() if item["id"] == profile_id), None)
+        if profile is None:
+            raise ValueError(f"Unknown tournament player profile: {profile_id}")
+        if profile_id in FIXED_PROFILE_IDS:
+            # The API treats a named fixed profile as authoritative and replaces
+            # any configuration recorded beside it, so the discarded settings are
+            # not validated here either.
+            configuration = {**profile["parameters"], "algorithm": profile["algorithm"]}
+    unsupported = set(configuration) - SUPPORTED_AI_CONFIG_FIELDS - {"model_path"}
+    if unsupported:
+        raise ValueError(
+            f"Tournament player {index + 1} config has an unsupported field: "
+            f"{sorted(unsupported)[0]}"
+        )
+    try:
+        resolved = resolve_ai_config(
+            configuration, profile_id, extra_fields=frozenset({"model_path"})
+        )
+    except ValueError as error:
+        raise ValueError(f"Tournament player {index + 1}: {error}") from error
+    if "model_path" in configuration:
+        resolved["model_path"] = configuration["model_path"]
+    return resolved
 
 
 def normalise_tournament_config(config: dict) -> dict:

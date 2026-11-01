@@ -360,104 +360,14 @@ def create_app(
         return ModelRegistry(root / "models")
 
     def clean_ai_config(config: dict | None, profile_id: str | None = None) -> dict:
-        if config is not None and not isinstance(config, dict):
-            fail("AI configuration must be an object.")
-        config = dict(config or {})
-        supported = {
-            "algorithm",
-            "depth",
-            "iterations",
-            "time_limit",
-            "seed",
-            "exploration",
-            "temperature",
-            "evaluation",
-            "model_id",
-            "rollout_depth",
-            "search_wrapper",
-            "heuristic_version",
-            "heuristic",
-            "search",
-        }
-        if set(config) - supported:
-            fail("Unsupported AI configuration field.")
-        if profile_id and "algorithm" not in config:
-            from .ai import ai_profiles
+        from .ai import resolve_ai_config
 
-            profile = next((p for p in ai_profiles() if p["id"] == profile_id), None)
-            if profile is None:
-                fail("Unknown AI profile.")
-            config = {**profile.get("parameters", {}), **config, "algorithm": profile["algorithm"]}
-        algorithm = config.setdefault("algorithm", "baseline")
-        if algorithm == "alphabeta":
-            algorithm = config["algorithm"] = "alpha_beta"
-        if not isinstance(algorithm, str) or algorithm not in {
-            "baseline",
-            "shield_maiden",
-            "alpha_beta",
-            "mcts",
-            "neural",
-        }:
-            fail("Unknown AI algorithm.")
-        if "heuristic_version" in config and (
-            algorithm != "shield_maiden"
-            or type(config["heuristic_version"]) is not int
-            or config["heuristic_version"] != 1
-        ):
-            fail("Unsupported Shield maiden heuristic version.")
-        if "heuristic" in config:
-            if config["heuristic"] not in ("shield_bearer", "shield_maiden"):
-                fail("Search heuristic must be shield_bearer or shield_maiden.")
-            if algorithm not in ("alpha_beta", "mcts"):
-                fail("A search heuristic applies only to alpha-beta or MCTS.")
-        numeric_ranges = {
-            "depth": (1, 5),
-            "rollout_depth": (0, 50),
-            "iterations": (1, 5000),
-            "time_limit": (0.01, 15),
-            "exploration": (0, 10),
-            "temperature": (0, 5),
-            "seed": (0, 2**32 - 1),
-        }
-        for name, (minimum, maximum) in numeric_ranges.items():
-            if name in config:
-                value = config[name]
-                if (
-                    name in {"depth", "iterations", "seed", "rollout_depth"}
-                    and type(value) is not int
-                ):
-                    fail(f"AI {name} must be an integer.")
-                if (
-                    isinstance(value, bool)
-                    or not isinstance(value, (int, float))
-                    or not minimum <= value <= maximum
-                ):
-                    fail(f"AI {name} must be between {minimum} and {maximum}.")
-        if "evaluation" in config and config["evaluation"] not in ("heuristic", "neural"):
-            fail("Evaluation must be heuristic or neural.")
-        if "search_wrapper" in config:
-            if algorithm != "neural":
-                fail("Search wrappers apply only to trained neural models.")
-            if config["search_wrapper"] not in ("mcts", "alpha_beta", "none"):
-                fail("Search wrapper must be mcts, alpha_beta or none.")
-        if "search" in config:
-            if not isinstance(config["search"], dict):
-                fail("Search configuration must be an object.")
-            wrapper = config.get("search_wrapper")
-            if algorithm != "alpha_beta" and not (
-                algorithm == "neural" and wrapper == "alpha_beta"
-            ):
-                fail("Search settings apply only to alpha-beta search.")
         try:
-            resolved = effective_ai_config(config)
+            resolved = resolve_ai_config(config, profile_id)
         except ValueError as error:
             fail(str(error))
         if resolved.get("model_id"):
-            if not isinstance(resolved["model_id"], str):
-                fail("Model ID must be a string.")
             model_info(resolved["model_id"])
-        if resolved["algorithm"] == "neural" and not resolved.get("model_id"):
-            fail("The neural opponent requires a registered model.")
         return resolved
 
     def normalise_advisor(provided: AdvisorRequest | None, ruleset: str, seed: int) -> dict | None:
@@ -1429,11 +1339,8 @@ def create_app(
     def list_tournaments(summary: bool = True):
         # The collection defaults to lightweight summaries, so saved match
         # histories are never decoded or transferred just to render the
-        # navigator. ``summary=false`` still returns the complete records.
-        return [
-            tournaments.public(item, summary=True) if summary else tournaments.public(item)
-            for item in tournaments.list(summary=summary)
-        ]
+        # navigator, and every participant rune is resolved in one batch.
+        return tournaments.public_collection(tournaments.list(summary=summary), summary=summary)
 
     @app.post("/api/tournaments", status_code=201)
     def create_tournament(request: TournamentRequest):

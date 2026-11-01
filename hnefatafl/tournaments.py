@@ -94,7 +94,22 @@ class TournamentManager:
             self.reap(identifier)
             return tournament
 
-    def public(self, tournament: dict, *, summary: bool = False) -> dict:
+    def public(
+        self,
+        tournament: dict,
+        *,
+        summary: bool = False,
+        runes: dict[str, str] | None = None,
+    ) -> dict:
+        """Present one saved tournament.
+
+        ``runes`` lets a collection response reuse one batched lookup. On its own
+        the record still resolves all of its participants in a single batch
+        instead of one transaction per participant.
+        """
+        players = tournament["config"]["players"]
+        if runes is None:
+            runes = self.store.runes(agent_identity(player) for player in players)
         result = {
             key: value
             for key, value in tournament.items()
@@ -107,21 +122,36 @@ class TournamentManager:
         result["mode"] = tournament.get("config", {}).get("mode", "round_robin")
         # Present the canonical recorded model/profile name and underlying agent rune.
         # Copies backfill legacy aliases and seat runes without rewriting saved JSON.
-        result["config"] = {
-            **tournament["config"],
-            "players": [
+        presented = []
+        for player in players:
+            identity = agent_identity(player)
+            rune = runes.get(identity) or self.store.rune(identity)
+            presented.append(
                 {
                     **player,
                     "name": player.get("model_name")
                     or player.get("profile_name")
                     or player["name"],
-                    "rune": self.store.rune(agent_identity(player)),
-                    "agent_rune": self.store.rune(agent_identity(player)),
+                    "rune": rune,
+                    "agent_rune": rune,
                 }
-                for player in tournament["config"]["players"]
-            ],
-        }
+            )
+        result["config"] = {**tournament["config"], "players": presented}
         return result
+
+    def public_collection(self, records: list[dict], *, summary: bool = False) -> list[dict]:
+        """Present a saved collection, resolving every participant rune in one batch.
+
+        Participant identities repeat across tournaments, so one lookup keeps a
+        large collection from opening a transaction per participant and returns
+        identical runes for a repeated model or profile identity.
+        """
+        runes = self.store.runes(
+            agent_identity(player)
+            for record in records
+            for player in record.get("config", {}).get("players", [])
+        )
+        return [self.public(record, summary=summary, runes=runes) for record in records]
 
     def list(self, *, summary: bool = False) -> list[dict]:
         with self.lock:

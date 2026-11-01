@@ -65,7 +65,9 @@ def test_normalises_portable_round_robin_players():
     assert normalised["players"][1]["model_id"] == "model-a"
     assert normalised["players"][1]["iterations"] == 33
     assert normalised["players"][1]["time_limit"] == 7.5
-    assert normalised["players"][1]["search_wrapper"] == "mcts"
+    # The historical MCTS wrapper is the default representation, so it is not
+    # recorded explicitly in the effective configuration.
+    assert "search_wrapper" not in normalised["players"][1]
     assert normalised["games"] == 2 and normalised["max_plies"] == 1 and normalised["seed"] == 4
     # The source document is never mutated.
     assert document["players"][0] == {
@@ -91,29 +93,27 @@ def first_player(player):
 
 
 def test_named_fixed_profiles_are_authoritative_like_the_api():
-    # Without an explicit algorithm the catalog preset applies.
-    assert first_player({"profile_id": "baseline", "config": {}}) == {
-        "algorithm": "baseline",
-        "time_limit": 1.0,
-    }
+    baseline = first_player({"profile_id": "baseline", "config": {}})
+    assert baseline["algorithm"] == "baseline"
+    assert baseline["time_limit"] == 1.0
+    assert baseline["seed"] == 0
     # A matching explicit algorithm keeps the canonical preset.
-    assert first_player({"profile_id": "baseline", "config": {"algorithm": "baseline"}}) == {
-        "algorithm": "baseline",
-        "time_limit": 1.0,
-    }
+    assert first_player({"profile_id": "baseline", "config": {"algorithm": "baseline"}}) == baseline
     # A conflicting algorithm or search configuration is replaced, exactly as the
     # API does for a named fixed profile.
-    assert first_player(
-        {"profile_id": "baseline", "config": {"algorithm": "mcts", "iterations": 100}}
-    ) == {"algorithm": "baseline", "time_limit": 1.0}
-    assert first_player({"profile_id": "shield_maiden", "config": {"algorithm": "baseline"}}) == {
-        "algorithm": "shield_maiden",
-        "time_limit": 1.0,
-        "heuristic_version": 1,
-    }
-    assert first_player(
+    assert (
+        first_player({"profile_id": "baseline", "config": {"algorithm": "mcts", "iterations": 100}})
+        == baseline
+    )
+    # Discarded preset settings are not validated, so a typo inside them is not an
+    # error either: the API ignores the whole object.
+    assert first_player({"profile_id": "baseline", "config": {"iteratons": 100}}) == baseline
+    alpha = first_player(
         {"profile_id": "alpha_beta", "config": {"algorithm": "mcts", "depth": 1, "time_limit": 0.5}}
-    ) == {"algorithm": "alpha_beta", "depth": 5, "time_limit": 2.0}
+    )
+    assert alpha["algorithm"] == "alpha_beta"
+    assert alpha["depth"] == 5
+    assert alpha["time_limit"] == 2.0
     mcts = first_player(
         {"profile_id": "mcts", "config": {"iterations": 3, "search_wrapper": "none"}}
     )
@@ -121,26 +121,32 @@ def test_named_fixed_profiles_are_authoritative_like_the_api():
     assert mcts["iterations"] == 5000
     assert mcts["rollout_depth"] == 8
     assert "search_wrapper" not in mcts
+    maiden = first_player({"profile_id": "shield_maiden", "config": {"algorithm": "baseline"}})
+    assert maiden["algorithm"] == "shield_maiden"
+    assert maiden["heuristic_version"] == 1
 
 
 def test_custom_and_neural_profiles_keep_their_configuration():
     # A trained model is not a fixed preset, so its own configuration wins.
-    assert first_player(
-        {"profile_id": "neural", "config": {"algorithm": "neural", "model_id": "model-a"}}
-    ) == {"algorithm": "neural", "model_id": "model-a"}
+    neural_player = first_player(
+        {
+            "profile_id": "neural",
+            "config": {"algorithm": "neural", "model_id": "model-a", "iterations": 33},
+        }
+    )
+    assert neural_player["algorithm"] == "neural"
+    assert neural_player["model_id"] == "model-a"
+    assert neural_player["iterations"] == 33
     # Without an algorithm the catalog parameters fill the gaps only.
-    assert first_player({"profile_id": "neural", "config": {"model_id": "model-a"}}) == {
-        "iterations": 40,
-        "time_limit": 10.0,
-        "model_id": "model-a",
-        "algorithm": "neural",
-    }
+    filled = first_player({"profile_id": "neural", "config": {"model_id": "model-a"}})
+    assert filled["algorithm"] == "neural"
+    assert filled["iterations"] == 40
+    assert filled["time_limit"] == 10.0
     # A participant without a profile keeps every recorded setting.
-    assert first_player({"config": {"algorithm": "alpha_beta", "depth": 1, "time_limit": 0.5}}) == {
-        "algorithm": "alpha_beta",
-        "depth": 1,
-        "time_limit": 0.5,
-    }
+    custom = first_player({"config": {"algorithm": "alpha_beta", "depth": 1, "time_limit": 0.5}})
+    assert custom["algorithm"] == "alpha_beta"
+    assert custom["depth"] == 1
+    assert custom["time_limit"] == 0.5
     with pytest.raises(ValueError, match="Unknown tournament player profile"):
         first_player({"profile_id": "missing", "config": {}})
     with pytest.raises(ValueError, match="profile_id must be a string"):
@@ -156,17 +162,25 @@ def test_portable_presets_resolve_identically_through_the_api(client):
         games=2,
     )
     normalised = normalise_tournament_config(document)["players"]
-    assert normalised[0] == {"algorithm": "baseline", "time_limit": 1.0}
-    assert normalised[1] == {"algorithm": "alpha_beta", "depth": 5, "time_limit": 2.0}
+    assert normalised[0]["algorithm"] == "baseline"
+    assert normalised[0]["time_limit"] == 1.0
+    assert normalised[1]["algorithm"] == "alpha_beta"
+    assert normalised[1]["depth"] == 5
     response = client.post("/api/tournaments", json=document)
     assert response.status_code == 201, response.text
     record = response.json()
     stored = [player["config"] for player in record["config"]["players"]]
-    assert [config["algorithm"] for config in stored] == ["baseline", "alpha_beta"]
-    assert stored[0]["time_limit"] == normalised[0]["time_limit"]
-    assert "iterations" not in stored[0]
-    assert stored[1]["depth"] == normalised[1]["depth"]
-    assert stored[1]["time_limit"] == normalised[1]["time_limit"]
+
+    # Both paths resolve the same effective configuration for the same document.
+    # The tournament seed supersedes any per-participant seed, exactly as it does
+    # for the browser, so only that field may differ.
+    def without_seed(config):
+        return {key: value for key, value in config.items() if key != "seed"}
+
+    assert [without_seed(config) for config in stored] == [
+        without_seed(config) for config in normalised
+    ]
+    assert [config["seed"] for config in stored] == [4, 4]
     assert client.post(f"/api/tournaments/{record['id']}/cancel").status_code == 200
 
 
@@ -208,8 +222,11 @@ def test_presentation_fields_are_ignored_and_unknown_fields_rejected():
             {"config": flattened()},
         ]
     )
-    assert normalise_tournament_config(document)["players"][0] == flattened()
-    with pytest.raises(ValueError, match="Unsupported tournament player field: output"):
+    normalised = normalise_tournament_config(document)["players"]
+    assert normalised[0] == normalised[1]
+    assert normalised[0]["algorithm"] == "baseline"
+    assert normalised[0]["time_limit"] == 0.01
+    with pytest.raises(ValueError, match="player 1 has an unsupported field: output"):
         normalise_tournament_config(
             portable([{"config": flattened(), "output": "/tmp/elsewhere"}, {"config": flattened()}])
         )
@@ -323,3 +340,159 @@ def test_cli_reports_missing_model_paths_without_running(tmp_path, capsys):
     assert main(["tournament", "--config", str(path)]) == 1
     failure = json.loads(capsys.readouterr().err)
     assert "needs a model_path" in failure["error"]
+
+
+def test_portable_configs_reject_unsupported_and_misspelled_fields():
+    with pytest.raises(ValueError, match="player 1 config has an unsupported field: iteratons"):
+        normalise_tournament_config(portable([neural("model-a", iteratons=500), neural("model-b")]))
+    with pytest.raises(ValueError, match="player 2 config has an unsupported field: wrapper"):
+        normalise_tournament_config(
+            portable([neural("model-a"), neural("model-b", wrapper="mcts")])
+        )
+    with pytest.raises(ValueError, match="player 2 config has an unsupported field: output"):
+        normalise_tournament_config(
+            portable(
+                [{"config": flattened()}, {"config": {"algorithm": "baseline", "output": "/x"}}]
+            )
+        )
+    # Unknown nested alpha-beta search fields are rejected by the shared search
+    # validation instead of being ignored by the engine.
+    with pytest.raises(
+        ValueError, match="player 1: Unsupported search configuration field: unknown"
+    ):
+        normalise_tournament_config(
+            portable(
+                [
+                    {"config": {"algorithm": "alpha_beta", "search": {"unknown": True}}},
+                    {"config": {"algorithm": "alpha_beta"}},
+                ]
+            )
+        )
+    # A fixed preset discards the recorded configuration, so a typo inside it is
+    # not an error in either path.
+    assert (
+        normalise_tournament_config(
+            portable(
+                [{"profile_id": "baseline", "config": {"iteratons": 500}}, {"config": flattened()}]
+            )
+        )["players"][0]["algorithm"]
+        == "baseline"
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"iterations": "500"}, "player 1: AI iterations must be an integer"),
+        ({"iterations": 500.5}, "player 1: AI iterations must be an integer"),
+        ({"iterations": 0}, "player 1: AI iterations must be between 1 and 5000"),
+        ({"iterations": 5001}, "player 1: AI iterations must be between 1 and 5000"),
+        ({"time_limit": 0}, "player 1: AI time_limit must be between 0.01 and 15"),
+        ({"exploration": 11}, "player 1: AI exploration must be between 0 and 10"),
+        ({"temperature": 6}, "player 1: AI temperature must be between 0 and 5"),
+        ({"rollout_depth": 51}, "player 1: AI rollout_depth must be between 0 and 50"),
+        ({"search_wrapper": "mcts "}, "player 1: Search wrapper must be mcts, alpha_beta or none"),
+        ({"evaluation": "guess"}, "player 1: Evaluation must be heuristic or neural"),
+        ({"heuristic": "shield_bearer"}, "player 1: A search heuristic applies only"),
+    ],
+)
+def test_portable_neural_configs_validate_types_and_ranges(config, message):
+    with pytest.raises(ValueError, match=message):
+        normalise_tournament_config(portable([neural("model-a", **config), neural("model-b")]))
+
+
+def test_portable_config_rejects_a_non_string_model_id():
+    with pytest.raises(ValueError, match="player 1: Model ID must be a string"):
+        normalise_tournament_config(
+            portable([{"config": {"algorithm": "neural", "model_id": 7}}, {"config": flattened()}])
+        )
+
+
+def test_portable_valid_search_configurations_are_accepted():
+    def both(**changes):
+        return normalise_tournament_config(
+            portable([neural("model-a", **changes), neural("model-b", **changes)])
+        )["players"]
+
+    mcts = both(
+        search_wrapper="mcts", iterations=120, exploration=1.2, temperature=0.4, time_limit=3
+    )
+    assert mcts[0]["iterations"] == 120
+    assert mcts[0]["exploration"] == 1.2
+    assert mcts[0]["temperature"] == 0.4
+    assert mcts[0]["time_limit"] == 3
+    alpha = both(
+        search_wrapper="alpha_beta",
+        depth=4,
+        time_limit=2,
+        search={"transposition": False, "move_ordering": True},
+    )
+    assert alpha[0]["search_wrapper"] == "alpha_beta"
+    assert alpha[0]["depth"] == 4
+    assert alpha[0]["search"]["transposition"] is False
+    assert alpha[0]["search"]["move_ordering"] is True
+    assert alpha[0]["search"]["symmetry_pruning"] is False
+    direct = both(search_wrapper="none", temperature=0.7, time_limit=1)
+    assert direct[0]["search_wrapper"] == "none"
+    assert direct[0]["temperature"] == 0.7
+
+
+def test_portable_model_path_is_preserved_and_validated(tmp_path, checkpoints):
+    document = portable(
+        [
+            neural("model-a", model_path=str(checkpoints[0]), iterations=1, time_limit=0.01),
+            neural("model-b", model_path=str(checkpoints[1]), iterations=1, time_limit=0.01),
+        ],
+        mode="fixed_roles",
+        games=1,
+        max_plies=1,
+    )
+    normalised = normalise_tournament_config(document)["players"]
+    assert normalised[0]["model_path"] == str(checkpoints[0])
+    assert normalised[1]["model_path"] == str(checkpoints[1])
+    check_headless_models(normalised)
+    with pytest.raises(ValueError, match="model_path does not exist"):
+        check_headless_models([{**normalised[0], "model_path": str(tmp_path / "missing.pt")}])
+    # A model identifier is never turned into a filesystem path.
+    without_path = normalise_tournament_config(portable([neural("model-a"), neural("model-b")]))[
+        "players"
+    ]
+    assert "model_path" not in without_path[0]
+    with pytest.raises(ValueError, match="needs a model_path"):
+        check_headless_models(without_path)
+
+
+def test_flattened_configurations_keep_their_lenient_interpretation():
+    # Historical flattened files are passed through untouched. Validating them
+    # would reject files that already work, so only the portable representation
+    # carries the strict contract.
+    config = {
+        "rulesets": ["brandubh"],
+        "players": [
+            {"algorithm": "baseline", "time_limit": 0.01, "output": "/tmp/legacy"},
+            {"algorithm": "baseline", "time_limit": 0.01},
+        ],
+        "games": 2,
+        "max_plies": 1,
+        "seed": 1,
+    }
+    assert normalise_tournament_config(config) is config
+    assert tournament(config)["games"] is not None
+
+
+def test_cli_rejects_a_misspelled_search_parameter_before_playing(tmp_path, capsys):
+    document = portable(
+        [
+            neural("model-a", model_path=str(tmp_path / "a.pt"), iteratons=500),
+            neural("model-b", model_path=str(tmp_path / "b.pt")),
+        ],
+        games=1,
+        max_plies=1,
+    )
+    path = tmp_path / "tournament.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert main(["tournament", "--config", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    failure = json.loads(captured.err)
+    assert "player 1 config has an unsupported field: iteratons" in failure["error"]

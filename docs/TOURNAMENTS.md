@@ -109,7 +109,14 @@ A named fixed profile (`baseline`, `shield_maiden`, `alpha_beta`, `mcts`) is
 authoritative in both the browser API and the headless runner: selecting one runs
 the catalog parameters and replaces any configuration recorded beside it, so the
 same document cannot execute a different algorithm in each. A custom participant,
-including a trained model, keeps the configuration it records. The headless
+including a trained model, keeps the configuration it records.
+
+A portable participant's `config` is validated exactly as the browser API
+validates it: unknown or misspelled fields, wrong types, out-of-range values,
+unknown nested search settings and unsupported wrappers are rejected with the
+participant index and the offending field, and the effective settings — including
+the server defaults — are what actually runs. The historical flattened layout is
+passed through with its previous, more permissive interpretation. The headless
 runner also requires exactly one supported battlefield for `mode:
 "fixed_roles"`, matching the browser, and rejects a missing, empty, malformed,
 unsupported or multiple selection before any game starts.
