@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, replace
-from typing import Any, Iterable
+from functools import lru_cache
+from typing import Any, Iterable, Iterator
 
 
 @dataclass(frozen=True)
@@ -140,17 +141,19 @@ def _key(board: Iterable[str], turn: str) -> str:
     return turn + ":" + "".join(board)
 
 
+@lru_cache(maxsize=3)
 def _corners(size: int) -> frozenset[int]:
     return frozenset((0, size - 1, size * (size - 1), size * size - 1))
 
 
-def _neighbors(index: int, size: int) -> list[int]:
+@lru_cache(maxsize=256)
+def _neighbors(index: int, size: int) -> tuple[int, ...]:
     row, col = divmod(index, size)
-    return [
+    return tuple(
         r * size + c
         for r, c in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1))
         if 0 <= r < size and 0 <= c < size
-    ]
+    )
 
 
 def _edge(index: int, size: int) -> bool:
@@ -193,29 +196,53 @@ def new_game(ruleset: str = "tablut") -> State:
     return State(ruleset, tuple(board), turn, history=(_key(board, turn),))
 
 
-def _piece_moves(state: State, source: int) -> list[Move]:
+@lru_cache(maxsize=3)
+def _rays(size: int) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    result = []
+    for source in range(size * size):
+        row, col = divmod(source, size)
+        directions = []
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            cells = []
+            r, c = row + dr, col + dc
+            while 0 <= r < size and 0 <= c < size:
+                cells.append(r * size + c)
+                r, c = r + dr, c + dc
+            directions.append(tuple(cells))
+        result.append(tuple(directions))
+    return tuple(result)
+
+
+def _targets(state: State, source: int) -> Iterator[int]:
     rules = RULESETS[state.ruleset]
-    n = state.size
+    size = state.size
     piece = state.board[source]
-    row, col = divmod(source, n)
-    throne = n * n // 2
-    corners = _corners(n)
-    moves: list[Move] = []
-    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        r, c = row + dr, col + dc
-        while 0 <= r < n and 0 <= c < n:
-            target = r * n + c
+    throne = size * size // 2
+    corners = _corners(size)
+    for ray in _rays(size)[source]:
+        for target in ray:
             if state.board[target] != ".":
                 break
-            forbidden = piece != "K" and (
+            if piece == "K" or not (
                 (rules.restricted_throne and target == throne)
                 or (rules.restricted_corners and target in corners)
-            )
-            if not forbidden:
-                moves.append(Move(source, target))
-            # Empty throne may be crossed, even by an ordinary soldier.
-            r, c = r + dr, c + dc
-    return moves
+            ):
+                yield target
+            # Soldiers may cross an empty throne, even when they cannot stop.
+
+
+def _piece_moves(state: State, source: int) -> list[Move]:
+    return [Move(source, target) for target in _targets(state, source)]
+
+
+def has_legal_move(state: State) -> bool:
+    """Existence query with no Move allocations or complete move-list build."""
+    if state.winner is not None:
+        return False
+    for source, piece in enumerate(state.board):
+        if _side(piece) == state.turn and next(_targets(state, source), None) is not None:
+            return True
+    return False
 
 
 def legal_moves(state: State) -> list[Move]:
@@ -238,7 +265,7 @@ def _valid_move(state: State, move: Move) -> bool:
         return False
     if _side(state.board[move.source]) != state.turn:
         return False
-    return move in _piece_moves(state, move.source)
+    return move.target in _targets(state, move.source)
 
 
 def _hostile(board: list[str], index: int, victim: str, rules: Ruleset) -> bool:
@@ -309,10 +336,14 @@ def _encircled(board: list[str], n: int) -> bool:
     # A flood from every board edge finds all defender-accessible exits. An
     # attacker is a wall; an empty square or defender can belong to an interior.
     reachable = {i for i in range(n * n) if _edge(i, n) and board[i] != "A"}
+    if defenders & reachable:
+        return False
     queue = deque(reachable)
     while queue:
         for nxt in _neighbors(queue.popleft(), n):
             if nxt not in reachable and board[nxt] != "A":
+                if nxt in defenders:
+                    return False
                 reachable.add(nxt)
                 queue.append(nxt)
     return not bool(defenders & reachable)
@@ -421,7 +452,7 @@ def apply_move(state: State, move: Move) -> State:
         winner = "attackers" if rules.repetition == "defenders_lose" else "draw"
         reason = "threefold_repetition"
     result = State(state.ruleset, tuple(board), turn, state.ply + 1, winner, reason, history)
-    if winner is None and not legal_moves(result):
+    if winner is None and not has_legal_move(result):
         if state.ruleset == "copenhagen":
             return replace(result, winner=state.turn, reason="no_legal_moves")
         return replace(result, winner="draw", reason="no_legal_moves")

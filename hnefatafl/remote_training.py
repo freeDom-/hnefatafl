@@ -59,6 +59,10 @@ TRAINING_FIELDS = {
     "checkpoint_frequency",
     "evaluation_frequency",
     "evaluation_opponent",
+    "evaluation_mode",
+    "evaluation_concurrency",
+    "evaluation_batch_size",
+    "evaluation_inference_backend",
     "evaluation_time_limit",
     "evaluation_jarl_depth",
     "evaluation_jarl_time_limit",
@@ -95,6 +99,11 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         or any(mode not in ("off", "random_d4") for mode in symmetry_modes)
     ):
         fail("Invalid worker training_symmetry_modes.")
+    if (
+        "evaluation_batching" in capabilities
+        and type(capabilities["evaluation_batching"]) is not bool
+    ):
+        fail("Invalid worker evaluation_batching capability.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -129,6 +138,13 @@ def validate_inference_capabilities(capabilities: dict) -> None:
 def worker_compatible(config: dict, capabilities: dict) -> bool:
     if config.get("training_symmetry_mode", "off") not in capabilities.get(
         "training_symmetry_modes", ["off"]
+    ):
+        return False
+    if capabilities.get("evaluation_batching") is not True and (
+        config.get("evaluation_mode", "auto") == "batched"
+        or config.get("evaluation_inference_backend", "pytorch") != "pytorch"
+        or config.get("evaluation_concurrency", 16) != 16
+        or config.get("evaluation_batch_size", 32) != 32
     ):
         return False
     if config.get("inference_cache_mode", "off") not in capabilities.get(
@@ -742,6 +758,14 @@ class RemoteTraining:
                     if "inference_cache_modes" not in worker.get("capabilities", {}):
                         configuration.pop("inference_cache_mode", None)
                         configuration.pop("inference_cache_capacity", None)
+                    if worker.get("capabilities", {}).get("evaluation_batching") is not True:
+                        for key in (
+                            "evaluation_mode",
+                            "evaluation_concurrency",
+                            "evaluation_batch_size",
+                            "evaluation_inference_backend",
+                        ):
+                            configuration.pop(key, None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
@@ -820,6 +844,15 @@ class RemoteTraining:
                     omitted.update({"inference_cache_mode", "inference_cache_capacity"})
                 if "inference_backends" not in worker.get("capabilities", {}):
                     omitted.update({"inference_backend", "inference_device"})
+                if worker.get("capabilities", {}).get("evaluation_batching") is not True:
+                    omitted.update(
+                        {
+                            "evaluation_mode",
+                            "evaluation_concurrency",
+                            "evaluation_batch_size",
+                            "evaluation_inference_backend",
+                        }
+                    )
                 if omitted:
                     from .models import load_checkpoint
                     import torch

@@ -1,5 +1,10 @@
 const translations: Record<string, string> = {
   Evaluation: 'Auswertung',
+  'Evaluation execution': 'Auswertungsmodus',
+  'Evaluation inference backend': 'Inferenzsystem der Auswertung',
+  'Use training inference backend': 'Inferenzsystem des Trainings verwenden',
+  'Concurrent evaluation games': 'Gleichzeitige Auswertungspartien',
+  'Evaluation inference batch size': 'Inferenz-Stapelgröße der Auswertung',
   'Evaluation opponent': 'Auswertungsgegner',
   Champion: 'Champion',
   'Previous model': 'Vorgängermodell',

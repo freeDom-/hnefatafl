@@ -174,8 +174,10 @@ writes. `training_evaluation.py` owns effective protocol identities, immutable
 benchmark snapshots and paired conservative champion promotion. Full tensor-format-1
 checkpoints add a versioned training selection state while preserving legacy baseline
 fields. Candidate, resumable latest state, fixed benchmark records and champion are
-distinct. Evaluation remains sequential with separate frozen models; self-play's
-single-model batching is not reused across model identities. Compact stdout events
+distinct. Evaluation retains a sequential reference and can interleave games with separate
+candidate/incumbent inference queues. CUDA auto batches in FP32; CPU auto remains
+sequential. Opt-in evaluation through the training OpenVINO backend refreshes each
+post-optimization snapshot and starts a separate benchmark identity. Compact stdout events
 exclude history; atomic JSON/checkpoints retain it for local and remote polling.
 
 Exact-input inference reuse is opt-in (`inference_cache_mode: "exact"`, default
