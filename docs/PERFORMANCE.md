@@ -220,6 +220,14 @@ delta inside the workload's own run-to-run noise. Full samples, sizes and the
 reproduction command are in the
 [monitoring overhead measurements](benchmarks/training-monitoring-heartbeat.md).
 
+A remote worker forwards the same bounded projection while the child revision is
+unchanged, so an unchanged history, metrics or log tail never crosses the network
+again. For a 2,000-iteration job that is 6.2 MB per minute of reporting reduced to
+13 KB per minute; the retained row write is unchanged because the dashboard still
+reads the retained history, and it carries the lease and sequence the job
+lifecycle depends on. Measurements and the reproduction command are in the
+[remote monitoring measurements](benchmarks/training-monitoring-remote.md).
+
 
 ## Training evaluation cost
 
