@@ -106,6 +106,8 @@ export interface Model {
 }
 export interface Job {
   id: string;
+  /** Lightweight navigator record; history and logs load for the selected job. */
+  summary?: boolean;
   /** Explicit display name set by a rename; derived from config when absent. */
   name?: string;
   status: string;

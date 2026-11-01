@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
-import { workshopFixtures } from './workshop-fixtures';
+import { workshopFixture, workshopFixtures } from './workshop-fixtures';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
 async function open(page: Page) {
   await page.addInitScript(() => {
@@ -18,11 +18,44 @@ async function open(page: Page) {
     'true',
   );
 }
+test('continues live updates after a slow poll without overlapping requests', async ({ page }) => {
+  await page.clock.install();
+  const initial = workshopFixture('running', 1);
+  let slow = false;
+  let calls = 0;
+  let release: (() => Promise<void>) | undefined;
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, async (route) => {
+    calls++;
+    if (!slow) {
+      await route.fulfill({ json: [initial] });
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      release = async () => {
+        await route.fulfill({ json: [{ ...initial, name: 'Live progress received' }] });
+        resolve();
+      };
+    });
+  });
+  await open(page);
+  await expect(
+    page.getByRole('heading', { name: 'Eir · Tablut strategist', exact: true }),
+  ).toBeVisible();
+  const before = calls;
+  slow = true;
+  await page.clock.runFor(7500);
+  await expect.poll(() => calls).toBe(before + 1);
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await release!();
+  await expect(
+    page.getByRole('heading', { name: 'Live progress received', exact: true }),
+  ).toBeVisible();
+});
 test('dashboard keeps form edits, explicit selection and analysis state through refresh', async ({
   page,
 }) => {
   let jobs = workshopFixtures();
-  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: jobs }));
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: jobs }));
   await open(page);
   await expect(
     page.getByRole('heading', { name: 'Eir · Tablut strategist', exact: true }),
@@ -68,7 +101,9 @@ test('dashboard keeps form edits, explicit selection and analysis state through 
 test('preserves the selected analysis tab and shows the new job content when switching jobs', async ({
   page,
 }) => {
-  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: workshopFixtures() }));
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: workshopFixtures() }),
+  );
   await open(page);
   // Initial opening keeps the default Overview tab.
   await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute(
@@ -103,7 +138,9 @@ test('preserves the selected analysis tab and shows the new job content when swi
 test('shows one merged evaluation series in the overview and in the evaluation tab', async ({
   page,
 }) => {
-  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: workshopFixtures() }));
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: workshopFixtures() }),
+  );
   await open(page);
   await selectWorkshopJob(page, 'completed', 'Bjorn · Northern campaign');
   // Overview: one merged curve, not the latest series only.
@@ -135,7 +172,9 @@ test('workshop visual fixtures fit desktop, laptop, tablet and mobile in every a
 }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: workshopFixtures() }));
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: workshopFixtures() }),
+  );
   await open(page);
   const widths = info.project.name === 'mobile' ? [375, 430] : [1700, 1280, 768];
   for (const width of widths) {
@@ -179,7 +218,7 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
   page,
 }, info) => {
   let jobs = workshopFixtures();
-  await page.route('**/api/training/jobs', (route) => route.fulfill({ json: jobs }));
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: jobs }));
   await open(page);
   for (const mode of ['light', 'dark', 'wood']) {
     await page.evaluate((mode) => {

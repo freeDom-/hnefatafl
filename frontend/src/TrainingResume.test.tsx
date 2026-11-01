@@ -221,7 +221,7 @@ it('opens checkpoint resumption from the linked model card and keeps an imported
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) => {
-      if (path === '/api/training/jobs') return json([job]);
+      if (path.split('?')[0] === '/api/training/jobs') return json([job]);
       if (path.endsWith('/resume')) return json(info);
       return json([]);
     }),

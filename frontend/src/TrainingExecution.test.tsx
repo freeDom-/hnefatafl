@@ -168,7 +168,7 @@ it('displays persisted performance when inspecting a completed training job', as
     'fetch',
     vi.fn((path: string) =>
       json(
-        path === '/api/training/jobs'
+        path.split('?')[0] === '/api/training/jobs'
           ? [completed]
           : path === '/api/training/jobs/finished'
             ? completed

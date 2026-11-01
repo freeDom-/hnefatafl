@@ -28,7 +28,7 @@ import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
-import { activeJob, sortJobs, jobName } from './trainingDashboardData';
+import { activeJob, sortJobs, jobName, mergeJobSummary } from './trainingDashboardData';
 import './trainingDashboard.css';
 
 interface ModelUsage {
@@ -121,9 +121,21 @@ export default function Training({
   const observedJobs = useRef<Map<string, string> | null>(null);
   const refreshRevision = useRef(0);
   const selectionRevision = useRef(0);
+  const monitoringMounted = useRef(false);
+  const onMonitoringError = useRef(onError);
+  onMonitoringError.current = onError;
+  const requests = useRef(new Set<AbortController>());
+  const jobsRequest = useRef<{ revision: number; promise: Promise<void> } | null>(null);
+  const workersRequest = useRef<Promise<void> | null>(null);
+  const detailRequests = useRef(new Map<string, Promise<void>>());
+  const detailControllers = useRef(new Map<string, AbortController>());
+  const summaryRevision = useRef(0);
+  const summaries = useRef(new Map<string, Job>());
+  const currentSelection = useRef(selectedJob);
+  currentSelection.current = selectedJob;
   const selectJob = (job: Job | null) => {
     selectionRevision.current++;
-    setSelectedJob(job);
+    setSelectedJob((previous) => (job ? mergeJobSummary(previous, job) : null));
   };
   // Switching jobs preserves the active analysis tab. If that tab is not
   // available for the new job, persist the deterministic default fallback so a
@@ -180,59 +192,170 @@ export default function Training({
       alive = false;
     };
   }, [deleteModel, usageRevision]);
-  const refresh = useCallback(async () => {
-    const revision = ++refreshRevision.current;
-    const selectedRevision = selectionRevision.current;
-    const [hardware, runs, connected] = await Promise.all([
-      api<DeviceInfo>('/training/device'),
-      api<Job[]>('/training/jobs'),
-      api<TrainingWorker[]>('/training/workers'),
-    ]);
-    if (revision !== refreshRevision.current) return;
-    if (!observedJobs.current) {
-      observedJobs.current = new Map(runs.map((job) => [job.id, job.status]));
-    }
-    setLoaded(true);
-    setLoadFailed(false);
-    setCreationOpen((previous) => previous ?? !runs.length);
-    setModelsOpen((previous) => previous ?? !runs.length);
-    // The server serving this client always runs local training with the same
-    // augmentation support. Older device payloads may omit the capability list,
-    // so default it for the local target instead of blocking a new job.
-    setDevice({
-      ...hardware,
-      training_symmetry_modes: hardware.training_symmetry_modes ?? ['off', 'random_d4'],
-    });
-    setJobs(runs);
-    setWorkers(
-      Array.isArray(connected) ? connected.filter((worker) => worker.status !== 'revoked') : [],
-    );
-    if (selectionRevision.current === selectedRevision) {
-      setSelectedJob((previous) =>
-        previous
-          ? (runs.find((job) => job.id === previous.id) ?? null)
-          : (sortJobs(runs)[0] ?? null),
-      );
-    }
+  const loadDetails = useCallback((id: string): Promise<void> => {
+    const pending = detailRequests.current.get(id);
+    if (pending && !detailControllers.current.get(id)?.signal.aborted) return pending;
+    const revision = refreshRevision.current;
+    const snapshot = summaryRevision.current;
+    const controller = new AbortController();
+    detailControllers.current.set(id, controller);
+    requests.current.add(controller);
+    const promise = api<Job>(`/training/jobs/${id}`, undefined, undefined, controller.signal)
+      .then((job) => {
+        if (
+          !monitoringMounted.current ||
+          revision !== refreshRevision.current ||
+          controller.signal.aborted
+        )
+          return;
+        const latest = summaries.current.get(id);
+        const detail =
+          snapshot !== summaryRevision.current && latest ? mergeJobSummary(job, latest) : job;
+        setSelectedJob((current) => (current?.id === id ? { ...detail, summary: false } : current));
+      })
+      .catch((error: Error) => {
+        if (monitoringMounted.current && !controller.signal.aborted)
+          onMonitoringError.current(error.message);
+      })
+      .finally(() => {
+        requests.current.delete(controller);
+        if (detailRequests.current.get(id) === promise) detailRequests.current.delete(id);
+        if (detailControllers.current.get(id) === controller) detailControllers.current.delete(id);
+      });
+    detailRequests.current.set(id, promise);
+    return promise;
   }, []);
+  const loadWorkers = useCallback(() => {
+    if (workersRequest.current) return;
+    const controller = new AbortController();
+    requests.current.add(controller);
+    const promise = api<TrainingWorker[]>(
+      '/training/workers',
+      undefined,
+      undefined,
+      controller.signal,
+    )
+      .then((connected) => {
+        if (monitoringMounted.current && !controller.signal.aborted)
+          setWorkers(
+            Array.isArray(connected)
+              ? connected.filter((worker) => worker.status !== 'revoked')
+              : [],
+          );
+      })
+      .catch((error: Error) => {
+        if (monitoringMounted.current && !controller.signal.aborted)
+          onMonitoringError.current(error.message);
+      })
+      .finally(() => {
+        requests.current.delete(controller);
+        if (workersRequest.current === promise) workersRequest.current = null;
+      });
+    workersRequest.current = promise;
+  }, []);
+  const refresh = useCallback(
+    async function refresh(): Promise<void> {
+      if (!monitoringMounted.current) return;
+      const pending = jobsRequest.current;
+      if (pending) {
+        await pending.promise;
+        // Mutations invalidate the pending read and need one fresh read after it.
+        if (monitoringMounted.current && pending.revision !== refreshRevision.current)
+          return refresh();
+        return;
+      }
+      loadWorkers();
+      const revision = refreshRevision.current;
+      const selection = selectionRevision.current;
+      const controller = new AbortController();
+      requests.current.add(controller);
+      const promise = api<Job[]>(
+        '/training/jobs?summary=true',
+        undefined,
+        undefined,
+        controller.signal,
+      )
+        .then((runs) => {
+          if (!monitoringMounted.current || revision !== refreshRevision.current) return;
+          if (!observedJobs.current)
+            observedJobs.current = new Map(runs.map((job) => [job.id, job.status]));
+          summaryRevision.current++;
+          summaries.current = new Map(runs.map((job) => [job.id, job]));
+          setLoaded(true);
+          setLoadFailed(false);
+          setCreationOpen((previous) => previous ?? !runs.length);
+          setModelsOpen((previous) => previous ?? !runs.length);
+          setJobs(runs);
+          if (selectionRevision.current === selection) {
+            setSelectedJob((previous) => {
+              const next = previous
+                ? runs.find((job) => job.id === previous.id)
+                : sortJobs(runs)[0];
+              return next ? mergeJobSummary(previous, next) : null;
+            });
+            const id = currentSelection.current?.id;
+            if (id && runs.find((job) => job.id === id)?.summary) void loadDetails(id);
+          }
+        })
+        .catch((error: Error) => {
+          if (!controller.signal.aborted && revision === refreshRevision.current) throw error;
+        })
+        .finally(() => {
+          requests.current.delete(controller);
+          if (jobsRequest.current?.promise === promise) jobsRequest.current = null;
+        });
+      jobsRequest.current = { revision, promise };
+      return promise;
+    },
+    [loadDetails, loadWorkers],
+  );
   useEffect(() => {
+    monitoringMounted.current = true;
     void refresh().catch((e) => {
       setLoadFailed(true);
-      onError(e.message);
+      onMonitoringError.current(e.message);
     });
+    const controller = new AbortController();
+    requests.current.add(controller);
+    // Hardware probing must not hold up job progress and is not repeated by polls.
+    void api<DeviceInfo>('/training/device', undefined, undefined, controller.signal)
+      .then((hardware) => {
+        if (monitoringMounted.current && !controller.signal.aborted)
+          setDevice({
+            ...hardware,
+            training_symmetry_modes: hardware.training_symmetry_modes ?? ['off', 'random_d4'],
+          });
+      })
+      .catch((error: Error) => {
+        if (monitoringMounted.current && !controller.signal.aborted)
+          onMonitoringError.current(error.message);
+      })
+      .finally(() => requests.current.delete(controller));
     return () => {
+      monitoringMounted.current = false;
       refreshRevision.current++;
+      for (const request of requests.current) request.abort();
+      jobsRequest.current = null;
+      workersRequest.current = null;
+      detailRequests.current.clear();
+      detailControllers.current.clear();
     };
-  }, [refresh, onError]);
+  }, [refresh]);
   useEffect(() => {
-    if (
-      !jobs.some((job) => ['running', 'pending', 'queued', 'cancelling'].includes(job.status)) &&
-      !workers.some((worker) => worker.status !== 'revoked')
-    )
-      return;
-    const timer = window.setInterval(() => void refresh().catch((e) => onError(e.message)), 2500);
+    for (const [id, controller] of detailControllers.current) {
+      if (id !== selectedJob?.id) controller.abort();
+    }
+    if (selectedJob?.summary) void loadDetails(selectedJob.id);
+  }, [selectedJob?.id, loadDetails]);
+  const polling = jobs.some(activeJob) || workers.some((worker) => worker.status !== 'revoked');
+  useEffect(() => {
+    if (!polling) return;
+    const timer = window.setInterval(
+      () => void refresh().catch((e) => onMonitoringError.current(e.message)),
+      2500,
+    );
     return () => window.clearInterval(timer);
-  }, [jobs, workers, refresh, onError]);
+  }, [polling, refresh]);
   const update = (key: string, value: string | number | boolean) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
   const start = async (event: FormEvent) => {
@@ -275,6 +398,7 @@ export default function Training({
     const revision = selectionRevision.current;
     try {
       const job = await api<Job>(`/training/jobs/${id}/cancel`, {});
+      refreshRevision.current++;
       if (selectionRevision.current === revision) selectJob(job);
       await refresh();
     } catch (e) {
@@ -373,13 +497,9 @@ export default function Training({
       setImporting(false);
     }
   };
-  const inspect = async (job: Job) => {
+  const inspect = (job: Job) => {
     selectJob(job);
-    try {
-      await refresh();
-    } catch (error) {
-      onError((error as Error).message);
-    }
+    if (job.summary) void loadDetails(job.id);
   };
   const removeTrainingData = async () => {
     if (!deleteJob) return;
@@ -923,6 +1043,7 @@ export default function Training({
           job={renameJob}
           onClose={() => setRenameJob(null)}
           onRenamed={(updated) => {
+            refreshRevision.current++;
             setRenameJob(null);
             setJobs((previous) => previous.map((job) => (job.id === updated.id ? updated : job)));
             setSelectedJob((previous) => (previous?.id === updated.id ? updated : previous));

@@ -57,6 +57,9 @@ class Store:
             schema = connection.execute("PRAGMA user_version").fetchone()[0]
             if schema > SCHEMA_VERSION:
                 raise ValueError("This database uses a newer unsupported schema")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS jobs_status ON jobs(json_extract(data, '$.status'))"
+            )
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(players)")}
             if "deleted_at" not in columns:
                 connection.execute("ALTER TABLE players ADD COLUMN deleted_at TEXT")
@@ -478,12 +481,38 @@ class Store:
                 raise ConflictError("Training job not found.")
             yield
 
-    def jobs(self) -> list[dict]:
+    def jobs(self, *, statuses: tuple[str, ...] | None = None, summary: bool = False) -> list[dict]:
+        if statuses is not None and not statuses:
+            return []
+        # Avoid decoding archived histories merely to render the navigator or
+        # find active leases. This projection never changes the retained row.
+        column = (
+            "json_remove(data, '$.progress.history', '$.progress.trial_progress.history', "
+            "'$.progress.metrics.self_play', '$.progress.metrics.evaluation.games', "
+            "'$.result.history', '$.result.metrics.self_play', '$.logs')"
+            if summary
+            else "data"
+        )
+        where = (
+            f"WHERE json_extract(data, '$.status') IN ({','.join('?' for _ in statuses)})"
+            if statuses is not None
+            else ""
+        )
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT data FROM jobs ORDER BY created_at DESC,id"
+                f"SELECT {column} AS data FROM jobs {where} ORDER BY created_at DESC,id",
+                statuses or (),
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
+
+    def active_worker_jobs(self) -> dict[str, int]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT json_extract(data, '$.worker_id') AS worker_id, count(*) AS active "
+                "FROM jobs WHERE json_extract(data, '$.status') IN ('running','cancelling') "
+                "GROUP BY json_extract(data, '$.worker_id')"
+            ).fetchall()
+        return {row["worker_id"]: row["active"] for row in rows if row["worker_id"] is not None}
 
     def create_worker(self, worker: dict, token_hash: str) -> None:
         with self.connection() as connection:

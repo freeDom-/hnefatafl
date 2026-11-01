@@ -130,7 +130,7 @@ describe('model and training collection controls', () => {
     expect(loaded).not.toHaveProperty('resume');
     await waitFor(() =>
       expect(fetcher).toHaveBeenCalledWith(
-        '/api/training/jobs',
+        '/api/training/jobs?summary=true',
         expect.objectContaining({ method: 'GET' }),
       ),
     );
@@ -181,7 +181,7 @@ describe('model and training collection controls', () => {
         removed = true;
         return json({ deleted: true, id: job.id });
       }
-      if (path.endsWith('/training/jobs')) return json(removed ? [] : [job]);
+      if (path.split('?')[0].endsWith('/training/jobs')) return json(removed ? [] : [job]);
       if (path.endsWith(`/training/jobs/${job.id}`)) return json(job);
       return json({});
     });
@@ -228,7 +228,11 @@ describe('model and training collection controls', () => {
       'fetch',
       vi.fn((path: string) =>
         json(
-          path.endsWith('/training/jobs') ? [active] : path.endsWith('/saved-job') ? active : {},
+          path.split('?')[0].endsWith('/training/jobs')
+            ? [active]
+            : path.endsWith('/saved-job')
+              ? active
+              : {},
         ),
       ),
     );
@@ -251,7 +255,7 @@ describe('model and training collection controls', () => {
           ? json({ detail: 'The model name could not be saved. Try again.' }, false)
           : json({ ...model, name: 'New name' });
       }
-      return json(path.endsWith('/training/jobs') ? [] : {});
+      return json(path.split('?')[0].endsWith('/training/jobs') ? [] : {});
     });
     vi.stubGlobal('fetch', fetcher);
     const { onModelsChanged } = show();

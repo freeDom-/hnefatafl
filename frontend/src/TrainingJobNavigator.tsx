@@ -45,7 +45,10 @@ export default function TrainingJobNavigator({
           {!selected && <option value="">{t('Select a training job')}</option>}
           {selected && !visible.some((job) => job.id === selected) && (
             <option value={selected}>
-              {jobName(jobs.find((job) => job.id === selected)!)} · {t('Outside current filters')}
+              {jobs.some((job) => job.id === selected)
+                ? jobName(jobs.find((job) => job.id === selected)!)
+                : selected.slice(0, 8)}{' '}
+              · {t('Outside current filters')}
             </option>
           )}
           {visible.map((job) => (
