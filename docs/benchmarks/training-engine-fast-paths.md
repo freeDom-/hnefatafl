@@ -22,6 +22,12 @@ the larger microbenchmark ratios must not be presented as full-training gains.
 Short timings have visible noise; these are bounded CPU diagnostics, not GPU or
 playing-strength evidence. Unfinished games remain unfinished.
 
+The same engine change measured end-to-end in GPU batched self-play is recorded in
+[GPU measurements on the RTX 3060 host](../PERFORMANCE.md#gpu-measurements-on-the-rtx-3060-host):
+the ratio of medians was 1.232× with matching work hashes, but one of the three
+pairs showed no improvement, so the median paired gain (~1.056×) is the
+conservative reading.
+
 The change adds an allocation-free legal-move existence query, immutable cached
 movement rays/neighbors/corners, integer-target validation, and an encirclement
 early exit when one edge-accessible defender disproves total enclosure. Movement

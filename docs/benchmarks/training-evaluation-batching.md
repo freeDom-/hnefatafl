@@ -25,6 +25,12 @@ update/resume, and verify post-update backend refresh and cleanup. CUDA tests
 skip explicitly on this CPU-only host. No GPU speedup or playing-strength gain is
 established by these timings.
 
+The same change measured on an RTX 3060 CUDA host is recorded in
+[GPU measurements on the RTX 3060 host](../PERFORMANCE.md#gpu-measurements-on-the-rtx-3060-host).
+Batched evaluation was 9.70× faster against Shieldbearer and 5.61× faster against
+Champion, but the Champion work hashes differed between the two execution modes,
+so equivalent Champion outcomes and promotion decisions are not established.
+
 Reproduce from the repository root (use the candidate script for both sources):
 
 ```sh
