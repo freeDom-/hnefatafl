@@ -2,6 +2,7 @@
 
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
@@ -9,6 +10,35 @@ from auth_support import AuthenticatedClient as TestClient
 from hnefatafl.server import create_app
 from hnefatafl.storage import Store
 from hnefatafl.tournaments import TournamentManager
+
+
+class LiveProcess:
+    """Deterministic stand-in for a worker handle owned by this process."""
+
+    def __init__(self, *, running: bool = True):
+        self.running = running
+
+    def poll(self):
+        return None if self.running else 0
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def decode_sizes(monkeypatch):
+    """Record the size of every JSON payload the storage layer decodes."""
+    import hnefatafl.storage as storage
+
+    sizes = []
+    original = storage.json
+
+    def loads(payload, *args, **kwargs):
+        if isinstance(payload, str):
+            sizes.append(len(payload))
+        return original.loads(payload, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "json", SimpleNamespace(loads=loads, dumps=original.dumps))
+    return sizes
 
 
 def stored_tournament(identifier, *, games=120, plies=40, mode="round_robin", status="completed"):
@@ -98,13 +128,14 @@ def test_storage_summary_projection_never_decodes_match_history(tmp_path, monkey
     assert len(full[0]["result"]["games"]) == 120
 
 
-def test_listing_reads_only_running_records(tmp_path):
+def test_listing_never_reads_a_full_record_for_a_running_tournament(tmp_path, monkeypatch):
     store = Store(tmp_path / "hnefatafl.sqlite3")
     store.save_tournament(stored_tournament("a" * 32))
     store.save_tournament(stored_tournament("b" * 32))
     interrupted = stored_tournament("c" * 32, status="running")
     interrupted["pid"] = 2147483647
     store.save_tournament(interrupted)
+    full_size = len(json.dumps(interrupted))
     reads = []
     original = Store.get_tournament
 
@@ -112,21 +143,99 @@ def test_listing_reads_only_running_records(tmp_path):
         reads.append(identifier)
         return original(self, identifier)
 
-    Store.get_tournament = spy
-    try:
-        manager = TournamentManager(store, tmp_path)
-        for summary in (True, False):
-            # Restore the active worker record so both passes exercise reconciliation.
-            store.save_tournament(interrupted)
-            reads.clear()
-            records = manager.list(summary=summary)
-            assert {record["id"] for record in records} == {"a" * 32, "b" * 32, "c" * 32}
-            # Only the active worker needs a full read for reconciliation.
-            assert reads and set(reads) == {"c" * 32}
-            assert all(record["status"] != "running" for record in records)
-        assert store.get_tournament("c" * 32)["status"] == "failed"
-    finally:
-        Store.get_tournament = original
+    monkeypatch.setattr(Store, "get_tournament", spy)
+    sizes = decode_sizes(monkeypatch)
+    manager = TournamentManager(store, tmp_path)
+    # A running tournament is reconciled from the loaded id/pid alone: neither a
+    # full read nor a match-history decode happens while polling summaries.
+    records = manager.list(summary=True)
+    assert {record["id"] for record in records} == {"a" * 32, "b" * 32, "c" * 32}
+    assert reads == []
+    assert max(sizes) < full_size / 10
+    interrupted_summary = next(record for record in records if record["id"] == "c" * 32)
+    assert interrupted_summary["status"] == "failed"
+    assert interrupted_summary["ended_at"] and interrupted_summary["error"]
+    assert "result" not in interrupted_summary
+    # The complete listing still needs the retained history of an interrupted run.
+    store.save_tournament(interrupted)
+    reads.clear()
+    complete = manager.list(summary=False)
+    assert reads == ["c" * 32]
+    assert complete[2]["status"] == "failed"
+    assert len(store.get_tournament("c" * 32)["result"]["games"]) == 120
+    assert store.get_tournament("c" * 32)["status"] == "failed"
+
+
+def test_healthy_running_tournament_keeps_polling_lightweight(tmp_path, monkeypatch):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    running = stored_tournament("d" * 32, status="running")
+    store.save_tournament(running)
+    full_size = len(json.dumps(running))
+    reads = []
+    original = Store.get_tournament
+
+    def spy(self, identifier):
+        reads.append(identifier)
+        return original(self, identifier)
+
+    monkeypatch.setattr(Store, "get_tournament", spy)
+    sizes = decode_sizes(monkeypatch)
+    manager = TournamentManager(store, tmp_path)
+    process = LiveProcess()
+    manager.processes["d" * 32] = process
+    for _ in range(3):
+        records = manager.list(summary=True)
+        assert records[0]["status"] == "running"
+        assert records[0]["progress"] == {"completed_games": 120, "total_games": 120}
+        assert "result" not in records[0]
+    assert reads == []
+    assert max(sizes) < full_size / 10
+    # The worker exits unexpectedly: the next listing reports the failure and
+    # keeps every completed game.
+    process.running = False
+    failed = manager.list(summary=True)[0]
+    assert failed["status"] == "failed"
+    assert failed["ended_at"] and failed["error"]
+    assert manager.processes == {}
+    assert len(store.get_tournament("d" * 32)["result"]["games"]) == 120
+
+
+def test_reconciliation_never_overwrites_a_worker_terminal_state(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    completed = stored_tournament("e" * 32, status="completed")
+    completed["ended_at"] = "2026-10-31T15:05:00Z"
+    store.save_tournament(completed)
+    manager = TournamentManager(store, tmp_path)
+    manager.processes["e" * 32] = LiveProcess(running=False)
+    record = manager.list(summary=True)[0]
+    assert record["status"] == "completed"
+    assert record["ended_at"] == "2026-10-31T15:05:00Z"
+    assert record["error"] is None
+    # The conditional transition refuses to touch a terminal row, even directly.
+    unchanged = store.fail_running_tournament(
+        "e" * 32, ended_at="2026-11-01T00:00:00Z", error="ignored"
+    )
+    assert unchanged["status"] == "completed"
+    assert unchanged["ended_at"] == "2026-10-31T15:05:00Z"
+    assert store.get_tournament("e" * 32)["status"] == "completed"
+    assert store.fail_running_tournament("missing", ended_at="x", error="y") is None
+
+
+def test_failed_reconciliation_keeps_results_and_allows_deletion(tmp_path):
+    store = Store(tmp_path / "hnefatafl.sqlite3")
+    interrupted = stored_tournament("f" * 32, status="running")
+    store.save_tournament(interrupted)
+    manager = TournamentManager(store, tmp_path)
+    record = manager.list(summary=True)[0]
+    assert record["status"] == "failed"
+    stored = store.get_tournament("f" * 32)
+    assert stored["status"] == "failed"
+    assert len(stored["result"]["games"]) == 120
+    assert stored["result"]["scores"] == [60.0, 60.0]
+    # Cancelling a stopped worker leaves the failure state untouched.
+    assert manager.cancel("f" * 32)["status"] == "failed"
+    assert manager.delete("f" * 32) is True
+    assert store.get_tournament("f" * 32) is None
 
 
 def test_summary_endpoint_omits_history_and_detail_keeps_everything(tmp_path):
@@ -210,4 +319,10 @@ def test_interrupted_worker_is_reconciled_through_the_summary_listing(tmp_path):
         assert summary["error"]
         assert summary["ended_at"]
         assert "result" not in summary
+        # A running tournament with a large history is summarised cheaply.
+        assert len(json.dumps(summary)) < len(json.dumps(interrupted)) / 10
+        detail = client.get(f"/api/tournaments/{'f' * 32}").json()
+        assert detail["status"] == "failed"
+        assert len(detail["result"]["games"]) == 120
+        assert detail["error"] == summary["error"]
         assert client.delete(f"/api/tournaments/{'f' * 32}").status_code == 200

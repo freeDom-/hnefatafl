@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Measure tournament collection and polling cost before and after lazy loading.
 
-Builds a synthetic saved collection in a temporary database: many completed
-tournaments, each with hundreds of games and long move histories. Nothing is
-written to the repository or to user data. The "before" numbers reproduce the
-previous list path (decode every full record, then strip the results in Python)
-and the previous poll path (re-download the selected match history every poll).
+Builds synthetic saved collections in temporary databases: many completed
+tournaments plus one running tournament, each with hundreds of games and long
+move histories. Nothing is written to the repository or to user data. The
+"before" numbers reproduce the previous paths: decode every full record and strip
+the results in Python, read the complete record again for a running tournament
+while polling, and re-download the selected match history on every poll.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ TOURNAMENTS = 24
 GAMES = 200
 PLIES = 60
 POLLS = 600
+REPEATS = 5
 
 
 def synthetic(identifier: str, index: int) -> dict:
@@ -136,7 +138,17 @@ class Meter:
         self.storage.json.loads = self.original_loads
 
 
-def timed(action, repeats=5):
+class LiveWorker:
+    """A worker handle owned by this process; the benchmark never starts one."""
+
+    def poll(self):
+        return None
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def timed(action, repeats=REPEATS):
     samples = []
     value = None
     for _ in range(repeats):
@@ -202,6 +214,56 @@ def main() -> int:
             "after_bytes": POLLS * new_bytes + detail_bytes,
         }
 
+        # A running tournament with a large retained history: polling summaries
+        # must be as cheap as polling a completed collection. The worker handle
+        # is a deterministic stand-in, so the record stays running.
+        running_store = Store(root / "running.sqlite3")
+        running_record = synthetic("f" * 32, 99)
+        running_record["status"] = "running"
+        running_record["ended_at"] = None
+        running_store.save_tournament(running_record)
+        running_manager = TournamentManager(running_store, root)
+        running_manager.processes["f" * 32] = LiveWorker()
+        with Meter(running_store) as meter:
+            running_before_time, running_before_bytes, running_before = timed(
+                lambda: [
+                    running_manager.public(running_manager.read(record["id"]), summary=True)
+                    for record in running_store.tournaments()
+                ]
+            )
+            running_before_reads = meter.reads
+            running_before_decoded = meter.decoded_bytes
+        with Meter(running_store) as meter:
+            running_after_time, running_after_bytes, running_after = timed(
+                lambda: [
+                    running_manager.public(record, summary=True)
+                    for record in running_manager.list(summary=True)
+                ]
+            )
+            running_after_reads = meter.reads
+            running_after_decoded = meter.decoded_bytes
+        assert running_before_bytes == running_after_bytes
+        assert running_after[0]["status"] == "running"
+        report["running_polling"] = {
+            "full_record_bytes": len(json.dumps(running_record, allow_nan=False)),
+            "summary_bytes": running_after_bytes,
+            "before": {
+                "seconds": running_before_time,
+                "storage_reads": running_before_reads,
+                "decoded_bytes": running_before_decoded,
+            },
+            "after": {
+                "seconds": running_after_time,
+                "storage_reads": running_after_reads,
+                "decoded_bytes": running_after_decoded,
+            },
+            "polling": {
+                "polls": POLLS,
+                "before_bytes": POLLS * running_before_decoded // REPEATS,
+                "after_bytes": POLLS * running_after_decoded // REPEATS,
+            },
+        }
+
         # End-to-end: the HTTP collection response the browser actually receives.
         sys.path.insert(1, str(Path(__file__).resolve().parents[1] / "tests"))
         from auth_support import AuthenticatedClient
@@ -222,6 +284,16 @@ def main() -> int:
         "storage_reads": report["before"]["storage_reads"] / report["after"]["storage_reads"],
         "polling_bytes": round(
             report["polling"]["before_bytes"] / report["polling"]["after_bytes"], 1
+        ),
+        "running_decoded_bytes": round(
+            report["running_polling"]["before"]["decoded_bytes"]
+            / report["running_polling"]["after"]["decoded_bytes"],
+            1,
+        ),
+        "running_polling_bytes": round(
+            report["running_polling"]["polling"]["before_bytes"]
+            / report["running_polling"]["polling"]["after_bytes"],
+            1,
         ),
     }
     print(json.dumps(report, indent=2))

@@ -591,6 +591,30 @@ class Store:
                 "UPDATE tournaments SET data=? WHERE id=?", (json.dumps(tournament), tournament_id)
             )
 
+    def fail_running_tournament(
+        self, tournament_id: str, *, ended_at: str, error: str
+    ) -> dict | None:
+        """Fail a still-running tournament whose worker has stopped.
+
+        The transition is conditional on the stored status, so a worker that
+        published its own terminal state concurrently keeps it. The returned
+        record excludes the retained match history, letting the caller report the
+        new state without decoding hundreds of saved games.
+        """
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "UPDATE tournaments "
+                "SET data=json_set(data, '$.status', 'failed', '$.ended_at', ?, '$.error', ?) "
+                "WHERE id=? AND json_extract(data, '$.status')='running'",
+                (ended_at, error, tournament_id),
+            )
+            row = connection.execute(
+                "SELECT json_remove(data, '$.result') AS data FROM tournaments WHERE id=?",
+                (tournament_id,),
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
     def delete_tournament(self, tournament_id: str) -> bool:
         with self.connection() as connection:
             cursor = connection.execute("DELETE FROM tournaments WHERE id=?", (tournament_id,))

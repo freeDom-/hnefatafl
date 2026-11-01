@@ -23,6 +23,9 @@ from .storage import Store
 from .identities import agent_identity
 
 
+STOPPED_WORKER_ERROR = "The tournament worker stopped. Completed games have been kept."
+
+
 def timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -61,17 +64,14 @@ class TournamentManager:
             if tournament is None:
                 return None
             if tournament["status"] == "running" and not self.alive(tournament):
-                self.store.update_tournament(
-                    identifier,
-                    {
-                        "status": "failed",
-                        "ended_at": timestamp(),
-                        "error": "The tournament worker stopped. Completed games have been kept.",
-                    },
-                    running=True,
+                # The conditional transition keeps a terminal state that the
+                # worker published concurrently.
+                self.store.fail_running_tournament(
+                    identifier, ended_at=timestamp(), error=STOPPED_WORKER_ERROR
                 )
                 tournament = self.store.get_tournament(identifier)
-                assert tournament is not None
+                if tournament is None:
+                    return None
             process = self.processes.get(identifier)
             if process is not None and tournament["status"] != "running":
                 # A worker publishes its final state immediately before Python
@@ -115,13 +115,25 @@ class TournamentManager:
 
     def list(self, *, summary: bool = False) -> list[dict]:
         with self.lock:
-            records = self.store.tournaments(summary=summary)
-            # Only a running tournament needs the live-worker reconciliation;
-            # inactive history is presented without reading its retained matches.
-            return [
-                record if record["status"] != "running" else (self.read(record["id"]) or record)
-                for record in records
-            ]
+            listed = []
+            for record in self.store.tournaments(summary=summary):
+                if record["status"] != "running" or self.alive(record):
+                    listed.append(record)
+                    continue
+                # Liveness uses only the loaded id and pid, so a running
+                # tournament is never decoded merely to poll its status.
+                updated = self.store.fail_running_tournament(
+                    record["id"], ended_at=timestamp(), error=STOPPED_WORKER_ERROR
+                )
+                process = self.processes.get(record["id"])
+                if process is not None and process.poll() is not None:
+                    self.processes.pop(record["id"], None)
+                if updated is None:
+                    continue  # deleted concurrently
+                listed.append(
+                    updated if summary else (self.store.get_tournament(record["id"]) or updated)
+                )
+            return listed
 
     def export(self, identifier: str) -> dict | None:
         """Portable configuration plus saved results; never server-managed paths/IDs.

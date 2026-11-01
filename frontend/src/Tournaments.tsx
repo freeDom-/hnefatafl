@@ -178,8 +178,14 @@ export default function Tournaments({
   const refreshRevision = useRef(0);
   /** Change marker of the currently displayed full record. */
   const detailMarker = useRef<string | null>(null);
-  /** Id of an in-flight detail request, so polling never duplicates it. */
-  const detailRequest = useRef<string | null>(null);
+  /** Latest summary marker observed for the selected tournament. */
+  const summaryMarker = useRef<string | null>(null);
+  /** In-flight detail request: its tournament, its starting marker and its abort handle. */
+  const detailRequest = useRef<{
+    id: string;
+    marker: string | null;
+    controller: AbortController;
+  } | null>(null);
   const listRequest = useRef<{ revision: number; promise: Promise<void> } | null>(null);
   const mutating = useRef(false);
   const mounted = useRef(true);
@@ -209,33 +215,57 @@ export default function Tournaments({
     setFixedOpen(true);
   };
 
-  const loadDetail = useCallback(async (id: string, resetLog: boolean) => {
-    const request = ++requestNumber.current;
-    detailRequest.current = id;
-    if (resetLog) {
-      // The match log starts collapsed for every newly opened tournament; a
-      // same-tournament data refresh below keeps the current expansion state.
-      setMatchesOpen(false);
-      setReplay(null);
-    }
-    setDetailLoading(true);
-    try {
-      const next = await api<Tournament>(`/tournaments/${id}`);
-      // A slow response for tournament A never overwrites a newer selection B.
-      if (!mounted.current || request !== requestNumber.current || selectedId.current !== id)
-        return;
-      detailMarker.current = progressMarker(next);
-      setSelected(next);
-    } catch (error) {
-      if (mounted.current && request === requestNumber.current && selectedId.current === id)
-        errorHandler.current((error as Error).message);
-    } finally {
-      if (mounted.current && request === requestNumber.current) {
-        detailRequest.current = null;
-        setDetailLoading(false);
+  /**
+   * Load the selected tournament's full record.
+   *
+   * An obsolete request is aborted, and a response that is older than a summary
+   * already observed triggers exactly one immediate follow-up fetch, so a
+   * delayed running snapshot can never leave terminal results hidden.
+   */
+  const loadDetail = useCallback(
+    async (id: string, resetLog: boolean, marker: string | null): Promise<void> => {
+      const request = ++requestNumber.current;
+      detailRequest.current?.controller.abort();
+      const controller = new AbortController();
+      detailRequest.current = { id, marker, controller };
+      if (resetLog) {
+        // The match log starts collapsed for every newly opened tournament; a
+        // same-tournament data refresh below keeps the current expansion state.
+        setMatchesOpen(false);
+        setReplay(null);
       }
-    }
-  }, []);
+      setDetailLoading(true);
+      try {
+        const next = await api<Tournament>(
+          `/tournaments/${id}`,
+          undefined,
+          undefined,
+          controller.signal,
+        );
+        // A slow response for tournament A never overwrites a newer selection B.
+        if (!mounted.current || request !== requestNumber.current || selectedId.current !== id)
+          return;
+        const observed = summaryMarker.current;
+        detailMarker.current = progressMarker(next);
+        setSelected(next);
+        // The summary moved on while this response was in flight, so the record
+        // is already stale: fetch the newer one instead of waiting for a poll.
+        if (observed !== null && observed !== detailMarker.current && observed !== marker)
+          void loadDetail(id, false, observed);
+      } catch (error) {
+        // A superseded or unmounted request aborts silently.
+        if (controller.signal.aborted || (error as Error)?.name === 'AbortError') return;
+        if (mounted.current && request === requestNumber.current && selectedId.current === id)
+          errorHandler.current((error as Error).message);
+      } finally {
+        if (detailRequest.current?.controller === controller) {
+          detailRequest.current = null;
+          if (mounted.current) setDetailLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
   const select = useCallback(
     async (id: string) => {
@@ -244,7 +274,8 @@ export default function Tournaments({
       // replacement loads.
       setSelected((current) => (current?.id === id ? current : null));
       detailMarker.current = null;
-      await loadDetail(id, true);
+      summaryMarker.current = null;
+      await loadDetail(id, true, null);
     },
     [loadDetail],
   );
@@ -268,20 +299,28 @@ export default function Tournaments({
       const id = selectedId.current;
       const current = id ? saved.find((tournament) => tournament.id === id) : undefined;
       if (!current) {
-        // First load, or the selected tournament is gone.
-        if (saved[0]) await select(saved[0].id);
+        // First load, or the selected tournament is gone. The history is loaded
+        // separately so a slow detail request never blocks the next poll.
+        if (saved[0]) void select(saved[0].id);
         else {
           selectedId.current = null;
+          summaryMarker.current = null;
+          detailRequest.current?.controller.abort();
+          detailRequest.current = null;
           setSelected(null);
           setReplay(null);
           setMatchesOpen(false);
         }
         return;
       }
-      // Only fetch the full history when the lightweight summary changed and no
-      // detail request for this tournament is already running.
-      if (detailMarker.current !== progressMarker(current) && detailRequest.current !== current.id)
-        await loadDetail(current.id, false);
+      summaryMarker.current = progressMarker(current);
+      // Only fetch the full history when the summary moved past the displayed
+      // record and no detail request for this tournament is already running.
+      if (
+        detailMarker.current !== summaryMarker.current &&
+        detailRequest.current?.id !== current.id
+      )
+        void loadDetail(current.id, false, summaryMarker.current);
     })();
     listRequest.current = { revision, promise };
     try {
@@ -303,6 +342,8 @@ export default function Tournaments({
       requestNumber.current++;
       refreshRevision.current++;
       listRequest.current = null;
+      detailRequest.current?.controller.abort();
+      detailRequest.current = null;
     };
   }, [refresh]);
   useEffect(() => {
@@ -343,6 +384,10 @@ export default function Tournaments({
       if (selectedId.current === deleting.id) {
         selectedId.current = null;
         requestNumber.current++;
+        summaryMarker.current = null;
+        // An in-flight history for the deleted tournament is now irrelevant.
+        detailRequest.current?.controller.abort();
+        detailRequest.current = null;
         setSelected(null);
         setReplay(null);
         setMatchesOpen(false);
