@@ -33,7 +33,8 @@ MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 # Upper bound for republishing a job's progress snapshot to the server. The
 # training process refreshes its bounded heartbeat about once per second;
 # forwarding that at the same cadence would multiply lease renewals for no
-# visible benefit.
+# visible benefit. A report that carries nothing new stays bounded: it forwards
+# the child's liveness and freshness instead of its retained history.
 PROGRESS_REPORT_SECONDS = 2.0
 _IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
 _TOKEN = re.compile(r"[A-Za-z0-9._~-]{16,512}\Z")
@@ -305,6 +306,15 @@ class JobRunner:
         self.last_ack = time.monotonic()
         self.sequence = int(self.job.get("sequence", 0))
         self.history_sent = 0
+        # The child revision whose full snapshot the server already holds. While it
+        # is unchanged only the bounded liveness projection needs to travel.
+        self.sent_revision: int | None = None
+        # Identity of the log tail the server already holds, so an unchanged tail
+        # is neither re-read nor retransmitted.
+        self.log_key: tuple[int, int] | None = None
+        # A server that merges partial snapshots advertises it on every report, so
+        # an older server always keeps receiving complete ones.
+        self.server_merges = False
         self.uploaded: dict[str, tuple[int, int]] = {}
         self.manifest_lock = threading.Lock()
         self.manifest: dict[str, Any] = {
@@ -322,12 +332,27 @@ class JobRunner:
             _write_private(self.directory / "lease.json", self.manifest)
 
     def _log(self) -> str:
+        """Bounded log tail; empty when the file has not changed since the last read.
+
+        The server keeps the tail it already has, so an unchanged tail is neither
+        re-read nor retransmitted.
+        """
+        path = self.directory / "worker.log"
         try:
-            with (self.directory / "worker.log").open("rb") as log:
-                log.seek(max(0, log.seek(0, 2) - 16000))
-                return self.api.redact(log.read().decode(errors="replace"), self.token)
+            stat = path.stat()
         except OSError:
             return ""
+        key = (stat.st_size, stat.st_mtime_ns)
+        if key == self.log_key:
+            return ""
+        try:
+            with path.open("rb") as log:
+                log.seek(max(0, stat.st_size - 16000))
+                text = self.api.redact(log.read().decode(errors="replace"), self.token)
+        except OSError:
+            return ""
+        self.log_key = key
+        return text
 
     def _report(self) -> None:
         pending = None
@@ -343,6 +368,8 @@ class JobRunner:
                 self.lease_seconds = float(response.get("lease_seconds", self.lease_seconds))
                 self.sequence += 1
                 self.history_sent = history_end
+                self.sent_revision = self._reported_revision(pending)
+                self.server_merges = bool(response.get("merge"))
                 self._save(sequence=self.sequence)
                 pending = None
                 if response.get("cancel_requested"):
@@ -365,16 +392,55 @@ class JobRunner:
                 self.progress_interval if pending is None else min(2, self.interval)
             )
 
-    def _progress_report(self) -> tuple[dict, int, bool]:
-        """Keep the original small-report contract; stream large history in chunks."""
-        from .training_monitoring import overlay_heartbeat, read_heartbeat
+    def _progress_report(self, *, force_full: bool = False) -> tuple[dict, int, bool]:
+        """Keep the original small-report contract; stream large history in chunks.
+
+        A child snapshot that has not changed since the last acknowledged report
+        travels as a bounded liveness projection instead of the retained history,
+        metrics and logs. A server that advertises the merge (``merge`` in its
+        reply) applies it over the snapshot it already holds, so no monitoring
+        information is lost while a long phase runs; an older server keeps
+        receiving complete snapshots.
+        """
+        from .training_monitoring import (
+            heartbeat_projection,
+            overlay_heartbeat,
+            publication_age,
+            read_heartbeat,
+        )
+
+        # Measured on the worker host, which is also the child's host, so it is a
+        # trustworthy duration: the supervisor may stay connected while the child
+        # stops publishing, and the server must not read that as a fresh child.
+        child_age = publication_age(self.directory)
+        heartbeat = read_heartbeat(self.directory)
+        revision = heartbeat.get("revision") if isinstance(heartbeat, dict) else None
+        if (
+            not force_full
+            and self.server_merges
+            and isinstance(heartbeat, dict)
+            and isinstance(revision, int)
+            and revision == self.sent_revision
+        ):
+            progress = heartbeat_projection(heartbeat)
+            if child_age is not None:
+                progress["publication_age_seconds"] = child_age
+            payload = {
+                "lease_token": self.token,
+                "sequence": self.sequence,
+                "progress": progress,
+                "logs": self._log(),
+            }
+            return payload, self.history_sent, False
 
         progress = safe_progress(
             overlay_heartbeat(
                 _read_json(self.directory / "progress.json") or {"stage": "starting"},
-                read_heartbeat(self.directory),
+                heartbeat,
             )
         )
+        if child_age is not None:
+            progress["publication_age_seconds"] = child_age
         history = progress.get("history", [])
         offset = None
         end = len(history)
@@ -390,6 +456,9 @@ class JobRunner:
                 size += point_size
             progress["history"] = chunk
             end = offset + len(chunk)
+        elif self.server_merges and end and self.history_sent >= end:
+            # Every retained row already reached the server; keep the report small.
+            progress.pop("history", None)
         payload = {
             "lease_token": self.token,
             "sequence": self.sequence,
@@ -400,16 +469,26 @@ class JobRunner:
             payload["history_offset"] = offset
         return payload, end, end < len(history)
 
+    def _reported_revision(self, payload: dict) -> int | None:
+        """The child revision a report describes, so an unchanged one stays bounded."""
+        progress = payload.get("progress")
+        revision = progress.get("revision") if isinstance(progress, dict) else None
+        return revision if isinstance(revision, int) else None
+
     def _final_report(self) -> None:
         """Flush a short run's final metrics after the periodic reporter has stopped."""
         while True:
-            payload, history_end, more = self._progress_report()
+            # The last flush always carries the retained snapshot, so a publication
+            # that raced the child's exit can never be missed.
+            payload, history_end, more = self._progress_report(force_full=True)
             response = self._retry(
                 lambda: self.api.request(f"/api/worker/jobs/{self.job_id}/progress", payload)
             )
             self.last_ack = time.monotonic()
             self.sequence += 1
             self.history_sent = history_end
+            self.sent_revision = self._reported_revision(payload)
+            self.server_merges = bool(response.get("merge"))
             self._save(sequence=self.sequence)
             if response.get("cancel_requested"):
                 self.cancel.set()

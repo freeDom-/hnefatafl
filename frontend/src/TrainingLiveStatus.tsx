@@ -13,6 +13,7 @@ const HEARTBEAT_LABELS: Record<HeartbeatState, string> = {
   long_operation: 'Running, long operation',
   stalled: 'Potentially stalled',
   unresponsive: 'No recent updates',
+  disconnected: 'Worker connection lost',
   waiting: 'Waiting for a worker',
   terminal: 'Finished',
 };

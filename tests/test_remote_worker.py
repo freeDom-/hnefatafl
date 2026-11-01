@@ -46,7 +46,7 @@ class ReplyAPI:
         )
 
     def request(self, route, payload=None, **kwargs):
-        return {"lease_seconds": 120, "cancel_requested": False}
+        return {"lease_seconds": 120, "cancel_requested": False, "merge": True}
 
 
 def supervisor(monkeypatch, api, runner):
@@ -563,3 +563,144 @@ def test_initialization_progress_reaches_the_server_unchanged(tmp_path):
     assert progress["total_iterations"] == 20
     # No counter is invented before the first self-play game.
     assert "phase_progress" not in progress
+
+
+def child_files(tmp_path, *, run="run-a", revision=2, history=None, metrics=None):
+    """One training child's retained snapshot and bounded heartbeat."""
+    (tmp_path / "progress.json").write_text(
+        json.dumps(
+            {
+                "run": run,
+                "revision": revision,
+                "status": "running",
+                "stage": "self_play",
+                "duration": 5.0,
+                "history": history if history is not None else [{"iteration": 1}],
+                "metrics": metrics if metrics is not None else {"policy_loss": 0.4},
+            }
+        )
+    )
+    (tmp_path / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "run": run,
+                "revision": revision,
+                "status": "running",
+                "stage": "self_play",
+                "duration": 6.0,
+                "phase_elapsed": 6.0,
+                "last_progress_seconds": 0.5,
+            }
+        )
+    )
+
+
+def test_an_unchanged_child_snapshot_is_reported_as_a_bounded_heartbeat(tmp_path):
+    child_files(tmp_path, history=[{"iteration": index} for index in range(200)])
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    first, history_end, more = runner._progress_report()
+    assert first["progress"]["revision"] == 2
+    assert first["progress"]["history"]
+    assert "metrics" in first["progress"]
+
+    # The server acknowledged that revision and merges partial snapshots, so only
+    # liveness needs to travel.
+    runner.history_sent, runner.sent_revision, runner.server_merges = history_end, 2, True
+    second, end, more = runner._progress_report()
+    assert second["progress"]["revision"] == 2
+    assert second["progress"]["stage"] == "self_play"
+    assert second["progress"]["duration"] == 6.0
+    assert second["progress"]["publication_age_seconds"] >= 0
+    for key in ("history", "metrics"):
+        assert key not in second["progress"]
+    assert end == history_end and more is False
+    assert len(json.dumps(second)) < len(json.dumps(first)) / 5
+
+
+def test_a_new_child_revision_sends_the_retained_snapshot_again(tmp_path):
+    child_files(tmp_path)
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    _, history_end, _ = runner._progress_report()
+    runner.history_sent, runner.sent_revision, runner.server_merges = history_end, 2, True
+    assert "history" not in runner._progress_report()[0]["progress"]
+
+    # A real progress event bumps the child revision and must be forwarded.
+    child_files(tmp_path, revision=3, history=[{"iteration": 1}, {"iteration": 2}])
+    report, end, _ = runner._progress_report()
+    assert report["progress"]["revision"] == 3
+    assert end == 2
+    assert report["progress"]["history"] == [{"iteration": 1}, {"iteration": 2}]
+    # Nothing new in the retained history, so it is not retransmitted.
+    runner.history_sent, runner.sent_revision = end, 3
+    later, later_end, _ = runner._progress_report()
+    assert "history" not in later["progress"] and later_end == 2
+
+
+def test_an_unchanged_history_is_not_retransmitted(tmp_path):
+    child_files(tmp_path, history=[{"iteration": 1}, {"iteration": 2}])
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    _, history_end, _ = runner._progress_report()
+    runner.history_sent, runner.server_merges = history_end, True
+    # A revision change without new history rows: only the changed keys travel.
+    child_files(tmp_path, revision=3, history=[{"iteration": 1}, {"iteration": 2}])
+    report, end, _ = runner._progress_report()
+    assert "history" not in report["progress"]
+    assert report["progress"]["revision"] == 3
+    assert end == 2
+
+
+def test_an_unchanged_log_tail_is_not_retransmitted(tmp_path):
+    child_files(tmp_path)
+    (tmp_path / "worker.log").write_text("first line\n")
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    assert runner._progress_report()[0]["logs"] == "first line\n"
+    # Unchanged tail: the server keeps what it already has.
+    assert runner._progress_report()[0]["logs"] == ""
+    (tmp_path / "worker.log").write_text("first line\nsecond line\n")
+    assert runner._progress_report()[0]["logs"] == "first line\nsecond line\n"
+
+
+def test_a_stale_heartbeat_from_another_run_is_not_applied(tmp_path):
+    # A reused job directory or a restarted worker can leave a heartbeat behind
+    # whose revision matches the new run's first publication.
+    (tmp_path / "progress.json").write_text(
+        json.dumps({"run": "run-b", "revision": 1, "status": "running", "stage": "initializing"})
+    )
+    (tmp_path / "heartbeat.json").write_text(
+        json.dumps({"run": "run-a", "revision": 1, "stage": "self_play", "duration": 99.0})
+    )
+    runner = remote.JobRunner(ReplyAPI(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    report, _, _ = runner._progress_report()
+    assert report["progress"]["run"] == "run-b"
+    assert report["progress"]["stage"] == "initializing"
+    # The stale heartbeat's fields never leak into the forwarded snapshot.
+    assert "duration" not in report["progress"]
+
+
+def test_reporting_switches_to_bounded_updates_when_the_child_is_unchanged(tmp_path, monkeypatch):
+    child_files(tmp_path, history=[{"iteration": index} for index in range(50)])
+    payloads = []
+
+    class API(ReplyAPI):
+        def request(self, route, payload=None, **kwargs):
+            payloads.append(payload)
+            return {"lease_seconds": 120, "cancel_requested": False, "merge": True}
+
+    monkeypatch.setattr(remote, "PROGRESS_REPORT_SECONDS", 0.05)
+    runner = remote.JobRunner(API(), remote.Lease(job(), 10, 120), tmp_path, threading.Event())
+    reporter = threading.Thread(target=runner._report, daemon=True)
+    reporter.start()
+    try:
+        deadline = time.monotonic() + 10
+        while len(payloads) < 3 and time.monotonic() < deadline:
+            time.sleep(0.02)
+    finally:
+        runner.report_stop.set()
+        reporter.join(timeout=5)
+    assert len(payloads) >= 3
+    # The retained snapshot travels once; every later report is bounded.
+    assert "history" in payloads[0]["progress"]
+    assert all("history" not in payload["progress"] for payload in payloads[1:])
+    assert all("metrics" not in payload["progress"] for payload in payloads[1:])
+    assert all(payload["progress"]["revision"] == 2 for payload in payloads)
+    assert runner.sent_revision == 2

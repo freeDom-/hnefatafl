@@ -410,3 +410,81 @@ it('shows the stored duration of a historical completed job', () => {
   // Jobs recorded before the monitoring fields existed invent no heartbeat.
   expect(screen.getByTestId('heartbeat')).toHaveTextContent('—');
 });
+
+it('distinguishes a stale child from a silent remote supervisor', () => {
+  setLanguage('en', false);
+  const remote = (ages: Record<string, number>, updatedAt = monitored.updated_at) => ({
+    id: 'job-1',
+    status: 'running',
+    execution: 'remote' as const,
+    ...ages,
+    progress: { ...monitored, updated_at: updatedAt },
+  });
+  // The supervisor reports every couple of seconds; the child stopped.
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 600, supervisor_age_seconds: 1 })}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+
+  // The supervisor itself is silent, so the child's state is unknown.
+  rerender(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 600, supervisor_age_seconds: 600 })}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker connection lost');
+
+  // The child publishes again, so both signals are fresh.
+  rerender(
+    <TrainingLiveStatus
+      job={remote(
+        { publication_age_seconds: 0.4, supervisor_age_seconds: 0.4 },
+        '2026-01-01T00:05:00.000Z',
+      )}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('never claims a connection loss for a local job', () => {
+  setLanguage('en', false);
+  render(
+    <TrainingLiveStatus
+      job={{
+        id: 'job-1',
+        status: 'running',
+        execution: 'local',
+        publication_age_seconds: 0.5,
+        progress: monitored,
+      }}
+    />,
+  );
+  // A local job has no supervisor signal at all.
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('ages the child and supervisor signals together on a remote job', async () => {
+  vi.useFakeTimers();
+  setLanguage('en', false);
+  render(
+    <TrainingLiveStatus
+      job={{
+        id: 'job-1',
+        status: 'running',
+        execution: 'remote',
+        publication_age_seconds: 1,
+        supervisor_age_seconds: 1,
+        progress: monitored,
+      }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+  // Only the child age is anchored locally; the supervisor age comes from the
+  // server, which stops advancing it once the connection is gone.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(25000);
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+});

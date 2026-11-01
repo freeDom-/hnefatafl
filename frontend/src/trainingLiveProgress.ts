@@ -16,12 +16,15 @@ export const LONG_OPERATION_SECONDS = 120;
 export const STALLED_SECONDS = 600;
 /** No refreshed snapshot for this long means publication itself stopped. */
 export const PUBLICATION_STALE_SECONDS = 20;
+/** A remote supervisor reports every couple of seconds; silence means the link. */
+export const SUPERVISOR_STALE_SECONDS = 20;
 
 export type HeartbeatState =
   | 'active'
   | 'long_operation'
   | 'stalled'
   | 'unresponsive'
+  | 'disconnected'
   | 'waiting'
   | 'terminal';
 
@@ -34,6 +37,12 @@ export interface LiveProgress {
   progressAge?: number;
   /** Seconds since the last refreshed monitoring snapshot. */
   publicationAge?: number;
+  /**
+   * Seconds since the server last heard from a remote supervisor. A connected
+   * supervisor can forward an unchanged child snapshot, so this is reported
+   * separately from the child's own publication age.
+   */
+  supervisorAge?: number;
   /** Undefined for jobs recorded before heartbeat fields existed. */
   heartbeat?: HeartbeatState;
 }
@@ -83,11 +92,17 @@ export function useLiveProgress(job: Job): LiveProgress {
   // its own clock, so a reload never mistakes an old snapshot for a fresh one
   // and an unsynchronised remote worker clock is never trusted.
   const reportedPublicationAge = number(job.publication_age_seconds);
+  const reportedSupervisorAge = number(job.supervisor_age_seconds);
   const stage = typeof progress.stage === 'string' ? progress.stage : '';
   const phaseKey = `${stage}@${String(progress.phase_started_at ?? '')}@${String(progress.iteration ?? '')}`;
   // Every publication refreshes this key, including heartbeat-only refreshes.
   const snapshotKey = String(progress.updated_at ?? progress.duration ?? '');
-  const anchorKey = `${job.id}|${phaseKey}|${snapshotKey}|${duration}|${phaseElapsed}|${progressAge}|${active}`;
+  // The server's freshness age changes with every poll, so it takes part in the
+  // anchor key: a recovered worker must re-anchor at its fresh age immediately.
+  const anchorKey = `${job.id}|${phaseKey}|${snapshotKey}|${duration}|${phaseElapsed}|${progressAge}|${active}|${reportedPublicationAge}`;
+  // The supervisor's silence is measured by the server on its own clock and only
+  // grows while reports stop, so it needs no anchor of its own.
+  const supervisorAge = reportedSupervisorAge;
 
   // Re-anchor during render so a new snapshot is reflected in the same commit
   // instead of one tick later.
@@ -112,7 +127,11 @@ export function useLiveProgress(job: Job): LiveProgress {
       // Progress age legitimately resets when work resumes, so it follows the
       // newest report instead of the maximum.
       progressAge: progressAge ?? 0,
-      publicationAge: reportedPublicationAge,
+      // A published snapshot adopts the reported age; otherwise the age only
+      // grows, so a racing response can never make a stale worker look fresh.
+      publicationAge: changed
+        ? reportedPublicationAge
+        : Math.max(reportedPublicationAge ?? 0, anchor?.publicationAge ?? 0),
       snapshotKey,
       changedAt: changed ? at : (anchor?.changedAt ?? at),
     });
@@ -142,13 +161,24 @@ export function useLiveProgress(job: Job): LiveProgress {
           ? publicationBase + sinceAnchor
           : publicationBase
         : fallback;
-    live.heartbeat = active ? classify(live.progressAge, live.publicationAge) : 'terminal';
+    live.supervisorAge = supervisorAge;
+    live.heartbeat = active
+      ? classify(live.progressAge, live.publicationAge, supervisorAge)
+      : 'terminal';
   }
   if (active && ['pending', 'queued'].includes(job.status)) live.heartbeat = 'waiting';
   return live;
 }
 
-function classify(progressAge: number, publicationAge: number): HeartbeatState {
+function classify(
+  progressAge: number,
+  publicationAge: number,
+  supervisorAge?: number,
+): HeartbeatState {
+  // A silent supervisor says nothing about the child, so it is reported before
+  // the child's own freshness rather than being mistaken for it.
+  if (supervisorAge !== undefined && supervisorAge > SUPERVISOR_STALE_SECONDS)
+    return 'disconnected';
   if (publicationAge > PUBLICATION_STALE_SECONDS) return 'unresponsive';
   if (progressAge > STALLED_SECONDS) return 'stalled';
   if (progressAge > LONG_OPERATION_SECONDS) return 'long_operation';

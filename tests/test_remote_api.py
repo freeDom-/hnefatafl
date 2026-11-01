@@ -1,6 +1,7 @@
 """Authenticated remote leases coordinate independent training jobs and artifacts."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import random
@@ -723,8 +724,6 @@ def test_augmenting_worker_receives_setting_and_legacy_default_stays_off(client)
 
 
 def test_remote_job_reports_the_server_observed_publication_age(client):
-    from datetime import datetime, timedelta, timezone
-
     _, headers = worker(client)
     queue(client)
     lease = claim(client, headers)
@@ -743,3 +742,219 @@ def test_remote_job_reports_the_server_observed_publication_age(client):
     # A job that has never reported omits the field instead of inventing one.
     queued = queue(client)
     assert "publication_age_seconds" not in client.get(f"/api/training/jobs/{queued['id']}").json()
+
+
+def post_progress(client, headers, lease, body):
+    return client.post(f"/api/worker/jobs/{lease['id']}/progress", headers=headers, json=body)
+
+
+def test_a_connected_supervisor_forwarding_a_stale_child_is_not_fresh(client):
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    # The supervisor reports promptly, but the child stopped publishing ten
+    # minutes ago. The child's age must not be replaced by the supervisor's.
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 1,
+                "progress": {
+                    "run": "run-a",
+                    "revision": 3,
+                    "status": "running",
+                    "stage": "self_play",
+                    "publication_age_seconds": 600.0,
+                },
+            },
+        ).status_code
+        == 200
+    )
+    item = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert item["publication_age_seconds"] == pytest.approx(600, abs=10)
+    assert item["supervisor_age_seconds"] < 5
+
+    # A recovered child is fresh again while the supervisor stays connected.
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 2,
+                "progress": {
+                    "run": "run-a",
+                    "revision": 4,
+                    "status": "running",
+                    "stage": "self_play",
+                    "publication_age_seconds": 0.5,
+                },
+            },
+        ).status_code
+        == 200
+    )
+    recovered = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert recovered["publication_age_seconds"] < 5
+    assert recovered["supervisor_age_seconds"] < 5
+
+
+def test_the_child_age_keeps_growing_while_the_supervisor_reports(client):
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 1,
+                "progress": {"run": "run-a", "revision": 1, "publication_age_seconds": 30.0},
+            },
+        ).status_code
+        == 200
+    )
+    # Rewind the server-observed arrival stamp: the child age is a duration the
+    # server extends with its own clock, so a stalled child cannot look fresh.
+    job = client.app.state.store.get_job(lease["id"])
+    job["last_reported_at"] = (datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat()
+    client.app.state.store.save_job(job)
+    stale = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert stale["publication_age_seconds"] == pytest.approx(75, abs=10)
+    assert stale["supervisor_age_seconds"] == pytest.approx(45, abs=10)
+
+
+def test_the_progress_reply_advertises_partial_snapshot_merging(client):
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    reply = post_progress(
+        client,
+        headers,
+        lease,
+        {
+            "lease_token": lease["lease_token"],
+            "sequence": 1,
+            "progress": {"run": "run-a", "revision": 1},
+        },
+    )
+    assert reply.status_code == 200
+    # A worker only sends partial snapshots to a server that merges them.
+    assert reply.json()["merge"] is True
+
+
+def test_a_bounded_heartbeat_report_keeps_the_retained_snapshot(client):
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    history = [{"iteration": index, "policy_loss": 0.5} for index in range(5)]
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 1,
+                "progress": {
+                    "run": "run-a",
+                    "revision": 2,
+                    "status": "running",
+                    "stage": "self_play",
+                    "history": history,
+                    "metrics": {"policy_loss": 0.5, "self_play": [{"plies": 4}]},
+                    "best_models": [{"iteration": 1, "model_id": "b" * 24}],
+                },
+            },
+        ).status_code
+        == 200
+    )
+    # A live refresh carries only the bounded keys; every other key is retained.
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 2,
+                "progress": {
+                    "run": "run-a",
+                    "revision": 2,
+                    "status": "running",
+                    "stage": "evaluation",
+                    "phase_elapsed": 12.0,
+                    "publication_age_seconds": 0.4,
+                },
+            },
+        ).status_code
+        == 200
+    )
+    item = client.get(f"/api/training/jobs/{lease['id']}").json()
+    progress = item["progress"]
+    assert progress["stage"] == "evaluation"
+    assert progress["phase_elapsed"] == 12.0
+    assert progress["history"] == history
+    assert progress["metrics"]["policy_loss"] == 0.5
+    # Retained model ids come from the server's own uploaded artifacts.
+    assert progress["best_models"] == []
+    assert item["publication_age_seconds"] < 5
+
+
+def test_a_report_without_history_keeps_the_retained_history(client):
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    history = [{"iteration": index} for index in range(3)]
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 1,
+                "progress": {"run": "run-a", "revision": 1, "history": history},
+            },
+        ).status_code
+        == 200
+    )
+    # An unchanged retained history is not retransmitted.
+    assert (
+        post_progress(
+            client,
+            headers,
+            lease,
+            {
+                "lease_token": lease["lease_token"],
+                "sequence": 2,
+                "progress": {"run": "run-a", "revision": 2, "stage": "optimization"},
+            },
+        ).status_code
+        == 200
+    )
+    progress = client.get(f"/api/training/jobs/{lease['id']}").json()["progress"]
+    assert progress["history"] == history
+    assert progress["stage"] == "optimization"
+
+
+def test_bounded_reports_keep_the_sequence_guard_and_the_lease(client):
+    _, headers = worker(client)
+    queue(client)
+    lease = claim(client, headers)
+    body = {
+        "lease_token": lease["lease_token"],
+        "sequence": 2,
+        "progress": {"run": "run-a", "revision": 1, "stage": "self_play"},
+    }
+    assert post_progress(client, headers, lease, body).status_code == 200
+    # An out-of-order duplicate is still rejected.
+    assert post_progress(client, headers, lease, {**body, "sequence": 1}).status_code == 409
+    job = client.app.state.store.get_job(lease["id"])
+    assert job["lease_sequence"] == 2
+    assert job["lease_expires"] > datetime.now(timezone.utc).timestamp()

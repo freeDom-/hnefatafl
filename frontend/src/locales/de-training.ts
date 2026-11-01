@@ -290,6 +290,8 @@ const translations: Record<string, string> = {
   'Running, long operation': 'Läuft, langwieriger Schritt',
   'Potentially stalled': 'Möglicherweise hängend',
   'No recent updates': 'Keine aktuellen Meldungen',
+  'Worker connection lost': 'Worker-Verbindung unterbrochen',
+  'The parameter search space is not valid JSON.': 'Der Parameter-Suchraum ist kein gültiges JSON.',
   'Waiting for a worker': 'Warten auf einen Worker',
   Games: 'Spiele',
   Epoch: 'Epoche',
