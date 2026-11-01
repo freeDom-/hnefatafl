@@ -304,8 +304,15 @@ test('advances live phase monitoring and reports stale publication', async ({ pa
   await expect(page.getByText('Elapsed 1m 43s')).toBeVisible();
   await expect(page.getByText('Phase elapsed 0m 33s')).toBeVisible();
 
-  // A worker that stops publishing is reported instead of looking frozen.
-  await page.clock.runFor(25000);
+  // A worker that stops publishing is reported instead of looking frozen. The
+  // server keeps answering and measures the child's own silence, so the age it
+  // reports is what decides, not how long the browser has been open.
+  response = {
+    ...monitored,
+    publication_age_seconds: 640,
+    progress: { ...monitored.progress, updated_at: '2026-01-01T00:10:40.000Z' },
+  };
+  await page.clock.runFor(3000);
   await expect(page.getByRole('status').filter({ hasText: 'No recent updates' })).toBeVisible();
 });
 
