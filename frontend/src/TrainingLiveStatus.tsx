@@ -55,6 +55,7 @@ export default function TrainingLiveStatus({ job, observedAt }: Props) {
   const heartbeat = live.heartbeat && live.heartbeat !== 'terminal' ? live.heartbeat : undefined;
   if (
     !heartbeat &&
+    live.trialElapsed === undefined &&
     live.iterationElapsed === undefined &&
     live.phaseElapsed === undefined &&
     !summary.rows.length
@@ -65,6 +66,11 @@ export default function TrainingLiveStatus({ job, observedAt }: Props) {
       {heartbeat && (
         <span className={`job-heartbeat ${heartbeat}`} role="status">
           {t(HEARTBEAT_LABELS[heartbeat])}
+        </span>
+      )}
+      {live.trialElapsed !== undefined && (
+        <span className="live-phase-time">
+          {t('Trial elapsed {time}', { time: formatDuration(live.trialElapsed) })}
         </span>
       )}
       {live.iterationElapsed !== undefined && (

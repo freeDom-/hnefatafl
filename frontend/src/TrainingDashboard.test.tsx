@@ -819,3 +819,47 @@ it('shows the live iteration timer with the localized phase name', async () => {
   expect(screen.getByText('Iterationsdauer 8m 32s')).toBeInTheDocument();
   expect(screen.getByText('Phasendauer 6m 18s')).toBeInTheDocument();
 });
+
+it('shows the study duration with the active trial timer for a tuning job', async () => {
+  setLanguage('en', false);
+  jobs = [
+    {
+      id: 'study',
+      kind: 'tune',
+      status: 'running',
+      config: {
+        study_name: 'Northern study',
+        trials: 5,
+        training: { model_name: 'Tuning Eir', ruleset: 'tablut', iterations: 20 },
+      },
+      progress: {
+        status: 'running',
+        completed_trials: 2,
+        trials_requested: 5,
+        trial: 3,
+        duration: 2538,
+        trial_progress: {
+          run: 'trial-2',
+          duration: 492,
+          stage: 'evaluation',
+          phase_elapsed: 74,
+          iteration_elapsed: 155,
+          active_iteration: 7,
+          total_iterations: 20,
+          updated_at: '2026-01-01T00:40:00.000Z',
+          last_progress_seconds: 1,
+        },
+      },
+    },
+  ];
+  show();
+  await loaded();
+  // The header shows the study's elapsed time, never the active trial's.
+  expect(screen.getByText(/· Elapsed 42m/)).toBeInTheDocument();
+  expect(screen.queryByText(/· Elapsed 8m/)).toBeNull();
+  // The trial, iteration and phase timers belong to the active trial.
+  const live = screen.getByLabelText('Live phase progress');
+  expect(live).toHaveTextContent(/Trial elapsed 8m \d+s/);
+  expect(live).toHaveTextContent(/Iteration elapsed 2m \d+s/);
+  expect(live).toHaveTextContent(/Phase elapsed 1m \d+s/);
+});

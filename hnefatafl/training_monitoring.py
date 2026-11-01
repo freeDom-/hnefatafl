@@ -192,8 +192,11 @@ class TrainingMonitor:
         self._run_id = run or uuid4().hex[:16]
         self._phase = phase
         self._phase_started = clock()
+        # No iteration is timed until one is entered: loading a checkpoint,
+        # building a model or restoring state is initialization, not iteration
+        # work, and must not publish an iteration duration.
         self._iteration: int | None = None
-        self._iteration_started = clock()
+        self._iteration_started: float | None = None
         self._started = clock()
         self._started_at = wall()
         self._last_progress = clock()
@@ -255,8 +258,6 @@ class TrainingMonitor:
             "stage": phase,
             "phase_started_at": iso(self._started_at + (phase_started - self._started)),
             "phase_elapsed": max(now - phase_started, 0.0),
-            "iteration_started_at": iso(self._started_at + (iteration_started - self._started)),
-            "iteration_elapsed": max(now - iteration_started, 0.0),
             "started_at": iso(self._started_at),
             "updated_at": iso(self._wall()),
             "last_progress_at": iso(self._started_at + (last_progress - self._started)),
@@ -266,8 +267,14 @@ class TrainingMonitor:
         }
         if iteration is not None:
             # The active iteration is published immediately on entering it, not
-            # only when the first game or epoch of that iteration finishes.
+            # only when the first game or epoch of that iteration finishes. Its
+            # timing exists only while an iteration is actually running.
             snapshot["active_iteration"] = iteration
+            if iteration_started is not None:
+                snapshot["iteration_started_at"] = iso(
+                    self._started_at + (iteration_started - self._started)
+                )
+                snapshot["iteration_elapsed"] = max(now - iteration_started, 0.0)
         return snapshot
 
     def start(self) -> None:

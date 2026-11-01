@@ -345,6 +345,8 @@ test('shows a slow initialization stage as a live, responsive job', async ({ pag
   await expect(page.getByText('loading checkpoint')).toBeVisible();
   await expect(page.getByText('Elapsed 0m 12s')).toBeVisible();
   await expect(page.getByText('Phase elapsed 0m 5s')).toBeVisible();
+  // No iteration has started, so none is timed while the checkpoint loads.
+  await expect(page.getByText(/Iteration elapsed/)).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('initialization-monitoring.png'), fullPage: true });
   // The elapsed time keeps advancing while the checkpoint is still loading.
   await page.clock.runFor(4000);

@@ -1288,10 +1288,15 @@ def tune(
             "evaluation_time_limit", base.get("mcts_time_limit", 10.0)
         ),
     }
+    # The study's own elapsed time is measured here, on the monotonic clock, so
+    # it spans every trial, the preparation between them and the finalization
+    # instead of restarting with each trial's monitor.
+    study_started = time.monotonic()
     latest = {
         "status": "running",
         "completed_trials": len(study.trials),
         "trials_requested": trials,
+        "duration": 0.0,
     }
     # The inner training heartbeat republishes through this report callback, so
     # the outer progress file is refreshed from another thread than the trial's.
@@ -1340,12 +1345,20 @@ def tune(
             # outer files carry the identity of the run that produced them. A
             # heartbeat from an earlier trial can then never overlay this one.
             run = state.get("run")
+            duration = time.monotonic() - study_started
             with tune_lock:
-                latest.update(trial=trial.number, revision=revision, run=run, trial_progress=state)
+                latest.update(
+                    trial=trial.number,
+                    revision=revision,
+                    run=run,
+                    duration=duration,
+                    trial_progress=state,
+                )
                 if not heartbeat:
                     # A real progress event keeps the retained outer snapshot.
                     _write_json(output / "progress.json", latest)
-                # The bounded file always carries the current trial and revision.
+                # The bounded file always carries the current trial, revision and
+                # the study's own elapsed time, so a long trial cannot freeze it.
                 _write_json(
                     output / HEARTBEAT_FILENAME,
                     {
@@ -1355,6 +1368,7 @@ def tune(
                         "trial": trial.number,
                         "revision": revision,
                         "run": run,
+                        "duration": duration,
                         "trial_progress": heartbeat_projection(state),
                     },
                 )
@@ -1388,6 +1402,7 @@ def tune(
         "status": "cancelled" if cancelled else "completed",
         "study_name": study.study_name,
         "storage": storage,
+        "duration": time.monotonic() - study_started,
         "completed_trials": len(completed_trials),
         "trials": [
             {

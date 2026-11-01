@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { Job } from './types';
-import { activeJob, finite, jobProgress, type Values } from './trainingDashboardData';
+import {
+  activeJob,
+  finite,
+  jobLevelProgress,
+  jobProgress,
+  trialProgress,
+  type Values,
+} from './trainingDashboardData';
 
 /**
  * Elapsed time is published by the backend as a monotonic duration, not as a
@@ -39,6 +46,11 @@ export type HeartbeatState =
 export interface LiveProgress {
   /** Seconds since the job started; fixed once the job is terminal. */
   elapsed?: number;
+  /**
+   * Seconds in the active tuning trial. The trial's own duration, distinct from
+   * the job's, and undefined for ordinary training.
+   */
+  trialElapsed?: number;
   /**
    * Seconds in the current iteration. Continuous across the phases of one
    * iteration and restarted by a genuinely new iteration.
@@ -85,8 +97,11 @@ interface Anchor {
   phaseKey: string;
   /** Identity of the active iteration; a new one restarts only its own timer. */
   iterationKey: string;
+  /** Identity of the active tuning trial; a new one restarts only its timer. */
+  trialKey: string;
   at: number;
   duration: number;
+  trial: number;
   iteration: number;
   phase: number;
   progressAge: number;
@@ -110,11 +125,18 @@ function number(value: unknown): number | undefined {
  */
 export function useLiveProgress(job: Job, observedAt?: number): LiveProgress {
   const progress = jobProgress(job);
+  const outer = jobLevelProgress(job);
+  const trial = trialProgress(job);
   const active = activeJob(job);
   const now = useMonotonicNow(active);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
 
-  const duration = number(progress.duration);
+  // A tuning job nests the active trial's snapshot, whose duration restarts with
+  // every trial. The job's elapsed time therefore comes from the outer state
+  // only: for a historical tuning job without one it stays absent rather than
+  // reporting a single trial's time as the whole job's.
+  const duration = trial ? number(outer.duration) : number(progress.duration);
+  const trialDuration = trial ? number(trial.duration) : undefined;
   const iterationElapsed = number(progress.iteration_elapsed);
   const phaseElapsed = number(progress.phase_elapsed);
   const progressAge = number(progress.last_progress_seconds);
@@ -132,6 +154,9 @@ export function useLiveProgress(job: Job, observedAt?: number): LiveProgress {
   // completed iteration is only the fallback for older payloads.
   const activeIteration = number(progress.active_iteration) ?? number(progress.iteration);
   const iterationKey = `${activeIteration ?? ''}@${String(progress.iteration_started_at ?? '')}@${String(progress.run ?? '')}`;
+  // The trial number and the trial's own run identity change together when a new
+  // trial starts, so its timer restarts without touching the study timer.
+  const trialKey = trial ? `${String(outer.trial ?? '')}@${String(trial.run ?? '')}` : '';
   // Every publication refreshes this key, including heartbeat-only refreshes.
   const snapshotKey = String(progress.updated_at ?? progress.duration ?? '');
   // The server's freshness ages and the browser's last observation take part in
@@ -141,8 +166,10 @@ export function useLiveProgress(job: Job, observedAt?: number): LiveProgress {
     job.id,
     phaseKey,
     iterationKey,
+    trialKey,
     snapshotKey,
     duration,
+    trialDuration,
     iterationElapsed,
     phaseElapsed,
     progressAge,
@@ -163,10 +190,12 @@ export function useLiveProgress(job: Job, observedAt?: number): LiveProgress {
     const sameJob = anchor !== null && anchor.jobId === job.id;
     const samePhase = sameJob && anchor.phaseKey === phaseKey;
     const sameIteration = sameJob && anchor.iterationKey === iterationKey;
+    const sameTrial = sameJob && anchor.trialKey === trialKey;
     const changed = !sameJob || anchor.snapshotKey !== snapshotKey;
     // Everything already displayed stays displayed while the job runs: an
     // out-of-order or delayed snapshot must never undo elapsed time on screen.
     const shown = sameJob ? anchor.duration + (at - anchor.at) / 1000 : 0;
+    const shownTrial = sameTrial ? anchor.trial + (at - anchor.at) / 1000 : 0;
     const shownIteration = sameIteration ? anchor.iteration + (at - anchor.at) / 1000 : 0;
     const shownPhase = samePhase ? anchor.phase + (at - anchor.at) / 1000 : 0;
     setAnchor({
@@ -174,10 +203,13 @@ export function useLiveProgress(job: Job, observedAt?: number): LiveProgress {
       jobId: job.id,
       phaseKey,
       iterationKey,
+      trialKey,
       at,
       // A terminal job adopts the authoritative backend duration even when the
       // browser had extrapolated a larger one; a running job keeps its maximum.
       duration: active ? Math.max(shown, duration ?? 0) : (duration ?? 0),
+      // A new trial restarts only its own timer.
+      trial: active ? Math.max(shownTrial, trialDuration ?? 0) : (trialDuration ?? 0),
       // A new iteration restarts its timer; a phase change inside one iteration
       // keeps it running from where it was.
       iteration: active ? Math.max(shownIteration, iterationElapsed ?? 0) : (iterationElapsed ?? 0),
@@ -202,6 +234,10 @@ export function useLiveProgress(job: Job, observedAt?: number): LiveProgress {
   const elapsedBase = anchored ? current.duration : (duration ?? 0);
   if (duration !== undefined) {
     live.elapsed = active ? elapsedBase + sinceAnchor : elapsedBase;
+  }
+  const trialBase = anchored ? current.trial : (trialDuration ?? 0);
+  if (trialDuration !== undefined) {
+    live.trialElapsed = active ? trialBase + sinceAnchor : trialBase;
   }
   const iterationBase = anchored ? current.iteration : (iterationElapsed ?? 0);
   if (iterationElapsed !== undefined) {

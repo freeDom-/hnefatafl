@@ -143,9 +143,11 @@ def test_monitor_durations_advance_while_progress_stalls():
 
     assert later["phase_elapsed"] == pytest.approx(30.0)
     assert later["last_progress_seconds"] == pytest.approx(30.0)
-    assert later["iteration_elapsed"] == pytest.approx(30.0)
     assert later["stage"] == "self_play"
     assert later["phase_progress"] == {"positions": 3}
+    # No iteration is active, so none is timed and none is invented.
+    for key in ("active_iteration", "iteration_started_at", "iteration_elapsed"):
+        assert key not in later
     # Heartbeats keep the generation; only real progress events bump it.
     assert later["revision"] == first["revision"] == 1
     assert later["started_at"] == first["started_at"]
@@ -1101,3 +1103,129 @@ def test_tuning_files_carry_the_run_identity_of_the_active_trial(tmp_path, monke
     assert overlay_heartbeat(active, foreign) == active
     matching = {**heartbeat, "revision": active["revision"]}
     assert overlay_heartbeat(active, matching)["trial_progress"]["run"] == active["run"]
+
+
+def test_no_iteration_timing_before_an_iteration_is_entered():
+    clock = [0.0]
+    monitor = TrainingMonitor(
+        lambda **flags: None, phase="starting", clock=lambda: clock[0], wall=lambda: 0.0
+    )
+    assert "iteration_elapsed" not in monitor.snapshot()
+
+    # Every initialization stage advances its own timer and the job timer, and
+    # none of them starts or publishes an iteration duration.
+    for phase in (
+        "loading_checkpoint",
+        "initializing",
+        "restoring_state",
+        "initializing_inference",
+    ):
+        monitor.phase(phase)
+        started = monitor.snapshot()
+        assert started["stage"] == phase
+        assert started["phase_elapsed"] == 0.0
+        clock[0] += 60.0
+        later = monitor.snapshot()
+        # The phase timer advances; no iteration timer appears beside it.
+        assert later["phase_elapsed"] == pytest.approx(60.0)
+        for key in ("active_iteration", "iteration_started_at", "iteration_elapsed"):
+            assert key not in started, phase
+            assert key not in later, phase
+
+    # Entering the first iteration starts its timer at zero, not at the job start.
+    clock[0] = 300.0
+    monitor.phase("preparing", iteration=1)
+    entered = monitor.snapshot()
+    assert entered["active_iteration"] == 1
+    assert entered["iteration_elapsed"] == 0.0
+    clock[0] += 5.0
+    assert monitor.snapshot()["iteration_elapsed"] == pytest.approx(5.0)
+
+
+def test_initialization_publishes_no_iteration_timing(tmp_path, monkeypatch):
+    """A slow checkpoint load is initialization, not iteration work."""
+    checkpoint, _ = resumable_checkpoint(tmp_path)
+    entered = threading.Event()
+    released = threading.Event()
+    real_load = training_module.load_checkpoint
+
+    def blocking_load(path):
+        entered.set()
+        assert released.wait(30)
+        return real_load(path)
+
+    monkeypatch.setattr(training_module, "load_checkpoint", blocking_load)
+    config = tiny_config(
+        tmp_path, games=1, iterations=2, output_dir=str(tmp_path / "resumed"), resume=checkpoint
+    )
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_train(config, results)
+    assert entered.wait(30)
+
+    first = wait_for_stage(output, "loading_checkpoint")
+    # The job and phase timers advance while the checkpoint loads, and no
+    # iteration is timed until one actually starts.
+    assert first["duration"] >= 0.0 and first["phase_elapsed"] >= 0.0
+    assert "iteration_elapsed" not in first
+    assert "active_iteration" not in first
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "running" and "iteration_elapsed" not in progress
+    time.sleep(1.2)
+    second = read_heartbeat(output)
+    assert second["phase_elapsed"] >= first["phase_elapsed"]
+    assert "iteration_elapsed" not in second
+
+    released.set()
+    worker.join(timeout=180)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+    # The iteration timer exists once an iteration ran.
+    final = read_json(output / "progress.json")
+    assert final["active_iteration"] == 2
+    assert final["iteration_elapsed"] >= 0.0
+
+
+def test_tuning_study_duration_never_resets_between_trials(tmp_path):
+    """Two real trials: the study clock spans them while each trial clock restarts."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    output = tmp_path / "tuning"
+    snapshots: list[dict] = []
+    result = tune(
+        {
+            "output_dir": str(output),
+            "study_name": "duration",
+            "trials": 2,
+            "seed": 0,
+            "search_space": {"channels": {"type": "categorical", "choices": [4, 8]}},
+            "training": tiny_config(
+                tmp_path, ruleset="brandubh", preset="smoke", games=1, iterations=1, blocks=0
+            ),
+        },
+        snapshots.append,
+    )
+    assert result["status"] == "completed" and result["completed_trials"] == 2
+
+    # The study clock only moves forwards, including across the trial boundary.
+    study_durations = [state["duration"] for state in snapshots if "duration" in state]
+    assert study_durations == sorted(study_durations)
+    per_trial: dict[int, list[float]] = {}
+    for state in snapshots:
+        if state.get("trial_progress") and "duration" in state:
+            per_trial.setdefault(state["trial"], []).append(state["duration"])
+    assert set(per_trial) == {0, 1}
+    assert min(per_trial[1]) >= max(per_trial[0])
+
+    # The second trial's own clock restarted instead of inheriting the study's.
+    trial_durations = [
+        state["trial_progress"]["duration"]
+        for state in snapshots
+        if state.get("trial") == 1 and state.get("trial_progress")
+    ]
+    assert trial_durations and min(trial_durations) < max(per_trial[0])
+
+    # The final publication carries the authoritative study duration.
+    final = read_json(output / "progress.json")
+    assert final["duration"] == result["duration"] >= max(per_trial[1])

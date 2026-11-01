@@ -17,6 +17,9 @@ function Timings({ job, observedAt }: { job: Job; observedAt?: number }) {
       <span data-testid="elapsed">
         {live.elapsed === undefined ? '—' : formatDuration(live.elapsed)}
       </span>
+      <span data-testid="trial">
+        {live.trialElapsed === undefined ? '—' : formatDuration(live.trialElapsed)}
+      </span>
       <span data-testid="iteration">
         {live.iterationElapsed === undefined ? '—' : formatDuration(live.iterationElapsed)}
       </span>
@@ -822,4 +825,118 @@ it('leaves a legacy job without any heartbeat state', async () => {
   });
   // A job recorded before the monitoring fields existed renders nothing extra.
   expect(container).toBeEmptyDOMElement();
+});
+
+/** A tuning job whose nested snapshot belongs to the active trial. */
+const tuning = (
+  trial: number,
+  trialProgress: Record<string, unknown>,
+  outer: Record<string, unknown> = {},
+): Job => ({
+  id: 'study-1',
+  status: 'running',
+  kind: 'tune',
+  progress: {
+    status: 'running',
+    completed_trials: trial,
+    trials_requested: 5,
+    trial,
+    duration: 600,
+    ...outer,
+    trial_progress: { run: `trial-${trial}`, ...trialProgress },
+  },
+});
+
+it('keeps the study duration while a tuning trial restarts', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <Timings
+      job={tuning(0, {
+        duration: 300,
+        stage: 'self_play',
+        phase_elapsed: 120,
+        iteration_elapsed: 90,
+        active_iteration: 7,
+        iteration_started_at: '2026-01-01T00:00:00.000Z',
+      })}
+    />,
+  );
+  // The job elapsed is the study's, the trial timer is the trial's.
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('10m 0s');
+  expect(screen.getByTestId('trial')).toHaveTextContent('5m 0s');
+  expect(screen.getByTestId('iteration')).toHaveTextContent('1m 30s');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('11m 0s');
+  expect(screen.getByTestId('trial')).toHaveTextContent('6m 0s');
+
+  // Trial 2 starts: the study duration keeps running while the trial timer restarts.
+  rerender(
+    <Timings
+      job={tuning(1, {
+        duration: 2,
+        stage: 'initializing',
+        phase_elapsed: 2,
+        iteration_elapsed: 1,
+        active_iteration: 7,
+        iteration_started_at: '2026-01-01T00:01:00.000Z',
+      })}
+    />,
+  );
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('11m 0s');
+  expect(screen.getByTestId('trial')).toHaveTextContent('0m 2s');
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 1s');
+});
+
+it('never reports one trial as the whole tuning job', () => {
+  vi.useFakeTimers();
+  // A historical tuning job without a study-level duration shows no job elapsed
+  // time rather than presenting the active trial's duration as the job's.
+  render(
+    <Timings
+      job={{
+        id: 'study-1',
+        status: 'running',
+        kind: 'tune',
+        progress: {
+          status: 'running',
+          completed_trials: 1,
+          trials_requested: 3,
+          trial: 2,
+          trial_progress: { duration: 480, stage: 'optimization' },
+        },
+      }}
+    />,
+  );
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('—');
+  // The trial's own duration is still available and named as the trial's.
+  expect(screen.getByTestId('trial')).toHaveTextContent('8m 0s');
+});
+
+it('keeps an ordinary training job unchanged', () => {
+  vi.useFakeTimers();
+  render(<Timings job={runningJob(iterating)} />);
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('1m 40s');
+  expect(screen.getByTestId('trial')).toHaveTextContent('—');
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 8s');
+});
+
+it('shows job and phase timers but no iteration timer during initialization', () => {
+  vi.useFakeTimers();
+  render(
+    <Timings
+      job={runningJob({
+        duration: 300,
+        stage: 'loading_checkpoint',
+        phase_elapsed: 60,
+        updated_at: '2026-01-01T00:00:00.000Z',
+        last_progress_seconds: 0,
+      })}
+    />,
+  );
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('5m 0s');
+  expect(screen.getByTestId('phase')).toHaveTextContent('1m 0s');
+  // No iteration has started, so none is timed.
+  expect(screen.getByTestId('iteration')).toHaveTextContent('—');
 });

@@ -143,7 +143,12 @@ therefore keeps advancing the dashboard even while no counter moves.
 
 The job summary keeps an advancing elapsed time and a live phase block. Every
 phase reports its own elapsed duration, a heartbeat state and, where the counters
-exist, phase-specific progress:
+exist, phase-specific progress. A tuning job shows three levels of time: the
+study's own elapsed duration in the header (it spans every trial and never restarts
+when a new trial begins), the active trial's duration as **Trial elapsed**, and the
+trial's iteration and phase timers. A historical tuning job without a study-level
+duration shows no job elapsed time rather than presenting one trial's time as the
+whole job's.
 
 - **Self-play** shows completed and scheduled games, active games, searched
   positions and MCTS simulations.
@@ -175,6 +180,13 @@ new iteration restarts only the iteration timer (identified by the published
 for a completed game), and a completed, cancelled or failed job adopts the
 authoritative backend durations and stops advancing. The ticker lives in the timer
 leaf, so one second of display time never re-renders the charts or tables.
+
+Iteration timing exists only while an iteration runs. Loading a checkpoint,
+building a model, restoring optimizer or training state and preparing the inference
+backend are initialization: they publish the job and phase timers and a heartbeat,
+and no iteration duration at all, instead of reporting the job's elapsed time as an
+iteration's. The timer starts at zero when the first iteration is entered, which is
+the `preparing` phase before its first self-play game.
 
 Publication freshness is measured by the server, not by the browser, and is only
 reported for a live (running or cancelling) job. A local job
