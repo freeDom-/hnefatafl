@@ -51,6 +51,7 @@ export default function EvaluationSettings({
         <label>
           {t('Evaluation opponent')}
           <select
+            data-training-field="evaluation_opponent"
             value={String(values.evaluation_opponent)}
             disabled={tuning}
             onChange={(event) => update('evaluation_opponent', event.target.value)}

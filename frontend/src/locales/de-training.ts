@@ -296,5 +296,15 @@ const translations: Record<string, string> = {
   Opponent: 'Gegner',
   'MCTS simulations': 'MCTS-Simulationen',
   'Optimization steps': 'Optimierungsschritte',
+  'Training was not started: one configuration field was rejected.':
+    'Das Training wurde nicht gestartet: Ein Konfigurationsfeld wurde abgelehnt.',
+  'Training was not started: {count} configuration fields were rejected.':
+    'Das Training wurde nicht gestartet: {count} Konfigurationsfelder wurden abgelehnt.',
+  'This server does not accept this training field. Remove it from the configuration and try again.':
+    'Dieser Server akzeptiert dieses Trainingsfeld nicht. Entferne es aus der Konfiguration und versuche es erneut.',
+  'The server assigns each training job its own output directory.':
+    'Der Server weist jedem Trainingsauftrag ein eigenes Ausgabeverzeichnis zu.',
+  'The server keeps trained models in its own model directory.':
+    'Der Server speichert trainierte Modelle in seinem eigenen Modellverzeichnis.',
 };
 export default translations;

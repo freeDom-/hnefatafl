@@ -22,7 +22,7 @@ import JobRenameDialog from './JobRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { modelIteration } from './modelLabel';
 import TrainingWorkers from './TrainingWorkers';
-import { targetRequest } from './TrainingTarget';
+import { launchPayload, rejectedTrainingFields } from './trainingPayload';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
@@ -109,6 +109,8 @@ export default function Training({
   const [exportingJob, setExportingJob] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [notice, setNotice] = useState('');
+  /** Training fields the server rejected; cleared as the user corrects them. */
+  const [rejectedFields, setRejectedFields] = useState<string[]>([]);
   const [deleteModel, setDeleteModel] = useState<Model | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -356,24 +358,22 @@ export default function Training({
     );
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
-  const update = (key: string, value: string | number | boolean) =>
+  const update = (key: string, value: string | number | boolean) => {
     setConfig((previous) => ({ ...previous, [key]: value }));
+    setRejectedFields((previous) => previous.filter((field) => field !== key));
+  };
   const start = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setNotice('');
+    setRejectedFields([]);
     try {
-      const params =
-        kind === 'tune'
-          ? {
-              kind,
-              trials,
-              study_name: studyName,
-              seed: studySeed,
-              search_space: JSON.parse(space),
-              training: config,
-            }
-          : { ...config, kind, ...(target !== 'local' ? targetRequest(target) : {}) };
+      const params = launchPayload(kind, config, target, {
+        trials,
+        studyName,
+        studySeed,
+        search: JSON.parse(space),
+      });
       const job = await api<Job>('/training/jobs', params);
       refreshRevision.current++;
       if (!observedJobs.current) observedJobs.current = new Map();
@@ -389,7 +389,15 @@ export default function Training({
         ),
       );
     } catch (e) {
-      onError((e as Error).message);
+      // A rejected field is the user's to fix: keep the values, name the input
+      // and report it beside the form instead of only in a global notice.
+      const rejected = rejectedTrainingFields(e);
+      if (rejected.length) {
+        setRejectedFields(rejected);
+        setNotice('');
+      } else {
+        onError((e as Error).message);
+      }
     } finally {
       setBusy(false);
     }
@@ -521,10 +529,15 @@ export default function Training({
       setDeletingJob(false);
     }
   };
+  /** Replace the whole form configuration; stale field errors no longer apply. */
+  const replaceConfig = (next: Record<string, string | number | boolean>) => {
+    setConfig(next);
+    setRejectedFields([]);
+  };
   const loadParameters = (model: Model) => {
     const loaded = recordedTrainingParameters(config, model, device);
     if (!loaded) return;
-    setConfig(loaded.config);
+    replaceConfig(loaded.config);
     setKind('train');
     setTarget('local');
     setAdvanced(true);
@@ -551,7 +564,7 @@ export default function Training({
       // Keep the imported target even when the current server or worker cannot
       // provide it, matching the resume dialog. The form shows the unavailable
       // option and starting reports the platform error so the user can adjust it.
-      setConfig(imported.config);
+      replaceConfig(imported.config);
       setKind(imported.kind);
       if (imported.kind === 'tune') {
         if (imported.trials !== undefined) setTrials(imported.trials);
@@ -586,7 +599,7 @@ export default function Training({
   const loadJobParameters = (job: Job) => {
     const loaded = recordedJobParameters(config, job, device);
     if (!loaded) return;
-    setConfig(loaded.config);
+    replaceConfig(loaded.config);
     setKind(loaded.kind);
     setTarget('local');
     if (loaded.kind === 'tune') {
@@ -763,6 +776,9 @@ export default function Training({
               start,
               importingConfig,
               onImportConfig: (file: File) => void importConfig(file),
+              rejectedFields,
+              onFieldCorrected: (key: string) =>
+                setRejectedFields((previous) => previous.filter((field) => field !== key)),
             }}
           />
         </div>

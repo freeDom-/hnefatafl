@@ -1,16 +1,26 @@
-import type { Dispatch, SetStateAction, FormEvent } from 'react';
+import { useEffect, useRef, type Dispatch, type SetStateAction, type FormEvent } from 'react';
 import type { DeviceInfo, Model, Ruleset, TrainingWorker } from './types';
 import { t } from './i18n';
 import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import { changeTrainingPlan, type TrainingPreset, type TrainingConfig } from './trainingPresets';
-import { numberField, SelfPlayModeField } from './TrainingFields';
+import { numberField, SelfPlayModeField, trainingParameterLabel } from './TrainingFields';
 import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
+
+/**
+ * Why a field the server refuses is refused. Known server-owned outputs get a
+ * specific reason; anything else is explained generically so the technical name
+ * is never shown without an action.
+ */
+const FIELD_EXPLANATIONS: Record<string, string> = {
+  output_dir: 'The server assigns each training job its own output directory.',
+  registry_dir: 'The server keeps trained models in its own model directory.',
+};
 
 interface Props {
   config: TrainingConfig;
@@ -38,6 +48,10 @@ interface Props {
   start: (event: FormEvent) => void;
   importingConfig: boolean;
   onImportConfig: (file: File) => void;
+  /** Training fields the server rejected; inputs for them are marked invalid. */
+  rejectedFields?: string[];
+  /** Called when the user edits a field so its rejection can be cleared. */
+  onFieldCorrected?: (key: string) => void;
 }
 
 export default function TrainingCreationPanel({
@@ -66,6 +80,8 @@ export default function TrainingCreationPanel({
   start,
   importingConfig,
   onImportConfig,
+  rejectedFields = [],
+  onFieldCorrected,
 }: Props) {
   const isRemote = kind === 'train' && target !== 'local';
   const selectedWorker = workers.find((worker) => `worker:${worker.id}` === target);
@@ -74,6 +90,31 @@ export default function TrainingCreationPanel({
     target.startsWith('worker:') &&
     (!selectedWorker || !workerEligible(selectedWorker));
   const targetDevice = isRemote ? selectedWorker?.capabilities : device;
+  const form = useRef<HTMLFormElement>(null);
+  const alert = useRef<HTMLDivElement>(null);
+  // Inputs are marked from the rendered form so a rejected field is highlighted
+  // wherever it lives, including inside a nested settings component. A field the
+  // form has no input for is reported by name in the alert instead.
+  useEffect(() => {
+    const element = form.current;
+    if (!element) return;
+    const selector = (field: string) =>
+      `[data-training-field="${field.replace(/[^a-zA-Z0-9_.-]/g, '')}"]`;
+    element.querySelectorAll<HTMLElement>('[data-training-field]').forEach((field) => {
+      field.removeAttribute('aria-invalid');
+      field.classList.remove('field-invalid');
+    });
+    if (!rejectedFields.length) return;
+    let first: HTMLElement | null = null;
+    for (const name of rejectedFields) {
+      const field = element.querySelector<HTMLElement>(selector(name));
+      if (!field) continue;
+      field.setAttribute('aria-invalid', 'true');
+      field.classList.add('field-invalid');
+      first ??= field;
+    }
+    (first ?? alert.current)?.focus();
+  }, [rejectedFields]);
   return (
     <>
       <p className="subtle">
@@ -81,7 +122,40 @@ export default function TrainingCreationPanel({
           'A policy and value network learns from its own games. Small runs verify the workflow; strength takes time and evaluation.',
         )}
       </p>
-      <form onSubmit={start}>
+      <form ref={form} onSubmit={start}>
+        {!!rejectedFields.length && (
+          <div className="form-error rejected-fields" role="alert" tabIndex={-1} ref={alert}>
+            <p>
+              {t(
+                rejectedFields.length === 1
+                  ? 'Training was not started: one configuration field was rejected.'
+                  : 'Training was not started: {count} configuration fields were rejected.',
+                { count: rejectedFields.length },
+              )}
+            </p>
+            <ul>
+              {rejectedFields.map((field) => {
+                const label = t(trainingParameterLabel(field));
+                return (
+                  <li key={field}>
+                    {label === field ? <code>{field}</code> : <strong>{label}</strong>}
+                    {label !== field && (
+                      <>
+                        {' '}
+                        (<code>{field}</code>)
+                      </>
+                    )}
+                    {' — '}
+                    {t(
+                      FIELD_EXPLANATIONS[field] ??
+                        'This server does not accept this training field. Remove it from the configuration and try again.',
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <div className="segmented">
           <button
             type="button"
@@ -124,6 +198,7 @@ export default function TrainingCreationPanel({
             <label>
               {t('Battlefield')}
               <select
+                data-training-field="ruleset"
                 value={String(config.ruleset)}
                 onChange={(e) =>
                   setConfig((previous) =>
@@ -145,6 +220,7 @@ export default function TrainingCreationPanel({
             <label>
               {t('Training preset')}
               <select
+                data-training-field="preset"
                 value={String(config.preset)}
                 onChange={(e) =>
                   setConfig((previous) =>
@@ -169,6 +245,7 @@ export default function TrainingCreationPanel({
               <div className="name-input-group">
                 <input
                   id="training-model-name"
+                  data-training-field="model_name"
                   required
                   maxLength={100}
                   value={String(config.model_name)}
@@ -220,6 +297,7 @@ export default function TrainingCreationPanel({
             <label>
               {t('Optimizer')}
               <select
+                data-training-field="optimizer"
                 value={String(config.optimizer)}
                 onChange={(e) => update('optimizer', e.target.value)}
               >
@@ -332,39 +410,55 @@ export default function TrainingCreationPanel({
                 {t('Trial budget')}
                 <input
                   type="number"
+                  data-training-field="trials"
                   min="1"
                   max="10000"
                   required
                   value={trials}
-                  onChange={(e) => setTrials(Number(e.target.value))}
+                  onChange={(e) => {
+                    setTrials(Number(e.target.value));
+                    onFieldCorrected?.('trials');
+                  }}
                 />
               </label>
               <label>
                 {t('Study name')}
                 <input
+                  data-training-field="study_name"
                   required
                   maxLength={100}
                   value={studyName}
-                  onChange={(e) => setStudyName(e.target.value)}
+                  onChange={(e) => {
+                    setStudyName(e.target.value);
+                    onFieldCorrected?.('study_name');
+                  }}
                 />
               </label>
               <label>
                 {t('Study random seed')}
                 <input
                   type="number"
+                  data-training-field="seed"
                   required
                   min="0"
                   max="4294967295"
                   value={studySeed}
-                  onChange={(event) => setStudySeed(event.currentTarget.valueAsNumber)}
+                  onChange={(event) => {
+                    setStudySeed(event.currentTarget.valueAsNumber);
+                    onFieldCorrected?.('seed');
+                  }}
                 />
               </label>
             </div>
             <label>
               {t('Parameter search space (JSON)')}
               <textarea
+                data-training-field="search_space"
                 value={space}
-                onChange={(e) => setSpace(e.target.value)}
+                onChange={(e) => {
+                  setSpace(e.target.value);
+                  onFieldCorrected?.('search_space');
+                }}
                 rows={7}
                 spellCheck={false}
               />

@@ -34,7 +34,12 @@ export default function TrainingDeviceField({
   return (
     <label>
       {t('Training device')}
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+      <select
+        data-training-field="device"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      >
         <option value="auto">{t('Automatic')}</option>
         <option value="cpu">{t('CPU')}</option>
         <option value="cuda" disabled={cudaUnavailable}>

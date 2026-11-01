@@ -31,6 +31,7 @@ export default function SymmetrySettings({
       <label>
         {t('Training symmetry augmentation')}
         <select
+          data-training-field="training_symmetry_mode"
           value={String(config.training_symmetry_mode ?? 'off')}
           disabled={disabled}
           aria-describedby={helpId}

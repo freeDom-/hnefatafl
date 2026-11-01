@@ -72,7 +72,12 @@ export function SelfPlayModeField({
   return (
     <label>
       {t('Self-play execution')}
-      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+      <select
+        data-training-field="self_play_mode"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+      >
         <option value="auto">{t('Automatic · batched on CUDA/OpenVINO')}</option>
         <option value="sequential">{t('Sequential')}</option>
         <option value="batched">{t('Batched')}</option>
@@ -113,6 +118,8 @@ export function numberField(
         step={Number.isInteger(step) ? step : 'any'}
         value={Number.isNaN(Number(config[key])) ? '' : Number(config[key])}
         disabled={options.disabled}
+        // Lets the form mark this exact input when the server rejects the field.
+        data-training-field={key}
         onChange={(event) => update(key, event.currentTarget.valueAsNumber)}
       />
     </label>

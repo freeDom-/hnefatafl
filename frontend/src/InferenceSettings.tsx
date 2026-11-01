@@ -64,6 +64,7 @@ export default function InferenceSettings({
       <label>
         {t('Neural inference backend')}
         <select
+          data-training-field="inference_backend"
           value={String(config.inference_backend ?? 'pytorch')}
           disabled={disabled}
           onChange={(event) => {
@@ -81,6 +82,7 @@ export default function InferenceSettings({
       <label>
         {t('Inference cache')}
         <select
+          data-training-field="inference_cache_mode"
           value={String(config.inference_cache_mode ?? 'off')}
           disabled={disabled}
           onChange={(event) => update('inference_cache_mode', event.target.value)}
@@ -114,6 +116,7 @@ export default function InferenceSettings({
           <label>
             {t('Inference device')}
             <select
+              data-training-field="inference_device"
               value={String(config.inference_device ?? 'GPU')}
               disabled={disabled}
               onChange={(event) => update('inference_device', event.target.value)}
