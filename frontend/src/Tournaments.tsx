@@ -379,11 +379,18 @@ export default function Tournaments({
         return;
       }
       summaryMarker.current = progressMarker(current);
-      // Only fetch the full history when the summary moved past the displayed
-      // record and no detail request for this tournament is already running.
+      // One mechanism decides who fetches: while an automatic retry is pending,
+      // or once its budget for this marker is spent, polling must not start
+      // another request. A genuinely newer marker resets the budget.
+      const markerKey = `${current.id}|${summaryMarker.current}`;
+      const retryPending = retryTimer.current !== null && retryKey.current === markerKey;
+      const budgetSpent =
+        retryKey.current === markerKey && retryAttempt.current >= DETAIL_RETRY_DELAYS.length;
       if (
         detailMarker.current !== summaryMarker.current &&
-        detailRequest.current?.id !== current.id
+        detailRequest.current?.id !== current.id &&
+        !retryPending &&
+        !budgetSpent
       )
         void loadDetail(current.id, false, summaryMarker.current);
     })();

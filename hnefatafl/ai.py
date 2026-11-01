@@ -16,8 +16,14 @@ from functools import lru_cache
 from itertools import combinations
 from typing import Any, Callable, Generator
 
-from .engine import Move, State, apply_move, legal_moves, new_game
+from .engine import RULESETS, Move, State, apply_move, legal_moves, new_game
 from .symmetry import Symmetry, canonical_state_key, inverse, state_stabilizer, transform_move
+
+
+# Catalog profiles the browser API treats as authoritative presets: selecting one
+# runs the recorded catalog parameters regardless of any configuration supplied
+# beside it. The headless runner resolves them identically.
+FIXED_PROFILE_IDS = ("baseline", "shield_maiden", "alpha_beta", "mcts")
 
 
 def ai_profiles() -> list[dict[str, Any]]:
@@ -1736,6 +1742,23 @@ def validate_fixed_role_players(profiles: list) -> None:
         raise ValueError("Both fixed-role participants must use identical search settings")
 
 
+def validate_fixed_role_rulesets(rulesets: object) -> None:
+    """Require exactly one supported battlefield for a fixed-role comparison.
+
+    Trained models belong to a single ruleset, so the browser API already limits
+    the mode to one battlefield. The headless runner enforces the same contract
+    before any game is scheduled instead of failing later during play.
+    """
+    if rulesets is None:
+        raise ValueError("A fixed-role comparison needs exactly one battlefield")
+    if not isinstance(rulesets, list):
+        raise ValueError("Tournament rulesets must be a list")
+    if len(rulesets) != 1:
+        raise ValueError("A fixed-role comparison needs exactly one battlefield")
+    if not isinstance(rulesets[0], str) or rulesets[0] not in RULESETS:
+        raise ValueError(f"Unsupported battlefield: {rulesets[0]!r}")
+
+
 def tournament(
     config: dict,
     report: Callable[[dict], None] | None = None,
@@ -1754,6 +1777,7 @@ def tournament(
         # Seat 0 always attacks and seat 1 always defends, so the scheduled total
         # is the plain game count and odd counts are valid.
         validate_fixed_role_players(profiles)
+        validate_fixed_role_rulesets(config.get("rulesets"))
         if not 1 <= games_per_ruleset <= 10000:
             raise ValueError("Use between 1 and 10000 games for a fixed-role comparison")
         pairings = [(0, 1)]

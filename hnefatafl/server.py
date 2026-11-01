@@ -1437,7 +1437,7 @@ def create_app(
 
     @app.post("/api/tournaments", status_code=201)
     def create_tournament(request: TournamentRequest):
-        from .ai import ai_profiles, validate_fixed_role_players
+        from .ai import FIXED_PROFILE_IDS, ai_profiles, validate_fixed_role_players
 
         if not request.name.strip():
             fail("Tournament names must contain 1–80 characters.")
@@ -1455,7 +1455,7 @@ def create_app(
             players = []
             for provided in request.players:
                 provided_config = provided.config
-                if provided.profile_id in {"baseline", "shield_maiden", "alpha_beta", "mcts"}:
+                if provided.profile_id in FIXED_PROFILE_IDS:
                     preset = profiles[provided.profile_id]
                     provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
                 config = clean_ai_config(provided_config, provided.profile_id)

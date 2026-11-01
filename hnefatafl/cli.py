@@ -39,17 +39,23 @@ def portable_player(player: dict, index: int) -> dict:
     if not isinstance(configuration, dict):
         raise ValueError(f"Tournament player {index + 1} config must be an object")
     profile_id = player.get("profile_id")
-    if profile_id is None or "algorithm" in configuration:
+    if profile_id is None:
         return dict(configuration)
     if not isinstance(profile_id, str):
         raise ValueError(f"Tournament player {index + 1} profile_id must be a string")
-    from .ai import ai_profiles
+    from .ai import FIXED_PROFILE_IDS, ai_profiles
 
     profile = next((item for item in ai_profiles() if item["id"] == profile_id), None)
     if profile is None:
         raise ValueError(f"Unknown tournament player profile: {profile_id}")
-    # Mirror the server: a recorded profile contributes its catalog parameters
-    # only when the participant did not already choose an algorithm.
+    if profile_id in FIXED_PROFILE_IDS:
+        # The API treats a named fixed profile as authoritative and replaces any
+        # configuration recorded beside it, so the headless runner does the same.
+        return {**profile["parameters"], "algorithm": profile["algorithm"]}
+    # Any other recorded profile (a trained model, for example) contributes its
+    # catalog parameters only when the participant did not choose an algorithm.
+    if "algorithm" in configuration:
+        return dict(configuration)
     return {**profile["parameters"], **configuration, "algorithm": profile["algorithm"]}
 
 

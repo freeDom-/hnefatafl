@@ -1824,6 +1824,89 @@ describe('tournament detail recovery', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   }, 20000);
 
+  it('bounds detail requests while a running tournament keeps polling', async () => {
+    let summary = liveTournament('a', 2);
+    let detailCalls = 0;
+    let failing = true;
+    capturePolling();
+    captureRetries();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        if (failing) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 4, 'completed'));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(detailCalls).toBe(2);
+    expect(retryTimers.size).toBe(1);
+    // Polling continues, but a pending retry is never bypassed by a poll.
+    for (let poll = 0; poll < 6; poll += 1) await pollOnce();
+    expect(detailCalls).toBe(2);
+    expect(retryTimers.size).toBe(1);
+    // The scheduled retries fire on their own backoff and then stop.
+    for (let attempt = 0; attempt < DETAIL_RETRY_DELAYS.length; attempt += 1) await flushRetry();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    // An unchanged marker cannot start more automatic requests, and the manual
+    // recovery stays available.
+    for (let poll = 0; poll < 5; poll += 1) await pollOnce();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    expect(retryTimers.size).toBe(0);
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    // The manual retry still recovers the newest details.
+    failing = false;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(retryTimers.size).toBe(0);
+  }, 20000);
+
+  it('resumes synchronization with a fresh budget for a newer marker', async () => {
+    let summary = liveTournament('a', 2);
+    let detailCalls = 0;
+    let failing = true;
+    capturePolling();
+    captureRetries();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        if (failing) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 4));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    for (let attempt = 0; attempt < DETAIL_RETRY_DELAYS.length; attempt += 1) await flushRetry();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    for (let poll = 0; poll < 3; poll += 1) await pollOnce();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    // A genuinely newer marker gets its own immediate attempt and a fresh budget.
+    failing = false;
+    summary = liveTournament('a', 4);
+    await pollOnce();
+    expect(detailCalls).toBe(3 + DETAIL_RETRY_DELAYS.length);
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(retryTimers.size).toBe(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  }, 20000);
+
   it('does not carry a pending retry into a newly selected tournament', async () => {
     let summary = liveTournament('a', 2);
     const error = vi.fn();

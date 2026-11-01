@@ -105,6 +105,15 @@ where each `players[i]` *is* the AI configuration, and a single document may not
 mix the two representations. Seat order is always preserved: index 0 attacks and
 index 1 defends.
 
+A named fixed profile (`baseline`, `shield_maiden`, `alpha_beta`, `mcts`) is
+authoritative in both the browser API and the headless runner: selecting one runs
+the catalog parameters and replaces any configuration recorded beside it, so the
+same document cannot execute a different algorithm in each. A custom participant,
+including a trained model, keeps the configuration it records. The headless
+runner also requires exactly one supported battlefield for `mode:
+"fixed_roles"`, matching the browser, and rejects a missing, empty, malformed,
+unsupported or multiple selection before any game starts.
+
 Headless neural opponents need a resolvable `model_path`, exactly as before: the
 model registry belongs to the server, and a `model_id` is never turned into a
 filesystem path. Add the checkpoint to each participant's `config` to run an

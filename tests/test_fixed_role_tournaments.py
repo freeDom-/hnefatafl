@@ -377,3 +377,110 @@ def test_worker_rejects_a_tampered_stored_pairing(client, models):
     assert failed["status"] == "failed"
     assert "worker failed" in failed["error"]
     assert json.dumps(failed["config"])  # configuration stays readable for review
+
+
+@pytest.mark.parametrize(
+    "rulesets",
+    [["brandubh", "tablut"], [], "brandubh", ["unknown"], [7], ["brandubh", "brandubh"], None],
+)
+def test_fixed_role_runner_requires_exactly_one_supported_battlefield(rulesets, monkeypatch):
+    played = []
+
+    def play(*args, **options):
+        played.append((args, options))
+        return {
+            "winner": "attackers",
+            "outcome": "completed",
+            "plies": 1,
+            "moves": [],
+            "total_decision_time": 0.01,
+        }
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    config = {
+        "mode": "fixed_roles",
+        "rulesets": rulesets,
+        "players": [
+            {"algorithm": "neural", "model_id": "model-a"},
+            {"algorithm": "neural", "model_id": "model-b"},
+        ],
+        "games": 5,
+    }
+    with pytest.raises(ValueError, match="battlefield|rulesets"):
+        tournament(config)
+    assert played == []
+
+
+def test_fixed_role_runner_rejects_a_missing_battlefield(monkeypatch):
+    monkeypatch.setattr(
+        "hnefatafl.ai.play_game", lambda *args, **options: pytest.fail("no game may start")
+    )
+    with pytest.raises(ValueError, match="exactly one battlefield"):
+        tournament(
+            {
+                "mode": "fixed_roles",
+                "players": [
+                    {"algorithm": "neural", "model_id": "model-a"},
+                    {"algorithm": "neural", "model_id": "model-b"},
+                ],
+                "games": 5,
+            }
+        )
+
+
+def test_one_battlefield_still_schedules_odd_fixed_role_counts(monkeypatch):
+    played = []
+
+    def play(_ruleset, attackers, defenders, **options):
+        played.append(_ruleset)
+        return {
+            "winner": "attackers",
+            "outcome": "completed",
+            "plies": 1,
+            "moves": [],
+            "total_decision_time": 0.01,
+        }
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    result = tournament(
+        {
+            "mode": "fixed_roles",
+            "rulesets": ["brandubh"],
+            "players": [
+                {"algorithm": "neural", "model_id": "model-a", "iterations": 5},
+                {"algorithm": "neural", "model_id": "model-b", "iterations": 5},
+            ],
+            "games": 5,
+        }
+    )
+    assert played == ["brandubh"] * 5
+    assert len(result["games"]) == 5
+    assert result["by_ruleset"] == {
+        "brandubh": {"wins": [5, 0], "draws": 0, "truncated": 0, "games": 5}
+    }
+
+
+def test_round_robin_keeps_accepting_multiple_battlefields(monkeypatch):
+    played = []
+
+    def play(ruleset, _attackers, _defenders, **options):
+        played.append(ruleset)
+        return {
+            "winner": "attackers",
+            "outcome": "completed",
+            "plies": 1,
+            "moves": [],
+            "total_decision_time": 0.01,
+        }
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    result = tournament(
+        {
+            "players": [{"algorithm": "baseline"}] * 2,
+            "rulesets": ["brandubh", "tablut"],
+            "games": 2,
+            "max_plies": 1,
+        }
+    )
+    assert played == ["brandubh", "brandubh", "tablut", "tablut"]
+    assert sorted(result["by_ruleset"]) == ["brandubh", "tablut"]
