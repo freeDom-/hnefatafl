@@ -125,6 +125,23 @@ with an affordable run and inspect timings before increasing budgets. Very
 large replay buffers/checkpoints can exceed the enforced 128 MiB safe checkpoint
 limit; reduce the buffer or model dimensions rather than bypassing validation.
 
+### CLI configurations and the HTTP API
+
+`config.json` is shared by the CLI and the workshop export/import, but
+`output_dir` and `registry_dir` belong to the CLI: the API assigns each job its
+own output directory inside the server's job store and keeps registered models in
+its own model directory. Posting those two fields to `POST /api/training/jobs`
+(for example with a shipped `configs/*.json`) is refused with the exact field
+names and an explanation rather than a generic error, and importing such a file in
+the workshop reports them as ignored instead of sending them.
+
+Every other field is accepted. A rejected field is always named, for both a
+top-level and a nested tuning configuration (`training.<field>`), and the workshop
+marks the matching input and keeps every entered value so one field can be
+corrected instead of the whole form being rebuilt. `frontend/src/trainingContract.json`
+records the accepted vocabulary; the backend and frontend test suites both assert
+it, so a field added on one side alone fails a test instead of a user's launch.
+
 ### Configuration bounds
 
 These are training validator/UI bounds, not suggested experimental budgets.

@@ -372,7 +372,12 @@ small dependency-free responsive SVG renderer used by `TrainingHistoryChart`
 and the performance view. `trainingDashboardData` normalizes optional legacy
 metrics and separates effective evaluation contexts/incumbents. Large tables
 and raw diagnostics mount on disclosure. Shared allowlisted configuration reuse
-opens an editable fresh-job form for models and jobs. `game_statistics.py` records
+opens an editable fresh-job form for models and jobs; that allowlist is the single
+vocabulary shared with the API through `frontend/src/trainingContract.json`, which
+both test suites assert, and a refused field is named back to the form.
+`training.py` starts its monitor before checkpoint loading, model construction and
+inference setup, so initialization publishes its own stages with the heartbeat
+running. `game_statistics.py` records
 versioned job-local/baseline/cumulative self-play counters in existing JSON and
 checkpoint metadata; immutable selection snapshots retain their own totals.
 Tensor format and database schema remain unchanged. See the

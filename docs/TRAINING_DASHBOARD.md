@@ -154,6 +154,16 @@ exist, phase-specific progress:
 - **Preparation, checkpointing and finalization** show phase and elapsed time
   only, because no meaningful unit counter exists there.
 
+Monitoring starts before any expensive initialization, so a job that is loading a
+checkpoint or building its model is never indistinguishable from a dead worker.
+Initialization reports its own stages — `starting`, `loading_checkpoint`,
+`initializing`, `restoring_state` (a resume only) and `initializing_inference` —
+with the elapsed time still advancing and no counters, because none exist yet. No
+model, optimizer, device or inference backend is required for the heartbeat, and
+no CUDA call is made from the monitoring thread. A failure during initialization
+ends the job as `failed` (or `pruned`) with the error recorded, and a cancellation
+is honored at the first point where a checkpoint can be written.
+
 Elapsed time is published as a monotonic duration, never as a worker timestamp.
 The browser anchors each reported value when the response arrives and advances it
 with a one-second local ticker, so an unsynchronised or skewed remote worker clock
