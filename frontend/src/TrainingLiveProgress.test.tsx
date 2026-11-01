@@ -10,12 +10,15 @@ function runningJob(progress: Record<string, unknown>): Job {
 }
 
 /** Renders the live timings the job header displays. */
-function Timings({ job }: { job: Job }) {
-  const live = useLiveProgress(job);
+function Timings({ job, observedAt }: { job: Job; observedAt?: number }) {
+  const live = useLiveProgress(job, observedAt);
   return (
     <div>
       <span data-testid="elapsed">
         {live.elapsed === undefined ? '—' : formatDuration(live.elapsed)}
+      </span>
+      <span data-testid="iteration">
+        {live.iterationElapsed === undefined ? '—' : formatDuration(live.iterationElapsed)}
       </span>
       <span data-testid="phase">
         {live.phaseElapsed === undefined ? '—' : formatDuration(live.phaseElapsed)}
@@ -487,4 +490,336 @@ it('ages the child and supervisor signals together on a remote job', async () =>
     await vi.advanceTimersByTimeAsync(25000);
   });
   expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+});
+
+/** A running job inside one iteration, with every published timing. */
+const iterating = {
+  duration: 100,
+  iteration_elapsed: 8,
+  iteration_started_at: '2026-01-01T00:00:00.000Z',
+  active_iteration: 42,
+  phase_elapsed: 4,
+  phase_started_at: '2026-01-01T00:00:04.000Z',
+  updated_at: '2026-01-01T00:01:40.000Z',
+  last_progress_seconds: 1,
+  stage: 'self_play',
+  run: 'run-a',
+};
+
+it('advances the iteration timer without a new progress snapshot', async () => {
+  vi.useFakeTimers();
+  render(<Timings job={runningJob(iterating)} />);
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 8s');
+  expect(screen.getByTestId('phase')).toHaveTextContent('0m 4s');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 11s');
+  expect(screen.getByTestId('phase')).toHaveTextContent('0m 7s');
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('1m 43s');
+});
+
+it('keeps the iteration timer across a phase change inside one iteration', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(<Timings job={runningJob(iterating)} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 10s');
+  // Optimization begins inside iteration 42: only the phase timer restarts.
+  rerender(
+    <Timings
+      job={runningJob({
+        ...iterating,
+        stage: 'optimization',
+        phase_started_at: '2026-01-01T00:01:42.000Z',
+        phase_elapsed: 0.5,
+        iteration_elapsed: 10.5,
+        updated_at: '2026-01-01T00:01:42.000Z',
+      })}
+    />,
+  );
+  expect(screen.getByTestId('phase')).toHaveTextContent('0m 0s');
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 10s');
+});
+
+it('restarts the iteration timer for a new active iteration', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(<Timings job={runningJob(iterating)} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 12s');
+  // Iteration 43 enters self-play before its first game completes, and the
+  // overall job duration keeps running.
+  rerender(
+    <Timings
+      job={runningJob({
+        ...iterating,
+        active_iteration: 43,
+        iteration_started_at: '2026-01-01T00:01:44.000Z',
+        iteration_elapsed: 0.2,
+        phase_started_at: '2026-01-01T00:01:44.000Z',
+        phase_elapsed: 0.2,
+        updated_at: '2026-01-01T00:01:44.000Z',
+      })}
+    />,
+  );
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 0s');
+  expect(screen.getByTestId('phase')).toHaveTextContent('0m 0s');
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('1m 44s');
+});
+
+it('restarts the iteration timer for a resumed run', () => {
+  vi.useFakeTimers();
+  // A resume starts a new training run: its iteration timing begins at the
+  // resume, while the job duration stays the authoritative backend value.
+  render(
+    <Timings
+      job={runningJob({
+        ...iterating,
+        run: 'run-b',
+        iteration_elapsed: 1.5,
+        duration: 4000,
+        iteration_started_at: '2026-01-01T02:00:00.000Z',
+        phase_started_at: '2026-01-01T02:00:00.000Z',
+        phase_elapsed: 1.5,
+      })}
+    />,
+  );
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 1s');
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('1h 6m 40s');
+});
+
+it('freezes the authoritative iteration duration for a finished job', async () => {
+  vi.useFakeTimers();
+  render(
+    <Timings
+      job={{
+        id: 'job-1',
+        status: 'completed',
+        progress: { ...iterating, stage: 'completed', iteration_elapsed: 30, phase_elapsed: 2 },
+      }}
+    />,
+  );
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 30s');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 30s');
+});
+
+it('omits iteration timing for a legacy job', () => {
+  vi.useFakeTimers();
+  render(
+    <Timings
+      job={{
+        id: 'job-1',
+        status: 'running',
+        progress: { duration: 12, updated_at: 'a', last_progress_seconds: 0, stage: 'self_play' },
+      }}
+    />,
+  );
+  expect(screen.getByTestId('iteration')).toHaveTextContent('—');
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('0m 12s');
+});
+
+it('renders one iteration timer that does not re-render its siblings', async () => {
+  vi.useFakeTimers();
+  let siblingRenders = 0;
+  function Sibling() {
+    siblingRenders += 1;
+    return <span>sibling</span>;
+  }
+  render(
+    <div>
+      <Timings job={runningJob(iterating)} />
+      <Sibling />
+    </div>,
+  );
+  const before = siblingRenders;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  // The one-second ticker stays inside the timer leaf, so a dashboard-wide
+  // sibling is not re-rendered by it.
+  expect(siblingRenders).toBe(before);
+  expect(screen.getByTestId('iteration')).toHaveTextContent('0m 12s');
+});
+
+/** A remote job with the two server-observed ages, as the API reports them. */
+const remote = (
+  ages: Record<string, number>,
+  progress: Record<string, unknown> = monitored,
+): Job => ({ id: 'job-1', status: 'running', execution: 'remote', ...ages, progress });
+
+it('advances the supervisor age between observations and adopts a fresh one', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 0.4, supervisor_age_seconds: 0.4 })}
+      observedAt={performance.now()}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+  // Nothing is observed for longer than the monitoring threshold, so the
+  // browser reports its own blind spot rather than a worker failure.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(31000);
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Monitoring connection unavailable');
+  // A successful observation adopts the authoritative server state again.
+  rerender(
+    <TrainingLiveStatus
+      job={remote(
+        { publication_age_seconds: 0.3, supervisor_age_seconds: 0.3 },
+        { ...monitored, updated_at: '2026-01-01T00:20:00.000Z' },
+      )}
+      observedAt={performance.now()}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('never reports a disconnected worker from failed polling alone', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 600, supervisor_age_seconds: 0.5 })}
+      observedAt={performance.now()}
+    />,
+  );
+  // The server confirms the child is stale while the supervisor is connected.
+  expect(screen.getByRole('status')).toHaveTextContent('No recent updates');
+  // The browser then loses the server for half a minute.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(31000);
+  });
+  const status = screen.getByRole('status');
+  expect(status).toHaveTextContent('Monitoring connection unavailable');
+  expect(status).not.toHaveTextContent('Worker connection lost');
+  // The server confirms the supervisor went silent while the browser was away.
+  rerender(
+    <TrainingLiveStatus
+      job={remote(
+        { publication_age_seconds: 700, supervisor_age_seconds: 400 },
+        { ...monitored, updated_at: '2026-01-01T00:30:00.000Z' },
+      )}
+      observedAt={performance.now()}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker connection lost');
+});
+
+it('adopts a resumed supervisor and a recovered child', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 700, supervisor_age_seconds: 400 })}
+      observedAt={performance.now()}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker connection lost');
+  rerender(
+    <TrainingLiveStatus
+      job={remote(
+        { publication_age_seconds: 0.2, supervisor_age_seconds: 0.2 },
+        { ...monitored, updated_at: '2026-01-01T00:40:00.000Z' },
+      )}
+      observedAt={performance.now()}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('reports a monitoring outage for a local job without claiming a disconnection', async () => {
+  vi.useFakeTimers();
+  render(
+    <TrainingLiveStatus
+      job={{
+        id: 'job-1',
+        status: 'running',
+        execution: 'local',
+        publication_age_seconds: 0.4,
+        progress: monitored,
+      }}
+      observedAt={performance.now()}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  const status = screen.getByRole('status');
+  expect(status).toHaveTextContent('Monitoring connection unavailable');
+  expect(status).not.toHaveTextContent('Worker connection lost');
+  expect(status).not.toHaveTextContent('No recent updates');
+});
+
+it('keeps a terminal job terminal during a monitoring outage', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 0.4, supervisor_age_seconds: 0.4 })}
+      observedAt={performance.now()}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(31000);
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Monitoring connection unavailable');
+  rerender(
+    <TrainingLiveStatus
+      job={{
+        id: 'job-1',
+        status: 'completed',
+        execution: 'remote',
+        publication_age_seconds: 0.4,
+        supervisor_age_seconds: 0.4,
+        progress: { ...monitored, stage: 'completed' },
+      }}
+      observedAt={performance.now()}
+    />,
+  );
+  // A finished job never claims a monitoring problem.
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('resumes monitoring after a suspended tab', async () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <TrainingLiveStatus
+      job={remote({ publication_age_seconds: 0.4, supervisor_age_seconds: 0.4 })}
+      observedAt={performance.now()}
+    />,
+  );
+  // A suspended tab misses every poll, so the clock jumps far ahead at once.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(300000);
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Monitoring connection unavailable');
+  rerender(
+    <TrainingLiveStatus
+      job={remote(
+        { publication_age_seconds: 0.4, supervisor_age_seconds: 0.4 },
+        { ...monitored, updated_at: '2026-01-01T01:00:00.000Z' },
+      )}
+      observedAt={performance.now()}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Worker active');
+});
+
+it('leaves a legacy job without any heartbeat state', async () => {
+  vi.useFakeTimers();
+  const { container } = render(
+    <TrainingLiveStatus
+      job={{ id: 'job-1', status: 'running', progress: { duration: 30, stage: 'self_play' } }}
+      observedAt={performance.now()}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  // A job recorded before the monitoring fields existed renders nothing extra.
+  expect(container).toBeEmptyDOMElement();
 });

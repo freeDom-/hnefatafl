@@ -181,3 +181,65 @@ def test_resume_names_the_fields_that_cannot_change(client):
         json={"iterations": 5, "batch_size": 16},
     )
     assert editable_only.status_code == 404
+
+
+def smoke_config(tmp_path, **changes) -> dict:
+    from hnefatafl.training import normalize_config
+
+    return normalize_config(
+        {
+            "preset": "smoke",
+            "ruleset": "brandubh",
+            "device": "cpu",
+            "seed": 3,
+            "cpu_threads": 1,
+            "games": 1,
+            "iterations": 1,
+            "max_game_plies": 2,
+            "evaluation_max_plies": 2,
+            "output_dir": str(tmp_path / "training"),
+            "registry_dir": str(tmp_path / "models"),
+            **changes,
+        }
+    )
+
+
+def test_every_published_training_phase_is_declared(tmp_path, monkeypatch):
+    """The declared vocabulary covers the phases the training code publishes.
+
+    A phase added to the trainer without a declaration would have no dashboard
+    label and no translation, so it is collected from a real run instead of
+    duplicated in a list.
+    """
+    from hnefatafl.training import train
+    from hnefatafl.training_monitoring import TrainingMonitor
+
+    seen: set[str] = set()
+    original = TrainingMonitor.phase
+
+    def record(self, name, *, iteration=None):
+        seen.add(name)
+        return original(self, name, iteration=iteration)
+
+    monkeypatch.setattr(TrainingMonitor, "phase", record)
+    config = smoke_config(tmp_path)
+    result = train(config)
+    assert result["status"] == "completed"
+    # A resume adds the checkpoint-loading and state-restoring stages.
+    resumed = train(
+        smoke_config(
+            tmp_path,
+            output_dir=str(tmp_path / "resumed"),
+            iterations=2,
+            resume=result["checkpoint"],
+        )
+    )
+    assert resumed["status"] == "completed"
+
+    declared = set(CONTRACT["training_phases"])
+    assert seen, "no training phase was recorded"
+    assert seen <= declared, sorted(seen - declared)
+    # The terminal phases the trainer can publish are declared too.
+    for phase in ("cancelled", "failed", "pruned", "completed"):
+        assert phase in declared
+    assert "starting" in declared

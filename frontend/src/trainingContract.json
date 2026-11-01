@@ -49,5 +49,23 @@
   ],
   "tune_fields": ["trials", "study_name", "seed", "search_space", "training", "resume_study"],
   "execution_fields": ["execution", "worker_id"],
-  "resume_immutable_fields": ["ruleset", "channels", "blocks", "seed", "optimizer", "iterations"]
+  "resume_immutable_fields": ["ruleset", "channels", "blocks", "seed", "optimizer", "iterations"],
+  "training_phases": [
+    "starting",
+    "loading_checkpoint",
+    "initializing",
+    "restoring_state",
+    "initializing_inference",
+    "preparing",
+    "self_play",
+    "optimization",
+    "evaluation",
+    "checkpoint",
+    "iteration_complete",
+    "finalizing",
+    "completed",
+    "cancelled",
+    "failed",
+    "pruned"
+  ]
 }

@@ -118,6 +118,11 @@ export default function Training({
   const [rejectedFields, setRejectedFields] = useState<string[]>([]);
   /** Local explanation for a request the form itself could not build. */
   const [rejectedReason, setRejectedReason] = useState('');
+  /**
+   * Monotonic time of the last successful monitoring read. The live view uses it
+   * to tell a silent worker apart from a browser that cannot reach the server.
+   */
+  const [monitoringObservedAt, setMonitoringObservedAt] = useState<number | undefined>(undefined);
   const [deleteModel, setDeleteModel] = useState<Model | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -220,6 +225,7 @@ export default function Training({
         const latest = summaries.current.get(id);
         const detail =
           snapshot !== summaryRevision.current && latest ? mergeJobSummary(job, latest) : job;
+        setMonitoringObservedAt(performance.now());
         setSelectedJob((current) => (current?.id === id ? { ...detail, summary: false } : current));
       })
       .catch((error: Error) => {
@@ -292,6 +298,7 @@ export default function Training({
           summaries.current = new Map(runs.map((job) => [job.id, job]));
           setLoaded(true);
           setLoadFailed(false);
+          setMonitoringObservedAt(performance.now());
           setCreationOpen((previous) => previous ?? !runs.length);
           setModelsOpen((previous) => previous ?? !runs.length);
           setJobs(runs);
@@ -873,6 +880,7 @@ export default function Training({
                 <TrainingJobDashboard
                   key={selectedJob.id}
                   job={selectedJob}
+                  observedAt={monitoringObservedAt}
                   tab={activeJobTab}
                   onTabChange={setJobTab}
                   revision={dashboardRevision}

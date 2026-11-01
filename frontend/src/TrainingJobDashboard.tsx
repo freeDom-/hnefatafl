@@ -25,6 +25,8 @@ import { availableJobTabs, type JobTab } from './jobTabs';
 
 interface Props {
   job: Job;
+  /** Monotonic time of the last successful monitoring read, for live freshness. */
+  observedAt?: number;
   tab: JobTab;
   onTabChange: (tab: JobTab) => void;
   revision: number;
@@ -41,6 +43,7 @@ interface Props {
 }
 export default function TrainingJobDashboard({
   job,
+  observedAt,
   tab,
   onTabChange,
   revision,
@@ -97,7 +100,7 @@ export default function TrainingJobDashboard({
           {job.execution === 'remote'
             ? (job.worker_name ?? t('Waiting for an available worker'))
             : t('This server')}
-          <LiveElapsed job={job} />
+          <LiveElapsed job={job} observedAt={observedAt} />
           {job.last_reported_at &&
             ` · ${t('Last update {time}', { time: new Date(job.last_reported_at).toLocaleString(locale) })}`}
         </p>
@@ -119,7 +122,7 @@ export default function TrainingJobDashboard({
               : t(job.status)}
           </span>
         </div>
-        <TrainingLiveStatus job={job} />
+        <TrainingLiveStatus job={job} observedAt={observedAt} />
         <dl className="dashboard-game-counts" aria-label={t('Self-play games generated')}>
           <div>
             <dt>{t('Job games')}</dt>

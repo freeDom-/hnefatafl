@@ -166,10 +166,15 @@ is honored at the first point where a checkpoint can be written.
 
 Elapsed time is published as a monotonic duration, never as a worker timestamp.
 The browser anchors each reported value when the response arrives and advances it
-with a one-second local ticker, so an unsynchronised or skewed remote worker clock
-cannot affect the display. Timers never move backwards while a job runs, a new
-phase restarts only the phase timer, and a completed, cancelled or failed job
-adopts the authoritative backend duration and stops advancing.
+with a single one-second local ticker, so an unsynchronised or skewed remote worker
+clock cannot affect the display. The live block shows the job elapsed time in the
+header, the current iteration duration and the current phase duration. Timers
+never move backwards while a job runs: a new phase restarts only the phase timer, a
+new iteration restarts only the iteration timer (identified by the published
+`active_iteration`, its start timestamp and the run identity, so it does not wait
+for a completed game), and a completed, cancelled or failed job adopts the
+authoritative backend durations and stops advancing. The ticker lives in the timer
+leaf, so one second of display time never re-renders the charts or tables.
 
 Publication freshness is measured by the server, not by the browser, and is only
 reported for a live (running or cancelling) job. A local job
@@ -188,6 +193,15 @@ fresh child heartbeat. That case reports **No recent updates** (the child), whil
 silent supervisor reports **Worker connection lost**; a job whose lease then
 expires ends as failed with the reason recorded.
 
+The browser also tracks when it last received authoritative monitoring data. Polls
+run every 2.5 seconds, so if no answer arrives for twenty seconds the dashboard
+reports **Monitoring connection unavailable** instead of blaming the worker: a
+failed poll says nothing about the remote process, and the last known child and
+supervisor ages are only extrapolated while the browser is still being served.
+Reconnecting adopts the fresh server state at once. The three signals therefore
+stay independent: the child's own publication age, the server-confirmed supervisor
+age and the browser's own monitoring connection.
+
 The live header follows the iteration currently being trained (`active_iteration`),
 while the overview's **Iteration** KPI keeps the last completed iteration used by
 checkpointing and resume. Entering a new iteration updates the header at once,
@@ -204,7 +218,8 @@ Heartbeat states are informational and never change job management or outcome:
 | **Running, long operation** | Publication is fresh, but no meaningful progress for two minutes. One self-play or evaluation game may legitimately take that long. |
 | **Potentially stalled** | Publication is fresh, but no meaningful progress for ten minutes. |
 | **No recent updates** | The training process published nothing for twenty seconds, even though its supervisor is still reporting. |
-| **Worker connection lost** | A remote supervisor has not reached the server for twenty seconds; the job ends as failed when its lease expires. |
+| **Worker connection lost** | The server confirms a remote supervisor has not reported for twenty seconds; the job ends as failed when its lease expires. |
+| **Monitoring connection unavailable** | The browser has not received fresh monitoring data for twenty seconds; the worker's state is unknown rather than failed. |
 | **Waiting for a worker** | The job is queued. |
 
 Jobs recorded before these fields existed omit the heartbeat state, phase timer

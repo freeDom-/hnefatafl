@@ -291,6 +291,8 @@ const translations: Record<string, string> = {
   'Potentially stalled': 'Möglicherweise hängend',
   'No recent updates': 'Keine aktuellen Meldungen',
   'Worker connection lost': 'Worker-Verbindung unterbrochen',
+  'Monitoring connection unavailable': 'Monitoring-Verbindung nicht verfügbar',
+  'Iteration elapsed {time}': 'Iterationsdauer {time}',
   'The parameter search space is not valid JSON.': 'Der Parameter-Suchraum ist kein gültiges JSON.',
   'Waiting for a worker': 'Warten auf einen Worker',
   Games: 'Spiele',

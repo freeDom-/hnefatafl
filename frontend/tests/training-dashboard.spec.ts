@@ -424,3 +424,60 @@ test('names and marks a rejected training field in every appearance', async ({ p
   expect(darkMarker).not.toBe(woodMarker);
   await page.screenshot({ path: info.outputPath('rejected-field-dark.png'), fullPage: true });
 });
+
+test('keeps the iteration timer live and reports a monitoring outage', async ({ page }, info) => {
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
+  const job = workshopFixture('running', 1);
+  const monitored = {
+    ...job,
+    publication_age_seconds: 0.5,
+    supervisor_age_seconds: 0.5,
+    progress: {
+      ...job.progress,
+      stage: 'preparing',
+      active_iteration: 42,
+      iteration_started_at: '2026-01-01T00:00:00.000Z',
+      iteration_elapsed: 512,
+      phase_started_at: '2026-01-01T00:00:00.000Z',
+      phase_elapsed: 378,
+      duration: 5000,
+      updated_at: '2026-01-01T00:00:00.000Z',
+      last_progress_seconds: 1,
+      revision: 5,
+    },
+  };
+  let reachable = true;
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    reachable ? route.fulfill({ json: [monitored] }) : route.abort(),
+  );
+  await open(page);
+  await expect(page.getByText('Iteration elapsed 8m 32s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 6m 18s')).toBeVisible();
+  await page.clock.runFor(3000);
+  await expect(page.getByText('Iteration elapsed 8m 35s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 6m 21s')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('iteration-timing.png'), fullPage: true });
+
+  // The server stops answering: the browser reports its own blind spot instead
+  // of blaming the remote worker for a connection it cannot observe.
+  reachable = false;
+  await page.clock.runFor(31000);
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Monitoring connection unavailable' }),
+  ).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Worker connection lost' })).toHaveCount(
+    0,
+  );
+  await page.screenshot({ path: info.outputPath('monitoring-outage.png'), fullPage: true });
+
+  // Reconnecting adopts the authoritative state again, and the phase name is
+  // localized for German readers.
+  reachable = true;
+  await page.clock.runFor(3000);
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
+  await page.getByLabel('Language', { exact: true }).selectOption('de');
+  await expect(page.getByText('Vorbereitung')).toBeVisible();
+  await expect(page.getByText(/Iterationsdauer \d+m \d+s/)).toBeVisible();
+});

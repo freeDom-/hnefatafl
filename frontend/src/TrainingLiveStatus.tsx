@@ -14,21 +14,24 @@ const HEARTBEAT_LABELS: Record<HeartbeatState, string> = {
   stalled: 'Potentially stalled',
   unresponsive: 'No recent updates',
   disconnected: 'Worker connection lost',
+  monitoring_unavailable: 'Monitoring connection unavailable',
   waiting: 'Waiting for a worker',
   terminal: 'Finished',
 };
 
 interface Props {
   job: Job;
+  /** Monotonic time of the last successful monitoring observation. */
+  observedAt?: number;
 }
 
 /**
  * Live elapsed time for the job header. This is deliberately a leaf component:
  * its one-second ticker must not re-render the dashboard's charts and tables.
  */
-export function LiveElapsed({ job }: Props) {
+export function LiveElapsed({ job, observedAt }: Props) {
   const { t } = useI18n();
-  const elapsed = useLiveProgress(job).elapsed;
+  const elapsed = useLiveProgress(job, observedAt).elapsed;
   if (elapsed === undefined) return null;
   return (
     <>
@@ -43,19 +46,30 @@ export function LiveElapsed({ job }: Props) {
  * counters and an independent heartbeat/progress state. Older jobs that predate
  * the monitoring fields simply render nothing here.
  */
-export default function TrainingLiveStatus({ job }: Props) {
+export default function TrainingLiveStatus({ job, observedAt }: Props) {
   const { t, locale } = useI18n();
   const progress = jobProgress(job);
-  const live = useLiveProgress(job);
+  const live = useLiveProgress(job, observedAt);
   const stage = typeof progress.stage === 'string' ? progress.stage : '';
   const summary = phaseSummary(stage, object(progress.phase_progress) ?? {}, locale);
   const heartbeat = live.heartbeat && live.heartbeat !== 'terminal' ? live.heartbeat : undefined;
-  if (!heartbeat && live.phaseElapsed === undefined && !summary.rows.length) return null;
+  if (
+    !heartbeat &&
+    live.iterationElapsed === undefined &&
+    live.phaseElapsed === undefined &&
+    !summary.rows.length
+  )
+    return null;
   return (
     <div className="live-phase" aria-label={t('Live phase progress')}>
       {heartbeat && (
         <span className={`job-heartbeat ${heartbeat}`} role="status">
           {t(HEARTBEAT_LABELS[heartbeat])}
+        </span>
+      )}
+      {live.iterationElapsed !== undefined && (
+        <span className="live-phase-time">
+          {t('Iteration elapsed {time}', { time: formatDuration(live.iterationElapsed) })}
         </span>
       )}
       {live.phaseElapsed !== undefined && (

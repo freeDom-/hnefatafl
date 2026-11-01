@@ -789,3 +789,33 @@ it('shows the active iteration in the live header before it completes', async ()
   // The header follows the iteration being trained, not the last completed one.
   expect(screen.getByText('Iteration 42 / 120')).toBeInTheDocument();
 });
+
+it('shows the live iteration timer with the localized phase name', async () => {
+  setLanguage('de', false);
+  jobs = [
+    {
+      id: 'live',
+      status: 'running',
+      config: { model_name: 'Live strategist', iterations: 100 },
+      progress: {
+        active_iteration: 42,
+        total_iterations: 100,
+        stage: 'finalizing',
+        duration: 5000,
+        iteration_elapsed: 512,
+        iteration_started_at: '2026-01-01T00:00:00.000Z',
+        phase_elapsed: 378,
+        phase_started_at: '2026-01-01T00:02:14.000Z',
+        updated_at: '2026-01-01T01:23:20.000Z',
+        last_progress_seconds: 1,
+      },
+    },
+  ];
+  show();
+  await screen.findByRole('tab', { name: 'Übersicht' });
+  expect(screen.getByText('Iteration 42 / 100')).toBeInTheDocument();
+  // The phase name is translated, and both live timers are shown.
+  expect(screen.getByText('Abschluss')).toBeInTheDocument();
+  expect(screen.getByText('Iterationsdauer 8m 32s')).toBeInTheDocument();
+  expect(screen.getByText('Phasendauer 6m 18s')).toBeInTheDocument();
+});
