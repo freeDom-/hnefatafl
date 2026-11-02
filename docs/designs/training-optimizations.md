@@ -20,6 +20,15 @@ every path shares one cooperative scheduler. See
 [parallel search](../benchmarks/training-parallel-search.md) for the corrected CPU and
 GPU evidence and the retained first-implementation report.
 
+A follow-up review pass corrected five further issues in that redesign: the pool no
+longer retains a copy of every completed result, worker capacities come from a
+quotient/remainder split so the configured concurrency is a hard upper bound, an
+explicit `sequential` execution mode overrides the worker pool, CUDA evaluation
+benchmarks compare against the batched evaluator, and evaluation inference backends are
+closed exactly once through an exit stack even when a later backend fails to initialize
+or refresh. Each correction carries a regression test; see
+[parallel search](../benchmarks/training-parallel-search-redesign.md).
+
 The shared [benchmark runner](../../scripts/benchmark_training_optimization.py)
 accepts an extracted baseline package via `--source`, selected feature, device,
 ruleset, worker count, budgets and explicit baseline/candidate variant. Check out the

@@ -159,15 +159,23 @@ game is a generator that yields its own pending leaf and receives exactly its ow
 policy/value result, so no simulation advances on another game's inference. Optional
 `search_workers` (default 0) adds persistent spawned CPU actors that each run the
 same scheduler over many game contexts. The worker count bounds CPU parallelism
-only: `self_play_concurrency` and `evaluation_concurrency` bound active games across
-the whole pool, and every worker receives a static round-robin share of the game
-indices so batch composition stays reproducible across runs. CPU inference uses
-frozen actor snapshots evaluated inside the actor; CUDA/OpenVINO models, tensors,
-streams and caches stay in the parent, which batches the outstanding requests of the
-whole pool into one forward pass and routes each result back by explicit request
-identity. Replay commits remain in game-index order, and the pool hands out new games
-only while the started-but-uncommitted count stays inside the ordered replay window.
-Failure or cancellation closes the pool. CUDA auto selects batching; PyTorch CPU/MPS auto stays sequential. Explicit
+only: `self_play_concurrency` and `evaluation_concurrency` are hard upper bounds on
+active games across the whole pool, and each worker receives a static round-robin
+share of the game indices plus a capacity from a quotient/remainder split, so the
+capacities sum to exactly the requested limit and idle workers are never started.
+An explicit `sequential` self-play or evaluation mode overrides the pool entirely, so
+a configuration with both phases sequential starts no worker processes at all.
+
+CPU inference uses frozen actor snapshots evaluated inside the actor; CUDA/OpenVINO
+models, tensors, streams and caches stay in the parent, which batches the outstanding
+requests of the whole pool into one forward pass and routes each result back by
+explicit request identity. Evaluation backends the pool creates are registered on an
+exit stack before they are refreshed, so a failed creation or refresh closes every
+backend that phase already owns and never replaces the original error. Replay commits
+remain in game-index order, the pool keeps only a completion count rather than a copy
+of every result, and it hands out new games only while the started-but-uncommitted
+count stays inside the ordered replay window. Failure or cancellation closes the pool.
+CUDA auto selects batching; PyTorch CPU/MPS auto stays sequential. Explicit
 OpenVINO auto selects batching with CPU optimization. An optional frozen
 TorchScript/OpenVINO FP32 graph is refreshed once before each self-play iteration;
 bounded dynamic batches reuse one compiled graph. Shared encoding/legal-policy
