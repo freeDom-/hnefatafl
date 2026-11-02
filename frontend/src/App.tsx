@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
 import { notify } from './notifications';
-import type { AIProfile, Game, Model, Ruleset, Side } from './types';
+import type { AIProfile, Game, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
 import Tournaments from './Tournaments';
@@ -32,6 +32,7 @@ import HistoryPanel from './HistoryPanel';
 import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
+import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
 import { PlayTabsProvider } from './PlayTabs';
 
@@ -87,7 +88,7 @@ export default function App() {
   }, [path]);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
-  const [models, setModels] = useState<Model[]>([]);
+  const { models, refresh: refreshModels } = useModelCatalogue();
   const [liveGame, setGame] = useState<Game | null>(null);
   const playHistory = usePlayHistory(liveGame);
   const game = playHistory.game;
@@ -115,11 +116,6 @@ export default function App() {
     notify.error(errorMessage(message));
   }, []);
 
-  /** Reload only the model catalogue; the New Game dialog refreshes it on demand. */
-  const refreshModels = useCallback(async (signal?: AbortSignal) => {
-    const saved = await api<Model[]>('/models', undefined, undefined, signal);
-    setModels(Array.isArray(saved) ? saved : []);
-  }, []);
   const refreshOptions = useCallback(async () => {
     const [rules, ais] = await Promise.all([
       api<Ruleset[]>('/rulesets'),
