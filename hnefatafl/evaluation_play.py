@@ -71,7 +71,14 @@ def game_context(
 
 
 def batched_evaluation(
-    model, config: dict, context: dict, *, previous=None, seed: int, should_stop: Callable | None
+    model,
+    config: dict,
+    context: dict,
+    *,
+    previous=None,
+    seed: int,
+    should_stop: Callable | None,
+    monitor=None,
 ) -> tuple[list[dict], dict]:
     models = [model] + ([previous] if previous is not None else [])
     concurrency = min(config["evaluation_games"], config.get("evaluation_concurrency", 16))
@@ -96,6 +103,22 @@ def batched_evaluation(
         if should_stop and should_stop():
             raise InterruptedError("Evaluation was cancelled")
 
+    wins = draws = losses = 0
+
+    def completed(outcome):
+        """Running, clearly partial tallies; the final result comes from the outcomes."""
+        nonlocal wins, draws, losses
+        if monitor is None:
+            return
+        side = outcome["candidate_side"]
+        winner = outcome["winner"]
+        # Truncated games count as neither a win nor a loss, matching the scoring.
+        wins += int(winner == side)
+        draws += int(winner == "draw")
+        losses += int(winner not in (None, "draw") and winner != side)
+        monitor.tick(evaluation_games=1)
+        monitor.counts(evaluation_wins=wins, evaluation_draws=draws, evaluation_losses=losses)
+
     def advance(index, result=None):
         cancelled()
         game = active[index]
@@ -105,6 +128,7 @@ def batched_evaluation(
         except StopIteration as finished:
             outcomes[index] = finished.value
             del active[index]
+            completed(finished.value)
 
     def fill():
         nonlocal started
@@ -150,6 +174,9 @@ def batched_evaluation(
                 )
                 for (index, _), result in zip(requests, values):
                     advance(index, result)
+                if monitor is not None:
+                    # One cheap update per searched position keeps long games live.
+                    monitor.tick(evaluation_plies=len(requests))
                 fill()
     finally:
         for game in active.values():

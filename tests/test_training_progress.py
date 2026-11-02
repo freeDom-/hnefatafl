@@ -358,6 +358,27 @@ def test_evaluation_reports_partial_tallies_matching_the_final_result(tmp_path, 
     }
 
 
+def test_batched_evaluation_reports_the_same_partial_tallies(tmp_path):
+    """The batched path `main` made the default must keep the counters live."""
+    config = tiny_config(tmp_path, evaluation_games=4, evaluation_mode="batched")
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    sink = RecordingSink()
+    result = evaluate_model(model, config, monitor=sink)
+    assert sink.counters["evaluation_total"] == 4
+    assert sink.counters["evaluation_games"] == 4
+    assert sink.counters["evaluation_opponent"] == result["opponent"]
+    assert sink.counters["evaluation_wins"] == result["wins"]
+    assert sink.counters["evaluation_draws"] == result["draws"]
+    assert sink.counters["evaluation_losses"] == result["losses"]
+    assert sink.counters["evaluation_plies"] > 0
+
+    # Monitoring must not change the recorded outcome of the batched path.
+    plain = evaluate_model(PolicyValueNet("brandubh", 4, 0).eval(), config)
+    assert {key: plain[key] for key in ("wins", "losses", "draws", "score")} == {
+        key: result[key] for key in ("wins", "losses", "draws", "score")
+    }
+
+
 # --- integration: a blocked phase keeps publishing ---------------------------
 
 

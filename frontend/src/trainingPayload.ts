@@ -90,6 +90,8 @@ export const RESUME_IMMUTABLE_FIELDS = [
 const RESUME_TEXT_FIELDS = [
   'model_name',
   'evaluation_opponent',
+  'evaluation_mode',
+  'evaluation_inference_backend',
   'device',
   'mixed_precision',
   'save_all_best',
