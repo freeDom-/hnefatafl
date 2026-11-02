@@ -2,6 +2,15 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Live training monitoring, fixed-role tournaments and training optimizations (`0.34.0` preparation)
+
+The [0.34.0 release notes](releases/0.34.0.md#validation) identify the verified
+implementation tree, exact test counts and release-branch checks. They also cover
+the absent schema migration, the worker capability negotiation for the new
+evaluation settings, the heartbeat/`progress.json` relationship and the final
+tagged-main CI requirement. Historical evidence below keeps its original commit
+scope.
+
 ## Responsive play, personal statistics and online clocks (`0.33.0` preparation)
 
 The [0.33.0 release notes](releases/0.33.0.md#validation) identify the verified
