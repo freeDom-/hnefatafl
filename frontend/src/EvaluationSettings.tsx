@@ -5,6 +5,10 @@ import type { TrainingConfig } from './trainingPresets';
 export const evaluationDefaults: TrainingConfig = {
   evaluation_opponent: 'shield_bearer',
   evaluation_frequency: 1,
+  evaluation_mode: 'auto',
+  evaluation_concurrency: 16,
+  evaluation_batch_size: 32,
+  evaluation_inference_backend: 'pytorch',
   evaluation_games: 2,
   evaluation_iterations: 16,
   evaluation_max_plies: 150,
@@ -61,7 +65,30 @@ export default function EvaluationSettings({
             <option value="champion">{t('Champion')}</option>
           </select>
         </label>
+        <label>
+          {t('Evaluation execution')}
+          <select
+            value={String(values.evaluation_mode)}
+            onChange={(event) => update('evaluation_mode', event.target.value)}
+          >
+            <option value="auto">{t('Automatic')}</option>
+            <option value="sequential">{t('Sequential')}</option>
+            <option value="batched">{t('Batched')}</option>
+          </select>
+        </label>
+        <label>
+          {t('Evaluation inference backend')}
+          <select
+            value={String(values.evaluation_inference_backend)}
+            onChange={(event) => update('evaluation_inference_backend', event.target.value)}
+          >
+            <option value="pytorch">PyTorch</option>
+            <option value="training">{t('Use training inference backend')}</option>
+          </select>
+        </label>
         {[
+          'evaluation_concurrency',
+          'evaluation_batch_size',
           'evaluation_frequency',
           'evaluation_games',
           'evaluation_max_plies',

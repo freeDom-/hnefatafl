@@ -50,6 +50,8 @@ def evaluation_context(config: dict) -> dict:
             **({"depth": config.get("evaluation_jarl_depth", 5)} if opponent == "jarl" else {}),
         }
     )
+    from .evaluation_play import evaluation_backend
+
     return {
         "protocol_version": 1,
         "ruleset": config["ruleset"],
@@ -62,6 +64,9 @@ def evaluation_context(config: dict) -> dict:
         "seed": config["seed"] + 1000000,
         "scoring": "wins_plus_half_rules_draws_truncated_zero",
         "pairing": "same_seed_swapped_sides",
+        # Retain historical PyTorch identities; an alternate numerical backend
+        # starts a distinct comparison series.
+        **({"inference_backend": "openvino"} if evaluation_backend(config) == "openvino" else {}),
     }
 
 
@@ -162,6 +167,32 @@ def evaluate_model(
     if previous is not None:
         previous.eval()
     started = time.monotonic()
+    from .evaluation_play import batched_evaluation, evaluation_backend
+
+    backend = evaluation_backend(config)
+    mode = config.get("evaluation_mode", "auto")
+    batched = (
+        mode == "batched"
+        or backend == "openvino"
+        or (mode == "auto" and next(model.parameters()).device.type == "cuda")
+    )
+    if batched:
+        outcomes, performance = batched_evaluation(
+            model, config, context, previous=previous, seed=seed, should_stop=should_stop
+        )
+        return {
+            **_summary(outcomes),
+            "opponent": context["opponent"],
+            "opponent_config": context["opponent_config"],
+            "context": context,
+            "opponent_identity": context_identity(context),
+            "candidate_as_attacker": _summary(outcomes[::2]),
+            "candidate_as_defender": _summary(outcomes[1::2]),
+            "games": outcomes,
+            "duration": time.monotonic() - started,
+            "seed": seed,
+            "performance": performance,
+        }
     for game in range(config["evaluation_games"]):
         state = new_game(config["ruleset"])
         candidate_side = "attackers" if game % 2 == 0 else "defenders"
