@@ -88,6 +88,10 @@ it('resumes iteration 100 with Champion settings and keeps saved identity and le
   const opponent = await screen.findByLabelText('Evaluation opponent');
   expect(screen.queryByLabelText('Training preset')).not.toBeInTheDocument();
   fireEvent.change(opponent, { target: { value: 'champion' } });
+  fireEvent.change(screen.getByLabelText('Evaluation execution'), { target: { value: 'batched' } });
+  fireEvent.change(screen.getByLabelText('Evaluation inference backend'), {
+    target: { value: 'training' },
+  });
   expect(screen.queryByLabelText('Jarl evaluation depth')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Evaluation games (even)'), { target: { value: '48' } });
   fireEvent.change(screen.getByLabelText('Evaluate every (iterations)'), {
@@ -104,6 +108,8 @@ it('resumes iteration 100 with Champion settings and keeps saved identity and le
   expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
     iterations: 101,
     evaluation_opponent: 'champion',
+    evaluation_mode: 'batched',
+    evaluation_inference_backend: 'training',
     evaluation_games: 48,
     evaluation_frequency: 10,
     champion_confidence: 0.99,
