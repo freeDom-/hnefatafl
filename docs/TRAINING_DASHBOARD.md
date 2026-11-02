@@ -150,6 +150,13 @@ trial's iteration and phase timers. A historical tuning job without a study-leve
 duration shows no job elapsed time rather than presenting one trial's time as the
 whole job's.
 
+Outside a trial the study itself publishes, so a tuning job reports
+`initializing_study`, `preparing_trial`, `between_trials` and `finalizing_study`
+with the study's timers and the completed-trial counter instead of freezing between
+trials or during the final aggregation. The last trial's charts and data stay
+visible, but its finished phase and timers are not presented as live, and its
+heartbeat cannot overwrite the study's snapshot.
+
 - **Self-play** shows completed and scheduled games, active games, searched
   positions and MCTS simulations.
 - **Model training** shows completed and total optimization steps, the current

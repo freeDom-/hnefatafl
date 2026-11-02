@@ -204,6 +204,17 @@ match keeps monitoring and timers advancing without rewriting the retained
 history. Readers overlay a heartbeat only when it belongs to the same publication
 generation. See [the training dashboard](TRAINING_DASHBOARD.md#live-monitoring).
 
+An Optuna study is monitored the same way, with the study's own heartbeat and
+timers covering everything outside a trial: loading the study database, sampling
+trial parameters, the bookkeeping between trials and the final aggregation. While
+a trial trains, that trial's monitor publishes the same files, and the retained
+snapshot keeps the last trial's data without presenting its finished phase or
+timers as live. Each publisher carries its own run identity, so a heartbeat from
+an earlier trial or from the study can never overlay the other's snapshot, and a
+terminal state is never revived. The study's elapsed time spans the whole study,
+so it never restarts with a trial. See
+[hyperparameter optimization](#hyperparameter-optimization).
+
 The progress panel plots policy/value losses and completion-aware evaluation
 score against completed iterations, including while a worker is running. An
 accessible data table contains the same points. History survives reopening and
@@ -373,6 +384,13 @@ Intermediate evaluated iteration scores support pruning. Champion/Jarl objective
 of **additional** trials in the invocation; rerunning the same study resumes it.
 `study_name` and storage must remain stable for resumption. Default storage is
 `study.sqlite3` within the output directory.
+
+A running study reports study-level phases (`initializing_study`,
+`preparing_trial`, `between_trials`, `finalizing_study`) with a monotonic study
+duration, the completed-trial counter and the last trial's data, so a dashboard
+never shows a dead worker between trials or during a slow finalization. The
+study's heartbeat stops only at the terminal publication, which carries the
+authoritative duration; a study failure is published as a terminal failed state.
 
 The JSON `search_space` supports `float` (with optional `log`), `int` (with
 optional `step`/`log`) and `categorical` (`choices`) distributions. The nested

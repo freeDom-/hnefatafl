@@ -7,151 +7,194 @@
   },
   "hot_path": {
     "calls": 200000,
-    "total_seconds": 0.14841573999910906,
-    "nanoseconds_per_call": 742.0786999955453
+    "total_seconds": 0.13015742899733596,
+    "nanoseconds_per_call": 650.7871449866798
   },
   "publication": {
     "heartbeat": {
-      "median_seconds": 0.00016594849967077607,
+      "median_seconds": 0.00012680049985647202,
       "samples": [
-        0.00036639600148191676,
-        0.00020809699890378397,
-        0.0002006979993893765,
-        0.00013119899995217565,
-        0.00012289799997233786,
-        0.00012589899961312767,
-        0.00025309699958597776,
-        0.00012079900079697836
+        0.00035720199230127037,
+        0.0001831000263337046,
+        0.00012800100375898182,
+        0.00012040100409649312,
+        0.0001255999959539622,
+        0.00011290100519545376,
+        0.00027640099870041013,
+        0.00012310099555179477
       ],
       "bytes": 294
     },
     "progress": {
-      "median_seconds": 0.006331229499664914,
+      "median_seconds": 0.00910464400658384,
       "samples": [
-        0.006762425000488292,
-        0.006162731000586064,
-        0.006296029001532588,
-        0.006321729999399395,
-        0.006054831999790622,
-        0.006340728999930434,
-        0.008097510000879993,
-        0.007031322000329965
+        0.007643836986972019,
+        0.009634046000428498,
+        0.009282445011194795,
+        0.008863342984113842,
+        0.008835443004500121,
+        0.01151565500185825,
+        0.010728652006946504,
+        0.008926843001972884
       ],
       "bytes": 119775
     },
     "heartbeat_bytes_per_second": 294.0,
     "progress_bytes_per_second": 119775.0
   },
+  "study_publication": {
+    "heartbeat": {
+      "median_seconds": 0.00025245150027330965,
+      "samples": [
+        0.00027930099167861044,
+        0.00014200099394656718,
+        0.0008087029855232686,
+        0.000342901999829337,
+        0.00025810100487433374,
+        0.00024680199567228556,
+        0.0002231010003015399,
+        0.00021690101129934192
+      ],
+      "bytes": 340
+    },
+    "trial_projection": {
+      "median_seconds": 7.5499992817640305e-06,
+      "samples": [
+        1.470002462156117e-05,
+        8.500006515532732e-06,
+        8.000002708286047e-06,
+        7.499998901039362e-06,
+        6.999995093792677e-06,
+        6.799993570894003e-06,
+        7.599999662488699e-06,
+        6.999995093792677e-06
+      ]
+    },
+    "retained": {
+      "median_seconds": 0.015454724503797479,
+      "samples": [
+        0.013895067007979378,
+        0.014116468984866515,
+        0.016577979986323044,
+        0.015606075001414865,
+        0.018640090012922883,
+        0.008820043003652245,
+        0.015303374006180093,
+        0.02161270400392823
+      ],
+      "bytes": 132269
+    }
+  },
   "self_play_workload": {
     "pairs": [
       {
-        "baseline_seconds": 0.6865792219996365,
-        "monitored_seconds": 0.5690279369991913,
+        "baseline_seconds": 0.7553344480111264,
+        "monitored_seconds": 0.6913961400277913,
         "monitor_calls": 121
       },
       {
-        "baseline_seconds": 0.6811754830014252,
-        "monitored_seconds": 0.6740941550015123,
+        "baseline_seconds": 0.6957480600103736,
+        "monitored_seconds": 0.6423194030066952,
         "monitor_calls": 128
       },
       {
-        "baseline_seconds": 0.6425664060006966,
-        "monitored_seconds": 0.6283894659991347,
+        "baseline_seconds": 0.7067712130083237,
+        "monitored_seconds": 0.4764361950219609,
         "monitor_calls": 119
       },
       {
-        "baseline_seconds": 0.6266031850009313,
-        "monitored_seconds": 0.6861590190001152,
+        "baseline_seconds": 0.4944120779982768,
+        "monitored_seconds": 0.6946290410123765,
         "monitor_calls": 124
       },
       {
-        "baseline_seconds": 0.5893040030005068,
-        "monitored_seconds": 0.5416328370010888,
+        "baseline_seconds": 0.5090352480183356,
+        "monitored_seconds": 0.4940396769961808,
         "monitor_calls": 115
       },
       {
-        "baseline_seconds": 0.547929666001437,
-        "monitored_seconds": 0.5638105889993312,
+        "baseline_seconds": 0.47849540098104626,
+        "monitored_seconds": 0.5680869329953566,
         "monitor_calls": 111
       },
       {
-        "baseline_seconds": 0.5277179919994524,
-        "monitored_seconds": 0.5927160649989673,
+        "baseline_seconds": 0.7312535169767216,
+        "monitored_seconds": 0.6150708589993883,
         "monitor_calls": 114
       },
       {
-        "baseline_seconds": 0.4897116180000012,
-        "monitored_seconds": 0.6129873379995843,
+        "baseline_seconds": 0.5409697020077147,
+        "monitored_seconds": 0.6153309590008575,
         "monitor_calls": 114
       }
     ],
     "discarded_warmup_pairs": 1,
-    "median_baseline_seconds": 0.607953594000719,
-    "median_monitored_seconds": 0.6028517014992758,
-    "median_delta_seconds": 0.004399797498990665,
+    "median_baseline_seconds": 0.6183588810090441,
+    "median_monitored_seconds": 0.6152009090001229,
+    "median_delta_seconds": -0.03421211401291657,
     "delta_range_seconds": [
-      -0.1175512850004452,
-      0.12327571999958309
+      -0.2303350179863628,
+      0.20021696301409975
     ],
-    "noise_seconds": 0.12041350250001415,
+    "noise_seconds": 0.21527599050023127,
     "within_noise": true,
     "monitor_calls_per_run": 117.0,
-    "attributed_nanoseconds_per_call": 37605.106828980046
+    "attributed_nanoseconds_per_call": -292411.2308796288
   },
   "optimization_workload": {
     "pairs": [
       {
-        "baseline_seconds": 0.029522868999265484,
-        "monitored_seconds": 0.025748612000825233,
+        "baseline_seconds": 0.03027684599510394,
+        "monitored_seconds": 0.05260605301009491,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.021471359999850392,
-        "monitored_seconds": 0.023414937999405083,
+        "baseline_seconds": 0.04033589398022741,
+        "monitored_seconds": 0.04581962001975626,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.027070796000771224,
-        "monitored_seconds": 0.025882910998916486,
+        "baseline_seconds": 0.047169526980724186,
+        "monitored_seconds": 0.03203655401011929,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.021176963000471005,
-        "monitored_seconds": 0.02762109100149246,
+        "baseline_seconds": 0.0294892429956235,
+        "monitored_seconds": 0.04950973900849931,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.025156017998597235,
-        "monitored_seconds": 0.01823339600014151,
+        "baseline_seconds": 0.036797779001062736,
+        "monitored_seconds": 0.02749393301201053,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.032058240998594556,
-        "monitored_seconds": 0.030188961998646846,
+        "baseline_seconds": 0.025689824018627405,
+        "monitored_seconds": 0.02643012799671851,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.0335241250013496,
-        "monitored_seconds": 0.025382816000274033,
+        "baseline_seconds": 0.02677472899085842,
+        "monitored_seconds": 0.02671212999848649,
         "monitor_calls": 4
       },
       {
-        "baseline_seconds": 0.019932876999519067,
-        "monitored_seconds": 0.030760855001062737,
+        "baseline_seconds": 0.03036054701078683,
+        "monitored_seconds": 0.02123320198734291,
         "monitor_calls": 4
       }
     ],
     "discarded_warmup_pairs": 1,
-    "median_baseline_seconds": 0.02611340699968423,
-    "median_monitored_seconds": 0.02581576149987086,
-    "median_delta_seconds": -0.001528582000901224,
+    "median_baseline_seconds": 0.030318696502945386,
+    "median_monitored_seconds": 0.02976524351106491,
+    "median_delta_seconds": 0.0003388524928595871,
     "delta_range_seconds": [
-      -0.00814130900107557,
-      0.01082797800154367
+      -0.015132972970604897,
+      0.02232920701499097
     ],
-    "noise_seconds": 0.00948464350130962,
+    "noise_seconds": 0.018731089992797934,
     "within_noise": true,
     "monitor_calls_per_run": 4.0,
-    "attributed_nanoseconds_per_call": -382145.500225306
+    "attributed_nanoseconds_per_call": 84713.12321489677
   }
 }

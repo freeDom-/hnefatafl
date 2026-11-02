@@ -7,7 +7,9 @@ Three isolated measurements, all on CPU and independent of a GPU:
 * the bounded heartbeat write, compared with the retained progress snapshot that
   contains the full iteration history;
 * the instrumentation delta of one fixed self-play/optimization workload with
-  and without a monitor attached.
+  and without a monitor attached;
+* the study-level publication a tuning study writes between trials, including the
+  projection that keeps the last trial's data without its live timing.
 
 Run in a fresh process without other benchmarks or tests.
 """
@@ -68,7 +70,7 @@ def main():
         optimize_replay,
     )
     from hnefatafl.training_augmentation import augmentation_rng
-    from hnefatafl.training_monitoring import heartbeat_projection
+    from hnefatafl.training_monitoring import heartbeat_projection, without_live_timing
 
     torch.set_num_threads(1)
     report: dict = {
@@ -161,7 +163,60 @@ def main():
             report["publication"]["progress"]["bytes"] / 1.0
         )
 
-        # 3. Instrumentation delta: paired, alternating runs of one fixed workload
+        # 3. Study-level publication: what a tuning study writes between trials. The
+        #    retained trial keeps its data but not its live stage, timers or counters,
+        #    and the bounded file carries the study's own state.
+        trial_state = {
+            "run": "trial-3",
+            "status": "completed",
+            "stage": "completed",
+            "iteration": 120,
+            "total_iterations": 200,
+            "duration": 1830.4,
+            "revision": 96,
+            "started_at": "2026-01-01T00:00:00.000Z",
+            "phase_started_at": "2026-01-01T00:00:00.000Z",
+            "phase_elapsed": 0.4,
+            "updated_at": "2026-01-01T00:00:00.000Z",
+            "last_progress_at": "2026-01-01T00:00:00.000Z",
+            "last_progress_seconds": 0.4,
+            "phase_progress": {"games_completed": 32, "games_total": 32, "positions": 4820},
+            "history": state["history"],
+            "metrics": state["metrics"],
+        }
+        study_state = {
+            "run": "study-1",
+            "status": "running",
+            "stage": "between_trials",
+            "completed_trials": 3,
+            "trials_requested": 8,
+            "duration": 5400.0,
+            "revision": 21,
+            "phase_started_at": "2026-01-01T00:00:00.000Z",
+            "phase_elapsed": 12.0,
+            "updated_at": "2026-01-01T00:00:00.000Z",
+            "last_progress_at": "2026-01-01T00:00:00.000Z",
+            "last_progress_seconds": 12.0,
+            "phase_progress": {},
+            "trial_progress": without_live_timing(trial_state),
+        }
+        study_path = root / "study-heartbeat.json"
+        report["study_publication"] = {
+            "heartbeat": {
+                **timed(
+                    lambda: _write_json(study_path, heartbeat_projection(study_state)),
+                    args.repeats,
+                ),
+                "bytes": study_path.stat().st_size,
+            },
+            "trial_projection": timed(lambda: without_live_timing(trial_state), args.repeats),
+            "retained": {
+                **timed(lambda: _write_json(study_path, study_state), args.repeats),
+                "bytes": study_path.stat().st_size,
+            },
+        }
+
+        # 4. Instrumentation delta: paired, alternating runs of one fixed workload
         #    so drift cancels. The first pair is discarded as warm-up.
         def self_play_workload(monitor):
             return generate_self_play(
@@ -237,6 +292,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report["publication"], indent=2))
+    print(json.dumps(report["study_publication"], indent=2))
     print(json.dumps(report["hot_path"], indent=2))
     print(json.dumps(report["optimization_workload"], indent=2))
 

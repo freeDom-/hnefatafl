@@ -20,7 +20,7 @@ monitor thread never touches the search, inference or CUDA state.
 
 | Measurement | Value |
 | --- | ---: |
-| Counter update | 0.74 µs per call |
+| Counter update | 0.65 µs per call |
 
 At the measured self-play rate (117 positions in 0.61 s ≈ 192/s) the update costs
 about 0.14 ms per second of training (0.02%). A much faster GPU self-play phase
@@ -34,11 +34,26 @@ so a one-second cadence never rewrites retained history.
 
 | File | Size for a 120-iteration job | Median atomic write |
 | --- | ---: | ---: |
-| `heartbeat.json` (bounded projection) | 294 B | 0.17 ms |
-| `progress.json` (retained history) | 119,775 B | 6.33 ms |
+| `heartbeat.json` (bounded projection) | 294 B | 0.13 ms |
+| `progress.json` (retained history) | 119,775 B | 9.11 ms |
 
 A one-second heartbeat therefore writes ~0.3 KB/s instead of the ~120 KB/s the
 retained snapshot would cost at the same cadence.
+
+## Study-level publication
+
+A tuning study publishes its own bounded heartbeat between trials, keeping the last
+trial's data without its live stage, timers or counters.
+
+| Measurement | Value |
+| --- | ---: |
+| `heartbeat.json` (bounded study projection) | 340 B, 0.25 ms |
+| Retained study snapshot (same history) | 132,269 B, 15.46 ms |
+| Trial projection (`without_live_timing`) | 7.6 µs |
+
+The study's heartbeat costs the same bounded write as a trial's, and its heartbeat
+thread reads only the study's in-memory state: it performs no Optuna or SQLite
+query. The projection is a key filter, not a copy of the retained history.
 
 ## Workload comparison
 
@@ -47,8 +62,8 @@ with the first pair discarded as warm-up.
 
 | Workload | Monitor calls per run | Median baseline | Median monitored | Median delta | Run-to-run noise |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Self-play (8 games, 16 plies) | 117 | 608.0 ms | 612.4 ms | +4.4 ms | ±120.4 ms |
-| Optimization (4 batches) | 4 | 26.1 ms | 24.6 ms | −1.5 ms | ±9.5 ms |
+| Self-play (8 games, 16 plies) | 117 | 618.4 ms | 615.2 ms | −34.2 ms | ±215.3 ms |
+| Optimization (4 batches) | 4 | 30.3 ms | 29.8 ms | +0.3 ms | ±18.7 ms |
 
 Both deltas are inside the run-to-run spread of the workload itself, so the
 instrumentation is not measurable against these workloads at this size. The
