@@ -1,0 +1,48 @@
+{
+  "environment": {
+    "python": "3.12.15",
+    "optuna": "4.9.0",
+    "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43"
+  },
+  "note": "Per-operation costs are measured on real SQLite storage; the cumulative and row-count figures are derived from them.",
+  "studies": [
+    {
+      "trials": 10,
+      "completed_trials": 10,
+      "full_history_read_seconds": 0.0025240120012313128,
+      "previous_bookkeeping_seconds_upper_bound": 0.025240120012313128,
+      "current_bookkeeping_seconds": 0.005051188017387176,
+      "previous_rows_read": 55,
+      "current_rows_read": 20
+    },
+    {
+      "trials": 100,
+      "completed_trials": 100,
+      "full_history_read_seconds": 0.007363937009358779,
+      "previous_bookkeeping_seconds_upper_bound": 0.7363937009358779,
+      "current_bookkeeping_seconds": 0.014759514167963061,
+      "previous_rows_read": 5050,
+      "current_rows_read": 200
+    },
+    {
+      "trials": 1000,
+      "completed_trials": 1000,
+      "full_history_read_seconds": 0.041976311011239886,
+      "previous_bookkeeping_seconds_upper_bound": 41.976311011239886,
+      "current_bookkeeping_seconds": 0.08426902351493482,
+      "previous_rows_read": 500500,
+      "current_rows_read": 2000
+    }
+  ],
+  "counter_update_seconds": 3.164014924550429e-07,
+  "resumed_study": {
+    "historical_trials": 1000,
+    "new_trials": 10,
+    "completed_trials": 1000,
+    "full_history_read_seconds": 0.05309356897487305,
+    "previous_bookkeeping_seconds_upper_bound": 0.5309356897487305,
+    "current_bookkeeping_seconds": 0.10619030196467065,
+    "previous_rows_read": 10055,
+    "current_rows_read": 2020
+  }
+}
