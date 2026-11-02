@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--self-play-concurrency", type=int, default=4)
     parser.add_argument("--inference-batch-size", type=int, default=4)
     parser.add_argument("--inference-cache", choices=["off", "exact"], default="off")
+    parser.add_argument("--inference-cache-capacity", type=int, default=4096)
     parser.add_argument("--evaluation-games", type=int, default=8)
     parser.add_argument("--evaluation-iterations", type=int, default=32)
     parser.add_argument("--evaluation-max-plies", type=int, default=16)
@@ -91,6 +92,15 @@ def main():
         action="store_true",
         help="attach a live progress sink, as a real training job does",
     )
+    parser.add_argument(
+        "--retain-examples",
+        choices=["yes", "no"],
+        default="yes",
+        help=(
+            "no drops training examples after the ordered replay callback, which "
+            "activates the replay window and grants workers several slices"
+        ),
+    )
     args = parser.parse_args()
     sys.path.insert(0, str(args.source.resolve()))
     import torch
@@ -121,6 +131,7 @@ def main():
             "self_play_concurrency": args.self_play_concurrency,
             "inference_batch_size": args.inference_batch_size,
             "inference_cache_mode": args.inference_cache,
+            "inference_cache_capacity": args.inference_cache_capacity,
             "training_symmetry_mode": "random_d4",
         }
     )
@@ -207,6 +218,10 @@ def main():
         overrides = {} if args.flush_seconds is None else {"flush_seconds": args.flush_seconds}
         pool = SearchPool(args.workers, inference=args.search_inference, **overrides)
     options = {"search_pool": pool} if pool is not None else {}
+    if args.retain_examples == "no":
+        # Training itself uses this mode; the fingerprint then covers outcomes and
+        # counters rather than the examples the replay buffer already consumed.
+        options["retain_examples"] = False
     sink = None
     if args.monitor:
         from hnefatafl.training_monitoring import TrainingMonitor
