@@ -110,6 +110,35 @@ class InferenceMetrics:
     _events: list[tuple] = field(default_factory=list, repr=False)
     _cuda_recorded: bool = field(default=False, repr=False)
 
+    def add(self, other: InferenceMetrics) -> None:
+        """Fold another accumulator in, for merging per-process activity.
+
+        Cache counters are additive: a worker reports its cache as increments so
+        a pool can total the live caches of every actor. CUDA events are never
+        merged, because only the owning process can resolve them.
+        """
+        self.requests += other.requests
+        self.cache_hits += other.cache_hits
+        self.cache_misses += other.cache_misses
+        self.duplicates += other.duplicates
+        self.cache_entries += other.cache_entries
+        self.cache_peak_entries += other.cache_peak_entries
+        self.cache_lookup_seconds += other.cache_lookup_seconds
+        self.batches += other.batches
+        self.evaluations += other.evaluations
+        self.host_seconds += other.host_seconds
+        self.cpu_seconds += other.cpu_seconds
+        self.cuda_seconds += other.cuda_seconds
+        if other.batch_minimum:
+            self.batch_minimum = (
+                min(self.batch_minimum, other.batch_minimum)
+                if self.batch_minimum
+                else other.batch_minimum
+            )
+        self.batch_maximum = max(self.batch_maximum, other.batch_maximum)
+        for size, count in other.batch_histogram.items():
+            self.batch_histogram[size] = self.batch_histogram.get(size, 0) + count
+
     @contextmanager
     def measure(self, size: int, *, device="cpu") -> Iterator[None]:
         if size <= 0:

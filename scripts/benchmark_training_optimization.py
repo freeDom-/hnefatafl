@@ -42,6 +42,44 @@ def main():
     parser.add_argument("--replay-pipeline", choices=["auto", "packed", "legacy"], default="auto")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path, required=True)
+    # Workload budgets default to the small CPU protocol so previously recorded
+    # hashes stay reproducible; GPU runs pass the larger documented budgets.
+    parser.add_argument("--games", type=int, default=4)
+    parser.add_argument("--max-game-plies", type=int, default=8)
+    parser.add_argument("--mcts-iterations", type=int, default=32)
+    parser.add_argument("--self-play-concurrency", type=int, default=4)
+    parser.add_argument("--inference-batch-size", type=int, default=4)
+    parser.add_argument("--inference-cache", choices=["off", "exact"], default="off")
+    parser.add_argument("--evaluation-games", type=int, default=8)
+    parser.add_argument("--evaluation-iterations", type=int, default=32)
+    parser.add_argument("--evaluation-max-plies", type=int, default=16)
+    parser.add_argument("--evaluation-concurrency", type=int, default=8)
+    parser.add_argument("--evaluation-batch-size", type=int, default=8)
+    parser.add_argument("--replay-positions", type=int, default=512)
+    parser.add_argument("--replay-epochs", type=int, default=2)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="search_workers for the candidate; 0 measures the in-process scheduler",
+    )
+    parser.add_argument(
+        "--search-inference",
+        choices=["auto", "actors", "parent"],
+        default="auto",
+        help="where a worker pool evaluates CPU leaves",
+    )
+    parser.add_argument(
+        "--flush-seconds",
+        type=float,
+        default=None,
+        help="override the pool's bounded merge window (parent inference only)",
+    )
+    parser.add_argument(
+        "--champion",
+        action="store_true",
+        help="evaluate against a distinct frozen Champion model instead of the candidate",
+    )
     args = parser.parse_args()
     sys.path.insert(0, str(args.source.resolve()))
     import torch
@@ -58,19 +96,20 @@ def main():
             "ruleset": args.ruleset,
             "device": args.device,
             "cpu_threads": 1,
-            "games": 4,
-            "max_game_plies": 8,
-            "mcts_iterations": 32,
+            "games": args.games,
+            "max_game_plies": args.max_game_plies,
+            "mcts_iterations": args.mcts_iterations,
             "mcts_time_limit": 300,
-            "evaluation_games": 8,
-            "evaluation_iterations": 32,
-            "evaluation_max_plies": 16,
+            "evaluation_games": args.evaluation_games,
+            "evaluation_iterations": args.evaluation_iterations,
+            "evaluation_max_plies": args.evaluation_max_plies,
             "evaluation_time_limit": 300,
             "evaluation_jarl_time_limit": 300,
             "mixed_precision": False,
             "self_play_mode": "batched",
-            "self_play_concurrency": 4,
-            "inference_batch_size": 4,
+            "self_play_concurrency": args.self_play_concurrency,
+            "inference_batch_size": args.inference_batch_size,
+            "inference_cache_mode": args.inference_cache,
             "training_symmetry_mode": "random_d4",
         }
     )
@@ -109,12 +148,14 @@ def main():
     if args.variant == "candidate":
         if args.feature == "evaluation":
             config.update(
-                evaluation_mode="batched", evaluation_concurrency=8, evaluation_batch_size=8
+                evaluation_mode="batched",
+                evaluation_concurrency=args.evaluation_concurrency,
+                evaluation_batch_size=args.evaluation_batch_size,
             )
         if args.feature == "replay":
             config["replay_pipeline"] = args.replay_pipeline
         if args.feature.startswith("workers"):
-            config.update(search_workers=2, cpu_threads=1)
+            config.update(search_workers=args.workers, cpu_threads=1)
     elif args.feature == "evaluation":
         config["evaluation_mode"] = "sequential"
     model = (
@@ -142,14 +183,23 @@ def main():
                 "value": 0.0,
             }
         )
-    replay = (replay * (512 // len(replay) + 1))[:512]
+    replay = (replay * (args.replay_positions // len(replay) + 1))[: args.replay_positions]
     weights = {key: value.detach().clone() for key, value in model.state_dict().items()}
     pool = None
-    if args.variant == "candidate" and args.feature.startswith("workers"):
+    if args.variant == "candidate" and args.feature.startswith("workers") and args.workers:
         from hnefatafl.parallel_search import SearchPool
 
-        pool = SearchPool(2)
+        overrides = {} if args.flush_seconds is None else {"flush_seconds": args.flush_seconds}
+        pool = SearchPool(args.workers, inference=args.search_inference, **overrides)
     options = {"search_pool": pool} if pool is not None else {}
+    if args.feature in ("evaluation", "workers") and args.champion:
+        torch.manual_seed(314159)
+        options["previous"] = (
+            PolicyValueNet(args.ruleset, config["channels"], config["blocks"])
+            .to(args.device)
+            .eval()
+        )
+        config["evaluation_opponent"] = "champion"
     samples = []
     warmup_seconds = None
     for repetition in range(args.repeats + 1):
@@ -240,7 +290,7 @@ def main():
                 optimizer,
                 scaler,
                 replay,
-                {**config, "epochs": 2},
+                {**config, "epochs": args.replay_epochs},
                 torch.device(args.device),
                 False,
                 random.Random(9),
@@ -307,6 +357,13 @@ def main():
         "configuration": config,
         "samples": samples,
         "warmup_seconds": warmup_seconds,
+        "options": {
+            "workers": args.workers,
+            "search_inference": args.search_inference,
+            "flush_seconds": args.flush_seconds,
+            "champion": args.champion,
+            "repeats": args.repeats,
+        },
         "environment": {
             "platform": platform.platform(),
             "python": sys.version,
