@@ -53,8 +53,14 @@ def main():
     parser.add_argument("--evaluation-games", type=int, default=8)
     parser.add_argument("--evaluation-iterations", type=int, default=32)
     parser.add_argument("--evaluation-max-plies", type=int, default=16)
-    parser.add_argument("--evaluation-concurrency", type=int, default=8)
-    parser.add_argument("--evaluation-batch-size", type=int, default=8)
+    parser.add_argument("--evaluation-concurrency", type=int, default=None)
+    parser.add_argument("--evaluation-batch-size", type=int, default=None)
+    parser.add_argument(
+        "--evaluation-mode",
+        choices=["auto", "sequential", "batched"],
+        default=None,
+        help="override evaluation_mode, e.g. batched to measure main's batched evaluator",
+    )
     parser.add_argument("--replay-positions", type=int, default=512)
     parser.add_argument("--replay-epochs", type=int, default=2)
     parser.add_argument(
@@ -147,17 +153,21 @@ def main():
         )
     if args.variant == "candidate":
         if args.feature == "evaluation":
-            config.update(
-                evaluation_mode="batched",
-                evaluation_concurrency=args.evaluation_concurrency,
-                evaluation_batch_size=args.evaluation_batch_size,
-            )
+            config["evaluation_mode"] = "batched"
         if args.feature == "replay":
             config["replay_pipeline"] = args.replay_pipeline
         if args.feature.startswith("workers"):
             config.update(search_workers=args.workers, cpu_threads=1)
     elif args.feature == "evaluation":
         config["evaluation_mode"] = "sequential"
+    # Explicit budgets and mode override every arm so a comparison never mixes
+    # concurrency or batch limits between baseline and candidate.
+    if args.evaluation_concurrency is not None:
+        config["evaluation_concurrency"] = args.evaluation_concurrency
+    if args.evaluation_batch_size is not None:
+        config["evaluation_batch_size"] = args.evaluation_batch_size
+    if args.evaluation_mode is not None:
+        config["evaluation_mode"] = args.evaluation_mode
     model = (
         PolicyValueNet(args.ruleset, config["channels"], config["blocks"]).to(args.device).eval()
     )
@@ -254,7 +264,34 @@ def main():
                 }
                 for row in result["games"]
             ]
-            counters = result.get("performance", {})
+            counters = {
+                **result.get("performance", {}),
+                "wins": result["wins"],
+                "losses": result["losses"],
+                "draws": result["draws"],
+                "truncated": result["truncated"],
+                "candidate_score": result["score"],
+                "candidate_as_attacker_score": result["candidate_as_attacker"]["score"],
+                "candidate_as_defender_score": result["candidate_as_defender"]["score"],
+                "mcts_simulations": sum(row.get("simulations", 0) for row in result["games"]),
+                "search_deadline_cutoffs": sum(
+                    row.get("search_deadline_cutoffs", 0) for row in result["games"]
+                ),
+                "evaluation_mode": config.get("evaluation_mode"),
+            }
+            per_model = counters.get("models") or []
+            if per_model:
+                # Flatten the per-model queues so evaluation arms are comparable.
+                batches = sum(entry["inference_batches"] for entry in per_model)
+                evaluations = sum(entry["neural_evaluations"] for entry in per_model)
+                counters.update(
+                    inference_batches=batches,
+                    neural_evaluations=evaluations,
+                    inference_batch_size_average=evaluations / batches if batches else 0.0,
+                    inference_batch_size_max=max(
+                        entry["inference_batch_size_max"] for entry in per_model
+                    ),
+                )
             if args.feature == "jarl-evaluation":
                 work = {"games": work, "decisions": decisions}
                 counters.update(trace)
@@ -325,6 +362,9 @@ def main():
         if args.device == "cuda":
             torch.cuda.synchronize()
         elapsed = time.perf_counter() - started
+        if args.device == "cuda":
+            counters.setdefault("gpu_peak_allocated_bytes", torch.cuda.max_memory_allocated())
+            counters.setdefault("gpu_peak_reserved_bytes", torch.cuda.max_memory_reserved())
         if args.feature == "replay":
             digest = hashlib.sha256()
             for key, value in sorted(model.state_dict().items()):

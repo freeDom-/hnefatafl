@@ -100,6 +100,7 @@ def arm_command(
     output: Path,
     champion: bool,
     flush_seconds: float | None,
+    evaluation_mode: str | None,
 ) -> list[str]:
     command = [
         python,
@@ -124,6 +125,8 @@ def arm_command(
         command += ["--workers", str(workers)]
         if flush_seconds is not None:
             command += ["--flush-seconds", str(flush_seconds)]
+    if evaluation_mode:
+        command += ["--evaluation-mode", evaluation_mode]
     if champion:
         command.append("--champion")
     return command
@@ -164,6 +167,12 @@ def main() -> int:
         default=None,
         help="merge window for candidate arms that use parent-owned inference",
     )
+    parser.add_argument(
+        "--evaluation-mode",
+        choices=["sequential", "batched", "auto"],
+        default=None,
+        help="evaluation_mode for every arm, e.g. batched to compare batched evaluators",
+    )
     args = parser.parse_args()
     harness = Path(__file__).resolve().parent / "benchmark_training_optimization.py"
     args.work.mkdir(parents=True, exist_ok=True)
@@ -202,6 +211,7 @@ def main() -> int:
                         json_path,
                         args.champion,
                         args.flush_seconds,
+                        args.evaluation_mode,
                     )
                     if args.reuse and json_path.exists():
                         print(f"[{time.strftime('%F %T')}] {stem} (reused)", flush=True)
