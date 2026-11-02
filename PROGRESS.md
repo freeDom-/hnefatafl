@@ -793,3 +793,46 @@ account/online-migration and clock regressions, frozen all-extras installation a
 lockfile/identity checks, documentation (97 files, 750 links/anchors), frontend
 formatting/typechecking and the production build. Full release-PR Verify and
 subsequent tagged-main Verify remain separate gates before publication.
+
+## Live training monitoring, fixed-role tournaments and training optimizations (`0.34.0` preparation)
+
+Release preparation starts from merged `main` at `789557c`, collecting all changes
+since `0.33.0`, including PRs #37, #38, #41, #42, #43 (ported to `main` by #44),
+#44, #45 and #46. Python/npm metadata and lockfiles move together to `0.34.0` on a
+separate release branch. Tagging and stable publication follow the release PR merge
+and successful Verify on the exact `main` commit.
+
+The release makes training progress phase-independent: a daemon thread republishes a
+bounded `heartbeat.json` about once per second beside the retained `progress.json`,
+so a long self-play game, optimization epoch or evaluation match keeps the dashboard
+timers and phase counters advancing. Heartbeats keep worker liveness, computational
+progress and publication independent, and cover initialization, tuning studies
+across their whole lifecycle and remote supervisors separately from their children.
+Monitoring polls are coalesced, compact job summaries replace full collections in
+the navigator, and the saved-tournament collection is projected inside SQLite.
+
+Tournaments gain a fixed-role mode that pins one trained model as attackers and one
+as defenders behind a single shared search configuration, with side-specific results
+and no schema change: a missing `mode` still means balanced round robin. Training
+adds batched CUDA evaluation with per-model queues and optional OpenVINO evaluation
+graphs, and the engine and optimized alpha-beta search do measurably less work with
+identical results.
+
+No database migration, model/checkpoint format change or removed configuration key
+is introduced; schema stays 13 and workers negotiate the evaluation capability.
+
+The merged application tree matches `789557c`, whose Verify run passed 2,063 backend
+tests (8 hardware skips), 595 frontend tests and 102 general/8 registration/18
+online/26 personal browser checks (8 intentional general-browser skips). The release
+PR reruns complete CI with the new metadata. See the
+[0.34.0 release notes](docs/releases/0.34.0.md) for installation, validation scope
+and limitations. Prior release and phase records are unchanged.
+
+Release-branch checks with installed `0.34.0` passed the full local `make check`
+suite, 383 targeted monitoring, tournament, fixed-role, tournament-summary,
+evaluation-batching, engine-fast-path, lazy-successor, worker, remote-API and
+deployment regressions (one CUDA-unavailable skip), frozen all-extras installation
+and lockfile/identity checks, documentation (106 files, 798 links/anchors),
+frontend formatting/typechecking, the production build and a clean committed source
+archive smoke (625 entries, synchronized `0.34.0` metadata). Full release-PR Verify
+and subsequent tagged-main Verify remain separate gates before publication.
