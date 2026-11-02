@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import AgentConfigFields from './AgentConfigFields';
 import { api, errorMessage } from './api';
 import { useAuth } from './Auth';
@@ -73,14 +73,17 @@ export default function NewGame({
   rulesets,
   profiles,
   models = [],
+  onRefreshModels,
   initialRuleset,
   onClose,
   onCreated,
 }: {
   rulesets: Ruleset[];
   profiles: AIProfile[];
-  /** Registered models, if the caller already loaded them. */
+  /** The dashboard's model catalogue; the dashboard owns and refreshes it. */
   models?: Model[];
+  /** Reload that catalogue. Rejects on failure and aborts on the signal. */
+  onRefreshModels?: (signal?: AbortSignal) => Promise<void>;
   initialRuleset?: string;
   onClose: () => void;
   onCreated: (game: Game) => void;
@@ -90,58 +93,86 @@ export default function NewGame({
   const admin = account?.permissions.includes('all_data') ?? false;
   const [setup, setSetup] = useState(() => restore(rulesets, admin, initialRuleset));
   const [busy, setBusy] = useState(false);
-  const [catalogue, setCatalogue] = useState<Model[] | null>(null);
-  const [cataloguePending, setCataloguePending] = useState(false);
+  const [catalogueState, setCatalogueState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
+    'idle',
+  );
   const [catalogueError, setCatalogueError] = useState<string | null>(null);
-  const [catalogueAttempt, setCatalogueAttempt] = useState(0);
+  const catalogueRequest = useRef<AbortController | null>(null);
+  const catalogueAttempted = useRef(false);
   const seeded = useRef<Record<Side, boolean>>({ attackers: false, defenders: false });
   const mode = admin ? setup.mode : 'human-ai';
   // Custom opponents are a single-player, administrator-only resource.
   const customAvailable = admin && mode === 'human-ai';
-  const customOpen =
-    customAvailable &&
-    (['attackers', 'defenders'] as Side[]).some((side) => setup.profiles[side] === 'custom');
-  const availableModels = catalogue ?? models;
-  // A catalogue the dashboard already loaded is usable; an empty list may simply
-  // mean it was never fetched, so a custom seat still loads it on demand.
-  const catalogueReady = catalogue !== null || models.length > 0;
-  useEffect(() => {
-    if (!customOpen || catalogueReady) return;
-    let cancelled = false;
-    const controller = new AbortController();
-    setCataloguePending(true);
-    setCatalogueError(null);
-    // Models are large; load the catalogue only when a custom seat needs it.
-    api<Model[]>('/models', undefined, undefined, controller.signal)
-      .then((saved) => {
-        if (cancelled) return;
-        if (Array.isArray(saved)) setCatalogue(saved);
-        else setCatalogueError(t('Trained models could not be loaded.'));
-      })
-      .catch((failure: unknown) => {
-        // A failed request never replaces a catalogue that is already usable.
-        if (cancelled) return;
-        setCatalogueError(errorMessage(failure, t('Trained models could not be loaded.')));
-      })
-      .finally(() => {
-        if (!cancelled) setCataloguePending(false);
-      });
-    return () => {
-      cancelled = true;
-      controller.abort();
-      setCataloguePending(false);
-    };
-  }, [customOpen, catalogueReady, catalogueAttempt, t]);
+  // The same active-side rule that renders the opponent configuration decides
+  // which custom seats exist, and therefore whether the catalogue is needed.
   const aiSides = (['attackers', 'defenders'] as Side[]).filter(
     (side) => mode === 'ai-ai' || side !== setup.humanSide,
   );
+  const customVisible =
+    customAvailable && aiSides.some((side) => setup.profiles[side] === 'custom');
+  const catalogueUsable = models.length > 0;
+
+  const requestCatalogue = useCallback(() => {
+    if (!onRefreshModels) return;
+    // A newer request supersedes an older one, so a late response can never
+    // overwrite fresher catalogue data.
+    catalogueRequest.current?.abort();
+    const controller = new AbortController();
+    catalogueRequest.current = controller;
+    catalogueAttempted.current = true;
+    setCatalogueState('loading');
+    setCatalogueError(null);
+    void onRefreshModels(controller.signal).then(
+      () => {
+        if (catalogueRequest.current !== controller) return;
+        catalogueRequest.current = null;
+        setCatalogueState('ready');
+      },
+      (failure: unknown) => {
+        if (catalogueRequest.current !== controller) return;
+        catalogueRequest.current = null;
+        setCatalogueState('failed');
+        setCatalogueError(errorMessage(failure, t('Trained models could not be loaded.')));
+      },
+    );
+  }, [onRefreshModels, t]);
+
+  // Load once per dialog visit when a visible custom seat has no usable
+  // catalogue. Every later reload is an explicit refresh.
+  useEffect(() => {
+    if (!customVisible) return;
+    if (catalogueAttempted.current || catalogueUsable) return;
+    requestCatalogue();
+  }, [customVisible, catalogueUsable, requestCatalogue]);
+
+  // Nothing visible needs the catalogue any more: stop loading it.
+  useEffect(() => {
+    if (customVisible) return;
+    catalogueRequest.current?.abort();
+    catalogueRequest.current = null;
+    setCatalogueState((state) => (state === 'loading' ? 'idle' : state));
+  }, [customVisible]);
+
+  // Closing the dialog must not leave a request running for nobody.
+  useEffect(
+    () => () => {
+      catalogueRequest.current?.abort();
+      catalogueRequest.current = null;
+    },
+    [],
+  );
+  const catalogueStatus = onRefreshModels
+    ? {
+        pending: catalogueState === 'loading',
+        error: catalogueState === 'failed' ? catalogueError : null,
+        refresh: requestCatalogue,
+      }
+    : undefined;
   const incompatibleModel = aiSides.some((side) => {
     if (setup.profiles[side] !== 'custom') return false;
     const { config } = setup.custom[side];
     if (config.algorithm !== 'neural' || !config.model_id) return false;
-    return !availableModels.some(
-      (model) => model.id === config.model_id && model.ruleset === setup.ruleset,
-    );
+    return !models.some((model) => model.id === config.model_id && model.ruleset === setup.ruleset);
   });
   const choose = (key: 'ruleset' | 'mode' | 'humanSide', value: string) =>
     setSetup((previous) => {
@@ -301,28 +332,14 @@ export default function NewGame({
                     </select>
                   </label>
                   {custom ? (
-                    <>
-                      {catalogueError && !catalogueReady && (
-                        <p className="form-error" role="alert">
-                          {catalogueError}{' '}
-                          <button
-                            type="button"
-                            className="button secondary small"
-                            onClick={() => setCatalogueAttempt((value) => value + 1)}
-                          >
-                            {t('Retry')}
-                          </button>
-                        </p>
-                      )}
-                      <AgentConfigFields
-                        player={setup.custom[side]}
-                        models={availableModels}
-                        ruleset={setup.ruleset}
-                        prefix={label}
-                        modelsPending={cataloguePending}
-                        onChange={(next) => editCustom(side, next)}
-                      />
-                    </>
+                    <AgentConfigFields
+                      player={setup.custom[side]}
+                      models={models}
+                      ruleset={setup.ruleset}
+                      prefix={label}
+                      catalogue={catalogueStatus}
+                      onChange={(next) => editCustom(side, next)}
+                    />
                   ) : (
                     <>
                       <p>{t(explanations[setup.profiles[side] as Preset])}</p>

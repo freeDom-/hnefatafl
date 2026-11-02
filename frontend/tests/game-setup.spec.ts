@@ -200,6 +200,22 @@ test('an administrator can configure and play a custom neural opponent', async (
   await opponent.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('custom');
   await opponent.getByRole('combobox', { name: /attackers algorithm/i }).selectOption('neural');
   await opponent.getByRole('combobox', { name: /attackers trained model/i }).selectOption(model.id);
+
+  // A model registered while the dialog is open appears after an explicit refresh.
+  const refreshed = await fixtureModel(request, {
+    data: { ruleset: 'brandubh', name: `UI Refreshed ${info.project.name}` },
+  });
+  expect(refreshed.ok()).toBe(true);
+  const refreshedModel = (await refreshed.json()) as { id: string; name: string };
+  const modelSelect = opponent.getByRole('combobox', { name: /attackers trained model/i });
+  const refreshedOption = modelSelect.getByRole('option', {
+    name: new RegExp(refreshedModel.name),
+  });
+  await expect(refreshedOption).toHaveCount(0);
+  await opponent.getByRole('button', { name: 'Refresh models' }).click();
+  await expect(refreshedOption).toHaveCount(1);
+  await expect(modelSelect).toHaveValue(model.id);
+
   await opponent.getByRole('combobox', { name: /attackers search wrapper/i }).selectOption('none');
   // Policy-only inference hides the timed-search field and keeps temperature.
   await expect(opponent.getByRole('spinbutton', { name: /attackers time limit/i })).toHaveCount(0);
@@ -263,4 +279,29 @@ test('an administrator can configure and play a custom neural opponent', async (
   await page.reload();
   await expect(page.getByText(model.name, { exact: true })).toBeVisible();
   await expect(page.getByText('Attackers · neural', { exact: true })).toBeVisible();
+});
+
+test('hiding a custom opponent by taking its side keeps the unsaved configuration', async ({
+  page,
+}) => {
+  await page.goto('/dashboard?setup=single-player');
+  const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
+  await setup.getByRole('radio', { name: /Brandubh/ }).check();
+  const opponent = setup.locator('.player-config').nth(0);
+  await opponent.getByRole('combobox', { name: 'Attackers AI profile' }).selectOption('custom');
+  await expect(opponent.getByRole('combobox', { name: /attackers algorithm/i })).toHaveValue(
+    'baseline',
+  );
+
+  // The human takes the attackers, so that custom seat is no longer rendered.
+  await setup.getByLabel('Your side').selectOption('attackers');
+  await expect(setup.getByRole('combobox', { name: /attackers algorithm/i })).toHaveCount(0);
+  await expect(setup.getByRole('combobox', { name: 'Defenders AI profile' })).toBeVisible();
+
+  // Handing the side back restores the unsaved configuration.
+  await setup.getByLabel('Your side').selectOption('defenders');
+  await expect(setup.getByRole('combobox', { name: /attackers algorithm/i })).toHaveValue(
+    'baseline',
+  );
+  await expect(setup.getByRole('combobox', { name: /attackers trained model/i })).toHaveCount(0);
 });

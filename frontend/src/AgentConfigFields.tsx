@@ -185,6 +185,16 @@ export function recommendedPlayer(
   };
 }
 
+/** Loading state and the shared refresh action for the model catalogue. */
+export interface ModelCatalogueStatus {
+  /** True while a catalogue request is in flight. */
+  pending: boolean;
+  /** Non-blocking failure message; any previous catalogue stays selectable. */
+  error: string | null;
+  /** Request the catalogue again. */
+  refresh: () => void;
+}
+
 export interface AgentConfigFieldsProps {
   player: TournamentPlayer;
   /** Every registered model; the component filters by `ruleset` itself. */
@@ -193,8 +203,8 @@ export interface AgentConfigFieldsProps {
   ruleset?: string;
   /** Namespace for aria-labels, e.g. "Opponent 1" or "Attackers". */
   prefix: string;
-  /** True while the model catalogue is still being fetched for this editor. */
-  modelsPending?: boolean;
+  /** Present when the caller can reload the catalogue on request. */
+  catalogue?: ModelCatalogueStatus;
   /** Surface the strongest-model recommendation under the model selector. */
   showRecommendation?: boolean;
   /** Called before every edit so a parent can stop recommending this participant. */
@@ -207,12 +217,13 @@ export default function AgentConfigFields({
   models,
   ruleset,
   prefix,
-  modelsPending = false,
+  catalogue,
   showRecommendation = false,
   onEdit,
   onChange,
 }: AgentConfigFieldsProps) {
   const { t, locale } = useI18n();
+  const modelsPending = catalogue?.pending ?? false;
   const compatible = ruleset ? models.filter((model) => model.ruleset === ruleset) : [];
   const recommendation = ruleset ? selectStrongestModel(models, ruleset) : null;
   const algorithm = String(player.config.algorithm ?? 'baseline');
@@ -365,6 +376,27 @@ export default function AgentConfigFields({
               </small>
             )}
         </label>
+      )}
+      {neural && catalogue && (
+        <>
+          {catalogue.error && (
+            <p className="form-error" role="alert">
+              {catalogue.error}
+            </p>
+          )}
+          <button
+            type="button"
+            className="button secondary small"
+            disabled={catalogue.pending}
+            onClick={catalogue.refresh}
+          >
+            {catalogue.pending
+              ? t('Refreshing models…')
+              : catalogue.error
+                ? t('Retry')
+                : t('Refresh models')}
+          </button>
+        </>
       )}
       {selectedModel && neural && <ModelTrainingSummary model={selectedModel} compact />}
       {neural && (

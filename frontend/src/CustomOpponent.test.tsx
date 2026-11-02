@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import NewGame from './NewGame';
@@ -41,63 +42,86 @@ const profiles: AIProfile[] = [
 );
 const HUGIN = 'a'.repeat(24);
 const MUNIN = 'b'.repeat(24);
-const catalogue: Model[] = [
-  { id: HUGIN, name: 'Hugin', ruleset: 'tablut' },
-  { id: MUNIN, name: 'Munin', ruleset: 'brandubh' },
-];
+const SLEIPNIR = 'c'.repeat(24);
+const hugin = (name = 'Hugin'): Model => ({ id: HUGIN, name, ruleset: 'tablut' });
+const munin = (name = 'Munin'): Model => ({ id: MUNIN, name, ruleset: 'brandubh' });
+const sleipnir: Model = { id: SLEIPNIR, name: 'Sleipnir', ruleset: 'tablut' };
 const HUGIN_LABEL = 'Hugin · #aaaaaaaa';
-const DEFAULT_SEARCH = {
-  legacy: false,
-  transposition: true,
-  move_ordering: true,
-  symmetry_transposition: false,
-  symmetry_pruning: false,
-  table_capacity: 100000,
-};
+const SLEIPNIR_LABEL = 'Sleipnir · #cccccccc';
 
-const json = (value: unknown, ok = true) =>
-  Promise.resolve({
-    ok,
-    status: ok ? 200 : 500,
-    statusText: '',
-    json: async () => value,
-  } as Response);
-/** Model requests the test resolves by hand, so ordering can be controlled. */
-const modelRequests: { resolve: (value: Response) => void; reject: (reason: unknown) => void }[] =
-  [];
-const fetcher = vi.fn((path: string, _init?: RequestInit) => {
-  if (path === '/api/models') {
-    return new Promise<Response>((resolve, reject) => modelRequests.push({ resolve, reject }));
-  }
-  return json({ id: 'created' });
-});
-/** The most recent creation request body actually sent to the API. */
-const creationBody = () =>
-  JSON.parse(
-    String(fetcher.mock.calls.filter(([path]) => path === '/api/games').at(-1)?.[1]?.body),
+const json = (value: unknown) =>
+  Promise.resolve({ ok: true, status: 200, statusText: '', json: async () => value } as Response);
+type CatalogueRequest = {
+  resolve: (value: Model[]) => void;
+  reject: (reason: unknown) => void;
+  signal?: AbortSignal;
+};
+const requests: CatalogueRequest[] = [];
+/** A catalogue request the test settles by hand; abort behaves like the real client. */
+const deferredCatalogue = (signal?: AbortSignal) =>
+  new Promise<Model[]>((resolve, reject) => {
+    requests.push({ resolve, reject, signal });
+    signal?.addEventListener('abort', () =>
+      reject(new DOMException('Request cancelled', 'AbortError')),
+    );
+  });
+const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+  path === '/api/models' ? json([]) : json({ id: 'created' }),
+);
+const settle = async (value: Model[]) => {
+  await waitFor(() => expect(requests.length).toBeGreaterThan(0));
+  requests.shift()?.resolve(value);
+};
+const fail = async (reason: unknown) => {
+  await waitFor(() => expect(requests.length).toBeGreaterThan(0));
+  requests.shift()?.reject(reason);
+};
+/** The dashboard owns the catalogue, so the harness mirrors App's wiring. */
+function Harness({
+  initial,
+  load,
+  onCreated,
+  onClose,
+}: {
+  initial: Model[];
+  load: (signal?: AbortSignal) => Promise<Model[]>;
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const [models, setModels] = useState(initial);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => setModels(await load(signal)),
+    [load],
   );
-const gamesRequests = () => fetcher.mock.calls.filter(([path]) => path === '/api/games').length;
-const modelsRequests = () => fetcher.mock.calls.filter(([path]) => path === '/api/models');
-const optionText = (label: string) =>
-  within(screen.getByLabelText(label))
-    .getAllByRole('option')
-    .map((option) => option.textContent);
-const show = ({
-  models = catalogue,
-  onCreated = vi.fn(),
-  onClose = vi.fn(),
-}: { models?: Model[]; onCreated?: () => void; onClose?: () => void } = {}) =>
-  render(
+  return (
     <NotificationProvider>
       <NewGame
         rulesets={rulesets}
         profiles={profiles}
         models={models}
+        onRefreshModels={refresh}
         onCreated={onCreated}
         onClose={onClose}
       />
-    </NotificationProvider>,
+    </NotificationProvider>
   );
+}
+const show = ({
+  initial = [hugin(), munin()],
+  load = deferredCatalogue,
+  onCreated = vi.fn(),
+  onClose = vi.fn(),
+}: {
+  initial?: Model[];
+  load?: (signal?: AbortSignal) => Promise<Model[]>;
+  onCreated?: () => void;
+  onClose?: () => void;
+} = {}) =>
+  render(<Harness initial={initial} load={load} onCreated={onCreated} onClose={onClose} />);
+const optionText = (label: string) =>
+  within(screen.getByLabelText(label))
+    .getAllByRole('option')
+    .map((option) => option.textContent);
 const openCustom = async () => {
   fireEvent.change(screen.getByLabelText('Attackers AI profile'), { target: { value: 'custom' } });
   await screen.findByLabelText('Attackers algorithm');
@@ -106,33 +130,18 @@ const chooseNeural = async () => {
   fireEvent.change(screen.getByLabelText('Attackers algorithm'), { target: { value: 'neural' } });
   await screen.findByLabelText('Attackers search wrapper');
 };
-const chooseWrapper = async (wrapper: string) => {
-  fireEvent.change(screen.getByLabelText('Attackers search wrapper'), {
-    target: { value: wrapper },
-  });
-  await waitFor(() =>
-    expect(screen.getByLabelText('Attackers search wrapper')).toHaveValue(wrapper),
+const chooseHumanSide = (side: string) =>
+  fireEvent.change(screen.getByLabelText('Your side'), { target: { value: side } });
+const creationBody = () =>
+  JSON.parse(
+    String(fetcher.mock.calls.filter(([path]) => path === '/api/games').at(-1)?.[1]?.body),
   );
-};
-const submit = async (expected: number) => {
-  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
-  await waitFor(() => expect(gamesRequests()).toBe(expected));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'To the table' })).toBeEnabled());
-};
-const settleModels = async (value: unknown) => {
-  await waitFor(() => expect(modelRequests.length).toBeGreaterThan(0));
-  modelRequests.shift()?.resolve(await json(value));
-};
-const failModels = async (reason: unknown) => {
-  await waitFor(() => expect(modelRequests.length).toBeGreaterThan(0));
-  modelRequests.shift()?.reject(reason);
-};
 
 beforeEach(() => {
   identity.admin = false;
   clearNotifications();
   localStorage.clear();
-  modelRequests.length = 0;
+  requests.length = 0;
   fetcher.mockClear();
   vi.stubGlobal('fetch', fetcher);
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -158,89 +167,67 @@ it('offers the custom opponent only to administrators in single-player mode', ()
   expect(screen.getByRole('option', { name: 'Custom opponent' })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'AI vs AI' }));
   expect(screen.queryByRole('option', { name: 'Custom opponent' })).toBeNull();
+  expect(requests).toHaveLength(0);
 });
 
 it('keeps sending a bare preset for the existing opponent options', async () => {
   identity.admin = true;
   show();
   fireEvent.change(screen.getByLabelText('Attackers AI profile'), { target: { value: 'mcts' } });
-  await submit(1);
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/games', expect.anything()));
   expect(creationBody().players).toEqual({ attackers: { profile_id: 'mcts' } });
+  expect(requests).toHaveLength(0);
 });
 
 it('never persists a custom configuration as a browser preference', async () => {
   identity.admin = true;
   show();
   await openCustom();
-  await submit(1);
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/games', expect.anything()));
   const saved = JSON.parse(localStorage.getItem('hnefatafl-new-game-options') ?? '{}');
   expect(saved.custom).toBeUndefined();
   expect(saved.profiles.attackers).toBe('baseline');
 });
 
-it('reuses the catalogue the dashboard already loaded without requesting it again', async () => {
+it('shows the dashboard catalogue immediately and requests nothing', async () => {
   identity.admin = true;
   show();
   await openCustom();
-  expect(modelsRequests()).toHaveLength(0);
   await chooseNeural();
   expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL);
-  expect(modelsRequests()).toHaveLength(0);
+  expect(requests).toHaveLength(0);
+  expect(screen.getByRole('button', { name: 'Refresh models' })).toBeEnabled();
 });
 
-it('loads the catalogue lazily when the dashboard has none', async () => {
+it('loads the catalogue once when the dashboard has none', async () => {
   identity.admin = true;
-  show({ models: [] });
-  expect(modelsRequests()).toHaveLength(0);
+  show({ initial: [] });
+  expect(requests).toHaveLength(0);
   await openCustom();
-  expect(modelsRequests()).toHaveLength(1);
-  await settleModels([catalogue[0]]);
+  expect(requests).toHaveLength(1);
+  await settle([hugin()]);
   await chooseNeural();
   await waitFor(() => expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL));
 });
 
-it('reports a failed catalogue load and recovers when the request is retried', async () => {
+it('makes a newly registered model available after refreshing', async () => {
   identity.admin = true;
-  show({ models: [] });
+  show();
   await openCustom();
-  await failModels(new Error('Catalogue offline'));
-  const alert = await screen.findByRole('alert');
-  expect(alert).toHaveTextContent('Catalogue offline');
-  // A failed catalogue never blocks the dialog; it only withholds model choices.
   await chooseNeural();
-  expect(screen.getByRole('button', { name: 'To the table' })).toBeEnabled();
+  expect(optionText('Attackers trained model')).not.toContain(SLEIPNIR_LABEL);
 
-  fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
-  await settleModels([catalogue[0]]);
-  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
-  await waitFor(() => expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  expect(screen.getByRole('button', { name: 'Refreshing models…' })).toBeDisabled();
+  // The previous catalogue stays selectable while the refresh runs.
+  expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL);
+  await settle([hugin(), sleipnir]);
+  await waitFor(() => expect(optionText('Attackers trained model')).toContain(SLEIPNIR_LABEL));
 });
 
-it('treats a malformed catalogue payload as a load failure', async () => {
-  identity.admin = true;
-  show({ models: [] });
-  await openCustom();
-  await settleModels({ models: 'unexpected' });
-  expect(await screen.findByRole('alert')).toHaveTextContent('Trained models could not be loaded.');
-});
-
-it('aborts an in-flight catalogue request when the custom seat is left', async () => {
-  identity.admin = true;
-  show({ models: [] });
-  await openCustom();
-  await waitFor(() => expect(modelsRequests()).toHaveLength(1));
-  const signal = modelsRequests()[0][1]?.signal;
-  expect(signal?.aborted).toBe(false);
-  fireEvent.change(screen.getByLabelText('Attackers AI profile'), {
-    target: { value: 'baseline' },
-  });
-  await waitFor(() => expect(signal?.aborted).toBe(true));
-  // A late response cannot repopulate a catalogue the dialog no longer needs.
-  modelRequests.shift()?.resolve(await json([catalogue[0]]));
-  expect(screen.queryByLabelText('Attackers algorithm')).toBeNull();
-});
-
-it('filters models by the selected battlefield and flags an incompatible selection', async () => {
+it('reflects renamed and deleted models after refreshing', async () => {
   identity.admin = true;
   show();
   fireEvent.click(screen.getByRole('radio', { name: /Brandubh/ }));
@@ -248,105 +235,121 @@ it('filters models by the selected battlefield and flags an incompatible selecti
   await chooseNeural();
   expect(screen.getByLabelText('Attackers trained model')).toHaveValue(MUNIN);
 
-  fireEvent.click(screen.getByRole('radio', { name: /Tablut/ }));
-  expect(optionText('Attackers trained model')).toContain('Munin · incompatible battlefield');
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  await settle([hugin(), munin('Munin the Wise')]);
+  await waitFor(() =>
+    expect(optionText('Attackers trained model')).toContain('Munin the Wise · #bbbbbbbb'),
+  );
+
+  // A model removed from the registry is reported and blocks an invalid game.
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  await settle([hugin()]);
+  await waitFor(() => expect(optionText('Attackers trained model')).toContain('Unavailable model'));
   expect(
     screen.getByText('Choose a compatible trained model and its single matching battlefield.'),
   ).toBeVisible();
   expect(screen.getByRole('button', { name: 'To the table' })).toBeDisabled();
 });
 
-it('exposes the alpha-beta optimizations for a neural opponent using the alpha-beta wrapper', async () => {
+it('keeps the previous catalogue selectable when a refresh fails and retries', async () => {
   identity.admin = true;
   show();
   await openCustom();
-  expect(screen.queryByText('Alpha-beta optimizations')).toBeNull();
   await chooseNeural();
-  await chooseWrapper('alpha_beta');
-  const panel = screen.getByText('Alpha-beta optimizations').closest('fieldset')!;
-  // A model-backed search cannot reuse symmetric positions.
-  expect(within(panel).getByLabelText('Attackers symmetry move pruning')).toBeDisabled();
-  expect(within(panel).getByLabelText('Attackers d4-canonical transpositions')).toBeDisabled();
-  expect(
-    within(within(panel).getByLabelText('Attackers search preset'))
-      .getAllByRole('option')
-      .map((option) => option.textContent),
-  ).toEqual(['Legacy alpha-beta', 'Optimized default', 'Custom']);
-  // The heuristic belongs to a model-free search only.
-  expect(screen.queryByLabelText('Attackers heuristic')).toBeNull();
-  expect(screen.getByLabelText('Attackers search depth')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  await fail(new Error('Catalogue offline'));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Catalogue offline');
+  expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await settle([hugin(), sleipnir]);
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  await waitFor(() => expect(optionText('Attackers trained model')).toContain(SLEIPNIR_LABEL));
 });
 
-it('leaves the standalone alpha-beta agent unchanged', async () => {
+it('treats an empty catalogue response as an empty registry, not a failure', async () => {
+  identity.admin = true;
+  show({ initial: [] });
+  await openCustom();
+  await chooseNeural();
+  await settle([]);
+  await waitFor(() =>
+    expect(screen.getByText('Train or import a model in the AI workshop first.')).toBeVisible(),
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Refresh models' })).toBeEnabled();
+});
+
+it('hides a custom seat when the human takes that side and aborts its request', async () => {
+  identity.admin = true;
+  show({ initial: [] });
+  await openCustom();
+  expect(requests).toHaveLength(1);
+  const signal = requests[0].signal;
+  expect(signal?.aborted).toBe(false);
+
+  chooseHumanSide('attackers');
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  expect(screen.queryByLabelText('Attackers algorithm')).toBeNull();
+  expect(screen.getByLabelText('Defenders AI profile')).toHaveValue('baseline');
+});
+
+it('restores an edited custom configuration when the side is handed back', async () => {
   identity.admin = true;
   show();
-  fireEvent.change(screen.getByLabelText('Attackers AI profile'), {
-    target: { value: 'alpha_beta' },
-  });
+  await openCustom();
+  await chooseNeural();
+  expect(screen.getByLabelText('Attackers trained model')).toHaveValue(HUGIN);
+
+  chooseHumanSide('attackers');
+  expect(screen.queryByLabelText('Attackers algorithm')).toBeNull();
+  chooseHumanSide('defenders');
+  await waitFor(() => expect(screen.getByLabelText('Attackers algorithm')).toHaveValue('neural'));
+  expect(screen.getByLabelText('Attackers trained model')).toHaveValue(HUGIN);
+  expect(requests).toHaveLength(0);
+});
+
+it('does not request the catalogue again when switching between a custom seat and a preset', async () => {
+  identity.admin = true;
+  show({ initial: [] });
+  await openCustom();
+  await settle([]);
+  fireEvent.change(screen.getByLabelText('Attackers AI profile'), { target: { value: 'mcts' } });
+  expect(screen.queryByLabelText('Attackers algorithm')).toBeNull();
   fireEvent.change(screen.getByLabelText('Attackers AI profile'), { target: { value: 'custom' } });
   await screen.findByLabelText('Attackers algorithm');
-  const panel = screen.getByText('Alpha-beta optimizations').closest('fieldset')!;
-  expect(within(panel).getByLabelText('Attackers symmetry move pruning')).toBeEnabled();
-  expect(
-    within(within(panel).getByLabelText('Attackers search preset'))
-      .getAllByRole('option')
-      .map((option) => option.textContent),
-  ).toContain('Full symmetry');
-  expect(screen.getByLabelText('Attackers heuristic')).toHaveValue('shield_maiden');
-  // A custom seat starts from the Jarl preset it replaced.
-  expect(screen.getByLabelText('Attackers search depth')).toHaveValue(5);
+  expect(requests).toHaveLength(0);
 });
 
-it('serializes search presets and manual optimizations for a neural alpha-beta opponent', async () => {
+it('ignores a response from a superseded request', async () => {
   identity.admin = true;
-  show();
+  // A caller that ignores the abort signal still cannot make a stale response
+  // look like the current catalogue state.
+  const stale: CatalogueRequest[] = [];
+  const ignoreAbort = vi.fn(
+    (signal?: AbortSignal) =>
+      new Promise<Model[]>((resolve, reject) => {
+        stale.push({ resolve, reject, signal });
+      }),
+  );
+  show({ initial: [], load: ignoreAbort });
   await openCustom();
   await chooseNeural();
-  await chooseWrapper('alpha_beta');
-  fireEvent.change(screen.getByLabelText('Attackers search preset'), {
-    target: { value: 'custom' },
-  });
-  fireEvent.click(screen.getByLabelText('Attackers improved move ordering'));
-  fireEvent.change(screen.getByLabelText('Attackers search depth'), { target: { value: '4' } });
-  await submit(1);
-  expect(creationBody().players.attackers.config).toEqual({
-    algorithm: 'neural',
-    model_id: HUGIN,
-    search_wrapper: 'alpha_beta',
-    time_limit: 1,
-    depth: 4,
-    search: { ...DEFAULT_SEARCH, move_ordering: false },
-  });
+  await waitFor(() => expect(stale).toHaveLength(1));
 
-  // The legacy preset collapses every optimized flag to its deterministic shape.
-  fireEvent.change(screen.getByLabelText('Attackers search preset'), {
-    target: { value: 'legacy' },
-  });
-  await submit(2);
-  expect(creationBody().players.attackers.config.search).toEqual({
-    ...DEFAULT_SEARCH,
-    legacy: true,
-  });
-});
+  // Hiding the seat supersedes the first request without settling it.
+  chooseHumanSide('attackers');
+  chooseHumanSide('defenders');
+  await waitFor(() => expect(screen.getByLabelText('Attackers algorithm')).toBeVisible());
 
-it('manages the nested search configuration when the wrapper changes', async () => {
-  identity.admin = true;
-  show();
-  await openCustom();
-  await chooseNeural();
-  await chooseWrapper('alpha_beta');
-  await submit(1);
-  expect(creationBody().players.attackers.config.search).toEqual(DEFAULT_SEARCH);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  await waitFor(() => expect(stale).toHaveLength(2));
+  stale[1].resolve([hugin()]);
+  await waitFor(() => expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL));
 
-  // Switching away from alpha-beta drops the nested settings it would reject.
-  await chooseWrapper('mcts');
-  expect(screen.queryByText('Alpha-beta optimizations')).toBeNull();
-  await submit(2);
-  expect(creationBody().players.attackers.config).not.toHaveProperty('search');
-  expect(creationBody().players.attackers.config.search_wrapper).toBe('mcts');
-
-  // Returning to alpha-beta starts from the tournament defaults again.
-  await chooseWrapper('alpha_beta');
-  await submit(3);
-  expect(creationBody().players.attackers.config.search).toEqual(DEFAULT_SEARCH);
+  // The stale failure arrives last and must not surface an error.
+  stale[0].reject(new Error('Catalogue offline'));
+  await waitFor(() => expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL));
+  expect(screen.queryByRole('alert')).toBeNull();
 });

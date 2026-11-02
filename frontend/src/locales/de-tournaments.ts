@@ -116,6 +116,8 @@ const german: Record<string, string> = {
     'Trainierte Modelle benötigen genau ein passendes Schlachtfeld.',
   'Loading models…': 'Modelle werden geladen…',
   'Trained models could not be loaded.': 'Trainierte Modelle konnten nicht geladen werden.',
+  'Refresh models': 'Modelle aktualisieren',
+  'Refreshing models…': 'Modelle werden aktualisiert…',
   'Time limit (seconds)': 'Zeitlimit (Sekunden)',
   'Search parameters': 'Suchparameter',
   'Search depth': 'Suchtiefe',

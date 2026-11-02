@@ -115,17 +115,21 @@ export default function App() {
     notify.error(errorMessage(message));
   }, []);
 
+  /** Reload only the model catalogue; the New Game dialog refreshes it on demand. */
+  const refreshModels = useCallback(async (signal?: AbortSignal) => {
+    const saved = await api<Model[]>('/models', undefined, undefined, signal);
+    setModels(Array.isArray(saved) ? saved : []);
+  }, []);
   const refreshOptions = useCallback(async () => {
-    const [rules, ais, savedModels] = await Promise.all([
+    const [rules, ais] = await Promise.all([
       api<Ruleset[]>('/rulesets'),
       api<AIProfile[]>('/ai/profiles'),
-      api<Model[]>('/models'),
+      refreshModels(),
     ]);
     setRulesets(rules);
     setProfiles(ais);
-    setModels(savedModels);
     return rules;
-  }, []);
+  }, [refreshModels]);
   const startSinglePlayer = useCallback(() => {
     void Promise.all([api<Ruleset[]>('/rulesets'), api<AIProfile[]>('/ai/profiles')])
       .then(([rules, ais]) => {
@@ -599,6 +603,7 @@ export default function App() {
           rulesets={rulesets}
           profiles={profiles}
           models={models}
+          onRefreshModels={refreshModels}
           initialRuleset={
             rulesets.find((rule) => rule.id === new URLSearchParams(location.search).get('ruleset'))
               ?.id ?? game?.ruleset

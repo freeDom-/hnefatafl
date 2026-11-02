@@ -233,6 +233,17 @@ AI-vs-AI mode. The stored game keeps the resolved configuration; each opponent
 move, reload and restart re-derives the model path from the registered model, so
 no server path is ever persisted or accepted.
 
+The trained-model selector reuses the catalogue the dashboard already loaded and
+requests it only when a visible custom seat has no usable models. **Refresh
+models** reloads it without reloading the application, so a model registered,
+renamed or deleted while the dialog is open appears on the next refresh; if the
+request fails, the previous list stays selectable and the dialog shows a
+non-blocking retry. The catalogue is requested only while a visible custom seat
+needs it: hiding a configuration by moving the human seat to that side cancels an
+in-flight request and keeps the unsaved settings for when the seat returns. A
+selection that is deleted or no longer matches the battlefield is named in the
+list and blocks starting the game.
+
 For the game API, put a configuration under a side's `players` entry:
 
 ```json
