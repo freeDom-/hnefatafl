@@ -220,10 +220,18 @@ opponent without a second implementation.
 | `search` | Alpha-beta optimizations: legacy, transposition table, move ordering, D4-canonical transpositions, symmetry pruning, table capacity |
 
 The browser dialog only offers the fields the selected algorithm and wrapper use,
-and only to administrators. A custom opponent is refused for non-administrators
-and cannot be selected in AI-vs-AI mode. The stored game keeps the resolved
-configuration; each opponent move, reload and restart re-derives the model path
-from the registered model, so no server path is ever persisted or accepted.
+and only to administrators. The alpha-beta optimizations appear for a standalone
+alpha-beta agent **and** for a neural opponent using the alpha-beta wrapper, so a
+model-backed search is configured exactly like a model-free one. Because a value
+head is not guaranteed D4-equivariant, a model-backed search disables the
+symmetry switches and the server rejects them if they arrive anyway. Selecting
+the alpha-beta wrapper starts from the optimized default search; switching to
+another wrapper removes the nested `search` object the server would refuse.
+
+A custom opponent is refused for non-administrators and cannot be selected in
+AI-vs-AI mode. The stored game keeps the resolved configuration; each opponent
+move, reload and restart re-derives the model path from the registered model, so
+no server path is ever persisted or accepted.
 
 For the game API, put a configuration under a side's `players` entry:
 

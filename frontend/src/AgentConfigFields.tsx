@@ -193,6 +193,8 @@ export interface AgentConfigFieldsProps {
   ruleset?: string;
   /** Namespace for aria-labels, e.g. "Opponent 1" or "Attackers". */
   prefix: string;
+  /** True while the model catalogue is still being fetched for this editor. */
+  modelsPending?: boolean;
   /** Surface the strongest-model recommendation under the model selector. */
   showRecommendation?: boolean;
   /** Called before every edit so a parent can stop recommending this participant. */
@@ -205,6 +207,7 @@ export default function AgentConfigFields({
   models,
   ruleset,
   prefix,
+  modelsPending = false,
   showRecommendation = false,
   onEdit,
   onChange,
@@ -216,9 +219,22 @@ export default function AgentConfigFields({
   const neural = algorithm === 'neural';
   const wrapper = String(player.config.search_wrapper ?? 'mcts');
   const search = neural ? wrapper : algorithm;
-  const alphaBetaOptimizations = !player.profile_id && algorithm === 'alpha_beta';
+  // A standalone alpha-beta agent and a neural opponent using the alpha-beta
+  // wrapper expose the same optimizations; only a model-backed search loses the
+  // symmetry switches, because a value head is not guaranteed D4-equivariant.
+  const alphaBeta = algorithm === 'alpha_beta' || (neural && wrapper === 'alpha_beta');
   const searchSettings = searchFromConfig(player.config) ?? DEFAULT_ALPHA_BETA_SEARCH;
   const selectedModel = models.find((model) => model.id === player.config.model_id);
+  const selectedCompatible = compatible.some((model) => model.id === player.config.model_id);
+  // A model can stay selected after the battlefield changes; keep it visible and
+  // named instead of silently dropping it from the list.
+  const unavailableModel = !selectedCompatible && Boolean(player.config.model_id);
+  const modelHint =
+    ruleset && compatible.length === 0
+      ? modelsPending
+        ? t('Loading models…')
+        : t('Train or import a model in the AI workshop first.')
+      : t('Trained models require one matching battlefield.');
 
   const parameter = (key: string, value: string | number) => {
     onEdit?.();
@@ -253,6 +269,14 @@ export default function AgentConfigFields({
     if (next === 'neural' && ruleset)
       config.model_id = selectStrongestModel(models, ruleset)?.model.id ?? '';
     onChange({ ...player, profile_id: undefined, name: 'Computer', config });
+  };
+  const changeWrapper = (next: string) => {
+    onEdit?.();
+    const config: Config = { ...player.config, search_wrapper: next };
+    // Nested alpha-beta settings are rejected for every other wrapper.
+    if (next === 'alpha_beta' && !config.search) config.search = { ...DEFAULT_ALPHA_BETA_SEARCH };
+    if (next !== 'alpha_beta') delete config.search;
+    onChange({ ...player, config });
   };
   const field = (
     key: string,
@@ -310,8 +334,15 @@ export default function AgentConfigFields({
                 {modelOptionLabel(model, t)}
               </option>
             ))}
+            {unavailableModel && (
+              <option value={String(player.config.model_id)}>
+                {selectedModel
+                  ? `${selectedModel.name} · ${t('incompatible battlefield')}`
+                  : t('Unavailable model')}
+              </option>
+            )}
           </select>
-          <small>{t('Trained models require one matching battlefield.')}</small>
+          <small>{modelHint}</small>
           {showRecommendation &&
             recommendation &&
             player.config.model_id === recommendation.model.id && (
@@ -340,12 +371,13 @@ export default function AgentConfigFields({
         <SearchWrapper
           value={wrapper}
           label={`${prefix} ${t('Search wrapper').toLocaleLowerCase(locale)}`}
-          onChange={(next) => parameter('search_wrapper', next)}
+          onChange={changeWrapper}
         />
       )}
-      {alphaBetaOptimizations && (
+      {alphaBeta && (
         <AlphaBetaSearchFields
           prefix={prefix}
+          modelBacked={neural}
           search={searchSettings}
           onPreset={applySearchPreset}
           onField={updateSearch}

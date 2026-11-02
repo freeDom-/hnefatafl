@@ -91,6 +91,9 @@ export default function NewGame({
   const [setup, setSetup] = useState(() => restore(rulesets, admin, initialRuleset));
   const [busy, setBusy] = useState(false);
   const [catalogue, setCatalogue] = useState<Model[] | null>(null);
+  const [cataloguePending, setCataloguePending] = useState(false);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
+  const [catalogueAttempt, setCatalogueAttempt] = useState(0);
   const seeded = useRef<Record<Side, boolean>>({ attackers: false, defenders: false });
   const mode = admin ? setup.mode : 'human-ai';
   // Custom opponents are a single-player, administrator-only resource.
@@ -98,22 +101,48 @@ export default function NewGame({
   const customOpen =
     customAvailable &&
     (['attackers', 'defenders'] as Side[]).some((side) => setup.profiles[side] === 'custom');
+  const availableModels = catalogue ?? models;
+  // A catalogue the dashboard already loaded is usable; an empty list may simply
+  // mean it was never fetched, so a custom seat still loads it on demand.
+  const catalogueReady = catalogue !== null || models.length > 0;
   useEffect(() => {
-    if (!customOpen) return;
+    if (!customOpen || catalogueReady) return;
     let cancelled = false;
+    const controller = new AbortController();
+    setCataloguePending(true);
+    setCatalogueError(null);
     // Models are large; load the catalogue only when a custom seat needs it.
-    api<Model[]>('/models')
+    api<Model[]>('/models', undefined, undefined, controller.signal)
       .then((saved) => {
-        if (!cancelled) setCatalogue(Array.isArray(saved) ? saved : []);
+        if (cancelled) return;
+        if (Array.isArray(saved)) setCatalogue(saved);
+        else setCatalogueError(t('Trained models could not be loaded.'));
       })
-      .catch(() => {
-        if (!cancelled) setCatalogue([]);
+      .catch((failure: unknown) => {
+        // A failed request never replaces a catalogue that is already usable.
+        if (cancelled) return;
+        setCatalogueError(errorMessage(failure, t('Trained models could not be loaded.')));
+      })
+      .finally(() => {
+        if (!cancelled) setCataloguePending(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
+      setCataloguePending(false);
     };
-  }, [customOpen]);
-  const availableModels = catalogue ?? models;
+  }, [customOpen, catalogueReady, catalogueAttempt, t]);
+  const aiSides = (['attackers', 'defenders'] as Side[]).filter(
+    (side) => mode === 'ai-ai' || side !== setup.humanSide,
+  );
+  const incompatibleModel = aiSides.some((side) => {
+    if (setup.profiles[side] !== 'custom') return false;
+    const { config } = setup.custom[side];
+    if (config.algorithm !== 'neural' || !config.model_id) return false;
+    return !availableModels.some(
+      (model) => model.id === config.model_id && model.ruleset === setup.ruleset,
+    );
+  });
   const choose = (key: 'ruleset' | 'mode' | 'humanSide', value: string) =>
     setSetup((previous) => {
       const next: Setup = { ...previous, [key]: value };
@@ -156,13 +185,11 @@ export default function NewGame({
     setBusy(true);
     try {
       const players = Object.fromEntries(
-        (['attackers', 'defenders'] as Side[])
-          .filter((side) => mode === 'ai-ai' || side !== setup.humanSide)
-          .map((side) =>
-            setup.profiles[side] === 'custom'
-              ? [side, { config: setup.custom[side].config }]
-              : [side, { profile_id: setup.profiles[side] }],
-          ),
+        aiSides.map((side) =>
+          setup.profiles[side] === 'custom'
+            ? [side, { config: setup.custom[side].config }]
+            : [side, { profile_id: setup.profiles[side] }],
+        ),
       );
       const game = await api<Game>('/games', {
         ruleset: setup.ruleset,
@@ -246,70 +273,88 @@ export default function NewGame({
             </label>
           )}
           <div className="player-configs">
-            {(['attackers', 'defenders'] as Side[])
-              .filter((side) => mode === 'ai-ai' || side !== setup.humanSide)
-              .map((side) => {
-                const available = profiles.filter(
-                  (profile) =>
-                    presetIds.includes(profile.id as Preset) &&
-                    profile.supported_rulesets.includes(setup.ruleset),
-                );
-                const selected = available.find((profile) => profile.id === setup.profiles[side]);
-                const custom = setup.profiles[side] === 'custom';
-                const label = t(side === 'attackers' ? 'Attackers' : 'Defenders');
-                return (
-                  <div className="player-config" key={side}>
-                    <label>
-                      {t('{side} opponent', { side: label })}
-                      <select
-                        aria-label={t('{side} AI profile', { side: label })}
-                        value={setup.profiles[side]}
-                        required
-                        onChange={(event) => chooseOpponent(side, event.target.value)}
-                      >
-                        {available.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {t(profile.name)}
-                          </option>
-                        ))}
-                        {customAvailable && <option value="custom">{t('Custom opponent')}</option>}
-                      </select>
-                    </label>
-                    {custom ? (
+            {aiSides.map((side) => {
+              const available = profiles.filter(
+                (profile) =>
+                  presetIds.includes(profile.id as Preset) &&
+                  profile.supported_rulesets.includes(setup.ruleset),
+              );
+              const selected = available.find((profile) => profile.id === setup.profiles[side]);
+              const custom = setup.profiles[side] === 'custom';
+              const label = t(side === 'attackers' ? 'Attackers' : 'Defenders');
+              return (
+                <div className="player-config" key={side}>
+                  <label>
+                    {t('{side} opponent', { side: label })}
+                    <select
+                      aria-label={t('{side} AI profile', { side: label })}
+                      value={setup.profiles[side]}
+                      required
+                      onChange={(event) => chooseOpponent(side, event.target.value)}
+                    >
+                      {available.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {t(profile.name)}
+                        </option>
+                      ))}
+                      {customAvailable && <option value="custom">{t('Custom opponent')}</option>}
+                    </select>
+                  </label>
+                  {custom ? (
+                    <>
+                      {catalogueError && !catalogueReady && (
+                        <p className="form-error" role="alert">
+                          {catalogueError}{' '}
+                          <button
+                            type="button"
+                            className="button secondary small"
+                            onClick={() => setCatalogueAttempt((value) => value + 1)}
+                          >
+                            {t('Retry')}
+                          </button>
+                        </p>
+                      )}
                       <AgentConfigFields
                         player={setup.custom[side]}
                         models={availableModels}
                         ruleset={setup.ruleset}
                         prefix={label}
+                        modelsPending={cataloguePending}
                         onChange={(next) => editCustom(side, next)}
                       />
-                    ) : (
-                      <>
-                        <p>{t(explanations[setup.profiles[side] as Preset])}</p>
-                        {selected && (
-                          <p className="subtle">
-                            {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
-                            {selected.id === 'alpha_beta'
-                              ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
-                              : selected.id === 'mcts'
-                                ? ` · ${t('Search iterations')}: ${selected.parameters.iterations}`
-                                : ''}
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+                    </>
+                  ) : (
+                    <>
+                      <p>{t(explanations[setup.profiles[side] as Preset])}</p>
+                      {selected && (
+                        <p className="subtle">
+                          {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
+                          {selected.id === 'alpha_beta'
+                            ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
+                            : selected.id === 'mcts'
+                              ? ` · ${t('Search iterations')}: ${selected.parameters.iterations}`
+                              : ''}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </fieldset>
+        {incompatibleModel && (
+          <p className="form-error">
+            {t('Choose a compatible trained model and its single matching battlefield.')}
+          </p>
+        )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             {t('Cancel')}
           </button>
           <button
             className="button primary"
-            disabled={busy || !rulesets.length || !profiles.length}
+            disabled={busy || !rulesets.length || !profiles.length || incompatibleModel}
           >
             {t(busy ? 'Preparing…' : 'To the table')}
           </button>

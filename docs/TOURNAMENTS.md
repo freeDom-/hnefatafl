@@ -50,6 +50,14 @@ The participant editor is the same component as the administrator-only
 becomes available to custom single-player opponents without a second
 implementation. See [AI](AI.md#custom-opponents).
 
+A named catalog preset (Shield bearer, Shield maiden, Jarl, Seer) is
+authoritative: the server replaces any configuration supplied beside it with the
+preset's recorded parameters, including its evaluator. The setup form therefore
+shows a fixed preset as a parameter summary with no editable controls — an
+editable evaluator selector for a fixed preset would imply an override the server
+ignores. A custom participant keeps the complete editor, including the
+alpha-beta optimizations for a neural opponent that uses the alpha-beta wrapper.
+
 Every unordered pair of opponents plays a balanced series, swapping
 attacker/defender sides after every game. Two players have one pairing, three
 have three, and four have six. Total scheduled games are games per pairing
