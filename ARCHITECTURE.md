@@ -185,6 +185,16 @@ explicit request identity. Evaluation backends the pool creates are registered o
 exit stack before they are refreshed, so a failed creation or refresh closes every
 backend that phase already owns and never replaces the original error.
 
+Each actor owns one inference cache per model identity for as long as a bound weight
+generation lives, so it keeps that cache across the slices it is granted and starts a
+fresh one on rebind. Cache occupancy is reported as the change since that generation's
+previous report and the parent adds the actors' changes, which is why a worker's
+entries are never counted twice across slices; `inference_cache_peak_entries` is the
+sum of the workers' own high-water marks, an upper bound on simultaneous occupancy.
+Worker startup is exception-safe per attempt: the pipe endpoints of an attempt are
+closed and any partially started process is stopped before the error propagates, and a
+failed pool closes every worker it already started and refuses further use.
+
 Actors also report progress. A game context ticks the same per-position counters the
 in-process path ticks, but into an actor-local accumulator that batches them into
 bounded progress messages instead of one message per simulation; the parent applies

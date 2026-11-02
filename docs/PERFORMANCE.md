@@ -157,6 +157,18 @@ long game instead of waiting for it to end. Each message also carries the actor'
 active-game count, which the parent sums across workers. With `search_workers=0` the
 monitor is called directly, exactly as before.
 
+Exact inference caching is per worker. Each actor owns one cache per model identity,
+keeps it across the slices it is granted, and starts a fresh one when the parent binds
+a new weight generation, so a rebind never mixes two generations. Cache occupancy is
+reported as the change since the previous report *for that generation* and the parent
+adds the actors' changes together, so a worker that processes several slices counts
+its entries once. A pool therefore reports `inference_cache_entries` as the total live
+entries across its workers' caches — up to `search_worker_count × capacity` — and
+`inference_cache_peak_entries` as the sum of each worker's own high-water mark, which
+is an upper bound on simultaneous occupancy rather than the simultaneous maximum. The
+in-process path (`search_workers=0`) reports its single cache's occupancy and peak
+directly. With caching off, both are zero and every request is a miss.
+
 Completed games are handed to the caller as soon as they arrive: the pool keeps only
 a running count, and with `retain_examples=False` the caller drops a game's examples
 as soon as its ordered replay callback has consumed them. Retained memory therefore

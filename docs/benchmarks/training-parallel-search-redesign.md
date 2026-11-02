@@ -154,6 +154,39 @@ worker counts, three pairs each — produced exactly one work fingerprint, and e
 of those equals the `main` baseline's. Raw samples:
 [`training-parallel-search-redesign.json`](training-parallel-search-redesign.json).
 
+### Inference-cache accounting across worker slices
+
+An actor keeps its inference cache across the slices it is granted, so the counters
+that turn absolute occupancy into increments must live as long as the bound weight
+generation rather than the slice. They did not: every slice restarted the baseline and
+re-reported the whole cache, so a worker with three slices reported its entries three
+times.
+
+The same workloads measured before (`fa0b54a`) and after the correction, candidate
+variant on both sides, one discarded warm-up sample, Brandubh/Tablut/Copenhagen with
+two and four workers, cache capacity 8, 12 games, concurrency 2 and the ordered replay
+window active so each worker is granted three slices:
+
+| Scenario | Before entries / peak | After entries / peak | Cache hits | Evaluations | Fingerprint |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Brandubh, 2 workers | 48 / 48 | 16 / 16 | 76 = 76 | equal | identical |
+| Brandubh, 4 workers | 48 / 48 | 16 / 16 | 76 = 76 | equal | identical |
+| Tablut, 2 workers | 48 / 48 | 16 / 16 | 74 = 74 | equal | identical |
+| Tablut, 4 workers | 48 / 48 | 16 / 16 | 74 = 74 | equal | identical |
+| Copenhagen, 2 workers | 48 / 48 | 16 / 16 | 75 = 75 | equal | identical |
+| Copenhagen, 4 workers | 48 / 48 | 16 / 16 | 75 = 75 | equal | identical |
+
+The pool reports the sum of its workers' caches, so `16` is two workers at the
+configured capacity of 8, which is what the caches actually hold; `48` was the same
+cache counted once per slice. Cache hits, neural evaluations and work fingerprints are
+identical on both sides, so only the reported statistic changed.
+
+A wider matrix — three rulesets, two and four workers, exact and disabled caching, plus
+Shieldbearer evaluation — also produced identical work fingerprints and identical
+neural-evaluation counts before and after, with zero entries reported whenever caching
+is disabled. Raw samples:
+[`training-parallel-search-cache-metrics.json`](training-parallel-search-cache-metrics.json).
+
 ### Monitoring overhead
 
 A parallel phase now reports live progress, so its cost is measured against the same
