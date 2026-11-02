@@ -154,6 +154,28 @@ worker counts, three pairs each — produced exactly one work fingerprint, and e
 of those equals the `main` baseline's. Raw samples:
 [`training-parallel-search-redesign.json`](training-parallel-search-redesign.json).
 
+### Monitoring overhead
+
+A parallel phase now reports live progress, so its cost is measured against the same
+workloads with and without a monitor attached (`--monitor`), in alternating
+off/on/on/off order with four measured samples per arm. Brandubh, `search_workers=4`:
+
+| Workload | Monitor | Median seconds | Samples | Progress messages | Fingerprint |
+| --- | --- | ---: | --- | ---: | --- |
+| 16 games, 20 plies, 48 visits | off | 4.373 | 4.183, 4.253, 4.690, 4.493 | 0 | `0a1a44fd…` |
+| 16 games, 20 plies, 48 visits | on | 4.559 | 4.889, 4.699, 4.135, 4.419 | 191–206 | `0a1a44fd…` |
+| 4 games, 8 plies, 32 visits | off | 0.639 | 0.795, 0.667, 0.519, 0.611 | 0 | `5b50d04a…` |
+| 4 games, 8 plies, 32 visits | on | 0.594 | 0.567, 0.560, 0.621, 0.743 | 40 | `5b50d04a…` |
+
+Both arms produced a single, identical work fingerprint per workload, so monitoring
+changes neither game outcomes nor search budgets. The timing difference is +4% on the
+larger workload and −7% on the smaller one, while the sample ranges overlap almost
+completely (off 4.18–4.69 against on 4.14–4.89), so no systematic cost is established
+at this resolution. Message volume is the portable result: about 200 progress messages
+for roughly 15,000 simulations and 15,000 inference requests, one message per ~75
+simulations rather than one per simulation. Raw samples:
+[`training-parallel-search-monitoring.json`](training-parallel-search-monitoring.json).
+
 Gains grow with worker count but not linearly: legal-move generation, traversal and
 policy decoding are CPU work that the pool parallelises, while a single actor's
 batched forward pass still runs on one thread. Cold startup is excluded by the

@@ -123,12 +123,13 @@ small network, so fewer forward passes need not mean faster generation.
 
 Optional `search_workers` (0 disables; 1–32 processes) moves independent search
 into persistent spawned CPU actors that each drive many games through the shared
-cooperative scheduler. The worker count bounds CPU parallelism only:
-`self_play_concurrency` and `evaluation_concurrency` are hard upper bounds on how
-many games are active across the whole pool. Each worker takes a static round-robin
-share of the game indices and a capacity equal to the requested concurrency split as
-a quotient and remainder, so the capacities sum to exactly the requested limit and a
-worker with no capacity is never started.
+cooperative scheduler. The worker count is a cap, not a target: processes are created
+on demand, only as far as a phase has concurrent game slots, and are reused by later
+phases. `self_play_concurrency` and `evaluation_concurrency` are hard upper bounds on
+how many games are active across the whole pool. Each worker takes a static
+round-robin share of the game indices and a capacity equal to the requested
+concurrency split as a quotient and remainder, so the capacities sum to exactly the
+requested limit and a worker with no capacity is never started.
 
 Execution mode decides whether the pool runs a phase. `self_play_mode="sequential"`
 always runs self-play in the training process, even with a positive worker count;
@@ -146,6 +147,16 @@ to fill it. Evaluation inference backends the pool creates are closed exactly on
 when the phase ends or fails, including when a later backend cannot be created or
 refreshed.
 
+Actors report live progress as they search. A game context ticks the same
+per-position counters the in-process path ticks, but into an actor-local accumulator
+that batches them into bounded messages (one per 64 counted units or 0.25 s, never one
+per simulation). The parent applies each batch as a delta, drops a message whose
+per-worker sequence it has already seen, and lets a completion contribute only its own
+completion counter, so nothing is counted twice and the dashboard advances during a
+long game instead of waiting for it to end. Each message also carries the actor's live
+active-game count, which the parent sums across workers. With `search_workers=0` the
+monitor is called directly, exactly as before.
+
 Completed games are handed to the caller as soon as they arrive: the pool keeps only
 a running count, and with `retain_examples=False` the caller drops a game's examples
 as soon as its ordered replay callback has consumed them. Retained memory therefore
@@ -161,7 +172,8 @@ Metrics live under `metrics.performance` in progress/result JSON and under
 `search_workers` (pool size), `search_worker_count` (workers actually used),
 `search_concurrency` (the requested bound), `search_worker_capacity` and
 `search_worker_peak_active` (per-worker capacity and observed active high-water mark),
-`search_replay_window`, `search_flush_seconds`, `search_initialization_seconds` and
+`search_replay_window`, `search_flush_seconds`, `search_initialization_seconds`,
+`search_progress_messages` (batched progress messages the parent applied) and
 `inference_location`. The workshop shows live and
 completed throughput, batch sizes, outcomes, phase times and throughput history
 alongside separate loss/evaluation graphs. Rates describe self-play generation,

@@ -167,20 +167,35 @@ through one shared model. `cooperative.py` owns that scheduler for every path: e
 game is a generator that yields its own pending leaf and receives exactly its own
 policy/value result, so no simulation advances on another game's inference. Optional
 `search_workers` (default 0) adds persistent spawned CPU actors that each run the
-same scheduler over many game contexts. The worker count bounds CPU parallelism
-only: `self_play_concurrency` and `evaluation_concurrency` are hard upper bounds on
-active games across the whole pool, and each worker receives a static round-robin
-share of the game indices plus a capacity from a quotient/remainder split, so the
-capacities sum to exactly the requested limit and idle workers are never started.
-An explicit `sequential` self-play or evaluation mode overrides the pool entirely, so
-a configuration with both phases sequential starts no worker processes at all.
+same scheduler over many game contexts. It is a cap, never a target: the pool creates
+processes on demand, only as far as a phase has concurrent game slots, and keeps them
+for later phases, so a pool configured for 32 workers starts two when the phase can
+only run two games. `self_play_concurrency` and `evaluation_concurrency` are hard upper
+bounds on active games across the whole pool, and each worker receives a static
+round-robin share of the game indices plus a capacity from a quotient/remainder split,
+so the capacities sum to exactly the requested limit and idle workers are never
+started. An explicit `sequential` self-play or evaluation mode overrides the pool
+entirely, so a configuration with both phases sequential starts no worker processes at
+all.
 
 CPU inference uses frozen actor snapshots evaluated inside the actor; CUDA/OpenVINO
 models, tensors, streams and caches stay in the parent, which batches the outstanding
 requests of the whole pool into one forward pass and routes each result back by
 explicit request identity. Evaluation backends the pool creates are registered on an
 exit stack before they are refreshed, so a failed creation or refresh closes every
-backend that phase already owns and never replaces the original error. Replay commits
+backend that phase already owns and never replaces the original error.
+
+Actors also report progress. A game context ticks the same per-position counters the
+in-process path ticks, but into an actor-local accumulator that batches them into
+bounded progress messages instead of one message per simulation; the parent applies
+each batch as a delta and drops a message whose per-worker sequence it has already
+seen, so a completion contributes only its own completion counter and no work is
+counted twice. The same messages carry the actor's live active-game count, which the
+parent sums across workers. `train()` forwards its `TrainingMonitor` into both
+parallel entry points, so a worker pool advances the dashboard's games, positions and
+simulations while long games are still running rather than only when they finish.
+
+Replay commits
 remain in game-index order, the pool keeps only a completion count rather than a copy
 of every result, and it hands out new games only while the started-but-uncommitted
 count stays inside the ordered replay window. Failure or cancellation closes the pool.
