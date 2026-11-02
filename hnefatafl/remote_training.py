@@ -371,6 +371,30 @@ class RemoteTraining:
         if isinstance(visible.get("progress"), dict):
             # The last worker snapshot precedes the authoritative finish/expiry.
             visible["progress"] = {**visible["progress"], "status": job["status"]}
+        reported = job.get("last_reported_at")
+        if job["status"] in {"running", "cancelling"} and isinstance(reported, str):
+            # The server stamps every report with its own clock, so the age of
+            # the last publication never depends on the worker's clock.
+            try:
+                reported_at = datetime.fromisoformat(reported).timestamp()
+            except ValueError:
+                pass
+            else:
+                elapsed = max(0.0, timestamp() - reported_at)
+                # Two independent signals: the supervisor reached the server, and
+                # the child process published on the worker host. The worker
+                # measures the child age itself, so a connected supervisor that
+                # forwards an unchanged snapshot never looks like a fresh child.
+                visible["supervisor_age_seconds"] = elapsed
+                progress = visible.get("progress")
+                child = (
+                    progress.get("publication_age_seconds") if isinstance(progress, dict) else None
+                )
+                visible["publication_age_seconds"] = (
+                    elapsed + child
+                    if isinstance(child, (int, float)) and not isinstance(child, bool)
+                    else elapsed
+                )
         if job["status"] == "queued":
             visible["progress"] = {
                 **visible.get("progress", {}),
@@ -792,9 +816,16 @@ class RemoteTraining:
                 if request.sequence < previous:
                     fail("A newer training report has already been saved.", 409)
                 if request.sequence > previous:
-                    report = clean(request.progress)
+                    # A report describes only what changed. Every key it carries
+                    # replaces the retained value, and an omitted key keeps the one
+                    # the server already holds, so a worker never retransmits an
+                    # unchanged history, metric or log tail. A full snapshot carries
+                    # every key, which makes this identical to a plain replacement.
+                    held = job.get("progress")
+                    held = held if isinstance(held, dict) else {}
+                    report = {**held, **clean(request.progress)}
                     if request.history_offset is not None:
-                        retained = job.get("progress", {}).get("history", [])
+                        retained = held.get("history", [])
                         chunk = report.get("history", [])
                         offset = request.history_offset
                         if not isinstance(chunk, list) or offset > len(retained):
@@ -823,6 +854,10 @@ class RemoteTraining:
                 return {
                     "cancel_requested": job["status"] == "cancelling",
                     "lease_seconds": self.lease_seconds,
+                    # Advertised so a worker only sends partial snapshots to a
+                    # server that merges them; older servers always receive full
+                    # snapshots and keep working unchanged.
+                    "merge": True,
                 }
 
         @app.get("/api/worker/jobs/{job_id}/resume")

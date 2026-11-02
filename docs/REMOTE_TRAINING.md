@@ -99,7 +99,16 @@ to run on the server.
 ## Disconnects and access
 
 Each claimed job has an expiring lease and ordered progress reports. Workers
-renew the lease while training, including during long moves. Brief network errors
+renew the lease while training, including during long moves, and republish the
+training process's live snapshot at a bounded cadence independent of the lease
+interval, so intermediate phase counters reach the server while a game,
+optimization epoch or evaluation match is still running. A report whose child
+revision is unchanged carries only the bounded liveness projection, so an
+unchanged history, metrics, model list or log tail is never retransmitted; the
+server merges it over the snapshot it already holds. Each report also carries the
+child's own publication age, measured on the worker host, so a connected
+supervisor forwarding an unchanged snapshot is never mistaken for a fresh child
+heartbeat. Brief network errors
 are retried. Repeated claims, reports and completion requests do not start another
 copy of the same job. A lost/expired lease rejects late results and stops the
 client's training process. The server marks the job failed, retaining its last

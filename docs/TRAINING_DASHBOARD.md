@@ -87,8 +87,8 @@ trial rather than all trials, so study-wide totals show **Not recorded**.
 ## Analysis views
 
 The summary above the tabs keeps the selected name, status, ruleset, execution
-location, recorded iteration/total, stage, elapsed time and remote update time
-available. Rename, stop, checkpoint/study resume, job export, training-data
+location, recorded iteration/total, stage, live elapsed time and remote update
+time available. Rename, stop, checkpoint/study resume, job export, training-data
 deletion and refresh use their existing state restrictions and confirmation
 dialogs. Progress uses recorded iteration counts; the interface does not invent
 an ETA.
@@ -133,6 +133,132 @@ selected during polling; switching jobs resets them for the new job. Data tables
 mount when opened, keeping long histories out of the DOM during ordinary
 monitoring.
 
+## Live monitoring
+
+The training process separates three things that must not depend on each other:
+the worker heartbeat (the process is alive), computational progress (training work
+advanced) and publication (a snapshot reached the file the server or a remote
+worker reads). A long self-play game, optimization epoch or evaluation match
+therefore keeps advancing the dashboard even while no counter moves.
+
+The job summary keeps an advancing elapsed time and a live phase block. Every
+phase reports its own elapsed duration, a heartbeat state and, where the counters
+exist, phase-specific progress. A tuning job shows three levels of time: the
+study's own elapsed duration in the header (it spans every trial and never restarts
+when a new trial begins), the active trial's duration as **Trial elapsed**, and the
+trial's iteration and phase timers. A historical tuning job without a study-level
+duration shows no job elapsed time rather than presenting one trial's time as the
+whole job's.
+
+Outside a trial the study itself publishes, so a tuning job reports
+`initializing_study`, `preparing_trial`, `between_trials` and `finalizing_study`
+with the study's timers and the completed-trial counter instead of freezing between
+trials or during the final aggregation. The last trial's charts and data stay
+visible, but its finished phase and timers are not presented as live, and its
+heartbeat cannot overwrite the study's snapshot.
+
+Ownership of the job's files moves from a trial's monitor to the study's and back
+under the publication lock, and the study publishes `between_trials` before the
+Optuna work that follows a trial — sampling the next trial's parameters, storing the
+finished trial's state and reading the study's trials. A slow storage operation
+therefore never leaves the dashboard without a heartbeat. The completed-trial
+counter follows Optuna's committed trial states, so it advances when the study's
+storage records a trial and never counts a pruned, cancelled or failed one.
+
+- **Self-play** shows completed and scheduled games, active games, searched
+  positions and MCTS simulations.
+- **Model training** shows completed and total optimization steps, the current
+  epoch and the running policy/value loss means.
+- **Evaluation** shows completed and scheduled games, wins, draws, losses and the
+  effective opponent.
+- **Preparation, checkpointing and finalization** show phase and elapsed time
+  only, because no meaningful unit counter exists there.
+
+Monitoring starts before any expensive initialization, so a job that is loading a
+checkpoint or building its model is never indistinguishable from a dead worker.
+Initialization reports its own stages — `starting`, `loading_checkpoint`,
+`initializing`, `restoring_state` (a resume only) and `initializing_inference` —
+with the elapsed time still advancing and no counters, because none exist yet. No
+model, optimizer, device or inference backend is required for the heartbeat, and
+no CUDA call is made from the monitoring thread. A failure during initialization
+ends the job as `failed` (or `pruned`) with the error recorded, and a cancellation
+is honored at the first point where a checkpoint can be written.
+
+Elapsed time is published as a monotonic duration, never as a worker timestamp.
+The browser anchors each reported value when the response arrives and advances it
+with a single one-second local ticker, so an unsynchronised or skewed remote worker
+clock cannot affect the display. The live block shows the job elapsed time in the
+header, the current iteration duration and the current phase duration. Timers
+never move backwards while a job runs: a new phase restarts only the phase timer, a
+new iteration restarts only the iteration timer (identified by the published
+`active_iteration`, its start timestamp and the run identity, so it does not wait
+for a completed game), and a completed, cancelled or failed job adopts the
+authoritative backend durations and stops advancing. The ticker lives in the timer
+leaf, so one second of display time never re-renders the charts or tables.
+
+Iteration timing exists only while an iteration runs. Loading a checkpoint,
+building a model, restoring optimizer or training state and preparing the inference
+backend are initialization: they publish the job and phase timers and a heartbeat,
+and no iteration duration at all, instead of reporting the job's elapsed time as an
+iteration's. The timer starts at zero when the first iteration is entered, which is
+the `preparing` phase before its first self-play game.
+
+Publication freshness is measured by the server, not by the browser, and is only
+reported for a live (running or cancelling) job. A local job
+uses the newest modification time of its `progress.json` and `heartbeat.json` on
+the server host. A remote job reports two independent ages: the child's own
+publication age, measured on the worker host that runs it, and how long ago the
+server last heard from the supervisor. The server extends both with its own clock,
+and the browser only anchors and advances them, so reloading the dashboard
+classifies an already-stale worker immediately instead of granting it a fresh
+twenty-second grace period and an unsynchronised remote worker clock never enters
+the calculation.
+
+A supervisor can stay connected while the training process behind it stops
+publishing, so a repeated report of an unchanged child snapshot never counts as a
+fresh child heartbeat. That case reports **No recent updates** (the child), while a
+silent supervisor reports **Worker connection lost**; a job whose lease then
+expires ends as failed with the reason recorded.
+
+The browser also tracks when it last received authoritative monitoring data. Polls
+run every 2.5 seconds, so if no answer arrives for twenty seconds the dashboard
+reports **Monitoring connection unavailable** instead of blaming the worker: a
+failed poll says nothing about the remote process, and the last known child and
+supervisor ages are only extrapolated while the browser is still being served.
+Reconnecting adopts the fresh server state at once. The three signals therefore
+stay independent: the child's own publication age, the server-confirmed supervisor
+age and the browser's own monitoring connection.
+
+The live header follows the iteration currently being trained (`active_iteration`),
+while the overview's **Iteration** KPI keeps the last completed iteration used by
+checkpointing and resume. Entering a new iteration updates the header at once,
+without waiting for its first game to finish. Finalization (checkpoint
+verification, model export and registration) keeps the heartbeat running, so a
+slow export reports `finalizing` rather than "No recent updates"; a failure there
+ends the job as failed rather than leaving it running.
+
+Heartbeat states are informational and never change job management or outcome:
+
+| State | Meaning |
+| --- | --- |
+| **Worker active** | Publication is fresh and work is progressing. |
+| **Running, long operation** | Publication is fresh, but no meaningful progress for two minutes. One self-play or evaluation game may legitimately take that long. |
+| **Potentially stalled** | Publication is fresh, but no meaningful progress for ten minutes. |
+| **No recent updates** | The training process published nothing for twenty seconds, even though its supervisor is still reporting. |
+| **Worker connection lost** | The server confirms a remote supervisor has not reported for twenty seconds; the job ends as failed when its lease expires. |
+| **Monitoring connection unavailable** | The browser has not received fresh monitoring data for twenty seconds; the worker's state is unknown rather than failed. |
+| **Waiting for a worker** | The job is queued. |
+
+Jobs recorded before these fields existed omit the heartbeat state, phase timer
+and counters instead of inventing values.
+
+Heartbeats are written to a bounded `heartbeat.json` beside the retained
+`progress.json`, and a reader overlays a heartbeat only when it belongs to the
+same publication generation. A stale heartbeat can therefore never revive a
+terminal state or replace newer progress. See the
+[monitoring overhead measurements](benchmarks/training-monitoring-heartbeat.md)
+for the measured cost.
+
 ## Reading charts correctly
 
 Charts adapt their SVG coordinate width to the available space, keep readable
@@ -174,6 +300,10 @@ Older workers may omit newer metrics; missing measurements display as absent.
 Monitoring polls every 2.5 seconds while jobs or registered workers need updates.
 Slow requests are coalesced so their eventual responses can update the dashboard.
 Hardware detection and worker connectivity load independently from job progress.
+A local job's live state comes from the worker's retained progress file plus its
+bounded heartbeat; a remote worker republishes its snapshot at a bounded cadence
+that is independent of its lease heartbeat, so intermediate counters reach the
+server while a phase is still running.
 The navigator requests compact job summaries; full history and the bounded log
 tail load for the selected job. Switching jobs cancels obsolete detail requests
 and preserves the selected analysis tab. Full histories, exports and checkpoints

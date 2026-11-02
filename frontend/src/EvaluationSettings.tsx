@@ -1,5 +1,5 @@
 import { useI18n } from './i18n';
-import { numberField } from './TrainingFields';
+import { fieldErrorAttributes, numberField } from './TrainingFields';
 import type { TrainingConfig } from './trainingPresets';
 
 export const evaluationDefaults: TrainingConfig = {
@@ -35,14 +35,24 @@ export default function EvaluationSettings({
   update,
   disabled = false,
   tuning = false,
+  invalidFields = [],
+  errorId,
 }: {
   config: TrainingConfig;
   update: (key: string, value: string | number | boolean) => void;
   disabled?: boolean;
   tuning?: boolean;
+  /** Input identities the server rejected, so each control marks itself. */
+  invalidFields?: string[];
+  errorId?: string;
 }) {
   const { t } = useI18n();
+  const rejected = new Set(invalidFields);
   const values = { ...evaluationDefaults, ...config };
+  const field = (key: string) => ({
+    invalid: rejected.has(key),
+    errorId,
+  });
   return (
     <fieldset className="training-evaluation" disabled={disabled}>
       <legend>{t('Evaluation')}</legend>
@@ -55,6 +65,8 @@ export default function EvaluationSettings({
         <label>
           {t('Evaluation opponent')}
           <select
+            data-training-field="evaluation_opponent"
+            {...fieldErrorAttributes(rejected.has('evaluation_opponent'), errorId)}
             value={String(values.evaluation_opponent)}
             disabled={tuning}
             onChange={(event) => update('evaluation_opponent', event.target.value)}
@@ -94,14 +106,14 @@ export default function EvaluationSettings({
           'evaluation_max_plies',
           'evaluation_iterations',
           'evaluation_time_limit',
-        ].map((key) => numberField(key, values, update))}
+        ].map((key) => numberField(key, values, update, field(key)))}
         {values.evaluation_opponent === 'jarl' &&
           ['evaluation_jarl_depth', 'evaluation_jarl_time_limit'].map((key) =>
-            numberField(key, values, update),
+            numberField(key, values, update, field(key)),
           )}
         {values.evaluation_opponent === 'champion' &&
           ['champion_confidence', 'champion_min_pairs', 'champion_min_improvement'].map((key) =>
-            numberField(key, values, update),
+            numberField(key, values, update, field(key)),
           )}
       </div>
       <p className="subtle">

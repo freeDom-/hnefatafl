@@ -20,6 +20,7 @@
   --ui-selected: #31452f;
   --ui-gold-tint: #403b27;
   --ui-error-surface: #472e27;
+  --ui-error: #f0bca8;
   --ui-border: #455542;
   --ui-heading: #dce8cf;
   --ui-copy: #bfccb3;
@@ -90,6 +91,7 @@
   --ui-selected: #57402b;
   --ui-gold-tint: #564027;
   --ui-error-surface: #532c21;
+  --ui-error: #ffc1a6;
   --ui-border: #82603e;
   --ui-heading: #f5e6cc;
   --ui-copy: #deccac;

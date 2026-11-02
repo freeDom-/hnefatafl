@@ -17,24 +17,32 @@ export default function SymmetrySettings({
   update,
   capabilities,
   disabled = false,
+  invalid = false,
+  errorId,
 }: {
   config: TrainingConfig;
   update: (key: string, value: string | number | boolean) => void;
   capabilities?: DeviceInfo;
   disabled?: boolean;
+  invalid?: boolean;
+  errorId?: string;
 }) {
   const { t } = useI18n();
   const helpId = useId();
   const error = symmetryTargetError(config, capabilities);
+  // The help text and a rejected field both describe this control.
+  const described = [helpId, invalid ? errorId : undefined].filter(Boolean).join(' ');
   return (
     <div className="symmetry-settings">
       <label>
         {t('Training symmetry augmentation')}
         <select
+          data-training-field="training_symmetry_mode"
+          className={invalid ? 'field-invalid' : undefined}
           value={String(config.training_symmetry_mode ?? 'off')}
           disabled={disabled}
-          aria-describedby={helpId}
-          aria-invalid={error ? true : undefined}
+          aria-describedby={described || undefined}
+          aria-invalid={invalid || error ? true : undefined}
           onChange={(event) => update('training_symmetry_mode', event.target.value)}
         >
           <option value="off">{t('Disabled')}</option>

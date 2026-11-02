@@ -59,10 +59,31 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /** Machine-readable server error code, when the response provides one. */
+    public readonly code?: string,
+    /** Rejected field paths, when the response names them. */
+    public readonly fields?: string[],
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/** Read the optional machine-readable fields of a structured error payload. */
+function errorFields(payload: unknown): string[] | undefined {
+  if (!payload || typeof payload !== 'object' || !('fields' in payload)) return undefined;
+  const fields = payload.fields;
+  if (!Array.isArray(fields)) return undefined;
+  const names = fields.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+  );
+  return names.length ? names : undefined;
+}
+
+function errorCode(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object' || !('code' in payload)) return undefined;
+  const code = payload.code;
+  return typeof code === 'string' && code.trim() ? code : undefined;
 }
 
 export async function apiFetch(
@@ -114,7 +135,7 @@ export async function api<T>(
       readableDetail(payload) ||
       response.statusText?.trim() ||
       `Request failed (${response.status}).`;
-    throw new ApiError(response.status, cap(message));
+    throw new ApiError(response.status, cap(message), errorCode(payload), errorFields(payload));
   }
   const value = await response.json();
   if (!path.startsWith('/auth/') && expected !== sessionEpoch)

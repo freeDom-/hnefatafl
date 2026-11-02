@@ -20,7 +20,7 @@ from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -44,6 +44,127 @@ def ai_variant_id(config: dict) -> str:
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# The accepted inputs of a new training job. `resume` is accepted but is resolved
+# to an owned checkpoint path before launching. Kept at module scope so the
+# contract test can compare it with the frontend and remote-worker field sets.
+TRAINING_FIELDS = frozenset(
+    {
+        "ruleset",
+        "preset",
+        "channels",
+        "blocks",
+        "games",
+        "iterations",
+        "epochs",
+        "batch_size",
+        "learning_rate",
+        "optimizer",
+        "mcts_iterations",
+        "mcts_time_limit",
+        "self_play_mode",
+        "self_play_concurrency",
+        "inference_batch_size",
+        "inference_cache_mode",
+        "inference_cache_capacity",
+        "inference_backend",
+        "inference_device",
+        "exploration",
+        "temperature",
+        "dirichlet_alpha",
+        "dirichlet_fraction",
+        "replay_buffer_size",
+        "weight_decay",
+        "momentum",
+        "training_symmetry_mode",
+        "checkpoint_frequency",
+        "evaluation_frequency",
+        "evaluation_opponent",
+        "evaluation_mode",
+        "evaluation_concurrency",
+        "evaluation_batch_size",
+        "evaluation_inference_backend",
+        "evaluation_time_limit",
+        "evaluation_jarl_depth",
+        "evaluation_jarl_time_limit",
+        "champion_confidence",
+        "champion_min_pairs",
+        "champion_min_improvement",
+        "evaluation_games",
+        "evaluation_iterations",
+        "max_game_plies",
+        "evaluation_max_plies",
+        "seed",
+        "device",
+        "mixed_precision",
+        "save_all_best",
+        "cpu_threads",
+        "resume",
+        "model_name",
+    }
+)
+
+# Optuna jobs accept the study controls plus one nested training configuration.
+TUNE_FIELDS = frozenset(
+    {"trials", "study_name", "seed", "search_space", "training", "resume_study"}
+)
+
+
+class TrainingFieldsRejected(Exception):
+    """Rejected training configuration fields, named so a client can act on them.
+
+    ``fields`` uses dotted paths for nested configurations (``training.channels``)
+    so the caller can map every entry back to an input. The HTTP response keeps
+    ``detail`` as a human-readable string for existing consumers and adds the
+    machine-readable ``code`` and ``fields`` beside it.
+    """
+
+    code = "unsupported_training_field"
+
+    def __init__(self, fields: list[str], message: str) -> None:
+        super().__init__(message)
+        self.fields = fields
+        self.message = message
+
+
+# The CLI accepts these persistent-output settings, but the HTTP API owns them:
+# letting a client choose a server path would let it write outside the job store.
+SERVER_OWNED_TRAINING_FIELDS = {
+    "output_dir": "assigned by the server for each job",
+    "registry_dir": "chosen by the server for registered models",
+}
+
+
+def unsupported_training_message(fields: list[str]) -> str:
+    noun = "field" if len(fields) == 1 else "fields"
+    message = f"Unsupported training configuration {noun}: {', '.join(fields)}"
+    owned = sorted(
+        field for field in fields if field.rsplit(".", 1)[-1] in SERVER_OWNED_TRAINING_FIELDS
+    )
+    if owned:
+        reasons = "; ".join(
+            f"{field} is {SERVER_OWNED_TRAINING_FIELDS[field.rsplit('.', 1)[-1]]}"
+            for field in owned
+        )
+        message += f". {reasons}; remove it or run the training CLI with this config"
+    return message
+
+
+def reject_training_fields(
+    fields: set[str] | frozenset[str], *, prefix: str = "", message: str | None = None
+) -> None:
+    """Reject every unsupported field, deterministically ordered and fully named."""
+    names = [f"{prefix}{name}" for name in sorted(fields)]
+    if names:
+        raise TrainingFieldsRejected(names, message or unsupported_training_message(names))
+
+
+def check_training_fields(
+    values: object, allowed: set[str] | frozenset[str], *, prefix: str = ""
+) -> None:
+    if isinstance(values, dict):
+        reject_training_fields(set(values) - set(allowed), prefix=prefix)
 
 
 class VersionRequest(BaseModel):
@@ -223,6 +344,19 @@ def create_app(
 
     def fail(message: str, status: int = 400) -> NoReturn:
         raise HTTPException(status, message)
+
+    @app.exception_handler(TrainingFieldsRejected)
+    async def _training_fields_rejected(_request, error: TrainingFieldsRejected):
+        # Keep `detail` a string for existing consumers; add the rejected fields
+        # so a client can point at the exact input instead of guessing.
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": error.message,
+                "code": error.code,
+                "fields": error.fields,
+            },
+        )
 
     def game_or_404(game_id: str, version: int | None = None) -> dict:
         # All local analysis/AI/seek/export adapters use this guard. Separate
@@ -1729,6 +1863,8 @@ def create_app(
             # projected navigator snapshot over the full retained history.
             job = store.get_job(identifier) or job
         directory = job_path(identifier)
+        from .training_monitoring import overlay_heartbeat, read_heartbeat
+
         recovered_result = False
         for filename, key in (("progress.json", "progress"), ("result.json", "result")):
             if summary and job["status"] not in {"running", "cancelling", "pending"}:
@@ -1743,6 +1879,10 @@ def create_app(
                         # result file. Recover it once without losing history.
                         job = store.get_job(identifier) or job
                         recovered_result = True
+                    if key == "progress":
+                        # The worker republishes timings and counters to a small
+                        # heartbeat file between real progress events.
+                        retained = overlay_heartbeat(retained, read_heartbeat(directory))
                     job[key] = retained
                 except (json.JSONDecodeError, OSError):
                     pass
@@ -1800,65 +1940,23 @@ def create_app(
             with logfile.open("rb") as handle:
                 handle.seek(max(0, logfile.stat().st_size - 16000))
                 job["logs"] = handle.read().decode(errors="replace")
+        from .training_monitoring import publication_age
+
+        # A local worker's files share this server's clock, so their newest
+        # modification time is the authoritative publication freshness. A stale
+        # snapshot must not look fresh just because the dashboard just mounted.
+        # Only a live job can be unresponsive, so terminal payloads stay stable.
+        if job["status"] in {"running", "cancelling"}:
+            age = publication_age(directory)
+            if age is not None:
+                job["publication_age_seconds"] = age
         if summary:
             from .training_monitoring import job_summary
 
             return job_summary(job)
         return job
 
-    training_fields = {
-        "ruleset",
-        "preset",
-        "channels",
-        "blocks",
-        "games",
-        "iterations",
-        "epochs",
-        "batch_size",
-        "learning_rate",
-        "optimizer",
-        "mcts_iterations",
-        "mcts_time_limit",
-        "self_play_mode",
-        "self_play_concurrency",
-        "inference_batch_size",
-        "inference_cache_mode",
-        "inference_cache_capacity",
-        "inference_backend",
-        "inference_device",
-        "exploration",
-        "temperature",
-        "dirichlet_alpha",
-        "dirichlet_fraction",
-        "replay_buffer_size",
-        "weight_decay",
-        "momentum",
-        "training_symmetry_mode",
-        "checkpoint_frequency",
-        "evaluation_frequency",
-        "evaluation_opponent",
-        "evaluation_mode",
-        "evaluation_concurrency",
-        "evaluation_batch_size",
-        "evaluation_inference_backend",
-        "evaluation_time_limit",
-        "evaluation_jarl_depth",
-        "evaluation_jarl_time_limit",
-        "champion_confidence",
-        "champion_min_pairs",
-        "champion_min_improvement",
-        "evaluation_games",
-        "evaluation_iterations",
-        "max_game_plies",
-        "evaluation_max_plies",
-        "seed",
-        "device",
-        "mixed_precision",
-        "save_all_best",
-        "cpu_threads",
-        "resume",
-        "model_name",
-    }
+    training_fields = TRAINING_FIELDS
 
     @app.get("/api/training/jobs")
     def training_jobs(summary: bool = False):
@@ -2060,19 +2158,15 @@ def create_app(
                 fail("Training kind must be train or tune.")
             if kind == "tune" and execution == "remote":
                 fail("Remote optimization is not supported. Run tuning on this server.")
-            allowed = (
-                training_fields
-                if kind == "train"
-                else {"trials", "study_name", "seed", "search_space", "training", "resume_study"}
-            )
-            if set(config) - allowed:
-                fail("Unsupported training configuration field.")
+            allowed = training_fields if kind == "train" else TUNE_FIELDS
+            check_training_fields(config, allowed)
             identifier = uuid4().hex
             directory = job_path(identifier)
 
-            def validate_training(values: dict) -> dict:
-                if not isinstance(values, dict) or set(values) - training_fields:
-                    fail("Unsupported training configuration field.")
+            def validate_training(values: dict, *, prefix: str = "") -> dict:
+                if not isinstance(values, dict):
+                    fail("A training configuration must be an object.")
+                check_training_fields(values, training_fields, prefix=prefix)
                 values = dict(values)
                 resume = values.pop("resume", None)
                 if resume:
@@ -2156,7 +2250,8 @@ def create_app(
                 config = validate_training(config)
             else:
                 training = validate_training(
-                    config.get("training", {"preset": "smoke", "ruleset": "brandubh"})
+                    config.get("training", {"preset": "smoke", "ruleset": "brandubh"}),
+                    prefix="training.",
                 )
                 if training["evaluation_opponent"] != "shield_bearer":
                     fail("Optuna requires the comparable fixed Shield bearer objective")
@@ -2413,7 +2508,14 @@ def create_app(
 
         immutable = {"ruleset", "channels", "blocks", "seed", "optimizer"}
         editable = training_fields - immutable - {"resume"}
-        if "iterations" not in request or set(request) - (editable | {"execution", "worker_id"}):
+        unexpected = set(request) - (editable | {"execution", "worker_id"})
+        if unexpected:
+            names = ", ".join(sorted(unexpected))
+            raise TrainingFieldsRejected(
+                sorted(unexpected),
+                f"Resume cannot change {names}; checkpoint identity is immutable.",
+            )
+        if "iterations" not in request:
             fail(
                 "Resume accepts editable training settings and execution target; checkpoint identity is immutable."
             )

@@ -130,6 +130,14 @@ export interface Job {
   worker_name?: string | null;
   lease_expires_at?: string | null;
   last_reported_at?: string | null;
+  /** Server-observed age of the last monitoring publication, in seconds. */
+  publication_age_seconds?: number;
+  /**
+   * Server-observed age of the last remote-worker report, in seconds. Reported
+   * separately so a connected supervisor forwarding an unchanged child snapshot
+   * is not mistaken for a fresh child heartbeat.
+   */
+  supervisor_age_seconds?: number;
   software?: {
     worker: { package_version: string | null; git_revision: string | null };
     server: { package_version: string; git_revision: string | null };

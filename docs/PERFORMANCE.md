@@ -302,6 +302,34 @@ show improved playing strength or confirmed Champion decision equivalence.
   oversubscribe the host. Measure a small representative budget before scaling.
 
 
+## Training monitoring overhead
+
+Live monitoring updates one aggregated counter per searched position and per
+optimizer batch, and republishes a bounded `heartbeat.json` about once per second.
+The retained `progress.json` with the full iteration history is still written only
+on real progress events. Measured single-threaded CPU costs are 0.65 µs per
+counter update and 0.13 ms per heartbeat write (294 B) against 9.1 ms for a
+120 KB retained snapshot, and paired workload comparisons put the instrumentation
+delta inside the workload's own run-to-run noise. Full samples, sizes and the
+reproduction command are in the
+[monitoring overhead measurements](benchmarks/training-monitoring-heartbeat.md).
+
+A tuning study used to re-read its whole Optuna study after every trial to refresh
+the completed-trial counter, which is O(N²) storage work over a study. The counter
+now follows Optuna's own trial callback and the history is read once at load and
+once at the final aggregation: for a 1,000-trial study that is 2,000 stored trials
+touched instead of 500,500. Measurements and the reproduction command are in the
+[tuning bookkeeping measurements](benchmarks/tuning-bookkeeping.md).
+
+A remote worker forwards the same bounded projection while the child revision is
+unchanged, so an unchanged history, metrics or log tail never crosses the network
+again. For a 2,000-iteration job that is 6.2 MB per minute of reporting reduced to
+13 KB per minute; the retained row write is unchanged because the dashboard still
+reads the retained history, and it carries the lease and sequence the job
+lifecycle depends on. Measurements and the reproduction command are in the
+[remote monitoring measurements](benchmarks/training-monitoring-remote.md).
+
+
 ## Training evaluation cost
 
 Training runs one selected evaluator, rather than baseline plus previous-best.

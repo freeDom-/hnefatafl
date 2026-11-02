@@ -282,5 +282,34 @@ const translations: Record<string, string> = {
     'Das Umbenennen ändert nur den angezeigten Auftragsnamen. ID, Kontrollpunkt, Parameter und Ausführung bleiben unverändert.',
   'Training job renamed. Its identity, checkpoint, parameters and execution are unchanged.':
     'Trainingsauftrag umbenannt. Identität, Kontrollpunkt, Parameter und Ausführung bleiben unverändert.',
+  'Live phase progress': 'Live-Phasenfortschritt',
+  'Phase progress': 'Phasenfortschritt',
+  'Phase elapsed {time}': 'Phasendauer {time}',
+  'Last progress {seconds}s ago': 'Letzter Fortschritt vor {seconds}s',
+  'Worker active': 'Worker aktiv',
+  'Running, long operation': 'Läuft, langwieriger Schritt',
+  'Potentially stalled': 'Möglicherweise hängend',
+  'No recent updates': 'Keine aktuellen Meldungen',
+  'Worker connection lost': 'Worker-Verbindung unterbrochen',
+  'Monitoring connection unavailable': 'Monitoring-Verbindung nicht verfügbar',
+  'Iteration elapsed {time}': 'Iterationsdauer {time}',
+  'Trial elapsed {time}': 'Versuchsdauer {time}',
+  'The parameter search space is not valid JSON.': 'Der Parameter-Suchraum ist kein gültiges JSON.',
+  'Waiting for a worker': 'Warten auf einen Worker',
+  Games: 'Spiele',
+  Epoch: 'Epoche',
+  Opponent: 'Gegner',
+  'MCTS simulations': 'MCTS-Simulationen',
+  'Optimization steps': 'Optimierungsschritte',
+  'Training was not started: one configuration field was rejected.':
+    'Das Training wurde nicht gestartet: Ein Konfigurationsfeld wurde abgelehnt.',
+  'Training was not started: {count} configuration fields were rejected.':
+    'Das Training wurde nicht gestartet: {count} Konfigurationsfelder wurden abgelehnt.',
+  'This server does not accept this training field. Remove it from the configuration and try again.':
+    'Dieser Server akzeptiert dieses Trainingsfeld nicht. Entferne es aus der Konfiguration und versuche es erneut.',
+  'The server assigns each training job its own output directory.':
+    'Der Server weist jedem Trainingsauftrag ein eigenes Ausgabeverzeichnis zu.',
+  'The server keeps trained models in its own model directory.':
+    'Der Server speichert trainierte Modelle in seinem eigenen Modellverzeichnis.',
 };
 export default translations;

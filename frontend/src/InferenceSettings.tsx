@@ -1,5 +1,5 @@
 import { useI18n } from './i18n';
-import { numberField } from './TrainingFields';
+import { fieldErrorAttributes, numberField } from './TrainingFields';
 import type { DeviceInfo, TrainingWorker } from './types';
 import type { TrainingConfig } from './trainingPresets';
 
@@ -38,6 +38,8 @@ export default function InferenceSettings({
   workers,
   local,
   disabled = false,
+  invalidFields = [],
+  errorId,
 }: {
   config: TrainingConfig;
   update: (key: string, value: string | number | boolean) => void;
@@ -45,8 +47,13 @@ export default function InferenceSettings({
   workers: TrainingWorker[];
   local?: DeviceInfo;
   disabled?: boolean;
+  /** Input identities the server rejected, so each control marks itself. */
+  invalidFields?: string[];
+  errorId?: string;
 }) {
   const { t } = useI18n();
+  const rejected = new Set(invalidFields);
+  const invalid = (identity: string) => fieldErrorAttributes(rejected.has(identity), errorId);
   const capabilities =
     target === 'local'
       ? local
@@ -64,6 +71,8 @@ export default function InferenceSettings({
       <label>
         {t('Neural inference backend')}
         <select
+          data-training-field="inference_backend"
+          {...invalid('inference_backend')}
           value={String(config.inference_backend ?? 'pytorch')}
           disabled={disabled}
           onChange={(event) => {
@@ -81,6 +90,8 @@ export default function InferenceSettings({
       <label>
         {t('Inference cache')}
         <select
+          data-training-field="inference_cache_mode"
+          {...invalid('inference_cache_mode')}
           value={String(config.inference_cache_mode ?? 'off')}
           disabled={disabled}
           onChange={(event) => update('inference_cache_mode', event.target.value)}
@@ -95,7 +106,11 @@ export default function InferenceSettings({
             'inference_cache_capacity',
             { ...config, inference_cache_capacity: config.inference_cache_capacity ?? 4096 },
             update,
-            { disabled },
+            {
+              disabled,
+              invalid: rejected.has('inference_cache_capacity'),
+              errorId,
+            },
           )}
           <p className="subtle">
             {t(
@@ -114,6 +129,8 @@ export default function InferenceSettings({
           <label>
             {t('Inference device')}
             <select
+              data-training-field="inference_device"
+              {...invalid('inference_device')}
               value={String(config.inference_device ?? 'GPU')}
               disabled={disabled}
               onChange={(event) => update('inference_device', event.target.value)}

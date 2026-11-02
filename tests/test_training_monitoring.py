@@ -179,3 +179,110 @@ def test_summary_preserves_result_only_counters_and_current_progress_precedence(
     assert (
         client.get("/api/training/jobs?summary=true").json()[0]["progress"]["games_generated"] == 20
     )
+
+
+def test_live_local_job_reports_a_matching_heartbeat_between_progress_events(client, monkeypatch):
+    job = saved_job("f" * 32, execution="local", status="running")
+    job["pid"] = 424242
+    store = client.app.state.store
+    store.save_job(job)
+    directory = client.app.state.data_dir / "jobs" / job["id"]
+    directory.mkdir()
+    (directory / "progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "revision": 3,
+                "iteration": 5,
+                "duration": 10.0,
+                "history": [{"iteration": 5, "policy_loss": 0.4}],
+            }
+        )
+    )
+    (directory / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "revision": 3,
+                "iteration": 5,
+                "duration": 12.5,
+                "stage": "self_play",
+                "phase_elapsed": 4.0,
+                "last_progress_seconds": 2.0,
+                "phase_progress": {"games_completed": 2, "games_total": 8, "games_active": 3},
+            }
+        )
+    )
+    original = Path.read_bytes
+
+    def command(path):
+        if str(path) == "/proc/424242/cmdline":
+            return b"hnefatafl.cli\0" + str(directory / "config.json").encode()
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", command)
+
+    item = client.get("/api/training/jobs?summary=true").json()[0]
+    assert item["progress"]["duration"] == 12.5
+    assert item["progress"]["stage"] == "self_play"
+    assert item["progress"]["phase_progress"]["games_active"] == 3
+    # The retained history stays available to the selected job's detail view.
+    detail = client.get(f"/api/training/jobs/{job['id']}").json()
+    assert detail["progress"]["history"] == [{"iteration": 5, "policy_loss": 0.4}]
+
+    # A heartbeat from an earlier generation must never replace newer progress.
+    (directory / "heartbeat.json").write_text(json.dumps({"revision": 2, "duration": 1.0}))
+    stale = client.get("/api/training/jobs?summary=true").json()[0]
+    assert stale["progress"]["duration"] == 10.0
+    assert "phase_progress" not in stale["progress"]
+
+
+def test_local_job_reports_the_server_observed_publication_age(client, monkeypatch):
+    import os
+    import time
+
+    job = saved_job("e" * 32, execution="local", status="running")
+    job["pid"] = 525252
+    store = client.app.state.store
+    store.save_job(job)
+    directory = client.app.state.data_dir / "jobs" / job["id"]
+    directory.mkdir()
+    progress = directory / "progress.json"
+    progress.write_text(
+        json.dumps({"status": "running", "revision": 2, "duration": 5.0, "iteration": 3})
+    )
+    heartbeat = directory / "heartbeat.json"
+    heartbeat.write_text(
+        json.dumps({"status": "running", "revision": 2, "duration": 6.0, "stage": "self_play"})
+    )
+    # Both files are ten minutes old: the job stopped publishing.
+    stale = time.time() - 600
+    os.utime(progress, (stale, stale))
+    os.utime(heartbeat, (stale, stale))
+
+    original = Path.read_bytes
+
+    def command(path):
+        if str(path) == "/proc/525252/cmdline":
+            return b"hnefatafl.cli\0" + str(directory / "config.json").encode()
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", command)
+
+    item = client.get("/api/training/jobs?summary=true").json()[0]
+    assert item["publication_age_seconds"] == pytest.approx(600, abs=10)
+
+    # A fresh heartbeat makes the same job fresh again without any client clock.
+    os.utime(heartbeat, None)
+    refreshed = client.get("/api/training/jobs?summary=true").json()[0]
+    assert refreshed["publication_age_seconds"] < 5
+
+    # Legacy jobs without local files simply omit the field.
+    other = saved_job("d" * 32, execution="local", status="completed")
+    store.save_job(other)
+    legacy = [
+        row
+        for row in client.get("/api/training/jobs?summary=true").json()
+        if row["id"] == other["id"]
+    ][0]
+    assert "publication_age_seconds" not in legacy

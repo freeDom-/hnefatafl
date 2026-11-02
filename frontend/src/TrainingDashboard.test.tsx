@@ -766,3 +766,100 @@ it('keeps small nonzero measurements readable in exact chart values', () => {
     'Policy loss: 0.00000037 · Value loss: 0.0000001',
   );
 });
+
+it('shows the active iteration in the live header before it completes', async () => {
+  jobs = [
+    {
+      id: 'active',
+      status: 'running',
+      config: { model_name: 'Active strategist', iterations: 120 },
+      progress: {
+        iteration: 41,
+        active_iteration: 42,
+        total_iterations: 120,
+        stage: 'self_play',
+        duration: 100,
+        updated_at: '2026-01-01T00:00:00.000Z',
+        last_progress_seconds: 1,
+      },
+    },
+  ];
+  show();
+  await loaded();
+  // The header follows the iteration being trained, not the last completed one.
+  expect(screen.getByText('Iteration 42 / 120')).toBeInTheDocument();
+});
+
+it('shows the live iteration timer with the localized phase name', async () => {
+  setLanguage('de', false);
+  jobs = [
+    {
+      id: 'live',
+      status: 'running',
+      config: { model_name: 'Live strategist', iterations: 100 },
+      progress: {
+        active_iteration: 42,
+        total_iterations: 100,
+        stage: 'finalizing',
+        duration: 5000,
+        iteration_elapsed: 512,
+        iteration_started_at: '2026-01-01T00:00:00.000Z',
+        phase_elapsed: 378,
+        phase_started_at: '2026-01-01T00:02:14.000Z',
+        updated_at: '2026-01-01T01:23:20.000Z',
+        last_progress_seconds: 1,
+      },
+    },
+  ];
+  show();
+  await screen.findByRole('tab', { name: 'Übersicht' });
+  expect(screen.getByText('Iteration 42 / 100')).toBeInTheDocument();
+  // The phase name is translated, and both live timers are shown.
+  expect(screen.getByText('Abschluss')).toBeInTheDocument();
+  expect(screen.getByText('Iterationsdauer 8m 32s')).toBeInTheDocument();
+  expect(screen.getByText('Phasendauer 6m 18s')).toBeInTheDocument();
+});
+
+it('shows the study duration with the active trial timer for a tuning job', async () => {
+  setLanguage('en', false);
+  jobs = [
+    {
+      id: 'study',
+      kind: 'tune',
+      status: 'running',
+      config: {
+        study_name: 'Northern study',
+        trials: 5,
+        training: { model_name: 'Tuning Eir', ruleset: 'tablut', iterations: 20 },
+      },
+      progress: {
+        status: 'running',
+        completed_trials: 2,
+        trials_requested: 5,
+        trial: 3,
+        duration: 2538,
+        trial_progress: {
+          run: 'trial-2',
+          duration: 492,
+          stage: 'evaluation',
+          phase_elapsed: 74,
+          iteration_elapsed: 155,
+          active_iteration: 7,
+          total_iterations: 20,
+          updated_at: '2026-01-01T00:40:00.000Z',
+          last_progress_seconds: 1,
+        },
+      },
+    },
+  ];
+  show();
+  await loaded();
+  // The header shows the study's elapsed time, never the active trial's.
+  expect(screen.getByText(/· Elapsed 42m/)).toBeInTheDocument();
+  expect(screen.queryByText(/· Elapsed 8m/)).toBeNull();
+  // The trial, iteration and phase timers belong to the active trial.
+  const live = screen.getByLabelText('Live phase progress');
+  expect(live).toHaveTextContent(/Trial elapsed 8m \d+s/);
+  expect(live).toHaveTextContent(/Iteration elapsed 2m \d+s/);
+  expect(live).toHaveTextContent(/Phase elapsed 1m \d+s/);
+});

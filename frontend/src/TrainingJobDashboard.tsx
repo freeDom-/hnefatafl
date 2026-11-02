@@ -20,10 +20,13 @@ import {
   TrainingPerformance,
   TrainingJobDetails,
 } from './TrainingAnalysisViews';
+import TrainingLiveStatus, { LiveElapsed } from './TrainingLiveStatus';
 import { availableJobTabs, type JobTab } from './jobTabs';
 
 interface Props {
   job: Job;
+  /** Monotonic time of the last successful monitoring read, for live freshness. */
+  observedAt?: number;
   tab: JobTab;
   onTabChange: (tab: JobTab) => void;
   revision: number;
@@ -40,6 +43,7 @@ interface Props {
 }
 export default function TrainingJobDashboard({
   job,
+  observedAt,
   tab,
   onTabChange,
   revision,
@@ -70,16 +74,15 @@ export default function TrainingJobDashboard({
   const history = useMemo(() => trainingHistory(progress.history), [progress.history]);
   const rangedHistory = useMemo(() => recentHistory(history, range), [history, range]);
   const config = object(job.config?.training) ?? job.config;
-  const iteration = finite(progress.iteration) ? progress.iteration : history.at(-1)?.iteration;
+  // The live header follows the iteration currently being trained; the recorded
+  // iteration remains the last completed one for the analysis views.
+  const recorded = finite(progress.iteration) ? progress.iteration : history.at(-1)?.iteration;
+  const iteration = finite(progress.active_iteration) ? progress.active_iteration : recorded;
   const total = progress.total_iterations ?? config?.iterations;
   const ratio =
     finite(iteration) && finite(total) && total > 0
       ? Math.max(0, Math.min(1, iteration / total))
       : undefined;
-  const elapsed = progress.duration;
-  const duration = finite(elapsed)
-    ? `${Math.floor(elapsed / 3600) ? `${Math.floor(elapsed / 3600)}h ` : ''}${Math.floor((elapsed % 3600) / 60)}m ${Math.floor(elapsed % 60)}s`
-    : undefined;
   return (
     <article className="job-detail training-job-dashboard" aria-label={t('Selected training job')}>
       <header className="selected-job-summary">
@@ -97,7 +100,7 @@ export default function TrainingJobDashboard({
           {job.execution === 'remote'
             ? (job.worker_name ?? t('Waiting for an available worker'))
             : t('This server')}
-          {duration && ` · ${t('Elapsed')} ${duration}`}
+          <LiveElapsed job={job} observedAt={observedAt} />
           {job.last_reported_at &&
             ` · ${t('Last update {time}', { time: new Date(job.last_reported_at).toLocaleString(locale) })}`}
         </p>
@@ -119,6 +122,7 @@ export default function TrainingJobDashboard({
               : t(job.status)}
           </span>
         </div>
+        <TrainingLiveStatus job={job} observedAt={observedAt} />
         <dl className="dashboard-game-counts" aria-label={t('Self-play games generated')}>
           <div>
             <dt>{t('Job games')}</dt>
