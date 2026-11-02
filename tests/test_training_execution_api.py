@@ -45,6 +45,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
         "evaluation_inference_backend": "training",
         "inference_batch_size": 12,
         "inference_cache_mode": "exact",
+        "replay_pipeline": "packed",
         "inference_cache_capacity": 128,
     }
     response = client.post(
@@ -67,6 +68,7 @@ def test_execution_settings_default_and_propagate_to_remote_claim(client):
                     "evaluation_batching": True,
                     "inference_cache_modes": ["off", "exact"],
                     "training_symmetry_modes": ["off", "random_d4"],
+                    "replay_pipelines": ["auto", "packed", "legacy"],
                 }
             },
         ).status_code
