@@ -55,6 +55,13 @@ The study's heartbeat costs the same bounded write as a trial's, and its heartbe
 thread reads only the study's in-memory state: it performs no Optuna or SQLite
 query. The projection is a key filter, not a copy of the retained history.
 
+The handover after a trial publishes one bounded heartbeat and one retained study
+snapshot from memory, then reads the study's trials once to reconcile the
+completed-trial count with Optuna's own state. That read is a storage access, never
+a heartbeat-thread activity, and it only triggers a second retained write when it
+raises the count, so a study still writes at most one retained snapshot per trial
+boundary regardless of the heartbeat cadence.
+
 ## Workload comparison
 
 Instrumentation delta on fixed workloads, measured as paired alternating runs
