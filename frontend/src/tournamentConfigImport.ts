@@ -214,19 +214,35 @@ function parsePlayerConfig(
   models: Model[],
   fields: string[],
 ): Config {
-  const provided = object(raw) ?? {};
+  const path = `players[${index}].config`;
+  // A missing configuration keeps the API default, while an explicitly supplied
+  // string, number, boolean, array or null is a type error there too.
+  const provided = raw === undefined ? {} : object(raw);
+  if (!provided) {
+    fields.push(path);
+    return {};
+  }
   // The API rejects an unknown field before it validates any value, so a
   // misspelled parameter can never be silently dropped and replaced by a default.
   const unsupported = Object.keys(provided)
     .filter((key) => !AI_CONFIG_FIELDS.has(key))
     .sort();
   if (unsupported.length) {
-    fields.push(`players[${index}].config.${unsupported[0]}`);
+    fields.push(`${path}.${unsupported[0]}`);
     return {};
   }
-  const algorithm = String(provided.algorithm ?? profile?.algorithm ?? 'baseline');
+  // An omitted algorithm keeps the selected profile or baseline default; an
+  // explicitly recorded one has to be a supported identifier instead of being
+  // coerced, so a null or a number can never silently become the default.
+  const recorded = provided.algorithm;
+  if (recorded !== undefined && typeof recorded !== 'string') {
+    fields.push(`${path}.algorithm`);
+    return {};
+  }
+  const algorithm =
+    recorded === 'alphabeta' ? 'alpha_beta' : (recorded ?? profile?.algorithm ?? 'baseline');
   if (!ALGORITHMS.includes(algorithm)) {
-    fields.push('algorithm');
+    fields.push(`${path}.algorithm`);
     return {};
   }
   const config: Config = { algorithm };
@@ -240,14 +256,14 @@ function parsePlayerConfig(
       value > high ||
       (isInteger && !Number.isInteger(value))
     ) {
-      fields.push(key);
+      fields.push(`${path}.${key}`);
       return {};
     }
     config[key] = value;
   }
   if (provided.evaluation !== undefined) {
     if (provided.evaluation !== 'heuristic' && provided.evaluation !== 'neural') {
-      fields.push('evaluation');
+      fields.push(`${path}.evaluation`);
       return {};
     }
     config.evaluation = provided.evaluation;
@@ -258,7 +274,7 @@ function parsePlayerConfig(
       provided.heuristic_version !== 1 ||
       !Number.isInteger(provided.heuristic_version)
     ) {
-      fields.push('heuristic_version');
+      fields.push(`${path}.heuristic_version`);
       return {};
     }
     config.heuristic_version = 1;
@@ -268,7 +284,7 @@ function parsePlayerConfig(
       !['shield_bearer', 'shield_maiden'].includes(String(provided.heuristic)) ||
       (algorithm !== 'alpha_beta' && algorithm !== 'mcts')
     ) {
-      fields.push('heuristic');
+      fields.push(`${path}.heuristic`);
       return {};
     }
     config.heuristic = String(provided.heuristic);
@@ -278,23 +294,25 @@ function parsePlayerConfig(
       algorithm !== 'neural' ||
       !['mcts', 'alpha_beta', 'none'].includes(String(provided.search_wrapper))
     ) {
-      fields.push('search_wrapper');
+      fields.push(`${path}.search_wrapper`);
       return {};
     }
     config.search_wrapper = String(provided.search_wrapper);
   }
   if (provided.search !== undefined) {
+    // The nested validator reports its own `search` path, which is specific
+    // enough without repeating the participant index here.
     const search = parseSearchConfig(provided.search, fields);
     if (!search) return {};
     const alphaBetaSearch =
       algorithm === 'alpha_beta' ||
       (algorithm === 'neural' && config.search_wrapper === 'alpha_beta');
     if (!alphaBetaSearch) {
-      fields.push('search');
+      fields.push(`${path}.search`);
       return {};
     }
     if (algorithm === 'neural' && (search.symmetry_transposition || search.symmetry_pruning)) {
-      fields.push('search');
+      fields.push(`${path}.search`);
       return {};
     }
     config.search = search;
@@ -303,12 +321,12 @@ function parsePlayerConfig(
   if (usesModel) {
     const modelId = provided.model_id;
     if (typeof modelId !== 'string' || !modelId) {
-      fields.push('model_id');
+      fields.push(`${path}.model_id`);
       return {};
     }
     const model = models.find((candidate) => candidate.id === modelId);
     if (!model || !rulesets.every((ruleset) => ruleset === model.ruleset)) {
-      fields.push('model_id');
+      fields.push(`${path}.model_id`);
       return {};
     }
     config.model_id = model.id;
@@ -342,6 +360,13 @@ function parsePlayer(
   const profile = profileId ? profiles.find((candidate) => candidate.id === profileId) : undefined;
   if (profileId && !profile) {
     fields.push('profile_id');
+    return { name: 'Computer', config: {} };
+  }
+  // A malformed configuration container is a request type error for every
+  // participant, including a fixed preset whose recorded settings are otherwise
+  // discarded, so it is rejected before the preset snapshot replaces them.
+  if (provided.config !== undefined && !object(provided.config)) {
+    fields.push(`players[${index}].config`);
     return { name: 'Computer', config: {} };
   }
   // Named fixed presets are snapshotted from the catalog, exactly as the API does.

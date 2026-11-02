@@ -650,7 +650,7 @@ it('validates participant seeds even though the tournament seed supersedes them'
         ...valid,
         players: [{ config: { algorithm: 'mcts', seed } }, valid.players[1]],
       }),
-    ).toEqual(['seed']);
+    ).toEqual(['players[0].config.seed']);
   }
   // Different valid participant seeds keep an otherwise compatible pairing valid.
   expect(() =>
@@ -687,6 +687,7 @@ it('rejects unknown fields inside the nested alpha-beta search', () => {
         valid.players[1],
       ],
     }),
+    // The nested validator names the search object itself.
   ).toEqual(['search']);
 });
 
@@ -770,4 +771,76 @@ it('imports an exported fixed-role document and keeps its effective configuratio
     iterations: 120,
     time_limit: 2,
   });
+});
+
+it('rejects a malformed configuration container', () => {
+  for (const config of ['mcts', 42, true, [], null]) {
+    expect(importFields({ ...valid, players: [{ config }, valid.players[1]] })).toEqual([
+      'players[0].config',
+    ]);
+  }
+  // The second participant is named when it is the malformed one.
+  expect(importFields({ ...valid, players: [valid.players[0], { config: 'baseline' }] })).toEqual([
+    'players[1].config',
+  ]);
+  // A malformed container is rejected for a fixed preset too, because the API
+  // request schema requires an object before the preset replaces its contents.
+  expect(
+    importFields({
+      ...valid,
+      players: [{ profile_id: 'baseline', config: 'baseline' }, valid.players[1]],
+    }),
+  ).toEqual(['players[0].config']);
+});
+
+it('rejects explicitly invalid algorithms instead of defaulting them', () => {
+  for (const algorithm of [null, 42, true, [], {}, '']) {
+    expect(
+      importFields({ ...valid, players: [{ config: { algorithm } }, valid.players[1]] }),
+    ).toEqual(['players[0].config.algorithm']);
+  }
+  expect(
+    importFields({ ...valid, players: [{ config: { algorithm: 'unknown' } }, valid.players[1]] }),
+  ).toEqual(['players[0].config.algorithm']);
+  // The historical `alphabeta` alias is normalised, exactly as the API does.
+  const aliased = parseTournamentConfig(
+    { ...valid, players: [{ config: { algorithm: 'alphabeta', depth: 2 } }, valid.players[1]] },
+    profiles,
+    models,
+  );
+  expect(aliased.config.players[0].config).toMatchObject({ algorithm: 'alpha_beta', depth: 2 });
+  // An invalid algorithm inside a configuration a fixed preset replaces is
+  // discarded with the rest of that configuration, as the API does.
+  const preset = parseTournamentConfig(
+    {
+      ...valid,
+      players: [
+        { profile_id: 'baseline', config: { algorithm: 'unknown', iterations: 1 } },
+        valid.players[1],
+      ],
+    },
+    profiles,
+    models,
+  );
+  expect(preset.config.players[0].config).toMatchObject({ algorithm: 'baseline', time_limit: 1 });
+});
+
+it('keeps missing and empty configurations valid', () => {
+  // A missing config keeps the profile or baseline default.
+  const missing = parseTournamentConfig(
+    {
+      ...valid,
+      players: [{ profile_id: 'mcts' }, { profile_id: 'baseline' }],
+    },
+    profiles,
+    models,
+  );
+  expect(missing.config.players[0].config).toMatchObject({ algorithm: 'mcts' });
+  expect(missing.config.players[1].config).toMatchObject({ algorithm: 'baseline' });
+  const custom = parseTournamentConfig(
+    { ...valid, players: [{ config: {} }, { config: { algorithm: 'baseline' } }] },
+    profiles,
+    models,
+  );
+  expect(custom.config.players[0].config).toMatchObject({ algorithm: 'baseline' });
 });
