@@ -1575,3 +1575,279 @@ def test_tuning_publications_never_mix_study_and_trial_identities(tmp_path):
         if merged is not progress:
             assert merged.get("run") == progress.get("run")
             assert merged.get("trial") == progress.get("trial")
+
+
+def wait_for_heartbeat_advance(
+    output: Path, *, seconds: float = 1.5, deadline: float = 60.0
+) -> dict:
+    """Wait until the bounded heartbeat's elapsed time advanced by ``seconds``."""
+    first = read_heartbeat(output)
+    assert first is not None and "duration" in first
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        snapshot = read_heartbeat(output)
+        if snapshot and snapshot.get("duration", 0) >= first["duration"] + seconds:
+            return snapshot
+        time.sleep(0.05)
+    raise AssertionError("the heartbeat did not keep advancing")
+
+
+def block_study_trials(optuna, monkeypatch, *, at: int, before=None):
+    """Block (or fail) one `study.trials` read, deterministically by ordinal.
+
+    The first read is the study load; the second is the handoff that follows the
+    first trial, which is the one that must not delay the heartbeat.
+    """
+    reads: list[int] = []
+    real = optuna.study.Study.trials
+
+    def trials(self):
+        reads.append(1)
+        if len(reads) == at:
+            if before is not None:
+                before()
+            return real.fget(self)
+        return real.fget(self)
+
+    monkeypatch.setattr(optuna.study.Study, "trials", property(trials))
+    return reads
+
+
+def test_a_blocked_post_trial_read_keeps_the_study_heartbeat_alive(tmp_path, monkeypatch):
+    """Ownership must move to the study before the potentially slow storage read."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    entered = threading.Event()
+    released = threading.Event()
+
+    def block():
+        entered.set()
+        assert released.wait(120)
+
+    block_study_trials(optuna, monkeypatch, at=2, before=block)
+    config = tune_config(tmp_path, trials=2)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results)
+    assert entered.wait(120)
+
+    # The study already owns the heartbeat while the read is still blocked, so the
+    # phase is the study's and its timers keep advancing. The completed-trial count
+    # is the in-memory one, published before the read.
+    first = wait_for_stage(output, "between_trials")
+    assert read_json(output / "progress.json")["completed_trials"] == 1
+    assert not first.get("phase_progress")
+    advanced = wait_for_heartbeat_advance(output, seconds=1.5)
+    assert advanced["stage"] == "between_trials"
+    assert advanced["duration"] >= first["duration"] + 1.0
+
+    # The finished trial is not presented as running and its stale heartbeat cannot
+    # overwrite the study's snapshot.
+    retained = read_json(output / "progress.json")
+    assert retained["stage"] == "between_trials"
+    assert "duration" not in retained["trial_progress"]
+    assert "active_iteration" not in retained["trial_progress"]
+    stale = {
+        **advanced,
+        "run": retained["trial_progress"]["run"],
+        "revision": advanced["revision"],
+    }
+    assert overlay_heartbeat(retained, stale) == retained
+
+    released.set()
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+    result = results[0]
+    # The next trial begins normally and the study finishes with both trials.
+    assert result["status"] == "completed" and result["completed_trials"] == 2
+    assert [trial["state"] for trial in result["trials"]] == ["COMPLETE", "COMPLETE"]
+
+
+def test_two_trials_report_continuous_monitoring_and_counts(tmp_path):
+    """Across a whole study the clocks, counters and trial data stay coherent."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    config = tune_config(tmp_path, trials=2)
+    snapshots: list[dict] = []
+    result = tune(config, snapshots.append)
+    assert result["status"] == "completed" and result["completed_trials"] == 2
+    assert [trial["number"] for trial in result["trials"]] == [0, 1]
+    assert [trial["state"] for trial in result["trials"]] == ["COMPLETE", "COMPLETE"]
+
+    # The study clock and the completed-trial counter only ever advance.
+    study_durations = [state["duration"] for state in snapshots]
+    assert study_durations == sorted(study_durations)
+    counts = [state["completed_trials"] for state in snapshots if "completed_trials" in state]
+    assert counts == sorted(counts) and max(counts) == 2
+    assert 1 in counts, "the first finished trial was never counted"
+    assert not [state for state in snapshots if state.get("stage") == "between_trials"][0][
+        "trial_progress"
+    ].get("duration"), "a finished trial kept its live duration"
+
+    # Each trial reports its own numbers, its own clock and its own identity.
+    trials = [state for state in snapshots if "duration" in state.get("trial_progress", {})]
+    assert {state["trial"] for state in trials} == {0, 1}
+    first_trial = [state["trial_progress"]["duration"] for state in trials if state["trial"] == 0]
+    second_trial = [state["trial_progress"]["duration"] for state in trials if state["trial"] == 1]
+    assert min(second_trial) < max(first_trial)
+    for state in trials:
+        assert state["run"] == state["trial_progress"]["run"]
+    assert {state["run"] for state in trials if state["trial"] == 0} != {
+        state["run"] for state in trials if state["trial"] == 1
+    }
+
+    # The last trial's retained data survives the handoff back to the study.
+    between = [state for state in snapshots if state.get("stage") == "between_trials"]
+    assert between
+    projected = between[-1]["trial_progress"]
+    assert "history" in projected and "metrics" in projected
+    assert "stage" not in projected and "phase_progress" not in projected
+
+
+def test_a_pruned_trial_is_never_counted_as_completed(tmp_path, monkeypatch):
+    """A pruned trial leaves the counter alone and the next trial unaffected."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    pruned = []
+    real_prune = optuna.trial.Trial.should_prune
+
+    def prune_first_trial(trial):
+        if trial.number == 0 and not pruned:
+            pruned.append(1)
+            return True
+        return real_prune(trial)
+
+    monkeypatch.setattr(optuna.trial.Trial, "should_prune", prune_first_trial)
+    config = tune_config(tmp_path, trials=2)
+    output = Path(config["output_dir"])
+    snapshots: list[dict] = []
+    result = tune(config, snapshots.append)
+    assert pruned and result["completed_trials"] == 1
+    assert [trial["state"] for trial in result["trials"]] == ["PRUNED", "COMPLETE"]
+    counts = [state["completed_trials"] for state in snapshots if "completed_trials" in state]
+    assert counts == sorted(counts)
+    assert 0 in counts and max(counts) == 1
+    # The second trial is reported as the study's, not as the pruned one.
+    assert {state["trial"] for state in snapshots if "trial" in state} == {0, 1}
+    assert read_json(output / "progress.json")["status"] == "completed"
+
+
+def test_a_storage_failure_during_reconciliation_keeps_the_count_correct(tmp_path, monkeypatch):
+    """The handoff read is a reconciliation: its failure must not corrupt the count."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    reads = block_study_trials(optuna, monkeypatch, at=2)
+    config = tune_config(tmp_path, trials=2)
+    snapshots: list[dict] = []
+    result = tune(config, snapshots.append)
+    assert reads, "the reconciliation read never ran"
+    assert result["status"] == "completed" and result["completed_trials"] == 2
+    counts = [state["completed_trials"] for state in snapshots if "completed_trials" in state]
+    assert max(counts) == 2 and counts == sorted(counts)
+
+
+def test_a_failed_trial_error_survives_a_failing_reconciliation_read(tmp_path, monkeypatch):
+    """Cleanup must never mask the exception that ended the trial."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    real_trials = optuna.study.Study.trials
+    reads: list[int] = []
+
+    def failing_train(*args, **kwargs):
+        raise RuntimeError("training exploded")
+
+    def failing_trials(self):
+        reads.append(1)
+        if len(reads) == 2:
+            raise RuntimeError("the study database is unavailable")
+        return real_trials.fget(self)
+
+    monkeypatch.setattr(training_module, "train", failing_train)
+    monkeypatch.setattr(optuna.study.Study, "trials", property(failing_trials))
+    config = tune_config(tmp_path, trials=1)
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="training exploded"):
+        tune(config)
+    assert reads, "the reconciliation read never ran"
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "failed"
+    assert progress["error"] == "training exploded"
+
+
+def test_cancellation_around_the_post_trial_read_ends_the_study_safely(tmp_path, monkeypatch):
+    """A stop request during the handoff cancels cleanly and leaves the study usable."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    entered = threading.Event()
+    released = threading.Event()
+    stopped = {"value": False}
+
+    def block():
+        entered.set()
+        assert released.wait(120)
+
+    block_study_trials(optuna, monkeypatch, at=2, before=block)
+    config = tune_config(tmp_path, trials=3)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results, should_stop=lambda: stopped["value"])
+    assert entered.wait(120)
+    # The study already owns the heartbeat when the cancellation arrives.
+    stopped["value"] = True
+    released.set()
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+    result = results[0]
+    assert result["status"] == "cancelled"
+    assert read_json(output / "progress.json")["status"] == "cancelled"
+    assert read_json(output / "result.json")["status"] == "cancelled"
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+    # The study database stays consistent: the same study can be resumed.
+    resumed: list[dict] = []
+    again = tune({**config, "trials": 1}, resumed.append)
+    assert again["status"] == "completed" and again["completed_trials"] >= 1
+
+
+def test_study_and_trial_revisions_never_move_backwards(tmp_path):
+    """Sampled publications keep their own run identity and revision order."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    config = tune_config(tmp_path, trials=2)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results)
+    highest: dict[str, int] = {}
+    samples = 0
+    deadline = time.monotonic() + 120
+    while worker.is_alive() and time.monotonic() < deadline:
+        progress_path = output / "progress.json"
+        if progress_path.exists():
+            retained = read_json(progress_path)
+            heartbeat = read_heartbeat(output)
+            if isinstance(retained.get("run"), str) and isinstance(retained.get("revision"), int):
+                previous = highest.get(retained["run"])
+                assert previous is None or retained["revision"] >= previous
+                highest[retained["run"]] = retained["revision"]
+            if heartbeat is not None:
+                # A heartbeat is only ever applied to its own generation.
+                merged = overlay_heartbeat(retained, heartbeat)
+                if merged is not retained:
+                    assert merged.get("run") == retained.get("run")
+                    assert merged.get("revision") == heartbeat.get("revision")
+            samples += 1
+        time.sleep(0.01)
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+    assert samples > 5
+    assert len(highest) >= 3, "the study and both trials should each have a run identity"

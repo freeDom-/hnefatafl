@@ -1448,15 +1448,36 @@ def tune(
                 result = train(config, report, should_stop)
                 finished = result["status"] != "cancelled"
             finally:
-                # The trial's monitor has stopped; the study publishes again, so a
-                # bookkeeping gap never looks like a dead worker. A pruned or
+                # The trial's monitor has stopped and the study's heartbeat is
+                # suppressed while a trial is marked running, so ownership returns to
+                # the study before any Optuna storage access: a slow `study.trials`
+                # read can no longer leave the job without a publisher. A pruned or
                 # cancelled trial is not counted, matching the terminal result.
-                recorded = count_completed(study)
                 study_monitor.phase("between_trials")
                 with tune_lock:
                     active_trial["running"] = False
-                    latest["completed_trials"] = recorded + (1 if finished else 0)
+                    if finished:
+                        # Optuna commits a trial's final state only after its
+                        # objective returns, so `study.trials` is not authoritative
+                        # yet. The in-memory count is exact for this process and is
+                        # reconciled against Optuna's own state just below.
+                        latest["completed_trials"] = latest.get("completed_trials", 0) + 1
                 publish_study()
+                # Reconciliation is a potentially slow storage read, so it happens
+                # with the study already owning the heartbeat, and it can only raise
+                # the displayed count. A storage failure here never masks the
+                # exception that ended the trial.
+                try:
+                    recorded: int | None = count_completed(study)
+                except Exception:
+                    recorded = None
+                if recorded is not None:
+                    with tune_lock:
+                        raised = recorded > latest.get("completed_trials", 0)
+                        if raised:
+                            latest["completed_trials"] = recorded
+                    if raised:
+                        publish_study()
             if result["status"] == "cancelled":
                 study.stop()
                 raise optuna.TrialPruned("Tuning cancelled")
