@@ -598,6 +598,7 @@ export default function App() {
         <NewGame
           rulesets={rulesets}
           profiles={profiles}
+          models={models}
           initialRuleset={
             rulesets.find((rule) => rule.id === new URLSearchParams(location.search).get('ruleset'))
               ?.id ?? game?.ruleset

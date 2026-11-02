@@ -1,23 +1,38 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import AgentConfigFields from './AgentConfigFields';
 import { api, errorMessage } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import Modal from './Modal';
 import { notify } from './notifications';
+import { profileConfiguration } from './profileConfiguration';
 import { sortRulesets } from './sortRulesets';
-import type { AIProfile, Game, Ruleset, Side } from './types';
+import type { TournamentPlayer } from './tournamentTypes';
+import type { AIProfile, Game, Model, Ruleset, Side } from './types';
 
 export const presetIds = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'] as const;
 type Preset = (typeof presetIds)[number];
+/** The administrator-only fully configured opponent. */
+type Choice = Preset | 'custom';
 type Setup = {
   ruleset: string;
   mode: 'human-ai' | 'ai-ai';
   humanSide: Side;
-  profiles: Record<Side, Preset>;
+  profiles: Record<Side, Choice>;
+  /** Working configuration for each seat while "Custom opponent" is selected. */
+  custom: Record<Side, TournamentPlayer>;
 };
 export const GAME_SETUP_KEY = 'hnefatafl-new-game-options';
 const preset = (value: unknown): Preset =>
   presetIds.includes(value as Preset) ? (value as Preset) : 'baseline';
+/** A custom seat starts from the matching preset's budget until it is edited. */
+const customPlayer = (side: Side): TournamentPlayer => ({
+  name: 'Computer',
+  config:
+    side === 'attackers'
+      ? { algorithm: 'baseline', time_limit: 1 }
+      : { algorithm: 'alpha_beta', depth: 5, time_limit: 2 },
+});
 /** Read only the permitted subset of previous preferences; never restore identities/config. */
 function restore(rulesets: Ruleset[], admin: boolean, initial?: string): Setup {
   let saved: Record<string, unknown> = {};
@@ -45,6 +60,7 @@ function restore(rulesets: Ruleset[], admin: boolean, initial?: string): Setup {
       attackers: preset(profiles?.attackers ?? old?.attackers?.profile_id),
       defenders: preset(profiles?.defenders ?? old?.defenders?.profile_id),
     },
+    custom: { attackers: customPlayer('attackers'), defenders: customPlayer('defenders') },
   };
 }
 const explanations: Record<Preset, string> = {
@@ -56,12 +72,15 @@ const explanations: Record<Preset, string> = {
 export default function NewGame({
   rulesets,
   profiles,
+  models = [],
   initialRuleset,
   onClose,
   onCreated,
 }: {
   rulesets: Ruleset[];
   profiles: AIProfile[];
+  /** Registered models, if the caller already loaded them. */
+  models?: Model[];
   initialRuleset?: string;
   onClose: () => void;
   onCreated: (game: Game) => void;
@@ -71,9 +90,66 @@ export default function NewGame({
   const admin = account?.permissions.includes('all_data') ?? false;
   const [setup, setSetup] = useState(() => restore(rulesets, admin, initialRuleset));
   const [busy, setBusy] = useState(false);
+  const [catalogue, setCatalogue] = useState<Model[] | null>(null);
+  const seeded = useRef<Record<Side, boolean>>({ attackers: false, defenders: false });
   const mode = admin ? setup.mode : 'human-ai';
+  // Custom opponents are a single-player, administrator-only resource.
+  const customAvailable = admin && mode === 'human-ai';
+  const customOpen =
+    customAvailable &&
+    (['attackers', 'defenders'] as Side[]).some((side) => setup.profiles[side] === 'custom');
+  useEffect(() => {
+    if (!customOpen) return;
+    let cancelled = false;
+    // Models are large; load the catalogue only when a custom seat needs it.
+    api<Model[]>('/models')
+      .then((saved) => {
+        if (!cancelled) setCatalogue(Array.isArray(saved) ? saved : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogue([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customOpen]);
+  const availableModels = catalogue ?? models;
   const choose = (key: 'ruleset' | 'mode' | 'humanSide', value: string) =>
-    setSetup((previous) => ({ ...previous, [key]: value }));
+    setSetup((previous) => {
+      const next: Setup = { ...previous, [key]: value };
+      if (key === 'mode' && value !== 'human-ai')
+        next.profiles = {
+          attackers: preset(previous.profiles.attackers),
+          defenders: preset(previous.profiles.defenders),
+        };
+      return next;
+    });
+  const chooseOpponent = (side: Side, value: string) => {
+    if (value !== 'custom') {
+      setSetup((previous) => ({
+        ...previous,
+        profiles: { ...previous.profiles, [side]: preset(value) },
+      }));
+      return;
+    }
+    // Seed an untouched custom seat from the opponent that was selected before.
+    const seed = seeded.current[side]
+      ? undefined
+      : profiles.find((item) => item.id === setup.profiles[side]);
+    seeded.current[side] = true;
+    setSetup((previous) => ({
+      ...previous,
+      profiles: { ...previous.profiles, [side]: 'custom' },
+      custom: seed
+        ? { ...previous.custom, [side]: { name: 'Computer', config: profileConfiguration(seed) } }
+        : previous.custom,
+    }));
+  };
+  const editCustom = (side: Side, player: TournamentPlayer) =>
+    setSetup((previous) => ({
+      ...previous,
+      custom: { ...previous.custom, [side]: player },
+    }));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
@@ -82,7 +158,11 @@ export default function NewGame({
       const players = Object.fromEntries(
         (['attackers', 'defenders'] as Side[])
           .filter((side) => mode === 'ai-ai' || side !== setup.humanSide)
-          .map((side) => [side, { profile_id: setup.profiles[side] }]),
+          .map((side) =>
+            setup.profiles[side] === 'custom'
+              ? [side, { config: setup.custom[side].config }]
+              : [side, { profile_id: setup.profiles[side] }],
+          ),
       );
       const game = await api<Game>('/games', {
         ruleset: setup.ruleset,
@@ -91,7 +171,22 @@ export default function NewGame({
         players,
       });
       try {
-        localStorage.setItem(GAME_SETUP_KEY, JSON.stringify({ version: 2, ...setup, mode }));
+        // Preferences never retain a custom identity or configuration.
+        localStorage.setItem(
+          GAME_SETUP_KEY,
+          JSON.stringify({
+            version: 2,
+            ruleset: setup.ruleset,
+            humanSide: setup.humanSide,
+            // A custom seat is stored as the preset it replaces: the
+            // configuration itself is never kept as a browser preference.
+            profiles: {
+              attackers: preset(setup.profiles.attackers),
+              defenders: preset(setup.profiles.defenders),
+            },
+            mode,
+          }),
+        );
       } catch {
         /* Creation remains usable without preferences. */
       }
@@ -160,42 +255,48 @@ export default function NewGame({
                     profile.supported_rulesets.includes(setup.ruleset),
                 );
                 const selected = available.find((profile) => profile.id === setup.profiles[side]);
+                const custom = setup.profiles[side] === 'custom';
+                const label = t(side === 'attackers' ? 'Attackers' : 'Defenders');
                 return (
                   <div className="player-config" key={side}>
                     <label>
-                      {t('{side} opponent', {
-                        side: t(side === 'attackers' ? 'Attackers' : 'Defenders'),
-                      })}
+                      {t('{side} opponent', { side: label })}
                       <select
-                        aria-label={t('{side} AI profile', {
-                          side: t(side === 'attackers' ? 'Attackers' : 'Defenders'),
-                        })}
+                        aria-label={t('{side} AI profile', { side: label })}
                         value={setup.profiles[side]}
                         required
-                        onChange={(event) =>
-                          setSetup((previous) => ({
-                            ...previous,
-                            profiles: { ...previous.profiles, [side]: preset(event.target.value) },
-                          }))
-                        }
+                        onChange={(event) => chooseOpponent(side, event.target.value)}
                       >
                         {available.map((profile) => (
                           <option key={profile.id} value={profile.id}>
                             {t(profile.name)}
                           </option>
                         ))}
+                        {customAvailable && <option value="custom">{t('Custom opponent')}</option>}
                       </select>
                     </label>
-                    <p>{t(explanations[setup.profiles[side]])}</p>
-                    {selected && (
-                      <p className="subtle">
-                        {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
-                        {selected.id === 'alpha_beta'
-                          ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
-                          : selected.id === 'mcts'
-                            ? ` · ${t('Search iterations')}: ${selected.parameters.iterations}`
-                            : ''}
-                      </p>
+                    {custom ? (
+                      <AgentConfigFields
+                        player={setup.custom[side]}
+                        models={availableModels}
+                        ruleset={setup.ruleset}
+                        prefix={label}
+                        onChange={(next) => editCustom(side, next)}
+                      />
+                    ) : (
+                      <>
+                        <p>{t(explanations[setup.profiles[side] as Preset])}</p>
+                        {selected && (
+                          <p className="subtle">
+                            {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
+                            {selected.id === 'alpha_beta'
+                              ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
+                              : selected.id === 'mcts'
+                                ? ` · ${t('Search iterations')}: ${selected.parameters.iterations}`
+                                : ''}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 );

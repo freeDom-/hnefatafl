@@ -44,6 +44,12 @@ Later catalog renames apply to new tournaments; existing reports keep their
 recorded model names. Older alias-based records display their recorded model or
 profile name where available, with the original alias as a legacy fallback.
 
+The participant editor is the same component as the administrator-only
+**Custom opponent** section of a single-player game, and both submit the same
+`config` shape to the same validation. A setting added for tournaments therefore
+becomes available to custom single-player opponents without a second
+implementation. See [AI](AI.md#custom-opponents).
+
 Every unordered pair of opponents plays a balanced series, swapping
 attacker/defender sides after every game. Two players have one pairing, three
 have three, and four have six. Total scheduled games are games per pairing

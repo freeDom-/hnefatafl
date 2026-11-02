@@ -279,7 +279,8 @@ deletion callbacks clear matching current-game pointers and reject late AI respo
 Hall filters and counts run on authorized server queries without rewriting stored
 results. Selected canonical review is independent of filtering and pagination.
 AI parameter details remain inspectable in recorded games; account setup exposes
-only the four named presets and their time/depth/iteration budgets. New browser preferences default to carved wood and walnut; valid saved
+the four named presets to every player, plus an administrator-only custom
+opponent that reuses the tournament participant configuration. New browser preferences default to carved wood and walnut; valid saved
 preferences remain authoritative.
 
 ## Background analysis
@@ -310,12 +311,16 @@ exclude seed from identity. Tournaments display the underlying agent rune; older
 seat-rune reservations remain stored. Older response snapshots gain runes without
 rewriting game JSON or checkpoint metadata. See [Identities](docs/IDENTITIES.md).
 
-Account setup retains only battlefield, permitted mode, side and four preset IDs.
-The server binds human seats to the account and resolves preset budgets itself;
-creation and restart recheck current sessions/roles in a write transaction. New
-pass-and-play, local-player CRUD and custom/neural account-game creation are removed.
-Historical player IDs, modes and effective configurations remain read/play shims,
-without supporting legacy result reconstruction or cloning old setups via restart.
+Account setup retains battlefield, permitted mode, side and four preset IDs, plus
+an administrator-only custom opponent. The server binds human seats to the
+account and resolves preset budgets itself; a custom configuration is validated
+through the same `resolve_ai_config` path as a tournament participant, stored
+with the game and re-derived on every move, reload and restart. Creation and
+restart recheck current sessions/roles in a write transaction. Pass-and-play,
+local-player CRUD and non-administrator custom/neural account-game creation are
+rejected. Historical player IDs, modes and effective configurations remain
+read/play shims, without supporting legacy result reconstruction or cloning old
+setups via restart.
 Model choices in authorized advisors/tournaments retain canonical names/IDs, and
 saved model-name snapshots identify earlier games whose supplied aliases were stale. Training
 resumption uses an explicit job checkpoint metadata route and server-derived

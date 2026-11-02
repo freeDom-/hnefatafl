@@ -15,8 +15,15 @@ New account games select four fixed presets, resolved on the server: Shield bear
 safety, 1 s), Jarl (alpha-beta, depth 5, 2 s), Seer (MCTS, up to 5000 iterations,
 2 s). The dialog describes styles and budgets without a measured strength ranking.
 Normal accounts play as their account against AI; administrators can also run two
-preset AIs. Custom/neural parameters belong to the separate authorized workflows
-below. Existing stored custom/neural games remain readable/playable.
+preset AIs.
+
+An administrator can additionally choose **Custom opponent** for the AI seat of a
+single-player game. That seat then exposes the same participant settings as a
+tournament: algorithm, trained model, search wrapper, alpha-beta search
+optimizations and search budgets. The configuration is validated with the same
+`resolve_ai_config` rules as tournaments, stored with the game and re-applied on
+every opponent move, reload and restart. See [Custom opponents](#custom-opponents).
+Existing stored custom/neural games remain readable/playable.
 
 ## Available opponents
 
@@ -194,7 +201,31 @@ reports the raw current-position value head, unlike searched leaf/root estimates
 Opponent setup hides the time field for policy-only inference: one forward pass is not a
 timed tree search that can return a last completed depth.
 
-For the game API, put a neural configuration under a side's `players` entry:
+## Custom opponents
+
+A tournament participant and a single-player custom opponent are the same
+configuration. Both use the shared `resolve_ai_config` validation, the same
+catalog profiles, the same nested alpha-beta `search` object and the same stored
+snapshot shape, so a setting added for tournaments is available to a custom
+opponent without a second implementation.
+
+| Setting | Values / bounds |
+| --- | --- |
+| Algorithm | `baseline`, `shield_maiden`, `alpha_beta`, `mcts`, `neural` |
+| Trained model | A registered model whose ruleset matches the battlefield |
+| Search wrapper (neural) | `mcts` (default), `alpha_beta`, `none` |
+| `heuristic` | `shield_maiden` (default) or `shield_bearer`, for alpha-beta/MCTS |
+| `time_limit` | 0.01–15 seconds through the API |
+| `depth`, `iterations`, `exploration`, `temperature`, `rollout_depth` | See the bounds table below |
+| `search` | Alpha-beta optimizations: legacy, transposition table, move ordering, D4-canonical transpositions, symmetry pruning, table capacity |
+
+The browser dialog only offers the fields the selected algorithm and wrapper use,
+and only to administrators. A custom opponent is refused for non-administrators
+and cannot be selected in AI-vs-AI mode. The stored game keeps the resolved
+configuration; each opponent move, reload and restart re-derives the model path
+from the registered model, so no server path is ever persisted or accepted.
+
+For the game API, put a configuration under a side's `players` entry:
 
 ```json
 {
@@ -216,8 +247,12 @@ For the game API, put a neural configuration under a side's `players` entry:
 ```
 
 Submit to `POST /api/games` after replacing the placeholder using `/api/models`.
-The server resolves model IDs to owned files. Headless Python/CLI AI configurations
-instead use a local `model_path`; do not send that path to the browser API.
+The server resolves model IDs to owned files. An unknown or unsupported
+configuration field, an out-of-range budget and an incompatible or missing model
+are rejected with a named error. A named `profile_id` remains available to every
+account and is authoritative over any configuration supplied beside it. Headless
+Python/CLI AI configurations instead use a local `model_path`; do not send that
+path to the browser API.
 
 ## Configuration
 

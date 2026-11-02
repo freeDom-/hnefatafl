@@ -78,15 +78,17 @@ draws. Ordinary games have no experimental move cap.
 1. On Dashboard open **New single-player game** and select a battlefield.
    Human vs AI is the only normal-account mode; administrators can also choose AI vs AI.
 2. Your human seat uses the signed-in account. Choose your side and Shield bearer,
-   Shield maiden, Jarl or Seer. These are fixed server-resolved presets; this dialog
-   has no local-player, custom search, seed or trained-model controls. See [AI](AI.md).
+   Shield maiden, Jarl or Seer. These are fixed server-resolved presets; the dialog
+   has no local-player or seed controls. Administrators can additionally select
+   **Custom opponent** for the AI seat, which reveals the same algorithm, model,
+   wrapper and search settings as a tournament participant. See [AI](AI.md).
 3. Select a piece and a highlighted destination. Mouse and touch use the same
    authoritative server move validation. Arrow keys navigate; Enter/Space select;
    Escape clears selection.
 4. Follow the active side, captured pieces, move history and game-over result.
    The computer plays its turns automatically at a fixed pace.
 
-The last successful battlefield, permitted mode, side and preset choices are saved in the current browser. Cancelled or
+The last successful battlefield, permitted mode, side and preset choices are saved in the current browser. A custom opponent's configuration is never saved as a browser preference. Cancelled or
 failed creation does not replace it. Games live on the server; browser preferences
 hold the current selection, language and appearance. Clearing browser storage
 is not deletion of saved games. A connection to the server is required.

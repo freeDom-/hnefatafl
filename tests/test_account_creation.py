@@ -59,14 +59,11 @@ def test_normal_creation_binds_account_identity_and_resolves_all_four_presets(cl
 
 def test_forged_creation_cannot_set_identity_configuration_or_admin_mode(client):
     demote(client)
+    # Rejected by the request schema: unknown fields and malformed participants.
     forbidden = [
         {"mode": "human-human"},
         {"seed": 7},
         {"advisor": {"profile_id": "baseline"}},
-        {"players": {"defenders": {}}},
-        {"players": {"attackers": {"profile_id": "neural"}}},
-        {"players": {"attackers": {"profile_id": "custom"}}},
-        {"players": {"attackers": {"profile_id": "baseline", "config": {"time_limit": 15}}}},
         {"players": {"attackers": {"name": "Another account"}}},
         {"players": {"attackers": {"account_id": "someone-else"}}},
         {"players": {"attackers": {"player_id": "someone-else"}}},
@@ -76,6 +73,21 @@ def test_forged_creation_cannot_set_identity_configuration_or_admin_mode(client)
     for payload in forbidden:
         response = client.post("/api/games", json=payload)
         assert response.status_code == 422, (payload, response.text)
+    # Rejected by server-side validation: the human seat cannot be an AI
+    # opponent, an unknown profile is not a preset, and a custom configuration
+    # is administrator-only.
+    rejected = [
+        ({"players": {"defenders": {}}}, 422),
+        ({"players": {"attackers": {"profile_id": "neural"}}}, 400),
+        ({"players": {"attackers": {"profile_id": "custom"}}}, 400),
+        (
+            {"players": {"attackers": {"profile_id": "baseline", "config": {"time_limit": 15}}}},
+            403,
+        ),
+    ]
+    for payload, status in rejected:
+        response = client.post("/api/games", json=payload)
+        assert response.status_code == status, (payload, response.text)
     assert client.post("/api/games", json={"mode": "ai-ai"}).status_code == 403
     assert client.get("/api/games").json() == []
     assert not any(
@@ -100,12 +112,13 @@ def test_administrator_ai_pairs_use_presets_but_neural_catalog_remains_for_works
     assert response.status_code == 201, response.text
     assert all(p["kind"] == "ai" for p in response.json()["players"].values())
     assert "neural" in {p["id"] for p in client.get("/api/ai/profiles").json()}
-    assert (
-        client.post(
-            "/api/games", json={"mode": "ai-ai", "players": {"attackers": {"profile_id": "neural"}}}
-        ).status_code
-        == 422
+    # A bare neural profile is not a usable preset: it requires a registered
+    # model, supplied through an administrator-only custom configuration.
+    bare = client.post(
+        "/api/games", json={"mode": "ai-ai", "players": {"attackers": {"profile_id": "neural"}}}
     )
+    assert bare.status_code == 400, bare.text
+    assert "model" in bare.json()["detail"].lower()
     demote(client)
     game = response.json()
     assert client.post(f"/api/games/{game['id']}/restart", json={"version": 0}).status_code == 403

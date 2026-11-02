@@ -181,7 +181,10 @@ def test_ai_configuration_rejects_paths_and_incompatible_types(client):
         response = client.post(
             "/api/games", json={"mode": "ai-ai", "players": {"attackers": {"config": config}}}
         )
-        assert response.status_code == 422
+        # A known but invalid configuration is validated server-side and named,
+        # unlike an unknown request field, which the request schema rejects.
+        assert response.status_code == 400, response.text
+        assert isinstance(response.json()["detail"], str) and response.json()["detail"]
     assert client.post("/api/games", json={"ruleset": "unknown"}).status_code == 422
     assert client.post("/api/players", json={"name": "unused"}).status_code == 403
 

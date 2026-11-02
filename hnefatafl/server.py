@@ -200,12 +200,13 @@ class AnalyticsRequest(BaseModel):
     show_win_chances: bool = True
 
 
-Preset = Literal["baseline", "shield_maiden", "alpha_beta", "mcts"]
-
-
 class OpponentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    profile_id: Preset = "baseline"
+    # A named catalog preset, or None for an administrator-configured custom
+    # opponent whose free-form ``config`` is validated exactly like a
+    # tournament participant.
+    profile_id: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class GameRequest(BaseModel):
@@ -434,7 +435,7 @@ def create_app(
     def response(game: dict) -> dict:
         state = state_of(game)
         start = new_game(game["ruleset"])
-        result = {key: value for key, value in game.items() if key != "state"}
+        result = {key: value for key, value in game.items() if key not in ("state", "creation")}
         from .ai import ai_profiles
 
         profiles = {profile["id"]: profile["name"] for profile in ai_profiles()}
@@ -501,7 +502,7 @@ def create_app(
         except ValueError as error:
             fail(str(error))
         if resolved.get("model_id"):
-            model_info(resolved["model_id"])
+            registered_model(resolved["model_id"])
         return resolved
 
     def normalise_advisor(provided: AdvisorRequest | None, ruleset: str, seed: int) -> dict | None:
@@ -611,8 +612,88 @@ def create_app(
             for profile in ai_profiles()
         ]
 
-    def insert_account_game(c, account, request: GameRequest, *, seed=None):
-        from .ai import ai_profiles
+    # Registered-model metadata retained beside a participant for provenance.
+    # Server paths and checkpoints never leave the process; the presentation
+    # rune is reserved separately by the caller that stores it.
+    MODEL_PROVENANCE_FIELDS = frozenset(
+        {
+            "id",
+            "name",
+            "ruleset",
+            "version",
+            "iteration",
+            "created_at",
+            "architecture",
+            "self_play_games",
+            "metrics",
+            "evaluation",
+        }
+    )
+
+    def registered_model(model_id: str) -> dict:
+        """Resolve a registry entry without reserving a presentation rune.
+
+        ``model_info`` also allocates a rune, which needs its own write
+        transaction; this lookup stays safe inside a game-creation transaction.
+        """
+        try:
+            return registry().get(model_id)
+        except (ValueError, OSError):
+            fail("Model not found.", 404)
+
+    def resolve_ai_participant(
+        provided: OpponentRequest | TournamentPlayerRequest, *, rulesets, seed: int
+    ) -> dict:
+        """Resolve one tournament-style participant into a stored AI player snapshot.
+
+        Shared by tournament creation and single-player custom opponents so both
+        accept the identical configuration surface and validation. A named
+        catalog preset is authoritative: its recorded parameters replace any
+        configuration supplied beside it. This performs no database work, so it
+        is safe inside a creation transaction; a caller that persists the
+        presentation rune reserves it itself.
+        """
+        from .ai import FIXED_PROFILE_IDS, ai_profiles
+
+        profiles = {item["algorithm"]: item for item in ai_profiles()}
+        config = dict(provided.config or {})
+        if provided.profile_id in FIXED_PROFILE_IDS:
+            preset = profiles[provided.profile_id]
+            config = {**preset["parameters"], "algorithm": preset["algorithm"]}
+        elif provided.profile_id and provided.profile_id not in profiles:
+            fail("Unknown AI profile.")
+        config = clean_ai_config(config, provided.profile_id)
+        config["seed"] = seed
+        profile = profiles[config["algorithm"]]
+        snapshot = {
+            "name": profile["name"],
+            "profile_id": profile["id"],
+            "profile_name": profile["name"],
+            "config": config,
+            "variant_id": ai_variant_id(config),
+        }
+        if config.get("model_id"):
+            model = registered_model(config["model_id"])
+            if any(ruleset != model["ruleset"] for ruleset in rulesets):
+                fail(
+                    "A selected model must match the battlefield."
+                    if len(rulesets) == 1
+                    else "A selected model must match every tournament battlefield."
+                )
+            model_file(model)
+            snapshot["name"] = snapshot["model_name"] = model["name"]
+            snapshot["model"] = {
+                key: value for key, value in model.items() if key in MODEL_PROVENANCE_FIELDS
+            }
+            if isinstance(model.get("training_config"), dict):
+                snapshot["model"]["training_config"] = {
+                    key: value
+                    for key, value in model["training_config"].items()
+                    if key in TRAINING_FIELDS - {"resume"}
+                }
+        return snapshot
+
+    def insert_account_game(c, account, request: GameRequest, *, seed=None, allow_custom=False):
         from .game_records import game_record
         from .security_context import allowed
 
@@ -621,8 +702,13 @@ def create_app(
         ai_sides = set(SIDES) if request.mode == "ai-ai" else set(SIDES) - {request.human_side}
         if set(request.players) - ai_sides:
             fail("Human identity comes from the authenticated account.", 422)
+        # A custom configuration is an administrator-only resource. Restarting an
+        # owned game revalidates the stored request without re-asking for the role.
+        if any(player.config for player in request.players.values()) and not (
+            allow_custom or allowed(account, "all_data")
+        ):
+            fail("Administrator permission is required for a custom opponent.", 403)
         seed = secrets.randbits(32) if seed is None else seed
-        catalog = {p["id"]: p for p in ai_profiles()}
         players = {}
         for side in SIDES:
             if side not in ai_sides:
@@ -633,25 +719,49 @@ def create_app(
                     "config": {},
                 }
                 continue
-            profile = catalog[request.players.get(side, OpponentRequest()).profile_id]
-            config = effective_ai_config(
-                {**profile["parameters"], "algorithm": profile["algorithm"], "seed": seed}
-            )
+            provided = request.players.get(side) or OpponentRequest(profile_id="baseline")
+            if not provided.profile_id and not provided.config:
+                provided = OpponentRequest(profile_id="baseline")
+            snapshot = resolve_ai_participant(provided, rulesets=[request.ruleset], seed=seed)
             players[side] = {
-                "name": profile["name"],
+                "name": snapshot["name"],
                 "kind": "ai",
-                "profile_id": profile["id"],
-                "profile_name": profile["name"],
-                "config": config,
-                "variant_id": ai_variant_id(config),
+                "profile_id": snapshot["profile_id"],
+                "profile_name": snapshot["profile_name"],
+                "config": snapshot["config"],
+                "variant_id": snapshot["variant_id"],
             }
+            if snapshot.get("model_name"):
+                players[side]["model_name"] = snapshot["model_name"]
         game = game_record(request.ruleset, request.mode, request.human_side, players, seed)
         game["creation_policy"] = 1
+        # Retain the exact creation request so a restart reproduces a custom
+        # opponent instead of silently reverting to a named preset.
+        game["creation"] = request.model_dump()
         c.execute(
             "INSERT INTO games(id,version,created_at,data,owner_account_id) VALUES(?,?,?,?,?)",
             (game["id"], 0, game["created_at"], json.dumps(game), account["id"]),
         )
         return game
+
+    def restart_setup(prior: dict) -> GameRequest:
+        """Rebuild the original creation request, falling back for legacy records."""
+        stored = prior.get("creation")
+        if isinstance(stored, dict):
+            try:
+                return GameRequest.model_validate(stored)
+            except ValueError:
+                pass
+        return GameRequest(
+            ruleset=prior["ruleset"],
+            mode=prior["mode"],
+            human_side=prior["human_side"],
+            players={
+                side: OpponentRequest(profile_id=player["profile_id"])
+                for side, player in prior["players"].items()
+                if player["kind"] == "ai"
+            },
+        )
 
     def account_creator(c):
         from .online_core import OnlineError
@@ -1181,7 +1291,7 @@ def create_app(
         if "seed" in game:
             config["seed"] = (config["seed"] + state.ply) % 2**32
         if config.get("model_id"):
-            model = model_info(config.pop("model_id"))
+            model = registered_model(config.pop("model_id"))
             if model.get("ruleset") != game["ruleset"]:
                 fail("This model is for a different ruleset.")
             config["model_path"] = str(model_file(model))
@@ -1230,17 +1340,7 @@ def create_app(
                     "Start a new account game with the supported opponents; this saved setup is read/play compatible only.",
                     409,
                 )
-            profiles = {
-                side: OpponentRequest(profile_id=p["profile_id"])
-                for side, p in prior["players"].items()
-                if p["kind"] == "ai"
-            }
-            setup = GameRequest(
-                ruleset=prior["ruleset"],
-                mode=prior["mode"],
-                human_side=prior["human_side"],
-                players=profiles,
-            )
+            setup = restart_setup(prior)
             settings = analytics_settings(prior)
             with store.connection() as c:
                 c.execute("BEGIN IMMEDIATE")
@@ -1255,7 +1355,7 @@ def create_app(
                 seed = secrets.randbits(32)
                 if seed == prior.get("seed"):
                     seed = (seed + 1) % 2**32
-                game = insert_account_game(c, account, setup, seed=seed)
+                game = insert_account_game(c, account, setup, seed=seed, allow_custom=True)
             preferences = {
                 key: settings[key] for key in ("advisor", "time_limit", "show_win_chances")
             }
@@ -1478,7 +1578,7 @@ def create_app(
 
     @app.post("/api/tournaments", status_code=201)
     def create_tournament(request: TournamentRequest):
-        from .ai import FIXED_PROFILE_IDS, ai_profiles, validate_fixed_role_players
+        from .ai import validate_fixed_role_players
 
         if not request.name.strip():
             fail("Tournament names must contain 1–80 characters.")
@@ -1492,58 +1592,14 @@ def create_app(
         elif request.games % 2:
             fail("Use an even number of games so both opponents play each side equally.")
         with catalog_lock:
-            profiles = {item["algorithm"]: item for item in ai_profiles()}
             players = []
             for provided in request.players:
-                provided_config = provided.config
-                if provided.profile_id in FIXED_PROFILE_IDS:
-                    preset = profiles[provided.profile_id]
-                    provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
-                config = clean_ai_config(provided_config, provided.profile_id)
-                # The existing balanced runner uses a shared tournament seed,
-                # increasing it by game and ply. Snapshot that base value
-                # rather than retaining a per-opponent seed that is not used.
-                config["seed"] = request.seed
-                profile = profiles[config["algorithm"]]
-                snapshot = {
-                    "name": profile["name"],
-                    "profile_id": profile["id"],
-                    "profile_name": profile["name"],
-                    "config": config,
-                    "variant_id": ai_variant_id(config),
-                    "agent_rune": agent_rune({"kind": "ai", "config": config}),
-                }
-                if config.get("model_id"):
-                    model = model_info(config["model_id"])
-                    if any(ruleset != model["ruleset"] for ruleset in request.rulesets):
-                        fail("A selected model must match every tournament battlefield.")
-                    model_file(model)
-                    snapshot["name"] = snapshot["model_name"] = model["name"]
-                    # Retain provenance after catalog renames/deletion, without server paths.
-                    snapshot["model"] = {
-                        key: value
-                        for key, value in model.items()
-                        if key
-                        in {
-                            "id",
-                            "name",
-                            "ruleset",
-                            "rune",
-                            "version",
-                            "iteration",
-                            "created_at",
-                            "architecture",
-                            "self_play_games",
-                            "metrics",
-                            "evaluation",
-                        }
-                    }
-                    if isinstance(model.get("training_config"), dict):
-                        snapshot["model"]["training_config"] = {
-                            key: value
-                            for key, value in model["training_config"].items()
-                            if key in training_fields - {"resume"}
-                        }
+                snapshot = resolve_ai_participant(
+                    provided, rulesets=request.rulesets, seed=request.seed
+                )
+                snapshot["agent_rune"] = agent_rune({"kind": "ai", "config": snapshot["config"]})
+                if snapshot.get("model"):
+                    snapshot["model"]["rune"] = store.rune(f"model:{snapshot['model']['id']}")
                 players.append(snapshot)
             if request.mode == "fixed_roles":
                 # Both seats must resolve to identical effective search settings;
