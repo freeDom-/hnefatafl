@@ -180,8 +180,7 @@ export function CheckboxField({
     <div
       className={className ? `checkbox-field ${className}` : 'checkbox-field'}
       ref={container}
-      onMouseEnter={() => state.setHovered(true)}
-      onMouseLeave={() => state.setHovered(false)}
+      {...state.hover}
     >
       <label className="checkbox-label">
         <input

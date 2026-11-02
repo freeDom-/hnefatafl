@@ -294,23 +294,23 @@ h6 {
   margin: 0;
 }
 
-/* Shared field help: a label with an unobtrusive information button beside it.
-   The label sizes to its text and the control spans the full second row, which
-   keeps the original stacked label/control spacing. */
+/* Shared field help: a label and an unobtrusive information button that share a
+   single hover group, with the control on its own full-width row so it keeps the
+   original stacked label/control spacing and is never sized by the icon. */
 .training-field {
-  display: grid;
-  grid-template-columns: minmax(0, max-content) min-content;
-  align-items: center;
-  column-gap: 6px;
-  row-gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-width: 0;
 }
-.training-field > input,
-.training-field > select,
-.training-field > textarea,
-.training-field > small,
-.training-field > .name-input-group {
-  grid-column: 1 / -1;
+.field-help {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.field-help > label {
+  min-width: 0;
 }
 .checkbox-field {
   display: flex;

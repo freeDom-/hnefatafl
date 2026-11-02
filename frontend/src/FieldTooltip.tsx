@@ -7,10 +7,12 @@ import { trainingTooltip } from './trainingTooltips';
  * Accessible, shared help affordance for the training configuration.
  *
  * A small information button next to a parameter's label reveals the parameter's
- * tooltip on hover, keyboard focus or tap. The tooltip is portaled into the
- * surrounding native dialog (falling back to the document body) so it is never
- * clipped by a dialog or scroll container, and it is positioned from the button's
- * viewport rectangle so it stays inside the viewport.
+ * tooltip. The label and the button share one hover group, so the tooltip opens
+ * while the pointer is over either of them and does not flicker when the pointer
+ * moves between them. The tooltip is portaled into the surrounding native dialog
+ * (falling back to the document body) so it is never clipped by a dialog or
+ * scroll container, and it is positioned from the button's viewport rectangle so
+ * it stays inside the viewport.
  *
  * Native `title` attributes are deliberately not used: they cannot be styled,
  * translated or reached reliably on touch. Copy goes through the module-level
@@ -23,39 +25,58 @@ const MARGIN = 8;
 /** Space between the trigger and the tooltip. */
 const GAP = 6;
 
+interface Visibility {
+  /** The pointer is over the label or the information button. */
+  hovering: boolean;
+  /** The information button has DOM focus. */
+  focused: boolean;
+  /** The user opened it explicitly, so it outlives the pointer leaving. */
+  pinned: boolean;
+  /** The user closed it explicitly; wins until the next hover or focus. */
+  dismissed: boolean;
+}
+
+const IDLE: Visibility = { hovering: false, focused: false, pinned: false, dismissed: false };
+
 export interface FieldTooltipState {
   shown: boolean;
-  setHovered: (hovered: boolean) => void;
-  setFocused: (focused: boolean) => void;
-  setPinned: (pinned: boolean | ((previous: boolean) => boolean)) => void;
+  /** Hover handlers for the group that holds the label and the button. */
+  hover: { onMouseEnter: () => void; onMouseLeave: () => void };
+  /** Handlers for the information button. */
+  trigger: { onFocus: () => void; onBlur: () => void; onClick: () => void };
 }
 
 /**
- * Open/close state for one help affordance. Mouse hover, keyboard focus and a
- * tap are tracked separately so a tapped tooltip stays open until it is
- * dismissed, while a hovered one follows the pointer. Escape and a press outside
- * the container close it without touching focus.
+ * Open/close state for one help affordance.
+ *
+ * Hover and focus open the tooltip; a click or tap pins it so it survives the
+ * pointer leaving, and activating again closes it even though the button keeps
+ * DOM focus. `dismissed` records that explicit close so a still-hovered or still
+ * focused button does not immediately show the tooltip again, and it is cleared
+ * by the next hover or focus so the affordance always works a second time.
  */
 export function useFieldTooltip(container: RefObject<HTMLElement | null>): FieldTooltipState {
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const shown = hovered || focused || pinned;
+  const [state, setState] = useState<Visibility>(IDLE);
+  const shown = !state.dismissed && (state.hovering || state.focused || state.pinned);
   useEffect(() => {
     if (!shown) return;
-    const close = () => {
-      setHovered(false);
-      setFocused(false);
-      setPinned(false);
-    };
+    const dismiss = (previous: Visibility): Visibility => ({
+      ...previous,
+      hovering: false,
+      pinned: false,
+      dismissed: true,
+    });
     const outside = (event: Event) => {
-      if (!container.current?.contains(event.target as Node)) close();
+      if (container.current?.contains(event.target as Node)) return;
+      // A press elsewhere closes the tooltip without moving focus.
+      setState(dismiss);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      // Dismiss the tooltip first; the surrounding dialog stays open.
+      // Dismiss the tooltip first; the surrounding dialog stays open. Once it is
+      // closed this listener is gone, so Escape reaches the dialog again.
       event.preventDefault();
-      close();
+      setState(dismiss);
     };
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape, true);
@@ -64,7 +85,30 @@ export function useFieldTooltip(container: RefObject<HTMLElement | null>): Field
       document.removeEventListener('keydown', escape, true);
     };
   }, [shown, container]);
-  return { shown, setHovered, setFocused, setPinned };
+  return {
+    shown,
+    hover: {
+      onMouseEnter: () =>
+        setState((previous) => ({ ...previous, hovering: true, dismissed: false })),
+      onMouseLeave: () =>
+        setState((previous) => (previous.hovering ? { ...previous, hovering: false } : previous)),
+    },
+    trigger: {
+      onFocus: () => setState((previous) => ({ ...previous, focused: true, dismissed: false })),
+      onBlur: () =>
+        setState((previous) =>
+          previous.focused || previous.pinned
+            ? { ...previous, focused: false, pinned: false }
+            : previous,
+        ),
+      onClick: () =>
+        setState((previous) =>
+          previous.pinned
+            ? { ...previous, pinned: false, dismissed: true }
+            : { ...previous, pinned: true, dismissed: false },
+        ),
+    },
+  };
 }
 
 /** The tooltip itself, mounted only while its trigger is open. */
@@ -86,23 +130,46 @@ function FieldTooltipBox({
       if (!trigger || !element) return;
       const rect = trigger.getBoundingClientRect();
       const size = element.getBoundingClientRect();
-      const viewportWidth = window.innerWidth || 0;
-      const viewportHeight = window.innerHeight || 0;
+      // A fixed tooltip is laid out against the layout viewport, but a mobile
+      // keyboard shrinks the visual viewport, so the smaller one bounds what is
+      // actually readable.
+      const visual = window.visualViewport;
+      const width = Math.min(window.innerWidth || 0, visual?.width ?? Number.POSITIVE_INFINITY);
+      const height = Math.min(window.innerHeight || 0, visual?.height ?? Number.POSITIVE_INFINITY);
       const left = Math.max(
         MARGIN,
-        Math.min(rect.left + rect.width / 2 - size.width / 2, viewportWidth - size.width - MARGIN),
+        Math.min(rect.left + rect.width / 2 - size.width / 2, width - size.width - MARGIN),
       );
+      const roomBelow = height - rect.bottom - GAP - MARGIN;
+      const roomAbove = rect.top - GAP - MARGIN;
       const below = rect.bottom + GAP;
       const above = rect.top - size.height - GAP;
-      const fitsBelow = below + size.height <= viewportHeight - MARGIN;
-      setPosition({ top: fitsBelow || above < MARGIN ? below : above, left });
+      // Prefer a side that fits the whole tooltip, then the roomier side, and
+      // finally clamp so a tooltip that fits anywhere is never partly off screen
+      // (a description taller than the viewport starts at the top edge).
+      const wanted =
+        size.height <= roomBelow
+          ? below
+          : size.height <= roomAbove
+            ? above
+            : roomBelow >= roomAbove
+              ? below
+              : above;
+      setPosition({
+        top: Math.max(MARGIN, Math.min(wanted, height - size.height - MARGIN)),
+        left,
+      });
     };
     place();
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
+    window.visualViewport?.addEventListener('resize', place);
+    window.visualViewport?.addEventListener('scroll', place);
     return () => {
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
+      window.visualViewport?.removeEventListener('resize', place);
+      window.visualViewport?.removeEventListener('scroll', place);
     };
   }, [anchor, text]);
   // Native modal dialogs paint above every ordinary fixed layer, so the tooltip
@@ -153,15 +220,7 @@ function FieldTooltipTrigger({
         className="field-info-button"
         aria-label={t('Explain {field}', { field: fieldLabel })}
         aria-describedby={state.shown ? id : undefined}
-        onFocus={() => state.setFocused(true)}
-        onBlur={() => {
-          state.setFocused(false);
-          state.setPinned(false);
-        }}
-        onClick={(event) => {
-          // Keyboard activation reports detail 0; focus already reveals it.
-          if (event.detail > 0) state.setPinned((previous) => !previous);
-        }}
+        {...state.trigger}
       >
         <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
           <path
@@ -178,8 +237,8 @@ function FieldTooltipTrigger({
 /**
  * A label with its parameter's tooltip. The label uses an explicit `htmlFor`, so
  * the description button never becomes part of the control's accessible name.
- * Hovering the label text reveals the tooltip as well as the button, and the
- * button doubles as the container that decides what counts as an outside press.
+ * The label and the button share one hover group, which is also the container
+ * that decides what counts as a press outside.
  */
 export function FieldLabel({
   htmlFor,
@@ -190,18 +249,13 @@ export function FieldLabel({
   label: string;
   tooltipKey?: string;
 }) {
+  const group = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const state = useFieldTooltip(button);
+  const state = useFieldTooltip(group);
   const text = tooltipKey ? trainingTooltip(tooltipKey) : undefined;
   return (
-    <>
-      <label
-        htmlFor={htmlFor}
-        onMouseEnter={() => state.setHovered(true)}
-        onMouseLeave={() => state.setHovered(false)}
-      >
-        {t(label)}
-      </label>
+    <span className="field-help" ref={group} {...state.hover}>
+      <label htmlFor={htmlFor}>{t(label)}</label>
       {text && (
         <FieldTooltipTrigger
           buttonRef={button}
@@ -211,7 +265,7 @@ export function FieldLabel({
           state={state}
         />
       )}
-    </>
+    </span>
   );
 }
 

@@ -54,12 +54,15 @@ export default function EvaluationSettings({
   const backendId = useId();
   const rejected = new Set(invalidFields);
   const values = { ...evaluationDefaults, ...config };
+  // `disabled` is applied per control rather than to the fieldset, so a disabled
+  // form still offers the parameter explanations through the help buttons.
   const field = (key: string) => ({
     invalid: rejected.has(key),
     errorId,
+    disabled,
   });
   return (
-    <fieldset className="training-evaluation" disabled={disabled}>
+    <fieldset className="training-evaluation">
       <legend>{t('Evaluation')}</legend>
       <p className="subtle">
         {t(
@@ -78,7 +81,7 @@ export default function EvaluationSettings({
             data-training-field="evaluation_opponent"
             {...fieldErrorAttributes(rejected.has('evaluation_opponent'), errorId)}
             value={String(values.evaluation_opponent)}
-            disabled={tuning}
+            disabled={tuning || disabled}
             onChange={(event) => update('evaluation_opponent', event.target.value)}
           >
             <option value="shield_bearer">{t('Shield bearer')}</option>
@@ -93,6 +96,7 @@ export default function EvaluationSettings({
             id={modeId}
             data-training-field="evaluation_mode"
             value={String(values.evaluation_mode)}
+            disabled={disabled}
             onChange={(event) => update('evaluation_mode', event.target.value)}
           >
             <option value="auto">{t('Automatic')}</option>
@@ -110,6 +114,7 @@ export default function EvaluationSettings({
             id={backendId}
             data-training-field="evaluation_inference_backend"
             value={String(values.evaluation_inference_backend)}
+            disabled={disabled}
             onChange={(event) => update('evaluation_inference_backend', event.target.value)}
           >
             <option value="pytorch">PyTorch</option>

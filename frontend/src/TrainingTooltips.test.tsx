@@ -1,6 +1,16 @@
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  cleanup,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import EvaluationSettings from './EvaluationSettings';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDialog';
 import { trainingNumberFields, trainingParameterLabels } from './TrainingFields';
@@ -14,9 +24,9 @@ import type { DeviceInfo, Job, Ruleset } from './types';
  * tooltip. The coverage checks enumerate the fields the components actually
  * render (including conditional and advanced ones) and assert that each has a
  * non-empty description and a help button, so a new control without copy fails
- * here instead of shipping silently. The interaction checks cover mouse, keyboard
- * and touch, dismissal, positioning near a viewport edge and the guarantee that
- * the tooltips never change a value.
+ * here instead of shipping silently. The interaction checks drive the affordance
+ * the way a browser does — real pointer movement, real focus — so a sequence that
+ * only works with synthetic events cannot pass.
  */
 
 const rulesets: Ruleset[] = [
@@ -30,6 +40,7 @@ const openvinoDevice: DeviceInfo = {
   mps_available: false,
   inference_backends: ['pytorch', 'openvino'],
   openvino_devices: [{ id: 'GPU', name: 'Intel Arc', available: true }],
+  training_symmetry_modes: ['off', 'random_d4'],
 };
 
 const job: Job = {
@@ -58,7 +69,13 @@ function checkpoint(config: TrainingConfig): ResumeCheckpoint {
 
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value } as Response);
 
-function CreationHarness({ kind = 'train' as const }) {
+function CreationHarness({
+  kind = 'train' as const,
+  start = vi.fn(),
+}: {
+  kind?: 'train' | 'tune';
+  start?: (event: { preventDefault: () => void }) => void;
+}) {
   const [config, setConfig] = useState<TrainingConfig>(() =>
     trainingConfig('tablut', 'recommended'),
   );
@@ -93,11 +110,39 @@ function CreationHarness({ kind = 'train' as const }) {
       rulesets={rulesets}
       workers={[]}
       device={openvinoDevice}
-      start={vi.fn()}
+      start={start}
       importingConfig={false}
       onImportConfig={vi.fn()}
     />
   );
+}
+
+/**
+ * Gives the trigger and the tooltip realistic viewport rectangles. jsdom has no
+ * layout, so positioning is only observable through these measurements.
+ */
+function mockRects(
+  trigger: { left: number; top: number; width: number; height: number },
+  tooltip: { width: number; height: number },
+) {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const rect = (left: number, top: number, width: number, height: number) =>
+      ({
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    if (this.classList.contains('field-info-button'))
+      return rect(trigger.left, trigger.top, trigger.width, trigger.height);
+    if (this.classList.contains('field-tooltip')) return rect(0, 0, tooltip.width, tooltip.height);
+    return rect(0, 0, 0, 0);
+  });
 }
 
 /** Asserts every rendered training field has a description and a help button. */
@@ -121,7 +166,20 @@ function expectEveryFieldDocumented(): Set<string> {
 }
 
 const helpButton = (label: string) => screen.getByRole('button', { name: `Explain ${label}` });
+const germanHelpButton = (label: string) =>
+  screen.getByRole('button', { name: `${label} erklären` });
 const combobox = (name: string) => screen.getByRole('combobox', { name });
+
+/**
+ * Reaches a control with the keyboard the way a user does. jsdom's DOM `focus()`
+ * does not deliver a React focus event, so tabbing is the only faithful way to
+ * exercise "focus opens the tooltip" — and it doubles as proof that the help
+ * buttons are reachable by keyboard at all.
+ */
+async function tabTo(user: UserEvent, target: HTMLElement) {
+  for (let step = 0; step < 100 && document.activeElement !== target; step += 1) await user.tab();
+  expect(document.activeElement).toBe(target);
+}
 
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -318,56 +376,115 @@ it('documents every parameter the resume dialog can show', async () => {
     expect(seen, `resume dialog does not expose ${key}`).toContain(key);
 });
 
-it('reveals the tooltip on hover and hides it when the pointer leaves', () => {
+it('reveals the tooltip when hovering the information icon on its own', async () => {
+  const user = userEvent.setup();
   render(<CreationHarness />);
   expect(screen.queryByRole('tooltip')).toBeNull();
-  const label = screen.getByText('Training iterations');
-  fireEvent.mouseEnter(label);
+  await user.hover(helpButton('Training iterations'));
   const tooltip = screen.getByRole('tooltip');
   expect(tooltip).toHaveTextContent(trainingTooltips.iterations);
   expect(tooltip).toHaveClass('field-tooltip');
   expect(helpButton('Training iterations')).toHaveAttribute('aria-describedby', tooltip.id);
-  fireEvent.mouseLeave(label);
+});
+
+it('keeps the tooltip open while the pointer moves between the label and its icon', async () => {
+  const user = userEvent.setup();
+  render(<CreationHarness />);
+  const label = screen.getByText('Training iterations');
+  const button = helpButton('Training iterations');
+  await user.hover(label);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  await user.hover(button);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  await user.hover(label);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  // Leaving the group as a whole still hides a hovered tooltip.
+  await user.unhover(label);
   expect(screen.queryByRole('tooltip')).toBeNull();
 });
 
-it('reveals the tooltip on keyboard focus and dismisses it with Escape', () => {
+it('opens on keyboard focus, dismisses with Escape and reopens with the keyboard', async () => {
+  const user = userEvent.setup();
   render(<CreationHarness />);
   const button = helpButton('Network channels');
-  fireEvent.focus(button);
+  await tabTo(user, button);
   expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.channels);
-  fireEvent.keyDown(document, { key: 'Escape' });
+  await user.keyboard('{Escape}');
   expect(screen.queryByRole('tooltip')).toBeNull();
-  fireEvent.focus(button);
+  expect(button).toHaveFocus();
+  // Enter and Space reopen it without tabbing away and back.
+  await user.keyboard('{Enter}');
   expect(screen.getByRole('tooltip')).toBeInTheDocument();
-  fireEvent.blur(button);
+  await user.keyboard('{Enter}');
   expect(screen.queryByRole('tooltip')).toBeNull();
+  await user.keyboard(' ');
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  // Tabbing away hides it, and tabbing back reopens it without stale state.
+  await user.tab();
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  await user.tab({ shift: true });
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
 });
 
-it('toggles the tooltip on tap and closes it on an outside press', () => {
+it('closes on a second activation even though the icon keeps focus', async () => {
+  const user = userEvent.setup();
   render(<CreationHarness />);
   const button = helpButton('Batch size');
-  // A real tap reports a non-zero click detail; keyboard activation reports 0.
-  fireEvent.click(button, { detail: 1 });
+  await user.click(button);
+  expect(button).toHaveFocus();
   expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.batch_size);
-  fireEvent.click(button, { detail: 1 });
-  expect(screen.queryByRole('tooltip')).toBeNull();
-  fireEvent.click(button, { detail: 1 });
-  fireEvent.pointerDown(document.body);
+  await user.click(button);
+  expect(button).toHaveFocus();
   expect(screen.queryByRole('tooltip')).toBeNull();
 });
 
-it('does not treat keyboard activation as a tap', () => {
+it('opens and closes a tap without any keyboard focus', () => {
+  render(<CreationHarness />);
+  const button = helpButton('Self-play games per iteration');
+  // A touch tap that leaves the button unfocused still toggles the tooltip.
+  fireEvent.click(button, { detail: 1 });
+  expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.games);
+  fireEvent.click(button, { detail: 1 });
+  expect(screen.queryByRole('tooltip')).toBeNull();
+});
+
+it('dismisses a pinned tooltip when pressing outside without blocking the control', async () => {
+  const user = userEvent.setup();
   render(<CreationHarness />);
   const button = helpButton('Epochs per iteration');
-  fireEvent.focus(button);
-  fireEvent.click(button, { detail: 0 });
+  const input = screen.getByRole('spinbutton', { name: 'Epochs per iteration' });
+  await user.click(button);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  await user.click(input);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  expect(input).toHaveFocus();
+  await user.clear(input);
+  await user.type(input, '4');
+  expect(input).toHaveValue(4);
+});
+
+it('toggles a checkbox row tooltip by hover and by activation', async () => {
+  const user = userEvent.setup();
+  render(<CreationHarness />);
+  const button = helpButton('Save every new best model');
+  await user.hover(button);
+  expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.save_all_best);
+  await user.unhover(button);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  await user.click(button);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  // Still hovered, so only the explicit dismissal can close it again.
+  await user.click(button);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  // Hovering the checkbox label itself reveals the same description.
+  await user.hover(screen.getByLabelText('Save every new best model'));
   expect(screen.getByRole('tooltip')).toBeInTheDocument();
 });
 
-it('leaves the parameter value untouched while the tooltip is open', () => {
+it('leaves the parameter value untouched while the tooltip is open', async () => {
+  const user = userEvent.setup();
   render(<CreationHarness />);
-  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  await user.click(helpButton('Training iterations'));
   const input = screen.getByRole('spinbutton', { name: 'Training iterations' });
   fireEvent.change(input, { target: { value: '17' } });
   expect(input).toHaveValue(17);
@@ -375,29 +492,51 @@ it('leaves the parameter value untouched while the tooltip is open', () => {
 });
 
 it('keeps the tooltip inside the viewport near a corner', () => {
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    const rect = (left: number, top: number, width: number, height: number) =>
-      ({
-        left,
-        top,
-        width,
-        height,
-        right: left + width,
-        bottom: top + height,
-        x: left,
-        y: top,
-        toJSON: () => ({}),
-      }) as DOMRect;
-    if (this.classList.contains('field-info-button')) return rect(1000, 700, 17, 17);
-    if (this.classList.contains('field-tooltip')) return rect(0, 0, 300, 100);
-    return rect(0, 0, 0, 0);
-  });
+  mockRects({ left: 1000, top: 700, width: 17, height: 17 }, { width: 300, height: 100 });
   render(<CreationHarness />);
   fireEvent.click(screen.getByRole('button', { name: /Advanced configuration/ }));
   fireEvent.click(helpButton('Search time limit (seconds)'), { detail: 1 });
   // The trigger sits in the bottom-right corner, so the tooltip flips above it
   // and is clamped to the right viewport edge (1024 × 768 in jsdom).
   expect(screen.getByRole('tooltip')).toHaveStyle({ top: '594px', left: '716px' });
+});
+
+it('clamps the tooltip when neither side has room for it', () => {
+  vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(200);
+  mockRects({ left: 100, top: 90, width: 17, height: 17 }, { width: 300, height: 150 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  // Below would start at 113 and above at -66, so the taller side wins and the
+  // box is pulled back to 200 − 150 − 8 = 42 to stay fully visible.
+  expect(screen.getByRole('tooltip')).toHaveStyle({ top: '42px', left: '8px' });
+});
+
+it('keeps a long German description inside a narrow viewport', () => {
+  setLanguage('de', false);
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(320);
+  vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(480);
+  mockRects({ left: 300, top: 300, width: 17, height: 17 }, { width: 296, height: 260 });
+  render(<CreationHarness />);
+  fireEvent.click(germanHelpButton('Inferenzcache'), { detail: 1 });
+  const tooltip = screen.getByRole('tooltip');
+  expect(tooltip).toHaveTextContent('Verwendet neuronale Auswertungen identischer Stellungen');
+  // 320 − 296 − 8 = 16 keeps it on screen, and it flips above the trigger.
+  expect(tooltip).toHaveStyle({ left: '16px', top: '34px' });
+});
+
+it('keeps parameter help available while evaluation controls are disabled', () => {
+  render(
+    <EvaluationSettings
+      config={trainingConfig('brandubh', 'recommended')}
+      update={vi.fn()}
+      disabled
+    />,
+  );
+  expect(screen.getByLabelText('Evaluation games (even)')).toBeDisabled();
+  const button = helpButton('Evaluation games (even)');
+  expect(button).toBeEnabled();
+  fireEvent.click(button, { detail: 1 });
+  expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.evaluation_games);
 });
 
 it('portals the resume tooltip into the dialog so a modal never clips it', async () => {
@@ -410,6 +549,44 @@ it('portals the resume tooltip into the dialog so a modal never clips it', async
   await screen.findByLabelText('Target total iterations');
   fireEvent.click(helpButton('Target total iterations'), { detail: 1 });
   expect(within(dialog).getByRole('tooltip')).toHaveTextContent(trainingTooltips.iterations);
+});
+
+it('dismisses the tooltip on Escape without cancelling the dialog', async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(checkpoint(trainingConfig('brandubh', 'recommended')))),
+  );
+  render(<TrainingResumeDialog job={job} onClose={onClose} onStarted={vi.fn()} />);
+  await screen.findByLabelText('Target total iterations');
+  await user.click(helpButton('Target total iterations'));
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  // The first Escape is consumed by the tooltip, so the dialog stays open.
+  const first = createEvent.keyDown(document, { key: 'Escape' });
+  fireEvent(document, first);
+  expect(first.defaultPrevented).toBe(true);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  expect(onClose).not.toHaveBeenCalled();
+  // With no tooltip open the dialog's own Escape handling is untouched.
+  const second = createEvent.keyDown(document, { key: 'Escape' });
+  fireEvent(document, second);
+  expect(second.defaultPrevented).toBe(false);
+});
+
+it('does not disturb starting a new training job', async () => {
+  const user = userEvent.setup();
+  const start = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+  render(<CreationHarness start={start} />);
+  await user.click(helpButton('Training iterations'));
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Training iterations' }), {
+    target: { value: '9' },
+  });
+  await user.click(screen.getByRole('button', { name: 'Start training' }));
+  expect(start).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('spinbutton', { name: 'Training iterations' })).toHaveValue(9);
+  // Submitting is a press outside the help group, so the tooltip closes itself.
+  expect(screen.queryByRole('tooltip')).toBeNull();
 });
 
 it('does not disturb resume prepopulation or the submitted changes', async () => {
@@ -441,8 +618,9 @@ it('does not disturb resume prepopulation or the submitted changes', async () =>
 });
 
 it('uses one description for a parameter shared by both dialogs', async () => {
+  const user = userEvent.setup();
   render(<CreationHarness />);
-  fireEvent.mouseEnter(screen.getByText('Batch size'));
+  await user.hover(screen.getByText('Batch size'));
   const fromCreation = screen.getByRole('tooltip').textContent;
   cleanup();
   vi.stubGlobal(
@@ -451,7 +629,7 @@ it('uses one description for a parameter shared by both dialogs', async () => {
   );
   render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
   await screen.findByLabelText('Target total iterations');
-  fireEvent.mouseEnter(screen.getByText('Batch size'));
+  await user.hover(screen.getByText('Batch size'));
   await waitFor(() => expect(screen.getByRole('tooltip')).toHaveTextContent(fromCreation ?? ''));
   expect(fromCreation).toBe(trainingTooltips.batch_size);
 });
@@ -459,7 +637,7 @@ it('uses one description for a parameter shared by both dialogs', async () => {
 it('translates the help affordance and its descriptions into German', () => {
   setLanguage('de', false);
   render(<CreationHarness />);
-  fireEvent.mouseEnter(screen.getByText('Trainingsiterationen'));
+  fireEvent.click(germanHelpButton('Trainingsiterationen'), { detail: 1 });
   expect(screen.getByRole('tooltip')).toHaveTextContent(
     'Anzahl der Trainingsiterationen. Jede Iteration erzeugt Selbstspielpartien',
   );

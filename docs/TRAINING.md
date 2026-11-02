@@ -128,10 +128,12 @@ limit; reduce the buffer or model dimensions rather than bypassing validation.
 ### Parameter help in the forms
 
 Every parameter in the workshop's new-job form and resume dialog has an
-information button beside its label. Hovering the label, focusing the button with
-the keyboard or tapping it reveals a description of what the setting controls,
-which phase it affects (self-play, gradient training or evaluation) and how it
-interacts with other settings. Escape or a press outside dismisses it.
+information button beside its label. Hovering the label or the button, focusing
+the button with the keyboard, or tapping it reveals a description of what the
+setting controls, which phase it affects (self-play, gradient training or
+evaluation) and how it interacts with other settings. Clicking or tapping the
+button keeps the description open until Escape or a press elsewhere dismisses it;
+a description taller than a short viewport is kept on screen rather than clipped.
 
 One shared registry (`frontend/src/trainingTooltips.ts`) holds the wording, keyed
 by the same parameter identity the API and the form controls use, so a parameter
@@ -139,7 +141,8 @@ that appears in both forms is described identically and a new control cannot be
 added without copy:
 `frontend/src/TrainingTooltips.test.tsx` enumerates the fields each form actually
 renders — including conditional and advanced ones — and fails when one has no
-description.
+description. `frontend/tests/training-tooltips.spec.ts` drives the same
+interactions in a real browser, where pointer and focus sequencing is real.
 
 ### CLI configurations and the HTTP API
 
