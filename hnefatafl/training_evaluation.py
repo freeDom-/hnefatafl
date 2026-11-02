@@ -167,7 +167,10 @@ def evaluate_model(
     model.eval()
     if previous is not None:
         previous.eval()
-    if config.get("search_workers", 0) and config.get("evaluation_mode", "auto") != "sequential":
+    # Imported lazily because training imports this module at import time.
+    from .training import evaluation_uses_pool
+
+    if evaluation_uses_pool(config):
         parallel_started = time.monotonic()
         from .parallel_search import parallel_evaluation
 

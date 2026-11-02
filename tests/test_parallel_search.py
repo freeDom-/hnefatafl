@@ -1,7 +1,10 @@
 """Real spawned actors, decoupled concurrency, routing and failure cleanup."""
 
 from copy import deepcopy
+from contextlib import ExitStack
+import gc
 import random
+import warnings
 
 import pytest
 import torch
@@ -9,7 +12,14 @@ import torch
 from hnefatafl.engine import Move, apply_move, legal_moves, new_game
 from hnefatafl.models import PolicyValueNet, encode_state, load_checkpoint
 from hnefatafl.parallel_search import SearchPool, plan_batches
-from hnefatafl.training import generate_self_play, normalize_config, train
+from hnefatafl.training import (
+    evaluation_uses_pool,
+    generate_self_play,
+    normalize_config,
+    self_play_execution_mode,
+    self_play_uses_pool,
+    train,
+)
 from hnefatafl.training_evaluation import evaluate_model
 
 
@@ -30,7 +40,7 @@ def settings(**changes):
             "max_game_plies": 6,
             "mcts_iterations": 8,
             "mcts_time_limit": 300,
-            "self_play_mode": "sequential",
+            "self_play_mode": "batched",
             "self_play_concurrency": 4,
             "evaluation_time_limit": 300,
             "evaluation_max_plies": 6,
@@ -244,20 +254,32 @@ def test_replay_window_bounds_uncommitted_games():
         inference_batch_size=2,
     )
     commits = []
-    seen = []
+    uncommitted = []
+
+    def on_game(index, *_):
+        commits.append(index)
+
+    def progress(info):
+        # Games received but not yet committed must stay inside the window.
+        uncommitted.append(info["game"] - len(commits))
+
     games, metrics = generate_self_play(
         model,
         {**config, "search_workers": 2},
         seed=37,
         retain_examples=False,
-        on_game=lambda index, *_: commits.append(index),
-        progress=lambda info: seen.append(info["game"]),
+        on_game=on_game,
+        progress=progress,
     )
     assert commits == list(range(12))
-    assert [result["plies"] for _, result in games] == [result["plies"] for _, result in games]
     assert metrics["search_replay_window"] == 4
     assert metrics["search_concurrency"] == 2
-    assert max(seen) == 12
+    # The pool may start at most ``window`` games ahead of the committed prefix.
+    assert max(uncommitted) <= 4
+    # No examples are requested, but every game still reports its outcome.
+    assert all(examples == [] for examples, _ in games)
+    assert all(result["outcome"] in ("completed", "truncated") for _, result in games)
+    assert all(result["plies"] > 0 for _, result in games)
 
 
 def test_uneven_games_finish_and_commit_in_order():
@@ -589,10 +611,451 @@ def test_cuda_models_stay_in_parent():
     model = PolicyValueNet("brandubh", 4, 0).cuda().eval()
     config = settings(search_workers=2, games=2, max_game_plies=2)
     with SearchPool(2) as pool:
-        _, owned, snapshots, _, actors = pool._open_phase(
-            "self_play", [model], config, None, 2, 2, 2
-        )
-        assert snapshots == [] and actors is False and owned == []
+        snapshots, _, actors = pool._open_phase(
+            ExitStack(), "self_play", [model], config, None, 2, 2, 2
+        )[1:]
+        assert snapshots == [] and actors is False
     _, metrics = generate_self_play(model, config, seed=17)
     assert metrics["inference_location"] == "parent"
     assert metrics["neural_evaluations"] > 0
+
+
+class FakeBackend:
+    """Parent-owned inference backend that records its lifecycle."""
+
+    def __init__(self, model, name="backend", *, fail_refresh=False):
+        self.model = model
+        self.name = name
+        self.device = next(model.parameters()).device
+        self.info = {"backend": name}
+        self.refreshes = 0
+        self.closed = 0
+        self.fail_refresh = fail_refresh
+        self.fail_close = False
+
+    def refresh(self):
+        self.refreshes += 1
+        if self.fail_refresh:
+            raise RuntimeError(f"refresh failed for {self.name}")
+        return {}
+
+    def forward(self, batch):
+        return self.model(batch)
+
+    def close(self):
+        self.closed += 1
+        if self.fail_close:
+            raise RuntimeError(f"close failed for {self.name}")
+
+
+def install_backends(monkeypatch, *, fail_create=None, fail_refresh=(), on_create=None):
+    """Replace OpenVINO backend creation with lifecycle-recording fakes."""
+    created: list[FakeBackend] = []
+
+    def create(model, config):
+        index = len(created)
+        if index == fail_create:
+            raise RuntimeError(f"create failed for backend {index}")
+        backend = FakeBackend(model, name=f"backend{index}", fail_refresh=index in fail_refresh)
+        created.append(backend)
+        if on_create is not None:
+            on_create(index, backend)
+        return backend
+
+    monkeypatch.setattr("hnefatafl.inference_backends.create_inference", create)
+    return created
+
+
+def champion_pair(seed=56):
+    torch.manual_seed(seed)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    previous = deepcopy(model)
+    with torch.no_grad():
+        next(previous.parameters()).add_(0.1)
+    return model, previous
+
+
+def openvino_champion(**changes):
+    return settings(
+        evaluation_opponent="champion",
+        evaluation_mode="batched",
+        evaluation_games=4,
+        evaluation_concurrency=4,
+        evaluation_batch_size=4,
+        evaluation_inference_backend="training",
+        inference_backend="openvino",
+        **changes,
+    )
+
+
+def test_champion_evaluation_closes_both_owned_backends(monkeypatch):
+    model, previous = champion_pair()
+    config = openvino_champion(search_workers=2)
+    plain = {
+        **config,
+        "search_workers": 0,
+        "evaluation_inference_backend": "pytorch",
+        "inference_backend": "pytorch",
+    }
+    expected = evaluate_model(model, plain, previous=previous)
+    created = install_backends(monkeypatch)
+    actual = evaluate_model(model, config, previous=previous)
+    assert [
+        {key: row[key] for key in expected["games"][index]}
+        for index, row in enumerate(actual["games"])
+    ] == expected["games"]
+    assert [backend.refreshes for backend in created] == [1, 1]
+    assert [backend.closed for backend in created] == [1, 1]
+
+
+def test_second_backend_creation_failure_closes_the_first(monkeypatch):
+    model, previous = champion_pair()
+    created = install_backends(monkeypatch, fail_create=1)
+    with pytest.raises(RuntimeError, match="create failed for backend 1"):
+        evaluate_model(model, openvino_champion(search_workers=2), previous=previous)
+    assert len(created) == 1
+    assert created[0].closed == 1
+
+
+@pytest.mark.parametrize("failing", [0, 1])
+def test_refresh_failure_closes_created_backends(monkeypatch, failing):
+    model, previous = champion_pair()
+    created = install_backends(monkeypatch, fail_refresh={failing})
+    with pytest.raises(RuntimeError, match=f"refresh failed for backend{failing}"):
+        evaluate_model(model, openvino_champion(search_workers=2), previous=previous)
+    assert len(created) == failing + 1
+    assert [backend.closed for backend in created] == [1] * (failing + 1)
+
+
+def test_setup_failure_after_initialization_closes_owned_backends(monkeypatch):
+    model, previous = champion_pair()
+    created = install_backends(monkeypatch)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("metrics unavailable")
+
+    monkeypatch.setattr("hnefatafl.parallel_search.InferenceMetrics", unavailable)
+    with pytest.raises(RuntimeError, match="metrics unavailable"):
+        evaluate_model(model, openvino_champion(search_workers=2), previous=previous)
+    assert [backend.closed for backend in created] == [1, 1]
+
+
+def test_cancellation_during_backend_initialization_closes_created_backends(monkeypatch):
+    model, previous = champion_pair()
+    state = {"stopped": False}
+    created = install_backends(
+        monkeypatch, on_create=lambda index, backend: state.__setitem__("stopped", True)
+    )
+    with pytest.raises(InterruptedError):
+        evaluate_model(
+            model,
+            openvino_champion(search_workers=2),
+            previous=previous,
+            should_stop=lambda: state["stopped"],
+        )
+    assert [backend.closed for backend in created] == [1, 1]
+
+
+def test_cleanup_failure_does_not_hide_the_primary_error(monkeypatch):
+    model, previous = champion_pair()
+    created = install_backends(
+        monkeypatch,
+        fail_create=1,
+        on_create=lambda index, backend: setattr(backend, "fail_close", True),
+    )
+    with pytest.raises(RuntimeError, match="create failed for backend 1") as failure:
+        evaluate_model(model, openvino_champion(search_workers=2), previous=previous)
+    assert created[0].closed == 1
+    assert any("close failed" in note for note in getattr(failure.value, "__notes__", []))
+
+
+def test_external_backend_is_not_closed_by_the_pool():
+    torch.manual_seed(64)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    backend = FakeBackend(model)
+    config = settings(games=2, max_game_plies=4, mcts_iterations=2, search_workers=2)
+    games, metrics = generate_self_play(model, config, seed=91, backend=backend)
+    assert len(games) == 2
+    assert metrics["inference_location"] == "parent"
+    assert backend.refreshes == 0
+    assert backend.closed == 0
+
+
+def test_champion_routing_distinguishes_candidate_from_incumbent(monkeypatch):
+    torch.manual_seed(70)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    previous = deepcopy(model)
+    with torch.no_grad():
+        for parameter in previous.parameters():
+            parameter.mul_(0.5)
+    config = openvino_champion(search_workers=2, evaluation_max_plies=20, evaluation_iterations=16)
+    created = install_backends(monkeypatch)
+    actual = evaluate_model(model, config, previous=previous)
+    assert [backend.closed for backend in created] == [1, 1]
+    plain = {
+        **config,
+        "search_workers": 0,
+        "evaluation_inference_backend": "pytorch",
+        "inference_backend": "pytorch",
+    }
+    expected = evaluate_model(model, plain, previous=previous)
+    assert [
+        {key: row[key] for key in expected["games"][index]}
+        for index, row in enumerate(actual["games"])
+    ] == expected["games"]
+    # Swapping the two models must change the games, so the equality above cannot
+    # be satisfied by routing the incumbent's requests to the candidate.
+    swapped = evaluate_model(previous, plain, previous=model)
+    assert swapped["games"] != expected["games"]
+
+
+@pytest.mark.parametrize(
+    "games,concurrency,workers",
+    [(8, 1, 2), (8, 3, 2), (8, 10, 3), (64, 64, 3), (64, 64, 4), (8, 2, 8), (64, 8, 3)],
+)
+def test_configured_concurrency_is_a_hard_upper_bound(games, concurrency, workers):
+    torch.manual_seed(71)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=games,
+        max_game_plies=2,
+        mcts_iterations=1,
+        self_play_concurrency=concurrency,
+        inference_batch_size=4,
+        search_workers=workers,
+    )
+    expected = min(concurrency, games)
+    with SearchPool(workers) as pool:
+        played, metrics = generate_self_play(model, config, seed=73, search_pool=pool)
+    assert len(played) == games
+    capacities = metrics["search_worker_capacity"]
+    peaks = metrics["search_worker_peak_active"]
+    assert metrics["search_concurrency"] == expected
+    assert sum(capacities) == expected
+    assert len(capacities) == min(workers, expected)
+    assert metrics["search_worker_count"] == len(capacities)
+    assert max(peaks) > 0
+    assert all(peak <= capacity for peak, capacity in zip(peaks, capacities))
+
+
+def count_live_example_rows() -> int:
+    # Traversing the object graph touches torch's lazy module attributes, which
+    # emit an unrelated deprecation warning.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        return sum(
+            1
+            for obj in gc.get_objects()
+            if isinstance(obj, dict)
+            and "probabilities" in obj
+            and "legal" in obj
+            and "input" in obj
+        )
+
+
+def measure_peak_live_rows(games: int) -> tuple[int, int]:
+    torch.manual_seed(74)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=games,
+        max_game_plies=3,
+        mcts_iterations=2,
+        self_play_concurrency=4,
+        inference_batch_size=4,
+    )
+    commits: list[int] = []
+    peaks: list[int] = []
+    games_out, _ = generate_self_play(
+        model,
+        {**config, "search_workers": 2},
+        seed=75,
+        retain_examples=False,
+        on_game=lambda index, *_: commits.append(index),
+        progress=lambda info: peaks.append(count_live_example_rows()),
+    )
+    assert commits == list(range(games))
+    assert all(examples == [] for examples, _ in games_out)
+    return max(peaks), games * 3
+
+
+def test_committed_examples_are_released_and_retention_stays_bounded():
+    small_peak, small_total = measure_peak_live_rows(16)
+    large_peak, large_total = measure_peak_live_rows(96)
+    assert 0 < small_peak <= small_total
+    # Six times the games must not retain six times the examples.
+    assert large_peak < large_total / 3
+    assert large_peak <= small_peak + 16
+
+
+def test_cancellation_releases_intermediate_examples():
+    torch.manual_seed(76)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=32,
+        max_game_plies=4,
+        mcts_iterations=2,
+        self_play_concurrency=4,
+        inference_batch_size=4,
+    )
+    baseline = count_live_example_rows()
+    stopped = False
+
+    def progress(info):
+        nonlocal stopped
+        if info["game"] >= 4:
+            stopped = True
+
+    with pytest.raises(InterruptedError):
+        generate_self_play(
+            model,
+            {**config, "search_workers": 2},
+            seed=77,
+            retain_examples=False,
+            progress=progress,
+            should_stop=lambda: stopped,
+        )
+    gc.collect()
+    assert count_live_example_rows() <= baseline
+
+
+def test_retained_examples_stay_complete():
+    torch.manual_seed(78)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=6,
+        max_game_plies=4,
+        mcts_iterations=2,
+        self_play_concurrency=3,
+        inference_batch_size=3,
+    )
+    expected, _ = generate_self_play(model, {**config, "search_workers": 0}, seed=81)
+    actual, _ = generate_self_play(model, {**config, "search_workers": 3}, seed=81)
+    assert_games_equal(actual, expected)
+    assert all(examples for examples, _ in actual)
+
+
+@pytest.mark.parametrize(
+    "mode,workers,expected",
+    [
+        ("sequential", 4, False),
+        ("batched", 4, True),
+        ("auto", 4, True),
+        ("sequential", 0, False),
+        ("batched", 0, False),
+        ("auto", 0, False),
+    ],
+)
+def test_self_play_pool_precedence(mode, workers, expected):
+    assert self_play_uses_pool(settings(self_play_mode=mode, search_workers=workers)) is expected
+
+
+@pytest.mark.parametrize(
+    "mode,workers,expected",
+    [("sequential", 4, False), ("batched", 4, True), ("auto", 4, True), ("auto", 0, False)],
+)
+def test_evaluation_pool_precedence(mode, workers, expected):
+    assert evaluation_uses_pool(settings(evaluation_mode=mode, search_workers=workers)) is expected
+
+
+class FakeDevice:
+    def __init__(self, type_):
+        self.type = type_
+
+
+@pytest.mark.parametrize(
+    "mode,backend,device,expected",
+    [
+        ("auto", "pytorch", "cuda", "batched"),
+        ("auto", "openvino", "cpu", "batched"),
+        ("auto", "pytorch", "cpu", "sequential"),
+        ("auto", "pytorch", "mps", "sequential"),
+        ("sequential", "openvino", "cuda", "sequential"),
+        ("batched", "pytorch", "cpu", "batched"),
+    ],
+)
+def test_auto_mode_resolution(mode, backend, device, expected):
+    assert (
+        self_play_execution_mode(
+            {"self_play_mode": mode, "inference_backend": backend}, FakeDevice(device)
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("workers", [0, 2, 4])
+@pytest.mark.parametrize("mode", ["sequential", "batched", "auto"])
+def test_execution_mode_matches_configuration(mode, workers):
+    torch.manual_seed(83)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        self_play_mode=mode,
+        games=4,
+        max_game_plies=4,
+        mcts_iterations=2,
+        search_workers=workers,
+    )
+    games, metrics = generate_self_play(model, config, seed=89)
+    assert len(games) == 4
+    if mode == "sequential":
+        assert metrics["self_play_mode"] == "sequential"
+    elif mode == "batched":
+        assert metrics["self_play_mode"] == ("parallel" if workers else "batched")
+    else:
+        # auto batches on CUDA/OpenVINO, stays sequential on CPU, and uses the
+        # pool whenever one is configured.
+        assert metrics["self_play_mode"] == ("parallel" if workers else "sequential")
+
+
+def test_explicit_sequential_self_play_never_uses_the_pool(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("explicit sequential self-play must not use the pool")
+
+    monkeypatch.setattr("hnefatafl.parallel_search.parallel_self_play", forbidden)
+    torch.manual_seed(84)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    games, metrics = generate_self_play(
+        model,
+        settings(self_play_mode="sequential", search_workers=4, games=2, max_game_plies=4),
+        seed=93,
+    )
+    assert len(games) == 2
+    assert metrics["self_play_mode"] == "sequential"
+
+
+def test_sequential_phases_do_not_start_workers(monkeypatch, tmp_path):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a fully sequential configuration must not start workers")
+
+    monkeypatch.setattr("hnefatafl.parallel_search.SearchPool", forbidden)
+    result = train(
+        settings(
+            self_play_mode="sequential",
+            evaluation_mode="sequential",
+            search_workers=4,
+            games=2,
+            max_game_plies=2,
+            evaluation_max_plies=2,
+            output_dir=str(tmp_path / "sequential"),
+            registry_dir=str(tmp_path / "models"),
+        )
+    )
+    assert result["metrics"]["updates"] > 0
+
+
+@pytest.mark.parametrize("mode", ["sequential", "batched", "auto"])
+@pytest.mark.parametrize("workers", [0, 2])
+def test_evaluation_mode_matches_configuration(mode, workers):
+    torch.manual_seed(85)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        evaluation_mode=mode,
+        evaluation_opponent="shield_bearer",
+        evaluation_games=2,
+        evaluation_max_plies=4,
+        evaluation_iterations=2,
+        search_workers=workers,
+    )
+    result = evaluate_model(model, config)
+    assert result["game_count"] == 2
+    reported = result.get("performance", {}).get("mode")
+    assert (reported == "parallel") == (bool(workers) and mode != "sequential")

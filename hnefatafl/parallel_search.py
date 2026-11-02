@@ -15,6 +15,7 @@ is requested explicitly.
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import ExitStack
 import multiprocessing as mp
 from multiprocessing.connection import Connection, wait
 import time
@@ -59,6 +60,23 @@ def plan_batches(
     if batch:
         batches.append((batch, spans))
     return batches
+
+
+def _close_owned(owned: ExitStack, error: BaseException | None = None) -> None:
+    """Close every resource registered on ``owned``, exactly once.
+
+    A failing close never replaces the error that triggered cleanup: it is
+    attached to that error as a note instead, so both the original failure and
+    the cleanup failure stay visible. On the success path there is nothing to
+    preserve and a failing close propagates normally.
+    """
+    if error is None:
+        owned.close()
+        return
+    try:
+        owned.close()
+    except BaseException as cleanup:
+        error.add_note(f"Closing an inference backend also failed: {cleanup!r}")
 
 
 def _game_factory(
@@ -167,19 +185,21 @@ def _search(
     )
     create = _game_factory(kind, config, spec.get("context"), spec["seed"], identities, cancelled)
     started = 0
+    peak_active = 0
 
     def refill() -> None:
-        nonlocal started
+        nonlocal started, peak_active
         while len(search) < spec["concurrency"] and started < len(indices):
             index = indices[started]
             started += 1
             search.start(index, create(index))
+        peak_active = max(peak_active, len(search))
 
     try:
         search.run(refill)
     finally:
         search.close()
-    connection.send(("finished", take_metrics()))
+    connection.send(("finished", take_metrics(), peak_active))
 
 
 def _actor(connection: Connection, cancel) -> None:
@@ -311,6 +331,7 @@ class SearchPool:
 
     def _open_phase(
         self,
+        owned: ExitStack,
         kind: str,
         models: list,
         config: dict,
@@ -319,9 +340,14 @@ class SearchPool:
         concurrency: int,
         count: int,
     ):
-        """Resolve the inference owner and the per-worker game assignment."""
+        """Resolve the inference owner and register every resource it creates.
+
+        Backends are registered on ``owned`` before they are refreshed, so a
+        failure anywhere in this method leaves the caller's stack holding exactly
+        the resources that were created and still need closing. The caller's
+        phase cleanup closes them once.
+        """
         backends: list = [backend if kind == "self_play" else None for _ in models]
-        owned: list = []
         if (
             kind == "evaluation"
             and config.get("evaluation_inference_backend") == "training"
@@ -339,7 +365,7 @@ class SearchPool:
                         "inference_batch_size": limit,
                     },
                 )
-                owned.append(graph)
+                owned.callback(graph.close)
                 graph.refresh()
                 backends[index] = graph
         cpu_models = all(next(selected.parameters()).device.type == "cpu" for selected in models)
@@ -370,7 +396,7 @@ class SearchPool:
             else None
             for _ in models
         ]
-        return backends, owned, snapshots, caches, actors
+        return backends, snapshots, caches, actors
 
     def games(
         self,
@@ -411,29 +437,46 @@ class SearchPool:
             ),
         )
         workers = min(len(self.processes), count)
+        # Hard global bound: split the requested concurrency into a quotient and
+        # a remainder so the capacities sum to exactly ``concurrency``. A worker
+        # with no slot is never started, which keeps the bound when concurrency
+        # is smaller than the pool or does not divide evenly by it.
+        base, extra = divmod(concurrency, workers)
+        capacities = [base + (1 if worker < extra else 0) for worker in range(workers)]
+        active = [worker for worker, capacity in enumerate(capacities) if capacity]
         # Round-robin keeps every worker's game mix representative and, unlike a
         # work-stealing queue, keeps batch composition reproducible across runs.
         assignments = [
-            [index for index in range(count) if index % workers == worker]
-            for worker in range(workers)
+            [index for index in range(count) if index % len(active) == slot]
+            for slot in range(len(active))
         ]
-        per_worker = max(1, -(-concurrency // workers))
         window = count if committed is None else 2 * concurrency
-        slice_size = max(per_worker, -(-window // workers))
-        used = self.connections[:workers]
-        owner = {connection: worker for worker, connection in enumerate(used)}
-        cursors = [0] * workers
+        slice_sizes = [max(capacities[worker], -(-window // len(active))) for worker in active]
+        used = [self.connections[worker] for worker in active]
+        owner = {connection: slot for slot, connection in enumerate(used)}
+        cursors = [0] * len(active)
         granted = 0
-        backends, owned, snapshots, caches, actors = self._open_phase(
-            kind, models, config, backend, limit, concurrency, count
-        )
-        self.inference_metrics = [
-            InferenceMetrics(
-                track_cuda=measure_cuda and next(selected.parameters()).device.type == "cuda"
+        peak_active = [0] * len(active)
+        owned = ExitStack()
+        try:
+            backends, snapshots, caches, actors = self._open_phase(
+                owned, kind, models, config, backend, limit, concurrency, count
             )
-            for selected in models
-        ]
-        results: dict[int, Any] = {}
+            self.inference_metrics = [
+                InferenceMetrics(
+                    track_cuda=measure_cuda and next(selected.parameters()).device.type == "cuda"
+                )
+                for selected in models
+            ]
+        except BaseException as error:
+            # Phase setup owns whatever it created, even if it never reaches the
+            # execution loop below.
+            _close_owned(owned, error)
+            raise
+        # Only the running count is kept: a completed game is handed to the
+        # caller immediately, so the pool never holds a second copy of every
+        # iteration's examples. ``streamed`` is bounded by one flush batch.
+        completed = 0
         streamed: list[tuple[int, Any]] = []
         pools: dict[int, list[tuple[Connection, int, list[State]]]] = defaultdict(list)
         awaiting: set[Connection] = set()
@@ -445,6 +488,7 @@ class SearchPool:
                 self.inference_metrics[identity].add(delta)
 
         def handle(connection: Connection, message) -> None:
+            nonlocal completed
             if message[0] == "leaves":
                 pools[message[2]].append((connection, message[1], message[3]))
                 awaiting.add(connection)
@@ -453,12 +497,13 @@ class SearchPool:
                 if kind == "self_play":
                     for row in result[0]:
                         row["input"] = torch.from_numpy(row["input"])
-                results[message[1]] = result
+                completed += 1
                 streamed.append((message[1], result))
                 merge(message[3])
             elif message[0] == "finished":
                 busy.discard(connection)
                 idle.add(connection)
+                peak_active[owner[connection]] = max(peak_active[owner[connection]], message[2])
                 merge(message[1])
             else:
                 raise RuntimeError(f"Search actor failed: {message[1]}")
@@ -511,18 +556,18 @@ class SearchPool:
         def grant(connection: Connection) -> bool:
             """Hand out this worker's next slice while the replay window allows."""
             nonlocal granted
-            worker = owner[connection]
-            share = assignments[worker]
-            cursor = cursors[worker]
+            slot = owner[connection]
+            share = assignments[slot]
+            cursor = cursors[slot]
             if cursor >= len(share):
                 return False
-            allowance = min(slice_size, len(share) - cursor)
+            allowance = min(slice_sizes[slot], len(share) - cursor)
             if committed is not None:
                 allowance = min(allowance, window - (granted - committed()))
             if allowance <= 0:
                 return False
             indices = share[cursor : cursor + allowance]
-            cursors[worker] = cursor + allowance
+            cursors[slot] = cursor + allowance
             granted += allowance
             connection.send(
                 (
@@ -534,8 +579,8 @@ class SearchPool:
                         "seed": seed,
                         "indices": indices,
                         "identities": len(models),
-                        "concurrency": per_worker,
-                        "batch_size": per_worker,
+                        "concurrency": capacities[active[slot]],
+                        "batch_size": capacities[active[slot]],
                     },
                 )
             )
@@ -544,7 +589,7 @@ class SearchPool:
             return True
 
         def check_alive() -> None:
-            if any(not self.processes[index].is_alive() for index in range(workers)):
+            if any(not self.processes[index].is_alive() for index in active):
                 raise RuntimeError("Search actor exited unexpectedly")
 
         def cancelled() -> None:
@@ -573,7 +618,7 @@ class SearchPool:
                 check_alive()
             for connection in used:
                 grant(connection)
-            while len(results) < count:
+            while completed < count:
                 cancelled()
                 # Every result received so far is yielded before the loop body
                 # ends, so nothing is buffered here. Committing that prefix may
@@ -632,9 +677,11 @@ class SearchPool:
                 raise RuntimeError("Search actors did not finish reporting the phase")
             self.performance = {
                 "search_workers": len(self.processes),
-                "search_worker_count": workers,
+                "search_worker_count": len(active),
                 "search_concurrency": concurrency,
-                "search_games_per_worker": per_worker,
+                "search_games_per_worker": max(capacities),
+                "search_worker_capacity": [capacities[worker] for worker in active],
+                "search_worker_peak_active": list(peak_active),
                 "search_replay_window": window,
                 "search_flush_seconds": self.flush_seconds,
                 "search_initialization_seconds": self.initialization_seconds,
@@ -645,13 +692,14 @@ class SearchPool:
             }
         except (EOFError, BrokenPipeError) as error:
             self.close()
+            _close_owned(owned, error)
             raise RuntimeError("Search actor connection closed") from error
-        except BaseException:
+        except BaseException as error:
             self.close()
+            _close_owned(owned, error)
             raise
-        finally:
-            for graph in owned:
-                graph.close()
+        else:
+            _close_owned(owned)
 
 
 def parallel_self_play(

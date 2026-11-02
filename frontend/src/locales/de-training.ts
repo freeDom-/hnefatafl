@@ -245,6 +245,7 @@ const translations: Record<string, string> = {
   'Automatic · batched on CUDA/OpenVINO': 'Automatisch · gebündelt auf CUDA/OpenVINO',
   Sequential: 'Sequenziell',
   Batched: 'Gebündelt',
+  Parallel: 'Parallel',
   'Concurrent self-play games': 'Gleichzeitige Selbstspiele',
   'Inference batch size': 'Inferenz-Bündelgröße',
   'Training performance': 'Trainingsleistung',

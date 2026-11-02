@@ -424,6 +424,37 @@ def self_play(
     }
 
 
+def self_play_execution_mode(config: dict, device) -> str:
+    """Resolve ``self_play_mode`` to ``sequential`` or ``batched``.
+
+    ``auto`` batches on CUDA and with the OpenVINO backend and stays sequential
+    on CPU/MPS. Worker precedence is separate: an explicit ``sequential`` phase
+    never uses the pool, while ``batched`` and ``auto`` use it whenever
+    ``search_workers`` is positive.
+    """
+    mode = config["self_play_mode"]
+    if mode != "auto":
+        return mode
+    return (
+        "batched"
+        if device.type == "cuda" or config.get("inference_backend") == "openvino"
+        else "sequential"
+    )
+
+
+def self_play_uses_pool(config: dict) -> bool:
+    """Whether self-play generation should run on the worker pool."""
+    return bool(config.get("search_workers", 0)) and config["self_play_mode"] != "sequential"
+
+
+def evaluation_uses_pool(config: dict) -> bool:
+    """Whether model evaluation should run on the worker pool."""
+    return (
+        bool(config.get("search_workers", 0))
+        and config.get("evaluation_mode", "auto") != "sequential"
+    )
+
+
 def generate_self_play(
     model: PolicyValueNet,
     config: dict,
@@ -466,7 +497,7 @@ def generate_self_play(
         finally:
             owned.close()
 
-    if config.get("search_workers", 0):
+    if self_play_uses_pool(config):
         from .parallel_search import parallel_self_play
 
         return parallel_self_play(
@@ -485,13 +516,7 @@ def generate_self_play(
     from .self_play import SelfPlayMetrics, batched_self_play
 
     device = next(model.parameters()).device
-    mode = config["self_play_mode"]
-    if mode == "auto":
-        mode = (
-            "batched"
-            if device.type == "cuda" or config.get("inference_backend") == "openvino"
-            else "sequential"
-        )
+    mode = self_play_execution_mode(config, device)
     concurrency = min(config["games"], config["self_play_concurrency"]) if mode == "batched" else 1
     cache = (
         ExactInferenceCache(config["inference_cache_capacity"])
@@ -833,7 +858,7 @@ def train(
     backend = None
     search_pool = None
     try:
-        if config.get("search_workers", 0):
+        if self_play_uses_pool(config) or evaluation_uses_pool(config):
             from .parallel_search import SearchPool
 
             search_pool = SearchPool(config["search_workers"])
