@@ -1,5 +1,11 @@
 # Parallel search processes
 
+> Historical record of the first `search_workers` implementation, retained as
+> measured. Its pool bounded game concurrency by the process count, which regressed
+> GPU batch occupancy; see the
+> [redesign report](training-parallel-search-redesign.md) for the corrected
+> scheduling model and new CPU/GPU measurements.
+
 Independent comparison against main `5a343668411033ed3283ed51e01323454975723a`.
 The [raw report](training-parallel-search.json) records every sample, source hash,
 work fingerprint, environment and startup-containing warm-up. No other tests or

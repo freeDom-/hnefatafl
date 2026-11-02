@@ -154,12 +154,20 @@ online games are rejected by the backend and never expose assistance.
 ## Training execution and inference
 
 Self-play uses sequential execution or cooperatively interleaves independent games
-through one shared model. Optional `search_workers` adds persistent spawned CPU
-actors: CPU inference uses frozen actor snapshots, while CUDA/OpenVINO inference
-stays parent-owned. Replay remains ordered and buffered work bounded; failure or
-cancellation closes the pool. The default remains zero process workers. Each dependent MCTS simulation waits for its own leaf
-inference result; independent pending leaves can share a forward pass. Replay commits
-remain in game-index order. CUDA auto selects batching; PyTorch CPU/MPS auto stays sequential. Explicit
+through one shared model. `cooperative.py` owns that scheduler for every path: each
+game is a generator that yields its own pending leaf and receives exactly its own
+policy/value result, so no simulation advances on another game's inference. Optional
+`search_workers` (default 0) adds persistent spawned CPU actors that each run the
+same scheduler over many game contexts. The worker count bounds CPU parallelism
+only: `self_play_concurrency` and `evaluation_concurrency` bound active games across
+the whole pool, and every worker receives a static round-robin share of the game
+indices so batch composition stays reproducible across runs. CPU inference uses
+frozen actor snapshots evaluated inside the actor; CUDA/OpenVINO models, tensors,
+streams and caches stay in the parent, which batches the outstanding requests of the
+whole pool into one forward pass and routes each result back by explicit request
+identity. Replay commits remain in game-index order, and the pool hands out new games
+only while the started-but-uncommitted count stays inside the ordered replay window.
+Failure or cancellation closes the pool. CUDA auto selects batching; PyTorch CPU/MPS auto stays sequential. Explicit
 OpenVINO auto selects batching with CPU optimization. An optional frozen
 TorchScript/OpenVINO FP32 graph is refreshed once before each self-play iteration;
 bounded dynamic batches reuse one compiled graph. Shared encoding/legal-policy
