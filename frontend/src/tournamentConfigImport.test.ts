@@ -488,3 +488,286 @@ it('still rejects genuinely different fixed-role search settings', () => {
   for (const [attacker, defender] of rejected)
     expect(() => parseSeats(attacker, defender)).toThrow(TournamentConfigImportError);
 });
+
+const importFields = (document: unknown) => {
+  try {
+    parseTournamentConfig(document, profiles, models);
+  } catch (error) {
+    if (error instanceof TournamentConfigImportError) return error.fields;
+    throw error;
+  }
+  return null;
+};
+
+it('rejects unknown AI configuration fields instead of dropping them', () => {
+  // A misspelled `iterations` would otherwise silently run with the default.
+  expect(
+    importFields({
+      ...valid,
+      players: [{ config: { algorithm: 'mcts', iteratons: 500 } }, valid.players[1]],
+    }),
+  ).toEqual(['players[0].config.iteratons']);
+  // The second participant is named when it is the offending one.
+  expect(
+    importFields({
+      ...valid,
+      players: [valid.players[0], { config: { algorithm: 'mcts', iterations: 100, extra: 1 } }],
+    }),
+  ).toEqual(['players[1].config.extra']);
+  // A headless-only checkpoint path is not part of the browser contract.
+  expect(
+    importFields({
+      ...valid,
+      players: [valid.players[0], { config: { algorithm: 'mcts', model_path: '/models/a.pt' } }],
+    }),
+  ).toEqual(['players[1].config.model_path']);
+});
+
+it('rejects unknown fields in a fixed-role comparison', () => {
+  // The participant index and the offending field are both reported.
+  expect(
+    importFields(
+      fixedRoleDocument(
+        { search_wrapper: 'mcts', iterations: 100 },
+        { search_wrapper: 'mcts', iterations: 100, exploraton: 1.4 },
+      ),
+    ),
+  ).toContain('players[1].config.exploraton');
+});
+
+it('keeps every supported AI configuration field', () => {
+  const cases: [Record<string, unknown>, Record<string, unknown>][] = [
+    [
+      { algorithm: 'baseline', time_limit: 3, seed: 7, evaluation: 'heuristic' },
+      { algorithm: 'baseline', time_limit: 3, seed: 7, evaluation: 'heuristic' },
+    ],
+    [
+      { algorithm: 'shield_maiden', time_limit: 2, heuristic_version: 1, seed: 1 },
+      { algorithm: 'shield_maiden', time_limit: 2, heuristic_version: 1, seed: 1 },
+    ],
+    [
+      {
+        algorithm: 'mcts',
+        iterations: 120,
+        exploration: 1.2,
+        temperature: 0.4,
+        rollout_depth: 12,
+        time_limit: 5,
+        seed: 9,
+        heuristic: 'shield_bearer',
+      },
+      {
+        algorithm: 'mcts',
+        iterations: 120,
+        exploration: 1.2,
+        temperature: 0.4,
+        rollout_depth: 12,
+        time_limit: 5,
+        seed: 9,
+        heuristic: 'shield_bearer',
+      },
+    ],
+    [
+      {
+        algorithm: 'alpha_beta',
+        depth: 4,
+        time_limit: 2,
+        seed: 3,
+        heuristic: 'shield_maiden',
+        search: { legacy: false, move_ordering: false },
+      },
+      {
+        algorithm: 'alpha_beta',
+        depth: 4,
+        time_limit: 2,
+        seed: 3,
+        heuristic: 'shield_maiden',
+        search: { legacy: false, move_ordering: false },
+      },
+    ],
+    [
+      {
+        algorithm: 'neural',
+        model_id: 'model-brandubh',
+        search_wrapper: 'alpha_beta',
+        depth: 3,
+        time_limit: 1,
+        seed: 5,
+        evaluation: 'neural',
+        search: { transposition: true, move_ordering: true },
+      },
+      {
+        algorithm: 'neural',
+        model_id: 'model-brandubh',
+        search_wrapper: 'alpha_beta',
+        depth: 3,
+        time_limit: 1,
+        seed: 5,
+        evaluation: 'neural',
+        search: { transposition: true, move_ordering: true },
+      },
+    ],
+    [
+      {
+        algorithm: 'neural',
+        model_id: 'model-brandubh',
+        search_wrapper: 'none',
+        temperature: 0.7,
+        time_limit: 1,
+      },
+      {
+        algorithm: 'neural',
+        model_id: 'model-brandubh',
+        search_wrapper: 'none',
+        temperature: 0.7,
+        time_limit: 1,
+      },
+    ],
+  ];
+  for (const [attacker, defender] of cases) {
+    const parsed = parseTournamentConfig(
+      { ...valid, players: [{ config: attacker }, { config: defender }] },
+      profiles,
+      models,
+    );
+    expect(parsed.config.players[0].config).toMatchObject(attacker);
+    expect(parsed.config.players[1].config).toMatchObject(defender);
+  }
+});
+
+it('validates participant seeds even though the tournament seed supersedes them', () => {
+  const seedOf = (seed: unknown) =>
+    parseTournamentConfig(
+      { ...valid, players: [{ config: { algorithm: 'mcts', seed } }, valid.players[1]] },
+      profiles,
+      models,
+    ).config.players[0].config.seed;
+  expect(seedOf(11)).toBe(11);
+  expect(seedOf(0)).toBe(0);
+  for (const seed of [-1, 2 ** 32, 1.5, true, '42', null]) {
+    expect(
+      importFields({
+        ...valid,
+        players: [{ config: { algorithm: 'mcts', seed } }, valid.players[1]],
+      }),
+    ).toEqual(['seed']);
+  }
+  // Different valid participant seeds keep an otherwise compatible pairing valid.
+  expect(() =>
+    parseSeats({ iterations: 80, seed: 11 }, { iterations: 80, seed: 12 }),
+  ).not.toThrow();
+});
+
+it('keeps fixed presets authoritative over a recorded configuration', () => {
+  const parsed = parseTournamentConfig(
+    {
+      ...valid,
+      players: [
+        { profile_id: 'baseline', config: { algorithm: 'mcts', iteratons: 500, unknown: true } },
+        { profile_id: 'alpha_beta', config: { algorithm: 'mcts', depth: 1 } },
+      ],
+    },
+    profiles,
+    models,
+  );
+  expect(parsed.config.players[0].config).toMatchObject({
+    algorithm: 'baseline',
+    time_limit: 1,
+  });
+  expect(parsed.config.players[0].config.iteratons).toBeUndefined();
+  expect(parsed.config.players[1].config).toMatchObject({ algorithm: 'alpha_beta', depth: 5 });
+});
+
+it('rejects unknown fields inside the nested alpha-beta search', () => {
+  expect(
+    importFields({
+      ...valid,
+      players: [
+        { config: { algorithm: 'alpha_beta', search: { unknown: true } } },
+        valid.players[1],
+      ],
+    }),
+  ).toEqual(['search']);
+});
+
+it('imports an exported round-robin document and keeps its effective configuration', () => {
+  const document = {
+    format: 'hnefatafl-tournament-configuration',
+    format_version: 1,
+    name: 'Exported round robin',
+    rulesets: ['brandubh'],
+    players: [
+      { config: { algorithm: 'mcts', iterations: 33, exploration: 1.5, time_limit: 7.5, seed: 4 } },
+      {
+        profile_id: 'baseline',
+        config: { algorithm: 'baseline', time_limit: 1, seed: 4 },
+      },
+    ],
+    games: 4,
+    max_plies: 150,
+    seed: 4,
+    results: { status: 'completed', progress: { completed_games: 4, total_games: 4 } },
+  };
+  const parsed = parseTournamentConfig(document, profiles, models);
+  expect(parsed.name).toBe('Exported round robin');
+  expect(parsed.config.mode).toBe('round_robin');
+  expect(parsed.config.players[0].config).toMatchObject({
+    algorithm: 'mcts',
+    iterations: 33,
+    exploration: 1.5,
+    time_limit: 7.5,
+    seed: 4,
+  });
+  // A named fixed profile is snapshotted from the catalog, so the recorded
+  // configuration (including its seed) is replaced, exactly as the API does.
+  expect(parsed.config.players[1].config).toMatchObject({
+    algorithm: 'baseline',
+    time_limit: 1,
+  });
+  expect(parsed.config.players[1].config.seed).toBeUndefined();
+});
+
+it('imports an exported fixed-role document and keeps its effective configuration', () => {
+  const document = {
+    format: 'hnefatafl-tournament-configuration',
+    format_version: 1,
+    name: 'Exported fixed roles',
+    mode: 'fixed_roles',
+    rulesets: ['brandubh'],
+    players: [
+      {
+        config: {
+          algorithm: 'neural',
+          model_id: 'model-brandubh',
+          search_wrapper: 'mcts',
+          iterations: 120,
+          time_limit: 2,
+          seed: 4,
+        },
+      },
+      {
+        config: {
+          algorithm: 'neural',
+          model_id: 'model-brandubh',
+          search_wrapper: 'mcts',
+          iterations: 120,
+          time_limit: 2,
+          seed: 4,
+        },
+      },
+    ],
+    games: 7,
+    max_plies: 200,
+    seed: 4,
+    results: { status: 'completed' },
+  };
+  const parsed = parseTournamentConfig(document, profiles, models);
+  expect(parsed.config.mode).toBe('fixed_roles');
+  expect(parsed.config.games).toBe(7);
+  expect(parsed.config.players[0].config).toMatchObject({
+    algorithm: 'neural',
+    model_id: 'model-brandubh',
+    iterations: 120,
+    time_limit: 2,
+  });
+});

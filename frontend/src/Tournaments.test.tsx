@@ -1038,6 +1038,51 @@ it('reports unresolved model references and keeps the current participants', asy
   expect(setup.getByLabelText('Games per battlefield')).toHaveValue(2);
 });
 
+it('rejects an unknown AI field on import without changing the form', async () => {
+  const error = vi.spyOn(notify, 'error');
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(path === '/api/tournaments?summary=true' ? [] : saved('unchanged')),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
+  fireEvent.change(setup.getByLabelText('Games per battlefield'), { target: { value: '6' } });
+  fireEvent.change(setup.getByLabelText('Move limit per game'), { target: { value: '123' } });
+  fireEvent.change(setup.getByLabelText('Tournament seed'), { target: { value: '9' } });
+  fireEvent.click(setup.getByRole('checkbox', { name: 'Tablut 9 × 9' }));
+  const profilesBefore = setup
+    .getAllByLabelText(/Opponent \d profile/)
+    .map((field) => (field as HTMLSelectElement).value);
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: {
+      files: [
+        importedFile({
+          ...importedDocument,
+          players: [{ config: { algorithm: 'mcts', iteratons: 500 } }, importedDocument.players[1]],
+        }),
+      ],
+    },
+  });
+  await waitFor(() => expect(error).toHaveBeenCalled());
+  expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[0].config.iteratons');
+  // A failed import never partially overwrites the setup form.
+  expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
+  expect(setup.getByLabelText('Games per battlefield')).toHaveValue(6);
+  expect(setup.getByLabelText('Move limit per game')).toHaveValue(123);
+  expect(setup.getByLabelText('Tournament seed')).toHaveValue(9);
+  expect(setup.getByRole('checkbox', { name: 'Tablut 9 × 9' })).toBeChecked();
+  expect(
+    setup
+      .getAllByLabelText(/Opponent \d profile/)
+      .map((field) => (field as HTMLSelectElement).value),
+  ).toEqual(profilesBefore);
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
 it('downloads an exported tournament result document', async () => {
   const createObjectURL = vi.fn(() => 'blob:tournament');
   const revokeObjectURL = vi.fn();
@@ -1297,6 +1342,54 @@ describe('fixed-role comparison setup', () => {
       target: { value: 'tablut-model' },
     });
     expect(start).toBeEnabled();
+  });
+
+  it('rejects an unknown AI field in a fixed-role import without changing the form', async () => {
+    const error = vi.spyOn(notify, 'error');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => json(path === '/api/tournaments?summary=true' ? [] : saved('fixed'))),
+    );
+    const setup = await openFixedSetup([modelA, modelB]);
+    fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
+    fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
+    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+      target: { value: '300' },
+    });
+    fireEvent.change(setup.getByLabelText('Attackers trained model'), {
+      target: { value: 'model-b' },
+    });
+    fireEvent.change(setup.getByLabelText('Import configuration'), {
+      target: {
+        files: [
+          importedFile({
+            name: 'Broken fixed roles',
+            mode: 'fixed_roles',
+            rulesets: ['brandubh'],
+            players: [
+              { config: { algorithm: 'neural', model_id: 'model-a', iterations: 100 } },
+              {
+                config: {
+                  algorithm: 'neural',
+                  model_id: 'model-b',
+                  iterations: 100,
+                  exploraton: 1.4,
+                },
+              },
+            ],
+            games: 7,
+            max_plies: 200,
+            seed: 5,
+          }),
+        ],
+      },
+    });
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[1].config.exploraton');
+    expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
+    expect(setup.getByLabelText('Number of games')).toHaveValue(5);
+    expect(setup.getByLabelText('Shared search iterations')).toHaveValue(300);
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-b');
   });
 
   it('keeps fixed-role and round-robin imports in their own setup', async () => {

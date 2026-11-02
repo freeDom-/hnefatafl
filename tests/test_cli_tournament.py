@@ -1,12 +1,14 @@
 """Headless tournament configuration: portable documents and legacy CLI files."""
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 
 from auth_support import AuthenticatedClient as TestClient
 
-from hnefatafl.ai import tournament
+from hnefatafl.ai import SUPPORTED_AI_CONFIG_FIELDS, tournament
 from hnefatafl.cli import check_headless_models, main, normalise_tournament_config
 from hnefatafl.models import PolicyValueNet, save_checkpoint
 from hnefatafl.server import create_app
@@ -555,3 +557,14 @@ def test_portable_fixed_role_participant_seeds_are_ignored(
 def test_portable_participant_seeds_are_still_validated(seed, message):
     with pytest.raises(ValueError, match=message):
         normalise_tournament_config(portable([neural("model-a", seed=seed), neural("model-b")]))
+
+
+def test_frontend_field_allowlist_matches_the_backend_contract():
+    """The importer mirrors the server's accepted AI fields; keep them in step."""
+    source = (
+        Path(__file__).resolve().parents[1] / "frontend/src/tournamentConfigImport.ts"
+    ).read_text(encoding="utf-8")
+    block = re.search(r"const AI_CONFIG_FIELDS = new Set\(\[(.*?)\]\)", source, re.S)
+    assert block, "the frontend AI configuration allowlist is missing"
+    frontend = set(re.findall(r"'([^']+)'", block.group(1)))
+    assert frontend == set(SUPPORTED_AI_CONFIG_FIELDS)

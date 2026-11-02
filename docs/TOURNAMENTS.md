@@ -228,9 +228,13 @@ refused. A custom alpha-beta or MCTS opponent may also set `heuristic` to
 algorithm. A neural opponent must reference a registered model whose
 ruleset matches every selected battlefield, so a model-based tournament uses one
 battlefield. `games` must be even and 2–100, `max_plies` 1–1,000 and `seed`
-0–4,294,967,295. Unknown fields, malformed JSON, unsupported values and missing
-model references are rejected as a whole; the form is never partially
-overwritten.
+0–4,294,967,295. An unknown field inside a participant's `config` is rejected and reported with
+the participant index and the field name, so a misspelled search parameter can
+never be silently replaced by a default; the browser importer mirrors the same
+accepted field list as the API and the headless runner. A participant's own
+`seed` is validated like any other setting, but the tournament seed supersedes
+it. Unknown fields, malformed JSON, unsupported values and missing model
+references are rejected as a whole; the form is never partially overwritten.
 
 **Export results** downloads the saved tournament as JSON. The top level uses the
 same importable configuration schema (including `mode` and the attacker/defender

@@ -42,6 +42,29 @@ const RULESETS = ['brandubh', 'tablut', 'copenhagen'];
 const ALGORITHMS = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts', 'neural'];
 const FIXED_PRESETS = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'];
 const MODES = ['round_robin', 'fixed_roles'];
+/**
+ * Fields the server accepts inside one participant's AI configuration. This
+ * mirrors `SUPPORTED_AI_CONFIG_FIELDS` in `hnefatafl/ai.py`, which the browser
+ * API and the headless runner both enforce, so a misspelled parameter is
+ * rejected here instead of being silently replaced by a default. Keep the two
+ * lists in step; `tests/test_cli_tournament.py` compares them.
+ */
+const AI_CONFIG_FIELDS = new Set([
+  'algorithm',
+  'depth',
+  'iterations',
+  'time_limit',
+  'seed',
+  'exploration',
+  'temperature',
+  'evaluation',
+  'model_id',
+  'rollout_depth',
+  'search_wrapper',
+  'heuristic_version',
+  'heuristic',
+  'search',
+]);
 const AI_BOUNDS: Record<string, [number, number, boolean]> = {
   depth: [1, 5, true],
   iterations: [1, 5000, true],
@@ -49,6 +72,7 @@ const AI_BOUNDS: Record<string, [number, number, boolean]> = {
   exploration: [0, 10, false],
   temperature: [0, 5, false],
   rollout_depth: [0, 50, true],
+  seed: [0, 2 ** 32 - 1, true],
 };
 
 export class TournamentConfigImportError extends Error {
@@ -184,12 +208,22 @@ function parseRulesets(value: unknown, fields: string[]): string[] {
 /** Validate one opponent's AI search configuration with the same bounds as play. */
 function parsePlayerConfig(
   raw: unknown,
+  index: number,
   profile: AIProfile | undefined,
   rulesets: string[],
   models: Model[],
   fields: string[],
 ): Config {
   const provided = object(raw) ?? {};
+  // The API rejects an unknown field before it validates any value, so a
+  // misspelled parameter can never be silently dropped and replaced by a default.
+  const unsupported = Object.keys(provided)
+    .filter((key) => !AI_CONFIG_FIELDS.has(key))
+    .sort();
+  if (unsupported.length) {
+    fields.push(`players[${index}].config.${unsupported[0]}`);
+    return {};
+  }
   const algorithm = String(provided.algorithm ?? profile?.algorithm ?? 'baseline');
   if (!ALGORITHMS.includes(algorithm)) {
     fields.push('algorithm');
@@ -284,6 +318,7 @@ function parsePlayerConfig(
 
 function parsePlayer(
   raw: unknown,
+  index: number,
   rulesets: string[],
   profiles: AIProfile[],
   models: Model[],
@@ -313,7 +348,7 @@ function parsePlayer(
   const config =
     profile && FIXED_PRESETS.includes(profile.id)
       ? profileConfiguration(profile)
-      : parsePlayerConfig(provided.config, profile, rulesets, models, fields);
+      : parsePlayerConfig(provided.config, index, profile, rulesets, models, fields);
   if (profile && !FIXED_PRESETS.includes(profile.id) && provided.config === undefined)
     Object.assign(config, profileConfiguration(profile));
   const model = config.model_id
@@ -359,7 +394,9 @@ export function parseTournamentConfig(
   if (!Array.isArray(root.players) || root.players.length < 2 || root.players.length > 4) {
     fields.push('players');
   } else {
-    players = root.players.map((player) => parsePlayer(player, rulesets, profiles, models, fields));
+    players = root.players.map((player, index) =>
+      parsePlayer(player, index, rulesets, profiles, models, fields),
+    );
   }
   if (mode === 'fixed_roles') {
     // One battlefield, exactly two trained models and one shared search
