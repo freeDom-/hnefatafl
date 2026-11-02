@@ -161,7 +161,11 @@ const SEARCH_FLAGS = [
 ] as const;
 
 /** Validate a nested alpha-beta search object exactly as the server will. */
-function parseSearchConfig(raw: unknown, fields: string[]): AlphaBetaSearchSettings | null {
+function parseSearchConfig(
+  raw: unknown,
+  fields: string[],
+  modelBacked: boolean,
+): AlphaBetaSearchSettings | null {
   const provided = object(raw);
   if (!provided || Object.keys(provided).some((key) => !SEARCH_KEYS.has(key))) {
     fields.push('search');
@@ -185,6 +189,13 @@ function parseSearchConfig(raw: unknown, fields: string[]): AlphaBetaSearchSetti
     result.table_capacity = provided.table_capacity;
   }
   if (result.symmetry_transposition) result.transposition = true;
+  // Neural value heads are not guaranteed to be D4-equivariant, so symmetry
+  // reuse is refused *before* a legacy configuration can collapse the flags,
+  // exactly as the server's `clean_search_config` does.
+  if (modelBacked && (result.symmetry_transposition || result.symmetry_pruning)) {
+    fields.push('search');
+    return null;
+  }
   if (result.legacy) return { ...DEFAULT_ALPHA_BETA_SEARCH, legacy: true };
   return result;
 }
@@ -194,8 +205,11 @@ function parseRulesets(value: unknown, fields: string[]): string[] {
     fields.push('rulesets');
     return [];
   }
-  const rulesets = value.map(String);
+  // Require real strings: `String(['brandubh'])` would otherwise accept a
+  // malformed document that the API rejects.
+  const rulesets = value.filter((ruleset): ruleset is string => typeof ruleset === 'string');
   if (
+    rulesets.length !== value.length ||
     rulesets.some((ruleset) => !RULESETS.includes(ruleset)) ||
     new Set(rulesets).size !== rulesets.length
   ) {
@@ -281,28 +295,33 @@ function parsePlayerConfig(
   }
   if (provided.heuristic !== undefined) {
     if (
-      !['shield_bearer', 'shield_maiden'].includes(String(provided.heuristic)) ||
+      typeof provided.heuristic !== 'string' ||
+      !['shield_bearer', 'shield_maiden'].includes(provided.heuristic) ||
       (algorithm !== 'alpha_beta' && algorithm !== 'mcts')
     ) {
       fields.push(`${path}.heuristic`);
       return {};
     }
-    config.heuristic = String(provided.heuristic);
+    config.heuristic = provided.heuristic;
   }
   if (provided.search_wrapper !== undefined) {
     if (
       algorithm !== 'neural' ||
-      !['mcts', 'alpha_beta', 'none'].includes(String(provided.search_wrapper))
+      typeof provided.search_wrapper !== 'string' ||
+      !['mcts', 'alpha_beta', 'none'].includes(provided.search_wrapper)
     ) {
       fields.push(`${path}.search_wrapper`);
       return {};
     }
-    config.search_wrapper = String(provided.search_wrapper);
+    config.search_wrapper = provided.search_wrapper;
   }
+  // A recorded model makes the search neural for the algorithms the server
+  // supports, so the symmetry restriction is evaluated against that context.
+  const modelBacked = Boolean(provided.model_id);
   if (provided.search !== undefined) {
     // The nested validator reports its own `search` path, which is specific
     // enough without repeating the participant index here.
-    const search = parseSearchConfig(provided.search, fields);
+    const search = parseSearchConfig(provided.search, fields, modelBacked);
     if (!search) return {};
     const alphaBetaSearch =
       algorithm === 'alpha_beta' ||
@@ -311,16 +330,21 @@ function parsePlayerConfig(
       fields.push(`${path}.search`);
       return {};
     }
-    if (algorithm === 'neural' && (search.symmetry_transposition || search.symmetry_pruning)) {
-      fields.push(`${path}.search`);
-      return {};
-    }
     config.search = search;
   }
-  const usesModel = algorithm === 'neural' || config.evaluation === 'neural';
-  if (usesModel) {
-    const modelId = provided.model_id;
+  // The server infers neural evaluation from a recorded model identifier for the
+  // neural, MCTS and alpha-beta algorithms, and requires one for the neural
+  // algorithm, so a model reference is never silently dropped.
+  const requiresModel = algorithm === 'neural' || config.evaluation === 'neural';
+  const modelId = provided.model_id;
+  if (modelId !== undefined || requiresModel) {
     if (typeof modelId !== 'string' || !modelId) {
+      fields.push(`${path}.model_id`);
+      return {};
+    }
+    if (algorithm !== 'neural' && algorithm !== 'mcts' && algorithm !== 'alpha_beta') {
+      // The server ignores a model for this algorithm; rejecting it here keeps
+      // the browser from silently running a different opponent.
       fields.push(`${path}.model_id`);
       return {};
     }
@@ -330,6 +354,9 @@ function parsePlayerConfig(
       return {};
     }
     config.model_id = model.id;
+    // A recorded model always evaluates with the network, exactly as the
+    // server's effective configuration does.
+    config.evaluation = 'neural';
   }
   return config;
 }

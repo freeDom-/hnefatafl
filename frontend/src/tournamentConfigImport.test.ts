@@ -7,6 +7,7 @@ import {
   parseTournamentConfig,
   readImportedTournamentConfig,
 } from './tournamentConfigImport';
+import { DEFAULT_ALPHA_BETA_SEARCH } from './alphaBetaSearch';
 import type { AIProfile, Model } from './types';
 
 const profiles: AIProfile[] = [
@@ -843,4 +844,294 @@ it('keeps missing and empty configurations valid', () => {
     models,
   );
   expect(custom.config.players[0].config).toMatchObject({ algorithm: 'baseline' });
+});
+
+it('keeps a model-backed MCTS or alpha-beta opponent', () => {
+  const parseOne = (config: Record<string, unknown>) =>
+    parseTournamentConfig(
+      { ...valid, players: [{ config }, { config: { algorithm: 'baseline' } }] },
+      profiles,
+      models,
+    ).config.players[0].config;
+  // The server infers neural evaluation from a recorded model, so the model is
+  // preserved with an omitted evaluation too.
+  expect(
+    parseOne({ algorithm: 'mcts', model_id: 'model-brandubh', iterations: 200, time_limit: 2 }),
+  ).toMatchObject({
+    algorithm: 'mcts',
+    model_id: 'model-brandubh',
+    evaluation: 'neural',
+    iterations: 200,
+    time_limit: 2,
+  });
+  expect(
+    parseOne({ algorithm: 'alpha_beta', model_id: 'model-brandubh', depth: 3, time_limit: 2 }),
+  ).toMatchObject({
+    algorithm: 'alpha_beta',
+    model_id: 'model-brandubh',
+    evaluation: 'neural',
+    depth: 3,
+  });
+  // An explicit neural evaluation is kept as recorded.
+  expect(
+    parseOne({ algorithm: 'mcts', model_id: 'model-brandubh', evaluation: 'neural' }),
+  ).toMatchObject({ model_id: 'model-brandubh', evaluation: 'neural' });
+  expect(
+    parseOne({
+      algorithm: 'alpha_beta',
+      model_id: 'model-brandubh',
+      evaluation: 'neural',
+      depth: 2,
+    }),
+  ).toMatchObject({ model_id: 'model-brandubh', evaluation: 'neural' });
+  // A model-backed search keeps its nested alpha-beta settings.
+  expect(
+    parseOne({
+      algorithm: 'alpha_beta',
+      model_id: 'model-brandubh',
+      search: { transposition: false, move_ordering: true },
+    }),
+  ).toMatchObject({
+    model_id: 'model-brandubh',
+    search: { transposition: false, move_ordering: true, symmetry_pruning: false },
+  });
+});
+
+it('keeps heuristic-only MCTS and alpha-beta without a model', () => {
+  const parseOne = (config: Record<string, unknown>) =>
+    parseTournamentConfig(
+      { ...valid, players: [{ config }, { config: { algorithm: 'baseline' } }] },
+      profiles,
+      models,
+    ).config.players[0].config;
+  for (const algorithm of ['mcts', 'alpha_beta']) {
+    const parsed = parseOne({ algorithm, time_limit: 1 });
+    expect(parsed.algorithm).toBe(algorithm);
+    expect(parsed.model_id).toBeUndefined();
+    expect(parsed.evaluation).toBeUndefined();
+  }
+});
+
+it('rejects a model reference the server would ignore', () => {
+  // The server only honours a model for neural, MCTS and alpha-beta, so a
+  // baseline or shield-maiden reference is refused instead of silently dropped.
+  for (const algorithm of ['baseline', 'shield_maiden']) {
+    expect(
+      importFields({
+        ...valid,
+        players: [
+          { config: { algorithm, model_id: 'model-brandubh' } },
+          { config: { algorithm: 'baseline' } },
+        ],
+      }),
+    ).toEqual(['players[0].config.model_id']);
+  }
+  for (const model_id of [7, true, ['model-brandubh'], {}, 'missing']) {
+    expect(
+      importFields({
+        ...valid,
+        players: [
+          { config: { algorithm: 'mcts', model_id } },
+          { config: { algorithm: 'baseline' } },
+        ],
+      }),
+    ).toEqual(['players[0].config.model_id']);
+  }
+  // A model trained for another battlefield is still refused.
+  expect(
+    importFields({
+      ...valid,
+      players: [
+        { config: { algorithm: 'mcts', model_id: 'model-tablut' } },
+        { config: { algorithm: 'baseline' } },
+      ],
+    }),
+  ).toEqual(['players[0].config.model_id']);
+});
+
+it('imports an exported model-backed opponent with its effective configuration', () => {
+  const document = {
+    format: 'hnefatafl-tournament-configuration',
+    format_version: 1,
+    name: 'Model backed export',
+    rulesets: ['brandubh'],
+    players: [
+      {
+        config: {
+          algorithm: 'mcts',
+          model_id: 'model-brandubh',
+          evaluation: 'neural',
+          iterations: 200,
+          time_limit: 2,
+          seed: 4,
+        },
+      },
+      { config: { algorithm: 'baseline', time_limit: 1, seed: 4 } },
+    ],
+    games: 2,
+    max_plies: 150,
+    seed: 4,
+    results: { status: 'completed' },
+  };
+  const parsed = parseTournamentConfig(document, profiles, models);
+  expect(parsed.config.players[0].config).toMatchObject({
+    algorithm: 'mcts',
+    model_id: 'model-brandubh',
+    evaluation: 'neural',
+    iterations: 200,
+    time_limit: 2,
+  });
+});
+
+it('rejects coerced enumeration values instead of converting them', () => {
+  const cases: [Record<string, unknown>, string][] = [
+    [
+      { algorithm: 'neural', model_id: 'model-brandubh', search_wrapper: ['mcts'] },
+      'players[0].config.search_wrapper',
+    ],
+    [
+      { algorithm: 'neural', model_id: 'model-brandubh', search_wrapper: 123 },
+      'players[0].config.search_wrapper',
+    ],
+    [
+      { algorithm: 'neural', model_id: 'model-brandubh', search_wrapper: null },
+      'players[0].config.search_wrapper',
+    ],
+    [
+      { algorithm: 'neural', model_id: 'model-brandubh', search_wrapper: { value: 'mcts' } },
+      'players[0].config.search_wrapper',
+    ],
+    [{ algorithm: 'mcts', heuristic: ['shield_bearer'] }, 'players[0].config.heuristic'],
+    [{ algorithm: 'mcts', heuristic: null }, 'players[0].config.heuristic'],
+    [{ algorithm: 'mcts', heuristic: 1 }, 'players[0].config.heuristic'],
+    [{ algorithm: 'mcts', heuristic: true }, 'players[0].config.heuristic'],
+  ];
+  for (const [config, field] of cases) {
+    expect(
+      importFields({ ...valid, players: [{ config }, { config: { algorithm: 'baseline' } }] }),
+    ).toEqual([field]);
+  }
+  // Real strings keep working.
+  const parsed = parseTournamentConfig(
+    {
+      ...valid,
+      players: [
+        {
+          config: {
+            algorithm: 'neural',
+            model_id: 'model-brandubh',
+            search_wrapper: 'none',
+            temperature: 0.5,
+          },
+        },
+        { config: { algorithm: 'baseline' } },
+      ],
+    },
+    profiles,
+    models,
+  );
+  expect(parsed.config.players[0].config).toMatchObject({
+    search_wrapper: 'none',
+    evaluation: 'neural',
+    temperature: 0.5,
+  });
+});
+
+it('rejects malformed battlefield values', () => {
+  for (const rulesets of [
+    [['brandubh']],
+    [7],
+    [null],
+    [true],
+    [{ id: 'brandubh' }],
+    ['brandubh', 7],
+  ]) {
+    expect(importFields({ ...valid, rulesets })).toEqual(['rulesets']);
+  }
+  expect(
+    parseTournamentConfig({ ...valid, rulesets: ['brandubh'] }, profiles, models).config.rulesets,
+  ).toEqual(['brandubh']);
+});
+
+it('refuses neural symmetry reuse before a legacy search can hide it', () => {
+  const neural = (search: Record<string, unknown>) => ({
+    ...valid,
+    players: [
+      {
+        config: {
+          algorithm: 'neural',
+          model_id: 'model-brandubh',
+          search_wrapper: 'alpha_beta',
+          search,
+        },
+      },
+      { config: { algorithm: 'baseline' } },
+    ],
+  });
+  for (const search of [
+    { legacy: true, symmetry_pruning: true },
+    { legacy: true, symmetry_transposition: true },
+    { symmetry_pruning: true },
+    { symmetry_transposition: true },
+  ]) {
+    expect(importFields(neural(search))).toEqual(['search']);
+  }
+  // A legacy search without symmetry is still accepted and collapsed.
+  const legacy = parseTournamentConfig(
+    neural({ legacy: true, move_ordering: false }),
+    profiles,
+    models,
+  );
+  expect(legacy.config.players[0].config.search).toEqual({
+    ...DEFAULT_ALPHA_BETA_SEARCH,
+    legacy: true,
+  });
+  // A model-backed alpha-beta configuration is refused the same way.
+  expect(
+    importFields({
+      ...valid,
+      players: [
+        {
+          config: {
+            algorithm: 'alpha_beta',
+            model_id: 'model-brandubh',
+            search: { symmetry_pruning: true },
+          },
+        },
+        { config: { algorithm: 'baseline' } },
+      ],
+    }),
+  ).toEqual(['search']);
+  // Heuristic-only alpha-beta keeps its symmetry options, and malformed nested
+  // values are still rejected.
+  const heuristic = parseTournamentConfig(
+    {
+      ...valid,
+      players: [
+        {
+          config: {
+            algorithm: 'alpha_beta',
+            search: { symmetry_transposition: true, symmetry_pruning: true },
+          },
+        },
+        { config: { algorithm: 'baseline' } },
+      ],
+    },
+    profiles,
+    models,
+  );
+  expect(heuristic.config.players[0].config.search).toMatchObject({
+    symmetry_transposition: true,
+    symmetry_pruning: true,
+    transposition: true,
+  });
+  expect(
+    importFields({
+      ...valid,
+      players: [
+        { config: { algorithm: 'alpha_beta', search: { move_ordering: 'yes' } } },
+        { config: { algorithm: 'baseline' } },
+      ],
+    }),
+  ).toEqual(['search.move_ordering']);
 });

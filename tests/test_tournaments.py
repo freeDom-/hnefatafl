@@ -689,3 +689,48 @@ def test_custom_tournament_mcts_keeps_explicit_budget(client, monkeypatch):
     assert players[0]["config"]["algorithm"] == "mcts"
     assert players[0]["config"]["iterations"] == 33
     assert players[0]["config"]["time_limit"] == 7.5
+
+
+@pytest.mark.parametrize("algorithm", ["mcts", "alpha_beta", "neural"])
+def test_model_backed_opponents_keep_their_registered_model(client, tmp_path, algorithm):
+    from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
+
+    checkpoint = save_checkpoint(
+        tmp_path / "backed.pt", PolicyValueNet("brandubh", 4, 0), {"name": "Backed"}
+    )
+    model = ModelRegistry(client.app.state.data_dir / "models").register(checkpoint)
+    config = configuration(max_plies=2)
+    config["players"][0] = {
+        "name": "Backed",
+        "config": {"algorithm": algorithm, "model_id": model["id"], "time_limit": 0.01},
+    }
+    created = launch(client, config)
+    stored = created["config"]["players"][0]["config"]
+    # The server infers neural evaluation from a recorded model for every
+    # algorithm that supports one; the browser importer mirrors this contract.
+    assert stored["algorithm"] == algorithm
+    assert stored["model_id"] == model["id"]
+    assert stored["evaluation"] == "neural"
+    wait_for(client, created["id"], lambda row: row["status"] == "completed")
+
+
+def test_api_rejects_neural_symmetry_reuse_for_a_model_backed_search(client, tmp_path):
+    from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
+
+    checkpoint = save_checkpoint(
+        tmp_path / "symmetry.pt", PolicyValueNet("brandubh", 4, 0), {"name": "Symmetry"}
+    )
+    model = ModelRegistry(client.app.state.data_dir / "models").register(checkpoint)
+    for search in ({"symmetry_pruning": True}, {"symmetry_transposition": True}):
+        config = configuration()
+        config["players"][0] = {
+            "config": {
+                "algorithm": "alpha_beta",
+                "model_id": model["id"],
+                "time_limit": 0.01,
+                "search": search,
+            }
+        }
+        response = client.post("/api/tournaments", json=config)
+        assert response.status_code == 400, response.text
+    assert client.get("/api/tournaments").json() == []

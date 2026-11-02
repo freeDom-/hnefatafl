@@ -1038,6 +1038,65 @@ it('reports unresolved model references and keeps the current participants', asy
   expect(setup.getByLabelText('Games per battlefield')).toHaveValue(2);
 });
 
+it('submits a model-backed MCTS opponent imported from a configuration', async () => {
+  let submitted: Record<string, unknown> | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string, options?: RequestInit) => {
+      if (options?.method === 'POST') {
+        submitted = JSON.parse(String(options.body));
+        return json(saved('backed'));
+      }
+      return json(path === '/api/tournaments?summary=true' ? [] : saved('backed'));
+    }),
+  );
+  render(
+    <Tournaments
+      rulesets={rulesets}
+      profiles={profiles}
+      models={[{ id: 'model-brandubh', name: 'Raven', ruleset: 'brandubh' }]}
+      onError={vi.fn()}
+    />,
+  );
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: {
+      files: [
+        importedFile({
+          ...importedDocument,
+          players: [
+            {
+              config: {
+                algorithm: 'mcts',
+                model_id: 'model-brandubh',
+                iterations: 200,
+                time_limit: 2,
+              },
+            },
+            importedDocument.players[1],
+          ],
+        }),
+      ],
+    },
+  });
+  await waitFor(() => expect(setup.getByDisplayValue('Imported saga')).toBeInTheDocument());
+  fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() => expect(submitted).toBeDefined());
+  // The registered model survives the import and reaches the API.
+  expect(
+    (submitted as { players: { config: Record<string, unknown> }[] }).players[0].config,
+  ).toMatchObject({
+    algorithm: 'mcts',
+    model_id: 'model-brandubh',
+    evaluation: 'neural',
+    iterations: 200,
+    time_limit: 2,
+  });
+});
+
 it('rejects an unknown AI field on import without changing the form', async () => {
   const error = vi.spyOn(notify, 'error');
   const fetcher = vi.fn((path: string, _init?: RequestInit) =>

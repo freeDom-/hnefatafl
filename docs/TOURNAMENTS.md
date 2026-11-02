@@ -227,8 +227,12 @@ refused. A custom alpha-beta or MCTS opponent may also set `heuristic` to
 `shield_maiden` (default) or `shield_bearer`; it is rejected for every other
 algorithm. A neural opponent must reference a registered model whose
 ruleset matches every selected battlefield, so a model-based tournament uses one
-battlefield. `games` must be even and 2–100, `max_plies` 1–1,000 and `seed`
-0–4,294,967,295. An unknown field inside a participant's `config` is rejected and reported with
+battlefield. A registered model may also back an MCTS or alpha-beta opponent
+(`algorithm` `mcts` or `alpha_beta` with `model_id`): the API and the importer
+both keep the model and evaluate with the network, and the alpha-beta symmetry
+switches stay unavailable for a model-backed search. `games` must be even and
+2–100, `max_plies` 1–1,000 and `seed` 0–4,294,967,295. An unknown field inside a
+participant's `config` is rejected and reported with
 the participant index and the field name, so a misspelled search parameter can
 never be silently replaced by a default; the browser importer mirrors the same
 accepted field list as the API and the headless runner. A participant's own
