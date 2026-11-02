@@ -86,6 +86,11 @@ def main():
         action="store_true",
         help="evaluate against a distinct frozen Champion model instead of the candidate",
     )
+    parser.add_argument(
+        "--monitor",
+        action="store_true",
+        help="attach a live progress sink, as a real training job does",
+    )
     args = parser.parse_args()
     sys.path.insert(0, str(args.source.resolve()))
     import torch
@@ -202,6 +207,15 @@ def main():
         overrides = {} if args.flush_seconds is None else {"flush_seconds": args.flush_seconds}
         pool = SearchPool(args.workers, inference=args.search_inference, **overrides)
     options = {"search_pool": pool} if pool is not None else {}
+    sink = None
+    if args.monitor:
+        from hnefatafl.training_monitoring import TrainingMonitor
+
+        # A real job publishes from the training thread; the writer here is a
+        # no-op so the sample measures the compute path, not file writes.
+        sink = TrainingMonitor(lambda **flags: None, phase="benchmark")
+        sink.start()
+        options["monitor"] = sink
     if args.feature in ("evaluation", "workers") and args.champion:
         torch.manual_seed(314159)
         options["previous"] = (
@@ -216,6 +230,8 @@ def main():
         model.load_state_dict(weights)
         model.eval()
         torch.manual_seed(42)
+        if sink is not None:
+            sink.phase("benchmark")
         if args.device == "cuda":
             torch.cuda.synchronize()
         started = time.perf_counter()
@@ -365,6 +381,13 @@ def main():
         if args.device == "cuda":
             counters.setdefault("gpu_peak_allocated_bytes", torch.cuda.max_memory_allocated())
             counters.setdefault("gpu_peak_reserved_bytes", torch.cuda.max_memory_reserved())
+        if sink is not None:
+            counters.update(
+                {
+                    f"monitor_{key}": value
+                    for key, value in sink.snapshot()["phase_progress"].items()
+                }
+            )
         if args.feature == "replay":
             digest = hashlib.sha256()
             for key, value in sorted(model.state_dict().items()):
@@ -385,6 +408,8 @@ def main():
             )
     if pool is not None:
         pool.close()
+    if sink is not None:
+        sink.stop()
     sources = {
         str(path.relative_to(args.source)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted((args.source / "hnefatafl").glob("*.py"))
