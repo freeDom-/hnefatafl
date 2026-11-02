@@ -8,7 +8,7 @@ import pytest
 
 from auth_support import AuthenticatedClient as TestClient
 
-from hnefatafl.ai import SUPPORTED_AI_CONFIG_FIELDS, tournament
+from hnefatafl.ai import AI_ALGORITHMS, SUPPORTED_AI_CONFIG_FIELDS, tournament
 from hnefatafl.cli import check_headless_models, main, normalise_tournament_config
 from hnefatafl.models import PolicyValueNet, save_checkpoint
 from hnefatafl.server import create_app
@@ -568,3 +568,7 @@ def test_frontend_field_allowlist_matches_the_backend_contract():
     assert block, "the frontend AI configuration allowlist is missing"
     frontend = set(re.findall(r"'([^']+)'", block.group(1)))
     assert frontend == set(SUPPORTED_AI_CONFIG_FIELDS)
+    # The accepted algorithms are mirrored the same way.
+    algorithms = re.search(r"const ALGORITHMS = \[(.*?)\]", source, re.S)
+    assert algorithms, "the frontend algorithm list is missing"
+    assert set(re.findall(r"'([^']+)'", algorithms.group(1))) == set(AI_ALGORITHMS)
