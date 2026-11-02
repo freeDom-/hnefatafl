@@ -174,22 +174,30 @@ def _search(
     spec: dict,
     snapshots: list,
     caches: list,
+    reported_entries: list[int],
+    reported_peak: list[int],
     cancelled: Callable[[], bool],
     remote: Callable[[int, list[State]], list],
 ) -> None:
-    """Drive one worker's assigned games and report each completed game."""
+    """Drive one worker's assigned games and report each completed game.
+
+    ``reported_entries`` and ``reported_peak`` are the actor's cache-reporting
+    baselines. They belong to the bound snapshot generation, not to this slice:
+    an actor keeps its cache between slices, so a slice that reset them would
+    report every existing entry a second time.
+    """
     kind = spec["kind"]
     config = spec["config"]
     indices = spec["indices"]
     identities = spec["identities"]
     local = bool(snapshots)
     if not local:
-        # Parent-owned inference keeps every cache in the parent; the actor only
-        # reports counters it actually produced.
+        # Parent-owned inference keeps every cache in the parent, so the actor
+        # has none to report and needs no baseline for them.
         caches = [None] * identities
+        reported_entries = [0] * identities
+        reported_peak = [0] * identities
     metrics = [InferenceMetrics() for _ in range(identities)]
-    reported_entries = [0] * identities
-    reported_peak = [0] * identities
     per_game_cpu: dict[int, float] = {}
     progress = _ActorProgress(connection, bool(spec.get("progress")))
 
@@ -199,15 +207,17 @@ def _search(
         sent, metrics = metrics, [InferenceMetrics() for _ in range(identities)]
         for identity, metric in enumerate(sent):
             # Cache sizes live on the cache itself, not on a window that may have
-            # evaluated nothing; report them as increments so the parent can sum
-            # the live caches of every actor without double counting.
+            # evaluated nothing, so they are reported as the change since this
+            # generation's last report and the parent sums them across actors.
             cache = caches[identity]
             current = len(cache.entries) if cache is not None else 0
             increment = current - reported_entries[identity]
             if increment < 0:
-                # A model update invalidated the cache; report its new contents.
-                increment = current
-            reported_entries[identity] += increment
+                # Only reachable if a bound snapshot's cache were invalidated
+                # mid-generation, which rebinding prevents: report nothing and
+                # restart the baseline rather than a negative count.
+                increment = 0
+            reported_entries[identity] = current
             metric.cache_entries = increment
             peak = max(reported_peak[identity], current)
             metric.cache_peak_entries = peak - reported_peak[identity]
@@ -279,20 +289,28 @@ def _actor(connection: Connection, cancel) -> None:
     """Own one worker's games; never touch CUDA, which belongs to the parent."""
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
+    # The bound snapshots, their caches and the cache-reporting baselines all
+    # outlive a single granted slice: an actor keeps its cache between slices, so
+    # the counters that turn absolute occupancy into increments must too.
     snapshots: list = []
     caches: list = []
+    reported_entries: list[int] = []
+    reported_peak: list[int] = []
     token = 0
 
     def cancelled() -> bool:
         return cancel.is_set()
 
     def bind(message) -> None:
-        nonlocal snapshots, caches
+        nonlocal snapshots, caches, reported_entries, reported_peak
         from .models import PolicyValueNet
 
         mode, capacity = message[2], message[3]
         snapshots = []
         caches = []
+        # A new generation starts with empty caches and empty baselines.
+        reported_entries = []
+        reported_peak = []
         for architecture, weights in message[1]:
             selected = PolicyValueNet(**architecture).eval().requires_grad_(False)
             selected.load_state_dict(
@@ -300,6 +318,8 @@ def _actor(connection: Connection, cancel) -> None:
             )
             snapshots.append(selected)
             caches.append(ExactInferenceCache(capacity) if mode == "exact" else None)
+            reported_entries.append(0)
+            reported_peak.append(0)
 
     def remote(identity: int, states: list[State]):
         nonlocal token
@@ -322,7 +342,16 @@ def _actor(connection: Connection, cancel) -> None:
                 bind(task)
                 connection.send(("bound",))
                 continue
-            _search(connection, task[1], snapshots, caches, cancelled, remote)
+            _search(
+                connection,
+                task[1],
+                snapshots,
+                caches,
+                reported_entries,
+                reported_peak,
+                cancelled,
+                remote,
+            )
     except (EOFError, BrokenPipeError):
         pass
     except BaseException as error:
@@ -388,10 +417,27 @@ class SearchPool:
         try:
             while len(self.processes) < target:
                 parent, child = self.context.Pipe()
-                process = self.context.Process(
-                    target=_actor, args=(child, self.cancel), daemon=True
-                )
-                process.start()
+                process = None
+                try:
+                    process = self.context.Process(
+                        target=_actor, args=(child, self.cancel), daemon=True
+                    )
+                    process.start()
+                except BaseException as error:
+                    # This attempt's resources are not registered yet, so
+                    # ``self.close()`` cannot reach them.
+                    if process is not None and process.pid is not None:
+                        try:
+                            process.terminate()
+                            process.join()
+                        except BaseException as cleanup:
+                            error.add_note(
+                                f"Stopping a partially started search worker failed: {cleanup!r}"
+                            )
+                    parent.close()
+                    child.close()
+                    raise
+                # The child end belongs to the spawned process from here on.
                 child.close()
                 self.connections.append(parent)
                 self.processes.append(process)

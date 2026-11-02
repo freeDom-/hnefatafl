@@ -1395,3 +1395,328 @@ def test_evaluation_mode_matches_configuration(mode, workers):
     assert result["game_count"] == 2
     reported = result.get("performance", {}).get("mode")
     assert (reported == "parallel") == (bool(workers) and mode != "sequential")
+
+
+class FakeEndpoint:
+    """Pipe endpoint that records how often it was closed."""
+
+    def __init__(self, label):
+        self.label = label
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
+
+
+class FakeProcess:
+    """Worker process double whose start can fail before or after it spawns."""
+
+    def __init__(self, *, fail_on=None):
+        self.pid = None
+        self.fail_on = fail_on
+        self.terminated = 0
+        self.killed = 0
+        self.joins = 0
+        self.alive = False
+
+    def start(self):
+        if self.fail_on == "start":
+            raise OSError("start failed")
+        self.pid = 4242 + len(str(id(self))) % 100
+        self.alive = True
+        if self.fail_on == "after-start":
+            raise OSError("start failed after spawning")
+
+    def is_alive(self):
+        return self.alive
+
+    def join(self, timeout=None):
+        self.joins += 1
+        self.alive = False
+
+    def terminate(self):
+        self.terminated += 1
+        self.alive = False
+
+    def kill(self):
+        self.killed += 1
+        self.alive = False
+
+
+class FakeContext:
+    """Records every endpoint and process a pool start attempt creates."""
+
+    def __init__(self, *, fail_pipe=None, fail_process=None, fail_start=None):
+        self.fail_pipe = fail_pipe
+        self.fail_process = fail_process
+        self.fail_start = fail_start
+        self.endpoints: list[FakeEndpoint] = []
+        self.processes: list[FakeProcess] = []
+        self.pipes = 0
+
+    def Event(self):
+        import threading
+
+        return threading.Event()
+
+    def Pipe(self):
+        index = self.pipes
+        self.pipes += 1
+        if index == self.fail_pipe:
+            raise OSError("pipe failed")
+        pair = (FakeEndpoint(f"parent{index}"), FakeEndpoint(f"child{index}"))
+        self.endpoints.extend(pair)
+        return pair
+
+    def Process(self, *, target, args, daemon):
+        index = len(self.processes)
+        if index == self.fail_process:
+            raise OSError("process construction failed")
+        fail_on = "after-start" if index == self.fail_start else None
+        process = FakeProcess(fail_on=fail_on)
+        self.processes.append(process)
+        return process
+
+
+def instrumented_pool(workers, **failures):
+    pool = SearchPool(workers)
+    context = FakeContext(**failures)
+    pool.context = context
+    return pool, context
+
+
+@pytest.mark.parametrize(
+    "failures,failed_attempt",
+    [
+        ({"fail_process": 1}, 1),
+        ({"fail_start": 1}, 1),
+        ({"fail_pipe": 1}, None),
+    ],
+)
+def test_failed_worker_start_closes_its_endpoints(failures, failed_attempt):
+    pool, context = instrumented_pool(3, **failures)
+    with pytest.raises(OSError):
+        pool._ensure(3)
+    # The attempt that failed never registered its endpoints, so they must have
+    # been closed by the attempt itself.
+    if failed_attempt is not None:
+        parent, child = context.endpoints[2 * failed_attempt : 2 * failed_attempt + 2]
+        assert parent.closed == 1 and child.closed == 1
+    # Everything the earlier attempts created is closed by the pool shutdown.
+    for endpoint in context.endpoints:
+        assert endpoint.closed >= 1
+    assert pool.closed
+    assert all(not process.is_alive() for process in context.processes)
+    assert all(process.joins >= 1 for process in context.processes)
+
+
+def test_partially_started_worker_is_terminated():
+    pool, context = instrumented_pool(2, fail_start=0)
+    with pytest.raises(OSError, match="start failed after spawning"):
+        pool._ensure(2)
+    assert len(context.processes) == 1
+    assert context.processes[0].terminated == 1
+    assert context.processes[0].joins >= 1
+    assert not context.processes[0].is_alive()
+    assert all(endpoint.closed >= 1 for endpoint in context.endpoints)
+
+
+def test_later_growth_failure_releases_earlier_workers():
+    pool, context = instrumented_pool(3, fail_start=1)
+    assert pool._ensure(1) == 1
+    first = context.processes[0]
+    assert first.is_alive()
+    with pytest.raises(OSError):
+        pool._ensure(3)
+    assert pool.closed
+    assert not first.is_alive() and first.joins >= 1
+    assert all(endpoint.closed >= 1 for endpoint in context.endpoints)
+    # A failed pool is not reusable, and closing it again is safe.
+    with pytest.raises(RuntimeError):
+        pool._ensure(1)
+    pool.close()
+    assert pool.closed
+
+
+def test_cleanup_failure_keeps_the_startup_error(monkeypatch):
+    pool, context = instrumented_pool(2, fail_start=0)
+
+    def refusing_terminate():
+        raise OSError("terminate failed")
+
+    context.processes = []
+    original = FakeContext.Process
+
+    def process_factory(self, *, target, args, daemon):
+        process = original(self, target=target, args=args, daemon=daemon)
+        process.terminate = refusing_terminate
+        return process
+
+    monkeypatch.setattr(FakeContext, "Process", process_factory)
+    with pytest.raises(OSError, match="start failed after spawning") as failure:
+        pool._ensure(2)
+    assert any("partially started search worker" in note for note in failure.value.__notes__)
+    assert all(endpoint.closed >= 1 for endpoint in context.endpoints)
+
+
+def test_successful_lazy_start_registers_both_ends_once():
+    pool = SearchPool(2)
+    assert pool._ensure(2) == 2
+    assert len(pool.connections) == 2 and len(pool.processes) == 2
+    assert all(process.is_alive() for process in pool.processes)
+    assert pool._ensure(1) == 2
+    pool.close()
+    assert all(not process.is_alive() for process in pool.processes)
+
+
+def multi_slice_self_play(workers, capacity, *, cache="exact", games=12):
+    torch.manual_seed(120)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=games,
+        max_game_plies=6,
+        mcts_iterations=4,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        inference_cache_mode=cache,
+        inference_cache_capacity=capacity,
+        search_workers=workers,
+    )
+    games_out, metrics = generate_self_play(model, config, seed=121, retain_examples=False)
+    return model, config, games_out, metrics
+
+
+def test_cache_entries_are_not_recounted_across_worker_slices():
+    # One worker, one cache, several granted slices: with a generous capacity the
+    # reported occupancy must match the in-process scheduler's single cache.
+    _, _, _, in_process = multi_slice_self_play(0, 4096)
+    _, _, games_out, parallel = multi_slice_self_play(1, 4096)
+    assert len(games_out) == 12
+    assert parallel["search_worker_count"] == 1
+    # The in-process scheduler reports its single cache flat; a one-worker pool
+    # reports the same cache, so the two must agree exactly.
+    assert parallel["inference_cache_entries"] == in_process["inference_cache_entries"]
+    assert parallel["inference_cache_entries"] > 0
+    assert parallel["models"][0]["inference_cache_entries"] == parallel["inference_cache_entries"]
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_cache_entries_respect_capacity_and_eviction(workers):
+    capacity = 8
+    _, _, games_out, metrics = multi_slice_self_play(workers, capacity)
+    assert len(games_out) == 12
+    assert metrics["search_worker_count"] == workers
+    for entry in metrics["models"]:
+        # The pool reports the sum of its workers' caches, and a worker's cache
+        # can never hold more than its capacity however many slices it processed.
+        assert 0 < entry["inference_cache_entries"] <= workers * capacity
+        assert entry["inference_cache_peak_entries"] <= workers * capacity
+        assert entry["inference_cache_peak_entries"] >= entry["inference_cache_entries"]
+        assert entry["inference_cache_hits"] > 0
+        # Every request is either a hit, a miss or an in-batch duplicate.
+        assert (
+            entry["inference_cache_hits"]
+            + entry["inference_cache_misses"]
+            + entry["inference_batch_duplicates"]
+            == entry["inference_requests"]
+        )
+
+
+def test_disabled_cache_reports_nothing_cached():
+    _, _, _, metrics = multi_slice_self_play(2, 4096, cache="off")
+    entry = metrics["models"][0]
+    assert entry["inference_cache_entries"] == 0
+    assert entry["inference_cache_peak_entries"] == 0
+    assert entry["inference_cache_hits"] == 0
+    assert entry["inference_cache_misses"] == entry["inference_requests"]
+
+
+def test_cache_statistics_survive_pool_reuse_and_weight_updates():
+    capacity = 8
+    torch.manual_seed(122)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=12,
+        max_game_plies=6,
+        mcts_iterations=4,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        inference_cache_mode="exact",
+        inference_cache_capacity=capacity,
+        search_workers=2,
+    )
+    with SearchPool(2) as pool:
+        _, first = generate_self_play(
+            model, config, seed=123, retain_examples=False, search_pool=pool
+        )
+        with torch.no_grad():
+            next(model.parameters()).add_(0.05)
+        _, second = generate_self_play(
+            model, config, seed=125, retain_examples=False, search_pool=pool
+        )
+    # A rebound generation starts from empty caches, so neither phase may report
+    # more than one capacity per worker.
+    for metrics in (first, second):
+        assert metrics["search_worker_count"] == 2
+        for entry in metrics["models"]:
+            assert 0 < entry["inference_cache_entries"] <= 2 * capacity
+            assert entry["inference_cache_peak_entries"] <= 2 * capacity
+
+
+def test_champion_evaluation_keeps_cache_statistics_per_model():
+    capacity = 8
+    torch.manual_seed(126)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    previous = deepcopy(model)
+    with torch.no_grad():
+        next(previous.parameters()).add_(0.1)
+    config = settings(
+        evaluation_opponent="champion",
+        evaluation_mode="batched",
+        evaluation_games=8,
+        evaluation_max_plies=6,
+        evaluation_iterations=4,
+        evaluation_concurrency=2,
+        evaluation_batch_size=2,
+        inference_cache_mode="exact",
+        inference_cache_capacity=capacity,
+        search_workers=2,
+    )
+    actual = evaluate_model(model, config, previous=previous)
+    entries = actual["performance"]["models"]
+    assert len(entries) == 2
+    for entry in entries:
+        assert 0 < entry["inference_cache_entries"] <= 2 * capacity
+        assert entry["inference_cache_peak_entries"] <= 2 * capacity
+        assert entry["inference_cache_hits"] > 0
+
+
+def test_cache_statistics_stay_valid_after_cancellation():
+    torch.manual_seed(127)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=16,
+        max_game_plies=6,
+        mcts_iterations=4,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        inference_cache_mode="exact",
+        inference_cache_capacity=8,
+        search_workers=2,
+    )
+    stopped = False
+
+    def progress(info):
+        nonlocal stopped
+        if info["game"] >= 2:
+            stopped = True
+
+    with pytest.raises(InterruptedError):
+        generate_self_play(
+            model,
+            config,
+            seed=129,
+            retain_examples=False,
+            progress=progress,
+            should_stop=lambda: stopped,
+        )
