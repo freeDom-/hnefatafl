@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Tournaments from './Tournaments';
+import Tournaments, { DETAIL_RETRY_DELAYS } from './Tournaments';
 import type { AIProfile, Model, Ruleset } from './types';
 import type { Tournament } from './tournamentTypes';
 import { setLanguage } from './i18n';
@@ -81,7 +81,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   setLanguage('en', false);
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  pollingHandlers.length = 0;
+  retryTimers.clear();
 });
 const show = (models: Model[] = []) =>
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={models} onError={vi.fn()} />);
@@ -96,7 +100,7 @@ describe('tournament setup and saved selection', () => {
           submitted = JSON.parse(String(options.body));
           return json(saved('new'));
         }
-        return json(path === '/api/tournaments' ? [] : saved('new'));
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('new'));
       }),
     );
     show();
@@ -142,7 +146,7 @@ describe('tournament setup and saved selection', () => {
           submitted = JSON.parse(String(options.body));
           return json(saved('new'));
         }
-        return json(path === '/api/tournaments' ? [] : saved('new'));
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('new'));
       }),
     );
     show();
@@ -196,7 +200,7 @@ describe('tournament setup and saved selection', () => {
           submitted = JSON.parse(String(options.body));
           return json(saved('new'));
         }
-        return json(path === '/api/tournaments' ? [] : saved('new'));
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('new'));
       }),
     );
     show();
@@ -241,7 +245,7 @@ describe('tournament setup and saved selection', () => {
           submitted = JSON.parse(String(options.body));
           return json(saved('new'));
         }
-        return json(path === '/api/tournaments' ? [] : saved('new'));
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('new'));
       }),
     );
     show([{ id: 'raven-model', name: 'Raven model', ruleset: 'brandubh' }]);
@@ -397,7 +401,7 @@ describe('tournament setup and saved selection', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments') return json([saved('a'), saved('b')]);
+        if (path === '/api/tournaments?summary=true') return json([saved('a'), saved('b')]);
         if (path === '/api/tournaments/a' && firstA) {
           firstA = false;
           return new Promise<Response>((resolve) => {
@@ -424,7 +428,7 @@ describe('tournament setup and saved selection', () => {
           submitted = JSON.parse(String(options.body));
           return json(saved('four'));
         }
-        return json(path === '/api/tournaments' ? [] : saved('four'));
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('four'));
       }),
     );
     show();
@@ -500,7 +504,9 @@ describe('tournament setup and saved selection', () => {
     };
     vi.stubGlobal(
       'fetch',
-      vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
     );
     const { container } = show([model]);
     await screen.findByRole('heading', { name: 'Challenge model' });
@@ -588,7 +594,7 @@ describe('tournament setup and saved selection', () => {
               },
             ],
           });
-        return json(path === '/api/tournaments' ? [tournament] : tournament);
+        return json(path === '/api/tournaments?summary=true' ? [tournament] : tournament);
       }),
     );
     const { container } = show();
@@ -661,7 +667,9 @@ describe('tournament setup and saved selection', () => {
     };
     vi.stubGlobal(
       'fetch',
-      vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
     );
     const { container } = show();
     await screen.findByRole('heading', { name: 'Challenge diagnostics' });
@@ -730,7 +738,9 @@ describe('tournament match log disclosure', () => {
     const tournament = withMatches('log');
     vi.stubGlobal(
       'fetch',
-      vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
     );
     show();
     await screen.findByRole('heading', { name: 'Challenge log' });
@@ -759,7 +769,7 @@ describe('tournament match log disclosure', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {
-        if (path === '/api/tournaments') return json([first, second]);
+        if (path === '/api/tournaments?summary=true') return json([first, second]);
         return json(path === '/api/tournaments/first' ? first : second);
       }),
     );
@@ -788,7 +798,7 @@ describe('tournament match log disclosure', () => {
       'fetch',
       vi.fn((path: string) => {
         if (path === '/api/tournaments/running/cancel') return json({});
-        return json(path === '/api/tournaments' ? [tournament] : tournament);
+        return json(path === '/api/tournaments?summary=true' ? [tournament] : tournament);
       }),
     );
     show();
@@ -813,7 +823,9 @@ it('labels the destructive tournament action as deleting tournament data', async
   const tournament = saved('delete');
   vi.stubGlobal(
     'fetch',
-    vi.fn((path: string) => json(path === '/api/tournaments' ? [tournament] : tournament)),
+    vi.fn((path: string) =>
+      json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+    ),
   );
   show();
   await screen.findByRole('heading', { name: 'Challenge delete' });
@@ -834,7 +846,7 @@ it('keeps Shield bearer, Jarl and Seer presets fixed while exposing independent 
         submitted = JSON.parse(String(options.body));
         return json(saved('presets'));
       }
-      return json(path === '/api/tournaments' ? [] : saved('presets'));
+      return json(path === '/api/tournaments?summary=true' ? [] : saved('presets'));
     }),
   );
   show();
@@ -881,7 +893,7 @@ it('lets custom tournament opponents select algorithms and edit search settings'
         submitted = JSON.parse(String(options.body));
         return json(saved('custom'));
       }
-      return json(path === '/api/tournaments' ? [] : saved('custom'));
+      return json(path === '/api/tournaments?summary=true' ? [] : saved('custom'));
     }),
   );
   show();
@@ -908,7 +920,9 @@ it('lets custom tournament opponents select algorithms and edit search settings'
 
 it('snapshots Shield maiden as a fixed tournament preset', async () => {
   const fetcher = vi.fn((path: string, init?: RequestInit) =>
-    json(init?.method === 'POST' || path !== '/api/tournaments' ? saved('maiden') : []),
+    json(
+      init?.method === 'POST' || path !== '/api/tournaments?summary=true' ? saved('maiden') : [],
+    ),
   );
   vi.stubGlobal('fetch', fetcher);
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
@@ -952,7 +966,7 @@ const importedFile = (value: unknown) =>
 
 it('imports a tournament configuration and prefills an editable form without creating', async () => {
   const fetcher = vi.fn((path: string, _init?: RequestInit) =>
-    json(path === '/api/tournaments' ? [] : saved('imported')),
+    json(path === '/api/tournaments?summary=true' ? [] : saved('imported')),
   );
   vi.stubGlobal('fetch', fetcher);
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
@@ -976,7 +990,7 @@ it('imports a tournament configuration and prefills an editable form without cre
 it('reports malformed imports and leaves the form unchanged', async () => {
   const error = vi.spyOn(notify, 'error');
   const fetcher = vi.fn((path: string, _init?: RequestInit) =>
-    json(path === '/api/tournaments' ? [] : saved('unchanged')),
+    json(path === '/api/tournaments?summary=true' ? [] : saved('unchanged')),
   );
   vi.stubGlobal('fetch', fetcher);
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
@@ -998,7 +1012,7 @@ it('reports malformed imports and leaves the form unchanged', async () => {
 it('reports unresolved model references and keeps the current participants', async () => {
   const error = vi.spyOn(notify, 'error');
   const fetcher = vi.fn((path: string, _init?: RequestInit) =>
-    json(path === '/api/tournaments' ? [] : saved('unchanged')),
+    json(path === '/api/tournaments?summary=true' ? [] : saved('unchanged')),
   );
   vi.stubGlobal('fetch', fetcher);
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
@@ -1024,6 +1038,153 @@ it('reports unresolved model references and keeps the current participants', asy
   expect(setup.getByLabelText('Games per battlefield')).toHaveValue(2);
 });
 
+it('submits a model-backed MCTS opponent imported from a configuration', async () => {
+  let submitted: Record<string, unknown> | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string, options?: RequestInit) => {
+      if (options?.method === 'POST') {
+        submitted = JSON.parse(String(options.body));
+        return json(saved('backed'));
+      }
+      return json(path === '/api/tournaments?summary=true' ? [] : saved('backed'));
+    }),
+  );
+  render(
+    <Tournaments
+      rulesets={rulesets}
+      profiles={profiles}
+      models={[{ id: 'model-brandubh', name: 'Raven', ruleset: 'brandubh' }]}
+      onError={vi.fn()}
+    />,
+  );
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: {
+      files: [
+        importedFile({
+          ...importedDocument,
+          players: [
+            {
+              config: {
+                algorithm: 'mcts',
+                model_id: 'model-brandubh',
+                iterations: 200,
+                time_limit: 2,
+              },
+            },
+            importedDocument.players[1],
+          ],
+        }),
+      ],
+    },
+  });
+  await waitFor(() => expect(setup.getByDisplayValue('Imported saga')).toBeInTheDocument());
+  fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() => expect(submitted).toBeDefined());
+  // The registered model survives the import and reaches the API.
+  expect(
+    (submitted as { players: { config: Record<string, unknown> }[] }).players[0].config,
+  ).toMatchObject({
+    algorithm: 'mcts',
+    model_id: 'model-brandubh',
+    evaluation: 'neural',
+    iterations: 200,
+    time_limit: 2,
+  });
+});
+
+it('rejects an unknown AI field on import without changing the form', async () => {
+  const error = vi.spyOn(notify, 'error');
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(path === '/api/tournaments?summary=true' ? [] : saved('unchanged')),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
+  fireEvent.change(setup.getByLabelText('Games per battlefield'), { target: { value: '6' } });
+  fireEvent.change(setup.getByLabelText('Move limit per game'), { target: { value: '123' } });
+  fireEvent.change(setup.getByLabelText('Tournament seed'), { target: { value: '9' } });
+  fireEvent.click(setup.getByRole('checkbox', { name: 'Tablut 9 × 9' }));
+  const profilesBefore = setup
+    .getAllByLabelText(/Opponent \d profile/)
+    .map((field) => (field as HTMLSelectElement).value);
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: {
+      files: [
+        importedFile({
+          ...importedDocument,
+          players: [{ config: { algorithm: 'mcts', iteratons: 500 } }, importedDocument.players[1]],
+        }),
+      ],
+    },
+  });
+  await waitFor(() => expect(error).toHaveBeenCalled());
+  expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[0].config.iteratons');
+  // A failed import never partially overwrites the setup form.
+  expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
+  expect(setup.getByLabelText('Games per battlefield')).toHaveValue(6);
+  expect(setup.getByLabelText('Move limit per game')).toHaveValue(123);
+  expect(setup.getByLabelText('Tournament seed')).toHaveValue(9);
+  expect(setup.getByRole('checkbox', { name: 'Tablut 9 × 9' })).toBeChecked();
+  expect(
+    setup
+      .getAllByLabelText(/Opponent \d profile/)
+      .map((field) => (field as HTMLSelectElement).value),
+  ).toEqual(profilesBefore);
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+it('rejects a malformed AI configuration on import without changing the form', async () => {
+  const error = vi.spyOn(notify, 'error');
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(path === '/api/tournaments?summary=true' ? [] : saved('unchanged')),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
+  const create = screen.getByRole('button', { name: 'New tournament' });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+  fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
+  fireEvent.change(setup.getByLabelText('Games per battlefield'), { target: { value: '6' } });
+  fireEvent.change(setup.getByLabelText('Move limit per game'), { target: { value: '123' } });
+  fireEvent.change(setup.getByLabelText('Tournament seed'), { target: { value: '9' } });
+  const profilesBefore = setup
+    .getAllByLabelText(/Opponent \d profile/)
+    .map((field) => (field as HTMLSelectElement).value);
+  fireEvent.change(setup.getByLabelText('Import configuration'), {
+    target: {
+      files: [
+        importedFile({
+          ...importedDocument,
+          players: [{ config: 'mcts' }, importedDocument.players[1]],
+        }),
+      ],
+    },
+  });
+  await waitFor(() => expect(error).toHaveBeenCalled());
+  expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[0].config');
+  expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
+  expect(setup.getByLabelText('Games per battlefield')).toHaveValue(6);
+  expect(setup.getByLabelText('Move limit per game')).toHaveValue(123);
+  expect(setup.getByLabelText('Tournament seed')).toHaveValue(9);
+  expect(setup.getByRole('checkbox', { name: 'Brandubh 7 × 7' })).toBeChecked();
+  expect(
+    setup
+      .getAllByLabelText(/Opponent \d profile/)
+      .map((field) => (field as HTMLSelectElement).value),
+  ).toEqual(profilesBefore);
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
 it('downloads an exported tournament result document', async () => {
   const createObjectURL = vi.fn(() => 'blob:tournament');
   const revokeObjectURL = vi.fn();
@@ -1033,7 +1194,7 @@ it('downloads an exported tournament result document', async () => {
   const fetcher = vi.fn((path: string) => {
     if (path === '/api/tournaments/export/export')
       return Promise.resolve({ ok: true, blob: async () => new Blob(['{}']) } as Response);
-    return json(path === '/api/tournaments' ? [saved('export')] : saved('export'));
+    return json(path === '/api/tournaments?summary=true' ? [saved('export')] : saved('export'));
   });
   vi.stubGlobal('fetch', fetcher);
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={vi.fn()} />);
@@ -1053,7 +1214,7 @@ it('reports tournament export failures through the shared error handler', async 
             ok: false,
             json: async () => ({ detail: 'The saved tournament results could not be exported.' }),
           } as Response)
-        : json(path === '/api/tournaments' ? [saved('export')] : saved('export')),
+        : json(path === '/api/tournaments?summary=true' ? [saved('export')] : saved('export')),
     ),
   );
   render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
@@ -1061,4 +1222,1105 @@ it('reports tournament export failures through the shared error handler', async 
   await waitFor(() =>
     expect(error).toHaveBeenCalledWith('The saved tournament results could not be exported.'),
   );
+});
+
+describe('tournament lazy loading', () => {
+  it('requests the lightweight collection and only the selected match history', async () => {
+    const fetcher = vi.fn((path: string) =>
+      json(
+        path === '/api/tournaments?summary=true' ? [saved('a'), saved('b')] : saved(path.slice(-1)),
+      ),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' });
+    const paths = fetcher.mock.calls.map(([path]) => path);
+    expect(paths).toContain('/api/tournaments?summary=true');
+    expect(paths).toContain('/api/tournaments/a');
+    // Unselected tournaments never transfer their match history.
+    expect(paths).not.toContain('/api/tournaments/b');
+    expect(paths.filter((path) => path === '/api/tournaments?summary=true')).toHaveLength(1);
+  });
+
+  it('loads details for a newly selected tournament without refetching the others', async () => {
+    const fetcher = vi.fn((path: string) =>
+      json(
+        path === '/api/tournaments?summary=true' ? [saved('a'), saved('b')] : saved(path.slice(-1)),
+      ),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' });
+    fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge b' }));
+    await screen.findByRole('heading', { name: 'Challenge b' });
+    const detailPaths = fetcher.mock.calls
+      .map(([path]) => path)
+      .filter((path) => path === '/api/tournaments/a' || path === '/api/tournaments/b');
+    expect(detailPaths).toEqual(['/api/tournaments/a', '/api/tournaments/b']);
+  });
+
+  it('polls summaries without re-downloading unchanged history and refreshes when a game finishes', async () => {
+    const running: Tournament = { ...withMatches('running'), status: 'running' };
+    const fetcher = vi.fn((path: string) =>
+      json(path === '/api/tournaments?summary=true' ? [running] : running),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge running' });
+    const detailCalls = () =>
+      fetcher.mock.calls.filter(([path]) => path === '/api/tournaments/running').length;
+    const listCalls = () =>
+      fetcher.mock.calls.filter(([path]) => path === '/api/tournaments?summary=true').length;
+    expect(detailCalls()).toBe(1);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+    });
+    expect(listCalls()).toBeGreaterThan(1);
+    // The completed game count did not change, so the history is not re-fetched.
+    expect(detailCalls()).toBe(1);
+    running.progress = { completed_games: 3, total_games: 3 };
+    running.status = 'completed';
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+    });
+    // A finished game is a meaningful change, so the selected history refreshes.
+    expect(detailCalls()).toBe(2);
+  }, 20000);
+
+  it('never duplicates an in-flight detail request while polling', async () => {
+    const running: Tournament = { ...withMatches('running'), status: 'running' };
+    let detailCalls = 0;
+    let release!: (response: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([running]);
+        detailCalls += 1;
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      }),
+    );
+    show();
+    await waitFor(() => expect(detailCalls).toBe(1));
+    // A loading state is shown while the selected record is still pending.
+    expect(screen.getByRole('heading', { name: 'Opening the tournament…' })).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+    });
+    // The summary polled while the detail was in flight, so it must not have
+    // started a second identical request.
+    expect(detailCalls).toBe(1);
+    await act(async () => {
+      release(await json(running));
+    });
+    await screen.findByRole('heading', { name: 'Challenge running' });
+  }, 20000);
+
+  it('clears the selection once the deleted tournament leaves the collection', async () => {
+    let listing = [saved('gone')];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'DELETE') {
+          listing = [];
+          return json({ deleted: true, id: 'gone' });
+        }
+        return json(path === '/api/tournaments?summary=true' ? listing : saved('gone'));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge gone' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete tournament data' }));
+    const confirm = within(
+      screen.getByRole('dialog', { name: 'Delete tournament Challenge gone?' }),
+    );
+    fireEvent.click(confirm.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Challenge gone' })).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Let the strongest ideas meet.' }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('fixed-role comparison setup', () => {
+  const modelA: Model = { id: 'model-a', name: 'Model A', ruleset: 'brandubh' };
+  const modelB: Model = { id: 'model-b', name: 'Model B', ruleset: 'brandubh' };
+  const openFixedSetup = async (models: Model[]) => {
+    show(models);
+    // The empty-state panel repeats the creation action, so target the toolbar one.
+    const [button] = screen.getAllByRole('button', { name: 'Fixed-role comparison' });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    return within(screen.getByRole('dialog', { name: 'Fixed-role comparison' }));
+  };
+
+  it('submits one shared search configuration for two distinct models', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('fixed'));
+        }
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('fixed'));
+      }),
+    );
+    const setup = await openFixedSetup([modelA, modelB]);
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-a');
+    expect(setup.getByLabelText('Defenders trained model')).toHaveValue('model-a');
+    fireEvent.change(setup.getByLabelText('Defenders trained model'), {
+      target: { value: 'model-b' },
+    });
+    fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
+    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+      target: { value: '300' },
+    });
+    expect(setup.getByText('5', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted).toMatchObject({
+      mode: 'fixed_roles',
+      rulesets: ['brandubh'],
+      games: 5,
+      max_plies: 300,
+      seed: 42,
+    });
+    const players = (submitted as { players: { config: Record<string, unknown> }[] }).players;
+    expect(players[0].config.model_id).toBe('model-a');
+    expect(players[1].config.model_id).toBe('model-b');
+    // Only the model identity may differ between the two seats.
+    expect(players[0].config).toEqual({ ...players[1].config, model_id: 'model-a' });
+    expect(players[0].config.iterations).toBe(300);
+  });
+
+  it('allows the same model in both seats with an odd game count', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('self'));
+        }
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('self'));
+      }),
+    );
+    const setup = await openFixedSetup([modelA]);
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-a');
+    expect(setup.getByLabelText('Defenders trained model')).toHaveValue('model-a');
+    fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '7' } });
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted).toMatchObject({ games: 7 });
+    const players = (submitted as { players: { config: Record<string, unknown> }[] }).players;
+    expect(players[0].config.model_id).toBe('model-a');
+    expect(players[1].config.model_id).toBe('model-a');
+  });
+
+  it('flags an incompatible model after a battlefield change instead of replacing it', async () => {
+    const tablut: Model = { id: 'tablut-model', name: 'Tablut model', ruleset: 'tablut' };
+    const setup = await openFixedSetup([modelA, tablut]);
+    fireEvent.click(setup.getByRole('radio', { name: 'Tablut 9 × 9' }));
+    // The previous selection is kept visible and reported, never silently swapped.
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-a');
+    expect(setup.getByLabelText('Defenders trained model')).toHaveValue('model-a');
+    expect(
+      setup.getByText('The attackers model is not trained for this battlefield.'),
+    ).toBeInTheDocument();
+    expect(
+      setup.getByText('The defenders model is not trained for this battlefield.'),
+    ).toBeInTheDocument();
+    const start = setup.getByRole('button', { name: 'Start tournament' });
+    expect(start).toBeDisabled();
+    fireEvent.change(setup.getByLabelText('Attackers trained model'), {
+      target: { value: 'tablut-model' },
+    });
+    expect(start).toBeDisabled();
+    fireEvent.change(setup.getByLabelText('Defenders trained model'), {
+      target: { value: 'tablut-model' },
+    });
+    expect(start).toBeEnabled();
+  });
+
+  it('rejects an unknown AI field in a fixed-role import without changing the form', async () => {
+    const error = vi.spyOn(notify, 'error');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => json(path === '/api/tournaments?summary=true' ? [] : saved('fixed'))),
+    );
+    const setup = await openFixedSetup([modelA, modelB]);
+    fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
+    fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
+    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+      target: { value: '300' },
+    });
+    fireEvent.change(setup.getByLabelText('Attackers trained model'), {
+      target: { value: 'model-b' },
+    });
+    fireEvent.change(setup.getByLabelText('Import configuration'), {
+      target: {
+        files: [
+          importedFile({
+            name: 'Broken fixed roles',
+            mode: 'fixed_roles',
+            rulesets: ['brandubh'],
+            players: [
+              { config: { algorithm: 'neural', model_id: 'model-a', iterations: 100 } },
+              {
+                config: {
+                  algorithm: 'neural',
+                  model_id: 'model-b',
+                  iterations: 100,
+                  exploraton: 1.4,
+                },
+              },
+            ],
+            games: 7,
+            max_plies: 200,
+            seed: 5,
+          }),
+        ],
+      },
+    });
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[1].config.exploraton');
+    expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
+    expect(setup.getByLabelText('Number of games')).toHaveValue(5);
+    expect(setup.getByLabelText('Shared search iterations')).toHaveValue(300);
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-b');
+  });
+
+  it('rejects a malformed AI configuration in a fixed-role import without changing the form', async () => {
+    const error = vi.spyOn(notify, 'error');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => json(path === '/api/tournaments?summary=true' ? [] : saved('fixed'))),
+    );
+    const setup = await openFixedSetup([modelA, modelB]);
+    fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
+    fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
+    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+      target: { value: '300' },
+    });
+    fireEvent.change(setup.getByLabelText('Attackers trained model'), {
+      target: { value: 'model-b' },
+    });
+    fireEvent.change(setup.getByLabelText('Import configuration'), {
+      target: {
+        files: [
+          importedFile({
+            name: 'Malformed fixed roles',
+            mode: 'fixed_roles',
+            rulesets: ['brandubh'],
+            players: [
+              { config: { algorithm: null } },
+              { config: { algorithm: 'neural', model_id: 'model-b' } },
+            ],
+            games: 7,
+            max_plies: 200,
+            seed: 5,
+          }),
+        ],
+      },
+    });
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[0].config.algorithm');
+    expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
+    expect(setup.getByLabelText('Number of games')).toHaveValue(5);
+    expect(setup.getByLabelText('Shared search iterations')).toHaveValue(300);
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-b');
+  });
+
+  it('keeps fixed-role and round-robin imports in their own setup', async () => {
+    const error = vi.spyOn(notify, 'error');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [] : saved('imported')),
+      ),
+    );
+    const fixedDocument = {
+      name: 'Fixed saga',
+      mode: 'fixed_roles',
+      rulesets: ['brandubh'],
+      players: [
+        {
+          config: {
+            algorithm: 'neural',
+            model_id: 'model-a',
+            search_wrapper: 'mcts',
+            iterations: 120,
+            time_limit: 2,
+          },
+        },
+        {
+          config: {
+            algorithm: 'neural',
+            model_id: 'model-a',
+            search_wrapper: 'mcts',
+            iterations: 120,
+            time_limit: 2,
+          },
+        },
+      ],
+      games: 7,
+      max_plies: 200,
+      seed: 5,
+    };
+    show([modelA]);
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const roundRobin = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    fireEvent.change(roundRobin.getByLabelText('Import configuration'), {
+      target: { files: [importedFile(fixedDocument)] },
+    });
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        'This is a fixed-role comparison. Import it from the fixed-role setup instead.',
+      ),
+    );
+    expect(roundRobin.getByLabelText('Games per battlefield')).toHaveValue(2);
+    fireEvent.click(roundRobin.getByRole('button', { name: 'Cancel' }));
+
+    const fixed = await openFixedSetup([modelA]);
+    fireEvent.change(fixed.getByLabelText('Import configuration'), {
+      target: { files: [importedFile(importedDocument)] },
+    });
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        'This is a round-robin tournament. Import it from the tournament setup instead.',
+      ),
+    );
+    fireEvent.change(fixed.getByLabelText('Import configuration'), {
+      target: { files: [importedFile(fixedDocument)] },
+    });
+    await waitFor(() => expect(fixed.getByDisplayValue('Fixed saga')).toBeInTheDocument());
+    expect(fixed.getByLabelText('Number of games')).toHaveValue(7);
+    expect(fixed.getByLabelText('Shared search iterations')).toHaveValue(120);
+    expect(fixed.getByLabelText('Move limit per game')).toHaveValue(200);
+    expect(fixed.getByLabelText('Tournament seed')).toHaveValue(5);
+  });
+});
+
+const liveTournament = (
+  id: string,
+  completed: number,
+  status: Tournament['status'] = 'running',
+  error?: string,
+): Tournament => {
+  const tournament = withMatches(id);
+  tournament.status = status;
+  tournament.progress = { completed_games: completed, total_games: 4 };
+  if (error) tournament.error = error;
+  return tournament;
+};
+const pollingHandlers: Array<() => void> = [];
+/**
+ * Capture only the screen's 1.8s polling interval so a poll is fired
+ * explicitly, never by sleeping. Every other timer - including the one the
+ * testing library uses to poll assertions - stays real.
+ */
+const capturePolling = () => {
+  const realSetInterval = window.setInterval.bind(window) as (
+    handler: TimerHandler,
+    timeout?: number,
+  ) => number;
+  vi.spyOn(window, 'setInterval').mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+  ): number => {
+    if (timeout !== 1800) return realSetInterval(handler, timeout);
+    pollingHandlers.push(handler as () => void);
+    return 0;
+  }) as typeof window.setInterval);
+};
+/** Fire one summary poll once the screen registered its interval. */
+const pollOnce = async () => {
+  await waitFor(() => expect(pollingHandlers.length).toBeGreaterThan(0), { timeout: 5000 });
+  const handlers = pollingHandlers.splice(0, pollingHandlers.length);
+  await act(async () => {
+    for (const handler of handlers) handler();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+const retryTimers = new Map<number, () => void>();
+let retryTimerId = 0;
+/**
+ * Capture the bounded retry timers so a retry is fired explicitly. Every
+ * other timer, including the one the testing library uses to bound an
+ * assertion, keeps its real implementation.
+ */
+const captureRetries = () => {
+  const realSetTimeout = window.setTimeout.bind(window) as (
+    handler: TimerHandler,
+    timeout?: number,
+  ) => number;
+  const realClearTimeout = window.clearTimeout.bind(window) as (id?: number) => void;
+  vi.spyOn(window, 'setTimeout').mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+  ): number => {
+    if (timeout === undefined || !DETAIL_RETRY_DELAYS.includes(timeout))
+      return realSetTimeout(handler, timeout);
+    retryTimerId += 1;
+    retryTimers.set(retryTimerId, handler as () => void);
+    return retryTimerId;
+  }) as typeof window.setTimeout);
+  vi.spyOn(window, 'clearTimeout').mockImplementation(((id?: number) => {
+    if (!retryTimers.delete(id ?? -1)) realClearTimeout(id);
+  }) as typeof window.clearTimeout);
+};
+/** Fire the pending automatic retry and let the resulting promises settle. */
+const flushRetry = async () => {
+  await waitFor(() => expect(retryTimers.size).toBeGreaterThan(0), { timeout: 4000 });
+  const handlers = [...retryTimers.values()];
+  retryTimers.clear();
+  await act(async () => {
+    for (const handler of handlers) handler();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+const detailPaths = (paths: string[]) => paths.filter((path) => path.endsWith('/a'));
+
+describe('tournament detail synchronisation', () => {
+  it('fetches the completed details when a running response arrives late', async () => {
+    let release!: (response: Response) => void;
+    const paths: string[] = [];
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        paths.push(path);
+        if (paths.length === 1)
+          return new Promise<Response>((resolve) => {
+            release = resolve;
+          });
+        return json(liveTournament('a', 4, 'completed'));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    expect(detailPaths(paths)).toHaveLength(1);
+    // The tournament finishes while the first detail response is still pending.
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    // The in-flight request is not duplicated by the poll.
+    expect(detailPaths(paths)).toHaveLength(1);
+    await act(async () => {
+      release(await json(liveTournament('a', 2)));
+    });
+    // The stale running snapshot schedules one immediate follow-up fetch.
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.getByText('Series finished')).toBeInTheDocument();
+    expect(
+      screen.getByText('Completed', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+  }, 20000);
+
+  it('fetches the failure details when a failed summary arrives during a request', async () => {
+    let release!: (response: Response) => void;
+    const paths: string[] = [];
+    const failure = 'The tournament worker stopped. Completed games have been kept.';
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        paths.push(path);
+        if (paths.length === 1)
+          return new Promise<Response>((resolve) => {
+            release = resolve;
+          });
+        return json(liveTournament('a', 2, 'failed', failure));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    summary = liveTournament('a', 2, 'failed', failure);
+    await pollOnce();
+    await act(async () => {
+      release(await json(liveTournament('a', 2)));
+    });
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(screen.getByRole('alert')).toHaveTextContent(failure);
+    expect(
+      screen.getByText('Interrupted', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+    // A failure is terminal, so polling stops and no further refresh is queued.
+    expect(pollingHandlers).toHaveLength(0);
+    expect(detailPaths(paths)).toHaveLength(2);
+  }, 20000);
+
+  it('fetches the cancelled details and keeps the retained results', async () => {
+    let release!: (response: Response) => void;
+    const paths: string[] = [];
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        paths.push(path);
+        if (paths.length === 1)
+          return new Promise<Response>((resolve) => {
+            release = resolve;
+          });
+        return json(liveTournament('a', 3, 'cancelled'));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    summary = liveTournament('a', 3, 'cancelled');
+    await pollOnce();
+    await act(async () => {
+      release(await json(liveTournament('a', 2)));
+    });
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.getByText('Partial series saved')).toBeInTheDocument();
+    expect(
+      screen.getByText('Stopped', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Match log' }));
+    expect(screen.getByText('Raven wins')).toBeVisible();
+  }, 20000);
+
+  it('lands on the latest result after progress moved during a request', async () => {
+    let release!: (response: Response) => void;
+    const paths: string[] = [];
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        paths.push(path);
+        if (paths.length === 1)
+          return new Promise<Response>((resolve) => {
+            release = resolve;
+          });
+        return json(liveTournament('a', 4, 'completed'));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Opening the tournament…' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    await act(async () => {
+      release(await json(liveTournament('a', 2)));
+    });
+    // Several progress updates produce exactly one follow-up request, not one
+    // request per observed summary.
+    await waitFor(() => expect(detailPaths(paths)).toHaveLength(2), { timeout: 5000 });
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(pollingHandlers).toHaveLength(0);
+    expect(detailPaths(paths)).toHaveLength(2);
+  }, 20000);
+
+  it('aborts obsolete detail requests when switching tournaments', async () => {
+    const signals = new Map<string, AbortSignal>();
+    const held: Record<string, (response: Response) => void> = {};
+    const error = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (path === '/api/tournaments?summary=true')
+          return json([saved('a'), saved('b'), saved('c')]);
+        signals.set(path, options?.signal as AbortSignal);
+        return new Promise<Response>((resolve) => {
+          held[path] = resolve;
+        });
+      }),
+    );
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await waitFor(() => expect(signals.has('/api/tournaments/a')).toBe(true), { timeout: 5000 });
+    fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge b' }));
+    await waitFor(() => expect(signals.has('/api/tournaments/b')).toBe(true), { timeout: 5000 });
+    fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge c' }));
+    await waitFor(() => expect(signals.has('/api/tournaments/c')).toBe(true), { timeout: 5000 });
+    // Abandoned tournaments stop transferring their history.
+    expect(signals.get('/api/tournaments/a')?.aborted).toBe(true);
+    expect(signals.get('/api/tournaments/b')?.aborted).toBe(true);
+    expect(signals.get('/api/tournaments/c')?.aborted).toBe(false);
+    // Late responses for the abandoned tournaments cannot replace the selection.
+    await act(async () => {
+      held['/api/tournaments/a'](await json(saved('a')));
+    });
+    await act(async () => {
+      held['/api/tournaments/b'](await json(saved('b')));
+    });
+    await act(async () => {
+      held['/api/tournaments/c'](await json(saved('c')));
+    });
+    await screen.findByRole('heading', { name: 'Challenge c' }, { timeout: 5000 });
+    expect(screen.queryByRole('heading', { name: 'Challenge a' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Challenge b' })).not.toBeInTheDocument();
+    expect(error).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('aborts pending detail requests on unmount', async () => {
+    const signals = new Map<string, AbortSignal>();
+    const error = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (path === '/api/tournaments?summary=true') return json([saved('a')]);
+        signals.set(path, options?.signal as AbortSignal);
+        return new Promise<Response>(() => {});
+      }),
+    );
+    const { unmount } = render(
+      <Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />,
+    );
+    await waitFor(() => expect(signals.has('/api/tournaments/a')).toBe(true), { timeout: 5000 });
+    unmount();
+    expect(signals.get('/api/tournaments/a')?.aborted).toBe(true);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(error).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('does not request details again while the summary is unchanged', async () => {
+    const paths: string[] = [];
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        paths.push(path);
+        return json(summary);
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    expect(detailPaths(paths)).toHaveLength(1);
+    await pollOnce();
+    await pollOnce();
+    await pollOnce();
+    expect(detailPaths(paths)).toHaveLength(1);
+    // Live progress still refreshes the selected record when it changes.
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
+    expect(detailPaths(paths)).toHaveLength(2);
+  }, 20000);
+});
+
+describe('tournament detail recovery', () => {
+  /**
+   * A fetcher whose first detail response succeeds, whose next `failures`
+   * responses fail, and whose later responses return the settled record.
+   */
+  const transientFetcher = (
+    summary: () => Tournament,
+    first: Tournament,
+    settled: Tournament,
+    failures: number,
+  ) => {
+    let detailCalls = 0;
+    const fetcher = vi.fn((path: string) => {
+      if (path === '/api/tournaments?summary=true') return json([summary()]);
+      detailCalls += 1;
+      if (detailCalls === 1) return json(first);
+      if (detailCalls <= 1 + failures) return Promise.reject(new Error('Network error'));
+      return json(settled);
+    });
+    return { fetcher, detailCalls: () => detailCalls };
+  };
+
+  it('recovers the completed details after a transient failure', async () => {
+    let summary = liveTournament('a', 2);
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    const { fetcher, detailCalls } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 4, 'completed'),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    // The failed refresh is reported once and stays recoverable.
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('Network error');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await flushRetry();
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(retryTimers.size).toBe(0);
+    expect(detailCalls()).toBe(3);
+  }, 20000);
+
+  it('recovers the failed details after a transient failure', async () => {
+    const failure = 'The tournament worker stopped. Completed games have been kept.';
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    captureRetries();
+    const { fetcher } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 2, 'failed', failure),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 2, 'failed', failure);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    await flushRetry();
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(failure), {
+      timeout: 5000,
+    });
+    expect(
+      screen.getByText('Interrupted', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+    expect(retryTimers.size).toBe(0);
+  }, 20000);
+
+  it('recovers the cancelled details and keeps the retained results', async () => {
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    captureRetries();
+    const { fetcher } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 3, 'cancelled'),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3, 'cancelled');
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    await flushRetry();
+    await screen.findByText('3 of 4 games saved', undefined, { timeout: 5000 });
+    expect(
+      screen.getByText('Stopped', { selector: '.tournament-detail .tournament-status' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Match log' }));
+    expect(screen.getByText('Raven wins')).toBeVisible();
+  }, 20000);
+
+  it('stops after a bounded number of retries and offers a manual retry', async () => {
+    let summary = liveTournament('a', 2);
+    let failing = false;
+    let detailCalls = 0;
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        if (failing) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 4, 'completed'));
+      }),
+    );
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    failing = true;
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    for (let attempt = 0; attempt < DETAIL_RETRY_DELAYS.length; attempt += 1) await flushRetry();
+    // One notification and one retry per scheduled delay, and no more.
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    expect(retryTimers.size).toBe(0);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // The manual retry recovers as soon as the server answers again.
+    failing = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  }, 20000);
+
+  it('bounds detail requests while a running tournament keeps polling', async () => {
+    let summary = liveTournament('a', 2);
+    let detailCalls = 0;
+    let failing = true;
+    capturePolling();
+    captureRetries();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        if (failing) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 4, 'completed'));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(detailCalls).toBe(2);
+    expect(retryTimers.size).toBe(1);
+    // Polling continues, but a pending retry is never bypassed by a poll.
+    for (let poll = 0; poll < 6; poll += 1) await pollOnce();
+    expect(detailCalls).toBe(2);
+    expect(retryTimers.size).toBe(1);
+    // The scheduled retries fire on their own backoff and then stop.
+    for (let attempt = 0; attempt < DETAIL_RETRY_DELAYS.length; attempt += 1) await flushRetry();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    // An unchanged marker cannot start more automatic requests, and the manual
+    // recovery stays available.
+    for (let poll = 0; poll < 5; poll += 1) await pollOnce();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    expect(retryTimers.size).toBe(0);
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    // The manual retry still recovers the newest details.
+    failing = false;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(retryTimers.size).toBe(0);
+  }, 20000);
+
+  it('resumes synchronization with a fresh budget for a newer marker', async () => {
+    let summary = liveTournament('a', 2);
+    let detailCalls = 0;
+    let failing = true;
+    capturePolling();
+    captureRetries();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        if (failing) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 4));
+      }),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    for (let attempt = 0; attempt < DETAIL_RETRY_DELAYS.length; attempt += 1) await flushRetry();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    for (let poll = 0; poll < 3; poll += 1) await pollOnce();
+    expect(detailCalls).toBe(2 + DETAIL_RETRY_DELAYS.length);
+    // A genuinely newer marker gets its own immediate attempt and a fresh budget.
+    failing = false;
+    summary = liveTournament('a', 4);
+    await pollOnce();
+    expect(detailCalls).toBe(3 + DETAIL_RETRY_DELAYS.length);
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    expect(retryTimers.size).toBe(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  }, 20000);
+
+  it('does not carry a pending retry into a newly selected tournament', async () => {
+    let summary = liveTournament('a', 2);
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    let failDetail = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary, saved('b')]);
+        if (path.endsWith('/b')) return json(saved('b'));
+        if (failDetail) return Promise.reject(new Error('Network error'));
+        return json(liveTournament('a', 2));
+      }),
+    );
+    render(<Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />);
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    failDetail = true;
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(retryTimers.size).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'View tournament Challenge b' }));
+    await screen.findByRole('heading', { name: 'Challenge b' }, { timeout: 5000 });
+    // The obsolete retry is cancelled and cannot overwrite the new selection.
+    expect(retryTimers.size).toBe(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole('heading', { name: 'Challenge b' })).toBeInTheDocument();
+  }, 20000);
+
+  it('cancels a pending retry when the screen unmounts', async () => {
+    let summary = liveTournament('a', 2);
+    const error = vi.fn();
+    capturePolling();
+    captureRetries();
+    let detailCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/tournaments?summary=true') return json([summary]);
+        detailCalls += 1;
+        if (detailCalls === 1) return json(liveTournament('a', 2));
+        return Promise.reject(new Error('Network error'));
+      }),
+    );
+    const { unmount } = render(
+      <Tournaments rulesets={rulesets} profiles={profiles} models={[]} onError={error} />,
+    );
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 3);
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    expect(retryTimers.size).toBe(1);
+    unmount();
+    expect(retryTimers.size).toBe(0);
+    const calls = detailCalls;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(detailCalls).toBe(calls);
+  }, 20000);
+
+  it('does not request anything further once the terminal record is shown', async () => {
+    let summary = liveTournament('a', 2);
+    capturePolling();
+    captureRetries();
+    const { fetcher, detailCalls } = transientFetcher(
+      () => summary,
+      liveTournament('a', 2),
+      liveTournament('a', 4, 'completed'),
+      1,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    show();
+    await screen.findByRole('heading', { name: 'Challenge a' }, { timeout: 5000 });
+    summary = liveTournament('a', 4, 'completed');
+    await pollOnce();
+    await screen.findByRole('alert', undefined, { timeout: 5000 });
+    await flushRetry();
+    await screen.findByText('4 of 4 games saved', undefined, { timeout: 5000 });
+    const settled = detailCalls();
+    // Nothing is running any more, so polling has stopped and no retry remains.
+    expect(pollingHandlers).toHaveLength(0);
+    expect(retryTimers.size).toBe(0);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(detailCalls()).toBe(settled);
+  }, 20000);
+});
+
+describe('fixed-role outcome chart', () => {
+  const fixedRoleTournament = (
+    outcomes: ('attackers' | 'defenders' | 'draw' | null)[],
+  ): Tournament => {
+    const tournament = saved('fixed');
+    tournament.mode = 'fixed_roles';
+    tournament.config.mode = 'fixed_roles';
+    tournament.result = {
+      scores: [0, 0],
+      standings: tournament.config.players.map((_, player) => ({
+        player,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        truncated: 0,
+        games: outcomes.length,
+        score: 0,
+      })),
+      by_ruleset: { brandubh: { wins: [0, 0], draws: 0, truncated: 0, games: outcomes.length } },
+      games: outcomes.map((winner) => ({
+        ruleset: 'brandubh',
+        winner,
+        outcome: winner ? ('completed' as const) : ('truncated' as const),
+        reason: winner ? 'king_captured' : 'experiment_ply_limit',
+        plies: 12,
+        moves: [],
+        attacker_player: 0,
+        defender_player: 1,
+        average_decision_time: 0.01,
+        total_decision_time: 0.12,
+      })),
+      truncated: outcomes.filter((winner) => winner === null).length,
+      average_game_length: 12,
+      average_decision_time: 0.01,
+    };
+    return tournament;
+  };
+  const showChart = async (outcomes: ('attackers' | 'defenders' | 'draw' | null)[]) => {
+    const tournament = fixedRoleTournament(outcomes);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge fixed' }, { timeout: 5000 });
+  };
+
+  it('draws a segment only for outcome categories that happened', async () => {
+    const cases: [('attackers' | 'defenders' | 'draw' | null)[], number][] = [
+      [['attackers', 'attackers', 'attackers'], 1],
+      [['defenders', 'defenders'], 1],
+      [['draw'], 1],
+      [['attackers', 'draw', 'attackers'], 2],
+      [[null, 'defenders'], 2],
+      [['attackers', 'defenders', 'draw', null], 4],
+    ];
+    for (const [outcomes, expected] of cases) {
+      await showChart(outcomes);
+      expect(document.querySelectorAll('.tournament-outcome-bar > span')).toHaveLength(expected);
+      // The legend always documents every outcome, including the empty ones.
+      expect(document.querySelectorAll('.tournament-outcome-legend li')).toHaveLength(4);
+      cleanup();
+    }
+  }, 20000);
+
+  it('describes the same outcome counts as the chart', async () => {
+    await showChart(['attackers', 'attackers', 'defenders', 'draw', null]);
+    expect(
+      screen.getByRole('img', {
+        name: '5 games: 2 attacker wins, 1 defender wins, 1 draws, 1 unfinished.',
+      }),
+    ).toBeInTheDocument();
+    expect(document.querySelectorAll('.tournament-outcome-bar > span')).toHaveLength(4);
+    const legend = [...document.querySelectorAll('.tournament-outcome-legend li')].map((item) =>
+      item.textContent?.trim(),
+    );
+    expect(legend).toEqual(['Attacker wins2', 'Defender wins1', 'Rule draws1', 'Unfinished1']);
+  });
+
+  it('shows a placeholder instead of an empty chart', async () => {
+    await showChart([]);
+    expect(document.querySelector('.tournament-outcome-bar')).toBeNull();
+    expect(screen.getByText('No completed games yet.')).toBeInTheDocument();
+  });
 });

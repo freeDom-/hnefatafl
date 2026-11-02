@@ -1,15 +1,15 @@
 import { expect, test, type Page } from './auth-fixture';
 import { workshopFixture, workshopFixtures } from './workshop-fixtures';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
-async function open(page: Page) {
-  await page.addInitScript(() => {
+async function open(
+  page: Page,
+  appearance: Record<string, string> = { mode: 'wood', tokens: 'wood', board: 'walnut' },
+) {
+  await page.addInitScript((theme) => {
     if (!localStorage.getItem('hnefatafl-language'))
       localStorage.setItem('hnefatafl-language', 'en');
-    localStorage.setItem(
-      'hnefatafl-appearance',
-      JSON.stringify({ mode: 'wood', tokens: 'wood', board: 'walnut' }),
-    );
-  });
+    localStorage.setItem('hnefatafl-appearance', JSON.stringify(theme));
+  }, appearance);
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
@@ -244,4 +244,249 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
     path: info.outputPath(`empty-${info.project.name}.png`),
     fullPage: true,
   });
+});
+
+test('advances live phase monitoring and reports stale publication', async ({ page }, info) => {
+  // A paused clock makes the displayed seconds deterministic: they can only
+  // move when this test advances them.
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
+  const job = workshopFixture('running', 1);
+  const monitored = {
+    ...job,
+    progress: {
+      ...job.progress,
+      stage: 'self_play',
+      duration: 100,
+      updated_at: '2026-01-01T00:00:00.000Z',
+      phase_started_at: '2026-01-01T00:00:00.000Z',
+      phase_elapsed: 30,
+      last_progress_seconds: 2,
+      revision: 5,
+      phase_progress: {
+        games_completed: 18,
+        games_total: 32,
+        games_active: 14,
+        positions: 4820,
+      },
+    },
+  };
+  // The server reports how long ago the worker last published; a snapshot that
+  // stopped arriving ten minutes ago is stale the moment the page mounts.
+  let response: Record<string, unknown> = { ...monitored, publication_age_seconds: 900 };
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: [response] }),
+  );
+  await open(page);
+  await expect(page.getByRole('status').filter({ hasText: 'No recent updates' })).toBeVisible();
+
+  // A republished snapshot is classified fresh without a client-side grace period.
+  response = {
+    ...monitored,
+    publication_age_seconds: 0.5,
+    progress: { ...monitored.progress, updated_at: '2026-01-01T00:10:00.000Z' },
+  };
+  // An explicit refresh reconnects without advancing the paused clock, so the
+  // elapsed timer stays exactly on the snapshot's reported duration.
+  await page.getByRole('button', { name: 'Refresh job', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
+  await expect(page.getByText('Elapsed 1m 40s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 30s')).toBeVisible();
+  const live = page.locator('.live-phase');
+  await expect(live.getByText('Games', { exact: true }).locator('..')).toContainText('18 / 32');
+  await expect(live.getByText('Active games', { exact: true }).locator('..')).toContainText('14');
+  await expect(live.getByText('Positions', { exact: true }).locator('..')).toContainText('4,820');
+  await page.screenshot({ path: info.outputPath('live-monitoring.png'), fullPage: true });
+
+  // Timers keep advancing although no new progress snapshot arrived.
+  await page.clock.runFor(3000);
+  await expect(page.getByText('Elapsed 1m 43s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 33s')).toBeVisible();
+
+  // A worker that stops publishing is reported instead of looking frozen. The
+  // server keeps answering and measures the child's own silence, so the age it
+  // reports is what decides, not how long the browser has been open.
+  response = {
+    ...monitored,
+    publication_age_seconds: 640,
+    progress: { ...monitored.progress, updated_at: '2026-01-01T00:10:40.000Z' },
+  };
+  await page.clock.runFor(3000);
+  await expect(page.getByRole('status').filter({ hasText: 'No recent updates' })).toBeVisible();
+});
+
+test('shows a slow initialization stage as a live, responsive job', async ({ page }, info) => {
+  // A job that is still loading a checkpoint must not look like a dead worker.
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
+  const job = workshopFixture('running', 1);
+  const initializing = {
+    ...job,
+    publication_age_seconds: 0.5,
+    progress: {
+      ...job.progress,
+      stage: 'loading_checkpoint',
+      duration: 12,
+      updated_at: '2026-01-01T00:00:00.000Z',
+      phase_started_at: '2026-01-01T00:00:00.000Z',
+      phase_elapsed: 5,
+      last_progress_seconds: 0,
+      revision: 1,
+      phase_progress: {},
+    },
+  };
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: [initializing] }),
+  );
+  await open(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
+  await expect(page.getByText('loading checkpoint')).toBeVisible();
+  await expect(page.getByText('Elapsed 0m 12s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 5s')).toBeVisible();
+  // No iteration has started, so none is timed while the checkpoint loads.
+  await expect(page.getByText(/Iteration elapsed/)).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('initialization-monitoring.png'), fullPage: true });
+  // The elapsed time keeps advancing while the checkpoint is still loading.
+  await page.clock.runFor(4000);
+  await expect(page.getByText('Elapsed 0m 16s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 0m 9s')).toBeVisible();
+});
+
+async function refuseTrainingFields(page: Page) {
+  // The server refuses fields the form edits, one inside Advanced, and one it
+  // does not own at all.
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({
+          status: 400,
+          json: {
+            detail: 'Unsupported training configuration fields: channels, seed, output_dir',
+            code: 'unsupported_training_field',
+            fields: ['channels', 'seed', 'output_dir'],
+          },
+        })
+      : route.fulfill({ json: [workshopFixture('running', 1)] }),
+  );
+}
+
+async function rejectTrainingFields(page: Page) {
+  // With a job present the workshop starts collapsed, so open it first.
+  const disclosure = page.getByRole('button', { name: /Forge a new strategist/ });
+  if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+  // The button carries an aria-hidden arrow, so match its name loosely.
+  await page.getByRole('button', { name: /Start training/ }).click();
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('Network channels');
+  await expect(alert).toContainText('channels');
+  await expect(alert).toContainText('Random seed');
+  await expect(alert).toContainText('output_dir');
+  await expect(alert).toContainText('assigns each training job its own output directory');
+  // A rejected Advanced field expands the section instead of hiding it.
+  const channels = page.getByRole('spinbutton', { name: 'Network channels' });
+  const seed = page.getByRole('spinbutton', { name: 'Random seed' });
+  await expect(channels).toHaveAttribute('aria-invalid', 'true');
+  await expect(seed).toHaveAttribute('aria-invalid', 'true');
+  await expect(channels).toHaveAttribute('aria-describedby', (await alert.getAttribute('id'))!);
+  await expect(channels).toHaveClass(/field-invalid/);
+  return channels;
+}
+
+test('names and marks a rejected training field in every appearance', async ({ page }, info) => {
+  const marker = (element: Element) => getComputedStyle(element).boxShadow;
+  await refuseTrainingFields(page);
+  await open(page);
+  const channels = await rejectTrainingFields(page);
+  const woodMarker = await channels.evaluate(marker);
+  expect(woodMarker).not.toBe('none');
+  // Keyboard focus keeps the shared focus outline on a marked control.
+  await channels.focus();
+  await expect(channels).toBeFocused();
+  const focus = await channels.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { width: style.outlineWidth, style: style.outlineStyle, color: style.outlineColor };
+  });
+  // The workshop's own focus outline survives the error marker, and the two are
+  // different colours so a focused rejected field is still recognizable.
+  expect(focus.style).toBe('solid');
+  expect(focus.width).toBe('2px');
+  const markerColor = /rgb\([^)]+\)/.exec(woodMarker)?.[0];
+  expect(markerColor).toBeTruthy();
+  expect(focus.color).not.toBe(markerColor);
+  await page.screenshot({ path: info.outputPath('rejected-field-wood.png'), fullPage: true });
+
+  // Every appearance defines the shared error token the marker uses. The latest
+  // init script wins, so it overrides the wood appearance registered by `open`.
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'hnefatafl-appearance',
+      JSON.stringify({ mode: 'dark', tokens: 'wood', board: 'walnut' }),
+    ),
+  );
+  await page.goto('/dashboard');
+  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
+  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  const darkChannels = await rejectTrainingFields(page);
+  const darkMarker = await darkChannels.evaluate(marker);
+  expect(darkMarker).not.toBe('none');
+  expect(darkMarker).not.toBe(woodMarker);
+  await page.screenshot({ path: info.outputPath('rejected-field-dark.png'), fullPage: true });
+});
+
+test('keeps the iteration timer live and reports a monitoring outage', async ({ page }, info) => {
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
+  const job = workshopFixture('running', 1);
+  const monitored = {
+    ...job,
+    publication_age_seconds: 0.5,
+    supervisor_age_seconds: 0.5,
+    progress: {
+      ...job.progress,
+      stage: 'preparing',
+      active_iteration: 42,
+      iteration_started_at: '2026-01-01T00:00:00.000Z',
+      iteration_elapsed: 512,
+      phase_started_at: '2026-01-01T00:00:00.000Z',
+      phase_elapsed: 378,
+      duration: 5000,
+      updated_at: '2026-01-01T00:00:00.000Z',
+      last_progress_seconds: 1,
+      revision: 5,
+    },
+  };
+  let reachable = true;
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    reachable ? route.fulfill({ json: [monitored] }) : route.abort(),
+  );
+  await open(page);
+  await expect(page.getByText('Iteration elapsed 8m 32s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 6m 18s')).toBeVisible();
+  await page.clock.runFor(3000);
+  await expect(page.getByText('Iteration elapsed 8m 35s')).toBeVisible();
+  await expect(page.getByText('Phase elapsed 6m 21s')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('iteration-timing.png'), fullPage: true });
+
+  // The server stops answering: the browser reports its own blind spot instead
+  // of blaming the remote worker for a connection it cannot observe.
+  reachable = false;
+  await page.clock.runFor(31000);
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Monitoring connection unavailable' }),
+  ).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Worker connection lost' })).toHaveCount(
+    0,
+  );
+  await page.screenshot({ path: info.outputPath('monitoring-outage.png'), fullPage: true });
+
+  // Reconnecting adopts the authoritative state again, and the phase name is
+  // localized for German readers.
+  reachable = true;
+  await page.clock.runFor(3000);
+  await expect(page.getByRole('status').filter({ hasText: 'Worker active' })).toBeVisible();
+  await page.getByLabel('Language', { exact: true }).selectOption('de');
+  await expect(page.getByText('Vorbereitung')).toBeVisible();
+  await expect(page.getByText(/Iterationsdauer \d+m \d+s/)).toBeVisible();
 });

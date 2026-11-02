@@ -135,8 +135,22 @@ export function evaluationGroups(rows: HistoryPoint[]) {
   }
   return [...groups].map(([identity, points]) => ({ identity, points }));
 }
+/** The job's own snapshot; a nested tuning trial never replaces its fields. */
+export const jobLevelProgress = (job: Job): Values =>
+  object(job.progress) ?? object(job.metrics) ?? {};
+
+/** The active tuning trial's snapshot, when a tuning job nests one. */
+export const trialProgress = (job: Job): Values | undefined =>
+  object(jobLevelProgress(job).trial_progress);
+
+/**
+ * Job progress for the training views. A tuning job nests the active trial's
+ * snapshot, whose phase, iteration and counters belong to that trial; the job's
+ * own elapsed time must be read with `jobLevelProgress` instead, because the
+ * trial's duration restarts with every trial.
+ */
 export const jobProgress = (job: Job) => {
-  const saved = object(job.progress) ?? object(job.metrics) ?? {};
+  const saved = jobLevelProgress(job);
   const trial = object(saved.trial_progress);
   return trial ? { ...saved, ...trial } : saved;
 };

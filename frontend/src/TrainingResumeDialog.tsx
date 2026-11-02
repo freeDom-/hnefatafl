@@ -5,7 +5,7 @@ import { useI18n } from './i18n';
 import type { Job, TrainingWorker, DeviceInfo } from './types';
 import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
-import TrainingTarget, { jobTarget, targetRequest, workerEligible } from './TrainingTarget';
+import TrainingTarget, { jobTarget, workerEligible } from './TrainingTarget';
 import {
   numberField,
   SelfPlayModeField,
@@ -18,6 +18,7 @@ import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
 import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
+import { resumePayload } from './trainingPayload';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -203,32 +204,10 @@ export default function TrainingResumeDialog({
     if (!checkpoint || !valid) return;
     setBusy(true);
     try {
-      const next = await api<Job>(`/training/jobs/${job.id}/resume`, {
-        iterations: target,
-        ...Object.fromEntries(
-          Object.entries(config).filter(
-            ([key, value]) =>
-              !['ruleset', 'channels', 'blocks', 'seed', 'optimizer', 'iterations'].includes(key) &&
-              (key in trainingNumberFields ||
-                [
-                  'model_name',
-                  'evaluation_opponent',
-                  'evaluation_mode',
-                  'evaluation_inference_backend',
-                  'device',
-                  'mixed_precision',
-                  'save_all_best',
-                  'self_play_mode',
-                  'inference_backend',
-                  'inference_cache_mode',
-                  'inference_device',
-                  'training_symmetry_mode',
-                ].includes(key)) &&
-              value !== savedConfig.current[key],
-          ),
-        ),
-        ...(executionTarget !== jobTarget(job) ? targetRequest(executionTarget) : {}),
-      });
+      const next = await api<Job>(
+        `/training/jobs/${job.id}/resume`,
+        resumePayload(config, savedConfig.current, target, executionTarget, jobTarget(job)),
+      );
       onStarted(next, checkpoint.completed_iteration, target);
     } catch (error) {
       notify.error(errorMessage(error));

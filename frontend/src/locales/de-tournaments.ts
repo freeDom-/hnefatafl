@@ -206,5 +206,65 @@ const german: Record<string, string> = {
     'Je symmetrischer Zuggruppe nur einen Vertreter durchsuchen.',
   'Bounded number of stored transposition entries. Larger tables use more memory.':
     'Begrenzte Anzahl gespeicherter Transpositionseinträge. Größere Tabellen brauchen mehr Speicher.',
+  'Fixed-role comparison': 'Vergleich mit festen Rollen',
+  'Compare one trained model as attackers against another as defenders.':
+    'Vergleiche ein trainiertes Modell als Angreifer mit einem anderen als Verteidiger.',
+  'Opening the tournament…': 'Turnier wird geöffnet…',
+  'Loading the saved results.': 'Gespeicherte Ergebnisse werden geladen.',
+  '{games} games · attackers never swap sides · seed {seed}':
+    '{games} Spiele · Angreifer wechseln nie die Seite · Startwert {seed}',
+  'Side performance': 'Leistung je Seite',
+  'Attackers and defenders are never swapped.': 'Angreifer und Verteidiger werden nie getauscht.',
+  ATTACKERS: 'ANGREIFER',
+  DEFENDERS: 'VERTEIDIGER',
+  Attackers: 'Angreifer',
+  Defenders: 'Verteidiger',
+  'Win rate': 'Siegquote',
+  'Score rate': 'Punktquote',
+  'Attacker wins': 'Siege der Angreifer',
+  'Defender wins': 'Siege der Verteidiger',
+  'Rule draws': 'Regel-Unentschieden',
+  'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
+  '{played} games: {attackers} attacker wins, {defenders} defender wins, {draws} draws, {unfinished} unfinished.':
+    '{played} Spiele: {attackers} Siege der Angreifer, {defenders} Siege der Verteidiger, {draws} Unentschieden, {unfinished} unvollendet.',
+  'Win rate and score rate use completed games only; unfinished games are excluded. A win scores 1 point and a rule draw 0.5 for each side.':
+    'Sieg- und Punktquote beziehen sich nur auf abgeschlossene Spiele; unvollendete Spiele sind ausgenommen. Ein Sieg zählt 1 Punkt, ein Regel-Unentschieden 0,5 für jede Seite.',
+  'This is a fixed-role comparison. Import it from the fixed-role setup instead.':
+    'Dies ist ein Vergleich mit festen Rollen. Importiere ihn stattdessen über die Einrichtung mit festen Rollen.',
+  'This is a round-robin tournament. Import it from the tournament setup instead.':
+    'Dies ist ein Rundenturnier. Importiere es stattdessen über die Turniereinrichtung.',
+  'Neural evaluation cannot reuse rotated or reflected positions, so symmetry search is unavailable.':
+    'Die neuronale Bewertung kann gedrehte oder gespiegelte Stellungen nicht wiederverwenden, daher ist die Symmetriesuche nicht verfügbar.',
+  'Close fixed-role setup': 'Einrichtung mit festen Rollen schließen',
+  'Compare two trained models with fixed sides. One model always attacks, the other always defends, and both share one search configuration.':
+    'Vergleiche zwei trainierte Modelle mit festen Seiten. Ein Modell greift immer an, das andere verteidigt immer, und beide teilen sich eine Suchkonfiguration.',
+  'Import a portable fixed-role configuration, then review and edit it before starting.':
+    'Importiere eine portable Konfiguration mit festen Rollen und prüfe sie vor dem Start.',
+  Battlefield: 'Schlachtfeld',
+  'Trained models belong to one ruleset, so a comparison uses exactly one battlefield.':
+    'Trainierte Modelle gehören zu einem Regelwerk, daher nutzt ein Vergleich genau ein Schlachtfeld.',
+  'Plays the attacking side in every game.': 'Spielt in jedem Spiel die angreifende Seite.',
+  'Plays the defending side in every game.': 'Spielt in jedem Spiel die verteidigende Seite.',
+  'Shared search configuration': 'Gemeinsame Suchkonfiguration',
+  'Both participants use these settings. Only the trained model differs.':
+    'Beide Teilnehmer verwenden diese Einstellungen. Nur das trainierte Modell unterscheidet sich.',
+  'Shared search wrapper': 'Gemeinsamer Such-Wrapper',
+  'Shared search': 'Gemeinsame Suche',
+  Shared: 'Gemeinsam',
+  'Number of games': 'Anzahl der Spiele',
+  'games with fixed sides': 'Spiele mit festen Seiten',
+  'Every scheduled game keeps the same sides, so an odd game count is valid. The tournament seed controls all game and move seeds. Unfinished games score no points.':
+    'Jedes geplante Spiel behält dieselben Seiten, daher ist eine ungerade Spielanzahl gültig. Der Turnier-Startwert steuert alle Spiel- und Zug-Startwerte. Unvollendete Spiele zählen keine Punkte.',
+  'The attackers model is not trained for this battlefield.':
+    'Das Angreifer-Modell ist nicht für dieses Schlachtfeld trainiert.',
+  'Select a trained model for the attackers.': 'Wähle ein trainiertes Modell für die Angreifer.',
+  'The defenders model is not trained for this battlefield.':
+    'Das Verteidiger-Modell ist nicht für dieses Schlachtfeld trainiert.',
+  'Select a trained model for the defenders.': 'Wähle ein trainiertes Modell für die Verteidiger.',
+  'incompatible battlefield': 'unpassendes Schlachtfeld',
+  'Unavailable model': 'Nicht verfügbares Modell',
+  'The latest results could not be loaded.':
+    'Die neuesten Ergebnisse konnten nicht geladen werden.',
+  'Try again': 'Erneut versuchen',
 };
 export default german;

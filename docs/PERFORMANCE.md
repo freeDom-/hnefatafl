@@ -342,6 +342,34 @@ show improved playing strength or confirmed Champion decision equivalence.
   oversubscribe the host. Measure a small representative budget before scaling.
 
 
+## Training monitoring overhead
+
+Live monitoring updates one aggregated counter per searched position and per
+optimizer batch, and republishes a bounded `heartbeat.json` about once per second.
+The retained `progress.json` with the full iteration history is still written only
+on real progress events. Measured single-threaded CPU costs are 0.65 µs per
+counter update and 0.13 ms per heartbeat write (294 B) against 9.1 ms for a
+120 KB retained snapshot, and paired workload comparisons put the instrumentation
+delta inside the workload's own run-to-run noise. Full samples, sizes and the
+reproduction command are in the
+[monitoring overhead measurements](benchmarks/training-monitoring-heartbeat.md).
+
+A tuning study used to re-read its whole Optuna study after every trial to refresh
+the completed-trial counter, which is O(N²) storage work over a study. The counter
+now follows Optuna's own trial callback and the history is read once at load and
+once at the final aggregation: for a 1,000-trial study that is 2,000 stored trials
+touched instead of 500,500. Measurements and the reproduction command are in the
+[tuning bookkeeping measurements](benchmarks/tuning-bookkeeping.md).
+
+A remote worker forwards the same bounded projection while the child revision is
+unchanged, so an unchanged history, metrics or log tail never crosses the network
+again. For a 2,000-iteration job that is 6.2 MB per minute of reporting reduced to
+13 KB per minute; the retained row write is unchanged because the dashboard still
+reads the retained history, and it carries the lease and sequence the job
+lifecycle depends on. Measurements and the reproduction command are in the
+[remote monitoring measurements](benchmarks/training-monitoring-remote.md).
+
+
 ## Training evaluation cost
 
 Training runs one selected evaluator, rather than baseline plus previous-best.
@@ -827,3 +855,43 @@ dominates the remaining wall time and is shared with the legacy search. D4
 symmetry is verified value-safe but helps only genuinely symmetric positions, so
 the symmetry features stay optional and off by default. The legacy search stays
 available as the historical reference.
+
+## Tournament collection loading
+
+A saved tournament retains every match with its moves, state and diagnostics, so
+a collection grows much larger than the navigator needs. The collection endpoint
+now projects the summary inside SQLite (`json_remove(data, '$.result')`) instead
+of decoding the retained history in Python, and the browser fetches the selected
+tournament's full record only when its status, completed game count or end time
+changes.
+
+`scripts/benchmark_tournament_summaries.py` builds a synthetic collection in a
+temporary database — 24 completed tournaments with 200 games and 60 plies each
+(10.6 MB of SQLite) — and reproduces the previous list and poll paths beside the
+current ones:
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| Python JSON bytes decoded per collection read | 20.4 MiB | 14 KiB |
+| SQLite reads per collection listing | 25 | 1 |
+| Median collection time (manager plus projection) | 0.753 s | 0.178 s |
+| Collection response body | 18,766 B | 18,766 B (unchanged) |
+| 600 polls with one selected tournament | 266.4 MB | 11.7 MB |
+
+The selected tournament's complete record is 425,301 bytes, so the polling
+reduction comes from never re-downloading an unchanged match history. These
+numbers made an incremental or paginated match-history endpoint unnecessary for
+the current architecture.
+
+Polling a *running* tournament is measured the same way, with a deterministic
+worker handle so the record stays running. Liveness needs only the tournament id
+and the worker pid, both present in the summary projection, and the failure
+transition is a conditional `json_set` update that never overwrites a terminal
+state:
+
+| One summary poll of a running tournament | Before | After |
+| --- | --- | --- |
+| Python JSON bytes decoded | 850,574 B | 572 B |
+| Database reads | 2 | 1 |
+| Median duration | 0.023 s | 0.007 s |
+| 600 polls | 510.3 MB | 343 KB |

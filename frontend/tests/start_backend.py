@@ -31,17 +31,36 @@ class HistoricalFixtures(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-    def do_POST(self):
-        size = int(self.headers.get("Content-Length", "0"))
-        if self.path != "/historical-game" or not 0 < size <= 32768:
-            self.send_error(400)
-            return
-        game = historical_game(fixture_client, **json.loads(self.rfile.read(size)))
-        raw = json.dumps(game).encode()
-        self.send_response(201)
+    def respond(self, status, payload):
+        raw = json.dumps(payload).encode()
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(raw)
+
+    def do_POST(self):
+        size = int(self.headers.get("Content-Length", "0"))
+        if not 0 < size <= 32768:
+            self.send_error(400)
+            return
+        body = json.loads(self.rfile.read(size))
+        if self.path == "/historical-game":
+            self.respond(201, historical_game(fixture_client, **body))
+            return
+        if self.path == "/model":
+            # A disposable neural model so browser tests can exercise the
+            # fixed-role comparison without shipping checkpoint files.
+            from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
+
+            ruleset = str(body.get("ruleset", "brandubh"))
+            checkpoint = save_checkpoint(
+                root / f"fixture-{ruleset}.pt",
+                PolicyValueNet(ruleset, 4, 0),
+                {"name": str(body.get("name", "Fixture raven"))},
+            )
+            self.respond(201, ModelRegistry(root / "models").register(checkpoint))
+            return
+        self.send_error(400)
 
 control = ThreadingHTTPServer(("127.0.0.1",8002),HistoricalFixtures)
 threading.Thread(target=control.serve_forever,daemon=True).start()

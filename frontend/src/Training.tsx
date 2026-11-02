@@ -22,7 +22,12 @@ import JobRenameDialog from './JobRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
 import { modelIteration } from './modelLabel';
 import TrainingWorkers from './TrainingWorkers';
-import { targetRequest } from './TrainingTarget';
+import {
+  TrainingInputError,
+  fieldIdentity,
+  launchPayload,
+  rejectedTrainingFields,
+} from './trainingPayload';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
@@ -109,6 +114,15 @@ export default function Training({
   const [exportingJob, setExportingJob] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [notice, setNotice] = useState('');
+  /** Full paths of the training fields the server rejected, cleared on correction. */
+  const [rejectedFields, setRejectedFields] = useState<string[]>([]);
+  /** Local explanation for a request the form itself could not build. */
+  const [rejectedReason, setRejectedReason] = useState('');
+  /**
+   * Monotonic time of the last successful monitoring read. The live view uses it
+   * to tell a silent worker apart from a browser that cannot reach the server.
+   */
+  const [monitoringObservedAt, setMonitoringObservedAt] = useState<number | undefined>(undefined);
   const [deleteModel, setDeleteModel] = useState<Model | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -211,6 +225,7 @@ export default function Training({
         const latest = summaries.current.get(id);
         const detail =
           snapshot !== summaryRevision.current && latest ? mergeJobSummary(job, latest) : job;
+        setMonitoringObservedAt(performance.now());
         setSelectedJob((current) => (current?.id === id ? { ...detail, summary: false } : current));
       })
       .catch((error: Error) => {
@@ -283,6 +298,7 @@ export default function Training({
           summaries.current = new Map(runs.map((job) => [job.id, job]));
           setLoaded(true);
           setLoadFailed(false);
+          setMonitoringObservedAt(performance.now());
           setCreationOpen((previous) => previous ?? !runs.length);
           setModelsOpen((previous) => previous ?? !runs.length);
           setJobs(runs);
@@ -356,24 +372,31 @@ export default function Training({
     );
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
-  const update = (key: string, value: string | number | boolean) =>
+  /** Drop the rejections that a form input identity owns. */
+  const clearRejectedFields = (identity: string) =>
+    setRejectedFields((previous) =>
+      previous.filter((path) => fieldIdentity(path, kind) !== identity),
+    );
+  const clearAllRejectedFields = () => {
+    setRejectedFields([]);
+    setRejectedReason('');
+  };
+  const update = (key: string, value: string | number | boolean) => {
     setConfig((previous) => ({ ...previous, [key]: value }));
+    clearRejectedFields(key);
+  };
   const start = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setNotice('');
+    clearAllRejectedFields();
     try {
-      const params =
-        kind === 'tune'
-          ? {
-              kind,
-              trials,
-              study_name: studyName,
-              seed: studySeed,
-              search_space: JSON.parse(space),
-              training: config,
-            }
-          : { ...config, kind, ...(target !== 'local' ? targetRequest(target) : {}) };
+      const params = launchPayload(kind, config, target, {
+        trials,
+        studyName,
+        studySeed,
+        space,
+      });
       const job = await api<Job>('/training/jobs', params);
       refreshRevision.current++;
       if (!observedJobs.current) observedJobs.current = new Map();
@@ -389,7 +412,18 @@ export default function Training({
         ),
       );
     } catch (e) {
-      onError((e as Error).message);
+      // A rejected field is the user's to fix: keep the values, name the input
+      // and report it beside the form instead of only in a global notice.
+      const rejected = rejectedTrainingFields(e);
+      if (rejected.length) {
+        setRejectedFields(rejected);
+        // A locally detected problem explains itself; a server rejection uses the
+        // workshop's own wording for the field it names.
+        setRejectedReason(e instanceof TrainingInputError ? e.message : '');
+        setNotice('');
+      } else {
+        onError((e as Error).message);
+      }
     } finally {
       setBusy(false);
     }
@@ -521,10 +555,15 @@ export default function Training({
       setDeletingJob(false);
     }
   };
+  /** Replace the whole form configuration; stale field errors no longer apply. */
+  const replaceConfig = (next: Record<string, string | number | boolean>) => {
+    setConfig(next);
+    clearAllRejectedFields();
+  };
   const loadParameters = (model: Model) => {
     const loaded = recordedTrainingParameters(config, model, device);
     if (!loaded) return;
-    setConfig(loaded.config);
+    replaceConfig(loaded.config);
     setKind('train');
     setTarget('local');
     setAdvanced(true);
@@ -551,7 +590,7 @@ export default function Training({
       // Keep the imported target even when the current server or worker cannot
       // provide it, matching the resume dialog. The form shows the unavailable
       // option and starting reports the platform error so the user can adjust it.
-      setConfig(imported.config);
+      replaceConfig(imported.config);
       setKind(imported.kind);
       if (imported.kind === 'tune') {
         if (imported.trials !== undefined) setTrials(imported.trials);
@@ -586,7 +625,7 @@ export default function Training({
   const loadJobParameters = (job: Job) => {
     const loaded = recordedJobParameters(config, job, device);
     if (!loaded) return;
-    setConfig(loaded.config);
+    replaceConfig(loaded.config);
     setKind(loaded.kind);
     setTarget('local');
     if (loaded.kind === 'tune') {
@@ -763,6 +802,10 @@ export default function Training({
               start,
               importingConfig,
               onImportConfig: (file: File) => void importConfig(file),
+              rejectedFields,
+              rejectedReason,
+              onFieldCorrected: clearRejectedFields,
+              onFieldsCleared: clearAllRejectedFields,
             }}
           />
         </div>
@@ -837,6 +880,7 @@ export default function Training({
                 <TrainingJobDashboard
                   key={selectedJob.id}
                   job={selectedJob}
+                  observedAt={monitoringObservedAt}
                   tab={activeJobTab}
                   onTabChange={setJobTab}
                   revision={dashboardRevision}

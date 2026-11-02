@@ -1,5 +1,7 @@
 import type { Config, Model, Move, Side } from './types';
 
+export type TournamentMode = 'round_robin' | 'fixed_roles';
+
 export interface TournamentPlayer {
   name: string;
   rune?: string;
@@ -17,6 +19,7 @@ export interface TournamentConfig {
   games: number;
   max_plies: number;
   seed: number;
+  mode?: TournamentMode;
 }
 export interface TournamentDiagnostics {
   decisions: number;
@@ -68,6 +71,9 @@ export interface Tournament {
   ended_at?: string;
   config: TournamentConfig;
   progress: { completed_games: number; total_games: number };
+  /** Present on the collection endpoint; the match history is fetched separately. */
+  summary?: boolean;
+  mode?: TournamentMode;
   result?: TournamentResult;
   error?: string;
 }

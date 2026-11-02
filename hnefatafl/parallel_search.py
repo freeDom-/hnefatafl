@@ -170,7 +170,7 @@ def _search(
             payload: Any = (examples, result)
         else:
             payload = value
-        connection.send(("done", index, payload, take_metrics()))
+        connection.send(("done", index, payload, take_metrics(), len(search)))
 
     def record_traversal(index: int, wall: float, cpu: float) -> None:
         per_game_cpu[index] = per_game_cpu.get(index, 0.0) + cpu
@@ -293,6 +293,7 @@ class SearchPool:
         self.processes: list[Any] = []
         self.performance: dict = {}
         self.inference_metrics: list[InferenceMetrics] = []
+        self.active_games = 0
         self.closed = False
         try:
             for _ in range(workers):
@@ -482,6 +483,7 @@ class SearchPool:
         awaiting: set[Connection] = set()
         busy: set[Connection] = set()
         idle: set[Connection] = set()
+        active_games: dict[Connection, int] = {}
 
         def merge(deltas: list[InferenceMetrics]) -> None:
             for identity, delta in enumerate(deltas):
@@ -498,6 +500,8 @@ class SearchPool:
                     for row in result[0]:
                         row["input"] = torch.from_numpy(row["input"])
                 completed += 1
+                active_games[connection] = message[4]
+                self.active_games = sum(active_games.values())
                 streamed.append((message[1], result))
                 merge(message[3])
             elif message[0] == "finished":
@@ -714,6 +718,7 @@ def parallel_self_play(
     retain_examples=True,
     backend=None,
     search_pool=None,
+    monitor=None,
 ):
     from .self_play import SelfPlayMetrics
 
@@ -726,6 +731,11 @@ def parallel_self_play(
     )
     if backend is not None:
         metrics.backend_info.update(backend.info)
+    if monitor is not None:
+        # Positions and simulations are counted per completed game here: the
+        # actors own the per-position counters and cannot share this process's
+        # monitor.
+        monitor.counts(games_total=config["games"], games_active=0)
     owned = search_pool is None
     pool = search_pool or SearchPool(config["search_workers"])
     completed = {}
@@ -757,6 +767,13 @@ def parallel_self_play(
             completed[index] = result
             metrics.record(result[1])
             metrics.cpu_search_seconds += result[1].get("cpu_search_seconds", 0)
+            if monitor is not None:
+                monitor.tick(
+                    games_completed=1,
+                    positions=result[1].get("plies", 0),
+                    simulations=result[1].get("simulations", 0),
+                )
+                monitor.counts(games_active=pool.active_games)
             while flushed in completed:
                 examples, outcome = completed[flushed]
                 if on_game:
@@ -776,10 +793,27 @@ def parallel_self_play(
 
 
 def parallel_evaluation(
-    model, config, context, *, seed, previous=None, should_stop=None, search_pool=None
+    model,
+    config,
+    context,
+    *,
+    seed,
+    previous=None,
+    should_stop=None,
+    search_pool=None,
+    monitor=None,
 ):
     if should_stop and should_stop():
         raise InterruptedError("Evaluation was cancelled")
+    if monitor is not None:
+        monitor.counts(
+            evaluation_opponent=context["opponent"],
+            evaluation_total=config["evaluation_games"],
+            evaluation_games=0,
+            evaluation_wins=0,
+            evaluation_draws=0,
+            evaluation_losses=0,
+        )
     owned = search_pool is None
     pool = search_pool or SearchPool(config["search_workers"])
     stream = pool.games(
@@ -792,9 +826,20 @@ def parallel_evaluation(
         should_stop=should_stop,
     )
     outcomes = {}
+    wins = draws = losses = 0
     try:
         for index, outcome in stream:
             outcomes[index] = outcome
+            if monitor is None:
+                continue
+            side = outcome["candidate_side"]
+            winner = outcome["winner"]
+            # Truncated games count as neither a win nor a loss, matching scoring.
+            wins += int(winner == side)
+            draws += int(winner == "draw")
+            losses += int(winner not in (None, "draw") and winner != side)
+            monitor.tick(evaluation_games=1, evaluation_plies=outcome.get("plies", 0))
+            monitor.counts(evaluation_wins=wins, evaluation_draws=draws, evaluation_losses=losses)
     finally:
         stream.close()
         if owned:

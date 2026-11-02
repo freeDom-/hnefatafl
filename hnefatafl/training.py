@@ -10,6 +10,7 @@ import json
 import math
 import os
 import random
+import threading
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -42,6 +43,13 @@ from .training_augmentation import (
 from .training_presets import RECOMMENDED
 from .game_statistics import checkpoint_cumulative, self_play_statistics
 from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
+from .training_monitoring import (
+    HEARTBEAT_FILENAME,
+    ProgressSink,
+    TrainingMonitor,
+    heartbeat_projection,
+    without_live_timing,
+)
 
 
 DEFAULTS = {
@@ -256,6 +264,16 @@ def compact_progress(state: dict) -> dict:
             "completed_trials",
             "trials_requested",
             "best_score",
+            "phase_started_at",
+            "phase_elapsed",
+            "iteration_started_at",
+            "iteration_elapsed",
+            "started_at",
+            "updated_at",
+            "last_progress_at",
+            "last_progress_seconds",
+            "revision",
+            "phase_progress",
         )
         if key in state
     }
@@ -303,6 +321,7 @@ def self_play(
     inference_metrics=None,
     backend: InferenceBackend | None = None,
     cache: ExactInferenceCache | None = None,
+    monitor: ProgressSink | None = None,
 ) -> tuple[list[dict], dict]:
     """Generate legal MCTS policy targets and final defender-perspective returns."""
     if backend is None and config.get("inference_backend") == "openvino":
@@ -317,6 +336,7 @@ def self_play(
                 inference_metrics=inference_metrics,
                 backend=owned,
                 cache=cache,
+                monitor=monitor,
             )
         finally:
             owned.close()
@@ -364,6 +384,8 @@ def self_play(
         cutoffs += details.get("deadline_cutoffs", 0)
         neural_requests += details.get("mcts_neural_requests", 0)
         prediction_reuses += details.get("mcts_node_prediction_reuses", 0)
+        if monitor is not None:
+            monitor.tick(positions=1, simulations=details.get("simulations", 0))
         area = state.size**2
         examples.append(
             {
@@ -467,6 +489,7 @@ def generate_self_play(
     retain_examples: bool = True,
     backend: InferenceBackend | None = None,
     search_pool=None,
+    monitor: ProgressSink | None = None,
 ) -> tuple[list[tuple[list[dict], dict]], dict]:
     """Generate an iteration's games, retaining a sequential reference path.
 
@@ -491,6 +514,7 @@ def generate_self_play(
                 retain_examples=retain_examples,
                 backend=owned,
                 search_pool=search_pool,
+                monitor=monitor,
             )
             performance.update(refresh)
             return games, performance
@@ -541,9 +565,12 @@ def generate_self_play(
             retain_examples=retain_examples,
             backend=backend,
             cache=cache,
+            monitor=monitor,
         )
     else:
         games = []
+        if monitor is not None:
+            monitor.counts(games_total=config["games"], games_active=1)
         for index in range(config["games"]):
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
@@ -561,6 +588,7 @@ def generate_self_play(
                 inference_metrics=metrics.inference,
                 backend=backend,
                 cache=cache,
+                monitor=monitor,
             )
             metrics.cpu_search_seconds += max(
                 0.0,
@@ -572,6 +600,10 @@ def generate_self_play(
             )
             games.append((examples if retain_examples else [], result))
             metrics.record(result)
+            if monitor is not None:
+                # One completion per game; the next game starts immediately.
+                monitor.tick(games_completed=1)
+                monitor.counts(games_active=0 if index + 1 == config["games"] else 1)
             if on_game:
                 on_game(index, examples, result)
             if progress:
@@ -601,6 +633,7 @@ def optimize_replay(
     *,
     should_stop: Callable[[], bool] | None = None,
     on_epoch: Callable[[int], None] | None = None,
+    monitor: ProgressSink | None = None,
 ) -> dict:
     """One iteration's optimizer updates over shuffled replay minibatches.
 
@@ -612,8 +645,15 @@ def optimize_replay(
     policy_losses: list[float] = []
     value_losses: list[float] = []
     updates = presented = 0
+    loss_sum = value_sum = 0.0
     augmenting = config["training_symmetry_mode"] == "random_d4"
     augmentation = AugmentationStats()
+    batches_per_epoch = math.ceil(len(replay) / config["batch_size"]) if replay else 0
+    if monitor is not None:
+        monitor.counts(
+            optimizer_total_steps=config["epochs"] * batches_per_epoch,
+            epoch=0,
+        )
     for epoch in range(config["epochs"]):
         order = list(range(len(replay)))
         rng.shuffle(order)
@@ -643,6 +683,16 @@ def optimize_replay(
             policy_losses.append(float(policy_loss.detach()))
             value_losses.append(float(value_loss.detach()))
             updates += 1
+            if monitor is not None:
+                # Completed-step counter plus the running means of the losses the
+                # dashboard shows; the authoritative means are still computed
+                # from the same lists after the phase.
+                loss_sum += policy_losses[-1]
+                value_sum += value_losses[-1]
+                monitor.tick(optimizer_steps=1)
+                monitor.counts(policy_loss=loss_sum / updates, value_loss=value_sum / updates)
+        if monitor is not None:
+            monitor.counts(epoch=epoch + 1)
         if on_epoch:
             on_epoch(epoch + 1)
     return {
@@ -665,165 +715,73 @@ def train(
     state and iteration are restored; ruleset and network architecture cannot
     change. A callback can monitor progress or raise Optuna TrialPruned.
     """
-    # CLI resumes inherit saved settings too; only explicitly supplied inputs override them.
-    saved_inputs = {}
-    resume_model = None
-    source: dict = {}
-    if configuration.get("resume"):
-        if "output_dir" not in configuration:
-            raise ValueError(
-                "Resume requires a new output_dir to preserve the source training files"
-            )
-        resume_model, source = load_checkpoint(configuration["resume"])
-        saved_inputs = source["metadata"].get("training_config", {})
-        if "training_symmetry_mode" not in saved_inputs:
-            # Checkpoints written before D4 augmentation existed omitted this
-            # setting. Keep their historical OFF behavior even though new jobs
-            # now default to random D4; an explicit override still wins below.
-            saved_inputs = {**saved_inputs, "training_symmetry_mode": "off"}
-    config = normalize_config({**saved_inputs, **configuration})
-    output = Path(config["output_dir"]).resolve()
-    if config.get("resume") and output / "last.pt" == Path(config["resume"]).resolve():
+    if configuration.get("resume") and "output_dir" not in configuration:
+        raise ValueError("Resume requires a new output_dir to preserve the source training files")
+    # Monitoring starts before any expensive initialization. Loading a
+    # checkpoint, building the model and moving it to the device can take a long
+    # time, and a job that is already running must never look like a dead worker.
+    # The explicit inputs are validated first so an invalid configuration still
+    # fails before anything is written.
+    provisional = normalize_config(configuration)
+    output = Path(provisional["output_dir"]).resolve()
+    if provisional.get("resume") and (output / "last.pt" == Path(provisional["resume"]).resolve()):
         raise ValueError("Resume output_dir must preserve the source checkpoint path")
-    output.mkdir(parents=True, exist_ok=True)
-    torch.set_num_threads(config["cpu_threads"])
-    device = resolve_device(config["device"])
-    torch.manual_seed(config["seed"])
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(config["seed"])
-    rng = random.Random(config["seed"])
-    # Dedicated stream: OFF never draws from it, and neither replay shuffling nor
-    # self-play scheduling can shift augmentation choices (or vice versa).
-    augment_rng = augmentation_rng(config["seed"], 0)
-    model = (
-        resume_model
-        if resume_model is not None
-        else PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
-    ).to(device)
-    optimizer = _make_optimizer(model, config)
-    replay: list[dict] = []
-    completed = job_games = 0
-    baseline: int | None = 0
-    best_score = -1.0
-    best_snapshot: dict | None = None
-    metrics: dict = {}
-    history: list[dict] = []
-    best_models: list[dict] = []
-    resume_payload = None
-    saved_config: dict = {}
-    extra: dict = {}
-    if config.get("resume"):
-        payload = source
-        resume_payload = payload
-        if model.config != {
-            "ruleset": config["ruleset"],
-            "channels": config["channels"],
-            "blocks": config["blocks"],
-        }:
-            raise ValueError("Resume ruleset and architecture must match the checkpoint")
-        saved_config = payload["metadata"].get("training_config", {})
-        if saved_config.get("optimizer") != config["optimizer"]:
-            raise ValueError("Resume optimizer must match the checkpoint")
-        if "seed" in saved_config and config["seed"] != saved_config["seed"]:
-            raise ValueError("Resume seed must match the checkpoint")
-        optimizer = _make_optimizer(model, config)
-        if payload.get("optimizer_state") is None:
-            raise ValueError("This checkpoint has no optimizer state and cannot resume training")
-        optimizer.load_state_dict(payload["optimizer_state"])
-        # Loading optimizer state restores its parameter groups too. Apply each
-        # explicit override afterwards, while preserving accumulated moments and
-        # momentum buffers. Record the effective values even for older snapshots
-        # whose metadata did not reflect their restored optimizer settings.
-        settings = {"learning_rate": "lr", "weight_decay": "weight_decay"}
-        if config["optimizer"] == "sgd":
-            settings["momentum"] = "momentum"
-        for name, parameter in settings.items():
-            for group in optimizer.param_groups:
-                if name in configuration:
-                    group[parameter] = config[name]
-            config[name] = float(optimizer.param_groups[0][parameter])
-        extra = payload.get("extra", {})
-        if extra.get("training_state_version", 1) not in (1, 2):
-            raise ValueError("Unsupported training checkpoint state version")
-        history = extra.get("history", [])
-        best_models = extra.get("best_models", [])
-        completed = int(extra.get("iteration", 0))
-        baseline = checkpoint_cumulative(payload)
-        replay = extra.get("replay", [])[-config["replay_buffer_size"] :]
-        best_score = float(extra.get("best_score", -1))
-        best_snapshot = extra.get("best_snapshot")
-        if best_score >= 0 and not best_snapshot:
-            raise ValueError("Resume checkpoint is missing its portable best-model snapshot")
-        if "python_rng" in extra:
-            rng.setstate(extra["python_rng"])
-        if "augmentation_rng" in extra:
-            augment_rng.setstate(extra["augmentation_rng"])
-        else:
-            # Legacy checkpoints: reproducible derivation from seed and progress.
-            augment_rng = augmentation_rng(config["seed"], completed)
-        if "torch_rng" in extra:
-            torch.set_rng_state(extra["torch_rng"].cpu())
-        if device.type == "cuda" and extra.get("cuda_rng"):
-            torch.cuda.set_rng_state_all(extra["cuda_rng"])
-        metrics = payload["metadata"].get("metrics", {})
-        if completed >= config["iterations"]:
-            raise ValueError("Resume iterations must exceed the saved completed iteration")
-    checkpoint = output / "last.pt"
-    best_checkpoint = output / "best.pt"
-    selection = EvaluationSelection(extra, saved_config, config, metrics.get("evaluation"))
-    # Keep legacy baseline fields in their original scale. Other benchmarks and
-    # champion promotion never overwrite these portable historical values.
-    legacy_identity = selection.data.get("legacy_identity")
-    if legacy_identity is None and config["evaluation_opponent"] == "shield_bearer":
-        legacy_identity = selection.identity
-        selection.data["legacy_identity"] = legacy_identity
-    if config["evaluation_opponent"] == "champion":
-        selection.initialize_champion(
-            model,
-            {
-                "name": config["model_name"],
-                "version": completed,
-                "training_config": config,
-                "metrics": {},
-                "evaluation": {},
-                "self_play_games": self_play_statistics(job_games, baseline),
-            },
-            best_snapshot,
-        )
-    selected = selection.selected_snapshot() or best_snapshot
-    if selected:
-        save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
-    mixed = bool(config["mixed_precision"] and device.type == "cuda")
-    scaler = torch.amp.GradScaler("cuda", enabled=mixed)
-    if resume_payload and resume_payload["extra"].get("grad_scaler"):
-        scaler.load_state_dict(resume_payload["extra"]["grad_scaler"])
     started = time.monotonic()
-    state = {
+    publish_lock = threading.Lock()
+    device: torch.device | None = None
+    job_games = 0
+    baseline: int | None = 0
+    state: dict = {
         "status": "running",
-        "iteration": completed,
-        "total_iterations": config["iterations"],
-        "games_generated": baseline,
-        "self_play_games": self_play_statistics(job_games, baseline),
-        "device": str(device),
-        "mixed_precision": mixed,
+        "total_iterations": provisional["iterations"],
+        "device": str(provisional["device"]),
+        "mixed_precision": bool(provisional["mixed_precision"]),
         "checkpoint": None,
-        "metrics": metrics,
-        "history": history,
-        "best_models": best_models,
-        "evaluation_selection": selection.summary(),
+        "metrics": {},
+        "history": [],
+        "best_models": [],
+        "evaluation_selection": {},
     }
-    _write_json(output / "config.json", config)
+
+    def write_snapshot(heartbeat: bool, changes: dict) -> None:
+        """Serialize one monitoring snapshot and publish it.
+
+        ``heartbeat`` republishes the current state with refreshed timings from
+        the monitor thread. It writes only the bounded heartbeat projection
+        (never the retained history) and skips the GPU query, so no CUDA call
+        runs off the training thread. It runs during initialization too, where
+        no device, model or optimizer exists yet.
+        """
+        with publish_lock:
+            state.update(changes)
+            if heartbeat and state.get("status") not in {"running", "cancelling", "pending"}:
+                # A terminal publication is final. A heartbeat that races the
+                # shutdown must not extend its durations or overwrite its status.
+                return
+            if not heartbeat:
+                monitor.published()
+            state.update(monitor.snapshot())
+            state["self_play_games"] = self_play_statistics(job_games, baseline)
+            state["games_generated"] = state["self_play_games"]["cumulative"]
+            state["duration"] = time.monotonic() - started
+            if not heartbeat:
+                if device is not None and device.type == "cuda":
+                    state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
+                _write_json(output / "progress.json", state)
+            # The bounded file always carries the current revision, so a reader can
+            # tell a new publication from a liveness refresh without re-reading the
+            # retained history. It stays a bounded projection in both cases.
+            _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(state))
+            if progress:
+                progress(dict(state))
+
+    monitor = TrainingMonitor(
+        lambda **flags: write_snapshot(bool(flags.get("heartbeat")), {}), phase="starting"
+    )
 
     def publish(**changes):
-        state.update(changes)
-        state["self_play_games"] = self_play_statistics(job_games, baseline)
-        state["games_generated"] = state["self_play_games"]["cumulative"]
-        state["duration"] = time.monotonic() - started
-        if device.type == "cuda":
-            state["gpu_memory_allocated"] = torch.cuda.memory_allocated(device)
-        _write_json(output / "progress.json", state)
-        if progress:
-            progress(dict(state))
+        """Publish a real progress event from the training thread."""
+        write_snapshot(False, changes)
 
     def current_metadata():
         return {
@@ -836,6 +794,9 @@ def train(
         }
 
     def checkpoint_now(path: Path):
+        # Only reached once the training state exists; see ``initialized``.
+        assert model is not None and optimizer is not None
+        assert selection is not None and scaler is not None and device is not None
         extra = {
             "iteration": completed,
             "games_generated": self_play_statistics(job_games, baseline)["cumulative"],
@@ -854,10 +815,189 @@ def train(
         }
         save_checkpoint(path, model, current_metadata(), optimizer, extra)
 
-    publish(stage="initializing")
+    def stopped() -> None:
+        """Honor a cancellation request once the training state can be checkpointed."""
+        if should_stop and should_stop():
+            raise InterruptedError("Training was cancelled")
+
+    # Initialization state, filled in as each slow step completes. ``initialized``
+    # marks the point where a checkpoint can be written and a terminal state
+    # reported with full training metadata.
+    config = provisional
+    saved_inputs: dict = {}
+    resume_model = None
+    source: dict = {}
+    completed = 0
+    replay: list[dict] = []
+    best_score = -1.0
+    best_snapshot: dict | None = None
+    metrics: dict = {}
+    history: list[dict] = []
+    best_models: list[dict] = []
+    resume_payload: dict | None = None
+    saved_config: dict = {}
+    extra: dict = {}
+    selection: EvaluationSelection | None = None
+    scaler: torch.amp.GradScaler | None = None
+    optimizer: torch.optim.Optimizer | None = None
+    model: PolicyValueNet | None = None
+    initialized = False
     backend = None
+    checkpoint = output / "last.pt"
+    best_checkpoint = output / "best.pt"
     search_pool = None
+
+    monitor.start()
     try:
+        output.mkdir(parents=True, exist_ok=True)
+        publish()
+        if provisional.get("resume"):
+            monitor.phase("loading_checkpoint")
+            # Publish each initialization stage so the retained progress file
+            # names it immediately, not only through the heartbeat overlay.
+            publish()
+            resume_model, source = load_checkpoint(provisional["resume"])
+            saved_inputs = source["metadata"].get("training_config", {})
+            if "training_symmetry_mode" not in saved_inputs:
+                # Checkpoints written before D4 augmentation existed omitted this
+                # setting. Keep their historical OFF behavior even though new jobs
+                # now default to random D4; an explicit override still wins below.
+                saved_inputs = {**saved_inputs, "training_symmetry_mode": "off"}
+            # CLI resumes inherit saved settings too; only explicit inputs override them.
+            config = normalize_config({**saved_inputs, **configuration})
+        # Building the model can take a while; the heartbeat reports this stage
+        # without a retained publication, so no counter is published before the
+        # training state it would describe exists.
+        monitor.phase("initializing")
+        torch.set_num_threads(config["cpu_threads"])
+        device = resolve_device(config["device"])
+        torch.manual_seed(config["seed"])
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(config["seed"])
+        rng = random.Random(config["seed"])
+        # Dedicated stream: OFF never draws from it, and neither replay shuffling
+        # nor self-play scheduling can shift augmentation choices (or vice versa).
+        augment_rng = augmentation_rng(config["seed"], 0)
+        model = (
+            resume_model
+            if resume_model is not None
+            else PolicyValueNet(config["ruleset"], config["channels"], config["blocks"])
+        ).to(device)
+        optimizer = _make_optimizer(model, config)
+        if config.get("resume"):
+            monitor.phase("restoring_state")
+            publish()
+            payload = source
+            resume_payload = payload
+            if model.config != {
+                "ruleset": config["ruleset"],
+                "channels": config["channels"],
+                "blocks": config["blocks"],
+            }:
+                raise ValueError("Resume ruleset and architecture must match the checkpoint")
+            saved_config = payload["metadata"].get("training_config", {})
+            if saved_config.get("optimizer") != config["optimizer"]:
+                raise ValueError("Resume optimizer must match the checkpoint")
+            if "seed" in saved_config and config["seed"] != saved_config["seed"]:
+                raise ValueError("Resume seed must match the checkpoint")
+            optimizer = _make_optimizer(model, config)
+            if payload.get("optimizer_state") is None:
+                raise ValueError(
+                    "This checkpoint has no optimizer state and cannot resume training"
+                )
+            optimizer.load_state_dict(payload["optimizer_state"])
+            # Loading optimizer state restores its parameter groups too. Apply each
+            # explicit override afterwards, while preserving accumulated moments and
+            # momentum buffers. Record the effective values even for older snapshots
+            # whose metadata did not reflect their restored optimizer settings.
+            settings = {"learning_rate": "lr", "weight_decay": "weight_decay"}
+            if config["optimizer"] == "sgd":
+                settings["momentum"] = "momentum"
+            for name, parameter in settings.items():
+                for group in optimizer.param_groups:
+                    if name in configuration:
+                        group[parameter] = config[name]
+                config[name] = float(optimizer.param_groups[0][parameter])
+            extra = payload.get("extra", {})
+            if extra.get("training_state_version", 1) not in (1, 2):
+                raise ValueError("Unsupported training checkpoint state version")
+            history = extra.get("history", [])
+            best_models = extra.get("best_models", [])
+            completed = int(extra.get("iteration", 0))
+            baseline = checkpoint_cumulative(payload)
+            replay = extra.get("replay", [])[-config["replay_buffer_size"] :]
+            best_score = float(extra.get("best_score", -1))
+            best_snapshot = extra.get("best_snapshot")
+            if best_score >= 0 and not best_snapshot:
+                raise ValueError("Resume checkpoint is missing its portable best-model snapshot")
+            if "python_rng" in extra:
+                rng.setstate(extra["python_rng"])
+            if "augmentation_rng" in extra:
+                augment_rng.setstate(extra["augmentation_rng"])
+            else:
+                # Legacy checkpoints: reproducible derivation from seed and progress.
+                augment_rng = augmentation_rng(config["seed"], completed)
+            if "torch_rng" in extra:
+                torch.set_rng_state(extra["torch_rng"].cpu())
+            if device.type == "cuda" and extra.get("cuda_rng"):
+                torch.cuda.set_rng_state_all(extra["cuda_rng"])
+            metrics = payload["metadata"].get("metrics", {})
+            if completed >= config["iterations"]:
+                raise ValueError("Resume iterations must exceed the saved completed iteration")
+            # The restored state is part of initialization, not a separate phase.
+            monitor.phase("initializing")
+            publish()
+        selection = EvaluationSelection(extra, saved_config, config, metrics.get("evaluation"))
+        # Keep legacy baseline fields in their original scale. Other benchmarks and
+        # champion promotion never overwrite these portable historical values.
+        legacy_identity = selection.data.get("legacy_identity")
+        if legacy_identity is None and config["evaluation_opponent"] == "shield_bearer":
+            legacy_identity = selection.identity
+            selection.data["legacy_identity"] = legacy_identity
+        if config["evaluation_opponent"] == "champion":
+            selection.initialize_champion(
+                model,
+                {
+                    "name": config["model_name"],
+                    "version": completed,
+                    "training_config": config,
+                    "metrics": {},
+                    "evaluation": {},
+                    "self_play_games": self_play_statistics(job_games, baseline),
+                },
+                best_snapshot,
+            )
+        selected = selection.selected_snapshot() or best_snapshot
+        if selected:
+            save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
+        mixed = bool(config["mixed_precision"] and device.type == "cuda")
+        scaler = torch.amp.GradScaler("cuda", enabled=mixed)
+        if resume_payload and resume_payload["extra"].get("grad_scaler"):
+            scaler.load_state_dict(resume_payload["extra"]["grad_scaler"])
+        state.update(
+            {
+                "iteration": completed,
+                "total_iterations": config["iterations"],
+                "games_generated": baseline,
+                "self_play_games": self_play_statistics(job_games, baseline),
+                "device": str(device),
+                "mixed_precision": mixed,
+                "checkpoint": None,
+                "metrics": metrics,
+                "history": history,
+                "best_models": best_models,
+                "evaluation_selection": selection.summary(),
+            }
+        )
+        _write_json(output / "config.json", config)
+        # From here a checkpoint can be written and a terminal state reported
+        # with full training metadata. Publish the completed initialization so a
+        # restored history and its optimizer settings are visible before the
+        # first self-play game.
+        initialized = True
+        publish()
+        stopped()
+        monitor.phase("initializing_inference")
         if self_play_uses_pool(config) or evaluation_uses_pool(config):
             from .parallel_search import SearchPool
 
@@ -881,19 +1021,24 @@ def train(
                 replay = replay[-config["replay_buffer_size"] :]
                 job_games += 1
 
+            # Device/graph preparation can block for seconds on a cold backend
+            # (TorchScript/OpenVINO compile); report it as its own phase.
+            monitor.phase("preparing", iteration=iteration)
             refresh = backend.refresh()
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
+            monitor.phase("self_play", iteration=iteration)
             generated_games, performance = generate_self_play(
                 model,
                 config,
                 seed=config["seed"] + iteration * 100000,
                 should_stop=should_stop,
-                progress=lambda info: publish(stage="self_play", iteration=iteration, **info),
+                progress=lambda info: publish(iteration=iteration, **info),
                 on_game=commit_game,
                 retain_examples=False,
                 backend=backend,
                 **pool_options,
+                monitor=monitor,
             )
             performance.update(backend.info)
             performance.update(refresh)
@@ -904,6 +1049,7 @@ def train(
             if not replay:
                 raise ValueError("Self-play generated no training examples")
             optimization_started = time.monotonic()
+            monitor.phase("optimization", iteration=iteration)
             model.train()
             optimized = optimize_replay(
                 model,
@@ -916,7 +1062,8 @@ def train(
                 rng,
                 augment_rng,
                 should_stop=should_stop,
-                on_epoch=lambda epoch: publish(stage="optimization", epoch=epoch),
+                monitor=monitor,
+                on_epoch=lambda epoch: publish(epoch=epoch),
             )
             policy_losses, value_losses = optimized["policy_losses"], optimized["value_losses"]
             updates, presented = optimized["updates"], optimized["presented"]
@@ -958,7 +1105,8 @@ def train(
             completed = iteration
             evaluation_started = time.monotonic()
             if iteration % config["evaluation_frequency"] == 0 or iteration == config["iterations"]:
-                publish(stage="evaluation", metrics=metrics)
+                monitor.phase("evaluation", iteration=iteration)
+                publish(metrics=metrics)
                 incumbent = (
                     frozen_model(model, selection.data["champion"]["snapshot"])
                     if config["evaluation_opponent"] == "champion"
@@ -974,6 +1122,7 @@ def train(
                     + (iteration * 1000000 if incumbent is not None else 0),
                     should_stop=should_stop,
                     **pool_options,
+                    monitor=monitor,
                 )
             performance["evaluation_seconds"] = time.monotonic() - evaluation_started
             if device.type == "cuda":
@@ -1016,6 +1165,9 @@ def train(
                     },
                 )
             history.append(point)
+            # Model selection, checkpoint writes and registry publication are a
+            # real phase: they can take seconds and must show as such.
+            monitor.phase("checkpoint", iteration=iteration)
             artifact_started = time.monotonic()
             if record_improvement:
                 assert evaluation is not None
@@ -1049,8 +1201,8 @@ def train(
                 "iteration_wall_seconds": time.monotonic() - iteration_start,
             }
             metrics["performance"] = performance
+            monitor.phase("iteration_complete", iteration=iteration)
             publish(
-                stage="iteration_complete",
                 iteration=iteration,
                 policy_loss=metrics["policy_loss"],
                 value_loss=metrics["value_loss"],
@@ -1058,7 +1210,43 @@ def train(
                 metrics=metrics,
                 performance=performance,
             )
+
+        # Finalization is a real phase: checkpoint verification, model export and
+        # registration can take seconds, so the heartbeat must keep running until
+        # the terminal publication has been written. An export or registration
+        # failure surfaces through the handler below as a failed job rather than
+        # leaving a stalled "finalizing" state.
+        monitor.phase("finalizing", iteration=completed)
+        publish()
+        if not checkpoint.exists():
+            checkpoint_now(checkpoint)
+        if not best_checkpoint.exists():
+            raise ValueError("Training completed without a best-model snapshot")
+        registry_root = Path(config.get("registry_dir", output.parent / "models"))
+        inference_checkpoint = export_checkpoint(best_checkpoint, output / "inference.pt")
+        registered = ModelRegistry(registry_root).register(
+            inference_checkpoint, name=config["model_name"]
+        )
+        monitor.phase("completed", iteration=completed)
+        publish(
+            status="completed",
+            checkpoint=str(checkpoint),
+            model=registered,
+            best_checkpoint=str(best_checkpoint),
+            inference_checkpoint=str(inference_checkpoint),
+        )
+        result = {**state, "output_dir": str(output), "iterations": completed}
+        _write_json(output / "result.json", result)
+        return result
     except InterruptedError:
+        if not initialized:
+            # Cancelled before any training state existed: report the terminal
+            # state without pretending a checkpoint was written.
+            monitor.phase("cancelled")
+            publish(status="cancelled")
+            result = {**state, "output_dir": str(output), "model": None, "best_checkpoint": None}
+            _write_json(output / "result.json", result)
+            return result
         if completed and (not history or history[-1]["iteration"] < completed):
             history.append(
                 {
@@ -1070,9 +1258,9 @@ def train(
                 }
             )
         checkpoint_now(checkpoint)
+        monitor.phase("cancelled", iteration=completed)
         publish(
             status="cancelled",
-            stage="cancelled",
             iteration=completed,
             checkpoint=str(checkpoint),
         )
@@ -1087,6 +1275,13 @@ def train(
     except Exception as error:
         # TrialPruned also preserves the most recent completed checkpoint.
         status = "pruned" if type(error).__name__ == "TrialPruned" else "failed"
+        if not initialized:
+            # A failure during initialization has no checkpoint to preserve, but
+            # it must still end as a named terminal state instead of a job that
+            # looks like it is still starting.
+            monitor.phase(status)
+            publish(status=status, error=str(error))
+            raise
         if completed and (not history or history[-1]["iteration"] < completed):
             history.append(
                 {
@@ -1098,39 +1293,22 @@ def train(
                 }
             )
         checkpoint_now(checkpoint)
+        monitor.phase(status, iteration=completed)
         publish(
             status=status,
-            stage=status,
             error=str(error),
             iteration=completed,
             checkpoint=str(checkpoint),
         )
         raise
     finally:
+        # The terminal publication is the last state any consumer may see; stop
+        # the heartbeat so no later snapshot can revive a running status.
+        monitor.stop()
         if backend is not None:
             backend.close()
         if search_pool is not None:
             search_pool.close()
-    if not checkpoint.exists():
-        checkpoint_now(checkpoint)
-    if not best_checkpoint.exists():
-        raise ValueError("Training completed without a best-model snapshot")
-    registry_root = Path(config.get("registry_dir", output.parent / "models"))
-    inference_checkpoint = export_checkpoint(best_checkpoint, output / "inference.pt")
-    registered = ModelRegistry(registry_root).register(
-        inference_checkpoint, name=config["model_name"]
-    )
-    publish(
-        status="completed",
-        stage="completed",
-        checkpoint=str(checkpoint),
-        model=registered,
-        best_checkpoint=str(best_checkpoint),
-        inference_checkpoint=str(inference_checkpoint),
-    )
-    result = {**state, "output_dir": str(output), "iterations": completed}
-    _write_json(output / "result.json", result)
-    return result
 
 
 def tune(
@@ -1148,14 +1326,6 @@ def tune(
     if not 1 <= trials <= 10000:
         raise ValueError("trials must be between 1 and 10000")
     storage = configuration.get("storage", f"sqlite:///{output / 'study.sqlite3'}")
-    study = optuna.create_study(
-        study_name=configuration.get("study_name", "hnefatafl"),
-        storage=storage,
-        direction="maximize",
-        load_if_exists=True,
-        sampler=optuna.samplers.TPESampler(seed=seed),
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=1),
-    )
     search_space = configuration.get(
         "search_space",
         {
@@ -1178,100 +1348,281 @@ def tune(
             "evaluation_time_limit", base.get("mcts_time_limit", 10.0)
         ),
     }
-    latest = {
+    # The study's own elapsed time is measured here, on the monotonic clock, so it
+    # spans every trial, the preparation between them and the finalization instead
+    # of restarting with each trial's monitor.
+    study_started = time.monotonic()
+    tune_lock = threading.Lock()
+    latest: dict = {
         "status": "running",
-        "completed_trials": len(study.trials),
+        "completed_trials": 0,
         "trials_requested": trials,
+        "duration": 0.0,
     }
+    # A running trial's own monitor publishes the job's files while it trains; the
+    # study's monitor covers study creation, parameter sampling, the bookkeeping
+    # between trials and the finalization, so the heartbeat never stops. Only one of
+    # them publishes at a time and each writes its progress and heartbeat pair under
+    # one lock, so a reader never sees a mismatched pair.
+    active_trial: dict = {"running": False, "state": None}
 
-    def objective(trial):
-        if should_stop and should_stop():
-            study.stop()
-            raise optuna.TrialPruned("Tuning cancelled")
-        parameters = {}
-        for name, distribution in search_space.items():
-            kind = distribution.get("type", "float")
-            if kind == "categorical":
-                parameters[name] = trial.suggest_categorical(name, distribution["choices"])
-            elif kind == "int":
-                parameters[name] = trial.suggest_int(
-                    name,
-                    int(distribution["low"]),
-                    int(distribution["high"]),
-                    step=int(distribution.get("step", 1)),
-                    log=bool(distribution.get("log", False)),
-                )
-            elif kind == "float":
-                parameters[name] = trial.suggest_float(
-                    name,
-                    float(distribution["low"]),
-                    float(distribution["high"]),
-                    log=bool(distribution.get("log", False)),
-                )
+    def write_study_snapshot(heartbeat: bool, changes: dict) -> None:
+        """Publish the study's own state; a running trial publishes instead."""
+        with tune_lock:
+            latest.update(changes)
+            if heartbeat and (active_trial["running"] or latest.get("status") != "running"):
+                # The trial's monitor owns the files while it trains, and a terminal
+                # publication is final: no later heartbeat may revive it.
+                return
+            latest["duration"] = time.monotonic() - study_started
+            if not heartbeat:
+                study_monitor.published()
+            latest.update(study_monitor.snapshot())
+            state = active_trial["state"]
+            if state is not None:
+                # The last trial keeps its data (history, metrics, model list) but
+                # not the live stage or timers of a trial that is no longer running.
+                latest["trial_progress"] = without_live_timing(state)
+            if heartbeat:
+                _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(latest))
             else:
-                raise ValueError("Unknown search-space distribution")
-        config = {
-            **base,
-            **parameters,
-            "seed": seed + trial.number,
-            "output_dir": str(output / f"trial-{trial.number}"),
-        }
-
-        def report(state):
-            latest.update(trial=trial.number, trial_progress=state)
-            _write_json(output / "progress.json", latest)
+                _write_json(output / "progress.json", latest)
             if progress:
                 progress(dict(latest))
-            evaluation = state.get("metrics", {}).get("evaluation")
-            if state.get("stage") == "iteration_complete" and evaluation:
-                trial.report(evaluation["score"], step=state["iteration"])
-                if trial.should_prune():
-                    raise optuna.TrialPruned("Playing score below study median")
 
-        result = train(config, report, should_stop)
-        if result["status"] == "cancelled":
-            study.stop()
-            raise optuna.TrialPruned("Tuning cancelled")
-        evaluation = result["metrics"]["evaluation"]
-        trial.set_user_attr("checkpoint", result["best_checkpoint"])
-        trial.set_user_attr("evaluation", evaluation)
-        trial.set_user_attr("training_config", normalize_config(config))
-        return float(evaluation["score"])
+    study_monitor = TrainingMonitor(
+        lambda **flags: write_study_snapshot(bool(flags.get("heartbeat")), {}),
+        phase="initializing_study",
+    )
 
-    study.optimize(objective, n_trials=trials)
-    completed_trials = [
-        trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE
-    ]
-    cancelled = bool(should_stop and should_stop())
-    result = {
-        "status": "cancelled" if cancelled else "completed",
-        "study_name": study.study_name,
-        "storage": storage,
-        "completed_trials": len(completed_trials),
-        "trials": [
-            {
-                "number": trial.number,
-                "state": trial.state.name,
-                "score": trial.value,
-                "parameters": trial.params,
+    def publish_study(**changes) -> None:
+        """Publish a real study-level progress event."""
+        write_study_snapshot(False, changes)
+
+    def count_completed(study) -> int:
+        """Trials the study has already recorded as complete.
+
+        Reading the whole study is O(N) on persistent storage, so this runs only at
+        the lifecycle boundaries (loading a study and aggregating its final result)
+        and never once per trial.
+        """
+        return sum(1 for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE)
+
+    def on_trial_finished(study, trial) -> None:
+        """Count a trial once Optuna has committed its final state.
+
+        Optuna calls this after a trial's state is stored, which is the only
+        authoritative moment: an objective that trained successfully but then failed
+        (a missing evaluation, an attribute write that raises) is recorded as
+        ``FAIL`` and is not a completed trial. Counting here keeps the per-trial
+        bookkeeping O(1) instead of re-reading the whole study.
+        """
+        if trial.state != optuna.trial.TrialState.COMPLETE:
+            return
+        with tune_lock:
+            latest["completed_trials"] = latest.get("completed_trials", 0) + 1
+        publish_study()
+
+    def run_trials(study) -> None:
+        def objective(trial):
+            if should_stop and should_stop():
+                study.stop()
+                raise optuna.TrialPruned("Tuning cancelled")
+            # Sampling parameters writes to the Optuna database, so it stays under
+            # the study's own heartbeat until the trial's monitor takes over.
+            study_monitor.phase("preparing_trial")
+            parameters = {}
+            for name, distribution in search_space.items():
+                kind = distribution.get("type", "float")
+                if kind == "categorical":
+                    parameters[name] = trial.suggest_categorical(name, distribution["choices"])
+                elif kind == "int":
+                    parameters[name] = trial.suggest_int(
+                        name,
+                        int(distribution["low"]),
+                        int(distribution["high"]),
+                        step=int(distribution.get("step", 1)),
+                        log=bool(distribution.get("log", False)),
+                    )
+                elif kind == "float":
+                    parameters[name] = trial.suggest_float(
+                        name,
+                        float(distribution["low"]),
+                        float(distribution["high"]),
+                        log=bool(distribution.get("log", False)),
+                    )
+                else:
+                    raise ValueError("Unknown search-space distribution")
+            config = {
+                **base,
+                **parameters,
+                "seed": seed + trial.number,
+                "output_dir": str(output / f"trial-{trial.number}"),
             }
-            for trial in study.trials
-        ],
-    }
-    if completed_trials:
-        best = study.best_trial
-        result.update(
-            best_score=best.value,
-            best_parameters=best.params,
-            best_checkpoint=best.user_attrs.get("checkpoint"),
-            best_configuration=best.user_attrs.get("training_config"),
+
+            latest_revision = None
+
+            def report(state):
+                nonlocal latest_revision
+                revision = state.get("revision")
+                heartbeat = revision == latest_revision
+                # Each trial is a new training run whose revisions restart, so the
+                # outer files carry the identity of the run that produced them. A
+                # heartbeat from an earlier trial can then never overlay this one.
+                run = state.get("run")
+                duration = time.monotonic() - study_started
+                with tune_lock:
+                    active_trial["state"] = state
+                    latest.update(
+                        trial=trial.number,
+                        revision=revision,
+                        run=run,
+                        duration=duration,
+                        # The retained outer snapshot names the phase the trial is
+                        # in, so it never keeps describing the study's bookkeeping.
+                        stage=state.get("stage"),
+                        phase_started_at=state.get("phase_started_at"),
+                        phase_elapsed=state.get("phase_elapsed"),
+                        trial_progress=state,
+                    )
+                    if not heartbeat:
+                        # A real progress event keeps the retained outer snapshot.
+                        _write_json(output / "progress.json", latest)
+                    # The bounded file always carries the current trial, revision
+                    # and the study's own elapsed time, so a long trial cannot
+                    # freeze it.
+                    _write_json(
+                        output / HEARTBEAT_FILENAME,
+                        {
+                            "status": latest["status"],
+                            "completed_trials": latest["completed_trials"],
+                            "trials_requested": latest["trials_requested"],
+                            "trial": trial.number,
+                            "revision": revision,
+                            "run": run,
+                            "duration": duration,
+                            "trial_progress": heartbeat_projection(state),
+                        },
+                    )
+                    if progress:
+                        progress(dict(latest))
+                if heartbeat:
+                    return
+                latest_revision = revision
+                evaluation = state.get("metrics", {}).get("evaluation")
+                if state.get("stage") == "iteration_complete" and evaluation:
+                    trial.report(evaluation["score"], step=state["iteration"])
+                    if trial.should_prune():
+                        raise optuna.TrialPruned("Playing score below study median")
+
+            # Handing the files to the trial and taking them back are serialized
+            # against the study's own heartbeat, so neither publisher can overwrite
+            # the other's snapshot with a stale stage.
+            with tune_lock:
+                active_trial["running"] = True
+            try:
+                result = train(config, report, should_stop)
+            finally:
+                # The trial's monitor has stopped and the study's heartbeat is
+                # suppressed while a trial is marked running, so ownership returns to
+                # the study here. Nothing in this handover touches Optuna storage:
+                # the completed-trial count is updated by the study's own callback
+                # once Optuna has committed the trial's state, so no bookkeeping can
+                # delay the heartbeat or mask the exception that ended the trial.
+                study_monitor.phase("between_trials")
+                with tune_lock:
+                    active_trial["running"] = False
+                publish_study()
+            if result["status"] == "cancelled":
+                study.stop()
+                raise optuna.TrialPruned("Tuning cancelled")
+            evaluation = result["metrics"]["evaluation"]
+            trial.set_user_attr("checkpoint", result["best_checkpoint"])
+            trial.set_user_attr("evaluation", evaluation)
+            trial.set_user_attr("training_config", normalize_config(config))
+            return float(evaluation["score"])
+
+        # The callback runs after each trial's state is stored, so the completed
+        # counter follows Optuna's own record instead of the objective returning.
+        study.optimize(objective, n_trials=trials, callbacks=[on_trial_finished])
+
+    def finish_study(study) -> dict:
+        # Aggregating results and persisting them can take a while; the heartbeat
+        # keeps running until the terminal publication is written.
+        study_monitor.phase("finalizing_study")
+        publish_study()
+        completed_trials = [
+            trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE
+        ]
+        cancelled = bool(should_stop and should_stop())
+        result = {
+            "status": "cancelled" if cancelled else "completed",
+            "study_name": study.study_name,
+            "storage": storage,
+            # Measured as late as possible, once the aggregation is done, so the
+            # authoritative duration covers the whole finalization.
+            "duration": 0.0,
+            "completed_trials": len(completed_trials),
+            "trials": [
+                {
+                    "number": trial.number,
+                    "state": trial.state.name,
+                    "score": trial.value,
+                    "parameters": trial.params,
+                }
+                for trial in study.trials
+            ],
+        }
+        if completed_trials:
+            best = study.best_trial
+            result.update(
+                best_score=best.value,
+                best_parameters=best.params,
+                best_checkpoint=best.user_attrs.get("checkpoint"),
+                best_configuration=best.user_attrs.get("training_config"),
+            )
+            _write_json(output / "best-config.json", result["best_configuration"])
+        # Nothing slow happens past this point: the heartbeat stops, the duration is
+        # measured at the terminal moment, and both terminal files are written from
+        # one state, so the published duration never falls behind the last
+        # heartbeat and no later heartbeat can revive the finished study.
+        study_monitor.stop()
+        result["duration"] = time.monotonic() - study_started
+        latest.update(result)
+        _write_json(output / "result.json", result)
+        _write_json(output / "progress.json", result)
+        if progress:
+            progress(result)
+        return result
+
+    study_monitor.start()
+    try:
+        publish_study()
+        study = optuna.create_study(
+            study_name=configuration.get("study_name", "hnefatafl"),
+            storage=storage,
+            direction="maximize",
+            load_if_exists=True,
+            sampler=optuna.samplers.TPESampler(seed=seed),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=1),
         )
-        _write_json(output / "best-config.json", result["best_configuration"])
-    _write_json(output / "result.json", result)
-    _write_json(output / "progress.json", result)
-    if progress:
-        progress(result)
-    return result
+        latest["completed_trials"] = count_completed(study)
+        publish_study()
+        # Cancellation during the study load is honored at this safe point: the
+        # database transaction is never interrupted, and the result is published.
+        if not (should_stop and should_stop()):
+            run_trials(study)
+        return finish_study(study)
+    except Exception as error:
+        # A study failure is terminal, with the error recorded, and no heartbeat
+        # may revive it afterwards.
+        study_monitor.phase("failed")
+        publish_study(status="failed", error=str(error))
+        raise
+    finally:
+        # Exception-safe cleanup: the heartbeat thread is joined once, after the
+        # terminal publication on every path.
+        study_monitor.stop()
 
 
 __all__ = [

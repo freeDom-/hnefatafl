@@ -125,6 +125,23 @@ with an affordable run and inspect timings before increasing budgets. Very
 large replay buffers/checkpoints can exceed the enforced 128 MiB safe checkpoint
 limit; reduce the buffer or model dimensions rather than bypassing validation.
 
+### CLI configurations and the HTTP API
+
+`config.json` is shared by the CLI and the workshop export/import, but
+`output_dir` and `registry_dir` belong to the CLI: the API assigns each job its
+own output directory inside the server's job store and keeps registered models in
+its own model directory. Posting those two fields to `POST /api/training/jobs`
+(for example with a shipped `configs/*.json`) is refused with the exact field
+names and an explanation rather than a generic error, and importing such a file in
+the workshop reports them as ignored instead of sending them.
+
+Every other field is accepted. A rejected field is always named, for both a
+top-level and a nested tuning configuration (`training.<field>`), and the workshop
+marks the matching input and keeps every entered value so one field can be
+corrected instead of the whole form being rebuilt. `frontend/src/trainingContract.json`
+records the accepted vocabulary; the backend and frontend test suites both assert
+it, so a field added on one side alone fails a test instead of a user's launch.
+
 ### Configuration bounds
 
 These are training validator/UI bounds, not suggested experimental budgets.
@@ -178,6 +195,25 @@ headless run. The web UI polls the same persisted worker results. CLI stdout is
 an event summary, including the final event; complete history stays in the JSON
 files and checkpoint. Logs omit accumulated history, detailed game arrays and
 model metadata. Remote workers use the same CLI and retain full polling data.
+
+Between real progress events the worker keeps a bounded `heartbeat.json` beside
+`progress.json` with the current phase, phase and iteration elapsed durations,
+the time since meaningful progress and the live phase counters. It is refreshed
+about once per second, so a long self-play game, optimization epoch or evaluation
+match keeps monitoring and timers advancing without rewriting the retained
+history. Readers overlay a heartbeat only when it belongs to the same publication
+generation. See [the training dashboard](TRAINING_DASHBOARD.md#live-monitoring).
+
+An Optuna study is monitored the same way, with the study's own heartbeat and
+timers covering everything outside a trial: loading the study database, sampling
+trial parameters, the bookkeeping between trials and the final aggregation. While
+a trial trains, that trial's monitor publishes the same files, and the retained
+snapshot keeps the last trial's data without presenting its finished phase or
+timers as live. Each publisher carries its own run identity, so a heartbeat from
+an earlier trial or from the study can never overlay the other's snapshot, and a
+terminal state is never revived. The study's elapsed time spans the whole study,
+so it never restarts with a trial. See
+[hyperparameter optimization](#hyperparameter-optimization).
 
 The progress panel plots policy/value losses and completion-aware evaluation
 score against completed iterations, including while a worker is running. An
@@ -348,6 +384,34 @@ Intermediate evaluated iteration scores support pruning. Champion/Jarl objective
 of **additional** trials in the invocation; rerunning the same study resumes it.
 `study_name` and storage must remain stable for resumption. Default storage is
 `study.sqlite3` within the output directory.
+
+A running study reports study-level phases (`initializing_study`,
+`preparing_trial`, `between_trials`, `finalizing_study`) with a monotonic study
+duration, the completed-trial counter and the last trial's data, so a dashboard
+never shows a dead worker between trials or during a slow finalization. The
+study's heartbeat stops only at the terminal publication, which carries the
+authoritative duration; a study failure is published as a terminal failed state.
+
+Exactly one publisher owns the job's files. While a trial trains, that trial's own
+monitor owns them and the study's heartbeat is suppressed; the handover in both
+directions happens under the publication lock, so neither side can overwrite the
+other's snapshot with a stale stage. After a trial finishes, ownership returns to
+the study and the `between_trials` phase is published before anything that may
+block — parameter sampling, the Optuna bookkeeping that stores the trial's final
+state, and the aggregation that reads the study's trials. A slow storage operation
+therefore never leaves the job without a heartbeat.
+
+The completed-trial counter follows Optuna's own record. The study counts a trial
+from Optuna's trial callback, which runs once that trial's state is stored, so a
+trial that trained but then failed — a missing evaluation, an attribute write that
+raises — is recorded as `FAIL` and never counted, and pruned, cancelled and failed
+trials are never counted at all. The study's history is read once when it is loaded
+and once when its final result is aggregated, so the bookkeeping stays O(1) per
+trial instead of re-reading every stored trial after each one; a resumed study
+starts from the completed trials Optuna has already stored.
+
+Bookkeeping cost and its measurements are in the
+[tuning bookkeeping benchmark](benchmarks/tuning-bookkeeping.md).
 
 The JSON `search_space` supports `float` (with optional `log`), `int` (with
 optional `step`/`log`) and `categorical` (`choices`) distributions. The nested

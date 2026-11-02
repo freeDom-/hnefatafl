@@ -79,7 +79,14 @@ def game_context(
 
 
 def batched_evaluation(
-    model, config: dict, context: dict, *, previous=None, seed: int, should_stop: Callable | None
+    model,
+    config: dict,
+    context: dict,
+    *,
+    previous=None,
+    seed: int,
+    should_stop: Callable | None,
+    monitor=None,
 ) -> tuple[list[dict], dict]:
     models = [model] + ([previous] if previous is not None else [])
     concurrency = min(config["evaluation_games"], config.get("evaluation_concurrency", 16))
@@ -98,6 +105,9 @@ def batched_evaluation(
     refresh_seconds = 0.0
 
     def evaluate(identity, states):
+        if monitor is not None:
+            # One cheap update per searched position keeps long games live.
+            monitor.tick(evaluation_plies=len(states))
         return policy_value_batch(
             states,
             models[identity],
@@ -107,8 +117,22 @@ def batched_evaluation(
             cache=caches[identity],
         )
 
+    wins = draws = losses = 0
+
     def completed_game(index, result):
+        """Record the outcome and keep the dashboard's running tallies live."""
+        nonlocal wins, draws, losses
         outcomes[index] = result
+        if monitor is None:
+            return
+        side = result["candidate_side"]
+        winner = result["winner"]
+        # Truncated games count as neither a win nor a loss, matching the scoring.
+        wins += int(winner == side)
+        draws += int(winner == "draw")
+        losses += int(winner not in (None, "draw") and winner != side)
+        monitor.tick(evaluation_games=1)
+        monitor.counts(evaluation_wins=wins, evaluation_draws=draws, evaluation_losses=losses)
 
     search = CooperativeSearch(
         evaluate,

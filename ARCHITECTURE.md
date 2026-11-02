@@ -67,6 +67,15 @@ win against columns, indexed by tournament seat rather than model/name identity.
 They exclude draws and unfinished games and use existing runes on the diagonal;
 no additional aggregate or storage migration is required.
 
+A tournament carries an explicit `mode`: `round_robin` (the default when the
+field is absent, preserving every earlier record) or `fixed_roles`. A fixed-role
+comparison has exactly two trained neural participants, one battlefield and one
+shared search configuration. Seat 0 always attacks and seat 1 always defends, so
+the scheduled total is the plain game count and odd counts are valid. The API and
+the worker both reject a pairing whose effective search settings differ after
+excluding the model identity. The collection endpoint projects the summary in
+SQLite, so listing saved tournaments never decodes retained match histories.
+
 ## Rules
 
 One engine applies configurable board sizes, initial arrangements, restricted
@@ -198,6 +207,18 @@ candidate/incumbent inference queues. CUDA auto batches in FP32; CPU auto remain
 sequential. Opt-in evaluation through the training OpenVINO backend refreshes each
 post-optimization snapshot and starts a separate benchmark identity. Compact stdout events
 exclude history; atomic JSON/checkpoints retain it for local and remote polling.
+
+`training_monitoring.py` owns phase-independent progress: the training process
+keeps a `TrainingMonitor` whose hot path only accumulates plain counters, while a
+daemon thread republishes a bounded `heartbeat.json` (phase, phase/iteration
+durations, time since meaningful progress, phase counters) about once per second.
+Retained `progress.json` is still rewritten only on real progress events, and a
+reader overlays a heartbeat only when its publication revision matches. Worker
+liveness, computational progress and publication therefore stay independent, and
+a long self-play game, optimization epoch or evaluation match cannot freeze
+timers or counters. Durations are monotonic and publication is bounded; the
+dashboard anchors them to a local ticker instead of trusting a worker clock. See
+[the training dashboard](docs/TRAINING_DASHBOARD.md#live-monitoring).
 
 Exact-input inference reuse is opt-in (`inference_cache_mode: "exact"`, default
 `"off"`). One bounded LRU belongs to one self-play generation and is discarded
@@ -381,7 +402,18 @@ small dependency-free responsive SVG renderer used by `TrainingHistoryChart`
 and the performance view. `trainingDashboardData` normalizes optional legacy
 metrics and separates effective evaluation contexts/incumbents. Large tables
 and raw diagnostics mount on disclosure. Shared allowlisted configuration reuse
-opens an editable fresh-job form for models and jobs. `game_statistics.py` records
+opens an editable fresh-job form for models and jobs; that allowlist is the single
+vocabulary shared with the API through `frontend/src/trainingContract.json`, which
+both test suites assert, and a refused field is named back to the form.
+`training.py` starts its monitor before checkpoint loading, model construction and
+inference setup, so initialization publishes its own stages with the heartbeat
+running. Each run publishes a `run` identity beside its revision, so a heartbeat
+can only refresh the exact run or trial that produced it, and a remote report
+carries the child's own publication age next to the supervisor's, so a connected
+supervisor forwarding an unchanged snapshot is never read as a live child. A
+worker that the server has confirmed merges partial snapshots sends only changed
+keys, so an unchanged history, metrics or log tail never crosses the network
+again. `game_statistics.py` records
 versioned job-local/baseline/cumulative self-play counters in existing JSON and
 checkpoint metadata; immutable selection snapshots retain their own totals.
 Tensor format and database schema remain unchanged. See the

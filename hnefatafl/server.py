@@ -20,7 +20,7 @@ from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -44,6 +44,127 @@ def ai_variant_id(config: dict) -> str:
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# The accepted inputs of a new training job. `resume` is accepted but is resolved
+# to an owned checkpoint path before launching. Kept at module scope so the
+# contract test can compare it with the frontend and remote-worker field sets.
+TRAINING_FIELDS = frozenset(
+    {
+        "ruleset",
+        "preset",
+        "channels",
+        "blocks",
+        "games",
+        "iterations",
+        "epochs",
+        "batch_size",
+        "learning_rate",
+        "optimizer",
+        "mcts_iterations",
+        "mcts_time_limit",
+        "self_play_mode",
+        "self_play_concurrency",
+        "inference_batch_size",
+        "inference_cache_mode",
+        "inference_cache_capacity",
+        "inference_backend",
+        "inference_device",
+        "exploration",
+        "temperature",
+        "dirichlet_alpha",
+        "dirichlet_fraction",
+        "replay_buffer_size",
+        "weight_decay",
+        "momentum",
+        "training_symmetry_mode",
+        "checkpoint_frequency",
+        "evaluation_frequency",
+        "evaluation_opponent",
+        "evaluation_mode",
+        "evaluation_concurrency",
+        "evaluation_batch_size",
+        "evaluation_inference_backend",
+        "evaluation_time_limit",
+        "evaluation_jarl_depth",
+        "evaluation_jarl_time_limit",
+        "champion_confidence",
+        "champion_min_pairs",
+        "champion_min_improvement",
+        "evaluation_games",
+        "evaluation_iterations",
+        "max_game_plies",
+        "evaluation_max_plies",
+        "seed",
+        "device",
+        "mixed_precision",
+        "save_all_best",
+        "cpu_threads",
+        "resume",
+        "model_name",
+    }
+)
+
+# Optuna jobs accept the study controls plus one nested training configuration.
+TUNE_FIELDS = frozenset(
+    {"trials", "study_name", "seed", "search_space", "training", "resume_study"}
+)
+
+
+class TrainingFieldsRejected(Exception):
+    """Rejected training configuration fields, named so a client can act on them.
+
+    ``fields`` uses dotted paths for nested configurations (``training.channels``)
+    so the caller can map every entry back to an input. The HTTP response keeps
+    ``detail`` as a human-readable string for existing consumers and adds the
+    machine-readable ``code`` and ``fields`` beside it.
+    """
+
+    code = "unsupported_training_field"
+
+    def __init__(self, fields: list[str], message: str) -> None:
+        super().__init__(message)
+        self.fields = fields
+        self.message = message
+
+
+# The CLI accepts these persistent-output settings, but the HTTP API owns them:
+# letting a client choose a server path would let it write outside the job store.
+SERVER_OWNED_TRAINING_FIELDS = {
+    "output_dir": "assigned by the server for each job",
+    "registry_dir": "chosen by the server for registered models",
+}
+
+
+def unsupported_training_message(fields: list[str]) -> str:
+    noun = "field" if len(fields) == 1 else "fields"
+    message = f"Unsupported training configuration {noun}: {', '.join(fields)}"
+    owned = sorted(
+        field for field in fields if field.rsplit(".", 1)[-1] in SERVER_OWNED_TRAINING_FIELDS
+    )
+    if owned:
+        reasons = "; ".join(
+            f"{field} is {SERVER_OWNED_TRAINING_FIELDS[field.rsplit('.', 1)[-1]]}"
+            for field in owned
+        )
+        message += f". {reasons}; remove it or run the training CLI with this config"
+    return message
+
+
+def reject_training_fields(
+    fields: set[str] | frozenset[str], *, prefix: str = "", message: str | None = None
+) -> None:
+    """Reject every unsupported field, deterministically ordered and fully named."""
+    names = [f"{prefix}{name}" for name in sorted(fields)]
+    if names:
+        raise TrainingFieldsRejected(names, message or unsupported_training_message(names))
+
+
+def check_training_fields(
+    values: object, allowed: set[str] | frozenset[str], *, prefix: str = ""
+) -> None:
+    if isinstance(values, dict):
+        reject_training_fields(set(values) - set(allowed), prefix=prefix)
 
 
 class VersionRequest(BaseModel):
@@ -111,11 +232,14 @@ class TournamentPlayerRequest(BaseModel):
 class TournamentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=80)
+    # Missing mode keeps the historical balanced round-robin behaviour.
+    mode: Literal["round_robin", "fixed_roles"] = "round_robin"
     rulesets: list[Literal["brandubh", "tablut", "copenhagen"]] = Field(
         default=["brandubh"], min_length=1, max_length=3
     )
     players: list[TournamentPlayerRequest] = Field(min_length=2, max_length=4)
-    games: StrictInt = Field(default=2, ge=2, le=100)
+    # A fixed-role comparison accepts 1–100 games; round-robin still requires an even count.
+    games: StrictInt = Field(default=2, ge=1, le=100)
     max_plies: StrictInt = Field(default=300, ge=1, le=1000)
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
 
@@ -220,6 +344,19 @@ def create_app(
 
     def fail(message: str, status: int = 400) -> NoReturn:
         raise HTTPException(status, message)
+
+    @app.exception_handler(TrainingFieldsRejected)
+    async def _training_fields_rejected(_request, error: TrainingFieldsRejected):
+        # Keep `detail` a string for existing consumers; add the rejected fields
+        # so a client can point at the exact input instead of guessing.
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": error.message,
+                "code": error.code,
+                "fields": error.fields,
+            },
+        )
 
     def game_or_404(game_id: str, version: int | None = None) -> dict:
         # All local analysis/AI/seek/export adapters use this guard. Separate
@@ -357,104 +494,14 @@ def create_app(
         return ModelRegistry(root / "models")
 
     def clean_ai_config(config: dict | None, profile_id: str | None = None) -> dict:
-        if config is not None and not isinstance(config, dict):
-            fail("AI configuration must be an object.")
-        config = dict(config or {})
-        supported = {
-            "algorithm",
-            "depth",
-            "iterations",
-            "time_limit",
-            "seed",
-            "exploration",
-            "temperature",
-            "evaluation",
-            "model_id",
-            "rollout_depth",
-            "search_wrapper",
-            "heuristic_version",
-            "heuristic",
-            "search",
-        }
-        if set(config) - supported:
-            fail("Unsupported AI configuration field.")
-        if profile_id and "algorithm" not in config:
-            from .ai import ai_profiles
+        from .ai import resolve_ai_config
 
-            profile = next((p for p in ai_profiles() if p["id"] == profile_id), None)
-            if profile is None:
-                fail("Unknown AI profile.")
-            config = {**profile.get("parameters", {}), **config, "algorithm": profile["algorithm"]}
-        algorithm = config.setdefault("algorithm", "baseline")
-        if algorithm == "alphabeta":
-            algorithm = config["algorithm"] = "alpha_beta"
-        if not isinstance(algorithm, str) or algorithm not in {
-            "baseline",
-            "shield_maiden",
-            "alpha_beta",
-            "mcts",
-            "neural",
-        }:
-            fail("Unknown AI algorithm.")
-        if "heuristic_version" in config and (
-            algorithm != "shield_maiden"
-            or type(config["heuristic_version"]) is not int
-            or config["heuristic_version"] != 1
-        ):
-            fail("Unsupported Shield maiden heuristic version.")
-        if "heuristic" in config:
-            if config["heuristic"] not in ("shield_bearer", "shield_maiden"):
-                fail("Search heuristic must be shield_bearer or shield_maiden.")
-            if algorithm not in ("alpha_beta", "mcts"):
-                fail("A search heuristic applies only to alpha-beta or MCTS.")
-        numeric_ranges = {
-            "depth": (1, 5),
-            "rollout_depth": (0, 50),
-            "iterations": (1, 5000),
-            "time_limit": (0.01, 15),
-            "exploration": (0, 10),
-            "temperature": (0, 5),
-            "seed": (0, 2**32 - 1),
-        }
-        for name, (minimum, maximum) in numeric_ranges.items():
-            if name in config:
-                value = config[name]
-                if (
-                    name in {"depth", "iterations", "seed", "rollout_depth"}
-                    and type(value) is not int
-                ):
-                    fail(f"AI {name} must be an integer.")
-                if (
-                    isinstance(value, bool)
-                    or not isinstance(value, (int, float))
-                    or not minimum <= value <= maximum
-                ):
-                    fail(f"AI {name} must be between {minimum} and {maximum}.")
-        if "evaluation" in config and config["evaluation"] not in ("heuristic", "neural"):
-            fail("Evaluation must be heuristic or neural.")
-        if "search_wrapper" in config:
-            if algorithm != "neural":
-                fail("Search wrappers apply only to trained neural models.")
-            if config["search_wrapper"] not in ("mcts", "alpha_beta", "none"):
-                fail("Search wrapper must be mcts, alpha_beta or none.")
-        if "search" in config:
-            if not isinstance(config["search"], dict):
-                fail("Search configuration must be an object.")
-            wrapper = config.get("search_wrapper")
-            if algorithm != "alpha_beta" and not (
-                algorithm == "neural" and wrapper == "alpha_beta"
-            ):
-                fail("Search settings apply only to alpha-beta search.")
         try:
-            resolved = effective_ai_config(config)
+            resolved = resolve_ai_config(config, profile_id)
         except ValueError as error:
             fail(str(error))
         if resolved.get("model_id"):
-            if not isinstance(resolved["model_id"], str):
-                fail("Model ID must be a string.")
             model_info(resolved["model_id"])
-        if resolved["algorithm"] == "neural" and not resolved.get("model_id"):
-            fail("The neural opponent requires a registered model.")
         return resolved
 
     def normalise_advisor(provided: AdvisorRequest | None, ruleset: str, seed: int) -> dict | None:
@@ -1423,25 +1470,33 @@ def create_app(
         return tournament
 
     @app.get("/api/tournaments")
-    def list_tournaments():
-        return [tournaments.public(item, summary=True) for item in tournaments.list()]
+    def list_tournaments(summary: bool = True):
+        # The collection defaults to lightweight summaries, so saved match
+        # histories are never decoded or transferred just to render the
+        # navigator, and every participant rune is resolved in one batch.
+        return tournaments.public_collection(tournaments.list(summary=summary), summary=summary)
 
     @app.post("/api/tournaments", status_code=201)
     def create_tournament(request: TournamentRequest):
-        from .ai import ai_profiles
+        from .ai import FIXED_PROFILE_IDS, ai_profiles, validate_fixed_role_players
 
         if not request.name.strip():
             fail("Tournament names must contain 1–80 characters.")
         if len(set(request.rulesets)) != len(request.rulesets):
             fail("Select each tournament battlefield only once.")
-        if request.games % 2:
+        if request.mode == "fixed_roles":
+            if len(request.players) != 2:
+                fail("A fixed-role comparison needs exactly two participants.")
+            if len(request.rulesets) != 1:
+                fail("A fixed-role comparison uses exactly one battlefield.")
+        elif request.games % 2:
             fail("Use an even number of games so both opponents play each side equally.")
         with catalog_lock:
             profiles = {item["algorithm"]: item for item in ai_profiles()}
             players = []
             for provided in request.players:
                 provided_config = provided.config
-                if provided.profile_id in {"baseline", "shield_maiden", "alpha_beta", "mcts"}:
+                if provided.profile_id in FIXED_PROFILE_IDS:
                     preset = profiles[provided.profile_id]
                     provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
                 config = clean_ai_config(provided_config, provided.profile_id)
@@ -1490,7 +1545,16 @@ def create_app(
                             if key in training_fields - {"resume"}
                         }
                 players.append(snapshot)
+            if request.mode == "fixed_roles":
+                # Both seats must resolve to identical effective search settings;
+                # only the model identity may differ. This guards requests that
+                # bypass the browser UI.
+                try:
+                    validate_fixed_role_players([player["config"] for player in players])
+                except ValueError as exc:
+                    fail(str(exc))
             config = {
+                "mode": request.mode,
                 "players": players,
                 "rulesets": sorted(request.rulesets, key=lambda item: RULESETS[item].size),
                 "games": request.games,
@@ -1641,7 +1705,7 @@ def create_app(
     def running_model_tournaments(model_id: str) -> list[dict]:
         return [
             {key: tournament[key] for key in ("id", "name", "status")}
-            for tournament in tournaments.list()
+            for tournament in tournaments.list(summary=True)
             if tournament["status"] == "running"
             and tournaments.alive(tournament)
             and any(
@@ -1799,6 +1863,8 @@ def create_app(
             # projected navigator snapshot over the full retained history.
             job = store.get_job(identifier) or job
         directory = job_path(identifier)
+        from .training_monitoring import overlay_heartbeat, read_heartbeat
+
         recovered_result = False
         for filename, key in (("progress.json", "progress"), ("result.json", "result")):
             if summary and job["status"] not in {"running", "cancelling", "pending"}:
@@ -1813,6 +1879,10 @@ def create_app(
                         # result file. Recover it once without losing history.
                         job = store.get_job(identifier) or job
                         recovered_result = True
+                    if key == "progress":
+                        # The worker republishes timings and counters to a small
+                        # heartbeat file between real progress events.
+                        retained = overlay_heartbeat(retained, read_heartbeat(directory))
                     job[key] = retained
                 except (json.JSONDecodeError, OSError):
                     pass
@@ -1870,66 +1940,23 @@ def create_app(
             with logfile.open("rb") as handle:
                 handle.seek(max(0, logfile.stat().st_size - 16000))
                 job["logs"] = handle.read().decode(errors="replace")
+        from .training_monitoring import publication_age
+
+        # A local worker's files share this server's clock, so their newest
+        # modification time is the authoritative publication freshness. A stale
+        # snapshot must not look fresh just because the dashboard just mounted.
+        # Only a live job can be unresponsive, so terminal payloads stay stable.
+        if job["status"] in {"running", "cancelling"}:
+            age = publication_age(directory)
+            if age is not None:
+                job["publication_age_seconds"] = age
         if summary:
             from .training_monitoring import job_summary
 
             return job_summary(job)
         return job
 
-    training_fields = {
-        "ruleset",
-        "preset",
-        "channels",
-        "blocks",
-        "games",
-        "iterations",
-        "epochs",
-        "batch_size",
-        "learning_rate",
-        "optimizer",
-        "mcts_iterations",
-        "mcts_time_limit",
-        "self_play_mode",
-        "self_play_concurrency",
-        "inference_batch_size",
-        "inference_cache_mode",
-        "inference_cache_capacity",
-        "inference_backend",
-        "inference_device",
-        "exploration",
-        "temperature",
-        "dirichlet_alpha",
-        "dirichlet_fraction",
-        "replay_buffer_size",
-        "weight_decay",
-        "momentum",
-        "training_symmetry_mode",
-        "checkpoint_frequency",
-        "evaluation_frequency",
-        "evaluation_opponent",
-        "evaluation_mode",
-        "evaluation_concurrency",
-        "evaluation_batch_size",
-        "evaluation_inference_backend",
-        "evaluation_time_limit",
-        "evaluation_jarl_depth",
-        "evaluation_jarl_time_limit",
-        "champion_confidence",
-        "champion_min_pairs",
-        "champion_min_improvement",
-        "evaluation_games",
-        "evaluation_iterations",
-        "max_game_plies",
-        "evaluation_max_plies",
-        "seed",
-        "device",
-        "mixed_precision",
-        "save_all_best",
-        "cpu_threads",
-        "search_workers",
-        "resume",
-        "model_name",
-    }
+    training_fields = TRAINING_FIELDS
 
     @app.get("/api/training/jobs")
     def training_jobs(summary: bool = False):
@@ -2131,19 +2158,15 @@ def create_app(
                 fail("Training kind must be train or tune.")
             if kind == "tune" and execution == "remote":
                 fail("Remote optimization is not supported. Run tuning on this server.")
-            allowed = (
-                training_fields
-                if kind == "train"
-                else {"trials", "study_name", "seed", "search_space", "training", "resume_study"}
-            )
-            if set(config) - allowed:
-                fail("Unsupported training configuration field.")
+            allowed = training_fields if kind == "train" else TUNE_FIELDS
+            check_training_fields(config, allowed)
             identifier = uuid4().hex
             directory = job_path(identifier)
 
-            def validate_training(values: dict) -> dict:
-                if not isinstance(values, dict) or set(values) - training_fields:
-                    fail("Unsupported training configuration field.")
+            def validate_training(values: dict, *, prefix: str = "") -> dict:
+                if not isinstance(values, dict):
+                    fail("A training configuration must be an object.")
+                check_training_fields(values, training_fields, prefix=prefix)
                 values = dict(values)
                 resume = values.pop("resume", None)
                 if resume:
@@ -2227,7 +2250,8 @@ def create_app(
                 config = validate_training(config)
             else:
                 training = validate_training(
-                    config.get("training", {"preset": "smoke", "ruleset": "brandubh"})
+                    config.get("training", {"preset": "smoke", "ruleset": "brandubh"}),
+                    prefix="training.",
                 )
                 if training["evaluation_opponent"] != "shield_bearer":
                     fail("Optuna requires the comparable fixed Shield bearer objective")
@@ -2484,7 +2508,14 @@ def create_app(
 
         immutable = {"ruleset", "channels", "blocks", "seed", "optimizer"}
         editable = training_fields - immutable - {"resume"}
-        if "iterations" not in request or set(request) - (editable | {"execution", "worker_id"}):
+        unexpected = set(request) - (editable | {"execution", "worker_id"})
+        if unexpected:
+            names = ", ".join(sorted(unexpected))
+            raise TrainingFieldsRejected(
+                sorted(unexpected),
+                f"Resume cannot change {names}; checkpoint identity is immutable.",
+            )
+        if "iterations" not in request:
             fail(
                 "Resume accepts editable training settings and execution target; checkpoint identity is immutable."
             )
