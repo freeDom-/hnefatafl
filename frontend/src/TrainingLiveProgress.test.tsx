@@ -914,6 +914,25 @@ it('never reports one trial as the whole tuning job', () => {
   expect(screen.getByTestId('trial')).toHaveTextContent('8m 0s');
 });
 
+it('shows the study phase between trials without a trial timer', () => {
+  vi.useFakeTimers();
+  // A study publication keeps the last trial's data but not its live stage or
+  // timers, so the dashboard shows the study's own phase and elapsed time.
+  render(
+    <Timings
+      job={tuning(
+        0,
+        { history: [{ iteration: 7 }] },
+        { stage: 'between_trials', phase_elapsed: 30, iteration: 7, duration: 900 },
+      )}
+    />,
+  );
+  expect(screen.getByTestId('elapsed')).toHaveTextContent('15m 0s');
+  expect(screen.getByTestId('phase')).toHaveTextContent('0m 30s');
+  expect(screen.getByTestId('trial')).toHaveTextContent('—');
+  expect(screen.getByTestId('iteration')).toHaveTextContent('—');
+});
+
 it('keeps an ordinary training job unchanged', () => {
   vi.useFakeTimers();
   render(<Timings job={runningJob(iterating)} />);

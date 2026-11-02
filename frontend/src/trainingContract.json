@@ -66,6 +66,10 @@
     "completed",
     "cancelled",
     "failed",
-    "pruned"
+    "pruned",
+    "initializing_study",
+    "preparing_trial",
+    "between_trials",
+    "finalizing_study"
   ]
 }

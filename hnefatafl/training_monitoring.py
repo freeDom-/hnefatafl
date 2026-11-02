@@ -66,9 +66,32 @@ def iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat(timespec="milliseconds")
 
 
+# Live monitoring fields belong to the run that published them: the stage, the
+# timers and the counters of a training trial. A tuning study keeps the last
+# trial's data while it works between trials, but never its live stage or timers.
+_LIVE_KEYS = (
+    "stage",
+    "phase_started_at",
+    "phase_elapsed",
+    "iteration_started_at",
+    "iteration_elapsed",
+    "active_iteration",
+    "phase_progress",
+    "duration",
+    "updated_at",
+    "last_progress_at",
+    "last_progress_seconds",
+)
+
+
 def heartbeat_projection(state: dict) -> dict:
     """Bounded liveness snapshot; retained history and metrics stay in progress.json."""
     return {key: state[key] for key in _HEARTBEAT_KEYS if key in state}
+
+
+def without_live_timing(state: dict) -> dict:
+    """Retained snapshot without the live stage, timers and counters of a run."""
+    return {key: value for key, value in state.items() if key not in _LIVE_KEYS}
 
 
 def same_run(retained: dict, incoming: dict) -> bool:

@@ -48,6 +48,7 @@ from .training_monitoring import (
     ProgressSink,
     TrainingMonitor,
     heartbeat_projection,
+    without_live_timing,
 )
 
 
@@ -1258,14 +1259,6 @@ def tune(
     if not 1 <= trials <= 10000:
         raise ValueError("trials must be between 1 and 10000")
     storage = configuration.get("storage", f"sqlite:///{output / 'study.sqlite3'}")
-    study = optuna.create_study(
-        study_name=configuration.get("study_name", "hnefatafl"),
-        storage=storage,
-        direction="maximize",
-        load_if_exists=True,
-        sampler=optuna.samplers.TPESampler(seed=seed),
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=1),
-    )
     search_space = configuration.get(
         "search_space",
         {
@@ -1288,146 +1281,260 @@ def tune(
             "evaluation_time_limit", base.get("mcts_time_limit", 10.0)
         ),
     }
-    # The study's own elapsed time is measured here, on the monotonic clock, so
-    # it spans every trial, the preparation between them and the finalization
-    # instead of restarting with each trial's monitor.
+    # The study's own elapsed time is measured here, on the monotonic clock, so it
+    # spans every trial, the preparation between them and the finalization instead
+    # of restarting with each trial's monitor.
     study_started = time.monotonic()
-    latest = {
+    tune_lock = threading.Lock()
+    latest: dict = {
         "status": "running",
-        "completed_trials": len(study.trials),
+        "completed_trials": 0,
         "trials_requested": trials,
         "duration": 0.0,
     }
-    # The inner training heartbeat republishes through this report callback, so
-    # the outer progress file is refreshed from another thread than the trial's.
-    tune_lock = threading.Lock()
+    # A running trial's own monitor publishes the job's files while it trains; the
+    # study's monitor covers study creation, parameter sampling, the bookkeeping
+    # between trials and the finalization, so the heartbeat never stops. Only one of
+    # them publishes at a time and each writes its progress and heartbeat pair under
+    # one lock, so a reader never sees a mismatched pair.
+    active_trial: dict = {"running": False, "state": None}
 
-    def objective(trial):
-        if should_stop and should_stop():
-            study.stop()
-            raise optuna.TrialPruned("Tuning cancelled")
-        parameters = {}
-        for name, distribution in search_space.items():
-            kind = distribution.get("type", "float")
-            if kind == "categorical":
-                parameters[name] = trial.suggest_categorical(name, distribution["choices"])
-            elif kind == "int":
-                parameters[name] = trial.suggest_int(
-                    name,
-                    int(distribution["low"]),
-                    int(distribution["high"]),
-                    step=int(distribution.get("step", 1)),
-                    log=bool(distribution.get("log", False)),
-                )
-            elif kind == "float":
-                parameters[name] = trial.suggest_float(
-                    name,
-                    float(distribution["low"]),
-                    float(distribution["high"]),
-                    log=bool(distribution.get("log", False)),
-                )
-            else:
-                raise ValueError("Unknown search-space distribution")
-        config = {
-            **base,
-            **parameters,
-            "seed": seed + trial.number,
-            "output_dir": str(output / f"trial-{trial.number}"),
-        }
-
-        latest_revision = None
-
-        def report(state):
-            nonlocal latest_revision
-            revision = state.get("revision")
-            heartbeat = revision == latest_revision
-            # Each trial is a new training run whose revisions restart, so the
-            # outer files carry the identity of the run that produced them. A
-            # heartbeat from an earlier trial can then never overlay this one.
-            run = state.get("run")
-            duration = time.monotonic() - study_started
-            with tune_lock:
-                latest.update(
-                    trial=trial.number,
-                    revision=revision,
-                    run=run,
-                    duration=duration,
-                    trial_progress=state,
-                )
-                if not heartbeat:
-                    # A real progress event keeps the retained outer snapshot.
-                    _write_json(output / "progress.json", latest)
-                # The bounded file always carries the current trial, revision and
-                # the study's own elapsed time, so a long trial cannot freeze it.
-                _write_json(
-                    output / HEARTBEAT_FILENAME,
-                    {
-                        "status": latest["status"],
-                        "completed_trials": latest["completed_trials"],
-                        "trials_requested": latest["trials_requested"],
-                        "trial": trial.number,
-                        "revision": revision,
-                        "run": run,
-                        "duration": duration,
-                        "trial_progress": heartbeat_projection(state),
-                    },
-                )
-                if progress:
-                    progress(dict(latest))
-            if heartbeat:
+    def write_study_snapshot(heartbeat: bool, changes: dict) -> None:
+        """Publish the study's own state; a running trial publishes instead."""
+        with tune_lock:
+            latest.update(changes)
+            if heartbeat and (active_trial["running"] or latest.get("status") != "running"):
+                # The trial's monitor owns the files while it trains, and a terminal
+                # publication is final: no later heartbeat may revive it.
                 return
-            latest_revision = revision
-            evaluation = state.get("metrics", {}).get("evaluation")
-            if state.get("stage") == "iteration_complete" and evaluation:
-                trial.report(evaluation["score"], step=state["iteration"])
-                if trial.should_prune():
-                    raise optuna.TrialPruned("Playing score below study median")
+            latest["duration"] = time.monotonic() - study_started
+            if not heartbeat:
+                study_monitor.published()
+            latest.update(study_monitor.snapshot())
+            state = active_trial["state"]
+            if state is not None:
+                # The last trial keeps its data (history, metrics, model list) but
+                # not the live stage or timers of a trial that is no longer running.
+                latest["trial_progress"] = without_live_timing(state)
+            if heartbeat:
+                _write_json(output / HEARTBEAT_FILENAME, heartbeat_projection(latest))
+            else:
+                _write_json(output / "progress.json", latest)
+            if progress:
+                progress(dict(latest))
 
-        result = train(config, report, should_stop)
-        if result["status"] == "cancelled":
-            study.stop()
-            raise optuna.TrialPruned("Tuning cancelled")
-        evaluation = result["metrics"]["evaluation"]
-        trial.set_user_attr("checkpoint", result["best_checkpoint"])
-        trial.set_user_attr("evaluation", evaluation)
-        trial.set_user_attr("training_config", normalize_config(config))
-        return float(evaluation["score"])
+    study_monitor = TrainingMonitor(
+        lambda **flags: write_study_snapshot(bool(flags.get("heartbeat")), {}),
+        phase="initializing_study",
+    )
 
-    study.optimize(objective, n_trials=trials)
-    completed_trials = [
-        trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE
-    ]
-    cancelled = bool(should_stop and should_stop())
-    result = {
-        "status": "cancelled" if cancelled else "completed",
-        "study_name": study.study_name,
-        "storage": storage,
-        "duration": time.monotonic() - study_started,
-        "completed_trials": len(completed_trials),
-        "trials": [
-            {
-                "number": trial.number,
-                "state": trial.state.name,
-                "score": trial.value,
-                "parameters": trial.params,
+    def publish_study(**changes) -> None:
+        """Publish a real study-level progress event."""
+        write_study_snapshot(False, changes)
+
+    def count_completed(study) -> int:
+        """Trials the study has already recorded as complete."""
+        return sum(1 for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE)
+
+    def run_trials(study) -> None:
+        def objective(trial):
+            if should_stop and should_stop():
+                study.stop()
+                raise optuna.TrialPruned("Tuning cancelled")
+            # Sampling parameters writes to the Optuna database, so it stays under
+            # the study's own heartbeat until the trial's monitor takes over.
+            study_monitor.phase("preparing_trial")
+            parameters = {}
+            for name, distribution in search_space.items():
+                kind = distribution.get("type", "float")
+                if kind == "categorical":
+                    parameters[name] = trial.suggest_categorical(name, distribution["choices"])
+                elif kind == "int":
+                    parameters[name] = trial.suggest_int(
+                        name,
+                        int(distribution["low"]),
+                        int(distribution["high"]),
+                        step=int(distribution.get("step", 1)),
+                        log=bool(distribution.get("log", False)),
+                    )
+                elif kind == "float":
+                    parameters[name] = trial.suggest_float(
+                        name,
+                        float(distribution["low"]),
+                        float(distribution["high"]),
+                        log=bool(distribution.get("log", False)),
+                    )
+                else:
+                    raise ValueError("Unknown search-space distribution")
+            config = {
+                **base,
+                **parameters,
+                "seed": seed + trial.number,
+                "output_dir": str(output / f"trial-{trial.number}"),
             }
-            for trial in study.trials
-        ],
-    }
-    if completed_trials:
-        best = study.best_trial
-        result.update(
-            best_score=best.value,
-            best_parameters=best.params,
-            best_checkpoint=best.user_attrs.get("checkpoint"),
-            best_configuration=best.user_attrs.get("training_config"),
+
+            latest_revision = None
+
+            def report(state):
+                nonlocal latest_revision
+                revision = state.get("revision")
+                heartbeat = revision == latest_revision
+                # Each trial is a new training run whose revisions restart, so the
+                # outer files carry the identity of the run that produced them. A
+                # heartbeat from an earlier trial can then never overlay this one.
+                run = state.get("run")
+                duration = time.monotonic() - study_started
+                with tune_lock:
+                    active_trial["state"] = state
+                    latest.update(
+                        trial=trial.number,
+                        revision=revision,
+                        run=run,
+                        duration=duration,
+                        # The retained outer snapshot names the phase the trial is
+                        # in, so it never keeps describing the study's bookkeeping.
+                        stage=state.get("stage"),
+                        phase_started_at=state.get("phase_started_at"),
+                        phase_elapsed=state.get("phase_elapsed"),
+                        trial_progress=state,
+                    )
+                    if not heartbeat:
+                        # A real progress event keeps the retained outer snapshot.
+                        _write_json(output / "progress.json", latest)
+                    # The bounded file always carries the current trial, revision
+                    # and the study's own elapsed time, so a long trial cannot
+                    # freeze it.
+                    _write_json(
+                        output / HEARTBEAT_FILENAME,
+                        {
+                            "status": latest["status"],
+                            "completed_trials": latest["completed_trials"],
+                            "trials_requested": latest["trials_requested"],
+                            "trial": trial.number,
+                            "revision": revision,
+                            "run": run,
+                            "duration": duration,
+                            "trial_progress": heartbeat_projection(state),
+                        },
+                    )
+                    if progress:
+                        progress(dict(latest))
+                if heartbeat:
+                    return
+                latest_revision = revision
+                evaluation = state.get("metrics", {}).get("evaluation")
+                if state.get("stage") == "iteration_complete" and evaluation:
+                    trial.report(evaluation["score"], step=state["iteration"])
+                    if trial.should_prune():
+                        raise optuna.TrialPruned("Playing score below study median")
+
+            finished = False
+            # Handing the files to the trial and taking them back are serialized
+            # against the study's own heartbeat, so neither publisher can overwrite
+            # the other's snapshot with a stale stage.
+            with tune_lock:
+                active_trial["running"] = True
+            try:
+                result = train(config, report, should_stop)
+                finished = result["status"] != "cancelled"
+            finally:
+                # The trial's monitor has stopped; the study publishes again, so a
+                # bookkeeping gap never looks like a dead worker. A pruned or
+                # cancelled trial is not counted, matching the terminal result.
+                recorded = count_completed(study)
+                study_monitor.phase("between_trials")
+                with tune_lock:
+                    active_trial["running"] = False
+                    latest["completed_trials"] = recorded + (1 if finished else 0)
+                publish_study()
+            if result["status"] == "cancelled":
+                study.stop()
+                raise optuna.TrialPruned("Tuning cancelled")
+            evaluation = result["metrics"]["evaluation"]
+            trial.set_user_attr("checkpoint", result["best_checkpoint"])
+            trial.set_user_attr("evaluation", evaluation)
+            trial.set_user_attr("training_config", normalize_config(config))
+            return float(evaluation["score"])
+
+        study.optimize(objective, n_trials=trials)
+
+    def finish_study(study) -> dict:
+        # Aggregating results and persisting them can take a while; the heartbeat
+        # keeps running until the terminal publication is written.
+        study_monitor.phase("finalizing_study")
+        publish_study()
+        completed_trials = [
+            trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE
+        ]
+        cancelled = bool(should_stop and should_stop())
+        result = {
+            "status": "cancelled" if cancelled else "completed",
+            "study_name": study.study_name,
+            "storage": storage,
+            # Measured as late as possible, once the aggregation is done, so the
+            # authoritative duration covers the whole finalization.
+            "duration": 0.0,
+            "completed_trials": len(completed_trials),
+            "trials": [
+                {
+                    "number": trial.number,
+                    "state": trial.state.name,
+                    "score": trial.value,
+                    "parameters": trial.params,
+                }
+                for trial in study.trials
+            ],
+        }
+        if completed_trials:
+            best = study.best_trial
+            result.update(
+                best_score=best.value,
+                best_parameters=best.params,
+                best_checkpoint=best.user_attrs.get("checkpoint"),
+                best_configuration=best.user_attrs.get("training_config"),
+            )
+            _write_json(output / "best-config.json", result["best_configuration"])
+        # Nothing slow happens past this point: the heartbeat stops, the duration is
+        # measured at the terminal moment, and both terminal files are written from
+        # one state, so the published duration never falls behind the last
+        # heartbeat and no later heartbeat can revive the finished study.
+        study_monitor.stop()
+        result["duration"] = time.monotonic() - study_started
+        latest.update(result)
+        _write_json(output / "result.json", result)
+        _write_json(output / "progress.json", result)
+        if progress:
+            progress(result)
+        return result
+
+    study_monitor.start()
+    try:
+        publish_study()
+        study = optuna.create_study(
+            study_name=configuration.get("study_name", "hnefatafl"),
+            storage=storage,
+            direction="maximize",
+            load_if_exists=True,
+            sampler=optuna.samplers.TPESampler(seed=seed),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=1),
         )
-        _write_json(output / "best-config.json", result["best_configuration"])
-    _write_json(output / "result.json", result)
-    _write_json(output / "progress.json", result)
-    if progress:
-        progress(result)
-    return result
+        latest["completed_trials"] = count_completed(study)
+        publish_study()
+        # Cancellation during the study load is honored at this safe point: the
+        # database transaction is never interrupted, and the result is published.
+        if not (should_stop and should_stop()):
+            run_trials(study)
+        return finish_study(study)
+    except Exception as error:
+        # A study failure is terminal, with the error recorded, and no heartbeat
+        # may revive it afterwards.
+        study_monitor.phase("failed")
+        publish_study(status="failed", error=str(error))
+        raise
+    finally:
+        # Exception-safe cleanup: the heartbeat thread is joined once, after the
+        # terminal publication on every path.
+        study_monitor.stop()
 
 
 __all__ = [

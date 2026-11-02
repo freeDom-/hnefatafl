@@ -1088,21 +1088,61 @@ def test_tuning_files_carry_the_run_identity_of_the_active_trial(tmp_path, monke
         snapshots.append,
     )
     assert result["status"] == "completed"
-    # The last trial-shaped publication is the study snapshot the dashboard reads.
-    active = next(state for state in reversed(snapshots) if state.get("trial_progress"))
-    heartbeat = read_heartbeat(output)
-    assert active["run"] and active["run"] == heartbeat["run"]
-    assert active["trial_progress"]["run"] == active["run"]
-    # A heartbeat from another run can never overlay the active trial, while the
-    # same run still refreshes it.
+    # A trial publication carries the trial's own identity, both outside and
+    # inside the nested snapshot; a study publication carries the study's.
+    trials = [state for state in snapshots if "duration" in state.get("trial_progress", {})]
+    # Study publications carry the study's identity; the terminal result does not.
+    studies = [
+        state
+        for state in snapshots
+        if state.get("run") and "duration" not in state.get("trial_progress", {})
+    ]
+    assert trials and studies
+    for state in trials:
+        assert state["run"] and state["run"] == state["trial_progress"]["run"]
+    study_runs = {state["run"] for state in studies}
+    assert study_runs and not study_runs & {state["run"] for state in trials}
+    # A study publication keeps the last trial's data but not its live timing.
+    for state in studies:
+        nested = state.get("trial_progress")
+        if nested:
+            assert "stage" not in nested and "duration" not in nested
+
+    # A heartbeat from another producer or run can never overlay a retained
+    # snapshot, while the same producer still refreshes it.
+    active = trials[-1]
+    trial_heartbeat = {
+        "run": active["run"],
+        "revision": active["revision"],
+        "trial": active["trial"],
+        "trial_progress": active["trial_progress"],
+    }
+    merged = overlay_heartbeat(active, trial_heartbeat)
+    assert merged["trial_progress"]["run"] == active["run"]
     foreign = {
-        **heartbeat,
+        **trial_heartbeat,
         "run": "other-run",
-        "trial_progress": {**heartbeat["trial_progress"], "run": "other-run"},
+        "trial_progress": {**active["trial_progress"], "run": "other-run"},
     }
     assert overlay_heartbeat(active, foreign) == active
-    matching = {**heartbeat, "revision": active["revision"]}
-    assert overlay_heartbeat(active, matching)["trial_progress"]["run"] == active["run"]
+    # The study's own heartbeat, even at the same revision, is another producer.
+    study_heartbeat = {
+        "run": studies[-1]["run"],
+        "revision": active["revision"],
+        "stage": "between_trials",
+        "duration": 900.0,
+    }
+    assert overlay_heartbeat(active, study_heartbeat) == active
+    # A study heartbeat never drops the last trial's retained data.
+    study_progress = studies[-1]
+    if "trial_progress" in study_progress:
+        assert "stage" not in study_progress["trial_progress"]
+        assert (
+            overlay_heartbeat(
+                study_progress, {**study_heartbeat, "revision": study_progress["revision"]}
+            )["trial_progress"]
+            == study_progress["trial_progress"]
+        )
 
 
 def test_no_iteration_timing_before_an_iteration_is_entered():
@@ -1222,10 +1262,295 @@ def test_tuning_study_duration_never_resets_between_trials(tmp_path):
     trial_durations = [
         state["trial_progress"]["duration"]
         for state in snapshots
-        if state.get("trial") == 1 and state.get("trial_progress")
+        if state.get("trial") == 1 and "duration" in state.get("trial_progress", {})
     ]
     assert trial_durations and min(trial_durations) < max(per_trial[0])
 
     # The final publication carries the authoritative study duration.
     final = read_json(output / "progress.json")
     assert final["duration"] == result["duration"] >= max(per_trial[1])
+
+
+# --- study-level monitoring --------------------------------------------------
+
+
+def tune_config(tmp_path, **changes) -> dict:
+    return {
+        "output_dir": str(tmp_path / "tuning"),
+        "study_name": "monitoring",
+        "trials": 2,
+        "seed": 0,
+        "search_space": {"channels": {"type": "categorical", "choices": [4, 8]}},
+        "training": tiny_config(
+            tmp_path, ruleset="brandubh", preset="smoke", games=1, iterations=1, blocks=0
+        ),
+        **changes,
+    }
+
+
+def run_tune(config: dict, results: list, *, should_stop=None) -> threading.Thread:
+    def run():
+        try:
+            results.append(tune(config, None, should_stop))
+        except Exception as error:  # pragma: no cover - surfaced by the assertions
+            results.append(error)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    return worker
+
+
+def test_slow_study_initialization_keeps_the_heartbeat_alive(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    entered = threading.Event()
+    released = threading.Event()
+    real_create = optuna.create_study
+
+    def blocking_create(*args, **kwargs):
+        entered.set()
+        assert released.wait(30)
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr(optuna, "create_study", blocking_create)
+    config = tune_config(tmp_path)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results)
+    assert entered.wait(30)
+
+    # Loading the study database is a study-level phase with its own heartbeat.
+    first = wait_for_stage(output, "initializing_study")
+    assert "trial" not in first and "trial_progress" not in first
+    assert not first.get("phase_progress")
+    time.sleep(2.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "initializing_study"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["duration"] >= first["duration"] + 1.0
+    assert second["revision"] == first["revision"]
+    # The retained progress file names the same study-level phase.
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "running" and progress["stage"] == "initializing_study"
+
+    released.set()
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+
+
+def test_a_slow_transition_between_trials_keeps_the_heartbeat_alive(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    entered = threading.Event()
+    released = threading.Event()
+    asks = []
+    real_ask = optuna.study.Study.ask
+
+    def blocking_ask(study, *args, **kwargs):
+        asks.append(1)
+        if len(asks) >= 2:
+            # Between the first trial and the second: Optuna bookkeeping, no trial.
+            entered.set()
+            assert released.wait(60)
+        return real_ask(study, *args, **kwargs)
+
+    monkeypatch.setattr(optuna.study.Study, "ask", blocking_ask)
+    config = tune_config(tmp_path)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results)
+    assert entered.wait(60)
+
+    first = wait_for_stage(output, "between_trials")
+    # The completed trial is still recorded, but no trial is presented as running.
+    retained = read_json(output / "progress.json")
+    assert retained["completed_trials"] == 1
+    assert "trial_progress" in retained and "duration" not in retained["trial_progress"]
+    assert "active_iteration" not in retained and "iteration_elapsed" not in retained
+    assert not retained.get("phase_progress")
+    time.sleep(2.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "between_trials"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["duration"] >= first["duration"] + 1.0
+    # The retained and bounded files describe the same study-level state, so a
+    # stale trial heartbeat can never overwrite it.
+    assert retained["stage"] == "between_trials"
+    merged = overlay_heartbeat(retained, second)
+    assert merged["stage"] == "between_trials" and merged["completed_trials"] == 1
+
+    released.set()
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+    assert results and results[0]["status"] == "completed"
+    assert results[0]["completed_trials"] == 2
+
+
+def test_slow_study_finalization_keeps_the_heartbeat_alive(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    entered = threading.Event()
+    released = threading.Event()
+    real_best_trial = optuna.study.Study.best_trial
+
+    def blocking_best_trial(self):
+        # Aggregating the study's results is part of the finalization.
+        if not entered.is_set():
+            entered.set()
+            assert released.wait(60)
+        return real_best_trial.fget(self)
+
+    monkeypatch.setattr(optuna.study.Study, "best_trial", property(blocking_best_trial))
+    config = tune_config(tmp_path, trials=1)
+    results: list = []
+    worker = run_tune(config, results)
+    output = Path(config["output_dir"])
+    assert entered.wait(120)
+
+    first = wait_for_stage(output, "finalizing_study")
+    time.sleep(2.5)
+    second = read_heartbeat(output)
+    assert second["stage"] == "finalizing_study"
+    assert second["phase_elapsed"] >= first["phase_elapsed"] + 1.0
+    assert second["duration"] >= first["duration"] + 1.0
+
+    released.set()
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+    result = results[0]
+    assert result["status"] == "completed"
+    # Both terminal files carry the authoritative study duration, which covers the
+    # blocked finalization, and no heartbeat arrives afterwards.
+    final = read_json(output / "progress.json")
+    stored = read_json(output / "result.json")
+    assert final["duration"] == result["duration"] == stored["duration"]
+    assert final["duration"] >= second["duration"]
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+
+def test_a_pruned_trial_returns_to_study_level_monitoring(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    pruned = []
+    real_prune = optuna.trial.Trial.should_prune
+
+    def prune_first_trial(trial):
+        if trial.number == 0 and not pruned:
+            pruned.append(1)
+            return True
+        return real_prune(trial)
+
+    monkeypatch.setattr(optuna.trial.Trial, "should_prune", prune_first_trial)
+    config = tune_config(tmp_path, trials=2)
+    output = Path(config["output_dir"])
+    snapshots: list[dict] = []
+    result = tune(config, snapshots.append)
+    assert result["status"] == "completed" and result["completed_trials"] == 1
+    assert pruned, "the first trial was not pruned"
+    assert [trial["state"] for trial in result["trials"]] == ["PRUNED", "COMPLETE"]
+    # A pruned trial leaves the study-level monitoring in charge of the next one.
+    between = [
+        state
+        for state in snapshots
+        if state.get("stage") == "between_trials"
+        and "duration" not in state.get("trial_progress", {})
+    ]
+    assert between
+    # A trial publication names the trial's own phase in the outer snapshot too.
+    trials = [state for state in snapshots if "duration" in state.get("trial_progress", {})]
+    assert trials and all(state.get("stage") != "between_trials" for state in trials)
+    assert read_json(output / "progress.json")["status"] == "completed"
+
+
+def test_cancellation_during_the_study_load_publishes_a_cancelled_result(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    entered = threading.Event()
+    released = threading.Event()
+    stopped = {"value": False}
+    real_create = optuna.create_study
+
+    def blocking_create(*args, **kwargs):
+        entered.set()
+        assert released.wait(30)
+        stopped["value"] = True
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr(optuna, "create_study", blocking_create)
+    config = tune_config(tmp_path)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results, should_stop=lambda: stopped["value"])
+    assert entered.wait(30)
+    released.set()
+    worker.join(timeout=300)
+    assert not worker.is_alive()
+
+    result = results[0]
+    # Cancellation is honored at the safe point after the load, without touching
+    # the study database, and the terminal state is published.
+    assert result["status"] == "cancelled" and result["completed_trials"] == 0
+    assert read_json(output / "progress.json")["status"] == "cancelled"
+    assert read_json(output / "result.json")["status"] == "cancelled"
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+
+def test_a_study_failure_publishes_a_terminal_failed_state(tmp_path, monkeypatch):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    def failing_create(*args, **kwargs):
+        raise RuntimeError("the study database is unavailable")
+
+    monkeypatch.setattr(optuna, "create_study", failing_create)
+    config = tune_config(tmp_path)
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="study database is unavailable"):
+        tune(config)
+
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "failed" and progress["stage"] == "failed"
+    assert progress["error"] == "the study database is unavailable"
+    # No heartbeat may arrive after the terminal publication.
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+
+def test_tuning_publications_never_mix_study_and_trial_identities(tmp_path):
+    """Sample the retained and bounded files while a real study runs."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    config = tune_config(tmp_path, trials=2)
+    output = Path(config["output_dir"])
+    results: list = []
+    worker = run_tune(config, results)
+    samples: list[tuple[dict, dict | None]] = []
+    deadline = time.monotonic() + 60
+    while worker.is_alive() and time.monotonic() < deadline:
+        if (output / "progress.json").exists():
+            samples.append((read_json(output / "progress.json"), read_heartbeat(output)))
+        time.sleep(0.02)
+    worker.join(timeout=300)
+    assert not worker.is_alive() and results and results[0]["status"] == "completed"
+    assert len(samples) > 5
+
+    for progress, heartbeat in samples:
+        merged = overlay_heartbeat(progress, heartbeat)
+        # A heartbeat is either applied to the snapshot it belongs to or ignored;
+        # it never brings another producer's identity into the snapshot.
+        if merged is not progress:
+            assert merged.get("run") == progress.get("run")
+            assert merged.get("trial") == progress.get("trial")
