@@ -20,13 +20,13 @@
  */
 
 const studyTrials =
-  'Number of Optuna trials to run. Each trial trains a full model with sampled hyperparameters, so a tuning job takes much longer than a single training run. A saved study can be resumed later from its job.';
+  'Number of Optuna trials to run. Each trial trains a full model with sampled hyperparameters, so a tuning job takes much longer than a single training run. When a saved study is continued, this is the additional budget on top of its completed trials.';
 const studyName =
-  'Name that identifies the Optuna study. Trials and results are stored under it, and a later tuning job with the same name continues the saved study. Must contain 1–100 characters.';
+  'Name that identifies the Optuna study inside the job’s own study database. A new tuning job always starts a fresh database, so the same name alone does not continue an earlier study; continuing uses the saved job’s “Resume study” action. Must contain 1–100 characters.';
 const studySeed =
-  'Seed for the Optuna sampler, separate from the model’s random seed. Each trial’s model seed is derived from it, so the same study seed reproduces the same sequence of trials.';
+  'Seed for the Optuna sampler, separate from the model’s random seed. Each trial’s model seed is derived from it, so the same study seed suggests the same parameters for a study with the same history, and a continued study keeps the saved seed.';
 const studySearchSpace =
-  'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. Leave it empty to use the default search space.';
+  'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. The text is sent as the search space, so it must stay valid JSON.';
 
 export const trainingTooltips: Record<string, string> = {
   // ── General ──────────────────────────────────────────────────────────────
@@ -45,11 +45,11 @@ export const trainingTooltips: Record<string, string> = {
   inference_backend:
     'Backend that evaluates the network during self-play, and during evaluation when that reuses the training backend. PyTorch is the default and runs anywhere. OpenVINO moves inference to an Intel GPU while PyTorch still performs weight updates and evaluation on the CPU, so it requires CPU training and a compatible Intel GPU.',
   inference_cache_mode:
-    'Reuses neural evaluations of identical positions instead of recomputing them. Off disables caching. Exact positions caches results per ruleset, board and side to move and also removes duplicates inside one batch. It pays off when the same position recurs and is cleared whenever the model, backend or precision changes; measure throughput before relying on it.',
+    'Reuses neural evaluations of identical positions instead of recomputing them. Off disables caching. Exact positions keys results by ruleset, board and side to move, removes duplicates inside one batch, and is dropped whenever the model, backend or precision changes. Every phase builds its own cache, so nothing carries over between iterations; it pays off when the same position recurs, so measure throughput before relying on it.',
   inference_cache_capacity:
-    'Maximum number of positions one cache keeps. The least recently used entry is evicted when it is full. A larger cache can raise the hit rate but uses more memory; the value is ignored while the cache is off.',
+    'Maximum number of positions one phase’s cache keeps. The least recently used entry is evicted when it is full. A larger cache can raise the hit rate but holds more results in memory, and the value is ignored while the cache is off.',
   inference_device:
-    'Intel GPU that OpenVINO runs inference on. Automatic uses the default GPU. Only meaningful for the OpenVINO backend: PyTorch ignores it and reports the training device instead.',
+    'Intel GPU that OpenVINO runs inference on. GPU selects the default device and a numbered entry a specific one. Only meaningful for the OpenVINO backend: PyTorch ignores it and uses the training device instead.',
 
   // ── Neural network and optimization ──────────────────────────────────────
   channels:
@@ -57,7 +57,7 @@ export const trainingTooltips: Record<string, string> = {
   blocks:
     'Number of residual blocks in the network trunk. More blocks make the network deeper and more capable but raise the compute and memory of every evaluation. Zero keeps only the initial convolution stage. Part of the model architecture, so a resumed run must keep the same value.',
   batch_size:
-    'Replay positions used in one gradient update. Larger batches give smoother gradients and better device utilization but use more memory; smaller batches take more update steps over the same data. The updates per iteration are the epochs multiplied by the number of full batches in the replay buffer.',
+    'Replay positions used in one gradient update. Larger batches give smoother gradients and better device utilization but use more memory; smaller batches take more update steps over the same data. The optimizer steps per iteration are the number of epochs multiplied by the number of batches in the replay buffer, rounded up so the final, partly filled batch is trained as well.',
   epochs:
     'Gradient-training passes over the whole replay buffer per iteration. More epochs extract more from the collected positions but take longer and can overfit. Total passes are the iterations multiplied by this value.',
   learning_rate:
@@ -74,7 +74,7 @@ export const trainingTooltips: Record<string, string> = {
     'Runs the network and gradient updates in half precision when the training device is CUDA, speeding up training and reducing GPU memory use. On CPU and Apple Metal it has no effect. Numerical results can differ slightly from a full-precision run, so it is not bit-exact.',
 
   // ── Reproducibility and resources ────────────────────────────────────────
-  seed: 'Seed for the training random number generators: model initialization, self-play move sampling, symmetry augmentation and the per-iteration and per-game streams derived from it. The same seed with the same settings reproduces a run; different seeds give independent runs. A resumed run must keep the checkpoint’s seed.',
+  seed: 'Seed for the training random number generators: model initialization, self-play move sampling, symmetry augmentation and the per-iteration and per-game streams derived from it. Repeating a run with the same seed replays the same random choices, so runs stay comparable, but GPU kernels, parallel search processes and floating-point reductions can still introduce small numerical differences. A resumed run must keep the checkpoint’s seed.',
   cpu_threads:
     'Number of CPU threads the training process lets PyTorch use. Higher values speed up CPU-bound work on a multi-core machine but compete with other jobs and the server. It is also passed to OpenVINO as the CPU inference thread count. CPU search workers ignore it and pin one thread each.',
   search_workers:
@@ -92,7 +92,7 @@ export const trainingTooltips: Record<string, string> = {
   games:
     'Self-play games generated in each training iteration. More games per iteration produce more training positions and a better-filled replay buffer but lengthen the iteration. Multiplied by the iterations, this is the total self-play volume of the run.',
   mcts_iterations:
-    'Monte Carlo tree search simulations per move during self-play. More simulations search deeper and produce stronger, more reliable move targets at the cost of longer games. The search also stops at the time limit, so the effective budget is whichever limit is reached first.',
+    'Monte Carlo tree search simulations per move during self-play. More simulations search deeper and produce stronger, more reliable move targets, but every move costs more computation, so self-play games take longer to generate. The search also stops at the time limit, so the effective budget is whichever limit is reached first.',
   mcts_time_limit:
     'Wall-clock limit for the search on each move during self-play, in seconds. The search stops once this time has passed, after at least one simulation, even if the iteration budget is unused. It also becomes the default evaluation time limit when that is not set separately.',
   self_play_mode:
@@ -120,7 +120,7 @@ export const trainingTooltips: Record<string, string> = {
   evaluation_opponent:
     'Opponent every evaluation compares the candidate against. Shield bearer is a fast one-ply heuristic benchmark for early training; Shield maiden is a stronger rules-aware heuristic with low overhead; Jarl uses alpha-beta search and is the most expensive. Champion compares against the current best model and is the only opponent that can promote the candidate. Changing it starts a new comparison series.',
   evaluation_mode:
-    'How evaluation games are executed. Automatic uses batched evaluation when the model runs on CUDA or the inference backend is OpenVINO, otherwise sequential. Batched plays games concurrently and groups neural evaluations; sequential runs one game at a time. It affects speed only, never the evaluation result.',
+    'How evaluation games are executed. Automatic uses batched evaluation when the model runs on CUDA or the inference backend is OpenVINO, otherwise sequential. Batched plays games concurrently and groups neural evaluations; sequential runs one game at a time. The mode does not change the rules of the comparison, but under a search time limit the games share the CPU differently, so the resulting score can differ slightly between the two.',
   evaluation_inference_backend:
     'Inference backend used for evaluation games. PyTorch always evaluates with PyTorch. Use training inference backend follows the job’s neural inference backend, so it only changes anything when that backend is OpenVINO.',
   evaluation_frequency:
