@@ -392,6 +392,22 @@ never shows a dead worker between trials or during a slow finalization. The
 study's heartbeat stops only at the terminal publication, which carries the
 authoritative duration; a study failure is published as a terminal failed state.
 
+Exactly one publisher owns the job's files. While a trial trains, that trial's own
+monitor owns them and the study's heartbeat is suppressed; the handover in both
+directions happens under the publication lock, so neither side can overwrite the
+other's snapshot with a stale stage. After a trial finishes, ownership returns to
+the study and the `between_trials` phase is published before anything that may
+block — parameter sampling, the Optuna bookkeeping that stores the trial's final
+state, and the aggregation that reads the study's trials. A slow storage operation
+therefore never leaves the job without a heartbeat.
+
+The completed-trial counter only counts trials that finished training: pruned,
+cancelled and failed trials are never counted, matching the terminal result.
+Optuna commits a trial's final state after its objective returns, so the count is
+published from memory at the handover and reconciled against the study's own trials
+afterwards; the reconciliation can only raise the displayed count and its failure
+never hides the error that ended the trial.
+
 The JSON `search_space` supports `float` (with optional `log`), `int` (with
 optional `step`/`log`) and `categorical` (`choices`) distributions. The nested
 `training` object supplies the common training configuration. Each trial has its

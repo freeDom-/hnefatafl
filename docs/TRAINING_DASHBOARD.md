@@ -157,6 +157,14 @@ trials or during the final aggregation. The last trial's charts and data stay
 visible, but its finished phase and timers are not presented as live, and its
 heartbeat cannot overwrite the study's snapshot.
 
+Ownership of the job's files moves from a trial's monitor to the study's and back
+under the publication lock, and the study publishes `between_trials` before the
+Optuna work that follows a trial — sampling the next trial's parameters, storing the
+finished trial's state and reading the study's trials. A slow storage operation
+therefore never leaves the dashboard without a heartbeat, and the completed-trial
+counter counts only trials that finished training, never pruned, cancelled or
+failed ones.
+
 - **Self-play** shows completed and scheduled games, active games, searched
   positions and MCTS simulations.
 - **Model training** shows completed and total optimization steps, the current
