@@ -12,6 +12,118 @@ from pathlib import Path
 from typing import Any
 
 
+# Presentation-only participant fields in a portable browser configuration.
+# Everything else on a nested participant either configures the search or is
+# rejected, so no execution setting can be dropped silently.
+PORTABLE_PLAYER_FIELDS = frozenset(
+    {
+        "config",
+        "profile_id",
+        "name",
+        "model_name",
+        "profile_name",
+        "model",
+        "variant_id",
+        "agent_rune",
+        "rune",
+    }
+)
+
+
+def portable_player(player: dict, index: int) -> dict:
+    """Flatten one portable ``players[i]`` entry into an AI configuration.
+
+    The recorded search settings are validated exactly as the browser API
+    validates them, so a misspelled or unsupported parameter can never be
+    silently replaced by a default. A headless-only checkpoint path is the one
+    additional field accepted here, and the effective settings are returned so a
+    portable document runs with the same values the API would store.
+    """
+    unknown = set(player) - PORTABLE_PLAYER_FIELDS
+    if unknown:
+        raise ValueError(
+            f"Tournament player {index + 1} has an unsupported field: {sorted(unknown)[0]}"
+        )
+    configuration = player["config"]
+    if not isinstance(configuration, dict):
+        raise ValueError(f"Tournament player {index + 1} config must be an object")
+    profile_id = player.get("profile_id")
+    if profile_id is not None and not isinstance(profile_id, str):
+        raise ValueError(f"Tournament player {index + 1} profile_id must be a string")
+    from .ai import FIXED_PROFILE_IDS, SUPPORTED_AI_CONFIG_FIELDS, ai_profiles, resolve_ai_config
+
+    if profile_id is not None:
+        profile = next((item for item in ai_profiles() if item["id"] == profile_id), None)
+        if profile is None:
+            raise ValueError(f"Unknown tournament player profile: {profile_id}")
+        if profile_id in FIXED_PROFILE_IDS:
+            # The API treats a named fixed profile as authoritative and replaces
+            # any configuration recorded beside it, so the discarded settings are
+            # not validated here either.
+            configuration = {**profile["parameters"], "algorithm": profile["algorithm"]}
+    unsupported = set(configuration) - SUPPORTED_AI_CONFIG_FIELDS - {"model_path"}
+    if unsupported:
+        raise ValueError(
+            f"Tournament player {index + 1} config has an unsupported field: "
+            f"{sorted(unsupported)[0]}"
+        )
+    try:
+        resolved = resolve_ai_config(
+            configuration, profile_id, extra_fields=frozenset({"model_path"})
+        )
+    except ValueError as error:
+        raise ValueError(f"Tournament player {index + 1}: {error}") from error
+    if "model_path" in configuration:
+        resolved["model_path"] = configuration["model_path"]
+    return resolved
+
+
+def normalise_tournament_config(config: dict) -> dict:
+    """Return a copy of a tournament configuration with flattened participants.
+
+    Both the historical headless layout (``players[i]`` *is* the AI
+    configuration) and the portable browser layout (``players[i].config``) are
+    accepted, and the attacker/defender seat order is preserved. A document may
+    not mix the two representations, because the intended participant would be
+    ambiguous.
+    """
+    players = config.get("players")
+    if players is None:
+        return config
+    if not isinstance(players, list):
+        raise ValueError("Tournament players must be a list")
+    portable = [isinstance(player, dict) and "config" in player for player in players]
+    if not any(portable):
+        return config
+    if not all(portable):
+        raise ValueError(
+            "Tournament players must all use the same representation: either nested "
+            "'config' objects or flattened AI configurations"
+        )
+    return {
+        **config,
+        "players": [portable_player(player, index) for index, player in enumerate(players)],
+    }
+
+
+def check_headless_models(players: list) -> None:
+    """Fail early when a neural participant has no resolvable checkpoint.
+
+    Headless runs load checkpoints directly; the model registry belongs to the
+    server. Model identifiers are never turned into filesystem paths here.
+    """
+    for index, player in enumerate(players):
+        if not isinstance(player, dict) or player.get("algorithm") != "neural":
+            continue
+        path = player.get("model_path")
+        if not isinstance(path, str) or not path:
+            raise ValueError(
+                f"Tournament player {index + 1} needs a model_path for its neural opponent"
+            )
+        if not Path(path).is_file():
+            raise ValueError(f"Tournament player {index + 1} model_path does not exist: {path}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tafl", description="Hnefatafl AI, training and model tools"
@@ -171,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "tournament":
                 from .ai import tournament
 
+                config = normalise_tournament_config(config)
+                check_headless_models(config.get("players") or [])
                 result = tournament(config, should_stop=stop.is_set)
             else:
                 from .training import compact_progress, train, tune

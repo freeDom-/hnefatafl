@@ -111,11 +111,14 @@ class TournamentPlayerRequest(BaseModel):
 class TournamentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=80)
+    # Missing mode keeps the historical balanced round-robin behaviour.
+    mode: Literal["round_robin", "fixed_roles"] = "round_robin"
     rulesets: list[Literal["brandubh", "tablut", "copenhagen"]] = Field(
         default=["brandubh"], min_length=1, max_length=3
     )
     players: list[TournamentPlayerRequest] = Field(min_length=2, max_length=4)
-    games: StrictInt = Field(default=2, ge=2, le=100)
+    # A fixed-role comparison accepts 1–100 games; round-robin still requires an even count.
+    games: StrictInt = Field(default=2, ge=1, le=100)
     max_plies: StrictInt = Field(default=300, ge=1, le=1000)
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
 
@@ -357,104 +360,14 @@ def create_app(
         return ModelRegistry(root / "models")
 
     def clean_ai_config(config: dict | None, profile_id: str | None = None) -> dict:
-        if config is not None and not isinstance(config, dict):
-            fail("AI configuration must be an object.")
-        config = dict(config or {})
-        supported = {
-            "algorithm",
-            "depth",
-            "iterations",
-            "time_limit",
-            "seed",
-            "exploration",
-            "temperature",
-            "evaluation",
-            "model_id",
-            "rollout_depth",
-            "search_wrapper",
-            "heuristic_version",
-            "heuristic",
-            "search",
-        }
-        if set(config) - supported:
-            fail("Unsupported AI configuration field.")
-        if profile_id and "algorithm" not in config:
-            from .ai import ai_profiles
+        from .ai import resolve_ai_config
 
-            profile = next((p for p in ai_profiles() if p["id"] == profile_id), None)
-            if profile is None:
-                fail("Unknown AI profile.")
-            config = {**profile.get("parameters", {}), **config, "algorithm": profile["algorithm"]}
-        algorithm = config.setdefault("algorithm", "baseline")
-        if algorithm == "alphabeta":
-            algorithm = config["algorithm"] = "alpha_beta"
-        if not isinstance(algorithm, str) or algorithm not in {
-            "baseline",
-            "shield_maiden",
-            "alpha_beta",
-            "mcts",
-            "neural",
-        }:
-            fail("Unknown AI algorithm.")
-        if "heuristic_version" in config and (
-            algorithm != "shield_maiden"
-            or type(config["heuristic_version"]) is not int
-            or config["heuristic_version"] != 1
-        ):
-            fail("Unsupported Shield maiden heuristic version.")
-        if "heuristic" in config:
-            if config["heuristic"] not in ("shield_bearer", "shield_maiden"):
-                fail("Search heuristic must be shield_bearer or shield_maiden.")
-            if algorithm not in ("alpha_beta", "mcts"):
-                fail("A search heuristic applies only to alpha-beta or MCTS.")
-        numeric_ranges = {
-            "depth": (1, 5),
-            "rollout_depth": (0, 50),
-            "iterations": (1, 5000),
-            "time_limit": (0.01, 15),
-            "exploration": (0, 10),
-            "temperature": (0, 5),
-            "seed": (0, 2**32 - 1),
-        }
-        for name, (minimum, maximum) in numeric_ranges.items():
-            if name in config:
-                value = config[name]
-                if (
-                    name in {"depth", "iterations", "seed", "rollout_depth"}
-                    and type(value) is not int
-                ):
-                    fail(f"AI {name} must be an integer.")
-                if (
-                    isinstance(value, bool)
-                    or not isinstance(value, (int, float))
-                    or not minimum <= value <= maximum
-                ):
-                    fail(f"AI {name} must be between {minimum} and {maximum}.")
-        if "evaluation" in config and config["evaluation"] not in ("heuristic", "neural"):
-            fail("Evaluation must be heuristic or neural.")
-        if "search_wrapper" in config:
-            if algorithm != "neural":
-                fail("Search wrappers apply only to trained neural models.")
-            if config["search_wrapper"] not in ("mcts", "alpha_beta", "none"):
-                fail("Search wrapper must be mcts, alpha_beta or none.")
-        if "search" in config:
-            if not isinstance(config["search"], dict):
-                fail("Search configuration must be an object.")
-            wrapper = config.get("search_wrapper")
-            if algorithm != "alpha_beta" and not (
-                algorithm == "neural" and wrapper == "alpha_beta"
-            ):
-                fail("Search settings apply only to alpha-beta search.")
         try:
-            resolved = effective_ai_config(config)
+            resolved = resolve_ai_config(config, profile_id)
         except ValueError as error:
             fail(str(error))
         if resolved.get("model_id"):
-            if not isinstance(resolved["model_id"], str):
-                fail("Model ID must be a string.")
             model_info(resolved["model_id"])
-        if resolved["algorithm"] == "neural" and not resolved.get("model_id"):
-            fail("The neural opponent requires a registered model.")
         return resolved
 
     def normalise_advisor(provided: AdvisorRequest | None, ruleset: str, seed: int) -> dict | None:
@@ -1423,25 +1336,33 @@ def create_app(
         return tournament
 
     @app.get("/api/tournaments")
-    def list_tournaments():
-        return [tournaments.public(item, summary=True) for item in tournaments.list()]
+    def list_tournaments(summary: bool = True):
+        # The collection defaults to lightweight summaries, so saved match
+        # histories are never decoded or transferred just to render the
+        # navigator, and every participant rune is resolved in one batch.
+        return tournaments.public_collection(tournaments.list(summary=summary), summary=summary)
 
     @app.post("/api/tournaments", status_code=201)
     def create_tournament(request: TournamentRequest):
-        from .ai import ai_profiles
+        from .ai import FIXED_PROFILE_IDS, ai_profiles, validate_fixed_role_players
 
         if not request.name.strip():
             fail("Tournament names must contain 1–80 characters.")
         if len(set(request.rulesets)) != len(request.rulesets):
             fail("Select each tournament battlefield only once.")
-        if request.games % 2:
+        if request.mode == "fixed_roles":
+            if len(request.players) != 2:
+                fail("A fixed-role comparison needs exactly two participants.")
+            if len(request.rulesets) != 1:
+                fail("A fixed-role comparison uses exactly one battlefield.")
+        elif request.games % 2:
             fail("Use an even number of games so both opponents play each side equally.")
         with catalog_lock:
             profiles = {item["algorithm"]: item for item in ai_profiles()}
             players = []
             for provided in request.players:
                 provided_config = provided.config
-                if provided.profile_id in {"baseline", "shield_maiden", "alpha_beta", "mcts"}:
+                if provided.profile_id in FIXED_PROFILE_IDS:
                     preset = profiles[provided.profile_id]
                     provided_config = {**preset["parameters"], "algorithm": preset["algorithm"]}
                 config = clean_ai_config(provided_config, provided.profile_id)
@@ -1490,7 +1411,16 @@ def create_app(
                             if key in training_fields - {"resume"}
                         }
                 players.append(snapshot)
+            if request.mode == "fixed_roles":
+                # Both seats must resolve to identical effective search settings;
+                # only the model identity may differ. This guards requests that
+                # bypass the browser UI.
+                try:
+                    validate_fixed_role_players([player["config"] for player in players])
+                except ValueError as exc:
+                    fail(str(exc))
             config = {
+                "mode": request.mode,
                 "players": players,
                 "rulesets": sorted(request.rulesets, key=lambda item: RULESETS[item].size),
                 "games": request.games,
@@ -1641,7 +1571,7 @@ def create_app(
     def running_model_tournaments(model_id: str) -> list[dict]:
         return [
             {key: tournament[key] for key in ("id", "name", "status")}
-            for tournament in tournaments.list()
+            for tournament in tournaments.list(summary=True)
             if tournament["status"] == "running"
             and tournaments.alive(tournament)
             and any(

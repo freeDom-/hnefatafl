@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
+import { fixtureModel } from './historical-fixture';
 import type { Tournament } from '../src/tournamentTypes';
 
 const tournamentApi = 'http://127.0.0.1:8001/api/tournaments';
@@ -516,4 +517,191 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   ).toHaveCount(0);
   expect((await request.get(`${tournamentApi}/${saved.id}`)).status()).toBe(404);
   expect(errors).toEqual([]);
+});
+
+test('the saved collection loads summaries and fetches a match history only when selected', async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(120000);
+  const names = [`Lazy first ${info.project.name}`, `Lazy second ${info.project.name}`];
+  const created: Tournament[] = [];
+  for (const name of names) {
+    const response = await request.post(tournamentApi, {
+      data: {
+        name,
+        rulesets: ['brandubh'],
+        games: 2,
+        max_plies: 2,
+        seed: 7,
+        players: [
+          { config: { algorithm: 'baseline', time_limit: 0.01 } },
+          { config: { algorithm: 'baseline', time_limit: 0.01 } },
+        ],
+      },
+    });
+    expect(response.status()).toBe(201);
+    const record = (await response.json()) as Tournament;
+    created.push(record);
+    // Only one tournament runs at a time, so the next one waits for this run.
+    await expect
+      .poll(
+        async () => (await (await request.get(`${tournamentApi}/${record.id}`)).json()).status,
+        { timeout: 60000 },
+      )
+      .not.toBe('running');
+  }
+  const calls: string[] = [];
+  page.on('request', (outgoing) => {
+    const url = new URL(outgoing.url());
+    if (url.pathname.startsWith('/api/tournaments')) calls.push(`${url.pathname}${url.search}`);
+  });
+  await openTournaments(page);
+  const first = page.getByRole('button', { name: `View tournament ${names[1]}`, exact: true });
+  await expect(first).toBeVisible();
+  await expect(page.locator('.tournament-detail h2')).toHaveText(names[1]);
+  const summaries = () => calls.filter((path) => path === '/api/tournaments?summary=true');
+  const details = () => calls.filter((path) => /^\/api\/tournaments\/[0-9a-f]{32}$/.test(path));
+  expect(summaries().length).toBeGreaterThanOrEqual(1);
+  // Only the automatically selected tournament transfers its match history.
+  expect(details()).toEqual([`/api/tournaments/${created[1].id}`]);
+  await page.getByRole('button', { name: `View tournament ${names[0]}`, exact: true }).click();
+  await expect(page.locator('.tournament-detail h2')).toHaveText(names[0]);
+  await expect
+    .poll(details)
+    .toEqual([`/api/tournaments/${created[1].id}`, `/api/tournaments/${created[0].id}`]);
+  // The lightweight collection still lists every saved tournament.
+  await expect(
+    page.getByRole('button', { name: `View tournament ${names[1]}`, exact: true }),
+  ).toBeVisible();
+  for (const tournament of created)
+    expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
+});
+
+test('a fixed-role comparison keeps one model attacking and one defending', async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(180000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const attackers = await (
+    await fixtureModel(request, { data: { name: `Attacker ${info.project.name}` } })
+  ).json();
+  const defenders = await (
+    await fixtureModel(request, { data: { name: `Defender ${info.project.name}` } })
+  ).json();
+  const name = `Fixed roles ${info.project.name}`;
+  await openTournaments(page);
+  await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
+  const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
+  await setup.getByRole('textbox', { name: 'Tournament name', exact: true }).fill(name);
+  await setup.getByLabel('Attackers trained model', { exact: true }).selectOption(attackers.id);
+  await setup.getByLabel('Defenders trained model', { exact: true }).selectOption(defenders.id);
+  await setup.getByLabel('Number of games', { exact: true }).fill('3');
+  await setup.getByLabel('Move limit per game', { exact: true }).fill('2');
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/tournaments') && response.request().method() === 'POST',
+  );
+  await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
+  const tournament = (await (await created).json()) as Tournament;
+  expect(tournament.mode).toBe('fixed_roles');
+  expect(tournament.config.players.map((player) => player.config.model_id)).toEqual([
+    attackers.id,
+    defenders.id,
+  ]);
+  expect(tournament.progress.total_games).toBe(3);
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 120000,
+  });
+  const saved = (await (
+    await request.get(`${tournamentApi}/${tournament.id}`)
+  ).json()) as Tournament;
+  expect(saved.result!.games).toHaveLength(3);
+  // The attacker seat never defends, and both role cards stay separate.
+  expect(saved.result!.games.every((game) => game.attacker_player === 0)).toBe(true);
+  expect(saved.result!.games.every((game) => game.defender_player === 1)).toBe(true);
+  await expect(page.locator('.tournament-role-card')).toHaveCount(2);
+  await expect(page.locator('.tournament-role-card.attackers')).toContainText('ATTACKERS');
+  await expect(page.locator('.tournament-role-card.defenders')).toContainText('DEFENDERS');
+  await expect(page.locator('.tournament-side-stats')).toContainText('Side performance');
+  await expect(page.locator('.tournament-outcome-legend li')).toHaveCount(4);
+  expect(errors).toEqual([]);
+  expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
+});
+
+/** Apply one colour mode and interface scale through the shared appearance dialog. */
+async function setAppearance(page: Page, mode: string, density: string) {
+  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await page.getByRole('radio', { name: mode, exact: true }).check();
+  await page.getByRole('radio', { name: density, exact: true }).check();
+  await page.getByRole('button', { name: 'Close appearance settings' }).click();
+}
+
+const fitsViewport = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+
+test('the fixed-role dialog and results follow the shared appearance settings', async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(240000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const attacker = await (
+    await fixtureModel(request, { data: { name: `Layout attacker ${info.project.name}` } })
+  ).json();
+  const defender = await (
+    await fixtureModel(request, { data: { name: `Layout defender ${info.project.name}` } })
+  ).json();
+  const name = `Fixed layout ${info.project.name}`;
+  const appearances = [
+    ['Light', 'Compact'],
+    ['Dark', 'Default'],
+    ['Wood', 'Large'],
+  ] as const;
+  await openTournaments(page);
+  // The setup dialog stays inside the viewport at every colour mode and scale.
+  for (const [mode, density] of appearances) {
+    await setAppearance(page, mode, density);
+    await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
+    const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
+    await expect(setup.getByLabel('Attackers trained model', { exact: true })).toBeVisible();
+    await expect(setup.getByLabel('Shared search iterations', { exact: true })).toBeVisible();
+    const box = await setup.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    expect(await fitsViewport(page)).toBe(true);
+    await setup.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
+  // Create one comparison and re-check the results panel at every appearance.
+  await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
+  const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
+  await setup.getByRole('textbox', { name: 'Tournament name', exact: true }).fill(name);
+  await setup.getByLabel('Attackers trained model', { exact: true }).selectOption(attacker.id);
+  await setup.getByLabel('Defenders trained model', { exact: true }).selectOption(defender.id);
+  await setup.getByLabel('Number of games', { exact: true }).fill('3');
+  await setup.getByLabel('Move limit per game', { exact: true }).fill('2');
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/tournaments') && response.request().method() === 'POST',
+  );
+  await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
+  const tournament = (await (await created).json()) as Tournament;
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 120000,
+  });
+  for (const [mode, density] of appearances) {
+    await setAppearance(page, mode, density);
+    await expect(page.locator('.tournament-role-card.attackers')).toBeVisible();
+    await expect(page.locator('.tournament-role-card.defenders')).toBeVisible();
+    await expect(page.locator('.tournament-outcome-legend li')).toHaveCount(4);
+    const card = await page.locator('.tournament-role-card.attackers').boundingBox();
+    expect(card!.width).toBeGreaterThan(0);
+    expect(await fitsViewport(page)).toBe(true);
+  }
+  await expect.poll(() => fitsViewport(page)).toBe(true);
+  expect(errors).toEqual([]);
+  expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
 });

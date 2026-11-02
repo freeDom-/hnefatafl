@@ -23,6 +23,9 @@ from .storage import Store
 from .identities import agent_identity
 
 
+STOPPED_WORKER_ERROR = "The tournament worker stopped. Completed games have been kept."
+
+
 def timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -55,23 +58,31 @@ class TournamentManager:
         except OSError:
             return False
 
+    def reap(self, identifier: str) -> None:
+        """Drop a finished worker handle without blocking.
+
+        ``poll`` collects the child's exit status, so calling it here prevents a
+        completed worker from being retained as a zombie when nobody opens its
+        detail view. A worker that is still running keeps its handle.
+        """
+        process = self.processes.get(identifier)
+        if process is not None and process.poll() is not None:
+            self.processes.pop(identifier, None)
+
     def read(self, identifier: str) -> dict | None:
         with self.lock:
             tournament = self.store.get_tournament(identifier)
             if tournament is None:
                 return None
             if tournament["status"] == "running" and not self.alive(tournament):
-                self.store.update_tournament(
-                    identifier,
-                    {
-                        "status": "failed",
-                        "ended_at": timestamp(),
-                        "error": "The tournament worker stopped. Completed games have been kept.",
-                    },
-                    running=True,
+                # The conditional transition keeps a terminal state that the
+                # worker published concurrently.
+                self.store.fail_running_tournament(
+                    identifier, ended_at=timestamp(), error=STOPPED_WORKER_ERROR
                 )
                 tournament = self.store.get_tournament(identifier)
-                assert tournament is not None
+                if tournament is None:
+                    return None
             process = self.processes.get(identifier)
             if process is not None and tournament["status"] != "running":
                 # A worker publishes its final state immediately before Python
@@ -80,41 +91,95 @@ class TournamentManager:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     pass
-            if process is not None and process.poll() is not None:
-                self.processes.pop(identifier, None)
+            self.reap(identifier)
             return tournament
 
-    def public(self, tournament: dict, *, summary: bool = False) -> dict:
+    def public(
+        self,
+        tournament: dict,
+        *,
+        summary: bool = False,
+        runes: dict[str, str] | None = None,
+    ) -> dict:
+        """Present one saved tournament.
+
+        ``runes`` lets a collection response reuse one batched lookup. On its own
+        the record still resolves all of its participants in a single batch
+        instead of one transaction per participant.
+        """
+        players = tournament["config"]["players"]
+        if runes is None:
+            runes = self.store.runes(agent_identity(player) for player in players)
         result = {
             key: value
             for key, value in tournament.items()
             if key != "pid" and not (summary and key == "result")
         }
+        if summary:
+            result["summary"] = True
+        # The mode is additive inside the saved configuration; older records
+        # without one keep their original balanced round-robin behaviour.
+        result["mode"] = tournament.get("config", {}).get("mode", "round_robin")
         # Present the canonical recorded model/profile name and underlying agent rune.
         # Copies backfill legacy aliases and seat runes without rewriting saved JSON.
-        result["config"] = {
-            **tournament["config"],
-            "players": [
+        presented = []
+        for player in players:
+            identity = agent_identity(player)
+            rune = runes.get(identity) or self.store.rune(identity)
+            presented.append(
                 {
                     **player,
                     "name": player.get("model_name")
                     or player.get("profile_name")
                     or player["name"],
-                    "rune": self.store.rune(agent_identity(player)),
-                    "agent_rune": self.store.rune(agent_identity(player)),
+                    "rune": rune,
+                    "agent_rune": rune,
                 }
-                for player in tournament["config"]["players"]
-            ],
-        }
+            )
+        result["config"] = {**tournament["config"], "players": presented}
         return result
 
-    def list(self) -> list[dict]:
+    def public_collection(self, records: list[dict], *, summary: bool = False) -> list[dict]:
+        """Present a saved collection, resolving every participant rune in one batch.
+
+        Participant identities repeat across tournaments, so one lookup keeps a
+        large collection from opening a transaction per participant and returns
+        identical runes for a repeated model or profile identity.
+        """
+        runes = self.store.runes(
+            agent_identity(player)
+            for record in records
+            for player in record.get("config", {}).get("players", [])
+        )
+        return [self.public(record, summary=summary, runes=runes) for record in records]
+
+    def list(self, *, summary: bool = False) -> list[dict]:
         with self.lock:
-            return [
-                record
-                for item in self.store.tournaments()
-                if (record := self.read(item["id"])) is not None
-            ]
+            listed = []
+            for record in self.store.tournaments(summary=summary):
+                identifier = record["id"]
+                if record["status"] != "running":
+                    # A worker publishes its terminal state immediately before it
+                    # exits, so its finished handle is collected here even when
+                    # nobody opens the detail view.
+                    self.reap(identifier)
+                    listed.append(record)
+                    continue
+                if self.alive(record):
+                    listed.append(record)
+                    continue
+                # Liveness uses only the loaded id and pid, so a running
+                # tournament is never decoded merely to poll its status.
+                updated = self.store.fail_running_tournament(
+                    identifier, ended_at=timestamp(), error=STOPPED_WORKER_ERROR
+                )
+                self.reap(identifier)
+                if updated is None:
+                    continue  # deleted concurrently
+                listed.append(
+                    updated if summary else (self.store.get_tournament(identifier) or updated)
+                )
+            return listed
 
     def export(self, identifier: str) -> dict | None:
         """Portable configuration plus saved results; never server-managed paths/IDs.
@@ -133,6 +198,7 @@ class TournamentManager:
                 "format": "hnefatafl-tournament-configuration",
                 "format_version": 1,
                 "name": public["name"],
+                "mode": config.get("mode", "round_robin"),
                 "rulesets": config["rulesets"],
                 "players": [
                     {
@@ -180,7 +246,14 @@ class TournamentManager:
                 ],
             }
             player_count = len(config["players"])
-            pair_count = player_count * (player_count - 1) // 2
+            mode = config.get("mode", "round_robin")
+            if mode == "fixed_roles":
+                # Seat 0 always attacks, seat 1 always defends: the plain game
+                # count is the scheduled total for every selected battlefield.
+                total_games = len(config["rulesets"]) * config["games"]
+            else:
+                pair_count = player_count * (player_count - 1) // 2
+                total_games = len(config["rulesets"]) * config["games"] * pair_count
             tournament = {
                 "id": identifier,
                 "name": name,
@@ -190,7 +263,7 @@ class TournamentManager:
                 "config": config,
                 "progress": {
                     "completed_games": 0,
-                    "total_games": len(config["rulesets"]) * config["games"] * pair_count,
+                    "total_games": total_games,
                 },
                 "result": {
                     "players": [player["config"] for player in config["players"]],

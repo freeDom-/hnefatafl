@@ -37,8 +37,10 @@ import type {
   TournamentConfig,
   TournamentDiagnostics,
   TournamentGame,
+  TournamentMode,
   TournamentPlayer,
   TournamentReplay,
+  TournamentResult,
 } from './tournamentTypes';
 import './features.css';
 import './tournaments.css';
@@ -84,6 +86,66 @@ const champion = (tournament: Tournament) => {
   });
 };
 const defender = (match: TournamentGame) => match.defender_player ?? 1 - match.attacker_player;
+/**
+ * Bounded automatic retries for a full-detail refresh that failed transiently.
+ * A terminal summary must never be lost because one request failed, and the
+ * budget keeps a persistent outage from turning into a retry loop.
+ */
+export const DETAIL_RETRY_DELAYS = [1000, 3000, 8000];
+
+/** Missing mode means the historical balanced round-robin tournament. */
+const modeOf = (tournament: Tournament): TournamentMode =>
+  tournament.mode ?? tournament.config.mode ?? 'round_robin';
+/**
+ * Cheap change marker for the selected tournament. A status change without a
+ * new completed game (failure, cancellation, completion) is still detected.
+ */
+const progressMarker = (tournament: Tournament) =>
+  `${tournament.status}|${tournament.progress.completed_games}|${tournament.progress.total_games}|${tournament.ended_at ?? ''}`;
+const rate = (value: number | null, locale: string) =>
+  value === null
+    ? '—'
+    : `${(value * 100).toLocaleString(locale, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      })}%`;
+
+interface FixedRoleStats {
+  attackerWins: number;
+  defenderWins: number;
+  draws: number;
+  unfinished: number;
+  played: number;
+  completed: number;
+  attackerWinRate: number | null;
+  defenderWinRate: number | null;
+  attackerScoreRate: number | null;
+  defenderScoreRate: number | null;
+}
+
+/** Side-specific outcome counts for a fixed-role comparison. */
+function fixedRoleStats(result: TournamentResult): FixedRoleStats {
+  const attackerWins = result.games.filter((game) => game.winner === 'attackers').length;
+  const defenderWins = result.games.filter((game) => game.winner === 'defenders').length;
+  const draws = result.games.filter((game) => game.winner === 'draw').length;
+  const unfinished = result.games.filter((game) => !game.winner).length;
+  const completed = attackerWins + defenderWins + draws;
+  const share = (numerator: number) => (completed ? numerator / completed : null);
+  return {
+    attackerWins,
+    defenderWins,
+    draws,
+    unfinished,
+    played: result.games.length,
+    completed,
+    // The win-rate denominator excludes unfinished games.
+    attackerWinRate: share(attackerWins),
+    defenderWinRate: share(defenderWins),
+    // Score rate keeps the tournament convention: a win is 1 point, a draw 0.5.
+    attackerScoreRate: share(attackerWins + draws / 2),
+    defenderScoreRate: share(defenderWins + draws / 2),
+  };
+}
 const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
   if (!match.winner) return t('Move limit reached');
   if (match.winner === 'draw') return t('Rule draw');
@@ -108,6 +170,7 @@ export default function Tournaments({
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [fixedOpen, setFixedOpen] = useState(false);
   const [suggestedName, setSuggestedName] = useState('');
   const [deleting, setDeleting] = useState<Tournament | null>(null);
   const [deleteError, setDeleteError] = useState('');
@@ -117,9 +180,27 @@ export default function Tournaments({
   const [replay, setReplay] = useState<{ index: number; data: TournamentReplay } | null>(null);
   const [replaying, setReplaying] = useState<number | null>(null);
   const [matchesOpen, setMatchesOpen] = useState(false);
+  /** A refresh that failed for the selected tournament, recoverable by hand. */
+  const [detailError, setDetailError] = useState('');
   const selectedId = useRef<string | null>(null);
   const requestNumber = useRef(0);
-  const refreshNumber = useRef(0);
+  const refreshRevision = useRef(0);
+  /** Change marker of the currently displayed full record. */
+  const detailMarker = useRef<string | null>(null);
+  /** Latest summary marker observed for the selected tournament. */
+  const summaryMarker = useRef<string | null>(null);
+  /** In-flight detail request: its tournament, its starting marker and its abort handle. */
+  const detailRequest = useRef<{
+    id: string;
+    marker: string | null;
+    controller: AbortController;
+  } | null>(null);
+  const listRequest = useRef<{ revision: number; promise: Promise<void> } | null>(null);
+  /** Pending automatic retry of a failed detail refresh. */
+  const retryTimer = useRef<number | null>(null);
+  /** Summary marker the current retry budget belongs to. */
+  const retryKey = useRef<string | null>(null);
+  const retryAttempt = useRef(0);
   const mutating = useRef(false);
   const mounted = useRef(true);
   const errorHandler = useRef(onError);
@@ -137,46 +218,189 @@ export default function Tournaments({
     setNewOpen(true);
   };
 
-  const select = useCallback(async (id: string) => {
-    const request = ++requestNumber.current;
-    selectedId.current = id;
-    // The match log starts collapsed for every newly opened tournament; a
-    // same-tournament data refresh below keeps the current expansion state.
-    setMatchesOpen(false);
-    setDetailLoading(true);
-    setReplay(null);
-    try {
-      const next = await api<Tournament>(`/tournaments/${id}`);
-      if (!mounted.current || request !== requestNumber.current) return;
-      setSelected(next);
-    } catch (error) {
-      if (mounted.current && request === requestNumber.current)
-        errorHandler.current((error as Error).message);
-    } finally {
-      if (mounted.current && request === requestNumber.current) setDetailLoading(false);
-    }
-  }, []);
+  const openFixedSetup = () => {
+    const next = suggestTournamentName(
+      [...tournaments.map((tournament) => tournament.name), previousNameSuggestion.current],
+      undefined,
+      language,
+    );
+    previousNameSuggestion.current = next;
+    setSuggestedName(next);
+    setFixedOpen(true);
+  };
 
-  const refresh = useCallback(async () => {
-    if (mutating.current) return;
-    const request = ++refreshNumber.current;
-    const saved = await api<Tournament[]>('/tournaments');
-    if (!mounted.current || request !== refreshNumber.current || mutating.current) return;
-    setTournaments(saved);
-    setLoading(false);
-    const id = selectedId.current;
-    if (!id && saved[0]) await select(saved[0].id);
-    else if (id) {
-      const current = await api<Tournament>(`/tournaments/${id}`);
-      if (
-        mounted.current &&
-        selectedId.current === id &&
-        request === refreshNumber.current &&
-        !mutating.current
-      )
-        setSelected(current);
+  /** Drop a pending automatic retry; a newer request supersedes it. */
+  const cancelDetailRetry = () => {
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
     }
-  }, [select]);
+  };
+
+  /**
+   * Load the selected tournament's full record.
+   *
+   * An obsolete request is aborted, and a response that is older than a summary
+   * already observed triggers exactly one immediate follow-up fetch, so a
+   * delayed running snapshot can never leave terminal results hidden. A failed
+   * request keeps that synchronization requirement and is retried a bounded
+   * number of times before the panel offers a manual retry.
+   */
+  const loadDetail = useCallback(
+    async (id: string, resetLog: boolean, marker: string | null): Promise<void> => {
+      const request = ++requestNumber.current;
+      cancelDetailRetry();
+      detailRequest.current?.controller.abort();
+      const controller = new AbortController();
+      detailRequest.current = { id, marker, controller };
+      if (resetLog) {
+        // The match log starts collapsed for every newly opened tournament; a
+        // same-tournament data refresh below keeps the current expansion state.
+        setMatchesOpen(false);
+        setReplay(null);
+      }
+      setDetailLoading(true);
+      try {
+        const next = await api<Tournament>(
+          `/tournaments/${id}`,
+          undefined,
+          undefined,
+          controller.signal,
+        );
+        // A slow response for tournament A never overwrites a newer selection B.
+        if (!mounted.current || request !== requestNumber.current || selectedId.current !== id)
+          return;
+        const observed = summaryMarker.current;
+        detailMarker.current = progressMarker(next);
+        setSelected(next);
+        setDetailError('');
+        retryKey.current = null;
+        retryAttempt.current = 0;
+        // The summary moved on while this response was in flight, so the record
+        // is already stale: fetch the newer one instead of waiting for a poll.
+        if (observed !== null && observed !== detailMarker.current && observed !== marker)
+          void loadDetail(id, false, observed);
+      } catch (error) {
+        // A superseded or unmounted request aborts silently.
+        if (controller.signal.aborted || (error as Error)?.name === 'AbortError') return;
+        if (!mounted.current || request !== requestNumber.current || selectedId.current !== id)
+          return;
+        const message = (error as Error).message;
+        const key = `${id}|${summaryMarker.current ?? ''}`;
+        if (retryKey.current !== key) {
+          // Report a first failure once; later attempts stay quiet and visible
+          // through the recoverable panel below.
+          retryKey.current = key;
+          retryAttempt.current = 0;
+          errorHandler.current(message);
+        }
+        setDetailError(message);
+        const delay = DETAIL_RETRY_DELAYS[retryAttempt.current];
+        if (delay !== undefined) {
+          retryAttempt.current += 1;
+          cancelDetailRetry();
+          retryTimer.current = window.setTimeout(() => {
+            retryTimer.current = null;
+            if (!mounted.current || selectedId.current !== id) return;
+            void loadDetail(id, false, summaryMarker.current);
+          }, delay);
+        }
+      } finally {
+        if (detailRequest.current?.controller === controller) {
+          detailRequest.current = null;
+          if (mounted.current) setDetailLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  /** Re-run a failed refresh for the selected tournament after the user asks. */
+  const retryDetail = async () => {
+    const id = selectedId.current;
+    if (!id) return;
+    retryKey.current = null;
+    retryAttempt.current = 0;
+    setDetailError('');
+    await loadDetail(id, false, summaryMarker.current);
+  };
+
+  const select = useCallback(
+    async (id: string) => {
+      selectedId.current = id;
+      // Never leave another tournament's match history on screen while its
+      // replacement loads.
+      setSelected((current) => (current?.id === id ? current : null));
+      detailMarker.current = null;
+      summaryMarker.current = null;
+      retryKey.current = null;
+      retryAttempt.current = 0;
+      setDetailError('');
+      await loadDetail(id, true, null);
+    },
+    [loadDetail],
+  );
+
+  const refresh = useCallback(async (): Promise<void> => {
+    if (!mounted.current || mutating.current) return;
+    const pending = listRequest.current;
+    if (pending) {
+      // Coalesce overlapping polls instead of stacking requests.
+      await pending.promise;
+      // A mutation invalidated the pending read; it needs one fresh read after it.
+      if (mounted.current && pending.revision !== refreshRevision.current) return refresh();
+      return;
+    }
+    const revision = refreshRevision.current;
+    const promise = (async () => {
+      const saved = await api<Tournament[]>('/tournaments?summary=true');
+      if (!mounted.current || revision !== refreshRevision.current || mutating.current) return;
+      setTournaments(saved);
+      setLoading(false);
+      const id = selectedId.current;
+      const current = id ? saved.find((tournament) => tournament.id === id) : undefined;
+      if (!current) {
+        // First load, or the selected tournament is gone. The history is loaded
+        // separately so a slow detail request never blocks the next poll.
+        if (saved[0]) void select(saved[0].id);
+        else {
+          selectedId.current = null;
+          summaryMarker.current = null;
+          cancelDetailRetry();
+          retryKey.current = null;
+          retryAttempt.current = 0;
+          setDetailError('');
+          detailRequest.current?.controller.abort();
+          detailRequest.current = null;
+          setSelected(null);
+          setReplay(null);
+          setMatchesOpen(false);
+        }
+        return;
+      }
+      summaryMarker.current = progressMarker(current);
+      // One mechanism decides who fetches: while an automatic retry is pending,
+      // or once its budget for this marker is spent, polling must not start
+      // another request. A genuinely newer marker resets the budget.
+      const markerKey = `${current.id}|${summaryMarker.current}`;
+      const retryPending = retryTimer.current !== null && retryKey.current === markerKey;
+      const budgetSpent =
+        retryKey.current === markerKey && retryAttempt.current >= DETAIL_RETRY_DELAYS.length;
+      if (
+        detailMarker.current !== summaryMarker.current &&
+        detailRequest.current?.id !== current.id &&
+        !retryPending &&
+        !budgetSpent
+      )
+        void loadDetail(current.id, false, summaryMarker.current);
+    })();
+    listRequest.current = { revision, promise };
+    try {
+      await promise;
+    } finally {
+      if (listRequest.current?.promise === promise) listRequest.current = null;
+    }
+  }, [select, loadDetail]);
 
   useEffect(() => {
     mounted.current = true;
@@ -188,7 +412,11 @@ export default function Tournaments({
     return () => {
       mounted.current = false;
       requestNumber.current++;
-      refreshNumber.current++;
+      refreshRevision.current++;
+      listRequest.current = null;
+      cancelDetailRetry();
+      detailRequest.current?.controller.abort();
+      detailRequest.current = null;
     };
   }, [refresh]);
   useEffect(() => {
@@ -205,7 +433,7 @@ export default function Tournaments({
     const id = selected.id;
     setBusy(true);
     mutating.current = true;
-    refreshNumber.current++;
+    refreshRevision.current++;
     try {
       await api(`/tournaments/${id}/cancel`, {});
       mutating.current = false;
@@ -222,13 +450,22 @@ export default function Tournaments({
     if (!deleting) return;
     setBusy(true);
     mutating.current = true;
-    refreshNumber.current++;
+    refreshRevision.current++;
     setDeleteError('');
     try {
       await api(`/tournaments/${deleting.id}`, undefined, 'DELETE');
       if (selectedId.current === deleting.id) {
         selectedId.current = null;
         requestNumber.current++;
+        summaryMarker.current = null;
+        // An in-flight history or a pending retry for the deleted tournament is
+        // now irrelevant.
+        cancelDetailRetry();
+        retryKey.current = null;
+        retryAttempt.current = 0;
+        setDetailError('');
+        detailRequest.current?.controller.abort();
+        detailRequest.current = null;
         setSelected(null);
         setReplay(null);
         setMatchesOpen(false);
@@ -291,10 +528,20 @@ export default function Tournaments({
             'Set your strategists against each other. Every result becomes part of their saga.',
           )}
         />
-        <button className="button primary" onClick={openSetup} disabled={loading || running}>
-          <span aria-hidden="true">＋</span>
-          {t('New tournament')}
-        </button>
+        <div className="tournament-create">
+          <button className="button primary" onClick={openSetup} disabled={loading || running}>
+            <span aria-hidden="true">＋</span>
+            {t('New tournament')}
+          </button>
+          <button
+            className="button secondary"
+            onClick={openFixedSetup}
+            disabled={loading || running}
+            title={t('Compare one trained model as attackers against another as defenders.')}
+          >
+            {t('Fixed-role comparison')}
+          </button>
+        </div>
       </section>
       {notice && (
         <p role="status" className="notice tournament-notice">
@@ -328,14 +575,23 @@ export default function Tournaments({
                   aria-pressed={selected?.id === tournament.id}
                   onClick={() => void select(tournament.id)}
                 >
-                  <span className={`tournament-status ${tournament.status}`}>
-                    {t(statusLabel[tournament.status])}
+                  <span className="tournament-saved-tags">
+                    <span className={`tournament-status ${tournament.status}`}>
+                      {t(statusLabel[tournament.status])}
+                    </span>
+                    {modeOf(tournament) === 'fixed_roles' && (
+                      <span className="badge tournament-mode-tag">
+                        {t('Fixed-role comparison')}
+                      </span>
+                    )}
                   </span>
                   <strong>{tournament.name}</strong>
                   <small>
                     {tournament.config.players.map((player, index) => (
                       <span key={index}>
                         {index > 0 ? ` ${t('vs')} ` : ''}
+                        {modeOf(tournament) === 'fixed_roles' &&
+                          `${t(index === 0 ? 'Attackers' : 'Defenders')} `}
                         {seatRune(player)}
                         {playerName(player)}
                       </span>
@@ -354,54 +610,98 @@ export default function Tournaments({
           )}
         </aside>
         <div className="tournament-main" aria-busy={detailLoading}>
-          {!selected ? (
+          {!selected && detailError ? (
             <section className="panel tournament-welcome">
               <span className="tournament-emblem" aria-hidden="true">
                 <Crown />
               </span>
-              <h2>{t('Let the strongest ideas meet.')}</h2>
-              <p>
-                {t(
-                  'Compare algorithms, search settings or trained models in a balanced series. Every pair meets on both sides of the board.',
-                )}
-              </p>
-              <div className="tournament-promise">
-                <span>
-                  <strong>01</strong>
-                  {t('Choose your rivals')}
-                </span>
-                <span>
-                  <strong>02</strong>
-                  {t('Set the battlefields')}
-                </span>
-                <span>
-                  <strong>03</strong>
-                  {t('Explore every result')}
-                </span>
-              </div>
+              <h2>{t('The latest results could not be loaded.')}</h2>
+              <small role="alert">{t(detailError)}</small>
               <button
                 className="button secondary"
-                onClick={openSetup}
-                disabled={loading || running}
+                onClick={() => void retryDetail()}
+                disabled={detailLoading}
               >
-                {t('Set up a tournament')}
+                {t('Try again')}
               </button>
-              <small>{t('Saved automatically. Come back whenever you like.')}</small>
             </section>
+          ) : !selected ? (
+            detailLoading ? (
+              <section className="panel tournament-welcome" aria-busy="true">
+                <span className="tournament-emblem" aria-hidden="true">
+                  <Crown />
+                </span>
+                <h2>{t('Opening the tournament…')}</h2>
+                <small>{t('Loading the saved results.')}</small>
+              </section>
+            ) : (
+              <section className="panel tournament-welcome">
+                <span className="tournament-emblem" aria-hidden="true">
+                  <Crown />
+                </span>
+                <h2>{t('Let the strongest ideas meet.')}</h2>
+                <p>
+                  {t(
+                    'Compare algorithms, search settings or trained models in a balanced series. Every pair meets on both sides of the board.',
+                  )}
+                </p>
+                <div className="tournament-promise">
+                  <span>
+                    <strong>01</strong>
+                    {t('Choose your rivals')}
+                  </span>
+                  <span>
+                    <strong>02</strong>
+                    {t('Set the battlefields')}
+                  </span>
+                  <span>
+                    <strong>03</strong>
+                    {t('Explore every result')}
+                  </span>
+                </div>
+                <button
+                  className="button secondary"
+                  onClick={openSetup}
+                  disabled={loading || running}
+                >
+                  {t('Set up a tournament')}
+                </button>
+                <button
+                  className="button secondary"
+                  onClick={openFixedSetup}
+                  disabled={loading || running}
+                >
+                  {t('Fixed-role comparison')}
+                </button>
+                <small>{t('Saved automatically. Come back whenever you like.')}</small>
+              </section>
+            )
           ) : (
             <section className="panel tournament-detail" aria-label={t('Tournament results')}>
               <div className="tournament-detail-heading">
                 <div>
-                  <span className={`tournament-status ${selected.status}`}>
-                    {t(statusLabel[selected.status])}
+                  <span className="tournament-saved-tags">
+                    <span className={`tournament-status ${selected.status}`}>
+                      {t(statusLabel[selected.status])}
+                    </span>
+                    {modeOf(selected) === 'fixed_roles' && (
+                      <span className="badge tournament-mode-tag">
+                        {t('Fixed-role comparison')}
+                      </span>
+                    )}
                   </span>
                   <h2>{selected.name}</h2>
                   <p className="subtle">
                     {date(selected.created_at, locale)} ·{' '}
-                    {t('{games} games per pairing per battlefield · seed {seed}', {
-                      games: selected.config.games,
-                      seed: selected.config.seed,
-                    })}
+                    {modeOf(selected) === 'fixed_roles'
+                      ? t('{games} games · attackers never swap sides · seed {seed}', {
+                          games: selected.config.games,
+                          seed: selected.config.seed,
+                        })
+                      : t('{games} games per pairing per battlefield · seed {seed}', {
+                          games: selected.config.games,
+                          seed: selected.config.seed,
+                        })}
                   </p>
                 </div>
                 <div className="tournament-actions">
@@ -441,6 +741,19 @@ export default function Tournaments({
                   {t(selected.error)}
                 </p>
               )}
+              {detailError && (
+                <p role="alert" className="form-error">
+                  {t('The latest results could not be loaded.')} {t(detailError)}{' '}
+                  <button
+                    type="button"
+                    className="button secondary small"
+                    onClick={() => void retryDetail()}
+                    disabled={detailLoading}
+                  >
+                    {t('Try again')}
+                  </button>
+                </p>
+              )}
               <div className="tournament-progress">
                 <div>
                   <strong>
@@ -461,6 +774,108 @@ export default function Tournaments({
                   value={selected.progress.completed_games}
                 />
               </div>
+              {selected.result && modeOf(selected) === 'fixed_roles' && (
+                <div className="tournament-side-stats">
+                  <div className="tournament-section-title">
+                    <h3>{t('Side performance')}</h3>
+                    <span>{t('Attackers and defenders are never swapped.')}</span>
+                  </div>
+                  <div className="tournament-opponents tournament-role-cards">
+                    {(['attackers', 'defenders'] as const).map((role, index) => {
+                      const player = selected.config.players[index];
+                      const stats = fixedRoleStats(selected.result!);
+                      const wins = role === 'attackers' ? stats.attackerWins : stats.defenderWins;
+                      const winRate =
+                        role === 'attackers' ? stats.attackerWinRate : stats.defenderWinRate;
+                      const scoreRate =
+                        role === 'attackers' ? stats.attackerScoreRate : stats.defenderScoreRate;
+                      return (
+                        <article
+                          className={`tournament-standing tournament-role-card ${role}`}
+                          key={role}
+                        >
+                          <small>{t(role === 'attackers' ? 'ATTACKERS' : 'DEFENDERS')}</small>
+                          <h4>
+                            {seatRune(player)}
+                            {playerName(player)}
+                          </h4>
+                          <dl className="tournament-score-stats">
+                            <div>
+                              <dt>{t('Wins')}</dt>
+                              <dd>{wins}</dd>
+                            </div>
+                            <div>
+                              <dt>{t('Win rate')}</dt>
+                              <dd>{rate(winRate, locale)}</dd>
+                            </div>
+                            <div>
+                              <dt>{t('Score rate')}</dt>
+                              <dd>{rate(scoreRate, locale)}</dd>
+                            </div>
+                          </dl>
+                        </article>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    const stats = fixedRoleStats(selected.result!);
+                    const outcomes = [
+                      { key: 'attackers', label: t('Attacker wins'), count: stats.attackerWins },
+                      { key: 'defenders', label: t('Defender wins'), count: stats.defenderWins },
+                      { key: 'draws', label: t('Rule draws'), count: stats.draws },
+                      { key: 'unfinished', label: t('Unfinished'), count: stats.unfinished },
+                    ];
+                    // A category without games takes no width, so the chart
+                    // never shows a colour for a result that did not happen.
+                    const visible = outcomes.filter((segment) => segment.count > 0);
+                    return stats.played ? (
+                      <>
+                        <div
+                          className="tournament-outcome-bar"
+                          role="img"
+                          aria-label={t(
+                            '{played} games: {attackers} attacker wins, {defenders} defender wins, {draws} draws, {unfinished} unfinished.',
+                            {
+                              played: stats.played,
+                              attackers: stats.attackerWins,
+                              defenders: stats.defenderWins,
+                              draws: stats.draws,
+                              unfinished: stats.unfinished,
+                            },
+                          )}
+                        >
+                          {visible.map((segment) => (
+                            <span
+                              key={segment.key}
+                              className={`outcome-${segment.key}`}
+                              style={{ flexGrow: segment.count }}
+                            />
+                          ))}
+                        </div>
+                        <ul className="tournament-outcome-legend">
+                          {outcomes.map((segment) => (
+                            <li key={segment.key}>
+                              <span
+                                className={`swatch outcome-${segment.key}`}
+                                aria-hidden="true"
+                              />
+                              {segment.label}
+                              <strong>{segment.count}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="empty-copy">{t('No completed games yet.')}</p>
+                    );
+                  })()}
+                  <p className="tournament-scoring">
+                    {t(
+                      'Win rate and score rate use completed games only; unfinished games are excluded. A win scores 1 point and a rule draw 0.5 for each side.',
+                    )}
+                  </p>
+                </div>
+              )}
               <div className="tournament-standings">
                 <div className="tournament-section-title">
                   <h3>{t('Standings')}</h3>
@@ -483,7 +898,11 @@ export default function Tournaments({
                             {player.agent_rune || player.rune || '·'}
                           </span>
                           <div>
-                            <small>{t('OPPONENT {number}', { number: index + 1 })}</small>
+                            <small>
+                              {modeOf(selected) === 'fixed_roles'
+                                ? t(index === 0 ? 'ATTACKERS' : 'DEFENDERS')
+                                : t('OPPONENT {number}', { number: index + 1 })}
+                            </small>
                             <h3>{playerName(player)}</h3>
                             <p>
                               {player.config.model_id
@@ -709,13 +1128,39 @@ export default function Tournaments({
           models={models}
           onClose={() => setNewOpen(false)}
           onCreated={(created) => {
-            refreshNumber.current++;
+            refreshRevision.current++;
             selectedId.current = created.id;
             requestNumber.current++;
+            detailMarker.current = progressMarker(created);
             setSelected(created);
             setReplay(null);
             setMatchesOpen(false);
             setNewOpen(false);
+            setNotice('Tournament started. Results are saved after every finished game.');
+            void refresh().catch((error) => onError(error.message));
+          }}
+        />
+      )}
+      {fixedOpen && (
+        <FixedRoleSetup
+          initialName={suggestedName}
+          existingNames={tournaments.map((tournament) => tournament.name)}
+          onSuggestedName={(name) => {
+            previousNameSuggestion.current = name;
+          }}
+          rulesets={rulesets}
+          models={models}
+          profiles={profiles}
+          onClose={() => setFixedOpen(false)}
+          onCreated={(created) => {
+            refreshRevision.current++;
+            selectedId.current = created.id;
+            requestNumber.current++;
+            detailMarker.current = progressMarker(created);
+            setSelected(created);
+            setReplay(null);
+            setMatchesOpen(false);
+            setFixedOpen(false);
             setNotice('Tournament started. Results are saved after every finished game.');
             void refresh().catch((error) => onError(error.message));
           }}
@@ -756,11 +1201,14 @@ function AlphaBetaSearchFields({
   search,
   onPreset,
   onField,
+  modelBacked = false,
 }: {
   prefix: string;
   search: AlphaBetaSearchSettings;
   onPreset: (name: AlphaBetaPresetName) => void;
   onField: (patch: Partial<AlphaBetaSearchSettings>) => void;
+  /** Neural evaluation cannot reuse symmetric positions, so those switches are off. */
+  modelBacked?: boolean;
 }) {
   const { locale } = useI18n();
   const preset = searchPreset(search);
@@ -802,7 +1250,7 @@ function AlphaBetaSearchFields({
         >
           <option value="legacy">{t('Legacy alpha-beta')}</option>
           <option value="optimized">{t('Optimized default')}</option>
-          <option value="symmetry">{t('Full symmetry')}</option>
+          {!modelBacked && <option value="symmetry">{t('Full symmetry')}</option>}
           <option value="custom">{t('Custom')}</option>
         </select>
       </label>
@@ -835,15 +1283,22 @@ function AlphaBetaSearchFields({
           'symmetry_transposition',
           'D4-canonical transpositions',
           'Share positions that are rotations or reflections of each other.',
-          legacy,
+          legacy || modelBacked,
         )}
         {toggle(
           'symmetry_pruning',
           'Symmetry move pruning',
           'Search one representative per symmetric move group.',
-          legacy,
+          legacy || modelBacked,
         )}
       </div>
+      {modelBacked && (
+        <p className="subtle">
+          {t(
+            'Neural evaluation cannot reuse rotated or reflected positions, so symmetry search is unavailable.',
+          )}
+        </p>
+      )}
       <label
         title={t('Bounded number of stored transposition entries. Larger tables use more memory.')}
       >
@@ -938,6 +1393,432 @@ function recommendedPlayer(
       time_limit: 10,
     },
   };
+}
+
+function FixedRoleSetup({
+  initialName,
+  existingNames,
+  onSuggestedName,
+  rulesets,
+  profiles,
+  models,
+  onClose,
+  onCreated,
+}: {
+  initialName: string;
+  existingNames: string[];
+  onSuggestedName: (name: string) => void;
+  rulesets: Ruleset[];
+  profiles: AIProfile[];
+  models: Model[];
+  onClose: () => void;
+  onCreated: (tournament: Tournament) => void;
+}) {
+  const { locale, language } = useI18n();
+  const ref = useRef<HTMLDialogElement>(null);
+  const [name, setName] = useState(initialName);
+  const previousSuggestion = useRef(initialName);
+  const [ruleset, setRuleset] = useState('brandubh');
+  const [attackerId, setAttackerId] = useState(
+    () => selectStrongestModel(models, 'brandubh')?.model.id ?? '',
+  );
+  const [defenderId, setDefenderId] = useState(
+    () => selectStrongestModel(models, 'brandubh')?.model.id ?? '',
+  );
+  // One shared search configuration is submitted for both seats; only the model
+  // identity differs, so neither side can drift into hidden defaults.
+  const [shared, setShared] = useState<Config>({
+    algorithm: 'neural',
+    search_wrapper: 'mcts',
+    time_limit: 1,
+    iterations: 80,
+    exploration: 1.4,
+    temperature: 0,
+  });
+  const [games, setGames] = useState(20);
+  const [maxPlies, setMaxPlies] = useState(300);
+  const [seed, setSeed] = useState(42);
+  const [busy, setBusy] = useState(false);
+  const [importingConfig, setImportingConfig] = useState(false);
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  const compatible = models.filter((model) => model.ruleset === ruleset);
+  const wrapper = String(shared.search_wrapper ?? 'mcts');
+  const alphaBeta = searchFromConfig(shared) ?? DEFAULT_ALPHA_BETA_SEARCH;
+  const attacker = models.find((model) => model.id === attackerId);
+  const defender = models.find((model) => model.id === defenderId);
+  const attackerCompatible = compatible.some((model) => model.id === attackerId);
+  const defenderCompatible = compatible.some((model) => model.id === defenderId);
+  const valid =
+    !!name.trim() &&
+    attackerCompatible &&
+    defenderCompatible &&
+    games >= 1 &&
+    games <= 100 &&
+    maxPlies >= 1 &&
+    maxPlies <= 1000 &&
+    seed >= 0 &&
+    seed <= 4294967295;
+  const update = (key: string, value: string | number) =>
+    setShared((previous) => ({ ...previous, [key]: value }));
+  const changeWrapper = (next: string) =>
+    setShared((previous) => {
+      const updated: Config = { ...previous, search_wrapper: next };
+      // Nested alpha-beta settings are rejected for every other wrapper.
+      if (next === 'alpha_beta' && !updated.search)
+        updated.search = { ...DEFAULT_ALPHA_BETA_SEARCH };
+      if (next !== 'alpha_beta') delete updated.search;
+      return updated;
+    });
+  const field = (
+    key: string,
+    label: string,
+    minimum: number,
+    maximum: number,
+    step = 1,
+    fallback = minimum,
+  ) => (
+    <label key={key}>
+      {t(label)}
+      <input
+        type="number"
+        aria-label={`${t('Shared')} ${t(label).toLocaleLowerCase(locale)}`}
+        min={minimum}
+        max={maximum}
+        step={step}
+        required
+        value={Number(shared[key] ?? fallback)}
+        onChange={(event) => update(key, Number(event.target.value))}
+      />
+    </label>
+  );
+  const modelField = (
+    role: 'attackers' | 'defenders',
+    value: string,
+    setValue: (id: string) => void,
+  ) => {
+    const selected = models.find((model) => model.id === value);
+    const compatibleSelection = compatible.some((model) => model.id === value);
+    return (
+      <label>
+        {t('Trained model')}
+        <select
+          aria-label={`${t(role === 'attackers' ? 'Attackers' : 'Defenders')} ${t('trained model')}`}
+          required
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        >
+          <option value="">{t('Select a compatible model')}</option>
+          {compatible.map((model) => (
+            <option value={model.id} key={model.id}>
+              {modelOptionLabel(model, t)}
+            </option>
+          ))}
+          {value && !compatibleSelection && (
+            <option value={value}>
+              {selected
+                ? `${selected.name} · ${t('incompatible battlefield')}`
+                : t('Unavailable model')}
+            </option>
+          )}
+        </select>
+        <small>{t('Trained models require one matching battlefield.')}</small>
+      </label>
+    );
+  };
+  const importConfig = async (file: File) => {
+    setImportingConfig(true);
+    try {
+      const imported = await readImportedTournamentConfig(file, profiles, models);
+      if (imported.config.mode !== 'fixed_roles') {
+        notify.error(
+          t('This is a round-robin tournament. Import it from the tournament setup instead.'),
+        );
+        return;
+      }
+      const [attackers, defenders] = imported.config.players;
+      const settings: Config = { ...attackers.config };
+      delete settings.model_id;
+      setRuleset(imported.config.rulesets[0]);
+      setAttackerId(String(attackers.config.model_id ?? ''));
+      setDefenderId(String(defenders.config.model_id ?? ''));
+      setShared(settings);
+      setGames(imported.config.games);
+      setMaxPlies(imported.config.max_plies);
+      setSeed(imported.config.seed);
+      if (imported.name) setName(imported.name);
+      notify.success(t('Tournament configuration imported. Review the values before starting.'));
+    } catch (error) {
+      if (error instanceof TournamentConfigImportError && error.fields.length)
+        notify.error(
+          t('Invalid tournament configuration fields: {fields}.', {
+            fields: error.fields.join(', '),
+          }),
+        );
+      else notify.error(errorMessage(error));
+    } finally {
+      setImportingConfig(false);
+    }
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      onCreated(
+        await api<Tournament>('/tournaments', {
+          name: name.trim(),
+          mode: 'fixed_roles',
+          rulesets: [ruleset],
+          games,
+          max_plies: maxPlies,
+          seed,
+          players: [
+            { config: { ...shared, model_id: attackerId } },
+            { config: { ...shared, model_id: defenderId } },
+          ],
+        }),
+      );
+    } catch (failure) {
+      notify.error(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <dialog
+      ref={ref}
+      className="modal tournament-setup"
+      aria-label={t('Fixed-role comparison')}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+    >
+      <form onSubmit={(event) => void submit(event)}>
+        <div className="modal-top">
+          <div>
+            <h2>{t('Fixed-role comparison')}</h2>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={t('Close fixed-role setup')}
+            onClick={onClose}
+            disabled={busy}
+          >
+            ×
+          </button>
+        </div>
+        <p className="tournament-setup-copy">
+          {t(
+            'Compare two trained models with fixed sides. One model always attacks, the other always defends, and both share one search configuration.',
+          )}
+        </p>
+        <div className="tournament-import">
+          <ConfigImportButton
+            onImport={(file) => void importConfig(file)}
+            busy={importingConfig}
+            disabled={busy}
+            label="Import configuration"
+          />
+          <span className="subtle">
+            {t(
+              'Import a portable fixed-role configuration, then review and edit it before starting.',
+            )}
+          </span>
+        </div>
+        <div className="name-suggestion-field">
+          <label htmlFor="fixed-role-name">{t('Tournament name')}</label>
+          <div className="name-input-group">
+            <input
+              id="fixed-role-name"
+              required
+              maxLength={80}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t('Suggest tournament name')}
+              title={t('Suggest a mythological name')}
+              disabled={busy}
+              onClick={() => {
+                const next = suggestTournamentName(
+                  [...existingNames, name, previousSuggestion.current],
+                  undefined,
+                  language,
+                );
+                previousSuggestion.current = next;
+                setName(next);
+                onSuggestedName(next);
+              }}
+            >
+              ⚄
+            </button>
+          </div>
+        </div>
+        <fieldset className="tournament-fields">
+          <legend>{t('Battlefield')}</legend>
+          <p className="subtle">
+            {t(
+              'Trained models belong to one ruleset, so a comparison uses exactly one battlefield.',
+            )}
+          </p>
+          <div className="tournament-rulesets">
+            {sortRulesets(rulesets).map((rule) => (
+              <label className={ruleset === rule.id ? 'chosen' : ''} key={rule.id}>
+                <input
+                  type="radio"
+                  name="fixed-role-battlefield"
+                  aria-label={`${t(rule.name)} ${rule.size} × ${rule.size}`}
+                  checked={ruleset === rule.id}
+                  onChange={() => setRuleset(rule.id)}
+                />
+                <strong>{t(rule.name)}</strong>
+                <small>
+                  {rule.size} × {rule.size}
+                </small>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="tournament-setup-opponents fixed-roles">
+          <fieldset className="tournament-player">
+            <legend>{t('Attackers')}</legend>
+            <p className="subtle">{t('Plays the attacking side in every game.')}</p>
+            {modelField('attackers', attackerId, setAttackerId)}
+            {attacker && <ModelTrainingSummary model={attacker} compact />}
+          </fieldset>
+          <fieldset className="tournament-player">
+            <legend>{t('Defenders')}</legend>
+            <p className="subtle">{t('Plays the defending side in every game.')}</p>
+            {modelField('defenders', defenderId, setDefenderId)}
+            {defender && <ModelTrainingSummary model={defender} compact />}
+          </fieldset>
+        </div>
+        <fieldset className="tournament-fields">
+          <legend>{t('Shared search configuration')}</legend>
+          <p className="subtle">
+            {t('Both participants use these settings. Only the trained model differs.')}
+          </p>
+          <SearchWrapper
+            value={wrapper}
+            label={t('Shared search wrapper')}
+            onChange={changeWrapper}
+          />
+          <div className="form-grid">
+            {wrapper !== 'none' && field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 1)}
+            {wrapper === 'mcts' && (
+              <>
+                {field('iterations', 'Search iterations', 1, 5000, 1, 80)}
+                {field('exploration', 'Exploration', 0, 10, 0.1, 1.4)}
+              </>
+            )}
+            {wrapper === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
+            {(wrapper === 'mcts' || wrapper === 'none') &&
+              field('temperature', 'Temperature', 0, 5, 0.1, 0)}
+          </div>
+          {wrapper === 'alpha_beta' && (
+            <AlphaBetaSearchFields
+              prefix={t('Shared')}
+              modelBacked
+              search={alphaBeta}
+              onPreset={(preset) =>
+                setShared((previous) => ({
+                  ...previous,
+                  search: effectiveSearch(
+                    presetSearch(preset, searchFromConfig(previous) ?? DEFAULT_ALPHA_BETA_SEARCH),
+                  ),
+                }))
+              }
+              onField={(patch) =>
+                setShared((previous) => ({
+                  ...previous,
+                  search: effectiveSearch({
+                    ...(searchFromConfig(previous) ?? DEFAULT_ALPHA_BETA_SEARCH),
+                    ...patch,
+                  }),
+                }))
+              }
+            />
+          )}
+        </fieldset>
+        <div className="form-grid tournament-run-settings">
+          <label>
+            {t('Number of games')}
+            <input
+              type="number"
+              aria-label={t('Number of games')}
+              aria-describedby="fixed-role-games-help"
+              min={1}
+              max={100}
+              step={1}
+              required
+              value={games}
+              onChange={(event) => setGames(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            {t('Move limit per game')}
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              required
+              value={maxPlies}
+              onChange={(event) => setMaxPlies(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            {t('Tournament seed')}
+            <input
+              type="number"
+              min={0}
+              max={4294967295}
+              required
+              value={seed}
+              onChange={(event) => setSeed(Number(event.target.value))}
+            />
+          </label>
+          <div className="tournament-run-count">
+            <strong>{games}</strong>
+            <span>{t('games with fixed sides')}</span>
+          </div>
+        </div>
+        <p id="fixed-role-games-help" className="tournament-scoring">
+          {t(
+            'Every scheduled game keeps the same sides, so an odd game count is valid. The tournament seed controls all game and move seeds. Unfinished games score no points.',
+          )}
+        </p>
+        {!attackerCompatible && (
+          <p className="form-error">
+            {attackerId
+              ? t('The attackers model is not trained for this battlefield.')
+              : t('Select a trained model for the attackers.')}
+          </p>
+        )}
+        {!defenderCompatible && (
+          <p className="form-error">
+            {defenderId
+              ? t('The defenders model is not trained for this battlefield.')
+              : t('Select a trained model for the defenders.')}
+          </p>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="button secondary" onClick={onClose} disabled={busy}>
+            {t('Cancel')}
+          </button>
+          <button className="button primary" disabled={busy || !valid}>
+            {busy ? t('Starting…') : t('Start tournament')}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  );
 }
 
 function TournamentSetup({
@@ -1119,6 +2000,12 @@ function TournamentSetup({
     setImportingConfig(true);
     try {
       const imported = await readImportedTournamentConfig(file, profiles, models);
+      if (imported.config.mode === 'fixed_roles') {
+        notify.error(
+          t('This is a fixed-role comparison. Import it from the fixed-role setup instead.'),
+        );
+        return;
+      }
       // Keep every imported opponent until the user edits it; the battlefield
       // recommendation effect must not silently replace participants.
       manualOpponents.current = imported.config.players.map(() => true);

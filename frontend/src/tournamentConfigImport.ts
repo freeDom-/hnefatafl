@@ -6,7 +6,7 @@ import {
   type AlphaBetaSearchSettings,
 } from './alphaBetaSearch';
 import type { AIProfile, Config, Model } from './types';
-import type { TournamentConfig, TournamentPlayer } from './tournamentTypes';
+import type { TournamentConfig, TournamentMode, TournamentPlayer } from './tournamentTypes';
 
 /**
  * One portable, reviewable tournament-configuration document. This mirrors the
@@ -41,6 +41,30 @@ export const MAX_TOURNAMENT_CONFIG_BYTES = 1024 * 1024;
 const RULESETS = ['brandubh', 'tablut', 'copenhagen'];
 const ALGORITHMS = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts', 'neural'];
 const FIXED_PRESETS = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'];
+const MODES = ['round_robin', 'fixed_roles'];
+/**
+ * Fields the server accepts inside one participant's AI configuration. This
+ * mirrors `SUPPORTED_AI_CONFIG_FIELDS` in `hnefatafl/ai.py`, which the browser
+ * API and the headless runner both enforce, so a misspelled parameter is
+ * rejected here instead of being silently replaced by a default. Keep the two
+ * lists in step; `tests/test_cli_tournament.py` compares them.
+ */
+const AI_CONFIG_FIELDS = new Set([
+  'algorithm',
+  'depth',
+  'iterations',
+  'time_limit',
+  'seed',
+  'exploration',
+  'temperature',
+  'evaluation',
+  'model_id',
+  'rollout_depth',
+  'search_wrapper',
+  'heuristic_version',
+  'heuristic',
+  'search',
+]);
 const AI_BOUNDS: Record<string, [number, number, boolean]> = {
   depth: [1, 5, true],
   iterations: [1, 5000, true],
@@ -48,6 +72,7 @@ const AI_BOUNDS: Record<string, [number, number, boolean]> = {
   exploration: [0, 10, false],
   temperature: [0, 5, false],
   rollout_depth: [0, 50, true],
+  seed: [0, 2 ** 32 - 1, true],
 };
 
 export class TournamentConfigImportError extends Error {
@@ -73,6 +98,52 @@ const object = (value: unknown): Record<string, unknown> | null =>
 const integer = (value: unknown, low: number, high: number): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high;
 
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([first], [second]) => first.localeCompare(second))
+        .map(([key, item]) => [key, canonical(item)]),
+    );
+  return value;
+}
+
+/**
+ * Effective search settings for one fixed-role seat, mirroring the server's
+ * `effective_ai_config` defaults. The server compares these after dropping the
+ * model identity, so an omitted default and an explicitly recorded one have to
+ * agree instead of being rejected as different settings.
+ *
+ * The per-participant seed is deliberately excluded: the tournament seed
+ * supersedes it, and the server overwrites every seat with that value before it
+ * compares the effective configurations.
+ */
+function effectiveSearchSettings(config: Config): string {
+  const wrapper = typeof config.search_wrapper === 'string' ? config.search_wrapper : 'mcts';
+  const effective: Record<string, unknown> = {
+    algorithm: 'neural',
+    time_limit: typeof config.time_limit === 'number' ? config.time_limit : 2,
+    evaluation: 'neural',
+  };
+  if (wrapper === 'alpha_beta') {
+    effective.search_wrapper = 'alpha_beta';
+    effective.depth = typeof config.depth === 'number' ? config.depth : 2;
+    // The server keeps the nested search object only when it was recorded, so a
+    // missing object stays distinct from the default one.
+    if (config.search !== undefined) effective.search = config.search;
+  } else if (wrapper === 'none') {
+    effective.search_wrapper = 'none';
+    effective.temperature = typeof config.temperature === 'number' ? config.temperature : 0;
+  } else {
+    effective.iterations = typeof config.iterations === 'number' ? config.iterations : 80;
+    effective.rollout_depth = typeof config.rollout_depth === 'number' ? config.rollout_depth : 8;
+    effective.exploration = typeof config.exploration === 'number' ? config.exploration : 1.4;
+    effective.temperature = typeof config.temperature === 'number' ? config.temperature : 0;
+  }
+  return JSON.stringify(canonical(effective));
+}
+
 const SEARCH_KEYS = new Set([
   'legacy',
   'transposition',
@@ -90,7 +161,11 @@ const SEARCH_FLAGS = [
 ] as const;
 
 /** Validate a nested alpha-beta search object exactly as the server will. */
-function parseSearchConfig(raw: unknown, fields: string[]): AlphaBetaSearchSettings | null {
+function parseSearchConfig(
+  raw: unknown,
+  fields: string[],
+  modelBacked: boolean,
+): AlphaBetaSearchSettings | null {
   const provided = object(raw);
   if (!provided || Object.keys(provided).some((key) => !SEARCH_KEYS.has(key))) {
     fields.push('search');
@@ -114,6 +189,13 @@ function parseSearchConfig(raw: unknown, fields: string[]): AlphaBetaSearchSetti
     result.table_capacity = provided.table_capacity;
   }
   if (result.symmetry_transposition) result.transposition = true;
+  // Neural value heads are not guaranteed to be D4-equivariant, so symmetry
+  // reuse is refused *before* a legacy configuration can collapse the flags,
+  // exactly as the server's `clean_search_config` does.
+  if (modelBacked && (result.symmetry_transposition || result.symmetry_pruning)) {
+    fields.push('search');
+    return null;
+  }
   if (result.legacy) return { ...DEFAULT_ALPHA_BETA_SEARCH, legacy: true };
   return result;
 }
@@ -123,8 +205,11 @@ function parseRulesets(value: unknown, fields: string[]): string[] {
     fields.push('rulesets');
     return [];
   }
-  const rulesets = value.map(String);
+  // Require real strings: `String(['brandubh'])` would otherwise accept a
+  // malformed document that the API rejects.
+  const rulesets = value.filter((ruleset): ruleset is string => typeof ruleset === 'string');
   if (
+    rulesets.length !== value.length ||
     rulesets.some((ruleset) => !RULESETS.includes(ruleset)) ||
     new Set(rulesets).size !== rulesets.length
   ) {
@@ -137,15 +222,41 @@ function parseRulesets(value: unknown, fields: string[]): string[] {
 /** Validate one opponent's AI search configuration with the same bounds as play. */
 function parsePlayerConfig(
   raw: unknown,
+  index: number,
   profile: AIProfile | undefined,
   rulesets: string[],
   models: Model[],
   fields: string[],
 ): Config {
-  const provided = object(raw) ?? {};
-  const algorithm = String(provided.algorithm ?? profile?.algorithm ?? 'baseline');
+  const path = `players[${index}].config`;
+  // A missing configuration keeps the API default, while an explicitly supplied
+  // string, number, boolean, array or null is a type error there too.
+  const provided = raw === undefined ? {} : object(raw);
+  if (!provided) {
+    fields.push(path);
+    return {};
+  }
+  // The API rejects an unknown field before it validates any value, so a
+  // misspelled parameter can never be silently dropped and replaced by a default.
+  const unsupported = Object.keys(provided)
+    .filter((key) => !AI_CONFIG_FIELDS.has(key))
+    .sort();
+  if (unsupported.length) {
+    fields.push(`${path}.${unsupported[0]}`);
+    return {};
+  }
+  // An omitted algorithm keeps the selected profile or baseline default; an
+  // explicitly recorded one has to be a supported identifier instead of being
+  // coerced, so a null or a number can never silently become the default.
+  const recorded = provided.algorithm;
+  if (recorded !== undefined && typeof recorded !== 'string') {
+    fields.push(`${path}.algorithm`);
+    return {};
+  }
+  const algorithm =
+    recorded === 'alphabeta' ? 'alpha_beta' : (recorded ?? profile?.algorithm ?? 'baseline');
   if (!ALGORITHMS.includes(algorithm)) {
-    fields.push('algorithm');
+    fields.push(`${path}.algorithm`);
     return {};
   }
   const config: Config = { algorithm };
@@ -159,14 +270,14 @@ function parsePlayerConfig(
       value > high ||
       (isInteger && !Number.isInteger(value))
     ) {
-      fields.push(key);
+      fields.push(`${path}.${key}`);
       return {};
     }
     config[key] = value;
   }
   if (provided.evaluation !== undefined) {
     if (provided.evaluation !== 'heuristic' && provided.evaluation !== 'neural') {
-      fields.push('evaluation');
+      fields.push(`${path}.evaluation`);
       return {};
     }
     config.evaluation = provided.evaluation;
@@ -177,66 +288,82 @@ function parsePlayerConfig(
       provided.heuristic_version !== 1 ||
       !Number.isInteger(provided.heuristic_version)
     ) {
-      fields.push('heuristic_version');
+      fields.push(`${path}.heuristic_version`);
       return {};
     }
     config.heuristic_version = 1;
   }
   if (provided.heuristic !== undefined) {
     if (
-      !['shield_bearer', 'shield_maiden'].includes(String(provided.heuristic)) ||
+      typeof provided.heuristic !== 'string' ||
+      !['shield_bearer', 'shield_maiden'].includes(provided.heuristic) ||
       (algorithm !== 'alpha_beta' && algorithm !== 'mcts')
     ) {
-      fields.push('heuristic');
+      fields.push(`${path}.heuristic`);
       return {};
     }
-    config.heuristic = String(provided.heuristic);
+    config.heuristic = provided.heuristic;
   }
   if (provided.search_wrapper !== undefined) {
     if (
       algorithm !== 'neural' ||
-      !['mcts', 'alpha_beta', 'none'].includes(String(provided.search_wrapper))
+      typeof provided.search_wrapper !== 'string' ||
+      !['mcts', 'alpha_beta', 'none'].includes(provided.search_wrapper)
     ) {
-      fields.push('search_wrapper');
+      fields.push(`${path}.search_wrapper`);
       return {};
     }
-    config.search_wrapper = String(provided.search_wrapper);
+    config.search_wrapper = provided.search_wrapper;
   }
+  // A recorded model makes the search neural for the algorithms the server
+  // supports, so the symmetry restriction is evaluated against that context.
+  const modelBacked = Boolean(provided.model_id);
   if (provided.search !== undefined) {
-    const search = parseSearchConfig(provided.search, fields);
+    // The nested validator reports its own `search` path, which is specific
+    // enough without repeating the participant index here.
+    const search = parseSearchConfig(provided.search, fields, modelBacked);
     if (!search) return {};
     const alphaBetaSearch =
       algorithm === 'alpha_beta' ||
       (algorithm === 'neural' && config.search_wrapper === 'alpha_beta');
     if (!alphaBetaSearch) {
-      fields.push('search');
-      return {};
-    }
-    if (algorithm === 'neural' && (search.symmetry_transposition || search.symmetry_pruning)) {
-      fields.push('search');
+      fields.push(`${path}.search`);
       return {};
     }
     config.search = search;
   }
-  const usesModel = algorithm === 'neural' || config.evaluation === 'neural';
-  if (usesModel) {
-    const modelId = provided.model_id;
+  // The server infers neural evaluation from a recorded model identifier for the
+  // neural, MCTS and alpha-beta algorithms, and requires one for the neural
+  // algorithm, so a model reference is never silently dropped.
+  const requiresModel = algorithm === 'neural' || config.evaluation === 'neural';
+  const modelId = provided.model_id;
+  if (modelId !== undefined || requiresModel) {
     if (typeof modelId !== 'string' || !modelId) {
-      fields.push('model_id');
+      fields.push(`${path}.model_id`);
+      return {};
+    }
+    if (algorithm !== 'neural' && algorithm !== 'mcts' && algorithm !== 'alpha_beta') {
+      // The server ignores a model for this algorithm; rejecting it here keeps
+      // the browser from silently running a different opponent.
+      fields.push(`${path}.model_id`);
       return {};
     }
     const model = models.find((candidate) => candidate.id === modelId);
     if (!model || !rulesets.every((ruleset) => ruleset === model.ruleset)) {
-      fields.push('model_id');
+      fields.push(`${path}.model_id`);
       return {};
     }
     config.model_id = model.id;
+    // A recorded model always evaluates with the network, exactly as the
+    // server's effective configuration does.
+    config.evaluation = 'neural';
   }
   return config;
 }
 
 function parsePlayer(
   raw: unknown,
+  index: number,
   rulesets: string[],
   profiles: AIProfile[],
   models: Model[],
@@ -262,11 +389,18 @@ function parsePlayer(
     fields.push('profile_id');
     return { name: 'Computer', config: {} };
   }
+  // A malformed configuration container is a request type error for every
+  // participant, including a fixed preset whose recorded settings are otherwise
+  // discarded, so it is rejected before the preset snapshot replaces them.
+  if (provided.config !== undefined && !object(provided.config)) {
+    fields.push(`players[${index}].config`);
+    return { name: 'Computer', config: {} };
+  }
   // Named fixed presets are snapshotted from the catalog, exactly as the API does.
   const config =
     profile && FIXED_PRESETS.includes(profile.id)
       ? profileConfiguration(profile)
-      : parsePlayerConfig(provided.config, profile, rulesets, models, fields);
+      : parsePlayerConfig(provided.config, index, profile, rulesets, models, fields);
   if (profile && !FIXED_PRESETS.includes(profile.id) && provided.config === undefined)
     Object.assign(config, profileConfiguration(profile));
   const model = config.model_id
@@ -294,6 +428,11 @@ export function parseTournamentConfig(
     throw new TournamentConfigImportError('The configuration must be a JSON object.');
   }
   const fields: string[] = [];
+  let mode: TournamentMode = 'round_robin';
+  if (root.mode !== undefined) {
+    if (typeof root.mode !== 'string' || !MODES.includes(root.mode)) fields.push('mode');
+    else mode = root.mode as TournamentMode;
+  }
   let name: string | undefined;
   if (root.name !== undefined) {
     if (typeof root.name !== 'string' || !root.name.trim() || root.name.trim().length > 80) {
@@ -307,9 +446,27 @@ export function parseTournamentConfig(
   if (!Array.isArray(root.players) || root.players.length < 2 || root.players.length > 4) {
     fields.push('players');
   } else {
-    players = root.players.map((player) => parsePlayer(player, rulesets, profiles, models, fields));
+    players = root.players.map((player, index) =>
+      parsePlayer(player, index, rulesets, profiles, models, fields),
+    );
   }
-  if (!integer(root.games, 2, 100) || root.games % 2) fields.push('games');
+  if (mode === 'fixed_roles') {
+    // One battlefield, exactly two trained models and one shared search
+    // configuration; only the model identity may differ between the seats.
+    if (rulesets.length !== 1) fields.push('rulesets');
+    if (players.length !== 2) fields.push('players');
+    if (!integer(root.games, 1, 100)) fields.push('games');
+    if (players.length === 2) {
+      if (players.some((player) => player.config.algorithm !== 'neural' || !player.config.model_id))
+        fields.push('players');
+      else if (
+        effectiveSearchSettings(players[0].config) !== effectiveSearchSettings(players[1].config)
+      )
+        fields.push('config');
+    }
+  } else {
+    if (!integer(root.games, 2, 100) || root.games % 2) fields.push('games');
+  }
   if (!integer(root.max_plies, 1, 1000)) fields.push('max_plies');
   if (!integer(root.seed, 0, 2 ** 32 - 1)) fields.push('seed');
   if (fields.length) {
@@ -320,6 +477,7 @@ export function parseTournamentConfig(
   return {
     name,
     config: {
+      mode,
       players,
       rulesets,
       games: root.games as number,

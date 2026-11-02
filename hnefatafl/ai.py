@@ -16,8 +16,47 @@ from functools import lru_cache
 from itertools import combinations
 from typing import Any, Callable, Generator, Iterator
 
-from .engine import Move, State, apply_move, legal_moves, new_game
+from .engine import RULESETS, Move, State, apply_move, legal_moves, new_game
 from .symmetry import Symmetry, canonical_state_key, inverse, state_stabilizer, transform_move
+
+
+# Catalog profiles the browser API treats as authoritative presets: selecting one
+# runs the recorded catalog parameters regardless of any configuration supplied
+# beside it. The headless runner resolves them identically.
+FIXED_PROFILE_IDS = ("baseline", "shield_maiden", "alpha_beta", "mcts")
+
+# Fields an AI configuration may carry. The browser API rejects anything else, and
+# the headless runner validates portable documents against the same definition so
+# a misspelled search parameter can never be silently ignored.
+SUPPORTED_AI_CONFIG_FIELDS = frozenset(
+    {
+        "algorithm",
+        "depth",
+        "iterations",
+        "time_limit",
+        "seed",
+        "exploration",
+        "temperature",
+        "evaluation",
+        "model_id",
+        "rollout_depth",
+        "search_wrapper",
+        "heuristic_version",
+        "heuristic",
+        "search",
+    }
+)
+AI_ALGORITHMS = ("baseline", "shield_maiden", "alpha_beta", "mcts", "neural")
+AI_NUMERIC_RANGES = {
+    "depth": (1, 5),
+    "rollout_depth": (0, 50),
+    "iterations": (1, 5000),
+    "time_limit": (0.01, 15),
+    "exploration": (0, 10),
+    "temperature": (0, 5),
+    "seed": (0, 2**32 - 1),
+}
+AI_INTEGER_FIELDS = ("depth", "iterations", "seed", "rollout_depth")
 
 
 def ai_profiles() -> list[dict[str, Any]]:
@@ -75,6 +114,79 @@ def ai_profiles() -> list[dict[str, Any]]:
             "supported_rulesets": common,
         },
     ]
+
+
+def resolve_ai_config(
+    config: dict | None,
+    profile_id: str | None = None,
+    *,
+    extra_fields: frozenset[str] = frozenset(),
+) -> dict:
+    """Validate one AI configuration and return its effective settings.
+
+    The browser API converts a raised ``ValueError`` into a request error and
+    then checks the model registry, which the headless runner does not own. The
+    optional ``extra_fields`` let a caller accept a headless-only key such as a
+    checkpoint path without weakening the API contract.
+    """
+    if config is not None and not isinstance(config, dict):
+        raise ValueError("AI configuration must be an object.")
+    config = dict(config or {})
+    if set(config) - SUPPORTED_AI_CONFIG_FIELDS - extra_fields:
+        raise ValueError("Unsupported AI configuration field.")
+    if profile_id and "algorithm" not in config:
+        profile = next((item for item in ai_profiles() if item["id"] == profile_id), None)
+        if profile is None:
+            raise ValueError("Unknown AI profile.")
+        config = {**profile.get("parameters", {}), **config, "algorithm": profile["algorithm"]}
+    algorithm = config.setdefault("algorithm", "baseline")
+    if algorithm == "alphabeta":
+        algorithm = config["algorithm"] = "alpha_beta"
+    if not isinstance(algorithm, str) or algorithm not in AI_ALGORITHMS:
+        raise ValueError("Unknown AI algorithm.")
+    if "heuristic_version" in config and (
+        algorithm != "shield_maiden"
+        or type(config["heuristic_version"]) is not int
+        or config["heuristic_version"] != 1
+    ):
+        raise ValueError("Unsupported Shield maiden heuristic version.")
+    if "heuristic" in config:
+        if config["heuristic"] not in ("shield_bearer", "shield_maiden"):
+            raise ValueError("Search heuristic must be shield_bearer or shield_maiden.")
+        if algorithm not in ("alpha_beta", "mcts"):
+            raise ValueError("A search heuristic applies only to alpha-beta or MCTS.")
+    for name, (minimum, maximum) in AI_NUMERIC_RANGES.items():
+        if name in config:
+            value = config[name]
+            if name in AI_INTEGER_FIELDS and type(value) is not int:
+                raise ValueError(f"AI {name} must be an integer.")
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not minimum <= value <= maximum
+            ):
+                raise ValueError(f"AI {name} must be between {minimum} and {maximum}.")
+    if "evaluation" in config and config["evaluation"] not in ("heuristic", "neural"):
+        raise ValueError("Evaluation must be heuristic or neural.")
+    if "search_wrapper" in config:
+        if algorithm != "neural":
+            raise ValueError("Search wrappers apply only to trained neural models.")
+        if config["search_wrapper"] not in ("mcts", "alpha_beta", "none"):
+            raise ValueError("Search wrapper must be mcts, alpha_beta or none.")
+    if "search" in config:
+        if not isinstance(config["search"], dict):
+            raise ValueError("Search configuration must be an object.")
+        wrapper = config.get("search_wrapper")
+        if algorithm != "alpha_beta" and not (algorithm == "neural" and wrapper == "alpha_beta"):
+            raise ValueError("Search settings apply only to alpha-beta search.")
+    from .identities import effective_ai_config
+
+    resolved = effective_ai_config(config)
+    if resolved.get("model_id") and not isinstance(resolved["model_id"], str):
+        raise ValueError("Model ID must be a string.")
+    if resolved["algorithm"] == "neural" and not resolved.get("model_id"):
+        raise ValueError("The neural opponent requires a registered model.")
+    return resolved
 
 
 def evaluate(state: State) -> float:
@@ -1819,19 +1931,76 @@ def play_game(
     }
 
 
+def validate_fixed_role_players(profiles: list) -> None:
+    """Normalise and validate a fixed-role pairing of two trained neural models.
+
+    Both participants must resolve to identical effective search settings, so the
+    browser API and the headless runner reject a mismatched pairing the same way.
+    Only the model identity and the participant's own seed may differ: the
+    tournament seed supersedes the per-participant seeds and ``play_game`` derives
+    a seed per game and per ply from it, so a recorded participant seed is not a
+    search difference. The browser API and the frontend importer apply the same
+    rule.
+    """
+    from .identities import effective_ai_config
+
+    if not isinstance(profiles, list) or len(profiles) != 2:
+        raise ValueError("A fixed-role comparison needs exactly two participants")
+    resolved = []
+    for profile in profiles:
+        config = effective_ai_config(profile)
+        if config.get("algorithm") != "neural" or not config.get("model_id"):
+            raise ValueError("A fixed-role comparison requires two trained neural models")
+        resolved.append(
+            {key: value for key, value in config.items() if key not in ("model_id", "seed")}
+        )
+    if resolved[0] != resolved[1]:
+        raise ValueError("Both fixed-role participants must use identical search settings")
+
+
+def validate_fixed_role_rulesets(rulesets: object) -> None:
+    """Require exactly one supported battlefield for a fixed-role comparison.
+
+    Trained models belong to a single ruleset, so the browser API already limits
+    the mode to one battlefield. The headless runner enforces the same contract
+    before any game is scheduled instead of failing later during play.
+    """
+    if rulesets is None:
+        raise ValueError("A fixed-role comparison needs exactly one battlefield")
+    if not isinstance(rulesets, list):
+        raise ValueError("Tournament rulesets must be a list")
+    if len(rulesets) != 1:
+        raise ValueError("A fixed-role comparison needs exactly one battlefield")
+    if not isinstance(rulesets[0], str) or rulesets[0] not in RULESETS:
+        raise ValueError(f"Unsupported battlefield: {rulesets[0]!r}")
+
+
 def tournament(
     config: dict,
     report: Callable[[dict], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict:
+    mode = config.get("mode", "round_robin")
+    if mode not in ("round_robin", "fixed_roles"):
+        raise ValueError("Unknown tournament mode")
     profiles = config.get(
         "players", [{"algorithm": "baseline"}, {"algorithm": "mcts", "iterations": 20}]
     )
     if not isinstance(profiles, list) or not 2 <= len(profiles) <= 4:
         raise ValueError("A tournament compares between two and four profiles")
     games_per_ruleset = int(config.get("games", 2))
-    if not 2 <= games_per_ruleset <= 10000 or games_per_ruleset % 2:
-        raise ValueError("Use an even number of games (2–10000) to alternate sides fairly")
+    if mode == "fixed_roles":
+        # Seat 0 always attacks and seat 1 always defends, so the scheduled total
+        # is the plain game count and odd counts are valid.
+        validate_fixed_role_players(profiles)
+        validate_fixed_role_rulesets(config.get("rulesets"))
+        if not 1 <= games_per_ruleset <= 10000:
+            raise ValueError("Use between 1 and 10000 games for a fixed-role comparison")
+        pairings = [(0, 1)]
+    else:
+        if not 2 <= games_per_ruleset <= 10000 or games_per_ruleset % 2:
+            raise ValueError("Use an even number of games (2–10000) to alternate sides fairly")
+        pairings = list(combinations(range(len(profiles)), 2))
     results: list[dict] = []
     scores = [0.0] * len(profiles)
     standings: list[dict] = [
@@ -1874,14 +2043,20 @@ def tournament(
             "truncated": 0,
             "games": 0,
         }
-        for first, second in combinations(range(len(profiles)), 2):
+        for first, second in pairings:
             for game in range(games_per_ruleset):
                 if should_stop and should_stop():
                     return snapshot()
-                attacker, defender = (first, second) if game % 2 == 0 else (second, first)
-                # Preserve existing two-opponent comparisons; larger round robins
-                # use a distinct derived seed for every scheduled match.
-                game_seed = game if len(profiles) == 2 else len(results)
+                if mode == "fixed_roles":
+                    # Fixed seats: the attacker never defends and vice versa.
+                    attacker, defender = 0, 1
+                    # Every scheduled game gets a distinct, deterministic seed.
+                    game_seed = len(results)
+                else:
+                    attacker, defender = (first, second) if game % 2 == 0 else (second, first)
+                    # Preserve existing two-opponent comparisons; larger round robins
+                    # use a distinct derived seed for every scheduled match.
+                    game_seed = game if len(profiles) == 2 else len(results)
                 try:
                     result = play_game(
                         ruleset,

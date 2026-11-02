@@ -151,7 +151,7 @@ configuration paths.
 | `devices` | Report actual PyTorch and optional OpenVINO availability; [hardware](PERFORMANCE.md#installation-and-hardware) |
 | `train --config FILE [--resume FILE]` | JSON training config; safe full checkpoint resume; [training](TRAINING.md) |
 | `tune --config FILE` | Local Optuna study/trials; [optimization](TRAINING.md#hyperparameter-optimization) |
-| `tournament --config FILE` | JSON round robin, final report to stdout; [tournaments](TOURNAMENTS.md) |
+| `tournament --config FILE` | JSON round-robin or fixed-role comparison, final report to stdout; [tournaments](TOURNAMENTS.md) |
 | `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](SHIELD_MAIDEN.md) |
 | `benchmark-alpha-beta [--config FILE] [--output FILE] [--summary-output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; `--summary-output` writes the compact evidence with the run's source hashes; [evidence](PERFORMANCE.md#alpha-beta-profiling-and-root-window-pruning) |
 | `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](OPENVINO.md#full-training-benchmark) |
