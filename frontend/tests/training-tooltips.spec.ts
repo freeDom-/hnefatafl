@@ -30,6 +30,10 @@ test('parameter tooltips follow pointer, click and keyboard in the new-job form'
   await icon.hover();
   await expect(tooltip).toBeVisible();
   await expect(tooltip).toContainText('Number of training iterations');
+  // The symbol itself stays small, so the field row keeps its height.
+  const symbol = (await icon.boundingBox())!;
+  expect(symbol.width).toBeLessThanOrEqual(20);
+  expect(symbol.height).toBeLessThanOrEqual(20);
 
   // Moving between the label and the icon must not flicker or dismiss it.
   await label.hover();
@@ -81,6 +85,22 @@ test('parameter tooltips follow a touch tap', async ({ page }, info) => {
   await expect(tooltip).toContainText('Feature width of the network');
   await icon.tap();
   await expect(tooltip).toHaveCount(0);
+
+  // The visible symbol stays small, but the coarse-pointer target around it is
+  // large enough to tap: a point below the symbol still belongs to the button.
+  await icon.scrollIntoViewIfNeeded();
+  const box = (await icon.boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(20);
+  expect(box.height).toBeLessThanOrEqual(20);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height + 8;
+  const owner = await page.evaluate(
+    ([px, py]) => document.elementFromPoint(px, py)?.closest('.field-info-button') !== null,
+    [x, y],
+  );
+  expect(owner).toBe(true);
+  await page.touchscreen.tap(x, y);
+  await expect(tooltip).toBeVisible();
 });
 
 test('a resume-dialog tooltip renders inside the modal and Escape keeps it open', async ({
@@ -121,7 +141,9 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
     name: 'Explain Target total iterations',
     exact: true,
   });
-  await icon.click();
+  // A touch tap reaches the same button inside the dialog on a touch device.
+  if (info.project.name === 'mobile') await icon.tap();
+  else await icon.click();
   // The tooltip is portaled into the dialog, so the modal never clips it.
   const tooltip = dialog.getByRole('tooltip');
   await expect(tooltip).toBeVisible();

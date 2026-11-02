@@ -37,13 +37,13 @@ export const trainingTooltips: Record<string, string> = {
   preset:
     'Starting set of training values. Recommended applies the plan tailored to the selected battlefield, Quick check is a tiny real run for verifying the setup, and Beginner and Balanced are progressively longer experiments. Selecting a preset overwrites the training values below; the model name, random seed, device and inference settings are kept.',
   model_name:
-    'Name this model is registered and listed under, and the label stored in its checkpoints. Must contain 1–100 characters. A suggested Viking name is available next to the field.',
+    'Name this model is registered and listed under, and the label stored in its checkpoints. Must contain 1–100 characters.',
 
   // ── Hardware and inference ───────────────────────────────────────────────
   device:
     'Device the training process runs on. Automatic picks NVIDIA CUDA when available, then Apple Metal, otherwise CPU. CUDA enables batched self-play and mixed precision; CPU training works everywhere but is slower. Apple Metal uses the integrated GPU on Apple silicon.',
   inference_backend:
-    'Backend that evaluates the network during self-play, and during evaluation when that reuses the training backend. PyTorch is the default and runs anywhere. OpenVINO moves inference to an Intel GPU while PyTorch still performs weight updates and evaluation on the CPU, so it requires CPU training and a compatible Intel GPU.',
+    'Backend that evaluates the network during self-play. PyTorch is the default and runs anywhere. OpenVINO accelerates inference on a supported Intel GPU while the network’s weight updates stay in PyTorch on the CPU. Evaluation uses PyTorch inference by default, and “Use training inference backend” lets it reuse this backend, OpenVINO included. OpenVINO requires CPU training and a compatible execution environment with supported Intel hardware.',
   inference_cache_mode:
     'Reuses neural evaluations of identical positions instead of recomputing them. Off disables caching. Exact positions keys results by ruleset, board and side to move, removes duplicates inside one batch, and is dropped whenever the model, backend or precision changes. Every phase builds its own cache, so nothing carries over between iterations; it pays off when the same position recurs, so measure throughput before relying on it.',
   inference_cache_capacity:

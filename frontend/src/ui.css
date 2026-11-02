@@ -322,6 +322,7 @@ h6 {
   min-width: 0;
 }
 .field-info-button {
+  position: relative;
   display: inline-grid;
   place-items: center;
   flex: none;
@@ -337,6 +338,18 @@ h6 {
 .field-info-button:hover {
   color: var(--green);
   background: var(--ui-tint, #edf0e6);
+}
+/* A touch device gets a comfortable target without enlarging the visible symbol
+   or the field row: the pseudo-element is out of flow, so nothing moves. */
+@media (pointer: coarse) {
+  .field-info-button::after {
+    content: '';
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    bottom: -10px;
+    left: -10px;
+  }
 }
 .field-tooltip {
   position: fixed;

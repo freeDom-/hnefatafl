@@ -193,6 +193,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(window, 'visualViewport');
   setLanguage('en', false);
 });
 
@@ -212,6 +213,19 @@ it('translates every description into German', () => {
   // back to English inside a German interface, so it fails here instead.
   for (const [key, text] of Object.entries(trainingTooltips))
     expect(translate(text, {}, 'de'), `untranslated tooltip for ${key}`).not.toBe(text);
+});
+
+it('keeps shared descriptions true in both dialogs', () => {
+  // The Viking-name suggestion sits next to the model name in the new-job form
+  // only, so the shared description must not promise it.
+  expect(trainingTooltips.model_name).not.toMatch(/Viking/);
+  expect(trainingTooltips.model_name).toMatch(/1–100 characters/);
+  // OpenVINO can serve evaluation through "Use training inference backend", so
+  // the backend description must not claim evaluation always stays on PyTorch.
+  expect(trainingTooltips.inference_backend).not.toMatch(/evaluation on the CPU/);
+  expect(trainingTooltips.inference_backend).toMatch(
+    /Evaluation uses PyTorch inference by default/,
+  );
 });
 
 it('documents every parameter the new-job form can show, including conditional and advanced ones', () => {
@@ -522,6 +536,29 @@ it('keeps a long German description inside a narrow viewport', () => {
   expect(tooltip).toHaveTextContent('Verwendet neuronale Auswertungen identischer Stellungen');
   // 320 − 296 − 8 = 16 keeps it on screen, and it flips above the trigger.
   expect(tooltip).toHaveStyle({ left: '16px', top: '34px' });
+});
+
+it('keeps the tooltip inside a displaced visual viewport', () => {
+  // A pinch zoom or a mobile keyboard can move the visible area away from the
+  // layout-viewport origin; the tooltip is placed in layout coordinates, so the
+  // offset has to be added rather than ignored.
+  Object.defineProperty(window, 'visualViewport', {
+    configurable: true,
+    value: {
+      offsetLeft: 100,
+      offsetTop: 50,
+      width: 400,
+      height: 300,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    },
+  });
+  mockRects({ left: 700, top: 500, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  // The visible area is 100–500 × 50–350, so the tooltip is pulled back to its
+  // right edge and its bottom edge instead of the layout viewport's.
+  expect(screen.getByRole('tooltip')).toHaveStyle({ left: '192px', top: '242px' });
 });
 
 it('keeps parameter help available while evaluation controls are disabled', () => {

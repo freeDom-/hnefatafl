@@ -130,18 +130,22 @@ function FieldTooltipBox({
       if (!trigger || !element) return;
       const rect = trigger.getBoundingClientRect();
       const size = element.getBoundingClientRect();
-      // A fixed tooltip is laid out against the layout viewport, but a mobile
-      // keyboard shrinks the visual viewport, so the smaller one bounds what is
-      // actually readable.
+      // A fixed tooltip is laid out against the layout viewport, but the visual
+      // viewport can be both smaller and displaced from it (a mobile keyboard, or
+      // a pinch zoom), and its rectangle is what is actually readable. Both
+      // getBoundingClientRect and the fixed coordinates are in layout-viewport
+      // space, so the offset is added rather than ignored.
       const visual = window.visualViewport;
-      const width = Math.min(window.innerWidth || 0, visual?.width ?? Number.POSITIVE_INFINITY);
-      const height = Math.min(window.innerHeight || 0, visual?.height ?? Number.POSITIVE_INFINITY);
+      const viewLeft = visual?.offsetLeft ?? 0;
+      const viewTop = visual?.offsetTop ?? 0;
+      const viewRight = viewLeft + (visual?.width ?? window.innerWidth);
+      const viewBottom = viewTop + (visual?.height ?? window.innerHeight);
       const left = Math.max(
-        MARGIN,
-        Math.min(rect.left + rect.width / 2 - size.width / 2, width - size.width - MARGIN),
+        viewLeft + MARGIN,
+        Math.min(rect.left + rect.width / 2 - size.width / 2, viewRight - size.width - MARGIN),
       );
-      const roomBelow = height - rect.bottom - GAP - MARGIN;
-      const roomAbove = rect.top - GAP - MARGIN;
+      const roomBelow = viewBottom - rect.bottom - GAP - MARGIN;
+      const roomAbove = rect.top - viewTop - GAP - MARGIN;
       const below = rect.bottom + GAP;
       const above = rect.top - size.height - GAP;
       // Prefer a side that fits the whole tooltip, then the roomier side, and
@@ -156,7 +160,7 @@ function FieldTooltipBox({
               ? below
               : above;
       setPosition({
-        top: Math.max(MARGIN, Math.min(wanted, height - size.height - MARGIN)),
+        top: Math.max(viewTop + MARGIN, Math.min(wanted, viewBottom - size.height - MARGIN)),
         left,
       });
     };
