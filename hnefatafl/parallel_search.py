@@ -79,6 +79,61 @@ def _close_owned(owned: ExitStack, error: BaseException | None = None) -> None:
         error.add_note(f"Closing an inference backend also failed: {cleanup!r}")
 
 
+#: Actor progress is batched so the pool never sends one message per simulation.
+#: A flush happens when either bound is reached, which keeps the message rate
+#: proportional to search work rather than to simulation count.
+PROGRESS_DELTAS = 64
+PROGRESS_INTERVAL_SECONDS = 0.25
+
+
+class _ActorProgress:
+    """Batch an actor's per-position counters into bounded progress messages.
+
+    The object duck-types the ``ProgressSink`` surface the game contexts already
+    use, so an actor records exactly the counters the in-process path records.
+    Nothing is accumulated or sent unless the phase asked for progress, which
+    keeps monitoring off the hot path when no monitor is attached.
+    """
+
+    def __init__(self, connection: Connection, enabled: bool):
+        self._connection = connection
+        self._enabled = enabled
+        self._sequence = 0
+        self._deltas: dict[str, float] = {}
+        self._active = 0
+        self._dirty = False
+        self._flushed = time.monotonic()
+
+    def tick(self, **deltas: float) -> None:
+        if not self._enabled:
+            return
+        for key, value in deltas.items():
+            self._deltas[key] = self._deltas.get(key, 0) + value
+        self._dirty = True
+        if (
+            sum(self._deltas.values()) >= PROGRESS_DELTAS
+            or time.monotonic() - self._flushed >= PROGRESS_INTERVAL_SECONDS
+        ):
+            self.flush()
+
+    def note_active(self, active: int) -> None:
+        """Record how many game contexts this actor is currently searching."""
+        if not self._enabled or active == self._active:
+            return
+        self._active = active
+        self._dirty = True
+
+    def flush(self) -> None:
+        """Send the accumulated counters once; the parent only ever adds them."""
+        if not self._enabled or not self._dirty:
+            return
+        self._sequence += 1
+        self._connection.send(("progress", self._sequence, dict(self._deltas), self._active))
+        self._deltas.clear()
+        self._dirty = False
+        self._flushed = time.monotonic()
+
+
 def _game_factory(
     kind: str,
     config: dict,
@@ -86,13 +141,19 @@ def _game_factory(
     seed: int,
     identities: int,
     cancelled: Callable[[], bool],
+    progress: _ActorProgress | None = None,
 ):
-    """Return a per-index factory for the search generators a phase needs."""
+    """Return a per-index factory for the search generators a phase needs.
+
+    ``progress`` lets a game context record the same per-position counters the
+    in-process path records; the actor batches them instead of using a monitor it
+    cannot share across processes.
+    """
     if kind == "self_play":
         from .self_play import _game_context
 
         def self_play(index: int):
-            return single_identity(_game_context(None, config, seed + index, cancelled))
+            return single_identity(_game_context(None, config, seed + index, cancelled, progress))
 
         return self_play
 
@@ -130,6 +191,7 @@ def _search(
     reported_entries = [0] * identities
     reported_peak = [0] * identities
     per_game_cpu: dict[int, float] = {}
+    progress = _ActorProgress(connection, bool(spec.get("progress")))
 
     def take_metrics() -> list[InferenceMetrics]:
         """Hand over activity since the previous report and start a fresh window."""
@@ -153,6 +215,10 @@ def _search(
         return sent
 
     def evaluate(identity: int, states: list[State]):
+        if kind == "evaluation":
+            # One evaluated leaf is one searched position, exactly as the
+            # in-process batched evaluator counts it.
+            progress.tick(evaluation_plies=len(states))
         if local:
             return policy_value_batch(
                 states, snapshots[identity], metrics=metrics[identity], cache=caches[identity]
@@ -170,6 +236,8 @@ def _search(
             payload: Any = (examples, result)
         else:
             payload = value
+        progress.note_active(len(search))
+        progress.flush()
         connection.send(("done", index, payload, take_metrics(), len(search)))
 
     def record_traversal(index: int, wall: float, cpu: float) -> None:
@@ -183,7 +251,9 @@ def _search(
         on_advance=record_traversal,
         on_complete=completed,
     )
-    create = _game_factory(kind, config, spec.get("context"), spec["seed"], identities, cancelled)
+    create = _game_factory(
+        kind, config, spec.get("context"), spec["seed"], identities, cancelled, progress
+    )
     started = 0
     peak_active = 0
 
@@ -194,11 +264,14 @@ def _search(
             started += 1
             search.start(index, create(index))
         peak_active = max(peak_active, len(search))
+        progress.note_active(len(search))
+        progress.flush()
 
     try:
         search.run(refill)
     finally:
         search.close()
+    progress.flush()
     connection.send(("finished", take_metrics(), peak_active))
 
 
@@ -266,9 +339,11 @@ class SearchPool:
     """A persistent pool of CPU search actors sharing one inference owner.
 
     The pool outlives a single phase, so training iterations and evaluation
-    phases reuse it and process startup is amortised. ``workers`` bounds CPU
-    parallelism only; every call decides its own game concurrency, batch limits
-    and per-worker share.
+    phases reuse it and process startup is amortised. ``workers`` is the
+    configured maximum and never a phase's demand: processes are created on
+    demand, only as far as a phase can actually use them, and are kept for later
+    phases. Every call decides its own game concurrency, batch limits and
+    per-worker share.
     """
 
     def __init__(
@@ -284,21 +359,38 @@ class SearchPool:
             raise ValueError("Search inference must be auto, actors or parent")
         if not isinstance(flush_seconds, (int, float)) or not 0.0 <= flush_seconds <= 0.5:
             raise ValueError("Search flush window must be between 0 and 0.5 seconds")
+        self.workers = workers
         self.inference = inference
         self.flush_seconds = float(flush_seconds)
-        started = time.monotonic()
-        context = mp.get_context("spawn")
-        self.cancel = context.Event()
+        self.context = mp.get_context("spawn")
+        self.cancel = self.context.Event()
         self.connections: list[Connection] = []
         self.processes: list[Any] = []
         self.performance: dict = {}
         self.inference_metrics: list[InferenceMetrics] = []
         self.active_games = 0
         self.closed = False
+        self.initialization_seconds = 0.0
+
+    def _ensure(self, workers: int) -> int:
+        """Create worker processes on demand, never more than the configured cap.
+
+        Returns the number of processes now available. A worker created here is
+        bound with the current model snapshot by the phase that requested it, so
+        growth between phases needs no extra handshake.
+        """
+        if self.closed:
+            raise RuntimeError("Search pool is closed")
+        target = min(workers, self.workers)
+        if target <= len(self.processes):
+            return len(self.processes)
+        started = time.monotonic()
         try:
-            for _ in range(workers):
-                parent, child = context.Pipe()
-                process = context.Process(target=_actor, args=(child, self.cancel), daemon=True)
+            while len(self.processes) < target:
+                parent, child = self.context.Pipe()
+                process = self.context.Process(
+                    target=_actor, args=(child, self.cancel), daemon=True
+                )
                 process.start()
                 child.close()
                 self.connections.append(parent)
@@ -306,7 +398,9 @@ class SearchPool:
         except BaseException:
             self.close()
             raise
-        self.initialization_seconds = time.monotonic() - started
+        finally:
+            self.initialization_seconds += time.monotonic() - started
+        return len(self.processes)
 
     def close(self) -> None:
         if self.closed:
@@ -412,6 +506,7 @@ class SearchPool:
         should_stop: Callable | None = None,
         measure_cuda: bool = False,
         committed: Callable[[], int] | None = None,
+        monitor=None,
     ) -> Generator[tuple[int, Any], None, None]:
         """Run one phase, yielding ``(index, result)`` in completion order.
 
@@ -419,6 +514,13 @@ class SearchPool:
         committed. When supplied, the pool hands out new games only while the
         started-but-uncommitted count stays inside the ordered replay window, so
         a slow early game cannot retain an iteration's worth of examples.
+
+        ``monitor`` receives the actors' batched per-position counters and their
+        live active-game counts as they arrive, so a long game still advances the
+        dashboard instead of waiting for its completion. The completion of a game
+        contributes only its own completion counter: positions and simulations
+        were already reported incrementally, and a message that arrives twice or
+        out of order is dropped by its per-worker sequence number.
         """
         if self.closed:
             raise RuntimeError("Search pool is closed")
@@ -437,7 +539,10 @@ class SearchPool:
                 "self_play_concurrency" if kind == "self_play" else "evaluation_concurrency", 16
             ),
         )
-        workers = min(len(self.processes), count)
+        # A phase can only use as many workers as it has concurrent game slots,
+        # so demand decides how many processes exist; the configured maximum is
+        # a cap, never a target. Growth is kept for later phases.
+        workers = self._ensure(min(self.workers, concurrency))
         # Hard global bound: split the requested concurrency into a quotient and
         # a remainder so the capacities sum to exactly ``concurrency``. A worker
         # with no slot is never started, which keeps the bound when concurrency
@@ -484,14 +589,30 @@ class SearchPool:
         busy: set[Connection] = set()
         idle: set[Connection] = set()
         active_games: dict[Connection, int] = {}
+        progress_sequence: dict[Connection, int] = {}
+        progress_messages = 0
+        self.active_games = 0
 
         def merge(deltas: list[InferenceMetrics]) -> None:
             for identity, delta in enumerate(deltas):
                 self.inference_metrics[identity].add(delta)
 
         def handle(connection: Connection, message) -> None:
-            nonlocal completed
-            if message[0] == "leaves":
+            nonlocal completed, progress_messages
+            if message[0] == "progress":
+                sequence = message[1]
+                if sequence <= progress_sequence.get(connection, 0):
+                    # Duplicate or stale: its deltas were already applied.
+                    return
+                progress_messages += 1
+                progress_sequence[connection] = sequence
+                active_games[connection] = message[3]
+                self.active_games = sum(active_games.values())
+                if monitor is not None:
+                    monitor.tick(**message[2])
+                    if kind == "self_play":
+                        monitor.counts(games_active=self.active_games)
+            elif message[0] == "leaves":
                 pools[message[2]].append((connection, message[1], message[3]))
                 awaiting.add(connection)
             elif message[0] == "done":
@@ -585,11 +706,15 @@ class SearchPool:
                         "identities": len(models),
                         "concurrency": capacities[active[slot]],
                         "batch_size": capacities[active[slot]],
+                        "progress": monitor is not None,
                     },
                 )
             )
             busy.add(connection)
             idle.discard(connection)
+            # A granted run starts a fresh actor-side accumulator, so its
+            # sequence numbers restart at one.
+            progress_sequence[connection] = 0
             return True
 
         def check_alive() -> None:
@@ -680,7 +805,8 @@ class SearchPool:
             if busy:
                 raise RuntimeError("Search actors did not finish reporting the phase")
             self.performance = {
-                "search_workers": len(self.processes),
+                "search_workers": self.workers,
+                "search_processes": len(self.processes),
                 "search_worker_count": len(active),
                 "search_concurrency": concurrency,
                 "search_games_per_worker": max(capacities),
@@ -689,6 +815,7 @@ class SearchPool:
                 "search_replay_window": window,
                 "search_flush_seconds": self.flush_seconds,
                 "search_initialization_seconds": self.initialization_seconds,
+                "search_progress_messages": progress_messages,
                 "inference_location": "actors" if actors else "parent",
                 "models": [
                     metric.snapshot(finalize_cuda=measure_cuda) for metric in self.inference_metrics
@@ -749,6 +876,7 @@ def parallel_self_play(
         should_stop=should_stop,
         measure_cuda=measure_cuda,
         committed=None if retain_examples else (lambda: flushed),
+        monitor=monitor,
     )
 
     def performance(finalize=False):
@@ -768,11 +896,9 @@ def parallel_self_play(
             metrics.record(result[1])
             metrics.cpu_search_seconds += result[1].get("cpu_search_seconds", 0)
             if monitor is not None:
-                monitor.tick(
-                    games_completed=1,
-                    positions=result[1].get("plies", 0),
-                    simulations=result[1].get("simulations", 0),
-                )
+                # Positions and simulations already arrived incrementally from
+                # the actor; only the completion itself is new.
+                monitor.tick(games_completed=1)
                 monitor.counts(games_active=pool.active_games)
             while flushed in completed:
                 examples, outcome = completed[flushed]
@@ -785,6 +911,10 @@ def parallel_self_play(
                 progress({"game": metrics.games, "performance": performance()})
     finally:
         stream.close()
+        if monitor is not None:
+            # Nothing is searching any more: a cancelled or failed phase must not
+            # leave the dashboard showing live games.
+            monitor.counts(games_active=0)
         if owned:
             pool.close()
     payload = performance(measure_cuda)
@@ -824,6 +954,7 @@ def parallel_evaluation(
         context=context,
         previous=previous,
         should_stop=should_stop,
+        monitor=monitor,
     )
     outcomes = {}
     wins = draws = losses = 0
@@ -838,10 +969,13 @@ def parallel_evaluation(
             wins += int(winner == side)
             draws += int(winner == "draw")
             losses += int(winner not in (None, "draw") and winner != side)
-            monitor.tick(evaluation_games=1, evaluation_plies=outcome.get("plies", 0))
+            # Searched positions arrived incrementally; only the completion is new.
+            monitor.tick(evaluation_games=1)
             monitor.counts(evaluation_wins=wins, evaluation_draws=draws, evaluation_losses=losses)
     finally:
         stream.close()
+        if monitor is not None:
+            monitor.counts(games_active=0)
         if owned:
             pool.close()
     return [outcomes[index] for index in range(config["evaluation_games"])], {

@@ -535,6 +535,7 @@ def generate_self_play(
             retain_examples=retain_examples,
             backend=backend,
             search_pool=search_pool,
+            monitor=monitor,
         )
 
     from .self_play import SelfPlayMetrics, batched_self_play

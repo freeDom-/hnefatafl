@@ -11,7 +11,12 @@ import torch
 
 from hnefatafl.engine import Move, apply_move, legal_moves, new_game
 from hnefatafl.models import PolicyValueNet, encode_state, load_checkpoint
-from hnefatafl.parallel_search import SearchPool, plan_batches
+from hnefatafl.parallel_search import (
+    PROGRESS_DELTAS,
+    _ActorProgress,
+    SearchPool,
+    plan_batches,
+)
 from hnefatafl.training import (
     evaluation_uses_pool,
     generate_self_play,
@@ -498,6 +503,8 @@ def test_cancellation_and_crash_release_all_processes():
         )
     assert pool.closed and all(not process.is_alive() for process in pool.processes)
     pool = SearchPool(2)
+    # Workers are created on demand, so ask for the two this phase can use.
+    assert pool.processes == [] and pool._ensure(2) == 2
     pool.processes[0].terminate()
     pool.processes[0].join()
     with pytest.raises(RuntimeError):
@@ -521,6 +528,335 @@ def test_more_workers_than_games_still_completes():
     actual, metrics = generate_self_play(model, {**config, "search_workers": 8}, seed=47)
     assert_games_equal(actual, expected)
     assert metrics["search_worker_count"] == 2
+
+
+class RecordingMonitor:
+    """Minimal ProgressSink that records the counters the pool reports."""
+
+    def __init__(self):
+        self.phases: list[str] = []
+        self.events: list[tuple[str, dict]] = []
+        self.counters: dict[str, float] = {}
+
+    def phase(self, name, *, iteration=None):
+        self.phases.append(name)
+
+    def tick(self, **deltas):
+        self.events.append(("tick", dict(deltas)))
+        for key, value in deltas.items():
+            self.counters[key] = self.counters.get(key, 0) + value
+
+    def counts(self, **values):
+        self.events.append(("counts", dict(values)))
+        self.counters.update(values)
+
+    def peak_active(self) -> float:
+        return max(
+            (values.get("games_active", 0) for kind, values in self.events if kind == "counts"),
+            default=0,
+        )
+
+    def first_event(self, key: str) -> int | None:
+        for position, (kind, values) in enumerate(self.events):
+            if kind == "tick" and key in values:
+                return position
+        return None
+
+
+class RecordingConnection:
+    def __init__(self):
+        self.sent: list[tuple] = []
+
+    def send(self, message):
+        self.sent.append(message)
+
+
+def test_actor_progress_batches_messages_and_stays_silent_when_disabled():
+    connection = RecordingConnection()
+    progress = _ActorProgress(connection, True)
+    for _ in range(1000):
+        progress.tick(positions=1, simulations=8)
+    progress.flush()
+    progress.flush()  # A second flush with nothing new must not resend.
+    assert connection.sent, "enabled progress must report"
+    assert len(connection.sent) <= 9000 // PROGRESS_DELTAS + 5, "progress must be batched"
+    assert sum(message[2].get("positions", 0) for message in connection.sent) == 1000
+    assert sum(message[2].get("simulations", 0) for message in connection.sent) == 8000
+    assert [message[1] for message in connection.sent] == list(range(1, len(connection.sent) + 1))
+    assert all(message[0] == "progress" for message in connection.sent)
+
+    silent = RecordingConnection()
+    disabled = _ActorProgress(silent, False)
+    for _ in range(100):
+        disabled.tick(positions=1)
+    disabled.note_active(4)
+    disabled.flush()
+    assert silent.sent == []
+
+
+def test_parallel_self_play_reports_exact_progress_without_double_counting():
+    torch.manual_seed(90)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=6,
+        max_game_plies=8,
+        mcts_iterations=4,
+        self_play_concurrency=3,
+        inference_batch_size=3,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    games, _ = generate_self_play(model, config, seed=97, monitor=monitor)
+    assert monitor.counters["games_total"] == 6
+    assert monitor.counters["games_completed"] == 6
+    # Positions and simulations arrive incrementally from the actors, so the
+    # completion must not add them a second time.
+    assert monitor.counters["positions"] == sum(result["plies"] for _, result in games)
+    assert monitor.counters["simulations"] == sum(result["simulations"] for _, result in games)
+    assert monitor.counters["games_active"] == 0
+
+
+def test_progress_arrives_before_the_first_game_finishes():
+    torch.manual_seed(91)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=2,
+        max_game_plies=30,
+        mcts_iterations=16,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    generate_self_play(model, config, seed=101, monitor=monitor)
+    first_positions = monitor.first_event("positions")
+    first_simulation = monitor.first_event("simulations")
+    first_completion = monitor.first_event("games_completed")
+    assert first_positions is not None and first_simulation is not None
+    assert first_completion is not None
+    # A long game must advance the dashboard long before it ends.
+    assert first_positions < first_completion
+    assert first_simulation < first_completion
+
+
+def test_progress_survives_multiple_granted_slices_per_worker():
+    """Each granted run restarts the actor's sequence, so nothing may be dropped."""
+    torch.manual_seed(99)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=12,
+        max_game_plies=6,
+        mcts_iterations=4,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    games, metrics = generate_self_play(
+        model, config, seed=119, retain_examples=False, monitor=monitor
+    )
+    assert metrics["search_replay_window"] == 4
+    assert metrics["search_worker_count"] == 2
+    assert metrics["search_progress_messages"] > 0
+    assert monitor.counters["games_completed"] == 12
+    assert monitor.counters["positions"] == sum(result["plies"] for _, result in games)
+    assert monitor.counters["simulations"] == sum(result["simulations"] for _, result in games)
+    assert monitor.counters["games_active"] == 0
+
+
+@pytest.mark.parametrize("workers,concurrency", [(1, 4), (2, 4)])
+def test_active_games_reflect_concurrent_contexts(workers, concurrency):
+    torch.manual_seed(92)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=4,
+        max_game_plies=8,
+        mcts_iterations=4,
+        self_play_concurrency=concurrency,
+        inference_batch_size=concurrency,
+        search_workers=workers,
+    )
+    monitor = RecordingMonitor()
+    generate_self_play(model, config, seed=103, monitor=monitor)
+    assert monitor.peak_active() == concurrency
+    assert monitor.counters["games_active"] == 0
+
+
+def test_monitoring_does_not_change_self_play_results():
+    torch.manual_seed(93)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=4,
+        max_game_plies=8,
+        mcts_iterations=4,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        search_workers=2,
+    )
+    expected, _ = generate_self_play(model, config, seed=107)
+    actual, _ = generate_self_play(model, config, seed=107, monitor=RecordingMonitor())
+    assert_games_equal(actual, expected)
+
+
+def test_pool_reuse_keeps_progress_monotonic():
+    torch.manual_seed(94)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=3,
+        max_game_plies=6,
+        mcts_iterations=4,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    with SearchPool(2) as pool:
+        first, _ = generate_self_play(model, config, seed=109, search_pool=pool, monitor=monitor)
+        after_first = dict(monitor.counters)
+        second, _ = generate_self_play(model, config, seed=111, search_pool=pool, monitor=monitor)
+    assert after_first["games_completed"] == 3
+    assert monitor.counters["games_completed"] == 6
+    assert monitor.counters["positions"] == sum(result["plies"] for _, result in (*first, *second))
+    assert monitor.counters["games_active"] == 0
+
+
+def test_cancelled_phase_does_not_leave_active_games():
+    torch.manual_seed(95)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=12,
+        max_game_plies=6,
+        mcts_iterations=4,
+        self_play_concurrency=3,
+        inference_batch_size=3,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    stopped = False
+
+    def progress(info):
+        nonlocal stopped
+        if info["game"] >= 2:
+            stopped = True
+
+    with pytest.raises(InterruptedError):
+        generate_self_play(
+            model,
+            config,
+            seed=113,
+            monitor=monitor,
+            progress=progress,
+            should_stop=lambda: stopped,
+        )
+    assert monitor.counters["games_completed"] >= 1
+    assert monitor.counters["games_active"] == 0
+
+
+def test_training_reports_live_parallel_self_play_progress(tmp_path):
+    torch.manual_seed(96)
+    records: list[dict] = []
+    config = settings(
+        search_workers=2,
+        games=4,
+        max_game_plies=4,
+        mcts_iterations=2,
+        self_play_concurrency=2,
+        inference_batch_size=2,
+        evaluation_games=2,
+        evaluation_max_plies=2,
+        evaluation_iterations=2,
+        iterations=1,
+        output_dir=str(tmp_path / "live"),
+        registry_dir=str(tmp_path / "models"),
+    )
+    train(config, progress=lambda info: records.append(info))
+    self_play = [
+        record["phase_progress"]
+        for record in records
+        if record.get("stage") == "self_play" and record.get("phase_progress")
+    ]
+    assert self_play, "the self-play phase must publish live counters"
+    final = self_play[-1]
+    assert final["games_total"] == 4
+    assert final["games_completed"] == 4
+    assert final["positions"] > 0
+    assert final["simulations"] > 0
+
+
+@pytest.mark.parametrize(
+    "configured,self_play_concurrency,evaluation_concurrency,expected",
+    [
+        (32, 2, 2, (2, 2)),
+        (8, 1, 4, (1, 4)),
+        (4, 64, 64, (4, 4)),
+        (4, 1, 1, (1, 1)),
+        (8, 3, 6, (3, 6)),
+    ],
+)
+def test_only_useful_workers_are_created(
+    configured, self_play_concurrency, evaluation_concurrency, expected
+):
+    torch.manual_seed(97)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    self_play_config = settings(
+        search_workers=configured,
+        games=8,
+        max_game_plies=2,
+        mcts_iterations=1,
+        self_play_concurrency=self_play_concurrency,
+        inference_batch_size=2,
+    )
+    evaluation_config = settings(
+        search_workers=configured,
+        evaluation_games=8,
+        evaluation_max_plies=2,
+        evaluation_iterations=1,
+        evaluation_concurrency=evaluation_concurrency,
+        evaluation_batch_size=2,
+    )
+    with SearchPool(configured) as pool:
+        assert pool.processes == [], "constructing a pool must not start processes"
+        generate_self_play(model, self_play_config, seed=115, search_pool=pool)
+        assert len(pool.processes) == expected[0]
+        created = [id(process) for process in pool.processes]
+        evaluate_model(model, evaluation_config, search_pool=pool)
+        assert len(pool.processes) == expected[1]
+        # Workers are reused, never recreated, when a later phase needs more.
+        assert created == [id(process) for process in pool.processes][: len(created)]
+        assert all(process.is_alive() for process in pool.processes)
+        assert len(pool.processes) <= configured
+    assert all(not process.is_alive() for process in pool.processes)
+
+
+def test_sequential_modes_never_start_pool_processes():
+    torch.manual_seed(98)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        self_play_mode="sequential",
+        search_workers=4,
+        games=2,
+        max_game_plies=4,
+        mcts_iterations=2,
+    )
+    with SearchPool(4) as pool:
+        games, _ = generate_self_play(model, config, seed=117, search_pool=pool)
+        assert len(games) == 2
+        assert pool.processes == []
+        assert pool.initialization_seconds == 0.0
+
+
+def test_pool_growth_is_capped_and_closed_on_shutdown():
+    pool = SearchPool(3)
+    assert pool._ensure(2) == 2
+    assert pool._ensure(1) == 2, "an existing pool never shrinks"
+    assert pool._ensure(3) == 3
+    assert pool._ensure(9) == 3, "the configured maximum is a hard cap"
+    assert len(pool.connections) == 3
+    pool.close()
+    assert pool.closed
+    assert all(not process.is_alive() for process in pool.processes)
+    with pytest.raises(RuntimeError):
+        pool._ensure(1)
 
 
 @pytest.mark.parametrize(

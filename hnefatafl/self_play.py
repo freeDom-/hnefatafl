@@ -16,7 +16,7 @@ from .inference_backends import InferenceBackend
 from .models import PolicyValueNet, encode_state
 
 if TYPE_CHECKING:
-    from .training_monitoring import ProgressSink
+    from .training_monitoring import ProgressSink, ProgressTicks
 
 
 GameResult = tuple[list[dict], dict]
@@ -103,7 +103,7 @@ def _game_context(
     config: dict,
     seed: int,
     should_stop: Callable[[], bool] | None,
-    monitor: ProgressSink | None = None,
+    monitor: ProgressTicks | None = None,
 ) -> Generator[State, Evaluation, GameResult]:
     rng = random.Random(seed)
     state = new_game(config["ruleset"])
