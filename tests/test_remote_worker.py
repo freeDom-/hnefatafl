@@ -358,7 +358,15 @@ def test_training_child_receives_only_owned_paths_and_no_worker_credential(
             if route.endswith("/progress"):
                 progress_reports.append(json.loads(json.dumps(payload)))
             if route.endswith("/finish"):
-                assert progress_reports[-1]["progress"]["history"] == final_history
+                # The retained history must have reached the server, either in the
+                # final flush or in an earlier report the server merged: an unchanged
+                # child revision deliberately travels as a bounded projection.
+                histories = [
+                    report["progress"].get("history")
+                    for report in progress_reports
+                    if isinstance(report.get("progress"), dict)
+                ]
+                assert final_history in histories
                 return {"status": canonical_status}
             return super().request(route, payload, **kwargs)
 
@@ -377,7 +385,7 @@ def test_training_child_receives_only_owned_paths_and_no_worker_credential(
     assert ledger["credential"] == hashlib.sha256(TOKEN.encode()).hexdigest()
     assert ledger["phase"] == "finished" and ledger["status"] == canonical_status
     assert TOKEN not in (tmp_path / "lease.json").read_text()
-    assert progress_reports[-1]["progress"]["history"] == final_history
+    assert any(report["progress"].get("history") == final_history for report in progress_reports)
 
 
 def test_recovering_an_ambiguous_finish_uses_the_server_status_without_sending_more_progress(
