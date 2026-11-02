@@ -294,3 +294,119 @@ def test_a_custom_opponent_game_completes_and_is_counted(admin):
     stats = admin.get("/api/stats?ruleset=brandubh&mode=human-ai").json()
     assert stats["total_games"] >= 1
     assert stats["completed_games"] >= 1
+
+
+def test_custom_neural_alpha_beta_opponent_uses_its_search_settings(admin, tmp_path):
+    model = register_model(admin, tmp_path)
+    search = {
+        "legacy": False,
+        "transposition": True,
+        "move_ordering": False,
+        "symmetry_transposition": False,
+        "symmetry_pruning": False,
+        "table_capacity": 4096,
+    }
+    response = custom(
+        admin,
+        players={
+            "attackers": {
+                "config": {
+                    "algorithm": "neural",
+                    "model_id": model["id"],
+                    "search_wrapper": "alpha_beta",
+                    "depth": 2,
+                    "time_limit": 2,
+                    "search": search,
+                }
+            }
+        },
+    )
+    assert response.status_code == 201, response.text
+    game = response.json()
+    config = game["players"]["attackers"]["config"]
+    assert config["search_wrapper"] == "alpha_beta"
+    assert config["depth"] == 2
+    assert config["search"] == search
+
+    # The alpha-beta wrapper really runs with the model rather than a policy-only
+    # forward pass, and it reports its own completed search depth.
+    analysis = admin.post(f"/api/games/{game['id']}/analysis", json={"version": 0, "cursor": 0})
+    assert analysis.status_code == 200, analysis.text
+    report = analysis.json()["evaluations"][0]
+    assert report["source"] == "neural_search"
+    assert report.get("completed_depth", 0) >= 1
+
+    moved = admin.post(f"/api/games/{game['id']}/ai-move", json={"version": game["version"]})
+    assert moved.status_code == 200, moved.text
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        {"symmetry_transposition": True},
+        {"symmetry_pruning": True},
+    ],
+)
+def test_model_backed_symmetry_search_is_rejected(admin, tmp_path, search):
+    model = register_model(admin, tmp_path)
+    response = custom(
+        admin,
+        players={
+            "attackers": {
+                "config": {
+                    "algorithm": "neural",
+                    "model_id": model["id"],
+                    "search_wrapper": "alpha_beta",
+                    "time_limit": 1,
+                    "search": search,
+                }
+            }
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert "symmetry" in response.json()["detail"].lower()
+
+
+def test_search_settings_are_rejected_for_a_wrapper_that_ignores_them(admin):
+    response = custom(
+        admin,
+        players={
+            "attackers": {
+                "config": {
+                    "algorithm": "mcts",
+                    "time_limit": 1,
+                    "search": {"transposition": True},
+                }
+            }
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert "alpha-beta" in response.json()["detail"].lower()
+
+
+def test_custom_alpha_beta_opponent_keeps_its_own_symmetry_settings(admin):
+    search = {
+        "legacy": False,
+        "transposition": True,
+        "move_ordering": True,
+        "symmetry_transposition": True,
+        "symmetry_pruning": True,
+        "table_capacity": 2048,
+    }
+    response = custom(
+        admin,
+        players={
+            "attackers": {
+                "config": {
+                    "algorithm": "alpha_beta",
+                    "depth": 2,
+                    "time_limit": 1,
+                    "search": search,
+                }
+            }
+        },
+    )
+    assert response.status_code == 201, response.text
+    config = response.json()["players"]["attackers"]["config"]
+    assert config["search"] == search
+    assert config["evaluation"] == "heuristic"

@@ -206,6 +206,25 @@ test('an administrator can configure and play a custom neural opponent', async (
   await opponent.getByText('Search parameters', { exact: true }).click();
   await opponent.getByRole('spinbutton', { name: /attackers temperature/i }).fill('0.2');
 
+  // The alpha-beta wrapper exposes the same optimizations as a standalone
+  // alpha-beta agent, minus the symmetry reuse a value head cannot support.
+  await opponent
+    .getByRole('combobox', { name: /attackers search wrapper/i })
+    .selectOption('alpha_beta');
+  const optimizations = opponent.locator('fieldset.tournament-search-optimizations');
+  await expect(optimizations).toBeVisible();
+  await expect(
+    optimizations.getByRole('checkbox', { name: /attackers symmetry move pruning/i }),
+  ).toBeDisabled();
+  await expect(optimizations.getByRole('option', { name: 'Full symmetry' })).toHaveCount(0);
+  await optimizations
+    .getByRole('checkbox', { name: /attackers improved move ordering/i })
+    .uncheck();
+  await opponent.getByRole('spinbutton', { name: /attackers time limit/i }).fill('0.3');
+  // The advanced disclosure stays open across a wrapper change.
+  await expect(opponent.getByRole('spinbutton', { name: /attackers search depth/i })).toBeVisible();
+  await opponent.getByRole('spinbutton', { name: /attackers search depth/i }).fill('3');
+
   const created = page.waitForResponse(
     (response) => response.url().endsWith('/api/games') && response.request().method() === 'POST',
   );
@@ -216,8 +235,17 @@ test('an administrator can configure and play a custom neural opponent', async (
   expect(game.players.attackers.config).toMatchObject({
     algorithm: 'neural',
     model_id: model.id,
-    search_wrapper: 'none',
-    temperature: 0.2,
+    search_wrapper: 'alpha_beta',
+    depth: 3,
+    time_limit: 0.3,
+    search: {
+      legacy: false,
+      transposition: true,
+      move_ordering: false,
+      symmetry_transposition: false,
+      symmetry_pruning: false,
+      table_capacity: 100000,
+    },
   });
   await expect(page.getByRole('grid')).toBeVisible();
   await expect(page.getByText(model.name, { exact: true })).toBeVisible();
