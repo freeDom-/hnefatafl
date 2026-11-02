@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { useI18n } from './i18n';
+import { FieldLabel } from './FieldTooltip';
 import type { Job, TrainingWorker } from './types';
 
 export function workerEligible(worker: TrainingWorker) {
@@ -41,11 +42,13 @@ export default function TrainingTarget({
     value.startsWith('worker:') && !available.some((worker) => `worker:${worker.id}` === value);
   const selected = available.find((worker) => `worker:${worker.id}` === value);
   const showWarning = selected && (!workerEligible(selected) || selected.version_override_enabled);
+  const id = useId();
   return (
-    <label>
-      {t('Run training on')}
+    <div className="training-field">
+      <FieldLabel htmlFor={id} label="Run training on" tooltipKey="target" />
       <select
-        aria-label={t('Run training on')}
+        id={id}
+        data-training-field="target"
         aria-describedby={showWarning ? warningId : undefined}
         value={value}
         disabled={disabled}
@@ -72,6 +75,6 @@ export default function TrainingTarget({
           {selected.version_override_enabled && ` · ${t('Unsupported version combination')}`}
         </small>
       )}
-    </label>
+    </div>
   );
 }

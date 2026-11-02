@@ -23,7 +23,8 @@
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
-.training-resume-dialog label > small {
+.training-resume-dialog label > small,
+.training-resume-dialog .training-field > small {
   display: block;
   margin-top: 7px;
   color: var(--muted);
@@ -33,7 +34,8 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: var(--gap-card) 0 var(--gap-card);
 }
-.resume-optimizer-settings label:last-child {
+/* The final control spans both columns, whatever kind of field it is. */
+.resume-optimizer-settings > :last-child {
   grid-column: 1 / -1;
 }
 .model-card .model-training-seed {

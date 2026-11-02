@@ -293,3 +293,64 @@ h6 {
 .section-heading h2 {
   margin: 0;
 }
+
+/* Shared field help: a label with an unobtrusive information button beside it.
+   The label sizes to its text and the control spans the full second row, which
+   keeps the original stacked label/control spacing. */
+.training-field {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) min-content;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 8px;
+  min-width: 0;
+}
+.training-field > input,
+.training-field > select,
+.training-field > textarea,
+.training-field > small,
+.training-field > .name-input-group {
+  grid-column: 1 / -1;
+}
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.checkbox-field > .checkbox-label {
+  min-width: 0;
+}
+.field-info-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ui-subtle, #92957f);
+  line-height: 0;
+}
+.field-info-button:hover {
+  color: var(--green);
+  background: var(--ui-tint, #edf0e6);
+}
+.field-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 9px 11px;
+  border: 1px solid var(--ui-border, #dfe2d4);
+  border-radius: 7px;
+  background: var(--ui-dialog, #fafbf4);
+  color: var(--ui-heading, #2c3e30);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  box-shadow: 0 10px 30px #173d3726;
+  pointer-events: none;
+}

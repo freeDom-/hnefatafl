@@ -1,5 +1,7 @@
+import { useId } from 'react';
 import { useI18n } from './i18n';
 import { fieldErrorAttributes, numberField } from './TrainingFields';
+import { FieldLabel } from './FieldTooltip';
 import type { DeviceInfo, TrainingWorker } from './types';
 import type { TrainingConfig } from './trainingPresets';
 
@@ -52,6 +54,9 @@ export default function InferenceSettings({
   errorId?: string;
 }) {
   const { t } = useI18n();
+  const backendId = useId();
+  const cacheId = useId();
+  const deviceId = useId();
   const rejected = new Set(invalidFields);
   const invalid = (identity: string) => fieldErrorAttributes(rejected.has(identity), errorId);
   const capabilities =
@@ -68,9 +73,14 @@ export default function InferenceSettings({
   const error = inferenceTargetError(config, target, capabilities);
   return (
     <div className="inference-settings">
-      <label>
-        {t('Neural inference backend')}
+      <div className="training-field">
+        <FieldLabel
+          htmlFor={backendId}
+          label="Neural inference backend"
+          tooltipKey="inference_backend"
+        />
         <select
+          id={backendId}
           data-training-field="inference_backend"
           {...invalid('inference_backend')}
           value={String(config.inference_backend ?? 'pytorch')}
@@ -86,10 +96,11 @@ export default function InferenceSettings({
             {gpus.length ? ` · ${gpus.map((gpu) => gpu.name).join(' · ')}` : ''}
           </option>
         </select>
-      </label>
-      <label>
-        {t('Inference cache')}
+      </div>
+      <div className="training-field">
+        <FieldLabel htmlFor={cacheId} label="Inference cache" tooltipKey="inference_cache_mode" />
         <select
+          id={cacheId}
           data-training-field="inference_cache_mode"
           {...invalid('inference_cache_mode')}
           value={String(config.inference_cache_mode ?? 'off')}
@@ -99,7 +110,7 @@ export default function InferenceSettings({
           <option value="off">{t('Off · default')}</option>
           <option value="exact">{t('Exact positions')}</option>
         </select>
-      </label>
+      </div>
       {config.inference_cache_mode === 'exact' && (
         <>
           {numberField(
@@ -126,9 +137,10 @@ export default function InferenceSettings({
               'OpenVINO accelerates self-play inference. PyTorch performs weight updates and evaluation on the CPU.',
             )}
           </p>
-          <label>
-            {t('Inference device')}
+          <div className="training-field">
+            <FieldLabel htmlFor={deviceId} label="Inference device" tooltipKey="inference_device" />
             <select
+              id={deviceId}
               data-training-field="inference_device"
               {...invalid('inference_device')}
               value={String(config.inference_device ?? 'GPU')}
@@ -151,7 +163,7 @@ export default function InferenceSettings({
                 </option>
               )}
             </select>
-          </label>
+          </div>
           {target === 'remote' && (
             <p className="subtle">
               {t(

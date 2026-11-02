@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { api, errorMessage } from './api';
 import { notify } from './notifications';
 import { useI18n } from './i18n';
@@ -7,12 +7,14 @@ import InferenceSettings, { inferenceTargetError } from './InferenceSettings';
 import SymmetrySettings, { symmetryTargetError } from './SymmetrySettings';
 import TrainingTarget, { jobTarget, workerEligible } from './TrainingTarget';
 import {
+  CheckboxField,
   numberField,
   SelfPlayModeField,
   trainingNumberFields,
   trainingParameterLabel,
   validTrainingNumbers,
 } from './TrainingFields';
+import { FieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
@@ -59,6 +61,7 @@ export default function TrainingResumeDialog({
   };
   const optimizerNames: Record<string, string> = { adamw: 'AdamW', adam: 'Adam', sgd: 'SGD' };
   const ref = useRef<HTMLDialogElement>(null);
+  const modelNameId = useId();
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
@@ -329,16 +332,22 @@ export default function TrainingResumeDialog({
                       {t('This is the total iteration count, not the number of extra iterations.')}
                     </small>
                     {config.model_name !== undefined && (
-                      <label>
-                        {t('Model name')}
+                      <div className="training-field">
+                        <FieldLabel
+                          htmlFor={modelNameId}
+                          label="Model name"
+                          tooltipKey="model_name"
+                        />
                         <input
+                          id={modelNameId}
+                          data-training-field="model_name"
                           required
                           maxLength={100}
                           value={String(config.model_name)}
                           disabled={busy}
                           onChange={(event) => update('model_name', event.target.value)}
                         />
-                      </label>
+                      </div>
                     )}
                     {config.device !== undefined && (
                       <TrainingDeviceField
@@ -380,26 +389,22 @@ export default function TrainingResumeDialog({
                       {t('Momentum applies to SGD only. Adam and AdamW keep their saved moments.')}
                     </small>
                     {config.mixed_precision !== undefined && (
-                      <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(config.mixed_precision)}
-                          disabled={busy}
-                          onChange={(event) => update('mixed_precision', event.target.checked)}
-                        />
-                        {t('Mixed precision when supported')}
-                      </label>
+                      <CheckboxField
+                        fieldKey="mixed_precision"
+                        label="Mixed precision when supported"
+                        checked={Boolean(config.mixed_precision)}
+                        disabled={busy}
+                        onChange={(checked) => update('mixed_precision', checked)}
+                      />
                     )}
                     {config.save_all_best !== undefined && (
-                      <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(config.save_all_best)}
-                          disabled={busy}
-                          onChange={(event) => update('save_all_best', event.target.checked)}
-                        />
-                        {t('Save every new best model')}
-                      </label>
+                      <CheckboxField
+                        fieldKey="save_all_best"
+                        label="Save every new best model"
+                        checked={Boolean(config.save_all_best)}
+                        disabled={busy}
+                        onChange={(checked) => update('save_all_best', checked)}
+                      />
                     )}
                   </div>
                   <EvaluationSettings config={config} update={update} disabled={busy} />

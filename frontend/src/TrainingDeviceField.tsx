@@ -1,5 +1,7 @@
+import { useId } from 'react';
 import { t } from './i18n';
 import { fieldErrorAttributes } from './TrainingFields';
+import { FieldLabel } from './FieldTooltip';
 import type { DeviceInfo } from './types';
 
 /**
@@ -36,10 +38,12 @@ export default function TrainingDeviceField({
 }) {
   const cudaUnavailable = deviceUnavailable('cuda', remote, capabilities);
   const mpsUnavailable = deviceUnavailable('mps', remote, capabilities);
+  const id = useId();
   return (
-    <label>
-      {t('Training device')}
+    <div className="training-field">
+      <FieldLabel htmlFor={id} label="Training device" tooltipKey="device" />
       <select
+        id={id}
         data-training-field="device"
         {...fieldErrorAttributes(invalid, errorId)}
         value={value}
@@ -57,6 +61,6 @@ export default function TrainingDeviceField({
           {mpsUnavailable ? ` (${t('unavailable')})` : ''}
         </option>
       </select>
-    </label>
+    </div>
   );
 }

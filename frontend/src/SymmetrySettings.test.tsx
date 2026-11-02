@@ -21,7 +21,7 @@ it('reflects the configured mode, explains the sample-only scope and reports the
       update={update}
     />,
   );
-  const select = screen.getByLabelText(/Training symmetry augmentation/);
+  const select = screen.getByRole('combobox', { name: 'Training symmetry augmentation' });
   expect(select).toHaveValue('off');
   expect(screen.getByRole('option', { name: 'Disabled' })).toBeInTheDocument();
   expect(
@@ -35,7 +35,7 @@ it('reflects the configured mode, explains the sample-only scope and reports the
 it('is localized in German', () => {
   setLanguage('de', false);
   render(<SymmetrySettings config={trainingConfig('brandubh', 'smoke')} update={vi.fn()} />);
-  expect(screen.getByLabelText(/Symmetrie-Datenaugmentation/)).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: 'Symmetrie-Datenaugmentation' })).toBeInTheDocument();
   expect(screen.getByText(/zufällig gedreht oder gespiegelt/)).toBeInTheDocument();
 });
 
@@ -135,7 +135,7 @@ it('resume shows legacy checkpoints as disabled and sends only a deliberate chan
   vi.stubGlobal('fetch', fetcher);
   const onStarted = vi.fn();
   render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={onStarted} />);
-  const select = await screen.findByLabelText(/Training symmetry augmentation/);
+  const select = await screen.findByRole('combobox', { name: 'Training symmetry augmentation' });
   expect(select).toHaveValue('off');
   fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
   await waitFor(() => expect(onStarted).toHaveBeenCalled());
@@ -156,5 +156,7 @@ it('resume restores a saved Random D4 setting from the checkpoint configuration'
     vi.fn(() => json({ ...info, config: { training_symmetry_mode: 'random_d4' } })),
   );
   render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
-  expect(await screen.findByLabelText(/Training symmetry augmentation/)).toHaveValue('random_d4');
+  expect(
+    await screen.findByRole('combobox', { name: 'Training symmetry augmentation' }),
+  ).toHaveValue('random_d4');
 });

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   type Dispatch,
   type SetStateAction,
@@ -12,11 +13,13 @@ import { sortRulesets } from './sortRulesets';
 import { suggestVikingName } from './vikingNames';
 import { changeTrainingPlan, type TrainingPreset, type TrainingConfig } from './trainingPresets';
 import {
+  CheckboxField,
   fieldErrorAttributes,
   numberField,
   SelfPlayModeField,
   trainingParameterLabel,
 } from './TrainingFields';
+import { FieldLabel } from './FieldTooltip';
 import { fieldIdentity } from './trainingPayload';
 import EvaluationSettings from './EvaluationSettings';
 import TrainingTarget, { workerEligible } from './TrainingTarget';
@@ -138,6 +141,14 @@ export default function TrainingCreationPanel({
   const form = useRef<HTMLFormElement>(null);
   const alert = useRef<HTMLDivElement>(null);
   const alertId = useId();
+  const rulesetId = useId();
+  const presetId = useId();
+  const modelNameId = useId();
+  const optimizerId = useId();
+  const trialsId = useId();
+  const studyNameId = useId();
+  const studySeedId = useId();
+  const spaceId = useId();
   // The form edits one nested configuration, so a rejected path maps to the input
   // that owns it. `training.seed` and `seed` stay distinct: the first is the model
   // seed, the second the Optuna study seed.
@@ -155,8 +166,10 @@ export default function TrainingCreationPanel({
   const focused = useRef('');
   const revealPending = useRef(false);
   // Focus the marked input once per rejection, and once more when our own
-  // expansion reveals it. A manual toggle never moves focus.
-  useEffect(() => {
+  // expansion reveals it. A manual toggle never moves focus. A layout effect
+  // applies the focus within the commit that added the marked input, so the
+  // guard cannot race with a user who moved focus in the meantime.
+  useLayoutEffect(() => {
     if (!focusKey) {
       focused.current = '';
       revealPending.current = false;
@@ -263,9 +276,10 @@ export default function TrainingCreationPanel({
                 if (config.inference_backend !== 'openvino') update('device', 'auto');
               }}
             />
-            <label>
-              {t('Battlefield')}
+            <div className="training-field">
+              <FieldLabel htmlFor={rulesetId} label="Battlefield" tooltipKey="ruleset" />
               <select
+                id={rulesetId}
                 data-training-field="ruleset"
                 {...invalid('ruleset')}
                 value={String(config.ruleset)}
@@ -286,10 +300,11 @@ export default function TrainingCreationPanel({
                   </option>
                 ))}
               </select>
-            </label>
-            <label>
-              {t('Training preset')}
+            </div>
+            <div className="training-field">
+              <FieldLabel htmlFor={presetId} label="Training preset" tooltipKey="preset" />
               <select
+                id={presetId}
                 data-training-field="preset"
                 {...invalid('preset')}
                 value={String(config.preset)}
@@ -311,12 +326,12 @@ export default function TrainingCreationPanel({
                 <option value="beginner">{t('Beginner · a starting point')}</option>
                 <option value="balanced">{t('Balanced · a longer experiment')}</option>
               </select>
-            </label>
-            <div className="name-suggestion-field">
-              <label htmlFor="training-model-name">{t('Model name')}</label>
+            </div>
+            <div className="training-field name-suggestion-field">
+              <FieldLabel htmlFor={modelNameId} label="Model name" tooltipKey="model_name" />
               <div className="name-input-group">
                 <input
-                  id="training-model-name"
+                  id={modelNameId}
                   data-training-field="model_name"
                   {...invalid('model_name')}
                   required
@@ -389,9 +404,10 @@ export default function TrainingCreationPanel({
               invalid: rejected.has('learning_rate'),
               errorId: alertId,
             })}
-            <label>
-              {t('Optimizer')}
+            <div className="training-field">
+              <FieldLabel htmlFor={optimizerId} label="Optimizer" tooltipKey="optimizer" />
               <select
+                id={optimizerId}
                 data-training-field="optimizer"
                 {...invalid('optimizer')}
                 value={String(config.optimizer)}
@@ -401,7 +417,7 @@ export default function TrainingCreationPanel({
                 <option value="adam">Adam</option>
                 <option value="sgd">SGD</option>
               </select>
-            </label>
+            </div>
             <SymmetrySettings
               config={config}
               update={update}
@@ -471,16 +487,15 @@ export default function TrainingCreationPanel({
           invalidFields={[...rejected]}
           errorId={alertId}
         />
-        <label className="checkbox-label training-retain-best">
-          <input
-            type="checkbox"
-            data-training-field="save_all_best"
-            {...invalid('save_all_best')}
-            checked={Boolean(config.save_all_best)}
-            onChange={(event) => update('save_all_best', event.target.checked)}
-          />
-          {t('Save every new best model')}
-        </label>
+        <CheckboxField
+          fieldKey="save_all_best"
+          label="Save every new best model"
+          className="training-retain-best"
+          checked={Boolean(config.save_all_best)}
+          invalid={rejected.has('save_all_best')}
+          errorId={alertId}
+          onChange={(checked) => update('save_all_best', checked)}
+        />
         <p className="subtle">
           {t(
             'Retain and register each strict evaluation improvement. Tied scores do not create extra models. Uses additional disk space.',
@@ -507,16 +522,14 @@ export default function TrainingCreationPanel({
                 invalid: rejected.has('momentum'),
                 errorId: alertId,
               })}
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                data-training-field="mixed_precision"
-                {...invalid('mixed_precision')}
-                checked={Boolean(config.mixed_precision)}
-                onChange={(e) => update('mixed_precision', e.target.checked)}
-              />
-              {t('Mixed precision when supported')}
-            </label>
+            <CheckboxField
+              fieldKey="mixed_precision"
+              label="Mixed precision when supported"
+              checked={Boolean(config.mixed_precision)}
+              invalid={rejected.has('mixed_precision')}
+              errorId={alertId}
+              onChange={(checked) => update('mixed_precision', checked)}
+            />
           </div>
         )}
         {kind === 'tune' && (
@@ -527,9 +540,10 @@ export default function TrainingCreationPanel({
               )}
             </p>
             <div className="form-grid">
-              <label>
-                {t('Trial budget')}
+              <div className="training-field">
+                <FieldLabel htmlFor={trialsId} label="Trial budget" tooltipKey="study.trials" />
                 <input
+                  id={trialsId}
                   type="number"
                   data-training-field="study.trials"
                   {...invalid('study.trials')}
@@ -542,10 +556,15 @@ export default function TrainingCreationPanel({
                     onFieldCorrected?.('study.trials');
                   }}
                 />
-              </label>
-              <label>
-                {t('Study name')}
+              </div>
+              <div className="training-field">
+                <FieldLabel
+                  htmlFor={studyNameId}
+                  label="Study name"
+                  tooltipKey="study.study_name"
+                />
                 <input
+                  id={studyNameId}
                   data-training-field="study.study_name"
                   {...invalid('study.study_name')}
                   required
@@ -556,10 +575,15 @@ export default function TrainingCreationPanel({
                     onFieldCorrected?.('study.study_name');
                   }}
                 />
-              </label>
-              <label>
-                {t('Study random seed')}
+              </div>
+              <div className="training-field">
+                <FieldLabel
+                  htmlFor={studySeedId}
+                  label="Study random seed"
+                  tooltipKey="study.seed"
+                />
                 <input
+                  id={studySeedId}
                   type="number"
                   data-training-field="study.seed"
                   {...invalid('study.seed')}
@@ -572,11 +596,16 @@ export default function TrainingCreationPanel({
                     onFieldCorrected?.('study.seed');
                   }}
                 />
-              </label>
+              </div>
             </div>
-            <label>
-              {t('Parameter search space (JSON)')}
+            <div className="training-field">
+              <FieldLabel
+                htmlFor={spaceId}
+                label="Parameter search space (JSON)"
+                tooltipKey="study.search_space"
+              />
               <textarea
+                id={spaceId}
                 data-training-field="study.search_space"
                 {...invalid('study.search_space')}
                 value={space}
@@ -587,7 +616,7 @@ export default function TrainingCreationPanel({
                 rows={7}
                 spellCheck={false}
               />
-            </label>
+            </div>
           </div>
         )}
         <div className="training-start">
