@@ -1343,8 +1343,28 @@ def tune(
         write_study_snapshot(False, changes)
 
     def count_completed(study) -> int:
-        """Trials the study has already recorded as complete."""
+        """Trials the study has already recorded as complete.
+
+        Reading the whole study is O(N) on persistent storage, so this runs only at
+        the lifecycle boundaries (loading a study and aggregating its final result)
+        and never once per trial.
+        """
         return sum(1 for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE)
+
+    def on_trial_finished(study, trial) -> None:
+        """Count a trial once Optuna has committed its final state.
+
+        Optuna calls this after a trial's state is stored, which is the only
+        authoritative moment: an objective that trained successfully but then failed
+        (a missing evaluation, an attribute write that raises) is recorded as
+        ``FAIL`` and is not a completed trial. Counting here keeps the per-trial
+        bookkeeping O(1) instead of re-reading the whole study.
+        """
+        if trial.state != optuna.trial.TrialState.COMPLETE:
+            return
+        with tune_lock:
+            latest["completed_trials"] = latest.get("completed_trials", 0) + 1
+        publish_study()
 
     def run_trials(study) -> None:
         def objective(trial):
@@ -1438,7 +1458,6 @@ def tune(
                     if trial.should_prune():
                         raise optuna.TrialPruned("Playing score below study median")
 
-            finished = False
             # Handing the files to the trial and taking them back are serialized
             # against the study's own heartbeat, so neither publisher can overwrite
             # the other's snapshot with a stale stage.
@@ -1446,38 +1465,17 @@ def tune(
                 active_trial["running"] = True
             try:
                 result = train(config, report, should_stop)
-                finished = result["status"] != "cancelled"
             finally:
                 # The trial's monitor has stopped and the study's heartbeat is
                 # suppressed while a trial is marked running, so ownership returns to
-                # the study before any Optuna storage access: a slow `study.trials`
-                # read can no longer leave the job without a publisher. A pruned or
-                # cancelled trial is not counted, matching the terminal result.
+                # the study here. Nothing in this handover touches Optuna storage:
+                # the completed-trial count is updated by the study's own callback
+                # once Optuna has committed the trial's state, so no bookkeeping can
+                # delay the heartbeat or mask the exception that ended the trial.
                 study_monitor.phase("between_trials")
                 with tune_lock:
                     active_trial["running"] = False
-                    if finished:
-                        # Optuna commits a trial's final state only after its
-                        # objective returns, so `study.trials` is not authoritative
-                        # yet. The in-memory count is exact for this process and is
-                        # reconciled against Optuna's own state just below.
-                        latest["completed_trials"] = latest.get("completed_trials", 0) + 1
                 publish_study()
-                # Reconciliation is a potentially slow storage read, so it happens
-                # with the study already owning the heartbeat, and it can only raise
-                # the displayed count. A storage failure here never masks the
-                # exception that ended the trial.
-                try:
-                    recorded: int | None = count_completed(study)
-                except Exception:
-                    recorded = None
-                if recorded is not None:
-                    with tune_lock:
-                        raised = recorded > latest.get("completed_trials", 0)
-                        if raised:
-                            latest["completed_trials"] = recorded
-                    if raised:
-                        publish_study()
             if result["status"] == "cancelled":
                 study.stop()
                 raise optuna.TrialPruned("Tuning cancelled")
@@ -1487,7 +1485,9 @@ def tune(
             trial.set_user_attr("training_config", normalize_config(config))
             return float(evaluation["score"])
 
-        study.optimize(objective, n_trials=trials)
+        # The callback runs after each trial's state is stored, so the completed
+        # counter follows Optuna's own record instead of the objective returning.
+        study.optimize(objective, n_trials=trials, callbacks=[on_trial_finished])
 
     def finish_study(study) -> dict:
         # Aggregating results and persisting them can take a while; the heartbeat

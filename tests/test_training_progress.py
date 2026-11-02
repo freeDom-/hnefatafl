@@ -1613,31 +1613,35 @@ def block_study_trials(optuna, monkeypatch, *, at: int, before=None):
     return reads
 
 
-def test_a_blocked_post_trial_read_keeps_the_study_heartbeat_alive(tmp_path, monkeypatch):
-    """Ownership must move to the study before the potentially slow storage read."""
+def test_the_study_owns_the_heartbeat_while_a_trial_is_booked(tmp_path, monkeypatch):
+    """Ownership moves before the objective's post-training Optuna work, and the
+    completed count follows Optuna's committed state, not `train` returning."""
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     entered = threading.Event()
     released = threading.Event()
+    real_set = optuna.trial.Trial.set_user_attr
 
-    def block():
-        entered.set()
-        assert released.wait(120)
+    def blocking_set(self, key, value):
+        # The first attribute write is real post-trial bookkeeping: the trial has
+        # trained, but Optuna has not committed its state yet.
+        if not entered.is_set():
+            entered.set()
+            assert released.wait(120)
+        return real_set(self, key, value)
 
-    block_study_trials(optuna, monkeypatch, at=2, before=block)
+    monkeypatch.setattr(optuna.trial.Trial, "set_user_attr", blocking_set)
     config = tune_config(tmp_path, trials=2)
     output = Path(config["output_dir"])
     results: list = []
     worker = run_tune(config, results)
     assert entered.wait(120)
 
-    # The study already owns the heartbeat while the read is still blocked, so the
-    # phase is the study's and its timers keep advancing. The completed-trial count
-    # is the in-memory one, published before the read.
+    # The study owns the heartbeat while that write is blocked, and the finished
+    # trial is not counted yet because Optuna has not recorded it as complete.
     first = wait_for_stage(output, "between_trials")
-    assert read_json(output / "progress.json")["completed_trials"] == 1
-    assert not first.get("phase_progress")
+    assert read_json(output / "progress.json")["completed_trials"] == 0
     advanced = wait_for_heartbeat_advance(output, seconds=1.5)
     assert advanced["stage"] == "between_trials"
     assert advanced["duration"] >= first["duration"] + 1.0
@@ -1645,7 +1649,6 @@ def test_a_blocked_post_trial_read_keeps_the_study_heartbeat_alive(tmp_path, mon
     # The finished trial is not presented as running and its stale heartbeat cannot
     # overwrite the study's snapshot.
     retained = read_json(output / "progress.json")
-    assert retained["stage"] == "between_trials"
     assert "duration" not in retained["trial_progress"]
     assert "active_iteration" not in retained["trial_progress"]
     stale = {
@@ -1659,7 +1662,8 @@ def test_a_blocked_post_trial_read_keeps_the_study_heartbeat_alive(tmp_path, mon
     worker.join(timeout=300)
     assert not worker.is_alive()
     result = results[0]
-    # The next trial begins normally and the study finishes with both trials.
+    # The next trial begins normally and the study finishes with both trials counted
+    # from Optuna's own committed states.
     assert result["status"] == "completed" and result["completed_trials"] == 2
     assert [trial["state"] for trial in result["trials"]] == ["COMPLETE", "COMPLETE"]
 
@@ -1735,76 +1739,31 @@ def test_a_pruned_trial_is_never_counted_as_completed(tmp_path, monkeypatch):
     assert read_json(output / "progress.json")["status"] == "completed"
 
 
-def test_a_storage_failure_during_reconciliation_keeps_the_count_correct(tmp_path, monkeypatch):
-    """The handoff read is a reconciliation: its failure must not corrupt the count."""
+def test_cancellation_between_trials_ends_the_study_safely(tmp_path, monkeypatch):
+    """A stop requested during a trial cancels cleanly and leaves the study usable."""
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    reads = block_study_trials(optuna, monkeypatch, at=2)
-    config = tune_config(tmp_path, trials=2)
-    snapshots: list[dict] = []
-    result = tune(config, snapshots.append)
-    assert reads, "the reconciliation read never ran"
-    assert result["status"] == "completed" and result["completed_trials"] == 2
-    counts = [state["completed_trials"] for state in snapshots if "completed_trials" in state]
-    assert max(counts) == 2 and counts == sorted(counts)
-
-
-def test_a_failed_trial_error_survives_a_failing_reconciliation_read(tmp_path, monkeypatch):
-    """Cleanup must never mask the exception that ended the trial."""
-    import optuna
-
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
-    real_trials = optuna.study.Study.trials
-    reads: list[int] = []
-
-    def failing_train(*args, **kwargs):
-        raise RuntimeError("training exploded")
-
-    def failing_trials(self):
-        reads.append(1)
-        if len(reads) == 2:
-            raise RuntimeError("the study database is unavailable")
-        return real_trials.fget(self)
-
-    monkeypatch.setattr(training_module, "train", failing_train)
-    monkeypatch.setattr(optuna.study.Study, "trials", property(failing_trials))
-    config = tune_config(tmp_path, trials=1)
-    output = Path(config["output_dir"])
-    with pytest.raises(RuntimeError, match="training exploded"):
-        tune(config)
-    assert reads, "the reconciliation read never ran"
-    progress = read_json(output / "progress.json")
-    assert progress["status"] == "failed"
-    assert progress["error"] == "training exploded"
-
-
-def test_cancellation_around_the_post_trial_read_ends_the_study_safely(tmp_path, monkeypatch):
-    """A stop request during the handoff cancels cleanly and leaves the study usable."""
-    import optuna
-
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
-    entered = threading.Event()
-    released = threading.Event()
+    real_train = training_module.train
     stopped = {"value": False}
 
-    def block():
-        entered.set()
-        assert released.wait(120)
+    def cancelling_train(config, progress, should_stop):
+        result = real_train(config, progress, should_stop)
+        # The stop arrives while the first trial is finishing.
+        stopped["value"] = True
+        return result
 
-    block_study_trials(optuna, monkeypatch, at=2, before=block)
+    monkeypatch.setattr(training_module, "train", cancelling_train)
     config = tune_config(tmp_path, trials=3)
     output = Path(config["output_dir"])
     results: list = []
     worker = run_tune(config, results, should_stop=lambda: stopped["value"])
-    assert entered.wait(120)
-    # The study already owns the heartbeat when the cancellation arrives.
-    stopped["value"] = True
-    released.set()
-    worker.join(timeout=300)
+    worker.join(timeout=600)
     assert not worker.is_alive()
     result = results[0]
     assert result["status"] == "cancelled"
+    # The trial that finished is counted; the cancelled one is Optuna's PRUNED.
+    assert result["completed_trials"] == 1
     assert read_json(output / "progress.json")["status"] == "cancelled"
     assert read_json(output / "result.json")["status"] == "cancelled"
     settled = read_heartbeat(output)
@@ -1812,9 +1771,84 @@ def test_cancellation_around_the_post_trial_read_ends_the_study_safely(tmp_path,
     assert read_heartbeat(output) == settled
 
     # The study database stays consistent: the same study can be resumed.
-    resumed: list[dict] = []
-    again = tune({**config, "trials": 1}, resumed.append)
-    assert again["status"] == "completed" and again["completed_trials"] >= 1
+    again = tune({**config, "trials": 1})
+    assert again["status"] == "completed" and again["completed_trials"] == 2
+
+
+def test_a_failing_study_load_publishes_a_terminal_failed_state(tmp_path, monkeypatch):
+    """A real storage failure while loading the study is terminal and recorded."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    failures: list[int] = []
+
+    def fail():
+        failures.append(1)
+        raise RuntimeError("the study database is unavailable")
+
+    # The first full-history read is the one that initialises the count at load.
+    block_study_trials(optuna, monkeypatch, at=1, before=fail)
+    config = tune_config(tmp_path, trials=1)
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="the study database is unavailable"):
+        tune(config)
+    assert failures == [1], "the storage failure was never injected"
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "failed"
+    assert progress["error"] == "the study database is unavailable"
+    assert not (output / "result.json").exists()
+    settled = read_heartbeat(output)
+    time.sleep(1.2)
+    assert read_heartbeat(output) == settled
+
+
+def test_a_failing_terminal_aggregation_publishes_a_failed_state(tmp_path, monkeypatch):
+    """A storage failure while aggregating the final result is terminal and recorded."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    failures: list[int] = []
+
+    def fail():
+        failures.append(1)
+        raise RuntimeError("the study database is unavailable")
+
+    # The load reads the history once; the aggregation is the next full read.
+    block_study_trials(optuna, monkeypatch, at=2, before=fail)
+    config = tune_config(tmp_path, trials=1)
+    output = Path(config["output_dir"])
+    with pytest.raises(RuntimeError, match="the study database is unavailable"):
+        tune(config)
+    assert failures == [1], "the storage failure was never injected"
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "failed"
+    assert progress["error"] == "the study database is unavailable"
+
+
+def test_an_objective_failure_is_not_counted_and_not_masked(tmp_path, monkeypatch):
+    """A trial that trained but failed afterwards is Optuna's FAIL, not a completion."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    written: list[str] = []
+
+    def failing_set(self, key, value):
+        written.append(key)
+        raise RuntimeError("attribute write failed")
+
+    monkeypatch.setattr(optuna.trial.Trial, "set_user_attr", failing_set)
+    config = tune_config(tmp_path, trials=1)
+    output = Path(config["output_dir"])
+    snapshots: list[dict] = []
+    with pytest.raises(RuntimeError, match="attribute write failed"):
+        tune(config, snapshots.append)
+    assert written, "the attribute write was never attempted"
+    # The original failure is reported, and the trial is never counted: Optuna
+    # records it as FAIL because the objective did not return.
+    progress = read_json(output / "progress.json")
+    assert progress["status"] == "failed" and progress["error"] == "attribute write failed"
+    assert all(state.get("completed_trials", 0) == 0 for state in snapshots)
+    assert not (output / "result.json").exists()
 
 
 def test_study_and_trial_revisions_never_move_backwards(tmp_path):
@@ -1851,3 +1885,47 @@ def test_study_and_trial_revisions_never_move_backwards(tmp_path):
     assert results and results[0]["status"] == "completed"
     assert samples > 5
     assert len(highest) >= 3, "the study and both trials should each have a run identity"
+
+
+def test_the_study_history_is_not_rescanned_for_every_trial(tmp_path, monkeypatch):
+    """Bookkeeping must not re-read the whole study after each trial.
+
+    A full-history read per trial is O(N^2) overall; the counter is updated from
+    Optuna's callbacks instead, so the number of reads must not grow with the
+    number of trials.
+    """
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    reads = block_study_trials(optuna, monkeypatch, at=-1)
+    short = tune(tune_config(tmp_path / "one", trials=1))
+    reads_for_one = len(reads)
+    reads.clear()
+    long = tune(tune_config(tmp_path / "three", trials=3))
+    reads_for_three = len(reads)
+
+    assert short["completed_trials"] == 1 and long["completed_trials"] == 3
+    assert reads_for_one >= 2, "the study history was never read at all"
+    assert reads_for_one == reads_for_three, (
+        f"the study history was re-read per trial: {reads_for_one} reads for one "
+        f"trial and {reads_for_three} for three"
+    )
+
+
+def test_a_resumed_study_starts_from_its_persisted_completed_trials(tmp_path):
+    """Resuming reports the study's own completed trials, then adds its own."""
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    config = tune_config(tmp_path, trials=2)
+    first = tune(config)
+    assert first["status"] == "completed" and first["completed_trials"] == 2
+
+    snapshots: list[dict] = []
+    again = tune({**config, "trials": 1}, snapshots.append)
+    assert again["status"] == "completed" and again["completed_trials"] == 3
+    counts = [state["completed_trials"] for state in snapshots if "completed_trials" in state]
+    assert counts == sorted(counts)
+    # The persisted count is published before the resumed trial finishes, and the
+    # new trial adds exactly one.
+    assert 2 in counts and max(counts) == 3

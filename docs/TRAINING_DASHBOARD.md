@@ -161,9 +161,9 @@ Ownership of the job's files moves from a trial's monitor to the study's and bac
 under the publication lock, and the study publishes `between_trials` before the
 Optuna work that follows a trial — sampling the next trial's parameters, storing the
 finished trial's state and reading the study's trials. A slow storage operation
-therefore never leaves the dashboard without a heartbeat, and the completed-trial
-counter counts only trials that finished training, never pruned, cancelled or
-failed ones.
+therefore never leaves the dashboard without a heartbeat. The completed-trial
+counter follows Optuna's committed trial states, so it advances when the study's
+storage records a trial and never counts a pruned, cancelled or failed one.
 
 - **Self-play** shows completed and scheduled games, active games, searched
   positions and MCTS simulations.

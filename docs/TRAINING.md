@@ -401,12 +401,17 @@ block — parameter sampling, the Optuna bookkeeping that stores the trial's fin
 state, and the aggregation that reads the study's trials. A slow storage operation
 therefore never leaves the job without a heartbeat.
 
-The completed-trial counter only counts trials that finished training: pruned,
-cancelled and failed trials are never counted, matching the terminal result.
-Optuna commits a trial's final state after its objective returns, so the count is
-published from memory at the handover and reconciled against the study's own trials
-afterwards; the reconciliation can only raise the displayed count and its failure
-never hides the error that ended the trial.
+The completed-trial counter follows Optuna's own record. The study counts a trial
+from Optuna's trial callback, which runs once that trial's state is stored, so a
+trial that trained but then failed — a missing evaluation, an attribute write that
+raises — is recorded as `FAIL` and never counted, and pruned, cancelled and failed
+trials are never counted at all. The study's history is read once when it is loaded
+and once when its final result is aggregated, so the bookkeeping stays O(1) per
+trial instead of re-reading every stored trial after each one; a resumed study
+starts from the completed trials Optuna has already stored.
+
+Bookkeeping cost and its measurements are in the
+[tuning bookkeeping benchmark](benchmarks/tuning-bookkeeping.md).
 
 The JSON `search_space` supports `float` (with optional `log`), `int` (with
 optional `step`/`log`) and `categorical` (`choices`) distributions. The nested
