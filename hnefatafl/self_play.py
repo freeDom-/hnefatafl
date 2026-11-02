@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import random
 import time
-from collections import deque
 from typing import TYPE_CHECKING, Callable, Generator
 
 import torch
 
 from .ai import mcts_context
+from .cooperative import CooperativeSearch, single_identity
 from .engine import Move, State, apply_move, legal_moves, new_game
 from .inference import ExactInferenceCache, InferenceMetrics, policy_value_batch
 from .inference_backends import InferenceBackend
 from .models import PolicyValueNet, encode_state
 
 if TYPE_CHECKING:
-    from .training_monitoring import ProgressSink
+    from .training_monitoring import ProgressSink, ProgressTicks
 
 
 GameResult = tuple[list[dict], dict]
@@ -99,11 +99,11 @@ class SelfPlayMetrics:
 
 
 def _game_context(
-    model: PolicyValueNet,
+    model: PolicyValueNet | None,
     config: dict,
     seed: int,
     should_stop: Callable[[], bool] | None,
-    monitor: ProgressSink | None = None,
+    monitor: ProgressTicks | None = None,
 ) -> Generator[State, Evaluation, GameResult]:
     rng = random.Random(seed)
     state = new_game(config["ruleset"])
@@ -129,7 +129,7 @@ def _game_context(
         }
         details: dict = {}
         policy = yield from mcts_context(
-            state, search_config, diagnostics=details, should_stop=should_stop
+            state, search_config, diagnostics=details, should_stop=should_stop, neural=True
         )
         simulations += details.get("simulations", 0)
         shortcuts += details.get("immediate_win_shortcuts", 0)
@@ -200,43 +200,28 @@ def batched_self_play(
     """
     count = config["games"]
     concurrency = min(count, config["self_play_concurrency"])
-    batch_size = config["inference_batch_size"]
-    pending: deque[tuple[int, Generator[State, Evaluation, GameResult], State]] = deque()
     completed: dict[int, GameResult] = {}
     started = flushed = 0
     model.eval()
+    # A long early game must not retain an iteration's worth of finished
+    # examples behind it. Training applies bounded backpressure until its
+    # ordered replay prefix advances; collection callers already retain all
+    # examples explicitly and do not need this extra window.
+    window = 2 * concurrency if not retain_examples else count
     if monitor is not None:
         # Scheduled/completed/active games are aggregated by the driver itself;
         # per-position counters come from the game contexts.
         monitor.counts(games_total=count, games_active=0)
 
-    def cancelled() -> None:
-        if should_stop and should_stop():
-            raise InterruptedError("Training was cancelled")
-
-    def advance(index, context, evaluation=None):
-        cancelled()
-        wall_started = time.monotonic()
-        cpu_started = time.process_time()
-        try:
-            state = next(context) if evaluation is None else context.send(evaluation)
-        except StopIteration as stopped:
-            completed[index] = stopped.value
-            metrics.record(stopped.value[1])
-            if monitor is not None:
-                # Exactly one completion per game: the generator only stops once.
-                monitor.tick(games_completed=1)
-            return None
-        finally:
-            metrics.cpu_search_seconds += time.process_time() - cpu_started
-            metrics.search_traversal_wall_seconds += time.monotonic() - wall_started
-        return index, context, state
-
-    def add_game():
-        nonlocal started
-        index = started
-        started += 1
-        return advance(index, _game_context(model, config, seed + index, should_stop, monitor))
+    def evaluate(identity, states):
+        return policy_value_batch(
+            states,
+            model,
+            mixed_precision=bool(config["mixed_precision"]),
+            metrics=metrics.inference,
+            backend=backend,
+            cache=cache,
+        )
 
     def flush_completed():
         nonlocal flushed
@@ -248,45 +233,46 @@ def batched_self_play(
                 completed[flushed] = ([], result)
             flushed += 1
 
-    def fill_slots():
-        # A long early game must not retain an iteration's worth of finished
-        # examples behind it. Training applies bounded backpressure until its
-        # ordered replay prefix advances; collection callers already retain all
-        # examples explicitly and do not need this extra window.
-        window = 2 * concurrency if not retain_examples else count
-        while len(pending) < concurrency and started < count and started - flushed < window:
-            request = add_game()
-            if request is not None:
-                pending.append(request)
-            else:
-                flush_completed()
-                if progress:
-                    progress({"game": metrics.games, "performance": metrics.snapshot()})
+    def report():
+        if progress:
+            progress({"game": metrics.games, "performance": metrics.snapshot()})
 
-    fill_slots()
-    if monitor is not None:
-        # Report the scheduled games before the first inference batch runs; a
-        # long first batch must not show zero active games.
-        monitor.counts(games_active=len(pending))
-    while pending:
-        cancelled()
-        requests = [pending.popleft() for _ in range(min(batch_size, len(pending)))]
-        evaluations = policy_value_batch(
-            [request[2] for request in requests],
-            model,
-            mixed_precision=bool(config["mixed_precision"]),
-            metrics=metrics.inference,
-            backend=backend,
-            cache=cache,
-        )
-        for (index, context, _), evaluation in zip(requests, evaluations):
-            request = advance(index, context, evaluation)
-            if request is not None:
-                pending.append(request)
-            flush_completed()
-            if request is None and progress:
-                progress({"game": metrics.games, "performance": metrics.snapshot()})
-        fill_slots()
+    def completed_game(index, result):
+        completed[index] = result
+        metrics.record(result[1])
         if monitor is not None:
-            monitor.counts(games_active=len(pending))
+            # Exactly one completion per game: the generator only stops once.
+            monitor.tick(games_completed=1)
+        flush_completed()
+        report()
+
+    def fill_slots():
+        nonlocal started
+        while len(search) < concurrency and started < count and started - flushed < window:
+            index = started
+            started += 1
+            search.start(
+                index,
+                single_identity(_game_context(model, config, seed + index, should_stop, monitor)),
+            )
+        if monitor is not None:
+            # Reported after every refill, including the one before the first
+            # inference batch, so a long first batch never shows zero games.
+            monitor.counts(games_active=len(search))
+
+    def record_traversal(index, wall, cpu):
+        metrics.cpu_search_seconds += cpu
+        metrics.search_traversal_wall_seconds += wall
+
+    search = CooperativeSearch(
+        evaluate,
+        batch_size=config["inference_batch_size"],
+        should_stop=should_stop,
+        on_advance=record_traversal,
+        on_complete=completed_game,
+    )
+    try:
+        search.run(fill_slots)
+    finally:
+        search.close()
     return [completed[index] for index in range(count)]

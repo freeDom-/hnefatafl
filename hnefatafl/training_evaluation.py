@@ -155,6 +155,7 @@ def evaluate_model(
     previous: PolicyValueNet | None = None,
     seed: int | None = None,
     should_stop: Callable[[], bool] | None = None,
+    search_pool=None,
     monitor: ProgressSink | None = None,
 ) -> dict:
     """Evaluate exactly the selected opponent with equal neural budgets per side."""
@@ -171,6 +172,36 @@ def evaluate_model(
     model.eval()
     if previous is not None:
         previous.eval()
+    # Imported lazily because training imports this module at import time.
+    from .training import evaluation_uses_pool
+
+    if evaluation_uses_pool(config):
+        parallel_started = time.monotonic()
+        from .parallel_search import parallel_evaluation
+
+        outcomes, performance = parallel_evaluation(
+            model,
+            config,
+            context,
+            seed=seed,
+            previous=previous,
+            should_stop=should_stop,
+            search_pool=search_pool,
+            monitor=monitor,
+        )
+        return {
+            **_summary(outcomes),
+            "opponent": context["opponent"],
+            "opponent_config": context["opponent_config"],
+            "context": context,
+            "opponent_identity": context_identity(context),
+            "candidate_as_attacker": _summary(outcomes[::2]),
+            "candidate_as_defender": _summary(outcomes[1::2]),
+            "games": outcomes,
+            "duration": time.monotonic() - parallel_started,
+            "seed": seed,
+            "performance": performance,
+        }
     started = time.monotonic()
     if monitor is not None:
         monitor.counts(

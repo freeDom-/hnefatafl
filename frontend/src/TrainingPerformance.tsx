@@ -58,7 +58,13 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
       {typeof performance.self_play_mode === 'string' && (
         <p>
           {t('Self-play execution')}:{' '}
-          {t(performance.self_play_mode === 'batched' ? 'Batched' : 'Sequential')}
+          {t(
+            performance.self_play_mode === 'batched'
+              ? 'Batched'
+              : performance.self_play_mode === 'parallel'
+                ? 'Parallel'
+                : 'Sequential',
+          )}
         </p>
       )}
       <label className="performance-metric-control">

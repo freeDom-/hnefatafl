@@ -10,6 +10,7 @@ import {
   translate,
 } from './i18n';
 import { localizedRules } from './locales/rules-de';
+import training from './locales/de-training';
 import type { Ruleset } from './types';
 
 const rulesets: Ruleset[] = [
@@ -112,5 +113,14 @@ describe('English and German localization', () => {
     expect(localizedRules('brandubh', 'English rules')).toContain('Die Angreifer beginnen.');
     expect(localizedRules('copenhagen', 'English rules')).toContain('Schildwall');
     expect(translate('A historical player name', {}, 'de')).toBe('A historical player name');
+  });
+
+  it('translates every self-play execution mode label', () => {
+    // The performance view renders these through the shared dictionary, so an
+    // entry must exist rather than relying on the English fallback.
+    expect(training.Sequential).toBe('Sequenziell');
+    expect(training.Batched).toBe('Gebündelt');
+    expect(training.Parallel).toBe('Parallel');
+    expect(translate('Self-play execution', {}, 'de')).toBe('Selbstspiel-Ausführung');
   });
 });

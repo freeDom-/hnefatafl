@@ -1,4 +1,5 @@
 const translations: Record<string, string> = {
+  'CPU search processes (0 disables)': 'CPU-Suchprozesse (0 deaktiviert)',
   'Import config.json': 'config.json importieren',
   'Importing configuration…': 'Konfiguration wird importiert…',
   'Load parameters from an exported config.json. Review them before starting; importing never starts a job.':
@@ -244,6 +245,7 @@ const translations: Record<string, string> = {
   'Automatic · batched on CUDA/OpenVINO': 'Automatisch · gebündelt auf CUDA/OpenVINO',
   Sequential: 'Sequenziell',
   Batched: 'Gebündelt',
+  Parallel: 'Parallel',
   'Concurrent self-play games': 'Gleichzeitige Selbstspiele',
   'Inference batch size': 'Inferenz-Bündelgröße',
   'Training performance': 'Trainingsleistung',

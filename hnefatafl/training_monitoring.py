@@ -167,7 +167,18 @@ def publication_age(directory: Path, *, now: float | None = None) -> float | Non
     return max(0.0, (time.time() if now is None else now) - newest)
 
 
-class ProgressSink(Protocol):
+class ProgressTicks(Protocol):
+    """The per-position subset of ``ProgressSink`` a game context needs.
+
+    A spawned actor cannot share the parent's monitor, so it forwards its own
+    batched accumulator instead. Declaring the narrow surface keeps both
+    callables valid without pretending the actor owns phase or absolute state.
+    """
+
+    def tick(self, **deltas: float) -> None: ...
+
+
+class ProgressSink(ProgressTicks, Protocol):
     """Hot-path surface used by self-play, optimization and evaluation code.
 
     Implementations must stay cheap: these methods run once per searched position
@@ -176,8 +187,6 @@ class ProgressSink(Protocol):
     """
 
     def phase(self, name: str, *, iteration: int | None = None) -> None: ...
-
-    def tick(self, **deltas: float) -> None: ...
 
     def counts(self, **values: float | str) -> None: ...
 

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections import deque
 import time
 from typing import Callable, Generator
 
 from .ai import choose_move, mcts_context
+from .cooperative import CooperativeSearch
 from .engine import State, apply_move, new_game
 from .inference import ExactInferenceCache, InferenceMetrics, policy_value_batch
 from .inference_backends import create_inference
@@ -21,9 +21,14 @@ def evaluation_backend(config: dict) -> str:
 
 
 def game_context(
-    index: int, config: dict, context: dict, models: list, seed: int, should_stop
+    index: int, config: dict, context: dict, models: list, seed: int, should_stop, *, neural=None
 ) -> Generator[tuple[int, State], tuple[dict, float], dict]:
-    """A game owns its RNG/search state; only neural leaves cross the boundary."""
+    """A game owns its RNG/search state; only neural leaves cross the boundary.
+
+    ``neural`` forces external leaf evaluation for callers that supply priors and
+    values from outside the process (``models`` is then only a placeholder list
+    whose length selects whether the opponent also searches neurally).
+    """
     state = new_game(config["ruleset"])
     side = "attackers" if index % 2 == 0 else "defenders"
     pair_seed = seed + 1000 * (index // 2)
@@ -39,8 +44,11 @@ def game_context(
         details: dict = {}
         if candidate or len(models) == 2:
             model_index = 0 if candidate else 1
-            settings["_model"] = models[model_index]
-            search = mcts_context(state, settings, diagnostics=details, should_stop=should_stop)
+            if neural is None:
+                settings["_model"] = models[model_index]
+            search = mcts_context(
+                state, settings, diagnostics=details, should_stop=should_stop, neural=neural
+            )
             try:
                 pending = next(search)
                 while True:
@@ -84,8 +92,6 @@ def batched_evaluation(
     concurrency = min(config["evaluation_games"], config.get("evaluation_concurrency", 16))
     if config.get("evaluation_mode") == "sequential":
         concurrency = 1
-    maximum = config.get("evaluation_batch_size", 32)
-    queues: list[deque] = [deque() for _ in models]
     metrics = [InferenceMetrics() for _ in models]
     caches = [
         ExactInferenceCache(config["inference_cache_capacity"])
@@ -94,24 +100,33 @@ def batched_evaluation(
         for _ in models
     ]
     backends: list = []
-    active: dict[int, Generator[tuple[int, State], tuple[dict, float], dict]] = {}
     outcomes: dict[int, dict] = {}
     started = 0
     refresh_seconds = 0.0
 
-    def cancelled():
-        if should_stop and should_stop():
-            raise InterruptedError("Evaluation was cancelled")
+    def evaluate(identity, states):
+        if monitor is not None:
+            # One cheap update per searched position keeps long games live.
+            monitor.tick(evaluation_plies=len(states))
+        return policy_value_batch(
+            states,
+            models[identity],
+            mixed_precision=False,
+            metrics=metrics[identity],
+            backend=backends[identity],
+            cache=caches[identity],
+        )
 
     wins = draws = losses = 0
 
-    def completed(outcome):
-        """Running, clearly partial tallies; the final result comes from the outcomes."""
+    def completed_game(index, result):
+        """Record the outcome and keep the dashboard's running tallies live."""
         nonlocal wins, draws, losses
+        outcomes[index] = result
         if monitor is None:
             return
-        side = outcome["candidate_side"]
-        winner = outcome["winner"]
+        side = result["candidate_side"]
+        winner = result["winner"]
         # Truncated games count as neither a win nor a loss, matching the scoring.
         wins += int(winner == side)
         draws += int(winner == "draw")
@@ -119,24 +134,20 @@ def batched_evaluation(
         monitor.tick(evaluation_games=1)
         monitor.counts(evaluation_wins=wins, evaluation_draws=draws, evaluation_losses=losses)
 
-    def advance(index, result=None):
-        cancelled()
-        game = active[index]
-        try:
-            identity, state = next(game) if result is None else game.send(result)
-            queues[identity].append((index, state))
-        except StopIteration as finished:
-            outcomes[index] = finished.value
-            del active[index]
-            completed(finished.value)
+    search = CooperativeSearch(
+        evaluate,
+        identities=len(models),
+        batch_size=config.get("evaluation_batch_size", 32),
+        should_stop=should_stop,
+        on_complete=completed_game,
+    )
 
     def fill():
         nonlocal started
-        while len(active) < concurrency and started < config["evaluation_games"]:
+        while len(search) < concurrency and started < config["evaluation_games"]:
             index = started
             started += 1
-            active[index] = game_context(index, config, context, models, seed, should_stop)
-            advance(index)
+            search.start(index, game_context(index, config, context, models, seed, should_stop))
 
     try:
         for selected in models:
@@ -148,7 +159,7 @@ def batched_evaluation(
                         **config,
                         "games": config["evaluation_games"],
                         "self_play_concurrency": concurrency,
-                        "inference_batch_size": maximum,
+                        "inference_batch_size": config.get("evaluation_batch_size", 32),
                     },
                 )
             backends.append(backend)
@@ -157,30 +168,9 @@ def batched_evaluation(
                 before = time.monotonic()
                 backend.refresh()
                 refresh_seconds += time.monotonic() - before
-        fill()
-        while active:
-            cancelled()
-            for identity, queue in enumerate(queues):
-                if not queue:
-                    continue
-                requests = [queue.popleft() for _ in range(min(maximum, len(queue)))]
-                values = policy_value_batch(
-                    [state for _, state in requests],
-                    models[identity],
-                    mixed_precision=False,
-                    metrics=metrics[identity],
-                    backend=backends[identity],
-                    cache=caches[identity],
-                )
-                for (index, _), result in zip(requests, values):
-                    advance(index, result)
-                if monitor is not None:
-                    # One cheap update per searched position keeps long games live.
-                    monitor.tick(evaluation_plies=len(requests))
-                fill()
+        search.run(fill)
     finally:
-        for game in active.values():
-            game.close()
+        search.close()
         for backend in backends:
             if backend is not None:
                 backend.close()

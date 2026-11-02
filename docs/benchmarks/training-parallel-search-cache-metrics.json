@@ -1,0 +1,509 @@
+{
+  "protocol": "Before/after comparison of the cache-metric correction. 'pre' is the extracted source at fa0b54a, 'post' is the fixed tree; both run the candidate variant so the parallel pool is exercised on both sides. One discarded warm-up sample per process. The single-slice scenarios use the default retention (one granted slice per worker) and the multi-slice scenarios use --retain-examples no with 12 games, concurrency 2 and a cache capacity of 8, which grants each worker three slices.",
+  "environment": {
+    "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "python": "3.12.15 (main, Oct 14 2026, 01:05:27) [Clang 23.1.3 ]"
+  },
+  "scenarios": {
+    "ev-brandubh-w2-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 1.1237986720225308,
+        "work_sha256": "a3009bea89dc53364c595dcf9deaaa16adf7005f5dec316bb84931aa1e6715d3",
+        "workers": 2,
+        "neural_evaluations": 1162,
+        "cache_entries": 1162,
+        "cache_peak_entries": 1162,
+        "cache_hits": 15,
+        "cache_misses": 1162,
+        "warmup_seconds": 3.3539264260034543
+      },
+      "pre": {
+        "seconds": 0.9665688399982173,
+        "work_sha256": "a3009bea89dc53364c595dcf9deaaa16adf7005f5dec316bb84931aa1e6715d3",
+        "workers": 2,
+        "neural_evaluations": 1162,
+        "cache_entries": 1162,
+        "cache_peak_entries": 1162,
+        "cache_hits": 15,
+        "cache_misses": 1162,
+        "warmup_seconds": 3.4208729740057606
+      }
+    },
+    "ev-brandubh-w4-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 0.9915149400185328,
+        "work_sha256": "a3009bea89dc53364c595dcf9deaaa16adf7005f5dec316bb84931aa1e6715d3",
+        "workers": 4,
+        "neural_evaluations": 1176,
+        "cache_entries": 1176,
+        "cache_peak_entries": 1176,
+        "cache_hits": 5,
+        "cache_misses": 1176,
+        "warmup_seconds": 4.035739662009291
+      },
+      "pre": {
+        "seconds": 1.0184429759974591,
+        "work_sha256": "a3009bea89dc53364c595dcf9deaaa16adf7005f5dec316bb84931aa1e6715d3",
+        "workers": 4,
+        "neural_evaluations": 1176,
+        "cache_entries": 1176,
+        "cache_peak_entries": 1176,
+        "cache_hits": 5,
+        "cache_misses": 1176,
+        "warmup_seconds": 4.016915415006224
+      }
+    },
+    "slice-brandubh-w2": {
+      "workload": "multiple slices",
+      "post": {
+        "seconds": 0.3668478770123329,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 296,
+        "cache_entries": 16,
+        "cache_peak_entries": 16,
+        "cache_hits": 76,
+        "cache_misses": 296,
+        "warmup_seconds": 2.6564015000185464
+      },
+      "pre": {
+        "seconds": 0.39942884698393755,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 296,
+        "cache_entries": 48,
+        "cache_peak_entries": 48,
+        "cache_hits": 76,
+        "cache_misses": 296,
+        "warmup_seconds": 2.7623568060225807
+      }
+    },
+    "slice-brandubh-w4": {
+      "workload": "multiple slices",
+      "post": {
+        "seconds": 0.376562236022437,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 296,
+        "cache_entries": 16,
+        "cache_peak_entries": 16,
+        "cache_hits": 76,
+        "cache_misses": 296,
+        "warmup_seconds": 2.732774033996975
+      },
+      "pre": {
+        "seconds": 0.4898850070021581,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 296,
+        "cache_entries": 48,
+        "cache_peak_entries": 48,
+        "cache_hits": 76,
+        "cache_misses": 296,
+        "warmup_seconds": 3.0790614639990963
+      }
+    },
+    "slice-copenhagen-w2": {
+      "workload": "multiple slices",
+      "post": {
+        "seconds": 2.069310909981141,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 297,
+        "cache_entries": 16,
+        "cache_peak_entries": 16,
+        "cache_hits": 75,
+        "cache_misses": 297,
+        "warmup_seconds": 5.107594217988662
+      },
+      "pre": {
+        "seconds": 2.5012047300115228,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 297,
+        "cache_entries": 48,
+        "cache_peak_entries": 48,
+        "cache_hits": 75,
+        "cache_misses": 297,
+        "warmup_seconds": 4.369727490004152
+      }
+    },
+    "slice-copenhagen-w4": {
+      "workload": "multiple slices",
+      "post": {
+        "seconds": 1.734027183993021,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 297,
+        "cache_entries": 16,
+        "cache_peak_entries": 16,
+        "cache_hits": 75,
+        "cache_misses": 297,
+        "warmup_seconds": 6.470076577999862
+      },
+      "pre": {
+        "seconds": 1.9675001509895083,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 297,
+        "cache_entries": 48,
+        "cache_peak_entries": 48,
+        "cache_hits": 75,
+        "cache_misses": 297,
+        "warmup_seconds": 4.5835336180171
+      }
+    },
+    "slice-tablut-w2": {
+      "workload": "multiple slices",
+      "post": {
+        "seconds": 0.7497283290140331,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 298,
+        "cache_entries": 16,
+        "cache_peak_entries": 16,
+        "cache_hits": 74,
+        "cache_misses": 298,
+        "warmup_seconds": 2.985755349014653
+      },
+      "pre": {
+        "seconds": 0.6608795310021378,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 298,
+        "cache_entries": 48,
+        "cache_peak_entries": 48,
+        "cache_hits": 74,
+        "cache_misses": 298,
+        "warmup_seconds": 2.842824897990795
+      }
+    },
+    "slice-tablut-w4": {
+      "workload": "multiple slices",
+      "post": {
+        "seconds": 0.636488170013763,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 298,
+        "cache_entries": 16,
+        "cache_peak_entries": 16,
+        "cache_hits": 74,
+        "cache_misses": 298,
+        "warmup_seconds": 3.0315891449863557
+      },
+      "pre": {
+        "seconds": 0.7105584919918329,
+        "work_sha256": "622eff208122c42762525f59943c380742bf5c3dcc065952778273508d7937b8",
+        "workers": 2,
+        "neural_evaluations": 298,
+        "cache_entries": 48,
+        "cache_peak_entries": 48,
+        "cache_hits": 74,
+        "cache_misses": 298,
+        "warmup_seconds": 2.949753829976544
+      }
+    },
+    "sp-brandubh-w2-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 3.1947680599987507,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 2,
+        "neural_evaluations": 999,
+        "cache_entries": 999,
+        "cache_peak_entries": 999,
+        "cache_hits": 59,
+        "cache_misses": 999,
+        "warmup_seconds": 12.662272994988598
+      },
+      "pre": {
+        "seconds": 3.634882843995001,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 2,
+        "neural_evaluations": 999,
+        "cache_entries": 999,
+        "cache_peak_entries": 999,
+        "cache_hits": 59,
+        "cache_misses": 999,
+        "warmup_seconds": 10.241894652019255
+      }
+    },
+    "sp-brandubh-w2-off": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 1.0657900380028877,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 2,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 3.9582155969983432
+      },
+      "pre": {
+        "seconds": 1.1541104890056886,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 2,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 4.4064608860062435
+      }
+    },
+    "sp-brandubh-w4-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 0.8118276160093956,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 4,
+        "neural_evaluations": 1003,
+        "cache_entries": 1003,
+        "cache_peak_entries": 1003,
+        "cache_hits": 57,
+        "cache_misses": 1003,
+        "warmup_seconds": 4.022378792986274
+      },
+      "pre": {
+        "seconds": 1.1095039179781452,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 4,
+        "neural_evaluations": 1003,
+        "cache_entries": 1003,
+        "cache_peak_entries": 1003,
+        "cache_hits": 57,
+        "cache_misses": 1003,
+        "warmup_seconds": 6.9072828679927625
+      }
+    },
+    "sp-brandubh-w4-off": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 3.5091064909938723,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 4,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 13.486381789000006
+      },
+      "pre": {
+        "seconds": 3.517019296006765,
+        "work_sha256": "5b50d04a4efa9203325cd34b8aa30bec40bb5e28bcb862644a6e80f2ce3ce04a",
+        "workers": 4,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 14.047500553017017
+      }
+    },
+    "sp-copenhagen-w2-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 2.927005199017003,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 2,
+        "neural_evaluations": 1016,
+        "cache_entries": 1016,
+        "cache_peak_entries": 1016,
+        "cache_hits": 41,
+        "cache_misses": 1016,
+        "warmup_seconds": 5.148058093007421
+      },
+      "pre": {
+        "seconds": 3.0690135049808305,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 2,
+        "neural_evaluations": 1016,
+        "cache_entries": 1016,
+        "cache_peak_entries": 1016,
+        "cache_hits": 41,
+        "cache_misses": 1016,
+        "warmup_seconds": 5.197635007993085
+      }
+    },
+    "sp-copenhagen-w2-off": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 2.6632328259875067,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 2,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 5.228558017988689
+      },
+      "pre": {
+        "seconds": 2.6774382859875914,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 2,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 4.878232632996514
+      }
+    },
+    "sp-copenhagen-w4-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 2.875718531984603,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 4,
+        "neural_evaluations": 1020,
+        "cache_entries": 1020,
+        "cache_peak_entries": 1020,
+        "cache_hits": 40,
+        "cache_misses": 1020,
+        "warmup_seconds": 5.71440174698364
+      },
+      "pre": {
+        "seconds": 2.4248838869971223,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 4,
+        "neural_evaluations": 1020,
+        "cache_entries": 1020,
+        "cache_peak_entries": 1020,
+        "cache_hits": 40,
+        "cache_misses": 1020,
+        "warmup_seconds": 6.065449029993033
+      }
+    },
+    "sp-copenhagen-w4-off": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 2.1658274060173426,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 4,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 5.51547894399846
+      },
+      "pre": {
+        "seconds": 2.2858149010280613,
+        "work_sha256": "20767b2d73259faed9a8249723d2574ae01b23a293731cb2c782154b7ff09fb5",
+        "workers": 4,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 5.388147439982276
+      }
+    },
+    "sp-tablut-w2-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 1.7995000420196448,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 2,
+        "neural_evaluations": 1008,
+        "cache_entries": 1008,
+        "cache_peak_entries": 1008,
+        "cache_hits": 50,
+        "cache_misses": 1008,
+        "warmup_seconds": 3.8534892619936727
+      },
+      "pre": {
+        "seconds": 1.9980788169777952,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 2,
+        "neural_evaluations": 1008,
+        "cache_entries": 1008,
+        "cache_peak_entries": 1008,
+        "cache_hits": 50,
+        "cache_misses": 1008,
+        "warmup_seconds": 4.306344804004766
+      }
+    },
+    "sp-tablut-w2-off": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 2.196944515017094,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 2,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 5.204191167023964
+      },
+      "pre": {
+        "seconds": 2.664590030995896,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 2,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 4.488914890011074
+      }
+    },
+    "sp-tablut-w4-exact": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 1.5050888120022137,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 4,
+        "neural_evaluations": 1010,
+        "cache_entries": 1010,
+        "cache_peak_entries": 1010,
+        "cache_hits": 50,
+        "cache_misses": 1010,
+        "warmup_seconds": 4.604892333998578
+      },
+      "pre": {
+        "seconds": 1.2982687879994046,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 4,
+        "neural_evaluations": 1010,
+        "cache_entries": 1010,
+        "cache_peak_entries": 1010,
+        "cache_hits": 50,
+        "cache_misses": 1010,
+        "warmup_seconds": 4.575119194982108
+      }
+    },
+    "sp-tablut-w4-off": {
+      "workload": "single slice",
+      "post": {
+        "seconds": 1.229690727981506,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 4,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 4.201139137992868
+      },
+      "pre": {
+        "seconds": 1.2334151399845723,
+        "work_sha256": "585aa1035b37d472b7e888b2ee40f60584e9e9ebcb3913b6bf690c6dafa81c71",
+        "workers": 4,
+        "neural_evaluations": 1060,
+        "cache_entries": 0,
+        "cache_peak_entries": 0,
+        "cache_hits": 0,
+        "cache_misses": 1060,
+        "warmup_seconds": 4.240427555021597
+      }
+    }
+  }
+}

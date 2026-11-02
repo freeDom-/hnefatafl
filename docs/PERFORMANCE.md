@@ -121,8 +121,72 @@ small network, so fewer forward passes need not mean faster generation.
 
 ## Reading performance metrics
 
+Optional `search_workers` (0 disables; 1–32 processes) moves independent search
+into persistent spawned CPU actors that each drive many games through the shared
+cooperative scheduler. The worker count is a cap, not a target: processes are created
+on demand, only as far as a phase has concurrent game slots, and are reused by later
+phases. `self_play_concurrency` and `evaluation_concurrency` are hard upper bounds on
+how many games are active across the whole pool. Each worker takes a static
+round-robin share of the game indices and a capacity equal to the requested
+concurrency split as a quotient and remainder, so the capacities sum to exactly the
+requested limit and a worker with no capacity is never started.
+
+Execution mode decides whether the pool runs a phase. `self_play_mode="sequential"`
+always runs self-play in the training process, even with a positive worker count;
+`batched` and `auto` use the pool whenever workers are configured, and `auto`
+otherwise batches on CUDA/OpenVINO and stays sequential on CPU/MPS.
+`evaluation_mode="sequential"` overrides the pool the same way, and a configuration
+where both phases are sequential never starts worker processes.
+
+CPU inference uses read-only actor snapshots evaluated inside the actor with one math
+thread each; CUDA/OpenVINO models, tensors, streams and caches stay in the parent,
+which merges the outstanding requests of the whole pool into one forward pass and
+routes every result back by explicit request identity. The parent waits for a sibling
+actor only inside a bounded window (8 ms by default) and never delays a batch solely
+to fill it. Evaluation inference backends the pool creates are closed exactly once
+when the phase ends or fails, including when a later backend cannot be created or
+refreshed.
+
+Actors report live progress as they search. A game context ticks the same
+per-position counters the in-process path ticks, but into an actor-local accumulator
+that batches them into bounded messages (one per 64 counted units or 0.25 s, never one
+per simulation). The parent applies each batch as a delta, drops a message whose
+per-worker sequence it has already seen, and lets a completion contribute only its own
+completion counter, so nothing is counted twice and the dashboard advances during a
+long game instead of waiting for it to end. Each message also carries the actor's live
+active-game count, which the parent sums across workers. With `search_workers=0` the
+monitor is called directly, exactly as before.
+
+Exact inference caching is per worker. Each actor owns one cache per model identity,
+keeps it across the slices it is granted, and starts a fresh one when the parent binds
+a new weight generation, so a rebind never mixes two generations. Cache occupancy is
+reported as the change since the previous report *for that generation* and the parent
+adds the actors' changes together, so a worker that processes several slices counts
+its entries once. A pool therefore reports `inference_cache_entries` as the total live
+entries across its workers' caches — up to `search_worker_count × capacity` — and
+`inference_cache_peak_entries` as the sum of each worker's own high-water mark, which
+is an upper bound on simultaneous occupancy rather than the simultaneous maximum. The
+in-process path (`search_workers=0`) reports its single cache's occupancy and peak
+directly. With caching off, both are zero and every request is a miss.
+
+Completed games are handed to the caller as soon as they arrive: the pool keeps only
+a running count, and with `retain_examples=False` the caller drops a game's examples
+as soon as its ordered replay callback has consumed them. Retained memory therefore
+stays bounded by active concurrency and the ordered replay window instead of growing
+with the iteration's game count. More processes consume more RAM and can be slower.
+Pools span a training run; standalone calls pay startup. Parallel traversal wall
+contribution is reported as unavailable because actor activity overlaps. See
+[isolated worker measurements](benchmarks/training-parallel-search.md) and the
+[redesigned scheduler measurements](benchmarks/training-parallel-search-redesign.md).
+
 Metrics live under `metrics.performance` in progress/result JSON and under
-`history[].performance` for completed history points. The workshop shows live and
+`history[].performance` for completed history points. A parallel phase adds
+`search_workers` (pool size), `search_worker_count` (workers actually used),
+`search_concurrency` (the requested bound), `search_worker_capacity` and
+`search_worker_peak_active` (per-worker capacity and observed active high-water mark),
+`search_replay_window`, `search_flush_seconds`, `search_initialization_seconds`,
+`search_progress_messages` (batched progress messages the parent applied) and
+`inference_location`. The workshop shows live and
 completed throughput, batch sizes, outcomes, phase times and throughput history
 alongside separate loss/evaluation graphs. Rates describe self-play generation,
 not full training throughput or model quality. Unfinished games still contribute

@@ -47,6 +47,7 @@
     "model_name",
     "temperature",
     "cpu_threads",
+    "search_workers",
     "dirichlet_alpha",
     "dirichlet_fraction",
     "save_all_best"

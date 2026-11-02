@@ -1,0 +1,392 @@
+# Parallel search redesign
+
+The first `search_workers` implementation (PR 39) bounded effective game concurrency
+by the number of worker processes, which collapsed GPU batch occupancy. This report
+covers the redesigned pool, corrected CPU and GPU measurements, and the work-hash
+investigation. The [first-implementation report](training-parallel-search.md) is
+retained unchanged as historical evidence.
+
+## Scheduling model
+
+`hnefatafl/cooperative.py` owns one scheduler for every path: in-process self-play,
+in-process evaluation and each spawned CPU actor. A game is a generator that yields
+`(model identity, state)` and receives exactly its own evaluation, so no simulation
+advances on another game's inference.
+
+`search_workers` sizes the process pool and never bounds concurrency.
+`self_play_concurrency` and `evaluation_concurrency` are hard upper bounds on active
+games across the whole pool. Each worker receives a static round-robin share of the
+game indices and a capacity from a quotient/remainder split of the requested
+concurrency, so the capacities sum to exactly the requested limit: two workers share
+one concurrent game as `1 + 0`, three workers share ten as `4 + 3 + 3`, and a worker
+with no capacity is never started. Static assignment is what makes batch composition,
+and therefore the work fingerprint, reproducible; the first implementation assigned
+each index to whichever worker happened to be free, and the first redesign revision
+rounded every worker's window up, which could exceed the configured limit.
+
+Execution mode decides whether a phase uses the pool at all. An explicit
+`self_play_mode="sequential"` always runs self-play in the training process, whatever
+worker count is configured; `batched` and `auto` use the pool whenever workers are
+configured, and `auto` otherwise batches on CUDA/OpenVINO and stays sequential on
+CPU/MPS. `evaluation_mode="sequential"` overrides the pool the same way. A
+configuration where both phases are sequential starts no worker processes at all.
+
+CPU models are bound as frozen read-only snapshots in every actor, and each actor
+evaluates its own leaves in one batched forward pass with a single math thread.
+CUDA/OpenVINO models, tensors, streams and caches stay in the parent. The parent
+collects the outstanding requests of the whole pool, merges them into as few forward
+passes as the batch limit allows, and routes every result back by explicit request
+token. It waits for a sibling actor only inside a bounded merge window (8 ms by
+default) and stops the moment that sibling delivers, so the window bounds merging
+rather than delaying a batch to fill it.
+
+Ordered replay stays bounded: with `retain_examples=False` the pool hands each worker
+one slice of its share at a time and only grants the next slice while
+`granted - committed < 2 * concurrency`, matching the in-process window. Results are
+committed in game-index order and a slow early game cannot retain an iteration of
+examples. The pool itself keeps only a completion count: a finished game is handed to
+the caller as soon as it arrives, so retained examples are bounded by active
+concurrency and the replay window instead of growing with the iteration's game count.
+Evaluation backends the pool creates are registered on an exit stack before they are
+refreshed, so a failed creation or refresh closes every backend that phase already
+owns without replacing the original error, and an externally owned backend is never
+closed.
+
+## Root cause of the first implementation's GPU regression
+
+`parallel_search.py` set effective concurrency to
+`min(len(processes), games, self_play_concurrency)`. Each actor ran exactly one game
+and blocked on its own inference result, so two workers allowed at most two
+outstanding requests even with 64 configured games. The parent therefore executed
+133,613 forward passes of average size 1.16 instead of 7,477 of average size 21.09,
+and median runtime rose from 101.19 s to 1,188.29 s — about 11.7x. The fix is the
+scheduling model above: many game contexts per actor, batched leaves per actor, and a
+parent that merges the requests of the whole pool.
+
+## Work-hash investigation
+
+The baseline produced one work hash across repeated runs; the first implementation
+produced a different hash each time. The cause is scheduling-dependent batch shape
+feeding numerical inference, not result routing or RNG:
+
+- The same positions evaluated at batch sizes 1–64 on this network differ by at most
+  `6e-8` in policy and `1.5e-8` in value. That is invisible on its own, but PUCT
+  selection and the sampled move consume thousands of sequential decisions per game,
+  so a `1e-8` difference eventually selects a different child and the trajectory
+  diverges.
+- Identical work measured with different worker counts and merge windows produces
+  different, internally consistent fingerprints. The 16-game workload in the tuning
+  table below is insensitive (one hash for every arm) because it has too few
+  sequential decisions to amplify the difference; the 64-game workload is not.
+- The redesigned pool still shows this residue on GPU. In the alternating-pair GPU
+  protocol the 0-worker arm produced a single fingerprint for all three pairs while
+  each worker arm produced three different ones; two samples of one fixed
+  configuration gave `3b16aefc…` and `366def9b…` at two workers and `03e08b60…` and
+  `3876d1c5…` at four. The first implementation's divergence is the same effect with
+  a much larger batch-shape spread.
+- Routing is separately established. `plan_batches` is unit-tested against
+  out-of-order and oversized requests, and end-to-end results at four workers match an
+  in-process reference that uses the same deliberately state-dependent backend.
+- Per-game RNG streams are preserved: the recorded policy targets of every game
+  replay exactly into legal moves under that game's own seed.
+- No budget is altered. `search_deadline_cutoffs` is 0, and simulation and evaluation
+  counts match the reference.
+
+On CPU the redesign is exact. Three independent alternating pairs of four worker
+counts across three rulesets and both phases each produced a single fingerprint, and
+every one of those fingerprints equals the `main` baseline's.
+
+## CPU measurements
+
+Small workloads: 4 self-play games (8 plies, 32 visits) and 8 Shieldbearer evaluation
+games (16 plies, 32 visits), one math thread per process, `main` extracted at
+`84c7290`. Median of three independent, alternating-order pairs; each process discards
+one warm-up sample. Speedup is the `main` median divided by the arm median.
+
+The first collection below predates the review corrections and ran every arm at the
+config defaults for `evaluation_concurrency`/`evaluation_batch_size`, because the
+harness did not apply those two CLI options. It is retained as measured.
+
+| Phase | Ruleset | `main` | workers 0 | workers 1 | workers 2 | workers 4 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Evaluation | Brandubh | 1.4717 s | 0.92x | 1.89x | 2.26x | 2.44x |
+| Evaluation | Tablut | 3.1240 s | 0.97x | 1.59x | 1.85x | 2.12x |
+| Evaluation | Copenhagen | 9.7563 s | 0.98x | 1.46x | 2.18x | 2.66x |
+| Self-play | Brandubh | 0.7936 s | 1.02x | 0.96x | 1.21x | 1.33x |
+| Self-play | Tablut | 1.4738 s | 0.96x | 1.02x | 1.25x | 1.46x |
+| Self-play | Copenhagen | 3.3120 s | 1.04x | 1.06x | 1.46x | 1.58x |
+
+After the corrections, with the requested `evaluation_concurrency`/`batch_size` of 8
+applied to every arm:
+
+| Phase | Ruleset | `main` | workers 0 | workers 1 | workers 2 | workers 4 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Evaluation | Brandubh | 2.9256 s | 0.97x | 2.00x | 2.80x | 2.25x |
+| Evaluation | Tablut | 6.3491 s | 1.09x | 1.92x | 2.41x | 1.71x |
+| Evaluation | Copenhagen | 16.2091 s | 1.03x | 1.38x | 2.01x | 2.73x |
+| Self-play | Brandubh | 1.5578 s | 1.13x | 1.06x | 1.57x | 1.55x |
+| Self-play | Tablut | 2.6105 s | 0.97x | 0.96x | 1.45x | 1.57x |
+| Self-play | Copenhagen | 5.6625 s | 1.03x | 0.94x | 1.14x | 1.73x |
+
+The two collections agree on the shape of the result: evaluation gains most (roughly
+2–2.8x at two to four workers), self-play gains moderately (roughly 1.1–1.7x), and
+`workers 0` stays within about 13% of `main` on both. That residual spread on the
+identical in-process path is host noise, not a code difference: `workers 0` and `main`
+share the same scheduler and produce the same fingerprints. Corrected raw samples:
+[`training-parallel-search-cpu-corrected.json`](training-parallel-search-cpu-corrected.json).
+
+`workers 0` on this branch reproduces `main` with an identical work fingerprint, so the
+refactor that introduced the shared scheduler did not change the default path. The
+first implementation reported evaluation 1.62x/1.29x/1.72x and self-play
+1.09x/0.91x/1.21x for Brandubh/Tablut/Copenhagen at two workers; the redesign reports
+2.26x/1.85x/2.18x and 1.21x/1.25x/1.46x in the first collection and
+2.80x/2.41x/2.01x and 1.57x/1.45x/1.14x in the corrected one.
+
+Larger workloads (12 games, 16 plies, 48 visits, Brandubh, same protocol):
+
+| Phase | `main` | workers 0 | workers 2 |
+| --- | ---: | ---: | ---: |
+| Evaluation | 2.8399 s | 0.93x | 2.14x |
+| Self-play | 4.8604 s | 1.06x | 1.27x |
+
+Every arm of every scenario — three rulesets, two phases, two workload sizes, four
+worker counts, three pairs each — produced exactly one work fingerprint, and every one
+of those equals the `main` baseline's. Raw samples:
+[`training-parallel-search-redesign.json`](training-parallel-search-redesign.json).
+
+### Inference-cache accounting across worker slices
+
+An actor keeps its inference cache across the slices it is granted, so the counters
+that turn absolute occupancy into increments must live as long as the bound weight
+generation rather than the slice. They did not: every slice restarted the baseline and
+re-reported the whole cache, so a worker with three slices reported its entries three
+times.
+
+The same workloads measured before (`fa0b54a`) and after the correction, candidate
+variant on both sides, one discarded warm-up sample, Brandubh/Tablut/Copenhagen with
+two and four workers, cache capacity 8, 12 games, concurrency 2 and the ordered replay
+window active so each worker is granted three slices:
+
+| Scenario | Before entries / peak | After entries / peak | Cache hits | Evaluations | Fingerprint |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Brandubh, 2 workers | 48 / 48 | 16 / 16 | 76 = 76 | equal | identical |
+| Brandubh, 4 workers | 48 / 48 | 16 / 16 | 76 = 76 | equal | identical |
+| Tablut, 2 workers | 48 / 48 | 16 / 16 | 74 = 74 | equal | identical |
+| Tablut, 4 workers | 48 / 48 | 16 / 16 | 74 = 74 | equal | identical |
+| Copenhagen, 2 workers | 48 / 48 | 16 / 16 | 75 = 75 | equal | identical |
+| Copenhagen, 4 workers | 48 / 48 | 16 / 16 | 75 = 75 | equal | identical |
+
+The pool reports the sum of its workers' caches, so `16` is two workers at the
+configured capacity of 8, which is what the caches actually hold; `48` was the same
+cache counted once per slice. Cache hits, neural evaluations and work fingerprints are
+identical on both sides, so only the reported statistic changed.
+
+A wider matrix — three rulesets, two and four workers, exact and disabled caching, plus
+Shieldbearer evaluation — also produced identical work fingerprints and identical
+neural-evaluation counts before and after, with zero entries reported whenever caching
+is disabled. Raw samples:
+[`training-parallel-search-cache-metrics.json`](training-parallel-search-cache-metrics.json).
+
+### Monitoring overhead
+
+A parallel phase now reports live progress, so its cost is measured against the same
+workloads with and without a monitor attached (`--monitor`), in alternating
+off/on/on/off order with four measured samples per arm. Brandubh, `search_workers=4`:
+
+| Workload | Monitor | Median seconds | Samples | Progress messages | Fingerprint |
+| --- | --- | ---: | --- | ---: | --- |
+| 16 games, 20 plies, 48 visits | off | 4.373 | 4.183, 4.253, 4.690, 4.493 | 0 | `0a1a44fd…` |
+| 16 games, 20 plies, 48 visits | on | 4.559 | 4.889, 4.699, 4.135, 4.419 | 191–206 | `0a1a44fd…` |
+| 4 games, 8 plies, 32 visits | off | 0.639 | 0.795, 0.667, 0.519, 0.611 | 0 | `5b50d04a…` |
+| 4 games, 8 plies, 32 visits | on | 0.594 | 0.567, 0.560, 0.621, 0.743 | 40 | `5b50d04a…` |
+
+Both arms produced a single, identical work fingerprint per workload, so monitoring
+changes neither game outcomes nor search budgets. The timing difference is +4% on the
+larger workload and −7% on the smaller one, while the sample ranges overlap almost
+completely (off 4.18–4.69 against on 4.14–4.89), so no systematic cost is established
+at this resolution. Message volume is the portable result: about 200 progress messages
+for roughly 15,000 simulations and 15,000 inference requests, one message per ~75
+simulations rather than one per simulation. Raw samples:
+[`training-parallel-search-monitoring.json`](training-parallel-search-monitoring.json).
+
+Gains grow with worker count but not linearly: legal-move generation, traversal and
+policy decoding are CPU work that the pool parallelises, while a single actor's
+batched forward pass still runs on one thread. Cold startup is excluded by the
+per-process warm-up, and a real training run reuses one pool across iterations and
+phases.
+
+## GPU measurements
+
+RTX 3060 12 GB, WSL2, PyTorch 2.14.1+cu126, CUDA 12.6, FP32, 32x2 Brandubh network,
+64 games, 64 configured concurrency, batch limit 64, 128 MCTS iterations, 150-ply
+cap. Median of three independent, alternating-order pairs per arm; each process
+discards one warm-up sample.
+
+| Arm | Median seconds | Forward passes | Average batch | Simulations/s | Speedup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `search_workers=0` | 87.05 | 7,477 | 21.09 | 1,803 | 1.00x |
+| `search_workers=4` | 93.88 | 7,500 | 21.08 | 1,670 | 0.93x |
+| `search_workers=8` | 93.34 | 7,487 | 21.07 | 1,681 | 0.93x |
+
+Batch occupancy is preserved: 21.07–21.09 average over roughly 7,490 forward passes,
+against the first implementation's 133,613 passes of average size 1.16. The 0-worker
+arm produced one workload fingerprint for all three pairs; the worker arms produced a
+different fingerprint per pair, which is the GPU numerical residue described above.
+The remaining cost is the pool's own overhead: inter-process traffic, and the extra
+traversal the actors account for (`cpu_search_seconds` 22–26 s against 16.6 s). On
+this workload the worker arms are about 7% slower than the single-process scheduler,
+against 11.7x slower before the redesign. Raw samples:
+[`training-parallel-search-gpu.json`](training-parallel-search-gpu.json).
+
+### Merge window
+
+The window trades latency against the number of forward passes. On the same 64-game
+workload:
+
+| Workers | 1 ms | 4 ms | 8 ms | 20 ms |
+| --- | --- | --- | --- | --- |
+| 2 | 10,743 passes, avg 14.47 | 8,573, avg 18.59 | 7,540, avg 21.14 | – |
+| 4 | 9,964 passes, avg 16.08 | 7,709, avg 20.68 | 7,527, avg 21.01 | 7,576, avg 20.87 |
+| 8 | 7,638 passes, avg 20.65 | 7,523, avg 21.02 | 7,495, avg 21.04 | – |
+
+Batch occupancy is the state-robust part of that sweep; its absolute timings were
+collected in one uninterrupted block and are not comparable with the alternating-pair
+medians above. Raw samples:
+[`training-parallel-search-window.json`](training-parallel-search-window.json).
+
+An 8 ms window reaches baseline occupancy at every worker count, while 1 ms leaves up
+to a third of the batch empty at two and four workers and 20 ms only over-waits. At
+eight workers the window no longer changes occupancy: three
+alternating pairs at 1 ms measured a 91.16 s median against 93.34 s at 8 ms, inside
+the observed spread. Sixteen-game GPU workloads are insensitive too, because their
+forward passes are dominated by the drain tail where few games remain.
+
+A GPU worker mode that stays slower than `search_workers=0` is not recommended, so
+GPU training keeps `search_workers=0` unless traversal is the measured bottleneck, in
+which case 4–8 workers keep batch occupancy but do not pay for themselves on this
+host.
+
+### GPU evaluation
+
+Evaluation is the path PR 37 optimized, so it is measured separately against `main`'s
+**batched** evaluator (`--evaluation-mode batched`), not the older sequential one.
+Same host, 64 evaluation games, 64 concurrent games, batch limit 64, 64 visits and a
+32-ply cap, Brandubh, median of three alternating pairs per arm.
+
+Shieldbearer, `main` at `84c7290`:
+
+| Arm | Median seconds | Speedup | Forward passes | Average batch | Neural evaluations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `main` | 16.64 | 1.00x | 581 | 31.4 | 18,234 |
+| `search_workers=0` | 13.84 | 1.20x | 581 | 31.4 | 18,234 |
+| `search_workers=2` | 16.22 | 1.03x | 621 | 29.7 | 18,428 |
+| `search_workers=4` | 16.77 | 0.99x | 604 | 30.5 | 18,298 |
+| `search_workers=8` | 14.91 | 1.12x | 590 | 31.0 | 18,299 |
+
+Every arm reports the same candidate score (0.3125), the same completed simulations
+within the numerical spread (18,048–18,240) and zero deadline cutoffs. The
+`search_workers=0` arm produces the identical workload fingerprint to `main`
+(`ec6eb13f…`) with identical counters, which is the same in-process evaluator, so the
+two are the same code path and their 20% spread is host noise — one `main` sample took
+52.22 s against 14.47 s and 16.64 s. Worker arms diverge numerically as described
+above, and their per-run fingerprints differ, so their timings are comparable in
+aggregate only.
+
+Within that noise the worker pool neither helps nor hurts CUDA evaluation on this
+host: the arms sit within about ±20% of each other while batch occupancy stays near 31
+of the 64-state limit. That limit is not reached because Shieldbearer evaluation games
+terminate quickly (about 4.4 plies each), so few games are alive at once and the drain
+tail dominates — the same effect that makes small self-play workloads insensitive to
+the merge window. GPU evaluation therefore also keeps `search_workers=0` as the
+recommended configuration.
+
+Raw samples: [`training-parallel-search-gpu-evaluation.json`](training-parallel-search-gpu-evaluation.json).
+
+Champion evaluation, with a genuinely separate incumbent model and one inference
+queue and cache per model:
+
+| Arm | Median seconds | Speedup | Forward passes | Average batch | Neural evaluations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `main` | 69.11 | 1.00x | 4,053 | 12.49 | 50,605 |
+| `search_workers=0` | 54.28 | 1.27x | 4,053 | 12.49 | 50,605 |
+| `search_workers=2` | 59.05 | 1.17x | 3,556 | 14.19 | 50,474 |
+| `search_workers=4` | 52.39 | 1.32x | 3,906 | 12.94 | 50,603 |
+| `search_workers=8` | 53.30 | 1.30x | 3,948 | 12.79 | 50,476 |
+
+Every arm reports the same candidate score (0.5547), the same attacker (0.9688) and
+defender (0.1406) scores, zero deadline cutoffs and exactly two model queues, so
+candidate and Champion inference stay separated and no result crossed models. As with
+Shieldbearer, `search_workers=0` reproduces `main` exactly — same fingerprint
+(`44cd8b71…`), same counters — while its median is 27% faster, which bounds the
+measurement noise on this host at roughly ±30% for this workload. The worker arms
+(1.17x–1.32x) sit inside that bound, so CUDA Champion evaluation shows no established
+speedup and no regression. Raw samples:
+[`training-parallel-search-gpu-champion.json`](training-parallel-search-gpu-champion.json).
+
+## Reproducing
+
+```sh
+mkdir -p work/main-source
+git archive <main-head> hnefatafl | tar -x -C work/main-source
+
+.venv/bin/python scripts/benchmark_parallel_search.py \
+  --baseline-source work/main-source --scenarios selfplay evaluation \
+  --rulesets brandubh tablut copenhagen --workers 0 1 2 4 --pairs 3 \
+  --output docs/benchmarks/training-parallel-search-redesign.json
+
+.venv-cu126/bin/python scripts/benchmark_parallel_search.py --device cuda \
+  --python .venv-cu126/bin/python --baseline-source work/main-source \
+  --scenarios gpu-selfplay --rulesets brandubh --workers 0 4 8 --pairs 3 \
+  --skip-main --work work/parallel-search-gpu \
+  --output docs/benchmarks/training-parallel-search-gpu.json
+
+.venv-cu126/bin/python scripts/benchmark_parallel_search.py --device cuda \
+  --python .venv-cu126/bin/python --baseline-source work/main-source \
+  --evaluation-mode batched --scenarios gpu-evaluation --rulesets brandubh \
+  --workers 0 2 4 8 --pairs 3 --work work/gpu-eval-shield \
+  --output docs/benchmarks/training-parallel-search-gpu-evaluation.json
+
+.venv-cu126/bin/python scripts/benchmark_parallel_search.py --device cuda \
+  --python .venv-cu126/bin/python --baseline-source work/main-source \
+  --evaluation-mode batched --scenarios gpu-evaluation --rulesets brandubh \
+  --workers 0 2 4 8 --pairs 3 --champion --work work/gpu-eval-champion \
+  --output docs/benchmarks/training-parallel-search-gpu-champion.json
+```
+
+`--evaluation-mode batched` makes every arm use the batched evaluator, so an
+evaluation comparison never mixes main's older sequential path with the pool. The
+runner shells out to `scripts/benchmark_training_optimization.py`, which owns the
+workload budgets, worker count, merge-window and evaluation-mode overrides. Add
+`--reuse` to re-aggregate existing samples and `--flush-seconds` to sweep the merge
+window.
+
+Divergence between two sources or two runs is localised with:
+
+```sh
+.venv/bin/python scripts/diagnose_parallel_search.py --source work/main-source \
+  --workers 2 --repeat 3 --games 8 --max-game-plies 24 --mcts-iterations 32
+```
+
+It reports the first game and ply whose recorded example differs, the move each run
+played there, and the per-run batch counters.
+
+## Limitations
+
+- GPU trajectories are not bit-reproducible across runs or worker counts: batch shape
+  depends on when sibling actors deliver, and the resulting `1e-8` numerical
+  difference can select a different move thousands of decisions later. CPU is exact.
+  Use `search_workers=0` when a GPU run must be bit-identical.
+- The measured host is one RTX 3060 and one 12-core WSL2 machine. Absolute times are
+  workload- and host-specific; batch occupancy and the direction of the changes are
+  the portable results. MPS was not measured. CUDA evaluation timings on this host
+  carry roughly ±30% spread between repeated pairs of the *same* configuration, so
+  the evaluation comparisons above establish "no regression" rather than a speedup.
+  The in-process arms (`main` and `search_workers=0`) are the same code path and their
+  spread is the noise floor.
+- The 8 ms merge window is tuned on the 64-game workload. Smaller GPU workloads are
+  dominated by their drain tail, where merging cannot help; `--flush-seconds` exposes
+  the knob for other shapes.
+- Pools span a training run but not a process: a resumed run pays startup again, and
+  standalone calls include it in the first sample only after the discarded warm-up.
+- `search_workers` remains opt-in. A GPU worker mode that stays slower than
+  `search_workers=0` should not be used for GPU training.

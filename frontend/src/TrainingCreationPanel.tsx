@@ -56,6 +56,7 @@ const ADVANCED_NUMBER_FIELDS = [
   'checkpoint_frequency',
   'max_game_plies',
   'cpu_threads',
+  'search_workers',
   'seed',
 ];
 const ADVANCED_FIELDS = [...ADVANCED_NUMBER_FIELDS, 'momentum'];
