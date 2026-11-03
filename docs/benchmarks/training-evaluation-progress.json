@@ -1,0 +1,588 @@
+{
+  "protocol": "Fixed candidate and Champion snapshots derived from one seed, cache off, mixed precision off, CPU, one math thread per process, Brandubh 32-channel/2-block network. The task's full Champion workload (64 games, 128 visits, 32 concurrency, batch 32) could not run repeatedly on the 4-core CPU-only benchmark host, so the A/B uses 16 games, 128 visits, 24-ply cap, 16 concurrency and batch 16. Visits and network match the task; games/concurrency/batch are scaled down 4x. The measured quantity is progress messages per inference batch, which is scale independent. Champion arms: one discarded warm-up per arm and three retained samples. Alternating pairs: 12 games, 96 visits, 20-ply cap, 12 concurrency, batch 12, one warm-up and one retained sample per arm, order reversed every pair.",
+  "environment": {
+    "platform": "Linux-7.0.14-26-pve-x86_64-with-glibc2.41",
+    "python": "3.13.5 (main, Aug 10 2026, 12:06:59) [GCC 14.2.0]"
+  },
+  "champion_benchmark": {
+    "configuration": {
+      "ruleset": "brandubh",
+      "channels": 32,
+      "blocks": 2,
+      "evaluation_games": 16,
+      "evaluation_iterations": 128,
+      "evaluation_max_plies": 24,
+      "evaluation_concurrency": 16,
+      "evaluation_batch_size": 16,
+      "inference_cache_mode": "off"
+    },
+    "before": [
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "off",
+        "samples": [
+          16.108,
+          16.1742,
+          15.6019
+        ],
+        "median_seconds": 16.108,
+        "progress_messages": [
+          0,
+          0,
+          0
+        ],
+        "inference_batches": [
+          7651,
+          7651,
+          7651
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": []
+      },
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "on",
+        "samples": [
+          16.9209,
+          16.873,
+          16.1791
+        ],
+        "median_seconds": 16.873,
+        "progress_messages": [
+          7655,
+          7655,
+          7655
+        ],
+        "inference_batches": [
+          7651,
+          7651,
+          7651
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": [
+          {
+            "first_seconds": 0.009889626991935074,
+            "last_seconds": 16.920759524975438,
+            "max_gap_seconds": 0.011171346995979548,
+            "median_gap_seconds": 0.002059844497125596,
+            "events": 7671
+          },
+          {
+            "first_seconds": 0.007157273998018354,
+            "last_seconds": 16.872868826962076,
+            "max_gap_seconds": 0.011638869997113943,
+            "median_gap_seconds": 0.0019881780026480556,
+            "events": 7671
+          },
+          {
+            "first_seconds": 0.007007598003838211,
+            "last_seconds": 16.17900175700197,
+            "max_gap_seconds": 0.009420983958989382,
+            "median_gap_seconds": 0.0019325595058035105,
+            "events": 7671
+          }
+        ]
+      },
+      {
+        "kind": "evaluation",
+        "workers": 4,
+        "monitor": "off",
+        "samples": [
+          16.5831,
+          17.3311,
+          18.174
+        ],
+        "median_seconds": 17.3311,
+        "progress_messages": [
+          0,
+          0,
+          0
+        ],
+        "inference_batches": [
+          14320,
+          14320,
+          14320
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": []
+      },
+      {
+        "kind": "evaluation",
+        "workers": 4,
+        "monitor": "on",
+        "samples": [
+          18.9298,
+          17.8129,
+          18.7641
+        ],
+        "median_seconds": 18.7641,
+        "progress_messages": [
+          14324,
+          14324,
+          14324
+        ],
+        "inference_batches": [
+          14320,
+          14320,
+          14320
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": [
+          {
+            "first_seconds": 0.01169540302362293,
+            "last_seconds": 18.929630334023386,
+            "max_gap_seconds": 0.010596615029498935,
+            "median_gap_seconds": 0.0009808969916775823,
+            "events": 14340
+          },
+          {
+            "first_seconds": 0.011839533050078899,
+            "last_seconds": 17.812788595038,
+            "max_gap_seconds": 0.008903292997274548,
+            "median_gap_seconds": 0.000962905993219465,
+            "events": 14340
+          },
+          {
+            "first_seconds": 0.00848916097311303,
+            "last_seconds": 18.76394569699187,
+            "max_gap_seconds": 0.009808515955228359,
+            "median_gap_seconds": 0.0009813109645619988,
+            "events": 14340
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "off",
+        "samples": [
+          18.0767,
+          17.1821,
+          18.263
+        ],
+        "median_seconds": 18.0767,
+        "progress_messages": [
+          0,
+          0,
+          0
+        ],
+        "inference_batches": [
+          7651,
+          7651,
+          7651
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": []
+      },
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "on",
+        "samples": [
+          14.968,
+          24.5523,
+          17.5567
+        ],
+        "median_seconds": 17.5567,
+        "progress_messages": [
+          39,
+          60,
+          45
+        ],
+        "inference_batches": [
+          7651,
+          7651,
+          7651
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": [
+          {
+            "first_seconds": 1.0079667380196042,
+            "last_seconds": 14.967849845008459,
+            "max_gap_seconds": 1.0023666059714742,
+            "median_gap_seconds": 0.025389387010363862,
+            "events": 53
+          },
+          {
+            "first_seconds": 1.0123950500274077,
+            "last_seconds": 24.552185815991834,
+            "max_gap_seconds": 1.0063889680313878,
+            "median_gap_seconds": 0.07414816599339247,
+            "events": 74
+          },
+          {
+            "first_seconds": 1.006854826991912,
+            "last_seconds": 17.556506244989578,
+            "max_gap_seconds": 1.000726992962882,
+            "median_gap_seconds": 0.0533704795234371,
+            "events": 59
+          }
+        ]
+      },
+      {
+        "kind": "evaluation",
+        "workers": 4,
+        "monitor": "off",
+        "samples": [
+          17.1686,
+          16.9853,
+          17.5378
+        ],
+        "median_seconds": 17.1686,
+        "progress_messages": [
+          0,
+          0,
+          0
+        ],
+        "inference_batches": [
+          14320,
+          14320,
+          14320
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": []
+      },
+      {
+        "kind": "evaluation",
+        "workers": 4,
+        "monitor": "on",
+        "samples": [
+          19.5936,
+          17.6785,
+          18.065
+        ],
+        "median_seconds": 18.065,
+        "progress_messages": [
+          84,
+          78,
+          79
+        ],
+        "inference_batches": [
+          14320,
+          14320,
+          14320
+        ],
+        "work_hashes": [
+          "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+        ],
+        "latency": [
+          {
+            "first_seconds": 1.0169135939795524,
+            "last_seconds": 19.593408443965018,
+            "max_gap_seconds": 0.9872571879532188,
+            "median_gap_seconds": 0.012417582038324326,
+            "events": 100
+          },
+          {
+            "first_seconds": 1.0091968569904566,
+            "last_seconds": 17.678362241014838,
+            "max_gap_seconds": 0.9995419280021451,
+            "median_gap_seconds": 0.015974538982845843,
+            "events": 94
+          },
+          {
+            "first_seconds": 1.010343867004849,
+            "last_seconds": 18.064907321007922,
+            "max_gap_seconds": 0.9994010200025514,
+            "median_gap_seconds": 0.007031556509900838,
+            "events": 95
+          }
+        ]
+      }
+    ]
+  },
+  "alternating_pairs": {
+    "1": {
+      "baseline": {
+        "off": 8.7118,
+        "on": 9.0057
+      },
+      "candidate": {
+        "off": 8.2706,
+        "on": 8.3609
+      }
+    },
+    "2": {
+      "baseline": {
+        "off": 8.5489,
+        "on": 8.9011
+      },
+      "candidate": {
+        "off": 8.3774,
+        "on": 8.6743
+      }
+    },
+    "3": {
+      "baseline": {
+        "off": 8.3368,
+        "on": 9.4672
+      },
+      "candidate": {
+        "off": 9.0947,
+        "on": 8.806
+      }
+    },
+    "4": {
+      "baseline": {
+        "off": 8.3593,
+        "on": 9.5557
+      },
+      "candidate": {
+        "off": 8.7215,
+        "on": 8.3298
+      }
+    }
+  },
+  "shieldbearer_and_self_play": {
+    "before": [
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "off",
+        "samples": [
+          1.9198,
+          1.9474
+        ],
+        "median_seconds": 1.9336,
+        "progress_messages": [
+          0,
+          0
+        ],
+        "inference_batches": [
+          1228,
+          1228
+        ],
+        "work_hashes": [
+          "7fa0f2edc522b102204fabccb3053dc95aee8224be7ec7609905b8fe18fa5bda"
+        ],
+        "latency": []
+      },
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "on",
+        "samples": [
+          1.9501,
+          2.6067
+        ],
+        "median_seconds": 2.2784,
+        "progress_messages": [
+          1233,
+          1233
+        ],
+        "inference_batches": [
+          1228,
+          1228
+        ],
+        "work_hashes": [
+          "7fa0f2edc522b102204fabccb3053dc95aee8224be7ec7609905b8fe18fa5bda"
+        ],
+        "latency": [
+          {
+            "first_seconds": 0.004118997021578252,
+            "last_seconds": 1.9499615380191244,
+            "max_gap_seconds": 0.006489999999757856,
+            "median_gap_seconds": 0.0012726319837383926,
+            "events": 1245
+          },
+          {
+            "first_seconds": 0.004399669996928424,
+            "last_seconds": 2.6064669489860535,
+            "max_gap_seconds": 0.008973555988632143,
+            "median_gap_seconds": 0.0018963494803756475,
+            "events": 1245
+          }
+        ]
+      },
+      {
+        "kind": "self_play",
+        "workers": 2,
+        "monitor": "off",
+        "samples": [
+          4.8256,
+          5.0892
+        ],
+        "median_seconds": 4.9574,
+        "progress_messages": [
+          0,
+          0
+        ],
+        "inference_batches": [
+          2602,
+          2602
+        ],
+        "work_hashes": [],
+        "latency": []
+      },
+      {
+        "kind": "self_play",
+        "workers": 2,
+        "monitor": "on",
+        "samples": [
+          5.4847,
+          4.7038
+        ],
+        "median_seconds": 5.0943,
+        "progress_messages": [
+          214,
+          214
+        ],
+        "inference_batches": [
+          2602,
+          2602
+        ],
+        "work_hashes": [],
+        "latency": [
+          {
+            "first_seconds": 0.004314014979172498,
+            "last_seconds": 5.484391062986106,
+            "max_gap_seconds": 0.2561693159514107,
+            "median_gap_seconds": 0.000703363970387727,
+            "events": 226
+          },
+          {
+            "first_seconds": 0.004999535973183811,
+            "last_seconds": 4.703517824003939,
+            "max_gap_seconds": 0.2689758450142108,
+            "median_gap_seconds": 0.0005821309750899673,
+            "events": 226
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "off",
+        "samples": [
+          2.4296,
+          3.2823
+        ],
+        "median_seconds": 2.8559,
+        "progress_messages": [
+          0,
+          0
+        ],
+        "inference_batches": [
+          1228,
+          1228
+        ],
+        "work_hashes": [
+          "7fa0f2edc522b102204fabccb3053dc95aee8224be7ec7609905b8fe18fa5bda"
+        ],
+        "latency": []
+      },
+      {
+        "kind": "evaluation",
+        "workers": 2,
+        "monitor": "on",
+        "samples": [
+          1.9154,
+          1.671
+        ],
+        "median_seconds": 1.7932,
+        "progress_messages": [
+          12,
+          12
+        ],
+        "inference_batches": [
+          1228,
+          1228
+        ],
+        "work_hashes": [
+          "7fa0f2edc522b102204fabccb3053dc95aee8224be7ec7609905b8fe18fa5bda"
+        ],
+        "latency": [
+          {
+            "first_seconds": 0.9640780589543283,
+            "last_seconds": 1.9152794950059615,
+            "max_gap_seconds": 0.2645474530290812,
+            "median_gap_seconds": 0.0008804204990155995,
+            "events": 21
+          },
+          {
+            "first_seconds": 0.8876950080157258,
+            "last_seconds": 1.6708152160281315,
+            "max_gap_seconds": 0.18252834700979292,
+            "median_gap_seconds": 0.0007063354714773595,
+            "events": 21
+          }
+        ]
+      },
+      {
+        "kind": "self_play",
+        "workers": 2,
+        "monitor": "off",
+        "samples": [
+          5.4763,
+          4.5467
+        ],
+        "median_seconds": 5.0115,
+        "progress_messages": [
+          0,
+          0
+        ],
+        "inference_batches": [
+          2602,
+          2602
+        ],
+        "work_hashes": [],
+        "latency": []
+      },
+      {
+        "kind": "self_play",
+        "workers": 2,
+        "monitor": "on",
+        "samples": [
+          4.884,
+          5.007
+        ],
+        "median_seconds": 4.9455,
+        "progress_messages": [
+          216,
+          216
+        ],
+        "inference_batches": [
+          2602,
+          2602
+        ],
+        "work_hashes": [],
+        "latency": [
+          {
+            "first_seconds": 0.2986921839765273,
+            "last_seconds": 4.883598135027569,
+            "max_gap_seconds": 0.29373135999776423,
+            "median_gap_seconds": 0.0006622329819947481,
+            "events": 216
+          },
+          {
+            "first_seconds": 0.29301077604759485,
+            "last_seconds": 5.006727294996381,
+            "max_gap_seconds": 0.34696180099854246,
+            "median_gap_seconds": 0.0006752749904990196,
+            "events": 216
+          }
+        ]
+      }
+    ]
+  }
+}
