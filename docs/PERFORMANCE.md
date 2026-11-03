@@ -149,13 +149,28 @@ refreshed.
 
 Actors report live progress as they search. A game context ticks the same
 per-position counters the in-process path ticks, but into an actor-local accumulator
-that batches them into bounded messages (one per 64 counted units or 0.25 s, never one
-per simulation). The parent applies each batch as a delta, drops a message whose
-per-worker sequence it has already seen, and lets a completion contribute only its own
-completion counter, so nothing is counted twice and the dashboard advances during a
-long game instead of waiting for it to end. Each message also carries the actor's live
-active-game count, which the parent sums across workers. With `search_workers=0` the
-monitor is called directly, exactly as before.
+that batches them into bounded messages. Self-play ticks once per played move, so it
+flushes each tick and keeps its existing per-move cadence. Evaluation ticks once per
+neural batch, which a CPU or GPU evaluator can complete thousands of times per second;
+it reports on a wall-clock cadence instead (at most one message per second, with a
+generous 16,384-leaf work cap as a safety bound), so message volume tracks elapsed
+time rather than forward passes. The parent applies each batch as a delta, drops a
+message whose per-worker sequence it has already seen, and lets a completion
+contribute only its own completion counter, so nothing is counted twice and the
+dashboard advances during a long game instead of waiting for it to end. A
+counter-free message that only carries an active-game count never marks computational
+progress; the independent heartbeat still covers liveness. Each message also carries
+the actor's live active-game count, which the parent sums across workers. With
+`search_workers=0` the monitor is called directly, exactly as before.
+
+Earlier pool builds flushed the accumulator after every cooperative scheduler step.
+Because evaluation ticked once per inference batch and the scheduler stepped once per
+batch, that produced one progress message per forward pass regardless of the batching
+bounds. The refill callback now only records the active-game count; the next tick or
+lifecycle boundary flushes it, and a cancelled or failed slice flushes its confirmed
+counters before propagating the error. The per-message trigger reason and the time
+spent sending and handling messages are reported as bounded phase metrics. See
+[the evaluation progress measurements](benchmarks/training-evaluation-progress.md).
 
 Exact inference caching is per worker. Each actor owns one cache per model identity,
 keeps it across the slices it is granted, and starts a fresh one when the parent binds
@@ -185,7 +200,12 @@ Metrics live under `metrics.performance` in progress/result JSON and under
 `search_concurrency` (the requested bound), `search_worker_capacity` and
 `search_worker_peak_active` (per-worker capacity and observed active high-water mark),
 `search_replay_window`, `search_flush_seconds`, `search_initialization_seconds`,
-`search_progress_messages` (batched progress messages the parent applied) and
+`search_progress_messages` (batched progress messages the parent applied),
+`search_progress_messages_by_worker`, `search_progress_positions` (evaluation plies
+or self-play positions those messages carried), `search_progress_positions_per_message`,
+`search_progress_count_flushes` / `search_progress_time_flushes` /
+`search_progress_lifecycle_flushes`, `search_progress_send_seconds` (actor time in the
+pipe send) and `search_progress_handle_seconds` (parent time applying them), plus
 `inference_location`. The workshop shows live and
 completed throughput, batch sizes, outcomes, phase times and throughput history
 alongside separate loss/evaluation graphs. Rates describe self-play generation,
