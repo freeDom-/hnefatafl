@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Profiler, useState } from 'react';
 import {
   act,
   cleanup,
@@ -183,6 +183,11 @@ function mockVisualViewport(initial: {
       viewport.offsetTop = offsetTop;
       listeners.get('resize')?.forEach((listener) => listener());
     },
+    scroll(offsetLeft = 0, offsetTop = 0) {
+      viewport.offsetLeft = offsetLeft;
+      viewport.offsetTop = offsetTop;
+      listeners.get('scroll')?.forEach((listener) => listener());
+    },
   };
 }
 
@@ -231,7 +236,9 @@ function mockOverflowingTooltip(
   trigger: { left: number; top: number; width: number; height: number },
   content: { width: number; height: number },
 ) {
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+  const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element,
+  ) {
     const rect = (left: number, top: number, width: number, height: number) =>
       ({
         left,
@@ -270,6 +277,7 @@ function mockOverflowingTooltip(
       ? Math.min(content.height, appliedHeight)
       : content.height;
   });
+  return rectSpy;
 }
 
 /** Asserts every rendered training field has a description and a help button. */
@@ -1046,6 +1054,111 @@ it('removes the document listeners when the scroll panel is dismissed', () => {
   const second = createEvent.keyDown(document, { key: 'Escape' });
   fireEvent(document, second);
   expect(second.defaultPrevented).toBe(false);
+});
+
+it('does not re-measure when the scroll panel itself is scrolled', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  const rect = mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  rect.mockClear();
+  // A scroll from inside the panel must not reposition or re-measure it.
+  fireEvent.scroll(panel, { bubbles: true });
+  expect(rect).not.toHaveBeenCalled();
+  // A scroll on the surrounding page must still reposition it.
+  fireEvent.scroll(document, { bubbles: true });
+  expect(rect).toHaveBeenCalled();
+});
+
+it('does not re-render when a scroll leaves the position unchanged', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  let commits = 0;
+  render(
+    <Profiler
+      id="help"
+      onRender={() => {
+        commits += 1;
+      }}
+    >
+      <CreationHarness />
+    </Profiler>,
+  );
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  const before = commits;
+  // The mocked rects do not move, so setPosition keeps the same object and React
+  // does not commit again.
+  fireEvent.scroll(document, { bubbles: true });
+  expect(commits).toBe(before);
+});
+
+it('repositions when the visual viewport scrolls', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  const visual = mockVisualViewport({ width: 390, height: 200 });
+  const rect = mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  rect.mockClear();
+  act(() => visual.scroll(40, 20));
+  expect(rect).toHaveBeenCalled();
+});
+
+it('stops listening for scroll once the help is dismissed', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  const rect = mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('region')).toBeNull();
+  rect.mockClear();
+  fireEvent.scroll(document, { bubbles: true });
+  expect(rect).not.toHaveBeenCalled();
+});
+
+it('uses a block-level hover group so the portaled panel nests validly', () => {
+  render(<CreationHarness />);
+  const button = helpButton('Training iterations');
+  const group = button.closest('.field-help');
+  expect(group?.tagName).toBe('DIV');
+  // The label and the button stay siblings, so the button never joins the
+  // control's accessible name.
+  expect(group?.querySelector('label')?.contains(button)).toBe(false);
+  fireEvent.click(button, { detail: 1 });
+  const panel = group?.querySelector('.field-tooltip');
+  expect(panel).not.toBeNull();
+  expect(panel?.parentElement).toBe(group);
+  // The scrollable region has no nested interactive controls of its own.
+  expect(panel?.querySelector('button, a, input, select, textarea')).toBeNull();
+});
+
+it('uses a block-level read-only hover group in the resume summary', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(checkpoint(trainingConfig('brandubh', 'recommended')))),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  await screen.findByLabelText('Target total iterations');
+  const group = document.querySelector('[data-training-parameter="ruleset"]');
+  expect(group?.tagName).toBe('DIV');
+  expect(group?.querySelector('.field-info-button')).not.toBeNull();
 });
 
 it('keeps parameter help available while evaluation controls are disabled', () => {

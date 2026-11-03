@@ -379,6 +379,6 @@ h6 {
   overscroll-behavior: contain;
 }
 .field-tooltip-scroll:focus-visible {
-  outline: 3px solid #b38c4c;
+  outline: 3px solid var(--focus-ring);
   outline-offset: -3px;
 }

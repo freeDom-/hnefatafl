@@ -184,6 +184,11 @@ function FieldTooltipBox({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  // The last values actually pushed into state, so a scroll or resize that lands
+  // on the same coordinates or the same presentation does not schedule a no-op
+  // React update at all.
+  const appliedPosition = useRef<{ top: number; left: number } | null>(null);
+  const appliedOversized = useRef(false);
   // A description taller than the visual viewport becomes a focusable, scrollable
   // region instead of a non-interactive tooltip, so the whole text is reachable.
   const [oversized, setOversized] = useState(false);
@@ -211,7 +216,10 @@ function FieldTooltipBox({
       // `scrollHeight` is the full text; `clientHeight` is what the max-height
       // lets through. Only the overflow becomes an interactive scroll panel.
       const nextOversized = element.scrollHeight > element.clientHeight + 1;
-      setOversized((previous) => (previous === nextOversized ? previous : nextOversized));
+      if (appliedOversized.current !== nextOversized) {
+        appliedOversized.current = nextOversized;
+        setOversized(nextOversized);
+      }
       // A fixed tooltip is laid out against the layout viewport, but the visual
       // viewport can be both smaller and displaced from it (a mobile keyboard, or
       // a pinch zoom), and its rectangle is what is actually readable. Both
@@ -241,19 +249,29 @@ function FieldTooltipBox({
             : roomBelow >= roomAbove
               ? below
               : above;
-      setPosition({
-        top: Math.max(viewTop + MARGIN, Math.min(wanted, viewBottom - size.height - MARGIN)),
-        left,
-      });
+      const top = Math.max(viewTop + MARGIN, Math.min(wanted, viewBottom - size.height - MARGIN));
+      // A resize or scroll that lands on the same coordinates must not schedule a
+      // React update or force an extra render.
+      if (appliedPosition.current?.top !== top || appliedPosition.current?.left !== left) {
+        appliedPosition.current = { top, left };
+        setPosition({ top, left });
+      }
+    };
+    // The panel is itself scrollable, so a capture-phase scroll from inside it
+    // must not reposition the panel. Scrolls on the page or a containing dialog
+    // still move the trigger and need a fresh placement.
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && box.current?.contains(event.target)) return;
+      place();
     };
     place();
     window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
+    window.addEventListener('scroll', onScroll, true);
     window.visualViewport?.addEventListener('resize', place);
     window.visualViewport?.addEventListener('scroll', place);
     return () => {
       window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('scroll', onScroll, true);
       window.visualViewport?.removeEventListener('resize', place);
       window.visualViewport?.removeEventListener('scroll', place);
     };
@@ -350,11 +368,11 @@ export function FieldLabel({
   label: string;
   tooltipKey?: string;
 }) {
-  const group = useRef<HTMLSpanElement>(null);
+  const group = useRef<HTMLDivElement>(null);
   const state = useFieldTooltip(group);
   const text = tooltipKey ? trainingTooltip(tooltipKey) : undefined;
   return (
-    <span className="field-help" ref={group} {...state.hover}>
+    <div className="field-help" ref={group} {...state.hover}>
       <label htmlFor={htmlFor}>{t(label)}</label>
       {text && (
         <FieldTooltipTrigger
@@ -364,7 +382,7 @@ export function FieldLabel({
           state={state}
         />
       )}
-    </span>
+    </div>
   );
 }
 
@@ -381,14 +399,14 @@ export function FieldLabel({
  * editable controls.
  */
 export function ReadOnlyFieldLabel({ label, tooltipKey }: { label: string; tooltipKey: string }) {
-  const group = useRef<HTMLSpanElement>(null);
+  const group = useRef<HTMLDivElement>(null);
   const state = useFieldTooltip(group);
   const id = useId();
   return (
-    <span className="field-help" data-training-parameter={tooltipKey} ref={group} {...state.hover}>
+    <div className="field-help" data-training-parameter={tooltipKey} ref={group} {...state.hover}>
       <span>{t(label)}</span>
       <FieldInfo tooltipKey={tooltipKey} fieldLabel={t(label)} state={state} id={`${id}-help`} />
-    </span>
+    </div>
   );
 }
 
