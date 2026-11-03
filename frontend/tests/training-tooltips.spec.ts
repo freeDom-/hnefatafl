@@ -346,3 +346,24 @@ test('a long German description becomes a scrollable panel when zoomed', async (
   await expect(icon).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Inferenzcache' })).toBeVisible();
 });
+
+test('hovering into an oversized help panel keeps it open', async ({ page }) => {
+  // A short viewport makes the long German description overflow even at scale 1,
+  // so the tooltip becomes a scroll panel and its hover group can be exercised
+  // without the page-scale emulation.
+  await page.setViewportSize({ width: 360, height: 180 });
+  await openWorkshop(page);
+  await openCreation(page);
+  await page.getByLabel('Language', { exact: true }).selectOption('de');
+
+  const icon = page.getByRole('button', { name: 'Inferenzcache erklären', exact: true });
+  await icon.hover();
+  const panel = page.getByRole('region', { name: 'Inferenzcache' });
+  await expect(panel).toBeVisible();
+  // Moving from the icon onto the panel must keep it open so it can be scrolled.
+  await panel.hover();
+  await expect(panel).toBeVisible();
+  // Leaving both closes it.
+  await page.mouse.move(0, 0);
+  await expect(panel).toHaveCount(0);
+});
