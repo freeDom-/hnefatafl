@@ -12,6 +12,8 @@ import torch
 from hnefatafl.engine import Move, apply_move, legal_moves, new_game
 from hnefatafl.models import PolicyValueNet, encode_state, load_checkpoint
 from hnefatafl.parallel_search import (
+    EVALUATION_PROGRESS_DELTAS,
+    EVALUATION_PROGRESS_INTERVAL_SECONDS,
     PROGRESS_DELTAS,
     _ActorProgress,
     SearchPool,
@@ -592,6 +594,173 @@ def test_actor_progress_batches_messages_and_stays_silent_when_disabled():
     disabled.note_active(4)
     disabled.flush()
     assert silent.sent == []
+
+
+def test_actor_progress_separates_self_play_and_evaluation_cadence():
+    # Self-play ticks once per played move, so it keeps its per-tick cadence.
+    self_play_connection = RecordingConnection()
+    self_play = _ActorProgress(self_play_connection, True, flush_each_tick=True)
+    for _ in range(5):
+        self_play.tick(positions=1, simulations=8)
+    assert len(self_play_connection.sent) == 5
+    assert sum(message[2]["simulations"] for message in self_play_connection.sent) == 40
+
+    # Evaluation ticks per neural batch but must report on a wall-clock cadence.
+    now = [0.0]
+    evaluation_connection = RecordingConnection()
+    evaluation = _ActorProgress(
+        evaluation_connection,
+        True,
+        batch_deltas=EVALUATION_PROGRESS_DELTAS,
+        interval_seconds=EVALUATION_PROGRESS_INTERVAL_SECONDS,
+        clock=lambda: now[0],
+    )
+    batches = 6250  # 200,000 leaves at 32 leaves per batch
+    for batch in range(batches):
+        evaluation.tick(evaluation_plies=32)
+        now[0] += 0.01  # 62.5 seconds of sustained search
+        if batch == 199:
+            # After two simulated seconds a message has already arrived: the
+            # dashboard stays live during a long burst, not only at its end.
+            assert evaluation_connection.sent
+    evaluation.flush()
+    messages = len(evaluation_connection.sent)
+    assert messages <= int(now[0] / EVALUATION_PROGRESS_INTERVAL_SECONDS) + 2
+    assert messages < batches // 10, "evaluation must not report once per batch"
+    assert sum(message[2]["evaluation_plies"] for message in evaluation_connection.sent) == 200_000
+
+
+def test_actor_progress_reports_trigger_reasons_and_exact_totals():
+    now = [0.0]
+    connection = RecordingConnection()
+    progress = _ActorProgress(
+        connection, True, batch_deltas=4, interval_seconds=10.0, clock=lambda: now[0]
+    )
+    progress.tick(evaluation_plies=4)  # count threshold
+    now[0] = 10.0
+    progress.tick(evaluation_plies=1)  # time threshold
+    now[0] = 11.0
+    progress.tick(evaluation_plies=1)  # below both bounds
+    progress.flush()  # lifecycle boundary
+    stats = progress.stats()
+    assert stats["messages"] == 3
+    assert stats["count_flushes"] == 1
+    assert stats["time_flushes"] == 1
+    assert stats["lifecycle_flushes"] == 1
+    assert [message[1] for message in connection.sent] == [1, 2, 3]
+    assert sum(message[2]["evaluation_plies"] for message in connection.sent) == 6
+
+
+def test_evaluation_progress_is_batched_and_exact_with_a_real_pool():
+    torch.manual_seed(128)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        evaluation_opponent="shield_bearer",
+        evaluation_mode="batched",
+        evaluation_games=4,
+        evaluation_max_plies=8,
+        evaluation_iterations=8,
+        evaluation_concurrency=4,
+        evaluation_batch_size=4,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    result = evaluate_model(model, config, monitor=monitor)
+    performance = result["performance"]
+    batches = sum(entry["inference_batches"] for entry in performance["models"])
+    messages = performance["search_progress_messages"]
+    assert batches > 0
+    assert 0 < messages < batches, "evaluation progress must batch many batches per message"
+    assert performance["search_progress_positions"] == monitor.counters["evaluation_plies"]
+    assert performance["search_progress_positions_per_message"] > 1
+    assert sum(performance["search_progress_messages_by_worker"]) == messages
+    assert performance["search_progress_handle_seconds"] >= 0
+    assert performance["search_progress_send_seconds"] >= 0
+    assert (
+        performance["search_progress_count_flushes"]
+        + performance["search_progress_time_flushes"]
+        + performance["search_progress_lifecycle_flushes"]
+        == messages
+    )
+
+
+def test_disabled_monitoring_sends_no_evaluation_progress():
+    torch.manual_seed(129)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        evaluation_opponent="shield_bearer",
+        evaluation_mode="batched",
+        evaluation_games=4,
+        evaluation_max_plies=8,
+        evaluation_iterations=8,
+        evaluation_concurrency=4,
+        evaluation_batch_size=4,
+        search_workers=2,
+    )
+    result = evaluate_model(model, config)
+    performance = result["performance"]
+    assert performance["search_progress_messages"] == 0
+    assert performance["search_progress_positions"] == 0
+    assert performance["search_progress_messages_by_worker"] == [0, 0]
+
+
+def test_evaluation_pool_reuse_reports_exact_per_phase_progress():
+    torch.manual_seed(130)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        evaluation_opponent="shield_bearer",
+        evaluation_mode="batched",
+        evaluation_games=4,
+        evaluation_max_plies=8,
+        evaluation_iterations=8,
+        evaluation_concurrency=2,
+        evaluation_batch_size=2,
+        search_workers=2,
+    )
+    with SearchPool(2) as pool:
+        first_monitor = RecordingMonitor()
+        first = evaluate_model(model, config, search_pool=pool, monitor=first_monitor)
+        second_monitor = RecordingMonitor()
+        second = evaluate_model(model, config, search_pool=pool, monitor=second_monitor)
+    # Each phase reports its own exact totals: a reused pool must not leak the
+    # previous phase's progress into the next one.
+    for result, monitor in ((first, first_monitor), (second, second_monitor)):
+        performance = result["performance"]
+        assert performance["search_progress_messages"] > 0
+        assert performance["search_progress_positions"] == monitor.counters["evaluation_plies"]
+        assert (
+            sum(performance["search_progress_messages_by_worker"])
+            == performance["search_progress_messages"]
+        )
+
+
+def test_cancelled_evaluation_reports_only_confirmed_progress():
+    torch.manual_seed(131)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        evaluation_opponent="shield_bearer",
+        evaluation_mode="batched",
+        evaluation_games=8,
+        evaluation_max_plies=8,
+        evaluation_iterations=16,
+        evaluation_concurrency=2,
+        evaluation_batch_size=2,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    calls = 0
+
+    def should_stop():
+        nonlocal calls
+        calls += 1
+        return calls > 3
+
+    with pytest.raises(InterruptedError):
+        evaluate_model(model, config, monitor=monitor, should_stop=should_stop)
+    # A cancelled phase must not leave a live active-game reading behind, and
+    # every counter it did report must be a confirmed, non-negative delta.
+    assert monitor.counters.get("games_active", 0) == 0
+    assert monitor.counters.get("evaluation_plies", 0) >= 0
 
 
 def test_parallel_self_play_reports_exact_progress_without_double_counting():

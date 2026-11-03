@@ -79,11 +79,20 @@ def _close_owned(owned: ExitStack, error: BaseException | None = None) -> None:
         error.add_note(f"Closing an inference backend also failed: {cleanup!r}")
 
 
-#: Actor progress is batched so the pool never sends one message per simulation.
-#: A flush happens when either bound is reached, which keeps the message rate
-#: proportional to search work rather than to simulation count.
+#: Self-play ticks once per played move, so its counters already arrive far less
+#: often than evaluation's per-batch neural leaves. These bounds preserve the
+#: original self-play cadence.
 PROGRESS_DELTAS = 64
 PROGRESS_INTERVAL_SECONDS = 0.25
+
+#: Evaluation ticks once per neural batch. A CPU or GPU evaluator completes
+#: thousands of batches per second, so the self-play bounds would emit one
+#: message per forward pass. Evaluation reports on a wall-clock cadence instead:
+#: at most one message per interval, with a generous work cap that only bounds a
+#: burst when the clock is too coarse to fire. One second keeps the dashboard
+#: live while removing the per-batch traffic.
+EVALUATION_PROGRESS_DELTAS = 16384
+EVALUATION_PROGRESS_INTERVAL_SECONDS = 1.0
 
 
 class _ActorProgress:
@@ -93,16 +102,40 @@ class _ActorProgress:
     use, so an actor records exactly the counters the in-process path records.
     Nothing is accumulated or sent unless the phase asked for progress, which
     keeps monitoring off the hot path when no monitor is attached.
+
+    Self-play ticks once per played move, so ``flush_each_tick`` preserves its
+    existing per-move cadence. Evaluation ticks once per neural batch and instead
+    uses ``interval_seconds`` and ``batch_deltas`` so its message rate tracks
+    elapsed time rather than the number of forward passes.
     """
 
-    def __init__(self, connection: Connection, enabled: bool):
+    def __init__(
+        self,
+        connection: Connection,
+        enabled: bool,
+        *,
+        batch_deltas: float = PROGRESS_DELTAS,
+        interval_seconds: float = PROGRESS_INTERVAL_SECONDS,
+        flush_each_tick: bool = False,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self._connection = connection
         self._enabled = enabled
+        self._batch_deltas = batch_deltas
+        self._interval = interval_seconds
+        self._flush_each_tick = flush_each_tick
+        self._clock = clock
         self._sequence = 0
         self._deltas: dict[str, float] = {}
         self._active = 0
         self._dirty = False
-        self._flushed = time.monotonic()
+        self._flushed = clock()
+        # Bounded diagnostics; only touched when a message is actually sent.
+        self._messages = 0
+        self._count_flushes = 0
+        self._time_flushes = 0
+        self._lifecycle_flushes = 0
+        self._send_seconds = 0.0
 
     def tick(self, **deltas: float) -> None:
         if not self._enabled:
@@ -110,28 +143,53 @@ class _ActorProgress:
         for key, value in deltas.items():
             self._deltas[key] = self._deltas.get(key, 0) + value
         self._dirty = True
-        if (
-            sum(self._deltas.values()) >= PROGRESS_DELTAS
-            or time.monotonic() - self._flushed >= PROGRESS_INTERVAL_SECONDS
-        ):
-            self.flush()
+        if self._flush_each_tick:
+            self.flush(reason="lifecycle")
+        elif sum(self._deltas.values()) >= self._batch_deltas:
+            self.flush(reason="count")
+        elif self._clock() - self._flushed >= self._interval:
+            self.flush(reason="time")
 
     def note_active(self, active: int) -> None:
-        """Record how many game contexts this actor is currently searching."""
+        """Record how many game contexts this actor is currently searching.
+
+        Only marks the accumulator dirty: the next tick or lifecycle flush carries
+        the new count. Flushing here would turn every refill into its own message
+        and defeat the batching bounds.
+        """
         if not self._enabled or active == self._active:
             return
         self._active = active
         self._dirty = True
 
-    def flush(self) -> None:
+    def flush(self, *, reason: str = "lifecycle") -> None:
         """Send the accumulated counters once; the parent only ever adds them."""
         if not self._enabled or not self._dirty:
             return
         self._sequence += 1
+        started = self._clock()
         self._connection.send(("progress", self._sequence, dict(self._deltas), self._active))
+        self._send_seconds += self._clock() - started
+        self._messages += 1
+        if reason == "count":
+            self._count_flushes += 1
+        elif reason == "time":
+            self._time_flushes += 1
+        else:
+            self._lifecycle_flushes += 1
         self._deltas.clear()
         self._dirty = False
-        self._flushed = time.monotonic()
+        self._flushed = self._clock()
+
+    def stats(self) -> dict[str, float]:
+        """Bounded per-slice diagnostics, sent once with the worker's report."""
+        return {
+            "messages": self._messages,
+            "count_flushes": self._count_flushes,
+            "time_flushes": self._time_flushes,
+            "lifecycle_flushes": self._lifecycle_flushes,
+            "send_seconds": self._send_seconds,
+        }
 
 
 def _game_factory(
@@ -199,7 +257,19 @@ def _search(
         reported_peak = [0] * identities
     metrics = [InferenceMetrics() for _ in range(identities)]
     per_game_cpu: dict[int, float] = {}
-    progress = _ActorProgress(connection, bool(spec.get("progress")))
+    if kind == "evaluation":
+        # Evaluation ticks per neural batch, so it reports on a wall-clock
+        # cadence instead of per forward pass.
+        progress = _ActorProgress(
+            connection,
+            bool(spec.get("progress")),
+            batch_deltas=EVALUATION_PROGRESS_DELTAS,
+            interval_seconds=EVALUATION_PROGRESS_INTERVAL_SECONDS,
+        )
+    else:
+        # Self-play already ticks once per played move; flushing each tick keeps
+        # its existing live cadence without depending on the refill callback.
+        progress = _ActorProgress(connection, bool(spec.get("progress")), flush_each_tick=True)
 
     def take_metrics() -> list[InferenceMetrics]:
         """Hand over activity since the previous report and start a fresh window."""
@@ -275,14 +345,15 @@ def _search(
             search.start(index, create(index))
         peak_active = max(peak_active, len(search))
         progress.note_active(len(search))
-        progress.flush()
 
     try:
         search.run(refill)
     finally:
+        # Flush before propagating a cancellation or failure so the parent
+        # receives every confirmed counter, never a partial silent loss.
         search.close()
-    progress.flush()
-    connection.send(("finished", take_metrics(), peak_active))
+        progress.flush()
+    connection.send(("finished", take_metrics(), peak_active, progress.stats()))
 
 
 def _actor(connection: Connection, cancel) -> None:
@@ -637,6 +708,13 @@ class SearchPool:
         active_games: dict[Connection, int] = {}
         progress_sequence: dict[Connection, int] = {}
         progress_messages = 0
+        progress_by_worker = [0] * len(active)
+        progress_monitored_positions = 0.0
+        progress_handle_seconds = 0.0
+        progress_send_seconds = 0.0
+        progress_count_flushes = 0
+        progress_time_flushes = 0
+        progress_lifecycle_flushes = 0
         self.active_games = 0
 
         def merge(deltas: list[InferenceMetrics]) -> None:
@@ -644,20 +722,32 @@ class SearchPool:
                 self.inference_metrics[identity].add(delta)
 
         def handle(connection: Connection, message) -> None:
-            nonlocal completed, progress_messages
+            nonlocal completed, progress_messages, progress_monitored_positions
+            nonlocal progress_handle_seconds, progress_send_seconds
+            nonlocal progress_count_flushes, progress_time_flushes
+            nonlocal progress_lifecycle_flushes
             if message[0] == "progress":
                 sequence = message[1]
                 if sequence <= progress_sequence.get(connection, 0):
                     # Duplicate or stale: its deltas were already applied.
                     return
+                started = time.monotonic()
                 progress_messages += 1
+                progress_by_worker[owner[connection]] += 1
                 progress_sequence[connection] = sequence
                 active_games[connection] = message[3]
                 self.active_games = sum(active_games.values())
+                deltas = message[2]
+                progress_monitored_positions += deltas.get("evaluation_plies", 0)
+                progress_monitored_positions += deltas.get("positions", 0)
                 if monitor is not None:
-                    monitor.tick(**message[2])
+                    # An active-count-only update must not be published as new
+                    # computational progress; the heartbeat covers liveness.
+                    if deltas:
+                        monitor.tick(**deltas)
                     if kind == "self_play":
                         monitor.counts(games_active=self.active_games)
+                progress_handle_seconds += time.monotonic() - started
             elif message[0] == "leaves":
                 pools[message[2]].append((connection, message[1], message[3]))
                 awaiting.add(connection)
@@ -676,6 +766,12 @@ class SearchPool:
                 idle.add(connection)
                 peak_active[owner[connection]] = max(peak_active[owner[connection]], message[2])
                 merge(message[1])
+                if len(message) > 3:
+                    stats = message[3]
+                    progress_send_seconds += stats.get("send_seconds", 0.0)
+                    progress_count_flushes += stats.get("count_flushes", 0)
+                    progress_time_flushes += stats.get("time_flushes", 0)
+                    progress_lifecycle_flushes += stats.get("lifecycle_flushes", 0)
             else:
                 raise RuntimeError(f"Search actor failed: {message[1]}")
 
@@ -862,6 +958,16 @@ class SearchPool:
                 "search_flush_seconds": self.flush_seconds,
                 "search_initialization_seconds": self.initialization_seconds,
                 "search_progress_messages": progress_messages,
+                "search_progress_messages_by_worker": progress_by_worker,
+                "search_progress_positions": progress_monitored_positions,
+                "search_progress_positions_per_message": (
+                    progress_monitored_positions / progress_messages if progress_messages else 0.0
+                ),
+                "search_progress_handle_seconds": progress_handle_seconds,
+                "search_progress_send_seconds": progress_send_seconds,
+                "search_progress_count_flushes": progress_count_flushes,
+                "search_progress_time_flushes": progress_time_flushes,
+                "search_progress_lifecycle_flushes": progress_lifecycle_flushes,
                 "inference_location": "actors" if actors else "parent",
                 "models": [
                     metric.snapshot(finalize_cuda=measure_cuda) for metric in self.inference_metrics
