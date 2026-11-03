@@ -141,7 +141,11 @@ that appears in both forms is described identically and a new control cannot be
 added without copy:
 `frontend/src/TrainingTooltips.test.tsx` enumerates the fields each form actually
 renders — including conditional and advanced ones — and fails when one has no
-description. `frontend/tests/training-tooltips.spec.ts` drives the same
+description. The read-only checkpoint values in the resume summary use the same
+affordance through `ReadOnlyFieldLabel`; the coverage test marks them with
+`data-training-parameter` and checks that every immutable resume field from the
+shared contract is represented, so an immutable parameter cannot be shown without
+an explanation either. `frontend/tests/training-tooltips.spec.ts` drives the same
 interactions in a real browser, where pointer and focus sequencing is real.
 
 ### CLI configurations and the HTTP API

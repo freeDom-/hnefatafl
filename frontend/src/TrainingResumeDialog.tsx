@@ -14,7 +14,7 @@ import {
   trainingParameterLabel,
   validTrainingNumbers,
 } from './TrainingFields';
-import { FieldLabel } from './FieldTooltip';
+import { FieldLabel, ReadOnlyFieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
@@ -255,12 +255,16 @@ export default function TrainingResumeDialog({
                   <dd>{checkpoint.completed_iteration}</dd>
                 </div>
                 <div>
-                  <dt>{t('Battlefield')}</dt>
+                  <dt>
+                    <ReadOnlyFieldLabel label="Battlefield" tooltipKey="ruleset" />
+                  </dt>
                   <dd>{t(ruleNames[checkpoint.ruleset] ?? checkpoint.ruleset)}</dd>
                 </div>
-                <div>
+                <div className="resume-summary-architecture">
                   <dt>
-                    {t('Network channels')} · {t('Residual blocks')}
+                    <ReadOnlyFieldLabel label="Network channels" tooltipKey="channels" />
+                    {' · '}
+                    <ReadOnlyFieldLabel label="Residual blocks" tooltipKey="blocks" />
                   </dt>
                   <dd>
                     {t('{channels} channels · {blocks} blocks', {
@@ -270,11 +274,15 @@ export default function TrainingResumeDialog({
                   </dd>
                 </div>
                 <div>
-                  <dt>{t('Random seed')}</dt>
+                  <dt>
+                    <ReadOnlyFieldLabel label="Random seed" tooltipKey="seed" />
+                  </dt>
                   <dd>{config.seed ?? '—'}</dd>
                 </div>
                 <div>
-                  <dt>{t('Optimizer')}</dt>
+                  <dt>
+                    <ReadOnlyFieldLabel label="Optimizer" tooltipKey="optimizer" />
+                  </dt>
                   <dd>{optimizerNames[checkpoint.optimizer] ?? checkpoint.optimizer}</dd>
                 </div>
               </dl>

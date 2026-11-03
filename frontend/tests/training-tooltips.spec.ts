@@ -154,6 +154,39 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
   await page.keyboard.press('Escape');
   await expect(tooltip).toHaveCount(0);
   await expect(dialog).toBeVisible();
+
+  // The immutable checkpoint summary carries the same help. The combined
+  // architecture row exposes two independently named buttons and the tooltip
+  // still stays inside the modal, including on a small viewport.
+  const channels = dialog.getByRole('button', {
+    name: 'Explain Network channels',
+    exact: true,
+  });
+  const blocks = dialog.getByRole('button', {
+    name: 'Explain Residual blocks',
+    exact: true,
+  });
+  await expect(channels).toBeVisible();
+  await expect(blocks).toBeVisible();
+  if (info.project.name === 'mobile') await channels.tap();
+  else await channels.click();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText('Feature width of the network');
+  if (info.project.name === 'mobile') {
+    const box = await tooltip.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+  }
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  if (info.project.name === 'mobile') await blocks.tap();
+  else await blocks.click();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText('Number of residual blocks');
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 });

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { trainingTooltip } from './trainingTooltips';
@@ -269,6 +269,30 @@ export function FieldLabel({
           state={state}
         />
       )}
+    </span>
+  );
+}
+
+/**
+ * A read-only label with its parameter's tooltip.
+ *
+ * The resume checkpoint summary shows immutable values that have no form
+ * control but must explain themselves exactly like the editable fields. This is
+ * the `FieldLabel` affordance without a `<label>`: the visible text and the
+ * information button share one hover group, the button names the parameter it
+ * belongs to, and the surrounding structure (for example `dt`/`dd`) is left to
+ * the caller. The `data-training-parameter` marker lets the coverage test
+ * enumerate read-only parameters the way `data-training-field` does for
+ * editable controls.
+ */
+export function ReadOnlyFieldLabel({ label, tooltipKey }: { label: string; tooltipKey: string }) {
+  const group = useRef<HTMLSpanElement>(null);
+  const state = useFieldTooltip(group);
+  const id = useId();
+  return (
+    <span className="field-help" data-training-parameter={tooltipKey} ref={group} {...state.hover}>
+      <span>{t(label)}</span>
+      <FieldInfo tooltipKey={tooltipKey} fieldLabel={t(label)} state={state} id={`${id}-help`} />
     </span>
   );
 }

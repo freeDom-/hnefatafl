@@ -16,6 +16,7 @@ import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDia
 import { trainingNumberFields, trainingParameterLabels } from './TrainingFields';
 import { setLanguage, translate } from './i18n';
 import { trainingChoices, trainingConfig, type TrainingConfig } from './trainingPresets';
+import { RESUME_IMMUTABLE_FIELDS } from './trainingPayload';
 import { trainingTooltip, trainingTooltips } from './trainingTooltips';
 import type { DeviceInfo, Job, Ruleset } from './types';
 
@@ -159,6 +160,30 @@ function expectEveryFieldDocumented(): Set<string> {
     expect(container, `no field container for ${key}`).not.toBeNull();
     expect(
       container?.querySelectorAll('.field-info-button').length,
+      `missing help button for ${key}`,
+    ).toBe(1);
+  }
+  return seen;
+}
+
+/**
+ * Asserts every read-only training parameter carries a description and a help
+ * button. Editable controls are covered by `expectEveryFieldDocumented`; this is
+ * the read-only counterpart, driven by the `data-training-parameter` marker on
+ * `ReadOnlyFieldLabel`, so a value added to the checkpoint summary cannot ship
+ * without an explanation. The set it returns is compared against the immutable
+ * resume fields so a new immutable parameter is caught too.
+ */
+function expectEveryReadOnlyParameterDocumented(): Set<string> {
+  const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-training-parameter]'));
+  const seen = new Set<string>();
+  for (const element of elements) {
+    const key = element.dataset.trainingParameter ?? '';
+    expect(key).not.toBe('');
+    seen.add(key);
+    expect(trainingTooltip(key), `missing tooltip for ${key}`).toBeTruthy();
+    expect(
+      element.querySelectorAll('.field-info-button').length,
       `missing help button for ${key}`,
     ).toBe(1);
   }
@@ -388,6 +413,118 @@ it('documents every parameter the resume dialog can show', async () => {
     'champion_min_improvement',
   ])
     expect(seen, `resume dialog does not expose ${key}`).toContain(key);
+});
+
+it('documents every immutable checkpoint parameter in the resume summary', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      json(checkpoint({ ...trainingConfig('brandubh', 'recommended'), model_name: 'Freydis' })),
+    ),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  await screen.findByLabelText('Target total iterations');
+
+  const summary = document.querySelector<HTMLElement>('.training-resume-details');
+  expect(summary).not.toBeNull();
+  // The definition list keeps its labels and values unchanged.
+  expect(within(summary as HTMLElement).getByText('Completed iterations')).toBeInTheDocument();
+  expect(within(summary as HTMLElement).getByText('5')).toBeInTheDocument();
+  expect(within(summary as HTMLElement).getByText('Brandubh')).toBeInTheDocument();
+  expect(within(summary as HTMLElement).getByText('32 channels · 2 blocks')).toBeInTheDocument();
+  expect(within(summary as HTMLElement).getByText('42')).toBeInTheDocument();
+  expect(within(summary as HTMLElement).getByText('AdamW')).toBeInTheDocument();
+
+  // Every term other than the completed-iteration status is a parameter and
+  // exposes at least one help button, so a new read-only value cannot slip in
+  // without an explanation.
+  for (const term of Array.from((summary as HTMLElement).querySelectorAll('dt'))) {
+    const text = term.textContent?.trim() ?? '';
+    if (text === 'Completed iterations') continue;
+    expect(
+      term.querySelectorAll('.field-info-button').length,
+      `missing help for ${text}`,
+    ).toBeGreaterThan(0);
+  }
+
+  // The five immutable checkpoint parameters resolve to the shared registry, and
+  // every immutable field from the contract is represented except the editable
+  // iteration target.
+  const seen = expectEveryReadOnlyParameterDocumented();
+  expect(seen).toEqual(new Set(RESUME_IMMUTABLE_FIELDS.filter((key) => key !== 'iterations')));
+});
+
+it('gives network channels and residual blocks separate explanations', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(checkpoint(trainingConfig('brandubh', 'recommended')))),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  await screen.findByLabelText('Target total iterations');
+
+  // The combined row exposes two independently named help buttons.
+  expect(helpButton('Network channels')).toBeInTheDocument();
+  expect(helpButton('Residual blocks')).toBeInTheDocument();
+
+  fireEvent.click(helpButton('Network channels'), { detail: 1 });
+  expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.channels);
+  fireEvent.click(helpButton('Network channels'), { detail: 1 });
+  expect(screen.queryByRole('tooltip')).toBeNull();
+
+  fireEvent.click(helpButton('Residual blocks'), { detail: 1 });
+  const tooltip = screen.getByRole('tooltip');
+  expect(tooltip).toHaveTextContent(trainingTooltips.blocks);
+  expect(tooltip).not.toHaveTextContent(trainingTooltips.channels);
+});
+
+it('portals a read-only summary tooltip into the resume dialog', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(checkpoint(trainingConfig('brandubh', 'recommended')))),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  const dialog = await screen.findByRole('dialog', { name: 'Resume training' });
+  await screen.findByLabelText('Target total iterations');
+  fireEvent.click(helpButton('Optimizer'), { detail: 1 });
+  expect(within(dialog).getByRole('tooltip')).toHaveTextContent(trainingTooltips.optimizer);
+});
+
+it('translates the read-only summary help into German', async () => {
+  setLanguage('de', false);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(checkpoint(trainingConfig('brandubh', 'recommended')))),
+  );
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  await screen.findByRole('button', { name: 'Optimierer erklären' });
+  fireEvent.click(germanHelpButton('Optimierer'), { detail: 1 });
+  expect(screen.getByRole('tooltip')).toHaveTextContent(
+    translate(trainingTooltips.optimizer, {}, 'de'),
+  );
+  expect(germanHelpButton('Netzwerkkanäle')).toBeInTheDocument();
+  expect(germanHelpButton('Residualblöcke')).toBeInTheDocument();
+});
+
+it('does not disturb resume submission while a read-only summary tooltip is open', async () => {
+  const next = { ...job, id: 'resumed', status: 'running' };
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(
+      init?.method === 'POST'
+        ? next
+        : checkpoint({ ...trainingConfig('brandubh', 'recommended'), model_name: 'Freydis' }),
+    ),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const onStarted = vi.fn();
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={onStarted} />);
+  const iterations = await screen.findByLabelText('Target total iterations');
+  expect(iterations).toHaveValue(20);
+  fireEvent.click(helpButton('Optimizer'), { detail: 1 });
+  expect(screen.getByRole('tooltip')).toHaveTextContent(trainingTooltips.optimizer);
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  // The read-only help changed nothing, so only the unchanged target is sent.
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ iterations: 20 });
 });
 
 it('reveals the tooltip when hovering the information icon on its own', async () => {

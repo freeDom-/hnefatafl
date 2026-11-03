@@ -422,7 +422,8 @@ the application. See [Remote training](docs/REMOTE_TRAINING.md) and
 Every training parameter carries a help button whose description lives in the
 single `trainingTooltips` registry keyed by parameter identity, so the creation
 form and the resume dialog describe shared settings identically and a coverage
-test fails when a rendered field has no copy.
+test fails when a rendered field — editable, or an immutable checkpoint value in
+the resume summary — has no copy.
 `TrainingJobNavigator` owns local search, filtering and sorting;
 `TrainingJobDashboard` owns tabs and iteration range without resetting on polling.
 `TrainingAnalysisViews` composes Overview, Learning, Evaluation and Details;
