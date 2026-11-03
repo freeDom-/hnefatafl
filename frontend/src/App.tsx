@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
 import { notify } from './notifications';
-import type { AIProfile, Game, Model, Ruleset, Side } from './types';
+import type { AIProfile, Game, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
 import Tournaments from './Tournaments';
@@ -32,6 +32,7 @@ import HistoryPanel from './HistoryPanel';
 import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
+import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
 import { PlayTabsProvider } from './PlayTabs';
 
@@ -87,7 +88,7 @@ export default function App() {
   }, [path]);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
-  const [models, setModels] = useState<Model[]>([]);
+  const { models, refresh: refreshModels } = useModelCatalogue();
   const [liveGame, setGame] = useState<Game | null>(null);
   const playHistory = usePlayHistory(liveGame);
   const game = playHistory.game;
@@ -116,16 +117,15 @@ export default function App() {
   }, []);
 
   const refreshOptions = useCallback(async () => {
-    const [rules, ais, savedModels] = await Promise.all([
+    const [rules, ais] = await Promise.all([
       api<Ruleset[]>('/rulesets'),
       api<AIProfile[]>('/ai/profiles'),
-      api<Model[]>('/models'),
+      refreshModels(),
     ]);
     setRulesets(rules);
     setProfiles(ais);
-    setModels(savedModels);
     return rules;
-  }, []);
+  }, [refreshModels]);
   const startSinglePlayer = useCallback(() => {
     void Promise.all([api<Ruleset[]>('/rulesets'), api<AIProfile[]>('/ai/profiles')])
       .then(([rules, ais]) => {
@@ -598,6 +598,8 @@ export default function App() {
         <NewGame
           rulesets={rulesets}
           profiles={profiles}
+          models={models}
+          onRefreshModels={refreshModels}
           initialRuleset={
             rulesets.find((rule) => rule.id === new URLSearchParams(location.search).get('ruleset'))
               ?.id ?? game?.ruleset

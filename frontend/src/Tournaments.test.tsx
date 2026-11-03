@@ -291,6 +291,53 @@ describe('tournament setup and saved selection', () => {
     });
   });
 
+  it('exposes model-backed alpha-beta optimizations for a custom neural tournament opponent', async () => {
+    let submitted: { players: { config: Record<string, unknown> }[] } | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('neural-search'));
+        }
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('neural-search'));
+      }),
+    );
+    show([{ id: 'raven-model', name: 'Raven model', ruleset: 'brandubh' }]);
+    const create = screen.getByRole('button', { name: 'New tournament' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
+    // The recommended opponent for a known battlefield is a trained model.
+    fireEvent.change(setup.getByLabelText('Opponent 1 search wrapper'), {
+      target: { value: 'alpha_beta' },
+    });
+    expect(setup.getByText('Alpha-beta optimizations')).toBeInTheDocument();
+    expect(setup.getByLabelText('Opponent 1 symmetry move pruning')).toBeDisabled();
+    expect(setup.queryByRole('option', { name: 'Full symmetry' })).not.toBeInTheDocument();
+    fireEvent.change(setup.getByLabelText('Opponent 1 search preset'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.click(setup.getByLabelText('Opponent 1 improved move ordering'));
+    fireEvent.change(setup.getByLabelText('Opponent 1 search depth'), { target: { value: '3' } });
+    fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted?.players[0].config).toMatchObject({
+      algorithm: 'neural',
+      model_id: 'raven-model',
+      search_wrapper: 'alpha_beta',
+      depth: 3,
+      search: {
+        legacy: false,
+        transposition: true,
+        move_ordering: false,
+        symmetry_transposition: false,
+        symmetry_pruning: false,
+        table_capacity: 100000,
+      },
+    });
+  });
+
   it('requires a single compatible battlefield before allowing trained models', async () => {
     vi.stubGlobal(
       'fetch',
@@ -864,6 +911,12 @@ it('keeps Shield bearer, Jarl and Seer presets fixed while exposing independent 
   fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: 'mcts' } });
   expect(setup.queryByLabelText('Opponent 1 time limit (seconds)')).not.toBeInTheDocument();
   expect(setup.queryByLabelText('Opponent 2 search iterations')).not.toBeInTheDocument();
+  // A named preset is authoritative on the server, so no editable control may
+  // imply its recorded evaluator can be overridden.
+  expect(setup.queryByLabelText('Opponent 1 heuristic')).not.toBeInTheDocument();
+  expect(setup.queryByLabelText('Opponent 2 heuristic')).not.toBeInTheDocument();
+  expect(setup.queryByText('Alpha-beta optimizations')).not.toBeInTheDocument();
+  expect(setup.getByText('Alpha-beta · depth 5 · 2s')).toBeInTheDocument();
   fireEvent.click(setup.getByRole('button', { name: 'Start tournament' }));
   await waitFor(() => expect(submitted).toBeDefined());
   expect(submitted).toMatchObject({
@@ -903,6 +956,8 @@ it('lets custom tournament opponents select algorithms and edit search settings'
   const setup = within(screen.getByRole('dialog', { name: 'Set up a tournament' }));
   fireEvent.change(setup.getByLabelText('Opponent 2 profile'), { target: { value: '' } });
   fireEvent.change(setup.getByLabelText('Opponent 2 algorithm'), { target: { value: 'mcts' } });
+  // A custom participant keeps every model-free search control.
+  expect(setup.getByLabelText('Opponent 2 heuristic')).toHaveValue('shield_maiden');
   fireEvent.change(setup.getByLabelText('Opponent 2 search iterations'), {
     target: { value: '17' },
   });

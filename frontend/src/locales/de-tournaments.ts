@@ -114,6 +114,12 @@ const german: Record<string, string> = {
   'Select a compatible model': 'Ein passendes Modell wählen',
   'Trained models require one matching battlefield.':
     'Trainierte Modelle benötigen genau ein passendes Schlachtfeld.',
+  'Loading models…': 'Modelle werden geladen…',
+  'Trained models could not be loaded.': 'Trainierte Modelle konnten nicht geladen werden.',
+  'The server returned an unreadable model catalogue.':
+    'Der Server hat einen unlesbaren Modellkatalog zurückgegeben.',
+  'Refresh models': 'Modelle aktualisieren',
+  'Refreshing models…': 'Modelle werden aktualisiert…',
   'Time limit (seconds)': 'Zeitlimit (Sekunden)',
   'Search parameters': 'Suchparameter',
   'Search depth': 'Suchtiefe',

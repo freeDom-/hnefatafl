@@ -612,6 +612,7 @@ def test_tournament_named_presets_have_fixed_budgets(client, monkeypatch, profil
                         "time_limit": 0.01,
                         "temperature": 1,
                         "exploration": 0.2,
+                        "heuristic": "shield_bearer",
                     },
                 },
                 {"config": {"algorithm": "alpha_beta", "depth": 3, "time_limit": 0.2}},
@@ -623,6 +624,13 @@ def test_tournament_named_presets_have_fixed_budgets(client, monkeypatch, profil
     players = response.json()["config"]["players"]
     for key, value in expected.items():
         assert players[0]["config"][key] == value
+    # A named preset is authoritative: its recorded evaluator replaces the one
+    # supplied beside it, which is why the setup form no longer offers the
+    # heuristic selector for a fixed preset.
+    if profile_id == "baseline":
+        assert "heuristic" not in players[0]["config"]
+    else:
+        assert players[0]["config"]["heuristic"] == "shield_maiden"
     assert players[1]["config"]["algorithm"] == "alpha_beta"
     assert players[1]["config"]["depth"] == 3
     assert players[1]["config"]["time_limit"] == 0.2

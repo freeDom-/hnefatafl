@@ -89,7 +89,10 @@ def test_profile_custom_analysis_and_stats_use_distinct_effective_identity(tmp_p
                 },
             },
         )
-        assert invalid.status_code == 422
+        # The configuration is validated server-side, so an unsupported
+        # heuristic version is named rather than treated as an unknown field.
+        assert invalid.status_code == 400, invalid.text
+        assert "heuristic version" in invalid.json()["detail"].lower()
 
 
 def test_tournament_snapshots_and_runs_shield_maiden(tmp_path):

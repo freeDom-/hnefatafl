@@ -1,23 +1,38 @@
-import { useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import AgentConfigFields from './AgentConfigFields';
 import { api, errorMessage } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import Modal from './Modal';
 import { notify } from './notifications';
+import { profileConfiguration } from './profileConfiguration';
 import { sortRulesets } from './sortRulesets';
-import type { AIProfile, Game, Ruleset, Side } from './types';
+import type { TournamentPlayer } from './tournamentTypes';
+import type { AIProfile, Game, Model, Ruleset, Side } from './types';
 
 export const presetIds = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'] as const;
 type Preset = (typeof presetIds)[number];
+/** The administrator-only fully configured opponent. */
+type Choice = Preset | 'custom';
 type Setup = {
   ruleset: string;
   mode: 'human-ai' | 'ai-ai';
   humanSide: Side;
-  profiles: Record<Side, Preset>;
+  profiles: Record<Side, Choice>;
+  /** Working configuration for each seat while "Custom opponent" is selected. */
+  custom: Record<Side, TournamentPlayer>;
 };
 export const GAME_SETUP_KEY = 'hnefatafl-new-game-options';
 const preset = (value: unknown): Preset =>
   presetIds.includes(value as Preset) ? (value as Preset) : 'baseline';
+/** A custom seat starts from the matching preset's budget until it is edited. */
+const customPlayer = (side: Side): TournamentPlayer => ({
+  name: 'Computer',
+  config:
+    side === 'attackers'
+      ? { algorithm: 'baseline', time_limit: 1 }
+      : { algorithm: 'alpha_beta', depth: 5, time_limit: 2 },
+});
 /** Read only the permitted subset of previous preferences; never restore identities/config. */
 function restore(rulesets: Ruleset[], admin: boolean, initial?: string): Setup {
   let saved: Record<string, unknown> = {};
@@ -45,6 +60,7 @@ function restore(rulesets: Ruleset[], admin: boolean, initial?: string): Setup {
       attackers: preset(profiles?.attackers ?? old?.attackers?.profile_id),
       defenders: preset(profiles?.defenders ?? old?.defenders?.profile_id),
     },
+    custom: { attackers: customPlayer('attackers'), defenders: customPlayer('defenders') },
   };
 }
 const explanations: Record<Preset, string> = {
@@ -56,12 +72,18 @@ const explanations: Record<Preset, string> = {
 export default function NewGame({
   rulesets,
   profiles,
+  models = [],
+  onRefreshModels,
   initialRuleset,
   onClose,
   onCreated,
 }: {
   rulesets: Ruleset[];
   profiles: AIProfile[];
+  /** The dashboard's model catalogue; the dashboard owns and refreshes it. */
+  models?: Model[];
+  /** Reload that catalogue. Rejects on failure and aborts on the signal. */
+  onRefreshModels?: (signal?: AbortSignal) => Promise<void>;
   initialRuleset?: string;
   onClose: () => void;
   onCreated: (game: Game) => void;
@@ -71,18 +93,135 @@ export default function NewGame({
   const admin = account?.permissions.includes('all_data') ?? false;
   const [setup, setSetup] = useState(() => restore(rulesets, admin, initialRuleset));
   const [busy, setBusy] = useState(false);
+  const [catalogueState, setCatalogueState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
+    'idle',
+  );
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
+  const catalogueRequest = useRef<AbortController | null>(null);
+  const catalogueAttempted = useRef(false);
+  const seeded = useRef<Record<Side, boolean>>({ attackers: false, defenders: false });
   const mode = admin ? setup.mode : 'human-ai';
+  // Custom opponents are a single-player, administrator-only resource.
+  const customAvailable = admin && mode === 'human-ai';
+  // The same active-side rule that renders the opponent configuration decides
+  // which custom seats exist, and therefore whether the catalogue is needed.
+  const aiSides = (['attackers', 'defenders'] as Side[]).filter(
+    (side) => mode === 'ai-ai' || side !== setup.humanSide,
+  );
+  const customVisible =
+    customAvailable && aiSides.some((side) => setup.profiles[side] === 'custom');
+  const catalogueUsable = models.length > 0;
+
+  const requestCatalogue = useCallback(() => {
+    if (!onRefreshModels) return;
+    // A newer request supersedes an older one, so a late response can never
+    // overwrite fresher catalogue data.
+    catalogueRequest.current?.abort();
+    const controller = new AbortController();
+    catalogueRequest.current = controller;
+    catalogueAttempted.current = true;
+    setCatalogueState('loading');
+    setCatalogueError(null);
+    void onRefreshModels(controller.signal).then(
+      () => {
+        if (catalogueRequest.current !== controller) return;
+        catalogueRequest.current = null;
+        setCatalogueState('ready');
+      },
+      (failure: unknown) => {
+        if (catalogueRequest.current !== controller) return;
+        catalogueRequest.current = null;
+        setCatalogueState('failed');
+        // Keep the untranslated source message; AgentConfigFields localizes it.
+        setCatalogueError(errorMessage(failure, 'Trained models could not be loaded.'));
+      },
+    );
+  }, [onRefreshModels, t]);
+
+  // Load once per dialog visit when a visible custom seat has no usable
+  // catalogue. Every later reload is an explicit refresh.
+  useEffect(() => {
+    if (!customVisible) return;
+    if (catalogueAttempted.current || catalogueUsable) return;
+    requestCatalogue();
+  }, [customVisible, catalogueUsable, requestCatalogue]);
+
+  // Nothing visible needs the catalogue any more: stop loading it.
+  useEffect(() => {
+    if (customVisible) return;
+    catalogueRequest.current?.abort();
+    catalogueRequest.current = null;
+    setCatalogueState((state) => (state === 'loading' ? 'idle' : state));
+  }, [customVisible]);
+
+  // Closing the dialog must not leave a request running for nobody.
+  useEffect(
+    () => () => {
+      catalogueRequest.current?.abort();
+      catalogueRequest.current = null;
+    },
+    [],
+  );
+  const catalogueStatus = onRefreshModels
+    ? {
+        pending: catalogueState === 'loading',
+        error: catalogueState === 'failed' ? catalogueError : null,
+        refresh: requestCatalogue,
+      }
+    : undefined;
+  const incompatibleModel = aiSides.some((side) => {
+    if (setup.profiles[side] !== 'custom') return false;
+    const { config } = setup.custom[side];
+    if (config.algorithm !== 'neural' || !config.model_id) return false;
+    return !models.some((model) => model.id === config.model_id && model.ruleset === setup.ruleset);
+  });
   const choose = (key: 'ruleset' | 'mode' | 'humanSide', value: string) =>
-    setSetup((previous) => ({ ...previous, [key]: value }));
+    setSetup((previous) => {
+      const next: Setup = { ...previous, [key]: value };
+      if (key === 'mode' && value !== 'human-ai')
+        next.profiles = {
+          attackers: preset(previous.profiles.attackers),
+          defenders: preset(previous.profiles.defenders),
+        };
+      return next;
+    });
+  const chooseOpponent = (side: Side, value: string) => {
+    if (value !== 'custom') {
+      setSetup((previous) => ({
+        ...previous,
+        profiles: { ...previous.profiles, [side]: preset(value) },
+      }));
+      return;
+    }
+    // Seed an untouched custom seat from the opponent that was selected before.
+    const seed = seeded.current[side]
+      ? undefined
+      : profiles.find((item) => item.id === setup.profiles[side]);
+    seeded.current[side] = true;
+    setSetup((previous) => ({
+      ...previous,
+      profiles: { ...previous.profiles, [side]: 'custom' },
+      custom: seed
+        ? { ...previous.custom, [side]: { name: 'Computer', config: profileConfiguration(seed) } }
+        : previous.custom,
+    }));
+  };
+  const editCustom = (side: Side, player: TournamentPlayer) =>
+    setSetup((previous) => ({
+      ...previous,
+      custom: { ...previous.custom, [side]: player },
+    }));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     try {
       const players = Object.fromEntries(
-        (['attackers', 'defenders'] as Side[])
-          .filter((side) => mode === 'ai-ai' || side !== setup.humanSide)
-          .map((side) => [side, { profile_id: setup.profiles[side] }]),
+        aiSides.map((side) =>
+          setup.profiles[side] === 'custom'
+            ? [side, { config: setup.custom[side].config }]
+            : [side, { profile_id: setup.profiles[side] }],
+        ),
       );
       const game = await api<Game>('/games', {
         ruleset: setup.ruleset,
@@ -91,7 +230,22 @@ export default function NewGame({
         players,
       });
       try {
-        localStorage.setItem(GAME_SETUP_KEY, JSON.stringify({ version: 2, ...setup, mode }));
+        // Preferences never retain a custom identity or configuration.
+        localStorage.setItem(
+          GAME_SETUP_KEY,
+          JSON.stringify({
+            version: 2,
+            ruleset: setup.ruleset,
+            humanSide: setup.humanSide,
+            // A custom seat is stored as the preset it replaces: the
+            // configuration itself is never kept as a browser preference.
+            profiles: {
+              attackers: preset(setup.profiles.attackers),
+              defenders: preset(setup.profiles.defenders),
+            },
+            mode,
+          }),
+        );
       } catch {
         /* Creation remains usable without preferences. */
       }
@@ -151,64 +305,74 @@ export default function NewGame({
             </label>
           )}
           <div className="player-configs">
-            {(['attackers', 'defenders'] as Side[])
-              .filter((side) => mode === 'ai-ai' || side !== setup.humanSide)
-              .map((side) => {
-                const available = profiles.filter(
-                  (profile) =>
-                    presetIds.includes(profile.id as Preset) &&
-                    profile.supported_rulesets.includes(setup.ruleset),
-                );
-                const selected = available.find((profile) => profile.id === setup.profiles[side]);
-                return (
-                  <div className="player-config" key={side}>
-                    <label>
-                      {t('{side} opponent', {
-                        side: t(side === 'attackers' ? 'Attackers' : 'Defenders'),
-                      })}
-                      <select
-                        aria-label={t('{side} AI profile', {
-                          side: t(side === 'attackers' ? 'Attackers' : 'Defenders'),
-                        })}
-                        value={setup.profiles[side]}
-                        required
-                        onChange={(event) =>
-                          setSetup((previous) => ({
-                            ...previous,
-                            profiles: { ...previous.profiles, [side]: preset(event.target.value) },
-                          }))
-                        }
-                      >
-                        {available.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {t(profile.name)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <p>{t(explanations[setup.profiles[side]])}</p>
-                    {selected && (
-                      <p className="subtle">
-                        {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
-                        {selected.id === 'alpha_beta'
-                          ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
-                          : selected.id === 'mcts'
-                            ? ` · ${t('Search iterations')}: ${selected.parameters.iterations}`
-                            : ''}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
+            {aiSides.map((side) => {
+              const available = profiles.filter(
+                (profile) =>
+                  presetIds.includes(profile.id as Preset) &&
+                  profile.supported_rulesets.includes(setup.ruleset),
+              );
+              const selected = available.find((profile) => profile.id === setup.profiles[side]);
+              const custom = setup.profiles[side] === 'custom';
+              const label = t(side === 'attackers' ? 'Attackers' : 'Defenders');
+              return (
+                <div className="player-config" key={side}>
+                  <label>
+                    {t('{side} opponent', { side: label })}
+                    <select
+                      aria-label={t('{side} AI profile', { side: label })}
+                      value={setup.profiles[side]}
+                      required
+                      onChange={(event) => chooseOpponent(side, event.target.value)}
+                    >
+                      {available.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {t(profile.name)}
+                        </option>
+                      ))}
+                      {customAvailable && <option value="custom">{t('Custom opponent')}</option>}
+                    </select>
+                  </label>
+                  {custom ? (
+                    <AgentConfigFields
+                      player={setup.custom[side]}
+                      models={models}
+                      ruleset={setup.ruleset}
+                      prefix={label}
+                      catalogue={catalogueStatus}
+                      onChange={(next) => editCustom(side, next)}
+                    />
+                  ) : (
+                    <>
+                      <p>{t(explanations[setup.profiles[side] as Preset])}</p>
+                      {selected && (
+                        <p className="subtle">
+                          {t('Time limit (seconds)')}: {String(selected.parameters.time_limit)}
+                          {selected.id === 'alpha_beta'
+                            ? ` · ${t('Search depth')}: ${selected.parameters.depth}`
+                            : selected.id === 'mcts'
+                              ? ` · ${t('Search iterations')}: ${selected.parameters.iterations}`
+                              : ''}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </fieldset>
+        {incompatibleModel && (
+          <p className="form-error">
+            {t('Choose a compatible trained model and its single matching battlefield.')}
+          </p>
+        )}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             {t('Cancel')}
           </button>
           <button
             className="button primary"
-            disabled={busy || !rulesets.length || !profiles.length}
+            disabled={busy || !rulesets.length || !profiles.length || incompatibleModel}
           >
             {t(busy ? 'Preparing…' : 'To the table')}
           </button>

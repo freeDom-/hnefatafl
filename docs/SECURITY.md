@@ -86,9 +86,12 @@ SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators
 explicitly have global data access. New account game creation binds the human
-seat to the current account and resolves one of four server presets. Only a trusted
-current administrator can create/restart AI vs AI; pass-and-play, arbitrary identity,
-raw configurations, seeds and neural opponents are rejected in this creation API.
+seat to the current account and resolves one of four server presets for ordinary
+players. Only a trusted current administrator can create/restart AI vs AI or
+supply a custom opponent configuration; a non-administrator's raw configuration
+is rejected before it is stored, and every configuration is revalidated with the
+tournament rules. Seeds are server-chosen; pass-and-play, arbitrary identity and
+client-supplied seeds are rejected in this creation API.
 Identity/session/role are rechecked inside the creation transaction. Historical
 setups remain read/play compatible, with no restart creation bypass. Local-player
 CRUD routes are removed (unknown routes remain default-denied); historical storage

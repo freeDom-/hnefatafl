@@ -672,27 +672,32 @@
   grid-column: 1/-1;
   font-size: 0.625rem;
 }
-.tournament-search-optimizations {
+/* The shared participant editor renders inside a modal, whose generic
+   `fieldset`/`legend` reset would otherwise erase this panel's frame. The
+   two-class selector matches the specificity pattern already used by
+   `.tournament-setup .tournament-player`. */
+.modal .tournament-search-optimizations {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: var(--pad-panel-sm);
   margin: 0 0 var(--gap-stack);
 }
-.tournament-search-optimizations legend {
+.modal .tournament-search-optimizations legend {
   padding: 0 5px;
   color: var(--green);
   font-size: 0.6875rem;
 }
-.tournament-search-optimizations label {
+.modal .tournament-search-optimizations label {
   margin-bottom: 12px;
 }
-.tournament-search-optimizations label:has(input[type='checkbox']) {
+.modal .tournament-search-optimizations label:has(input[type='checkbox']) {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
   font-weight: 400;
 }
-.tournament-search-optimizations .tournament-search-flags {
+.modal .tournament-search-optimizations .tournament-search-flags {
   gap: 0 var(--gap-stack);
   margin-bottom: var(--gap-inline);
 }
