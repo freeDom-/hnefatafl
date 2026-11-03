@@ -393,7 +393,7 @@ export default function AgentConfigFields({
             {catalogue.pending
               ? t('Refreshing models…')
               : catalogue.error
-                ? t('Retry')
+                ? t('Try again')
                 : t('Refresh models')}
           </button>
         </>

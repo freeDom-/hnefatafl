@@ -281,8 +281,9 @@ it('keeps the previous catalogue selectable when a refresh fails and retries', a
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Catalogue offline');
   expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL);
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   await settleModels([hugin(), sleipnir]);
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   await waitFor(() => expect(optionText('Attackers trained model')).toContain(SLEIPNIR_LABEL));
@@ -300,8 +301,9 @@ it('reports a malformed catalogue without discarding the models already loaded',
   const alert = await screen.findByRole('alert');
   expect(alert).toHaveTextContent('The server returned an unreadable model catalogue.');
   expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL);
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   await settleModels([hugin(), sleipnir]);
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   await waitFor(() => expect(optionText('Attackers trained model')).toContain(SLEIPNIR_LABEL));
@@ -327,8 +329,11 @@ it('translates a malformed catalogue error while keeping the loaded models and r
   expect(alert).toHaveTextContent('Der Server hat einen unlesbaren Modellkatalog zurückgegeben.');
   expect(alert).not.toHaveTextContent('unreadable model catalogue');
   expect(optionText('Angreifer trainiertes Modell')).toContain(HUGIN_LABEL);
+  expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
   await settleModels([hugin(), sleipnir]);
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   await waitFor(() => expect(optionText('Angreifer trainiertes Modell')).toContain(SLEIPNIR_LABEL));
