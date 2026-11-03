@@ -11,6 +11,33 @@ async function openWorkshop(page: Page) {
 }
 
 /**
+ * Reads the tooltip rectangle and the visual viewport in the same layout-viewport
+ * coordinate space. `getBoundingClientRect` and `visualViewport.offsetLeft/Top`
+ * are both relative to the layout viewport, so the comparison proves the tooltip
+ * fits what is actually visible under a page-scale (pinch-zoom style) change.
+ */
+async function visibleTooltip(page: Page) {
+  return page.evaluate(() => {
+    const element = document.querySelector<HTMLElement>('.field-tooltip')!;
+    const rect = element.getBoundingClientRect();
+    const view = window.visualViewport;
+    const viewLeft = view?.offsetLeft ?? 0;
+    const viewTop = view?.offsetTop ?? 0;
+    return {
+      width: rect.width,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewLeft,
+      viewTop,
+      viewRight: viewLeft + (view?.width ?? window.innerWidth),
+      viewBottom: viewTop + (view?.height ?? window.innerHeight),
+    };
+  });
+}
+
+/**
  * The parameter help must work with a real pointer, a real keyboard and a real
  * touch tap. jsdom cannot reproduce pointer/focus sequencing, so these checks run
  * in Chromium against the served application.
@@ -73,6 +100,36 @@ test('parameter tooltips follow pointer, click and keyboard in the new-job form'
   await page.mouse.move(4, 4);
 });
 
+test('a page-scale zoom narrows the tooltip to the visual viewport', async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 600 });
+  await openWorkshop(page);
+  await openCreation(page);
+
+  const icon = page.getByRole('button', { name: 'Explain Training iterations', exact: true });
+  await icon.click();
+  const tooltip = page.getByRole('tooltip');
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveCSS('max-width', '300px');
+
+  // Chromium's page scale factor produces a real visual viewport smaller than
+  // the layout viewport — the same mechanism a pinch zoom uses — unlike
+  // setViewportSize, which shrinks both. It is still an emulation: no physical
+  // pinch gesture is performed. The pointer is parked in the corner first so the
+  // zoom cannot slide a different field under it and open a second tooltip.
+  await page.mouse.move(0, 0);
+  const client = await context.newCDPSession(page);
+  await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+  await expect(tooltip).toHaveCSS('max-width', '179px');
+
+  const bounds = await visibleTooltip(page);
+  // The 195px visual viewport minus both margins is 179px, and the box stays
+  // inside the visible area instead of overflowing it.
+  expect(bounds.width).toBeLessThanOrEqual(179.5);
+  expect(bounds.left).toBeGreaterThanOrEqual(bounds.viewLeft - 0.5);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewRight + 0.5);
+  expect(bounds.top).toBeGreaterThanOrEqual(bounds.viewTop - 0.5);
+});
+
 test('parameter tooltips follow a touch tap', async ({ page }, info) => {
   test.skip(info.project.name !== 'mobile', 'touch input is only exercised by the mobile project');
   await openWorkshop(page);
@@ -106,6 +163,7 @@ test('parameter tooltips follow a touch tap', async ({ page }, info) => {
 test('a resume-dialog tooltip renders inside the modal and Escape keeps it open', async ({
   page,
   request,
+  context,
 }, info) => {
   const name = `Tooltip raven ${info.project.name}`;
   const started = await request.post(`${api}/training/jobs`, {
@@ -184,6 +242,19 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
   else await blocks.click();
   await expect(tooltip).toBeVisible();
   await expect(tooltip).toContainText('Number of residual blocks');
+  // The read-only summary tooltip also follows a page-scale zoom; the dialog
+  // stays open and the box is constrained to the visible width. The pointer is
+  // parked outside the dialog so the zoom cannot open another field's tooltip.
+  // Chromium auto-pans to the focused summary button during the zoom, so the
+  // exact left edge is not asserted here; the creation-form test above checks the
+  // rendered bounds, and this confirms the dialog tooltip still narrows.
+  await page.mouse.move(0, 0);
+  await page.setViewportSize({ width: 390, height: 600 });
+  const client = await context.newCDPSession(page);
+  await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+  await expect(tooltip).toHaveCSS('max-width', '179px');
+  const zoomed = await visibleTooltip(page);
+  expect(zoomed.width).toBeLessThanOrEqual(179.5);
   await page.keyboard.press('Escape');
   await expect(tooltip).toHaveCount(0);
   await expect(dialog).toBeVisible();
@@ -191,7 +262,10 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
   await expect(dialog).toHaveCount(0);
 });
 
-test('a long German description stays inside a small viewport', async ({ page }) => {
+test('a long German description wraps and stays inside a zoomed viewport', async ({
+  page,
+  context,
+}) => {
   await page.setViewportSize({ width: 360, height: 420 });
   await openWorkshop(page);
   await openCreation(page);
@@ -208,4 +282,17 @@ test('a long German description stays inside a small viewport', async ({ page })
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(360);
   expect(box!.y + box!.height).toBeLessThanOrEqual(420);
+
+  // A page-scale zoom halves the visible width to 180px, so the same description
+  // wraps onto more lines and the box narrows instead of overflowing. The pointer
+  // is parked in the corner so the zoom cannot open another field's tooltip. The
+  // exact left edge is not asserted because Chromium may auto-pan to the focused
+  // icon; the creation-form test above checks the rendered bounds.
+  await page.mouse.move(0, 0);
+  const client = await context.newCDPSession(page);
+  await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+  await expect(tooltip).toHaveCSS('max-width', '164px');
+  const zoomed = await visibleTooltip(page);
+  expect(zoomed.width).toBeLessThanOrEqual(164.5);
+  expect(zoomed.bottom - zoomed.top).toBeGreaterThan(box!.height);
 });

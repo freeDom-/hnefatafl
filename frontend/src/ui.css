@@ -354,7 +354,10 @@ h6 {
 .field-tooltip {
   position: fixed;
   z-index: 10000;
-  max-width: min(300px, calc(100vw - 24px));
+  /* The cap is normally 300px; FieldTooltipBox narrows it to the visual viewport
+     (which pinch-zoom makes smaller than 100vw) before measuring, and wraps a
+     word that is wider than the resulting line. */
+  max-width: 300px;
   padding: 9px 11px;
   border: 1px solid var(--ui-border, #dfe2d4);
   border-radius: 7px;
@@ -364,6 +367,7 @@ h6 {
   font-weight: 400;
   line-height: 1.5;
   text-align: left;
+  overflow-wrap: anywhere;
   box-shadow: 0 10px 30px #173d3726;
   pointer-events: none;
 }

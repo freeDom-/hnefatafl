@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  act,
   cleanup,
   createEvent,
   fireEvent,
@@ -142,6 +143,80 @@ function mockRects(
     if (this.classList.contains('field-info-button'))
       return rect(trigger.left, trigger.top, trigger.width, trigger.height);
     if (this.classList.contains('field-tooltip')) return rect(0, 0, tooltip.width, tooltip.height);
+    return rect(0, 0, 0, 0);
+  });
+}
+
+/**
+ * A controllable `visualViewport` for tests. jsdom has no visual viewport, so the
+ * tooltip reads whatever this exposes. `resize` updates the reported size and
+ * fires the captured listeners, which is how a pinch zoom reaches the tooltip.
+ */
+function mockVisualViewport(initial: {
+  width: number;
+  height: number;
+  offsetLeft?: number;
+  offsetTop?: number;
+}) {
+  const listeners = new Map<string, Set<() => void>>();
+  const viewport = {
+    width: initial.width,
+    height: initial.height,
+    offsetLeft: initial.offsetLeft ?? 0,
+    offsetTop: initial.offsetTop ?? 0,
+    scale: 1,
+    addEventListener: (type: string, listener: () => void) => {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type)!.add(listener);
+    },
+    removeEventListener: (type: string, listener: () => void) => {
+      listeners.get(type)?.delete(listener);
+    },
+  };
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+  return {
+    viewport,
+    resize(width: number, height: number, offsetLeft = 0, offsetTop = 0) {
+      viewport.width = width;
+      viewport.height = height;
+      viewport.offsetLeft = offsetLeft;
+      viewport.offsetTop = offsetTop;
+      listeners.get('resize')?.forEach((listener) => listener());
+    },
+  };
+}
+
+/**
+ * Gives the trigger and the tooltip realistic rectangles where the tooltip
+ * actually wraps: its height grows as the applied max-width narrows. A test
+ * cannot pass here with a fixed measurement that ignores the constraint, so the
+ * assertions exercise the real width/height coordination.
+ */
+function mockWrappingTooltip(
+  trigger: { left: number; top: number; width: number; height: number },
+  intrinsic: { width: number; height: number },
+) {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const rect = (left: number, top: number, width: number, height: number) =>
+      ({
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    if (this.classList.contains('field-info-button'))
+      return rect(trigger.left, trigger.top, trigger.width, trigger.height);
+    if (this.classList.contains('field-tooltip')) {
+      const applied = parseFloat((this as HTMLElement).style.maxWidth);
+      const width = Number.isFinite(applied) ? Math.min(intrinsic.width, applied) : intrinsic.width;
+      const height = Math.round((intrinsic.height * intrinsic.width) / width);
+      return rect(0, 0, width, height);
+    }
     return rect(0, 0, 0, 0);
   });
 }
@@ -696,6 +771,96 @@ it('keeps the tooltip inside a displaced visual viewport', () => {
   // The visible area is 100–500 × 50–350, so the tooltip is pulled back to its
   // right edge and its bottom edge instead of the layout viewport's.
   expect(screen.getByRole('tooltip')).toHaveStyle({ left: '192px', top: '242px' });
+});
+
+it('narrows the tooltip to a visual viewport smaller than the layout viewport', () => {
+  // A pinch zoom halves the visual viewport while 100vw still reports the layout
+  // width, so a fixed CSS max-width would stay physically wider than the screen.
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 195, height: 600 });
+  mockWrappingTooltip({ left: 100, top: 100, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  const tooltip = screen.getByRole('tooltip');
+  // 195 − 2 × 8 = 179, not the normal 300px cap.
+  expect(tooltip.style.maxWidth).toBe('179px');
+  const left = parseFloat(tooltip.style.left);
+  const width = parseFloat(tooltip.style.maxWidth);
+  expect(width).toBe(179);
+  expect(left).toBeGreaterThanOrEqual(8);
+  expect(left + width).toBeLessThanOrEqual(195 - 8);
+});
+
+it('keeps the normal 300px width when the visual viewport has room', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
+  mockVisualViewport({ width: 1024, height: 768 });
+  mockWrappingTooltip({ left: 100, top: 100, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('tooltip').style.maxWidth).toBe('300px');
+});
+
+it('narrows the tooltip below 300px when the visual viewport is narrow', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(280);
+  mockVisualViewport({ width: 280, height: 600 });
+  mockWrappingTooltip({ left: 100, top: 100, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  // 280 − 2 × 8 = 264.
+  expect(screen.getByRole('tooltip').style.maxWidth).toBe('264px');
+});
+
+it('narrows and clamps a tooltip inside an offset visual viewport', () => {
+  // The visible area is 100–295 × 50–350, so the tooltip must use its width and
+  // the offset when clamping, not the layout viewport origin.
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 195, height: 300, offsetLeft: 100, offsetTop: 50 });
+  mockWrappingTooltip({ left: 700, top: 500, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  const tooltip = screen.getByRole('tooltip');
+  const left = parseFloat(tooltip.style.left);
+  const top = parseFloat(tooltip.style.top);
+  const width = parseFloat(tooltip.style.maxWidth);
+  const height = Math.round((100 * 300) / width);
+  expect(width).toBe(179);
+  expect(left).toBeGreaterThanOrEqual(100 + 8);
+  expect(left + width).toBeLessThanOrEqual(100 + 195 - 8);
+  expect(top).toBeGreaterThanOrEqual(50 + 8);
+  expect(top + height).toBeLessThanOrEqual(50 + 300 - 8);
+});
+
+it('uses the wrapped height when choosing a side', () => {
+  // At 179px the 300×50 content wraps to about 84px tall, which no longer fits
+  // below the trigger, so it flips above instead of overflowing.
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 195, height: 300 });
+  mockWrappingTooltip({ left: 100, top: 200, width: 17, height: 17 }, { width: 300, height: 50 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  // 200 − round(50 × 300 / 179) − 6 = 110.
+  expect(screen.getByRole('tooltip')).toHaveStyle({ top: '110px' });
+});
+
+it('re-measures and narrows the tooltip when the visual viewport shrinks', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  const visual = mockVisualViewport({ width: 390, height: 600 });
+  mockWrappingTooltip({ left: 100, top: 100, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('tooltip').style.maxWidth).toBe('300px');
+  // A pinch zoom reports a smaller visual viewport; the open tooltip follows.
+  act(() => visual.resize(195, 600));
+  expect(screen.getByRole('tooltip').style.maxWidth).toBe('179px');
+});
+
+it('falls back to the layout width when there is no visual viewport', () => {
+  Reflect.deleteProperty(window, 'visualViewport');
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(280);
+  mockWrappingTooltip({ left: 100, top: 100, width: 17, height: 17 }, { width: 300, height: 100 });
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('tooltip').style.maxWidth).toBe('264px');
 });
 
 it('keeps parameter help available while evaluation controls are disabled', () => {

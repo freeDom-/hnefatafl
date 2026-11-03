@@ -24,6 +24,8 @@ import { trainingTooltip } from './trainingTooltips';
 const MARGIN = 8;
 /** Space between the trigger and the tooltip. */
 const GAP = 6;
+/** Normal maximum width before the visual viewport constrains it. */
+const MAX_WIDTH = 300;
 
 interface Visibility {
   /** The pointer is over the label or the information button. */
@@ -128,6 +130,16 @@ function FieldTooltipBox({
       const trigger = anchor.current;
       const element = box.current;
       if (!trigger || !element) return;
+      // `100vw` follows the layout viewport, but a pinch zoom creates a smaller
+      // visual viewport. Apply the visible width to the border box (the shared
+      // `box-sizing: border-box` rule includes padding and border) *before*
+      // measuring, so the measured height reflects the wrapped text and the
+      // horizontal clamp uses the real width.
+      const visual = window.visualViewport;
+      const viewWidth = visual?.width ?? window.innerWidth;
+      const maxWidth = Math.max(0, Math.min(MAX_WIDTH, viewWidth - 2 * MARGIN));
+      const maxWidthStyle = `${maxWidth}px`;
+      if (element.style.maxWidth !== maxWidthStyle) element.style.maxWidth = maxWidthStyle;
       const rect = trigger.getBoundingClientRect();
       const size = element.getBoundingClientRect();
       // A fixed tooltip is laid out against the layout viewport, but the visual
@@ -135,10 +147,9 @@ function FieldTooltipBox({
       // a pinch zoom), and its rectangle is what is actually readable. Both
       // getBoundingClientRect and the fixed coordinates are in layout-viewport
       // space, so the offset is added rather than ignored.
-      const visual = window.visualViewport;
       const viewLeft = visual?.offsetLeft ?? 0;
       const viewTop = visual?.offsetTop ?? 0;
-      const viewRight = viewLeft + (visual?.width ?? window.innerWidth);
+      const viewRight = viewLeft + viewWidth;
       const viewBottom = viewTop + (visual?.height ?? window.innerHeight);
       const left = Math.max(
         viewLeft + MARGIN,
