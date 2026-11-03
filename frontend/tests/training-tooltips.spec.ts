@@ -242,27 +242,45 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
   else await blocks.click();
   await expect(tooltip).toBeVisible();
   await expect(tooltip).toContainText('Number of residual blocks');
-  // The read-only summary tooltip also follows a page-scale zoom; the dialog
-  // stays open and the box is constrained to the visible width. The pointer is
-  // parked outside the dialog so the zoom cannot open another field's tooltip.
-  // Chromium auto-pans to the focused summary button during the zoom, so the
-  // exact left edge is not asserted here; the creation-form test above checks the
-  // rendered bounds, and this confirms the dialog tooltip still narrows.
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+
+  // A longer read-only summary description under a 200% page-scale zoom is taller
+  // than the visible area, so it becomes a scrollable region inside the modal and
+  // the end of the text stays reachable. Chromium auto-pans to the focused summary
+  // button during the zoom, so the left edge is not asserted; the creation-form
+  // test checks the rendered bounds.
+  if (info.project.name === 'mobile') await channels.tap();
+  else await channels.click();
+  await expect(tooltip).toBeVisible();
   await page.mouse.move(0, 0);
   await page.setViewportSize({ width: 390, height: 600 });
   const client = await context.newCDPSession(page);
   await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
-  await expect(tooltip).toHaveCSS('max-width', '179px');
-  const zoomed = await visibleTooltip(page);
-  expect(zoomed.width).toBeLessThanOrEqual(179.5);
+  const panel = dialog.getByRole('region', { name: 'Network channels' });
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveCSS('overflow-y', 'auto');
+  const metrics = await panel.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+  }));
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  await panel.focus();
+  await page.keyboard.press('End');
+  await expect
+    .poll(async () => panel.evaluate((el) => el.scrollTop + el.clientHeight))
+    .toBeGreaterThanOrEqual(metrics.scrollHeight - 1);
+  // Escape dismisses the panel first, returns focus to the summary button and
+  // leaves the native dialog open.
   await page.keyboard.press('Escape');
-  await expect(tooltip).toHaveCount(0);
+  await expect(panel).toHaveCount(0);
+  await expect(channels).toBeFocused();
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 });
 
-test('a long German description wraps and stays inside a zoomed viewport', async ({
+test('a long German description becomes a scrollable panel when zoomed', async ({
   page,
   context,
 }) => {
@@ -283,16 +301,48 @@ test('a long German description wraps and stays inside a zoomed viewport', async
   expect(box!.x + box!.width).toBeLessThanOrEqual(360);
   expect(box!.y + box!.height).toBeLessThanOrEqual(420);
 
-  // A page-scale zoom halves the visible width to 180px, so the same description
-  // wraps onto more lines and the box narrows instead of overflowing. The pointer
-  // is parked in the corner so the zoom cannot open another field's tooltip. The
-  // exact left edge is not asserted because Chromium may auto-pan to the focused
-  // icon; the creation-form test above checks the rendered bounds.
+  // A 200% page-scale zoom is a real visual-viewport change (not a physical pinch
+  // gesture) that halves the visible area to 180 × 210. The long description no
+  // longer fits, so it must become a scrollable region instead of a tooltip. The
+  // pointer is parked in the corner so the zoom cannot open another field's help.
   await page.mouse.move(0, 0);
   const client = await context.newCDPSession(page);
   await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
-  await expect(tooltip).toHaveCSS('max-width', '164px');
-  const zoomed = await visibleTooltip(page);
-  expect(zoomed.width).toBeLessThanOrEqual(164.5);
-  expect(zoomed.bottom - zoomed.top).toBeGreaterThan(box!.height);
+  const panel = page.getByRole('region', { name: 'Inferenzcache' });
+  await expect(panel).toBeVisible();
+  // The button still points at the full description, so screen readers announce
+  // the whole text even though the panel is scrolled.
+  await expect(icon).toHaveAccessibleDescription(
+    /Verwendet neuronale Auswertungen identischer Stellungen/,
+  );
+  await expect(panel).toHaveCSS('overflow-y', 'auto');
+  await expect(panel).toHaveCSS('pointer-events', 'auto');
+  const metrics = await panel.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    maxHeight: getComputedStyle(element).maxHeight,
+  }));
+  // 210 − 2 × 8 = 194, and the full text is taller than the visible panel.
+  expect(metrics.maxHeight).toBe('194px');
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+
+  // The end of the description is reachable by mouse wheel.
+  await panel.hover();
+  await page.mouse.wheel(0, 10000);
+  await expect
+    .poll(async () => panel.evaluate((el) => el.scrollTop + el.clientHeight))
+    .toBeGreaterThanOrEqual(metrics.scrollHeight - 1);
+
+  // And by keyboard: focusing the region and pressing End scrolls to the end.
+  await panel.focus();
+  await page.keyboard.press('End');
+  await expect
+    .poll(async () => panel.evaluate((el) => el.scrollTop + el.clientHeight))
+    .toBeGreaterThanOrEqual(metrics.scrollHeight - 1);
+
+  // Escape dismisses the help, returns focus to the button and leaves the form.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: 'Inferenzcache' })).toHaveCount(0);
+  await expect(icon).toBeFocused();
+  await expect(page.getByRole('combobox', { name: 'Inferenzcache' })).toBeVisible();
 });

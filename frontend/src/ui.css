@@ -371,3 +371,14 @@ h6 {
   box-shadow: 0 10px 30px #173d3726;
   pointer-events: none;
 }
+/* A description taller than the visual viewport turns into a focusable scroll
+   region so the whole text stays reachable with mouse, touch and keyboard. */
+.field-tooltip-scroll {
+  pointer-events: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.field-tooltip-scroll:focus-visible {
+  outline: 3px solid #b38c4c;
+  outline-offset: -3px;
+}

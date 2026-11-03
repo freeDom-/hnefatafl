@@ -133,7 +133,9 @@ the button with the keyboard, or tapping it reveals a description of what the
 setting controls, which phase it affects (self-play, gradient training or
 evaluation) and how it interacts with other settings. Clicking or tapping the
 button keeps the description open until Escape or a press elsewhere dismisses it;
-a description taller than a short viewport is kept on screen rather than clipped.
+a description taller than the visual viewport becomes a focusable, scrollable
+region so the whole text stays reachable by mouse, touch and keyboard instead of
+being clipped.
 
 One shared registry (`frontend/src/trainingTooltips.ts`) holds the wording, keyed
 by the same parameter identity the API and the form controls use, so a parameter

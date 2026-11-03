@@ -221,6 +221,57 @@ function mockWrappingTooltip(
   });
 }
 
+/**
+ * Models a description taller than the visual viewport. The applied max-height
+ * clips the rendered box while `scrollHeight` still reports the full text, so the
+ * component must turn the tooltip into a scrollable region. jsdom has no layout,
+ * so the overflow is reported through these getters rather than real sizes.
+ */
+function mockOverflowingTooltip(
+  trigger: { left: number; top: number; width: number; height: number },
+  content: { width: number; height: number },
+) {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const rect = (left: number, top: number, width: number, height: number) =>
+      ({
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    if (this.classList.contains('field-info-button'))
+      return rect(trigger.left, trigger.top, trigger.width, trigger.height);
+    if (this.classList.contains('field-tooltip')) {
+      const style = (this as HTMLElement).style;
+      const appliedWidth = parseFloat(style.maxWidth);
+      const appliedHeight = parseFloat(style.maxHeight);
+      const width = Number.isFinite(appliedWidth)
+        ? Math.min(content.width, appliedWidth)
+        : content.width;
+      const height = Number.isFinite(appliedHeight)
+        ? Math.min(content.height, appliedHeight)
+        : content.height;
+      return rect(0, 0, width, height);
+    }
+    return rect(0, 0, 0, 0);
+  });
+  vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+    return this.classList.contains('field-tooltip') ? content.height : 0;
+  });
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+    if (!this.classList.contains('field-tooltip')) return 0;
+    const appliedHeight = parseFloat((this as HTMLElement).style.maxHeight);
+    return Number.isFinite(appliedHeight)
+      ? Math.min(content.height, appliedHeight)
+      : content.height;
+  });
+}
+
 /** Asserts every rendered training field has a description and a help button. */
 function expectEveryFieldDocumented(): Set<string> {
   const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-training-field]'));
@@ -610,7 +661,10 @@ it('reveals the tooltip when hovering the information icon on its own', async ()
   const tooltip = screen.getByRole('tooltip');
   expect(tooltip).toHaveTextContent(trainingTooltips.iterations);
   expect(tooltip).toHaveClass('field-tooltip');
-  expect(helpButton('Training iterations')).toHaveAttribute('aria-describedby', tooltip.id);
+  expect(helpButton('Training iterations')).toHaveAttribute(
+    'aria-describedby',
+    `${tooltip.id}-text`,
+  );
 });
 
 it('keeps the tooltip open while the pointer moves between the label and its icon', async () => {
@@ -861,6 +915,137 @@ it('falls back to the layout width when there is no visual viewport', () => {
   render(<CreationHarness />);
   fireEvent.click(helpButton('Training iterations'), { detail: 1 });
   expect(screen.getByRole('tooltip').style.maxWidth).toBe('264px');
+});
+
+it('turns a description taller than the viewport into a scrollable region', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  const button = helpButton('Training iterations');
+  fireEvent.click(button, { detail: 1 });
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  expect(panel).toHaveClass('field-tooltip', 'field-tooltip-scroll');
+  expect(panel).toHaveAttribute('tabindex', '0');
+  // 200 − 2 × 8 = 184, and the full text is still present in the panel.
+  expect(panel.style.maxHeight).toBe('184px');
+  expect(panel).toHaveTextContent(trainingTooltips.iterations);
+  expect(button).toHaveAttribute('aria-describedby', `${panel.id}-text`);
+});
+
+it('keeps the tooltip role and no tab stop for a description that fits', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 600 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 120 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  const tooltip = screen.getByRole('tooltip');
+  expect(tooltip).not.toHaveClass('field-tooltip-scroll');
+  expect(tooltip).not.toHaveAttribute('tabindex');
+  expect(tooltip.style.maxHeight).toBe('584px');
+});
+
+it('updates the presentation when the visual viewport grows', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  const visual = mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  // The taller viewport fits the whole description, so it is a tooltip again.
+  act(() => visual.resize(390, 600));
+  expect(screen.queryByRole('region')).toBeNull();
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+});
+
+it('returns focus to the button when Escape closes the scroll panel', async () => {
+  const user = userEvent.setup();
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  const button = helpButton('Training iterations');
+  await user.click(button);
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  act(() => panel.focus());
+  expect(panel).toHaveFocus();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('region')).toBeNull();
+  expect(button).toHaveFocus();
+  // Returning focus must not immediately reopen the help the user dismissed.
+  expect(screen.queryByRole('tooltip')).toBeNull();
+});
+
+it('keeps the scroll panel open while focus moves from the button into it', async () => {
+  const user = userEvent.setup();
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  const button = helpButton('Training iterations');
+  await tabTo(user, button);
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  // The panel is the next tab stop after the button and focus moving into it
+  // must not close the help.
+  await user.tab();
+  expect(panel).toHaveFocus();
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  // Tabbing out of the panel closes the help and leaves the form usable.
+  await user.tab();
+  expect(screen.queryByRole('region')).toBeNull();
+});
+
+it('keeps the scroll panel open for a press inside it and closes on a press outside', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  // Pressing the scrollbar or text is inside the help group, so it stays open.
+  fireEvent.pointerDown(panel);
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole('region')).toBeNull();
+});
+
+it('removes the document listeners when the scroll panel is dismissed', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 200 });
+  mockOverflowingTooltip(
+    { left: 100, top: 80, width: 17, height: 17 },
+    { width: 300, height: 500 },
+  );
+  render(<CreationHarness />);
+  fireEvent.click(helpButton('Training iterations'), { detail: 1 });
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  const first = createEvent.keyDown(document, { key: 'Escape' });
+  fireEvent(document, first);
+  expect(first.defaultPrevented).toBe(true);
+  expect(screen.queryByRole('region')).toBeNull();
+  expect(document.querySelector('.field-tooltip')).toBeNull();
+  // With the help closed its Escape listener is gone, so the key is untouched.
+  const second = createEvent.keyDown(document, { key: 'Escape' });
+  fireEvent(document, second);
+  expect(second.defaultPrevented).toBe(false);
 });
 
 it('keeps parameter help available while evaluation controls are disabled', () => {

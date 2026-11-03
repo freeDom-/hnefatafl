@@ -1,4 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { trainingTooltip } from './trainingTooltips';
@@ -9,10 +17,11 @@ import { trainingTooltip } from './trainingTooltips';
  * A small information button next to a parameter's label reveals the parameter's
  * tooltip. The label and the button share one hover group, so the tooltip opens
  * while the pointer is over either of them and does not flicker when the pointer
- * moves between them. The tooltip is portaled into the surrounding native dialog
- * (falling back to the document body) so it is never clipped by a dialog or
- * scroll container, and it is positioned from the button's viewport rectangle so
- * it stays inside the viewport.
+ * moves between them. The tooltip is portaled into that same hover group, which
+ * keeps it a `position: fixed` descendant of the surrounding native dialog so it
+ * is never clipped, and it is positioned from the button's viewport rectangle so
+ * it stays inside the visual viewport. A description taller than the visual
+ * viewport becomes a focusable, scrollable region so the whole text is reachable.
  *
  * Native `title` attributes are deliberately not used: they cannot be styled,
  * translated or reached reliably on touch. Copy goes through the module-level
@@ -45,7 +54,22 @@ export interface FieldTooltipState {
   /** Hover handlers for the group that holds the label and the button. */
   hover: { onMouseEnter: () => void; onMouseLeave: () => void };
   /** Handlers for the information button. */
-  trigger: { onFocus: () => void; onBlur: () => void; onClick: () => void };
+  trigger: {
+    onFocus: () => void;
+    onBlur: (event: FocusEvent<HTMLButtonElement>) => void;
+    onClick: () => void;
+  };
+  /**
+   * Focus handlers for the scrollable oversized panel. They keep the help open
+   * while focus moves between the button and the panel, and close it when focus
+   * leaves both.
+   */
+  panel: {
+    onFocus: () => void;
+    onBlur: (event: FocusEvent<HTMLDivElement>) => void;
+  };
+  /** The information button; the hook owns it so Escape can return focus. */
+  buttonRef: RefObject<HTMLButtonElement | null>;
 }
 
 /**
@@ -59,6 +83,10 @@ export interface FieldTooltipState {
  */
 export function useFieldTooltip(container: RefObject<HTMLElement | null>): FieldTooltipState {
   const [state, setState] = useState<Visibility>(IDLE);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Set while Escape moves focus back to the button, so the programmatic focus
+  // does not immediately reopen the help the user just dismissed.
+  const suppressFocus = useRef(false);
   const shown = !state.dismissed && (state.hovering || state.focused || state.pinned);
   useEffect(() => {
     if (!shown) return;
@@ -78,7 +106,16 @@ export function useFieldTooltip(container: RefObject<HTMLElement | null>): Field
       // Dismiss the tooltip first; the surrounding dialog stays open. Once it is
       // closed this listener is gone, so Escape reaches the dialog again.
       event.preventDefault();
+      // A scrollable panel takes focus, so return it to the button instead of
+      // leaving the user on the document when the panel unmounts.
+      const focusInPanel =
+        document.activeElement !== buttonRef.current &&
+        Boolean(container.current?.contains(document.activeElement));
       setState(dismiss);
+      if (focusInPanel && buttonRef.current) {
+        suppressFocus.current = true;
+        buttonRef.current.focus();
+      }
     };
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape, true);
@@ -87,8 +124,15 @@ export function useFieldTooltip(container: RefObject<HTMLElement | null>): Field
       document.removeEventListener('keydown', escape, true);
     };
   }, [shown, container]);
+  // `relatedTarget` is the element gaining focus. When it is still inside the
+  // help group (the button or the scrollable panel), the help stays open.
+  const focusStaysInside = (event: FocusEvent<HTMLElement>) =>
+    Boolean(event.relatedTarget && container.current?.contains(event.relatedTarget as Node));
+  const clearFocus = (previous: Visibility): Visibility =>
+    previous.focused || previous.pinned ? { ...previous, focused: false, pinned: false } : previous;
   return {
     shown,
+    buttonRef,
     hover: {
       onMouseEnter: () =>
         setState((previous) => ({ ...previous, hovering: true, dismissed: false })),
@@ -96,19 +140,30 @@ export function useFieldTooltip(container: RefObject<HTMLElement | null>): Field
         setState((previous) => (previous.hovering ? { ...previous, hovering: false } : previous)),
     },
     trigger: {
-      onFocus: () => setState((previous) => ({ ...previous, focused: true, dismissed: false })),
-      onBlur: () =>
-        setState((previous) =>
-          previous.focused || previous.pinned
-            ? { ...previous, focused: false, pinned: false }
-            : previous,
-        ),
+      onFocus: () => {
+        if (suppressFocus.current) {
+          suppressFocus.current = false;
+          return;
+        }
+        setState((previous) => ({ ...previous, focused: true, dismissed: false }));
+      },
+      onBlur: (event) => {
+        if (focusStaysInside(event)) return;
+        setState(clearFocus);
+      },
       onClick: () =>
         setState((previous) =>
           previous.pinned
             ? { ...previous, pinned: false, dismissed: true }
             : { ...previous, pinned: true, dismissed: false },
         ),
+    },
+    panel: {
+      onFocus: () => setState((previous) => ({ ...previous, focused: true, dismissed: false })),
+      onBlur: (event) => {
+        if (focusStaysInside(event)) return;
+        setState(clearFocus);
+      },
     },
   };
 }
@@ -118,30 +173,45 @@ function FieldTooltipBox({
   anchor,
   id,
   text,
+  fieldLabel,
+  panel,
 }: {
   anchor: RefObject<HTMLElement | null>;
   id: string;
   text: string;
+  fieldLabel: string;
+  panel: FieldTooltipState['panel'];
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  // A description taller than the visual viewport becomes a focusable, scrollable
+  // region instead of a non-interactive tooltip, so the whole text is reachable.
+  const [oversized, setOversized] = useState(false);
   useLayoutEffect(() => {
     const place = () => {
       const trigger = anchor.current;
       const element = box.current;
       if (!trigger || !element) return;
       // `100vw` follows the layout viewport, but a pinch zoom creates a smaller
-      // visual viewport. Apply the visible width to the border box (the shared
-      // `box-sizing: border-box` rule includes padding and border) *before*
-      // measuring, so the measured height reflects the wrapped text and the
-      // horizontal clamp uses the real width.
+      // visual viewport. Apply the visible width and height to the border box
+      // (the shared `box-sizing: border-box` rule includes padding and border)
+      // *before* measuring, so the measured height reflects the wrapped text and
+      // the horizontal clamp uses the real width.
       const visual = window.visualViewport;
       const viewWidth = visual?.width ?? window.innerWidth;
+      const viewHeight = visual?.height ?? window.innerHeight;
       const maxWidth = Math.max(0, Math.min(MAX_WIDTH, viewWidth - 2 * MARGIN));
+      const maxHeight = Math.max(0, viewHeight - 2 * MARGIN);
       const maxWidthStyle = `${maxWidth}px`;
+      const maxHeightStyle = `${maxHeight}px`;
       if (element.style.maxWidth !== maxWidthStyle) element.style.maxWidth = maxWidthStyle;
+      if (element.style.maxHeight !== maxHeightStyle) element.style.maxHeight = maxHeightStyle;
       const rect = trigger.getBoundingClientRect();
       const size = element.getBoundingClientRect();
+      // `scrollHeight` is the full text; `clientHeight` is what the max-height
+      // lets through. Only the overflow becomes an interactive scroll panel.
+      const nextOversized = element.scrollHeight > element.clientHeight + 1;
+      setOversized((previous) => (previous === nextOversized ? previous : nextOversized));
       // A fixed tooltip is laid out against the layout viewport, but the visual
       // viewport can be both smaller and displaced from it (a mobile keyboard, or
       // a pinch zoom), and its rectangle is what is actually readable. Both
@@ -150,7 +220,7 @@ function FieldTooltipBox({
       const viewLeft = visual?.offsetLeft ?? 0;
       const viewTop = visual?.offsetTop ?? 0;
       const viewRight = viewLeft + viewWidth;
-      const viewBottom = viewTop + (visual?.height ?? window.innerHeight);
+      const viewBottom = viewTop + viewHeight;
       const left = Math.max(
         viewLeft + MARGIN,
         Math.min(rect.left + rect.width / 2 - size.width / 2, viewRight - size.width - MARGIN),
@@ -161,7 +231,8 @@ function FieldTooltipBox({
       const above = rect.top - size.height - GAP;
       // Prefer a side that fits the whole tooltip, then the roomier side, and
       // finally clamp so a tooltip that fits anywhere is never partly off screen
-      // (a description taller than the viewport starts at the top edge).
+      // (a description taller than the viewport starts at the top edge and
+      // scrolls inside its max-height).
       const wanted =
         size.height <= roomBelow
           ? below
@@ -187,23 +258,32 @@ function FieldTooltipBox({
       window.visualViewport?.removeEventListener('scroll', place);
     };
   }, [anchor, text]);
-  // Native modal dialogs paint above every ordinary fixed layer, so the tooltip
-  // joins the dialog its trigger belongs to and otherwise lives in the document
-  // body. This mirrors the shared notification viewport.
-  const layer = (anchor.current?.closest('dialog[open]') as HTMLElement | null) ?? document.body;
+  // The tooltip joins the element that owns its hover and outside-click checks
+  // (the `.field-help` group or `.checkbox-field` row). It stays a
+  // `position: fixed` descendant of the surrounding native dialog, so a modal
+  // never clips it and it paints in the dialog's top layer, while the DOM
+  // nesting lets the shared handlers treat clicks and focus on the scroll panel
+  // as "inside".
+  const layer = (anchor.current?.parentElement as HTMLElement | null) ?? document.body;
   return createPortal(
     <div
       ref={box}
-      role="tooltip"
+      role={oversized ? 'region' : 'tooltip'}
+      aria-label={oversized ? fieldLabel : undefined}
+      tabIndex={oversized ? 0 : undefined}
       id={id}
-      className="field-tooltip"
+      className={oversized ? 'field-tooltip field-tooltip-scroll' : 'field-tooltip'}
       style={
         position
           ? { top: position.top, left: position.left }
           : { top: 0, left: 0, visibility: 'hidden' }
       }
+      {...panel}
     >
-      {text}
+      {/* The button describes this inner text rather than the panel itself: when
+          the panel is a named region, referencing the panel would make the
+          description its name instead of the full description. */}
+      <span id={`${id}-text`}>{text}</span>
     </div>,
     layer,
   );
@@ -215,13 +295,11 @@ function FieldTooltipBox({
  * the control keeps its own accessible name.
  */
 function FieldTooltipTrigger({
-  buttonRef,
   id,
   text,
   fieldLabel,
   state,
 }: {
-  buttonRef: RefObject<HTMLButtonElement | null>;
   id: string;
   text: string;
   fieldLabel: string;
@@ -231,10 +309,10 @@ function FieldTooltipTrigger({
     <>
       <button
         type="button"
-        ref={buttonRef}
+        ref={state.buttonRef}
         className="field-info-button"
         aria-label={t('Explain {field}', { field: fieldLabel })}
-        aria-describedby={state.shown ? id : undefined}
+        aria-describedby={state.shown ? `${id}-text` : undefined}
         {...state.trigger}
       >
         <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -244,7 +322,15 @@ function FieldTooltipTrigger({
           />
         </svg>
       </button>
-      {state.shown && <FieldTooltipBox anchor={buttonRef} id={id} text={text} />}
+      {state.shown && (
+        <FieldTooltipBox
+          anchor={state.buttonRef}
+          id={id}
+          text={text}
+          fieldLabel={fieldLabel}
+          panel={state.panel}
+        />
+      )}
     </>
   );
 }
@@ -265,7 +351,6 @@ export function FieldLabel({
   tooltipKey?: string;
 }) {
   const group = useRef<HTMLSpanElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
   const state = useFieldTooltip(group);
   const text = tooltipKey ? trainingTooltip(tooltipKey) : undefined;
   return (
@@ -273,7 +358,6 @@ export function FieldLabel({
       <label htmlFor={htmlFor}>{t(label)}</label>
       {text && (
         <FieldTooltipTrigger
-          buttonRef={button}
           id={`${htmlFor}-help`}
           text={t(text)}
           fieldLabel={t(label)}
@@ -324,16 +408,7 @@ export function FieldInfo({
   state: FieldTooltipState;
   id: string;
 }) {
-  const button = useRef<HTMLButtonElement>(null);
   const text = trainingTooltip(tooltipKey);
   if (!text) return null;
-  return (
-    <FieldTooltipTrigger
-      buttonRef={button}
-      id={id}
-      text={t(text)}
-      fieldLabel={fieldLabel}
-      state={state}
-    />
-  );
+  return <FieldTooltipTrigger id={id} text={t(text)} fieldLabel={fieldLabel} state={state} />;
 }
