@@ -1,5 +1,7 @@
+import { useId } from 'react';
 import { useI18n } from './i18n';
 import { fieldErrorAttributes, numberField } from './TrainingFields';
+import { FieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
 
 export const evaluationDefaults: TrainingConfig = {
@@ -47,14 +49,20 @@ export default function EvaluationSettings({
   errorId?: string;
 }) {
   const { t } = useI18n();
+  const opponentId = useId();
+  const modeId = useId();
+  const backendId = useId();
   const rejected = new Set(invalidFields);
   const values = { ...evaluationDefaults, ...config };
+  // `disabled` is applied per control rather than to the fieldset, so a disabled
+  // form still offers the parameter explanations through the help buttons.
   const field = (key: string) => ({
     invalid: rejected.has(key),
     errorId,
+    disabled,
   });
   return (
-    <fieldset className="training-evaluation" disabled={disabled}>
+    <fieldset className="training-evaluation">
       <legend>{t('Evaluation')}</legend>
       <p className="subtle">
         {t(
@@ -62,13 +70,18 @@ export default function EvaluationSettings({
         )}
       </p>
       <div className="form-grid">
-        <label>
-          {t('Evaluation opponent')}
+        <div className="training-field">
+          <FieldLabel
+            htmlFor={opponentId}
+            label="Evaluation opponent"
+            tooltipKey="evaluation_opponent"
+          />
           <select
+            id={opponentId}
             data-training-field="evaluation_opponent"
             {...fieldErrorAttributes(rejected.has('evaluation_opponent'), errorId)}
             value={String(values.evaluation_opponent)}
-            disabled={tuning}
+            disabled={tuning || disabled}
             onChange={(event) => update('evaluation_opponent', event.target.value)}
           >
             <option value="shield_bearer">{t('Shield bearer')}</option>
@@ -76,28 +89,38 @@ export default function EvaluationSettings({
             <option value="jarl">{t('Jarl')}</option>
             <option value="champion">{t('Champion')}</option>
           </select>
-        </label>
-        <label>
-          {t('Evaluation execution')}
+        </div>
+        <div className="training-field">
+          <FieldLabel htmlFor={modeId} label="Evaluation execution" tooltipKey="evaluation_mode" />
           <select
+            id={modeId}
+            data-training-field="evaluation_mode"
             value={String(values.evaluation_mode)}
+            disabled={disabled}
             onChange={(event) => update('evaluation_mode', event.target.value)}
           >
             <option value="auto">{t('Automatic')}</option>
             <option value="sequential">{t('Sequential')}</option>
             <option value="batched">{t('Batched')}</option>
           </select>
-        </label>
-        <label>
-          {t('Evaluation inference backend')}
+        </div>
+        <div className="training-field">
+          <FieldLabel
+            htmlFor={backendId}
+            label="Evaluation inference backend"
+            tooltipKey="evaluation_inference_backend"
+          />
           <select
+            id={backendId}
+            data-training-field="evaluation_inference_backend"
             value={String(values.evaluation_inference_backend)}
+            disabled={disabled}
             onChange={(event) => update('evaluation_inference_backend', event.target.value)}
           >
             <option value="pytorch">PyTorch</option>
             <option value="training">{t('Use training inference backend')}</option>
           </select>
-        </label>
+        </div>
         {[
           'evaluation_concurrency',
           'evaluation_batch_size',

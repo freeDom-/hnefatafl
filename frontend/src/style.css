@@ -10,6 +10,8 @@
   --muted: #7d8277;
   --line: #e4e4d9;
   --gold: #ad8647;
+  /* Shared focus ring; kept theme-independent like the existing control focus. */
+  --focus-ring: #b38c4c;
   --surface: #fffefa;
   /* Interface scale (Appearance: compact | default | large) and responsive spacing. */
   --density: 1;
@@ -69,7 +71,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid #b38c4c;
+  outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
 }
 h1,

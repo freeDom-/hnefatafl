@@ -293,3 +293,92 @@ h6 {
 .section-heading h2 {
   margin: 0;
 }
+
+/* Shared field help: a label and an unobtrusive information button that share a
+   single hover group, with the control on its own full-width row so it keeps the
+   original stacked label/control spacing and is never sized by the icon. */
+.training-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.field-help {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.field-help > label {
+  min-width: 0;
+}
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.checkbox-field > .checkbox-label {
+  min-width: 0;
+}
+.field-info-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ui-subtle, #92957f);
+  line-height: 0;
+}
+.field-info-button:hover {
+  color: var(--green);
+  background: var(--ui-tint, #edf0e6);
+}
+/* A touch device gets a comfortable target without enlarging the visible symbol
+   or the field row: the pseudo-element is out of flow, so nothing moves. */
+@media (pointer: coarse) {
+  .field-info-button::after {
+    content: '';
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    bottom: -10px;
+    left: -10px;
+  }
+}
+.field-tooltip {
+  position: fixed;
+  z-index: 10000;
+  /* The cap is normally 300px; FieldTooltipBox narrows it to the visual viewport
+     (which pinch-zoom makes smaller than 100vw) before measuring, and wraps a
+     word that is wider than the resulting line. */
+  max-width: 300px;
+  padding: 9px 11px;
+  border: 1px solid var(--ui-border, #dfe2d4);
+  border-radius: 7px;
+  background: var(--ui-dialog, #fafbf4);
+  color: var(--ui-heading, #2c3e30);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+  box-shadow: 0 10px 30px #173d3726;
+  pointer-events: none;
+}
+/* A description taller than the visual viewport turns into a focusable scroll
+   region so the whole text stays reachable with mouse, touch and keyboard. */
+.field-tooltip-scroll {
+  pointer-events: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.field-tooltip-scroll:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}

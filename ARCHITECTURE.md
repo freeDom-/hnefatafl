@@ -424,6 +424,13 @@ the application. See [Remote training](docs/REMOTE_TRAINING.md) and
 
 `Training.tsx` owns asynchronous mutations, shared form state and revision guards.
 `TrainingCreationPanel` reuses the existing fields/target/evaluation controls.
+Every training parameter carries a help button whose description lives in the
+single `trainingTooltips` registry keyed by parameter identity, so the creation
+form and the resume dialog describe shared settings identically and a coverage
+test fails when a rendered field — editable, or an immutable checkpoint value in
+the resume summary — has no copy. A description taller than the visual viewport
+turns into a focusable, scrollable region (with the full text still named on the
+button) instead of a clipped non-interactive tooltip.
 `TrainingJobNavigator` owns local search, filtering and sorting;
 `TrainingJobDashboard` owns tabs and iteration range without resetting on polling.
 `TrainingAnalysisViews` composes Overview, Learning, Evaluation and Details;

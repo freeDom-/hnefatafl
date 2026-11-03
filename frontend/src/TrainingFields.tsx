@@ -1,4 +1,6 @@
+import { useId, useRef } from 'react';
 import { t } from './i18n';
+import { FieldInfo, FieldLabel, useFieldTooltip } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
 
 export const trainingNumberFields: Record<string, [string, number, number, number?]> = {
@@ -82,6 +84,120 @@ export function trainingParameterLabel(key: string): string {
   return trainingNumberFields[key]?.[0] ?? trainingParameterLabels[key] ?? key;
 }
 
+export interface NumberFieldOptions {
+  label?: string;
+  min?: number;
+  disabled?: boolean;
+  invalid?: boolean;
+  errorId?: string;
+}
+
+/**
+ * One numeric training parameter: its label with the shared tooltip, the number
+ * input, and the bounds the shared schema declares. The label is explicit so the
+ * tooltip button never joins the control's accessible name.
+ */
+export function TrainingNumberField({
+  fieldKey,
+  config,
+  update,
+  options = {},
+}: {
+  fieldKey: string;
+  config: TrainingConfig;
+  update: (key: string, value: number) => void;
+  options?: NumberFieldOptions;
+}) {
+  const id = useId();
+  const [label, min, max, step = 1] = trainingNumberFields[fieldKey];
+  return (
+    <div className="training-field">
+      <FieldLabel htmlFor={id} label={options.label ?? label} tooltipKey={fieldKey} />
+      <input
+        id={id}
+        type="number"
+        required
+        min={options.min ?? min}
+        max={max}
+        step={Number.isInteger(step) ? step : 'any'}
+        value={Number.isNaN(Number(config[fieldKey])) ? '' : Number(config[fieldKey])}
+        disabled={options.disabled}
+        // Lets the form mark this exact input when the server rejects the field.
+        data-training-field={fieldKey}
+        {...fieldErrorAttributes(options.invalid === true, options.errorId)}
+        onChange={(event) => update(fieldKey, event.currentTarget.valueAsNumber)}
+      />
+    </div>
+  );
+}
+
+/** Renders one numeric parameter field; kept as a factory so call sites stay flat. */
+export function numberField(
+  key: string,
+  config: TrainingConfig,
+  update: (key: string, value: number) => void,
+  options: NumberFieldOptions = {},
+) {
+  return (
+    <TrainingNumberField
+      key={key}
+      fieldKey={key}
+      config={config}
+      update={update}
+      options={options}
+    />
+  );
+}
+
+/**
+ * A checkbox training parameter. The label wraps the input so the whole row stays
+ * clickable, and the help button sits beside it so the accessible name is
+ * unchanged. Hovering the row reveals the tooltip as well as the button.
+ */
+export function CheckboxField({
+  fieldKey,
+  label,
+  checked,
+  onChange,
+  disabled,
+  invalid,
+  errorId,
+  className,
+}: {
+  fieldKey: string;
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  invalid?: boolean;
+  errorId?: string;
+  className?: string;
+}) {
+  const id = useId();
+  const container = useRef<HTMLDivElement>(null);
+  const state = useFieldTooltip(container);
+  return (
+    <div
+      className={className ? `checkbox-field ${className}` : 'checkbox-field'}
+      ref={container}
+      {...state.hover}
+    >
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          data-training-field={fieldKey}
+          checked={checked}
+          disabled={disabled}
+          {...fieldErrorAttributes(invalid === true, errorId)}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        {t(label)}
+      </label>
+      <FieldInfo tooltipKey={fieldKey} fieldLabel={t(label)} state={state} id={`${id}-help`} />
+    </div>
+  );
+}
+
 export function SelfPlayModeField({
   value,
   onChange,
@@ -95,10 +211,12 @@ export function SelfPlayModeField({
   invalid?: boolean;
   errorId?: string;
 }) {
+  const id = useId();
   return (
-    <label>
-      {t('Self-play execution')}
+    <div className="training-field">
+      <FieldLabel htmlFor={id} label="Self-play execution" tooltipKey="self_play_mode" />
       <select
+        id={id}
         data-training-field="self_play_mode"
         {...fieldErrorAttributes(invalid === true, errorId)}
         value={value}
@@ -109,7 +227,7 @@ export function SelfPlayModeField({
         <option value="sequential">{t('Sequential')}</option>
         <option value="batched">{t('Batched')}</option>
       </select>
-    </label>
+    </div>
   );
 }
 
@@ -125,37 +243,4 @@ export function validTrainingNumbers(config: TrainingConfig): boolean {
       (!Number.isInteger(step) || (Number.isInteger(value) && (value - min) % step === 0))
     );
   });
-}
-
-export function numberField(
-  key: string,
-  config: TrainingConfig,
-  update: (key: string, value: number) => void,
-  options: {
-    label?: string;
-    min?: number;
-    disabled?: boolean;
-    invalid?: boolean;
-    errorId?: string;
-  } = {},
-) {
-  const [label, min, max, step = 1] = trainingNumberFields[key];
-  return (
-    <label key={key}>
-      {t(options.label ?? label)}
-      <input
-        type="number"
-        required
-        min={options.min ?? min}
-        max={max}
-        step={Number.isInteger(step) ? step : 'any'}
-        value={Number.isNaN(Number(config[key])) ? '' : Number(config[key])}
-        disabled={options.disabled}
-        // Lets the form mark this exact input when the server rejects the field.
-        data-training-field={key}
-        {...fieldErrorAttributes(options.invalid === true, options.errorId)}
-        onChange={(event) => update(key, event.currentTarget.valueAsNumber)}
-      />
-    </label>
-  );
 }

@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { useI18n } from './i18n';
+import { FieldLabel } from './FieldTooltip';
 import type { DeviceInfo } from './types';
 import type { TrainingConfig } from './trainingPresets';
 
@@ -29,14 +30,20 @@ export default function SymmetrySettings({
 }) {
   const { t } = useI18n();
   const helpId = useId();
+  const fieldId = useId();
   const error = symmetryTargetError(config, capabilities);
   // The help text and a rejected field both describe this control.
   const described = [helpId, invalid ? errorId : undefined].filter(Boolean).join(' ');
   return (
     <div className="symmetry-settings">
-      <label>
-        {t('Training symmetry augmentation')}
+      <div className="training-field">
+        <FieldLabel
+          htmlFor={fieldId}
+          label="Training symmetry augmentation"
+          tooltipKey="training_symmetry_mode"
+        />
         <select
+          id={fieldId}
           data-training-field="training_symmetry_mode"
           className={invalid ? 'field-invalid' : undefined}
           value={String(config.training_symmetry_mode ?? 'off')}
@@ -48,7 +55,7 @@ export default function SymmetrySettings({
           <option value="off">{t('Disabled')}</option>
           <option value="random_d4">{t('Random D4 rotations and reflections')}</option>
         </select>
-      </label>
+      </div>
       <small id={helpId}>
         {t(
           'Randomly rotate or reflect training positions and their corresponding move targets to help the network learn equivalent board orientations.',

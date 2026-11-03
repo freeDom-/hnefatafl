@@ -55,7 +55,9 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
     'true',
   );
   await expect(page.getByLabel('Random seed', { exact: true })).toHaveValue('0');
-  await expect(page.getByLabel('Mixed precision when supported')).not.toBeChecked();
+  await expect(
+    page.getByLabel('Mixed precision when supported', { exact: true }),
+  ).not.toBeChecked();
   await page.getByLabel('Model name', { exact: true }).fill(`${name} copy`);
   await page.getByLabel('Training iterations', { exact: true }).fill('2');
   await page.getByLabel('Random seed', { exact: true }).fill('23');

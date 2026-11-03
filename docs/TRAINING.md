@@ -125,6 +125,31 @@ with an affordable run and inspect timings before increasing budgets. Very
 large replay buffers/checkpoints can exceed the enforced 128 MiB safe checkpoint
 limit; reduce the buffer or model dimensions rather than bypassing validation.
 
+### Parameter help in the forms
+
+Every parameter in the workshop's new-job form and resume dialog has an
+information button beside its label. Hovering the label or the button, focusing
+the button with the keyboard, or tapping it reveals a description of what the
+setting controls, which phase it affects (self-play, gradient training or
+evaluation) and how it interacts with other settings. Clicking or tapping the
+button keeps the description open until Escape or a press elsewhere dismisses it;
+a description taller than the visual viewport becomes a focusable, scrollable
+region so the whole text stays reachable by mouse, touch and keyboard instead of
+being clipped.
+
+One shared registry (`frontend/src/trainingTooltips.ts`) holds the wording, keyed
+by the same parameter identity the API and the form controls use, so a parameter
+that appears in both forms is described identically and a new control cannot be
+added without copy:
+`frontend/src/TrainingTooltips.test.tsx` enumerates the fields each form actually
+renders — including conditional and advanced ones — and fails when one has no
+description. The read-only checkpoint values in the resume summary use the same
+affordance through `ReadOnlyFieldLabel`; the coverage test marks them with
+`data-training-parameter` and checks that every immutable resume field from the
+shared contract is represented, so an immutable parameter cannot be shown without
+an explanation either. `frontend/tests/training-tooltips.spec.ts` drives the same
+interactions in a real browser, where pointer and focus sequencing is real.
+
 ### CLI configurations and the HTTP API
 
 `config.json` is shared by the CLI and the workshop export/import, but

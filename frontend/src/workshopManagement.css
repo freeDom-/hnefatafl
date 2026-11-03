@@ -18,12 +18,32 @@
   color: var(--muted);
   font-size: 0.6875rem;
 }
+/* Read-only labels sit inline so the combined channels/blocks row stays on one
+   line; the help buttons keep the shared interaction and touch target. */
+.training-resume-details .field-help {
+  display: inline-flex;
+}
+/* The two architecture help buttons need room: on a narrow viewport the row
+   spans both columns so they stay side by side, and if a very long translation
+   still wraps them the row gap keeps their touch targets from overlapping. */
+.training-resume-details .resume-summary-architecture dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 20px;
+}
+@media (max-width: 600px) {
+  .training-resume-details .resume-summary-architecture {
+    grid-column: 1 / -1;
+  }
+}
 .training-resume-details dd {
   margin: 4px 0 0;
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
-.training-resume-dialog label > small {
+.training-resume-dialog label > small,
+.training-resume-dialog .training-field > small {
   display: block;
   margin-top: 7px;
   color: var(--muted);
@@ -33,7 +53,8 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: var(--gap-card) 0 var(--gap-card);
 }
-.resume-optimizer-settings label:last-child {
+/* The final control spans both columns, whatever kind of field it is. */
+.resume-optimizer-settings > :last-child {
   grid-column: 1 / -1;
 }
 .model-card .model-training-seed {
