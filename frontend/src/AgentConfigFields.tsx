@@ -381,7 +381,7 @@ export default function AgentConfigFields({
         <>
           {catalogue.error && (
             <p className="form-error" role="alert">
-              {catalogue.error}
+              {t(catalogue.error)}
             </p>
           )}
           <button

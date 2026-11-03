@@ -132,7 +132,8 @@ export default function NewGame({
         if (catalogueRequest.current !== controller) return;
         catalogueRequest.current = null;
         setCatalogueState('failed');
-        setCatalogueError(errorMessage(failure, t('Trained models could not be loaded.')));
+        // Keep the untranslated source message; AgentConfigFields localizes it.
+        setCatalogueError(errorMessage(failure, 'Trained models could not be loaded.'));
       },
     );
   }, [onRefreshModels, t]);

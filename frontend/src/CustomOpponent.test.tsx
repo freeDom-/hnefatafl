@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import NewGame from './NewGame';
+import { setLanguage } from './i18n';
 import { NotificationProvider, clearNotifications } from './notifications';
 import { useModelCatalogue } from './useModelCatalogue';
 import type { AIProfile, Model, Ruleset } from './types';
@@ -152,6 +153,7 @@ const creationBody = () =>
 beforeEach(() => {
   identity.admin = false;
   cancellable = true;
+  setLanguage('en', false);
   clearNotifications();
   localStorage.clear();
   requests.length = 0;
@@ -166,6 +168,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  setLanguage('en', false);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -295,13 +298,40 @@ it('reports a malformed catalogue without discarding the models already loaded',
   fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
   await settleModels({ models: [] });
   const alert = await screen.findByRole('alert');
-  expect(alert).toHaveTextContent('unreadable model catalogue');
+  expect(alert).toHaveTextContent('The server returned an unreadable model catalogue.');
   expect(optionText('Attackers trained model')).toContain(HUGIN_LABEL);
 
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   await settleModels([hugin(), sleipnir]);
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   await waitFor(() => expect(optionText('Attackers trained model')).toContain(SLEIPNIR_LABEL));
+});
+
+it('translates a malformed catalogue error while keeping the loaded models and retry', async () => {
+  setLanguage('de', false);
+  identity.admin = true;
+  show();
+  fireEvent.change(screen.getByLabelText('KI-Profil der Angreifer'), {
+    target: { value: 'custom' },
+  });
+  await screen.findByLabelText('Angreifer algorithmus');
+  await settleModels(CATALOGUE);
+  fireEvent.change(screen.getByLabelText('Angreifer algorithmus'), {
+    target: { value: 'neural' },
+  });
+  await screen.findByLabelText('Angreifer suchverfahren');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Modelle aktualisieren' }));
+  await settleModels({ models: [] });
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Der Server hat einen unlesbaren Modellkatalog zurückgegeben.');
+  expect(alert).not.toHaveTextContent('unreadable model catalogue');
+  expect(optionText('Angreifer trainiertes Modell')).toContain(HUGIN_LABEL);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await settleModels([hugin(), sleipnir]);
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  await waitFor(() => expect(optionText('Angreifer trainiertes Modell')).toContain(SLEIPNIR_LABEL));
 });
 
 it('treats an empty catalogue response as an empty registry, not a failure', async () => {
