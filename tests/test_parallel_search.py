@@ -564,6 +564,13 @@ class RecordingMonitor:
                 return position
         return None
 
+    def first_active(self) -> int | None:
+        """First active-game count the parent published, if any."""
+        for position, (kind, values) in enumerate(self.events):
+            if kind == "counts" and values.get("games_active"):
+                return position
+        return None
+
 
 class RecordingConnection:
     def __init__(self):
@@ -593,6 +600,29 @@ def test_actor_progress_batches_messages_and_stays_silent_when_disabled():
         disabled.tick(positions=1)
     disabled.note_active(4)
     disabled.flush()
+    assert silent.sent == []
+
+
+def test_actor_progress_announces_initial_active_once_without_counters():
+    connection = RecordingConnection()
+    progress = _ActorProgress(connection, True, flush_each_tick=True)
+    progress.note_active(3)
+    progress.announce_active()
+    progress.announce_active()  # A second announcement must not resend.
+    assert len(connection.sent) == 1
+    message = connection.sent[0]
+    assert message[0] == "progress" and message[3] == 3
+    # Active-only: no counter deltas, so the parent will not treat it as work.
+    assert message[2] == {}
+    # A later refill that changes the active count is not a second announcement.
+    progress.note_active(2)
+    progress.announce_active()
+    assert len(connection.sent) == 1
+
+    silent = RecordingConnection()
+    disabled = _ActorProgress(silent, False, flush_each_tick=True)
+    disabled.note_active(4)
+    disabled.announce_active()
     assert silent.sent == []
 
 
@@ -783,6 +813,80 @@ def test_parallel_self_play_reports_exact_progress_without_double_counting():
     assert monitor.counters["positions"] == sum(result["plies"] for _, result in games)
     assert monitor.counters["simulations"] == sum(result["simulations"] for _, result in games)
     assert monitor.counters["games_active"] == 0
+
+
+def test_self_play_announces_active_games_before_the_first_position():
+    torch.manual_seed(132)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=4,
+        max_game_plies=30,
+        # A deliberately expensive first move: the active count must arrive
+        # without waiting for it to finish.
+        mcts_iterations=32,
+        self_play_concurrency=4,
+        inference_batch_size=4,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    games, metrics = generate_self_play(model, config, seed=133, monitor=monitor)
+    first_active = monitor.first_active()
+    first_positions = monitor.first_event("positions")
+    first_completion = monitor.first_event("games_completed")
+    assert first_active is not None, "self-play must publish an initial active count"
+    assert first_positions is not None and first_completion is not None
+    assert first_active < first_positions < first_completion
+    # The first announcement carries the actual share, never more than the bound.
+    active_value = monitor.events[first_active][1]["games_active"]
+    assert 0 < active_value <= config["self_play_concurrency"]
+    assert monitor.peak_active() == config["self_play_concurrency"]
+    # Positions and simulations stay exact, and the phase ends with zero active.
+    assert monitor.counters["positions"] == sum(result["plies"] for _, result in games)
+    assert monitor.counters["simulations"] == sum(result["simulations"] for _, result in games)
+    assert monitor.counters["games_active"] == 0
+    # The announcement is one bounded message per worker slice, not per batch.
+    assert metrics["search_progress_messages"] < sum(result["plies"] for _, result in games) * 4
+
+
+def test_initial_active_announcement_is_not_computational_progress():
+    torch.manual_seed(134)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        games=4,
+        max_game_plies=30,
+        mcts_iterations=32,
+        self_play_concurrency=4,
+        inference_batch_size=4,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    generate_self_play(model, config, seed=135, monitor=monitor)
+    first_active = monitor.first_active()
+    assert first_active is not None
+    # An active-only update reaches the sink through ``counts``; no ``tick``
+    # (which would reset the monitoring progress age) precedes it.
+    assert monitor.events[first_active][0] == "counts"
+    assert all(kind != "tick" for kind, _ in monitor.events[:first_active])
+
+
+def test_evaluation_does_not_announce_initial_active_games():
+    torch.manual_seed(136)
+    model = PolicyValueNet("brandubh", 4, 0).eval()
+    config = settings(
+        evaluation_opponent="shield_bearer",
+        evaluation_mode="batched",
+        evaluation_games=4,
+        evaluation_max_plies=8,
+        evaluation_iterations=8,
+        evaluation_concurrency=4,
+        evaluation_batch_size=4,
+        search_workers=2,
+    )
+    monitor = RecordingMonitor()
+    evaluate_model(model, config, monitor=monitor)
+    # Evaluation keeps its coarser batching: no active-only lifecycle message.
+    assert monitor.first_active() is None
+    assert monitor.counters["evaluation_plies"] > 0
 
 
 def test_progress_arrives_before_the_first_game_finishes():

@@ -129,6 +129,7 @@ class _ActorProgress:
         self._deltas: dict[str, float] = {}
         self._active = 0
         self._dirty = False
+        self._announced_active = False
         self._flushed = clock()
         # Bounded diagnostics; only touched when a message is actually sent.
         self._messages = 0
@@ -161,6 +162,21 @@ class _ActorProgress:
             return
         self._active = active
         self._dirty = True
+
+    def announce_active(self) -> None:
+        """Send the current active-game count once per accumulator, deltas or not.
+
+        The first refill of a slice establishes the active contexts before any
+        expensive move completes. Reporting only that first state keeps the
+        dashboard from showing zero games during a long search; later refills
+        rely on the normal ticks and completion flushes. An active-count-only
+        message carries no counters, so the parent does not treat it as
+        computational progress.
+        """
+        if self._announced_active:
+            return
+        self._announced_active = True
+        self.flush(reason="lifecycle")
 
     def flush(self, *, reason: str = "lifecycle") -> None:
         """Send the accumulated counters once; the parent only ever adds them."""
@@ -345,6 +361,12 @@ def _search(
             search.start(index, create(index))
         peak_active = max(peak_active, len(search))
         progress.note_active(len(search))
+        if kind == "self_play" and len(search):
+            # Report the initial active contexts once per slice, before the first
+            # expensive move finishes. Later refills only record the count; ticks
+            # and completion flushes carry subsequent changes. Evaluation keeps
+            # its coarser wall-clock batching.
+            progress.announce_active()
 
     try:
         search.run(refill)
