@@ -47,9 +47,10 @@ to CPU/PyTorch when recorded devices are unavailable. Choose another target befo
 starting if required. Supported local OpenVINO devices are retained.
 
 Tuning jobs restore their nested training settings, valid search space, trial
-budget, study name and study seed. Starting creates a new job and an independent
-study database even if its name matches the source. **Resume study** remains the
-separate action for continuing the original study.
+budget, study name and study seed, including the selectable evaluation opponent.
+Starting creates a new job and an independent study database even if its name
+matches the source. **Resume study** remains the separate action for continuing
+the original study.
 
 **Import config.json** loads a local `config.json` exported from a job, or the
 equivalent saved object, into **Forge a new strategist**. Recognized training
@@ -90,8 +91,10 @@ The summary above the tabs keeps the selected name, status, ruleset, execution
 location, recorded iteration/total, stage, live elapsed time and remote update
 time available. Rename, stop, checkpoint/study resume, job export, training-data
 deletion and refresh use their existing state restrictions and confirmation
-dialogs. Progress uses recorded iteration counts; the interface does not invent
-an ETA.
+dialogs. **Tune this checkpoint** starts an optimization job whose every trial
+resumes the selected training job's full `last.pt`, so hyperparameters are
+compared from one common starting point. Progress uses recorded iteration counts;
+the interface does not invent an ETA.
 
 **Rename job** edits the display name only, for active and inactive jobs alike.
 The dialog starts from the current name; saving persists a separate display field
@@ -125,6 +128,15 @@ and execution state never change.
   raw progress, logs, checkpoints, execution metadata and transfer guidance.
   JSON/log panes are bounded and support copying. Credential-shaped diagnostic
   fields are redacted.
+- **Tuning results** (optimization jobs only) shows completed and failed trials,
+  the best trial and its best-checkpoint score, the sampler and source seeds, the
+  weighted multi-opponent aggregate, the held-out verification result and a trial
+  table that keeps best and final scores distinct. **Train with best parameters**
+  loads the winning configuration into the creation form as a new job,
+  **Continue winning trial** resumes the winning trial's full checkpoint for an
+  additional iteration budget, **Apply best parameters** resumes a selected
+  training job from its own checkpoint with the winning editable settings, and
+  **Download best configuration** saves the winning configuration as JSON.
 
 Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
 left/right and Home/End keys for exact values and support pointer inspection.

@@ -27,13 +27,14 @@ import {
   fieldIdentity,
   launchPayload,
   rejectedTrainingFields,
+  resumeOverrides,
 } from './trainingPayload';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
-import { activeJob, sortJobs, jobName, mergeJobSummary } from './trainingDashboardData';
+import { activeJob, sortJobs, jobName, jobRuleset, mergeJobSummary } from './trainingDashboardData';
 import './trainingDashboard.css';
 
 interface ModelUsage {
@@ -107,6 +108,7 @@ export default function Training({
   const [space, setSpace] = useState(
     '{\n  "learning_rate": {"type": "float", "low": 0.0001, "high": 0.003, "log": true},\n  "mcts_iterations": {"type": "int", "low": 4, "high": 16}\n}',
   );
+  const [strategy, setStrategy] = useState('');
   const [busy, setBusy] = useState(false);
   const [importingConfig, setImportingConfig] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -396,6 +398,7 @@ export default function Training({
         studyName,
         studySeed,
         space,
+        strategy,
       });
       const job = await api<Job>('/training/jobs', params);
       refreshRevision.current++;
@@ -633,6 +636,7 @@ export default function Training({
       setStudySeed(loaded.seed);
       setStudyName(loaded.studyName);
       if (loaded.search) setSpace(JSON.stringify(loaded.search, null, 2));
+      setStrategy(loaded.strategy ?? '');
     }
     setAdvanced(true);
     setCreationOpen(true);
@@ -643,6 +647,195 @@ export default function Training({
       ) + parameterWarnings(loaded.warnings),
     );
     requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
+  };
+  /** The winning trial's full configuration, as persisted by the study. */
+  const bestConfiguration = (job: Job): Record<string, unknown> | undefined => {
+    const result = (job.result ?? {}) as Record<string, unknown>;
+    const progress = (job.progress ?? {}) as Record<string, unknown>;
+    const best = result.best_configuration ?? progress.best_configuration;
+    return best && typeof best === 'object' ? (best as Record<string, unknown>) : undefined;
+  };
+  const bestTrialNumber = (job: Job): number | undefined => {
+    const result = (job.result ?? {}) as Record<string, unknown>;
+    const progress = (job.progress ?? {}) as Record<string, unknown>;
+    const value = result.best_trial ?? progress.best_trial;
+    return typeof value === 'number' && Number.isInteger(value) ? value : undefined;
+  };
+  /** Load the winning trial's hyperparameters as a new from-scratch training job. */
+  const loadBestParameters = (job: Job) => {
+    const best = bestConfiguration(job);
+    if (!best) {
+      onError(t('This job has no recorded best configuration.'));
+      return;
+    }
+    const loaded = recordedTrainingParameters(
+      config,
+      {
+        name: typeof best.model_name === 'string' ? best.model_name : jobName(job),
+        ruleset: typeof best.ruleset === 'string' ? best.ruleset : jobRuleset(job),
+        training_config: best,
+      },
+      device,
+    );
+    if (!loaded) return;
+    replaceConfig(loaded.config);
+    setKind('train');
+    setTarget('local');
+    setAdvanced(true);
+    setCreationOpen(true);
+    setNotice(
+      t('Best parameters loaded from job {name}. Starting creates a new training job.', {
+        name: jobName(job),
+      }) + parameterWarnings(loaded.warnings),
+    );
+    requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
+  };
+  /** Launch a new training job that resumes the winning trial's full checkpoint. */
+  const continueWinningTrial = async (job: Job, additionalIterations: number) => {
+    const best = bestConfiguration(job);
+    const trial = bestTrialNumber(job);
+    if (!best || trial === undefined) {
+      onError(t('This job has no recorded winning trial checkpoint.'));
+      return;
+    }
+    setBusy(true);
+    setNotice('');
+    try {
+      const {
+        output_dir: _output,
+        registry_dir: _registry,
+        resume: _resume,
+        storage: _storage,
+        ...training
+      } = best;
+      const iterations = Number(best.iterations ?? 1) + Math.max(1, additionalIterations);
+      const next = await api<Job>('/training/jobs', {
+        ...training,
+        kind: 'train',
+        iterations,
+        resume: `${job.id}:trial-${trial}/last.pt`,
+      });
+      refreshRevision.current++;
+      selectJob(next);
+      showMonitoring();
+      setJobs((previous) => [next, ...previous]);
+      setNotice(
+        t('Continuing the winning trial from its full checkpoint. A new training job has started.'),
+      );
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  /** Resume an existing training job with the winning trial's editable settings. */
+  const applyBestToJob = async (
+    tuningJob: Job,
+    targetJobId: string,
+    additionalIterations: number,
+  ) => {
+    const best = bestConfiguration(tuningJob);
+    if (!best) {
+      onError(t('This job has no recorded best configuration.'));
+      return;
+    }
+    setBusy(true);
+    setNotice('');
+    try {
+      const info = await api<{
+        completed_iteration: number;
+        can_resume: boolean;
+        reason?: string;
+        config?: Record<string, unknown>;
+      }>(`/training/jobs/${targetJobId}/resume`);
+      if (!info.can_resume || !info.config) {
+        throw new Error(info.reason ?? t('The selected training job cannot be resumed.'));
+      }
+      const overrides = resumeOverrides(
+        { ...(info.config as Record<string, string | number | boolean>), ...best } as never,
+        info.config as never,
+      );
+      const next = await api<Job>(`/training/jobs/${targetJobId}/resume`, {
+        iterations: info.completed_iteration + Math.max(1, additionalIterations),
+        ...overrides,
+      });
+      refreshRevision.current++;
+      selectJob(next);
+      showMonitoring();
+      setJobs((previous) => [next, ...previous]);
+      setNotice(t('Best parameters applied. The training job resumed from its own checkpoint.'));
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const downloadBestConfig = (job: Job) => {
+    const best = bestConfiguration(job);
+    if (!best) {
+      onError(t('This job has no recorded best configuration.'));
+      return;
+    }
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(best, null, 2)], { type: 'application/json' }),
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `hnefatafl-best-config-${job.id.slice(0, 8)}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  /** Tune from a training job's full checkpoint so every trial starts from it. */
+  const tuneFromCheckpoint = async (job: Job) => {
+    setBusy(true);
+    setNotice('');
+    clearAllRejectedFields();
+    try {
+      const saved = (job.config ?? {}) as Record<string, unknown>;
+      const training = Object.fromEntries(
+        Object.entries(saved).filter(
+          ([key]) =>
+            ![
+              'output_dir',
+              'registry_dir',
+              'resume',
+              'storage',
+              'execution',
+              'worker_id',
+              'kind',
+            ].includes(key),
+        ),
+      );
+      const params = launchPayload('tune', training as never, 'local', {
+        trials,
+        studyName,
+        studySeed,
+        space,
+        strategy,
+      });
+      // Every trial resumes the same full checkpoint, so hyperparameters are
+      // compared from one common starting point.
+      (params.training as Record<string, unknown>).resume = `${job.id}:last.pt`;
+      const next = await api<Job>('/training/jobs', params);
+      refreshRevision.current++;
+      selectJob(next);
+      showMonitoring();
+      setJobs((previous) => [next, ...previous]);
+      setNotice(
+        t('Tuning started from the saved checkpoint. Every trial begins from the same state.'),
+      );
+    } catch (error) {
+      const rejected = rejectedTrainingFields(error);
+      if (rejected.length) {
+        setRejectedFields(rejected);
+        setRejectedReason(error instanceof TrainingInputError ? error.message : '');
+        setCreationOpen(true);
+      } else {
+        onError((error as Error).message);
+      }
+    } finally {
+      setBusy(false);
+    }
   };
   const removeModel = async () => {
     if (
@@ -792,6 +985,8 @@ export default function Training({
               setStudyName,
               space,
               setSpace,
+              strategy,
+              setStrategy,
               advanced,
               setAdvanced,
               busy,
@@ -888,6 +1083,16 @@ export default function Training({
                   exporting={exportingJob}
                   canUseParameters={Boolean(recordedJobParameters(config, selectedJob))}
                   onUseParameters={() => loadJobParameters(selectedJob)}
+                  onTuneCheckpoint={() => void tuneFromCheckpoint(selectedJob)}
+                  trainingJobs={jobs}
+                  onUseBestParameters={() => loadBestParameters(selectedJob)}
+                  onContinueTrial={(additional) =>
+                    void continueWinningTrial(selectedJob, additional)
+                  }
+                  onApplyToJob={(targetId, additional) =>
+                    void applyBestToJob(selectedJob, targetId, additional)
+                  }
+                  onDownloadBestConfig={() => downloadBestConfig(selectedJob)}
                   onCancel={() => void cancel(selectedJob.id)}
                   onResume={() => void resume(selectedJob)}
                   onExport={() => void exportTrainingJob(selectedJob)}

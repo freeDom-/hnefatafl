@@ -74,6 +74,11 @@ export const TUNE_FIELDS = [
   'search_space',
   'training',
   'resume_study',
+  'opponents',
+  'verification',
+  'sampler',
+  'pruner',
+  'max_failures',
 ];
 
 /** Checkpoint identity a resume may not change, plus the explicit new target. */
@@ -110,6 +115,26 @@ export interface StudyInput {
   space: string;
   /** Set when a saved study is continued instead of started. */
   resumeStudy?: string;
+  /** Optional JSON text for opponents, verification, sampler, pruner and failures. */
+  strategy?: string;
+}
+
+/** Parse the optional advanced study settings; empty text means no overrides. */
+export function parseStudyStrategy(strategy: string | undefined): Record<string, unknown> {
+  if (!strategy?.trim()) return {};
+  let value: unknown;
+  try {
+    value = JSON.parse(strategy);
+  } catch {
+    throw new TrainingInputError(['strategy'], 'The optional study settings are not valid JSON.');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TrainingInputError(
+      ['strategy'],
+      'The optional study settings must be a JSON object.',
+    );
+  }
+  return value as Record<string, unknown>;
 }
 
 export function launchPayload(
@@ -126,6 +151,7 @@ export function launchPayload(
       seed: study.studySeed,
       search_space: parseStudySpace(study.space),
       training: config,
+      ...parseStudyStrategy(study.strategy),
       ...(study.resumeStudy ? { resume_study: study.resumeStudy } : {}),
     };
   }

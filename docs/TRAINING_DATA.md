@@ -257,7 +257,9 @@ A tuning archive additionally includes its single owned `study.sqlite3`, trial
 folders and `best-config.json`. SQLite backup creates the snapshot; import validates
 the current Optuna schema, preserves trial results/history and rewrites study URLs
 and trial checkpoint attributes to the new destination. **Resume study** uses that
-restored database. Studies with active trials, multiple studies in one database,
+restored database. The study result also records the winning trial's configuration
+and a held-out verification result; a `trial-N/last.pt` token resumes that trial's
+full checkpoint. Studies with active trials, multiple studies in one database,
 shared/external storage, missing trial checkpoints or unsupported schemas are
 rejected with an explanation. Export the original owning job if it still contains
 all trial outputs; otherwise use a consistent full-instance backup. A resumed

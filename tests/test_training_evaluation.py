@@ -364,14 +364,58 @@ def test_validate_new_evaluation_inputs(tmp_path, changes):
 
 
 @pytest.mark.parametrize("opponent", ["jarl", "champion"])
-def test_optuna_never_uses_moving_or_changed_objective(tmp_path, opponent):
-    with pytest.raises(ValueError, match="fixed Shield bearer"):
-        tune(
-            {
-                "output_dir": str(tmp_path),
-                "training": config(tmp_path, evaluation_opponent=opponent),
-            }
-        )
+def test_optuna_accepts_every_selectable_opponent(tmp_path, monkeypatch, opponent):
+    # The evaluation opponent is selectable; the study only rejects tuning the
+    # evaluation protocol itself, never the choice of a fixed reference.
+    seen = []
+
+    def fake_train(configuration, progress=None, should_stop=None):
+        seen.append(configuration["evaluation_opponent"])
+        output = tmp_path / "trial"
+        output.mkdir(parents=True, exist_ok=True)
+        best = output / "best.pt"
+        best.write_bytes(b"stub")
+        last = output / "last.pt"
+        last.write_bytes(b"stub")
+        evaluation = {
+            "score": 0.5,
+            "opponent": configuration["evaluation_opponent"],
+            "opponent_identity": "stub:identity",
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "truncated": 0,
+        }
+        if progress is not None:
+            progress(
+                {
+                    "status": "running",
+                    "stage": "iteration_complete",
+                    "iteration": 1,
+                    "revision": 1,
+                    "run": "trial-0",
+                    "metrics": {"evaluation": evaluation},
+                }
+            )
+        return {
+            "status": "completed",
+            "metrics": {"evaluation": evaluation},
+            "best_checkpoint": str(best),
+            "checkpoint": str(last),
+        }
+
+    monkeypatch.setattr(training, "train", fake_train)
+    result = tune(
+        {
+            "trials": 1,
+            "study_name": f"selectable-{opponent}",
+            "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+            "output_dir": str(tmp_path),
+            "training": config(tmp_path, evaluation_opponent=opponent),
+        }
+    )
+    assert result["status"] == "completed"
+    assert seen == [opponent]
 
 
 def test_promoted_champion_survives_checkpoint_and_rejected_resume(tmp_path, monkeypatch):

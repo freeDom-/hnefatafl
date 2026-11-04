@@ -1327,19 +1327,28 @@ def tune(
     if not 1 <= trials <= 10000:
         raise ValueError("trials must be between 1 and 10000")
     storage = configuration.get("storage", f"sqlite:///{output / 'study.sqlite3'}")
-    search_space = configuration.get(
-        "search_space",
-        {
+    from .job_studies import (
+        opponents_config,
+        pruner_config,
+        sampler_config,
+        search_space_config,
+        verification_config,
+    )
+
+    # One validator for every caller: the CLI, the HTTP API and job archives
+    # all accept exactly float, log-float, int, int-step and categorical. An
+    # absent or empty space falls back to the documented default.
+    search_space = search_space_config(
+        configuration.get("search_space")
+        or {
             "learning_rate": {"type": "float", "low": 0.0001, "high": 0.01, "log": True},
             "exploration": {"type": "float", "low": 0.5, "high": 2.0},
             "channels": {"type": "categorical", "choices": [8, 16, 32]},
-        },
+        }
     )
     base = configuration.get(
         "training", {"preset": "smoke", "ruleset": configuration.get("ruleset", "brandubh")}
     )
-    if base.get("evaluation_opponent", "shield_bearer") != "shield_bearer":
-        raise ValueError("Optuna requires the comparable fixed Shield bearer objective")
     if any(name.startswith("evaluation_") or name.startswith("champion_") for name in search_space):
         raise ValueError("Optuna cannot tune evaluation protocol settings")
     # Self-play time may be tuned independently, but evaluation uses a fixed deadline.
@@ -1349,6 +1358,26 @@ def tune(
             "evaluation_time_limit", base.get("mcts_time_limit", 10.0)
         ),
     }
+    opponents = opponents_config(configuration.get("opponents"))
+    verification = verification_config(configuration.get("verification"))
+    sampler_options = sampler_config(configuration.get("sampler"))
+    pruner_options = pruner_config(configuration.get("pruner"))
+    max_failures = int(configuration.get("max_failures", min(3, trials)))
+    if not 1 <= max_failures <= trials:
+        raise ValueError("max_failures must be between 1 and the trial budget")
+    # The sampler seed and the model seed are distinct settings. Resuming a
+    # checkpoint keeps its saved model seed so the immutable resume check
+    # passes; otherwise every trial draws a deterministic per-trial seed.
+    resuming = bool(base.get("resume"))
+    source_seed = int(base.get("seed", seed))
+    if resuming:
+        _, resume_payload = load_checkpoint(base["resume"])
+        saved_inputs = resume_payload.get("metadata", {}).get("training_config", {})
+        source_seed = int(saved_inputs.get("seed", source_seed))
+    # The optional aggregate and held-out stages evaluate a saved checkpoint
+    # outside a trial, so they need a fully normalized configuration rather than
+    # the possibly partial nested `training` object.
+    evaluation_base = normalize_config({**base, "output_dir": str(output)})
     # The study's own elapsed time is measured here, on the monotonic clock, so it
     # spans every trial, the preparation between them and the finalization instead
     # of restarting with each trial's monitor.
@@ -1409,6 +1438,8 @@ def tune(
         """
         return sum(1 for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE)
 
+    failure_streak = {"count": 0}
+
     def on_trial_finished(study, trial) -> None:
         """Count a trial once Optuna has committed its final state.
 
@@ -1416,15 +1447,58 @@ def tune(
         authoritative moment: an objective that trained successfully but then failed
         (a missing evaluation, an attribute write that raises) is recorded as
         ``FAIL`` and is not a completed trial. Counting here keeps the per-trial
-        bookkeeping O(1) instead of re-reading the whole study.
+        bookkeeping O(1) instead of re-reading the whole study. A run of failures
+        stops the study before the whole budget is wasted.
         """
-        if trial.state != optuna.trial.TrialState.COMPLETE:
+        if trial.state == optuna.trial.TrialState.COMPLETE:
+            failure_streak["count"] = 0
+            with tune_lock:
+                latest["completed_trials"] = latest.get("completed_trials", 0) + 1
+        elif trial.state == optuna.trial.TrialState.FAIL:
+            failure_streak["count"] += 1
+            with tune_lock:
+                latest["failed_trials"] = latest.get("failed_trials", 0) + 1
+            if failure_streak["count"] >= max_failures:
+                study.stop()
+        else:
             return
-        with tune_lock:
-            latest["completed_trials"] = latest.get("completed_trials", 0) + 1
         publish_study()
 
     def run_trials(study) -> None:
+        def score_opponents(result) -> dict | None:
+            """Weighted score of a trial's best checkpoint over the fixed set."""
+            if not opponents or not result.get("best_checkpoint"):
+                return None
+            model, _ = load_checkpoint(result["best_checkpoint"])
+            total = sum(entry["weight"] for entry in opponents)
+            weighted = 0.0
+            per_opponent: dict = {}
+            for index, entry in enumerate(opponents):
+                evaluation = evaluate_model(
+                    model,
+                    {
+                        **evaluation_base,
+                        "evaluation_opponent": entry["opponent"],
+                        # Distinct, deterministic per-opponent seeds keep the
+                        # aggregate reproducible without reusing a trial seed.
+                        "seed": source_seed + 2_000_000 + index,
+                    },
+                    should_stop=should_stop,
+                )
+                per_opponent[entry["opponent"]] = {
+                    key: evaluation[key]
+                    for key in (
+                        "score",
+                        "wins",
+                        "losses",
+                        "draws",
+                        "truncated",
+                        "opponent_identity",
+                    )
+                }
+                weighted += entry["weight"] * evaluation["score"]
+            return {"score": weighted / total, "opponents": per_opponent}
+
         def objective(trial):
             if should_stop and should_stop():
                 study.stop()
@@ -1454,14 +1528,21 @@ def tune(
                     )
                 else:
                     raise ValueError("Unknown search-space distribution")
+            # Resuming a shared checkpoint restores its random-generator state, so
+            # its seed is immutable; a fresh trial draws its own deterministic seed.
+            trial_seed = source_seed if resuming else source_seed + trial.number
             config = {
                 **base,
                 **parameters,
-                "seed": seed + trial.number,
+                "seed": trial_seed,
                 "output_dir": str(output / f"trial-{trial.number}"),
             }
 
             latest_revision = None
+            # The objective is the score of the best evaluated checkpoint, not the
+            # final iteration: the trainer keeps the checkpoint with the highest
+            # benchmark score, so the ranking must follow that same checkpoint.
+            trial_best: dict = {"score": None, "iteration": None, "evaluation": None}
 
             def report(state):
                 nonlocal latest_revision
@@ -1512,9 +1593,17 @@ def tune(
                 latest_revision = revision
                 evaluation = state.get("metrics", {}).get("evaluation")
                 if state.get("stage") == "iteration_complete" and evaluation:
-                    trial.report(evaluation["score"], step=state["iteration"])
+                    if trial_best["score"] is None or evaluation["score"] > trial_best["score"]:
+                        trial_best.update(
+                            score=evaluation["score"],
+                            iteration=state["iteration"],
+                            evaluation=deepcopy(evaluation),
+                        )
+                    # Report the monotonic best so the median pruner never discards
+                    # a trial that dipped before recovering.
+                    trial.report(float(trial_best["score"]), step=state["iteration"])
                     if trial.should_prune():
-                        raise optuna.TrialPruned("Playing score below study median")
+                        raise optuna.TrialPruned("Best playing score below study median")
 
             # Handing the files to the trial and taking them back are serialized
             # against the study's own heartbeat, so neither publisher can overwrite
@@ -1523,6 +1612,16 @@ def tune(
                 active_trial["running"] = True
             try:
                 result = train(config, report, should_stop)
+            except optuna.TrialPruned:
+                raise
+            except Exception as error:
+                if should_stop and should_stop():
+                    study.stop()
+                    raise optuna.TrialPruned("Tuning cancelled") from error
+                # Record the failure for the result and let Optuna mark the trial
+                # FAIL; the study continues until the failure budget is exhausted.
+                trial.set_user_attr("error", str(error))
+                raise
             finally:
                 # The trial's monitor has stopped and the study's heartbeat is
                 # suppressed while a trial is marked running, so ownership returns to
@@ -1537,15 +1636,72 @@ def tune(
             if result["status"] == "cancelled":
                 study.stop()
                 raise optuna.TrialPruned("Tuning cancelled")
-            evaluation = result["metrics"]["evaluation"]
-            trial.set_user_attr("checkpoint", result["best_checkpoint"])
-            trial.set_user_attr("evaluation", evaluation)
+            evaluation = result["metrics"].get("evaluation")
+            if evaluation:
+                trial.set_user_attr("evaluation", evaluation)
             trial.set_user_attr("training_config", normalize_config(config))
-            return float(evaluation["score"])
+            trial.set_user_attr("checkpoint", result.get("best_checkpoint"))
+            trial.set_user_attr("trial_checkpoint", result.get("checkpoint"))
+            trial.set_user_attr("best_iteration", trial_best["iteration"])
+            trial.set_user_attr("best_score", trial_best["score"])
+            trial.set_user_attr("final_score", evaluation["score"] if evaluation else None)
+            aggregate = score_opponents(result)
+            if aggregate is not None:
+                trial.set_user_attr("opponents", aggregate["opponents"])
+                trial.set_user_attr("aggregate_score", aggregate["score"])
+                return float(aggregate["score"])
+            if trial_best["score"] is None:
+                raise ValueError("Trial completed without an evaluation")
+            return float(trial_best["score"])
 
         # The callback runs after each trial's state is stored, so the completed
         # counter follows Optuna's own record instead of the objective returning.
-        study.optimize(objective, n_trials=trials, callbacks=[on_trial_finished])
+        # ``catch`` marks a failing trial FAIL and keeps the study alive; the
+        # callback stops it once the failure budget is exhausted.
+        study.optimize(
+            objective,
+            n_trials=trials,
+            callbacks=[on_trial_finished],
+            catch=(Exception,),
+        )
+
+    def verify_best(best) -> dict | None:
+        """Held-out evaluation of the winning trial's best checkpoint.
+
+        The verification seed is never used by a trial, so the score is an
+        independent check rather than a re-read of the study objective.
+        """
+        if not verification:
+            return None
+        checkpoint = best.user_attrs.get("checkpoint")
+        if not checkpoint:
+            return None
+        model, _ = load_checkpoint(checkpoint)
+        opponent = verification.get("opponent", "shield_bearer")
+        games = verification.get("games", evaluation_base["evaluation_games"])
+        held_out_seed = verification.get("seed", (seed + 7_000_000) % 2**32)
+        evaluation = evaluate_model(
+            model,
+            {
+                **evaluation_base,
+                "evaluation_opponent": opponent,
+                "evaluation_games": games,
+                "seed": held_out_seed,
+            },
+            should_stop=should_stop,
+        )
+        return {
+            "opponent": evaluation["opponent"],
+            "opponent_identity": evaluation["opponent_identity"],
+            "seed": evaluation["seed"],
+            "games": games,
+            "score": evaluation["score"],
+            "wins": evaluation["wins"],
+            "losses": evaluation["losses"],
+            "draws": evaluation["draws"],
+            "truncated": evaluation["truncated"],
+            "best_trial": best.number,
+        }
 
     def finish_study(study) -> dict:
         # Aggregating results and persisting them can take a while; the heartbeat
@@ -1554,6 +1710,9 @@ def tune(
         publish_study()
         completed_trials = [
             trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE
+        ]
+        failed_trials = [
+            trial for trial in study.trials if trial.state == optuna.trial.TrialState.FAIL
         ]
         cancelled = bool(should_stop and should_stop())
         result = {
@@ -1564,12 +1723,24 @@ def tune(
             # authoritative duration covers the whole finalization.
             "duration": 0.0,
             "completed_trials": len(completed_trials),
+            "failed_trials": len(failed_trials),
+            # The sampler seed and the model seed are recorded separately so a
+            # later comparison can tell which randomness a result used.
+            "sampler_seed": seed,
+            "source_seed": source_seed,
+            "opponents": opponents,
+            "verification": verification,
             "trials": [
                 {
                     "number": trial.number,
                     "state": trial.state.name,
                     "score": trial.value,
                     "parameters": trial.params,
+                    "best_score": trial.user_attrs.get("best_score"),
+                    "best_iteration": trial.user_attrs.get("best_iteration"),
+                    "final_score": trial.user_attrs.get("final_score"),
+                    "opponents": trial.user_attrs.get("opponents"),
+                    "error": trial.user_attrs.get("error"),
                 }
                 for trial in study.trials
             ],
@@ -1577,12 +1748,19 @@ def tune(
         if completed_trials:
             best = study.best_trial
             result.update(
+                best_trial=best.number,
                 best_score=best.value,
                 best_parameters=best.params,
+                best_iteration=best.user_attrs.get("best_iteration"),
                 best_checkpoint=best.user_attrs.get("checkpoint"),
                 best_configuration=best.user_attrs.get("training_config"),
+                best_opponents=best.user_attrs.get("opponents"),
             )
             _write_json(output / "best-config.json", result["best_configuration"])
+            # The held-out check runs while the heartbeat is still live, so a long
+            # verification is visible and a slow one cannot look like a stalled
+            # finalization.
+            result["verification_result"] = verify_best(best)
         # Nothing slow happens past this point: the heartbeat stops, the duration is
         # measured at the terminal moment, and both terminal files are written from
         # one state, so the published duration never falls behind the last
@@ -1599,13 +1777,20 @@ def tune(
     study_monitor.start()
     try:
         publish_study()
+        study_name = configuration.get("study_name", "hnefatafl")
+        if not isinstance(study_name, str) or not 1 <= len(study_name) <= 100:
+            raise ValueError("study_name must contain 1–100 characters")
         study = optuna.create_study(
-            study_name=configuration.get("study_name", "hnefatafl"),
+            study_name=study_name,
             storage=storage,
             direction="maximize",
             load_if_exists=True,
-            sampler=optuna.samplers.TPESampler(seed=seed),
-            pruner=optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=1),
+            sampler=optuna.samplers.TPESampler(seed=seed, **sampler_options),
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=pruner_options.get("n_startup_trials", 3),
+                n_warmup_steps=pruner_options.get("n_warmup_steps", 1),
+                interval_steps=pruner_options.get("interval_steps", 1),
+            ),
         )
         latest["completed_trials"] = count_completed(study)
         publish_study()

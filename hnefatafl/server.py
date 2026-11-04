@@ -108,7 +108,19 @@ TRAINING_FIELDS = frozenset(
 
 # Optuna jobs accept the study controls plus one nested training configuration.
 TUNE_FIELDS = frozenset(
-    {"trials", "study_name", "seed", "search_space", "training", "resume_study"}
+    {
+        "trials",
+        "study_name",
+        "seed",
+        "search_space",
+        "training",
+        "resume_study",
+        "opponents",
+        "verification",
+        "sampler",
+        "pruner",
+        "max_failures",
+    }
 )
 
 
@@ -2237,12 +2249,16 @@ def create_app(
                         )
                     elif ":" in resume:
                         prior_id, filename = resume.split(":", 1)
-                        if filename != "last.pt":
+                        if not filename.endswith("last.pt"):
                             fail(
                                 "Only last.pt contains optimizer and replay state for training resumption."
                             )
-                        checkpoint = job_path(prior_id) / filename
-                        if not checkpoint.is_file():
+                        base = job_path(prior_id)
+                        checkpoint = (base / filename).resolve()
+                        if (
+                            not checkpoint.is_relative_to(base.resolve())
+                            or not checkpoint.is_file()
+                        ):
                             fail("The saved checkpoint was not found.")
                         values["resume"] = str(checkpoint)
                     else:
@@ -2310,8 +2326,10 @@ def create_app(
                     config.get("training", {"preset": "smoke", "ruleset": "brandubh"}),
                     prefix="training.",
                 )
-                if training["evaluation_opponent"] != "shield_bearer":
-                    fail("Optuna requires the comparable fixed Shield bearer objective")
+                # The evaluation opponent is selectable. A fixed reference
+                # (shield_bearer, shield_maiden, jarl) gives comparable scores
+                # across trials; champion is accepted and evaluated against its
+                # own incumbent.
                 trials = config.get("trials", 4)
                 study_name = config.get("study_name", "hnefatafl")
                 if not isinstance(study_name, str) or not 1 <= len(study_name) <= 100:
@@ -2321,76 +2339,30 @@ def create_app(
                     fail("seed must be an unsigned 32-bit integer.")
                 if type(trials) is not int or not 1 <= trials <= 10000:
                     fail("trials must be an integer between 1 and 10000.")
-                tunable = {
-                    "channels",
-                    "blocks",
-                    "learning_rate",
-                    "weight_decay",
-                    "exploration",
-                    "temperature",
-                    "mcts_iterations",
-                    "batch_size",
-                    "epochs",
-                    "dirichlet_alpha",
-                    "dirichlet_fraction",
-                }
+                from .job_archives import ArchiveError
+                from .job_studies import (
+                    opponents_config,
+                    pruner_config,
+                    sampler_config,
+                    search_space_config,
+                    verification_config,
+                )
+
                 search = config.get("search_space")
                 if search is not None:
-                    if not isinstance(search, dict) or not search or set(search) - tunable:
-                        fail("Unsupported hyperparameter search field.")
+                    try:
+                        search = search_space_config(search)
+                    except ArchiveError as exc:
+                        fail(str(exc))
+                    config["search_space"] = search
                     # Check each extreme against the actual training validator.
                     for name, distribution in search.items():
-                        if not isinstance(distribution, dict):
-                            fail("A search distribution must be an object.")
-                        distribution_kind = distribution.get("type", "float")
-                        if not isinstance(distribution_kind, str):
-                            fail("A search distribution type must be a string.")
-                        if set(distribution) - {"type", "choices", "low", "high", "step", "log"}:
-                            fail("Unsupported search distribution option.")
-                        if distribution_kind == "categorical":
-                            choices = distribution.get("choices")
-                            if (
-                                not isinstance(choices, list)
-                                or not choices
-                                or any(
-                                    isinstance(v, bool) or not isinstance(v, (int, float))
-                                    for v in choices
-                                )
-                            ):
-                                fail("A categorical search needs numeric choices.")
-                            if set(distribution) - {"type", "choices"}:
-                                fail("Categorical search accepts only type and choices.")
-                        elif distribution_kind in {"int", "float"}:
-                            choices = [distribution.get("low"), distribution.get("high")]
-                            if (
-                                any(
-                                    isinstance(v, bool) or not isinstance(v, (int, float))
-                                    for v in choices
-                                )
-                                or choices[0] > choices[1]
-                            ):
-                                fail("Invalid search-space bounds.")
-                            logarithmic = distribution.get("log", False)
-                            if type(logarithmic) is not bool or (logarithmic and choices[0] <= 0):
-                                fail(
-                                    "Logarithmic search requires positive bounds and a boolean log flag."
-                                )
-                            if distribution_kind == "int":
-                                step = distribution.get("step", 1)
-                                if (
-                                    any(type(v) is not int for v in choices)
-                                    or type(step) is not int
-                                    or step < 1
-                                    or (logarithmic and step != 1)
-                                ):
-                                    fail(
-                                        "Integer searches require integer bounds, a positive integer step, and step 1 for logarithmic sampling."
-                                    )
-                            elif "step" in distribution:
-                                fail("Float searches do not accept a step option.")
-                        else:
-                            fail("Unknown search-space distribution.")
-                        for value in choices:
+                        values = (
+                            distribution["choices"]
+                            if distribution["type"] == "categorical"
+                            else [distribution["low"], distribution["high"]]
+                        )
+                        for value in values:
                             validate_training(
                                 {
                                     **{
@@ -2401,6 +2373,22 @@ def create_app(
                                     name: value,
                                 }
                             )
+                # Optional aggregate objective, held-out verification and study
+                # strategy use the same portable contract as archive import.
+                try:
+                    if "opponents" in config:
+                        config["opponents"] = opponents_config(config["opponents"])
+                    if "verification" in config:
+                        config["verification"] = verification_config(config["verification"])
+                    if "sampler" in config:
+                        config["sampler"] = sampler_config(config["sampler"])
+                    if "pruner" in config:
+                        config["pruner"] = pruner_config(config["pruner"])
+                except ArchiveError as exc:
+                    fail(str(exc))
+                max_failures = config.get("max_failures", min(3, trials))
+                if type(max_failures) is not int or not 1 <= max_failures <= trials:
+                    fail("max_failures must be an integer between 1 and the trial budget.")
                 resume_study = config.pop("resume_study", None)
                 if resume_study:
                     previous = read_job(str(resume_study))

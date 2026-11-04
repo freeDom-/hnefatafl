@@ -12,6 +12,7 @@ import TrainingEvaluationStatus, { type Selection } from './TrainingEvaluationSt
 import {
   evaluationGroups,
   finite,
+  jobName,
   latestMetrics,
   latestPerformance,
   object,
@@ -364,6 +365,219 @@ export function TrainingEvaluationView({
     </>
   );
 }
+export function TrainingTuningView({
+  job,
+  progress,
+  trainingJobs,
+  busy,
+  onUseBestParameters,
+  onContinueTrial,
+  onApplyToJob,
+  onDownloadBestConfig,
+}: {
+  job: Job;
+  progress: Values;
+  trainingJobs: Job[];
+  busy: boolean;
+  onUseBestParameters: () => void;
+  onContinueTrial: (additionalIterations: number) => void;
+  onApplyToJob: (targetJobId: string, additionalIterations: number) => void;
+  onDownloadBestConfig: () => void;
+}) {
+  const { t, locale } = useI18n();
+  const trials = Array.isArray(progress.trials)
+    ? progress.trials.map(object).filter((row): row is Values => !!row)
+    : [];
+  const bestConfig = object(progress.best_configuration);
+  const verification = object(progress.verification_result);
+  const bestOpponents = object(progress.best_opponents);
+  const [additional, setAdditional] = useState(5);
+  const [targetJob, setTargetJob] = useState('');
+  const number = (value: unknown) =>
+    finite(value) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value) : '—';
+  const candidates = trainingJobs.filter(
+    (entry) =>
+      entry.kind !== 'tune' &&
+      !['running', 'pending', 'queued', 'cancelling'].includes(entry.status) &&
+      entry.checkpoint &&
+      entry.resumable !== false,
+  );
+  return (
+    <div className="training-tuning">
+      <section aria-label={t('Study progress')}>
+        <h4>{String(progress.study_name ?? job.config?.study_name ?? t('Tune parameters'))}</h4>
+        <dl className="training-kpis">
+          <TrainingKpi label="Completed trials" value={progress.completed_trials} />
+          <TrainingKpi label="Failed trials" value={progress.failed_trials} />
+          <TrainingKpi label="Best trial" value={progress.best_trial} />
+          <TrainingKpi label="Best trial score" value={progress.best_score} />
+          <TrainingKpi label="Best checkpoint iteration" value={progress.best_iteration} />
+          <TrainingKpi label="Study sampler seed" value={progress.sampler_seed} />
+          <TrainingKpi label="Source training seed" value={progress.source_seed} />
+        </dl>
+        <p className="subtle">
+          {t(
+            'Trials are ranked by the score of their best evaluated checkpoint, not by the final iteration.',
+          )}
+        </p>
+      </section>
+
+      {!!bestOpponents && (
+        <section aria-label={t('Weighted opponent aggregate')}>
+          <h4>{t('Weighted opponent aggregate')}</h4>
+          <div className="table-scroll bounded-table">
+            <table aria-label={t('Weighted opponent aggregate')}>
+              <thead>
+                <tr>
+                  {['Opponent', 'Score', 'Wins', 'Losses', 'Draws', 'Unfinished'].map((label) => (
+                    <th key={label} scope="col">
+                      {t(label)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(bestOpponents).map(([opponent, raw]) => {
+                  const row = object(raw) ?? {};
+                  return (
+                    <tr key={opponent}>
+                      <th scope="row">{t(opponentName(opponent))}</th>
+                      <td>{number(row.score)}</td>
+                      <td>{number(row.wins)}</td>
+                      <td>{number(row.losses)}</td>
+                      <td>{number(row.draws)}</td>
+                      <td>{number(row.truncated)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {!!verification && (
+        <section aria-label={t('Held-out verification')}>
+          <h4>{t('Held-out verification')}</h4>
+          <dl className="training-kpis">
+            <TrainingKpi
+              label="Verification opponent"
+              value={t(opponentName(String(verification.opponent ?? 'shield_bearer')))}
+            />
+            <TrainingKpi label="Verification score" value={verification.score} />
+            <TrainingKpi label="Verification games" value={verification.games} />
+            <TrainingKpi label="Verification seed" value={verification.seed} />
+          </dl>
+          <p className="subtle">
+            {t(
+              'The verification stage uses a seed the trials never used, so it is an independent check of the winning checkpoint.',
+            )}
+          </p>
+        </section>
+      )}
+
+      {!!bestConfig && (
+        <section aria-label={t('Best configuration')}>
+          <h4>{t('Best configuration')}</h4>
+          <DiagnosticDisclosure title="Winning trial configuration" value={bestConfig} />
+          <div className="tuning-actions">
+            <button
+              className="button secondary small"
+              disabled={busy}
+              onClick={onUseBestParameters}
+            >
+              {t('Train with best parameters')}
+            </button>
+            <button
+              className="button secondary small"
+              disabled={busy || !finite(progress.best_trial)}
+              onClick={() => onContinueTrial(additional)}
+            >
+              {t('Continue winning trial')}
+            </button>
+            <button className="button secondary small" onClick={onDownloadBestConfig}>
+              {t('Download best configuration')}
+            </button>
+            <label className="training-field">
+              {t('Additional iterations')}
+              <input
+                type="number"
+                min={1}
+                max={100000}
+                value={additional}
+                onChange={(event) => setAdditional(Number(event.target.value))}
+              />
+            </label>
+          </div>
+          {!!candidates.length && (
+            <div className="tuning-actions">
+              <label className="training-field">
+                {t('Apply to existing training')}
+                <select value={targetJob} onChange={(event) => setTargetJob(event.target.value)}>
+                  <option value="">{t('Select a training job')}</option>
+                  {candidates.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {`${jobName(entry)} (${entry.id.slice(0, 8)})`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="button secondary small"
+                disabled={busy || !targetJob}
+                onClick={() => onApplyToJob(targetJob, additional)}
+              >
+                {t('Apply best parameters')}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {!!trials.length && (
+        <TrainingDataDisclosure title="Trial history">
+          {() => (
+            <div className="table-scroll bounded-table">
+              <table aria-label={t('Trial history')}>
+                <thead>
+                  <tr>
+                    {[
+                      'Trial',
+                      'Status',
+                      'Best checkpoint score',
+                      'Final iteration score',
+                      'Best iteration',
+                      'Parameters',
+                    ].map((label) => (
+                      <th key={label} scope="col">
+                        {t(label)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {trials.map((row, index) => (
+                    <tr key={index}>
+                      <th scope="row">{String(row.number ?? '—')}</th>
+                      <td>{String(row.state ?? '—')}</td>
+                      <td>{number(row.best_score ?? row.score)}</td>
+                      <td>{number(row.final_score)}</td>
+                      <td>{number(row.best_iteration)}</td>
+                      <td>
+                        <code>{JSON.stringify(safeDiagnostics(row.parameters))}</code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TrainingDataDisclosure>
+      )}
+    </div>
+  );
+}
+
 export function DiagnosticDisclosure({ title, value }: { title: string; value: unknown }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);

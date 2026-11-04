@@ -403,12 +403,120 @@ copying a job folder does not register it in the destination SQLite jobs table.
 ```
 
 Optuna uses a persisted SQLite study, seeded TPE proposals and a median pruner.
-Each trial runs real self-play/optimization and balanced baseline evaluation;
-the objective is the completion-aware playing score above, never training loss.
-Intermediate evaluated iteration scores support pruning. Champion/Jarl objectives and evaluation settings in the search space are rejected; the fixed Shield bearer objective and its deadline remain comparable across trials. `trials` is the number
-of **additional** trials in the invocation; rerunning the same study resumes it.
-`study_name` and storage must remain stable for resumption. Default storage is
-`study.sqlite3` within the output directory.
+Each trial runs real self-play/optimization and balanced evaluation; the
+objective is the **score of the trial's best evaluated checkpoint**, not the
+score of its final iteration. The trainer keeps the checkpoint with the highest
+benchmark score, so ranking by the final iteration could select a checkpoint that
+was never the best. Intermediate best-so-far scores drive the median pruner, so a
+trial that dips before recovering is not discarded. The pruner ignores the first
+`pruner.n_startup_trials` trials (default 3) and waits `pruner.n_warmup_steps`
+(default 1) before pruning. `sampler.n_startup_trials` (default 3) controls TPE's
+random startup phase; `sampler.multivariate`, `sampler.group` and
+`sampler.constant_liar` are passed through to `TPESampler`.
+
+`trials` is the number of **additional** trials in the invocation; rerunning the
+same study resumes it. `study_name` and storage must remain stable for
+resumption. Default storage is `study.sqlite3` within the output directory. The
+study seed is the Optuna sampler seed; the nested `training.seed` is the model
+seed and defaults to the study seed. A fresh trial uses
+`training.seed + trial.number`, so every trial draws a deterministic but distinct
+seed. Resuming a shared full checkpoint keeps that checkpoint's saved model seed,
+because the resume contract treats the seed as immutable.
+
+### Selecting the evaluation opponent
+
+The nested `training.evaluation_opponent` is selectable: `shield_bearer`,
+`shield_maiden`, `jarl` (with `evaluation_jarl_depth` and
+`evaluation_jarl_time_limit`) and `champion`. A fixed heuristic or alpha-beta
+reference makes scores comparable across trials. `champion` starts from the
+shared checkpoint's saved best (or the trial's initial weights) and may promote
+during a trial, so its reference moves; use a fixed opponent when a single
+unchanging reference matters. Evaluation protocol settings themselves cannot be
+tuned, only the model hyperparameters.
+
+A fixed reference opponent may be supplied directly to `tune` (for example with
+`resume`):
+
+```json
+{
+  "trials": 8,
+  "study_name": "brandubh-search",
+  "seed": 0,
+  "search_space": {
+    "learning_rate": {"type": "float", "low": 0.0001, "high": 0.003, "log": true},
+    "mcts_iterations": {"type": "int", "low": 4, "high": 16, "step": 4}
+  },
+  "training": {
+    "preset": "recommended",
+    "ruleset": "brandubh",
+    "evaluation_opponent": "jarl",
+    "evaluation_jarl_depth": 3,
+    "resume": "job-id:last.pt"
+  },
+  "verification": {"games": 16, "seed": 4242, "opponent": "shield_bearer"}
+}
+```
+
+The dashboard's **Tune this checkpoint** action builds this configuration from a
+completed training job's own full `last.pt`, so every trial resumes the same
+state. A `trial-N/last.pt` token likewise resumes one study trial's checkpoint.
+
+### Weighted multi-opponent objective
+
+An optional top-level `opponents` list scores the winning checkpoint of every
+trial against several fixed references and optimizes their weighted mean:
+
+```json
+"opponents": [
+  {"opponent": "shield_bearer", "weight": 0.5},
+  {"opponent": "shield_maiden", "weight": 0.25},
+  {"opponent": "jarl", "weight": 0.25}
+]
+```
+
+Weights must be greater than 0 and at most 1; the aggregate is normalized by the
+sum of weights. This is a secondary goal: it re-evaluates each trial's best
+checkpoint, so it costs extra games. Only fixed references are accepted in the
+aggregate, because Champion needs an incumbent that does not exist outside a
+trial. When `opponents` is absent, the objective is the in-training best-checkpoint
+score of the selected `evaluation_opponent`.
+
+### Held-out verification
+
+An optional top-level `verification` object re-evaluates the study's winning
+checkpoint with a seed the trials never used:
+
+```json
+"verification": {"games": 16, "seed": 4242, "opponent": "shield_bearer"}
+```
+
+`games` must be even, `seed` is an unsigned 32-bit integer, and `opponent` is a
+fixed reference. The result is persisted as `verification_result` in
+`result.json` (opponent, seed, games, score, wins/losses/draws/truncated), so a
+strong aggregate score can be checked independently instead of only re-read from
+the study objective.
+
+### Failure handling
+
+A trial that raises is recorded as `FAIL` and the study continues; `max_failures`
+(default 3, at most `trials`) consecutive failures stop the study before the whole
+budget is wasted. Failed trials carry their error string and are never counted as
+completed.
+
+The JSON `search_space` supports `float` (with optional `log`), `int` (with
+optional `step`/`log`) and `categorical` (`choices`) distributions. A `float`
+distribution accepts only `type`, `low`, `high` and `log`; an `int` distribution
+also accepts a positive integer `step`, and `log` requires `step` 1; a
+`categorical` distribution accepts only `type` and `choices` with non-empty
+numeric choices. Logarithmic ranges require positive bounds. Every sampled extreme
+is checked against the training validator, so an accepted search space can always
+produce a valid trial. The nested `training` object supplies the common training
+configuration. Each trial has its own output directory/checkpoints;
+`best-config.json` persists the winning full training configuration, while
+`result.json` lists every trial's state, best/final scores, best iteration,
+parameters, aggregate scores and error, plus the sampler/source seeds and the
+verification result. A tiny study verifies plumbing; strength tuning needs
+substantially larger evaluation budgets and multiple independent seeds.
 
 A running study reports study-level phases (`initializing_study`,
 `preparing_trial`, `between_trials`, `finalizing_study`) with a monotonic study
@@ -438,14 +546,6 @@ starts from the completed trials Optuna has already stored.
 Bookkeeping cost and its measurements are in the
 [tuning bookkeeping benchmark](benchmarks/tuning-bookkeeping.md).
 
-The JSON `search_space` supports `float` (with optional `log`), `int` (with
-optional `step`/`log`) and `categorical` (`choices`) distributions. The nested
-`training` object supplies the common training configuration. Each trial has its
-own output directory/checkpoints; `best-config.json` persists the winning full
-training configuration, while `result.json` lists trial states, parameters and
-scores. A tiny study verifies plumbing; strength tuning needs substantially
-larger evaluation budgets and multiple independent seeds.
-
 ## Verification and troubleshooting
 
 ```sh
@@ -471,7 +571,9 @@ algorithm, heuristic version, deadline, candidate budget, side scores and contex
 identity. Fixed-benchmark best checkpoints and chart series stay separate from
 Shield bearer, Jarl and Champion; switching preserves weights, optimizer and replay.
 Existing baseline-only model recommendations do not compare maiden scores with
-baseline scores. Optuna retains its fixed Shield bearer objective.
+baseline scores. Optuna uses whichever fixed reference the tuning configuration
+selects (default Shield bearer); its objective is the trial's best evaluated
+checkpoint.
 
 Low decision overhead does not guarantee equal evaluation wall time: safer play
 can extend games. Consult the [measured runtime trade-offs](SHIELD_MAIDEN.md).

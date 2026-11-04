@@ -164,8 +164,12 @@ it('builds a tune payload from study controls and one nested configuration', () 
     ...study,
     resumeStudy: 'study-id',
   });
-  expect(keysOf(payload)).toEqual([...contract.tune_fields, 'kind'].sort());
+  // Optional study controls are only sent when the form sets them, but every
+  // key the payload can carry must be in the shared contract.
   expect(unexpected(payload, REQUEST_FIELDS)).toEqual([]);
+  expect(keysOf(payload)).toEqual(
+    ['kind', 'resume_study', 'search_space', 'seed', 'study_name', 'training', 'trials'].sort(),
+  );
   expect(payload.resume_study).toBe('study-id');
   expect(payload.search_space).toEqual(SEARCH_SPACE);
   expect(unexpected(payload.training as Record<string, unknown>, TRAINING_FIELDS)).toEqual([]);
@@ -223,6 +227,38 @@ it('never reads the tuning search space for ordinary training', () => {
   expect(launchPayload('train', trainingConfig('tablut', 'smoke'), 'local', malformed).kind).toBe(
     'train',
   );
+});
+
+it('carries optional study strategy settings into the tune payload', () => {
+  const payload = launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
+    ...study,
+    strategy: JSON.stringify({
+      opponents: [{ opponent: 'jarl', weight: 1 }],
+      verification: { games: 8, opponent: 'shield_bearer' },
+      max_failures: 2,
+    }),
+  });
+  expect(unexpected(payload, REQUEST_FIELDS)).toEqual([]);
+  expect(payload.opponents).toEqual([{ opponent: 'jarl', weight: 1 }]);
+  expect(payload.verification).toEqual({ games: 8, opponent: 'shield_bearer' });
+  expect(payload.max_failures).toBe(2);
+  // Empty strategy text keeps the default single-opponent objective.
+  expect(
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', study),
+  ).not.toHaveProperty('opponents');
+  // Malformed or non-object strategy text is a named input error.
+  expect(() =>
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
+      ...study,
+      strategy: '[1, 2]',
+    }),
+  ).toThrow(TrainingInputError);
+  expect(() =>
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
+      ...study,
+      strategy: '{',
+    }),
+  ).toThrow(TrainingInputError);
 });
 
 it('reports malformed tuning JSON as a search-space field error', () => {

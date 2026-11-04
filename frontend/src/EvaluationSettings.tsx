@@ -81,7 +81,7 @@ export default function EvaluationSettings({
             data-training-field="evaluation_opponent"
             {...fieldErrorAttributes(rejected.has('evaluation_opponent'), errorId)}
             value={String(values.evaluation_opponent)}
-            disabled={tuning || disabled}
+            disabled={disabled}
             onChange={(event) => update('evaluation_opponent', event.target.value)}
           >
             <option value="shield_bearer">{t('Shield bearer')}</option>
@@ -142,7 +142,7 @@ export default function EvaluationSettings({
       <p className="subtle">
         {t(
           tuning
-            ? 'Optuna uses the fixed Shield bearer objective for comparable trials.'
+            ? 'Optimization evaluates every trial against this fixed reference so scores are comparable. Champion starts from the shared checkpoint and can promote during each trial.'
             : values.evaluation_opponent === 'champion'
               ? 'Champion promotion requires complete side-swapped pairs and a confidence bound above 50% plus the required improvement. Small leads may be inconclusive.'
               : values.evaluation_opponent === 'shield_maiden'

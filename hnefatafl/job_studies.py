@@ -6,6 +6,7 @@ import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 from .job_archives import ArchiveError, portable, rewrite, training_config, validate_json
 
@@ -39,9 +40,164 @@ TUNABLE = {
 }
 
 
-def tuning_config(value: dict) -> dict:
+def search_space_config(value: Any) -> dict:
+    """Validate and normalize the Optuna search-space contract.
+
+    Three distribution kinds are supported and each extreme is checked against
+    the training validator by the caller:
+
+    * ``float`` — optional ``log`` for a positive logarithmic range;
+    * ``int`` — optional positive integer ``step`` (``log`` requires step 1);
+    * ``categorical`` — a non-empty list of numeric choices.
+
+    The returned mapping is a normalized copy, so callers never mutate the
+    stored configuration and unknown options are rejected by name.
+    """
     import optuna
 
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not value or set(value) - TUNABLE:
+        raise ArchiveError("Unsupported optimization search space.")
+    result: dict = {}
+    for field, distribution in value.items():
+        if not isinstance(distribution, dict):
+            raise ArchiveError("Invalid optimization distribution.")
+        kind = distribution.get("type", "float")
+        if not isinstance(kind, str):
+            raise ArchiveError("A search distribution type must be a string.")
+        if kind == "categorical":
+            if set(distribution) != {"type", "choices"}:
+                raise ArchiveError("Invalid optimization choices.")
+            choices = distribution["choices"]
+            if not isinstance(choices, list) or not choices:
+                raise ArchiveError("Invalid optimization choices.")
+            if any(type(choice) is bool or type(choice) not in (int, float) for choice in choices):
+                raise ArchiveError("Optimization choices must be numeric.")
+            optuna.distributions.CategoricalDistribution(choices)
+            result[field] = {"type": "categorical", "choices": list(choices)}
+            continue
+        if kind not in {"float", "int"}:
+            raise ArchiveError("Unknown optimization distribution.")
+        allowed = {"type", "low", "high", "log"} | ({"step"} if kind == "int" else set())
+        if set(distribution) - allowed or not {"low", "high"} <= set(distribution):
+            raise ArchiveError("Invalid optimization bounds.")
+        low, high = distribution["low"], distribution["high"]
+        if any(type(v) is bool or type(v) not in (int, float) for v in (low, high)):
+            raise ArchiveError("Optimization bounds must be numeric.")
+        if low > high:
+            raise ArchiveError("Invalid optimization bounds.")
+        logarithmic = distribution.get("log", False)
+        if type(logarithmic) is not bool:
+            raise ArchiveError("Invalid optimization logarithmic flag.")
+        if logarithmic and low <= 0:
+            raise ArchiveError("Logarithmic optimization requires positive bounds.")
+        normalized: dict = {"type": kind, "low": low, "high": high, "log": logarithmic}
+        if kind == "int":
+            if type(low) is not int or type(high) is not int:
+                raise ArchiveError("Integer optimization requires integer bounds.")
+            step = distribution.get("step", 1)
+            if type(step) is not int or step < 1 or (logarithmic and step != 1):
+                raise ArchiveError(
+                    "Integer optimization requires a positive step, and step 1 for logarithmic sampling."
+                )
+            normalized["step"] = step
+            optuna.distributions.IntDistribution(low, high, step=step, log=logarithmic)
+        else:
+            if "step" in distribution:
+                raise ArchiveError("Float optimization does not accept a step.")
+            optuna.distributions.FloatDistribution(low, high, log=logarithmic)
+        result[field] = normalized
+    return result
+
+
+def opponents_config(value: Any) -> list[dict]:
+    """Validate the optional weighted multi-opponent objective."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not value or len(value) > 8:
+        raise ArchiveError("Invalid optimization opponents.")
+    allowed = {"shield_bearer", "shield_maiden", "jarl"}
+    result = []
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) - {"opponent", "weight"}:
+            raise ArchiveError("Invalid optimization opponent.")
+        opponent = entry.get("opponent", "shield_bearer")
+        if opponent not in allowed:
+            raise ArchiveError(
+                "Optimization opponents must be fixed references: shield_bearer, shield_maiden or jarl."
+            )
+        weight = entry.get("weight", 1.0)
+        if type(weight) is bool or type(weight) not in (int, float) or not 0 < float(weight) <= 1:
+            raise ArchiveError("Optimization opponent weights must be between 0 and 1.")
+        result.append({"opponent": opponent, "weight": float(weight)})
+    return result
+
+
+def verification_config(value: Any) -> dict:
+    """Validate the optional held-out verification stage."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or set(value) - {"games", "seed", "opponent"}:
+        raise ArchiveError("Invalid optimization verification settings.")
+    result: dict = {}
+    if "games" in value:
+        games = value["games"]
+        if type(games) is not int or not 2 <= games <= 10000 or games % 2:
+            raise ArchiveError("Verification games must be an even integer between 2 and 10000.")
+        result["games"] = games
+    if "seed" in value:
+        seed = value["seed"]
+        if type(seed) is not int or not 0 <= seed < 2**32:
+            raise ArchiveError("Verification seed must be an unsigned 32-bit integer.")
+        result["seed"] = seed
+    if "opponent" in value:
+        opponent = value["opponent"]
+        if opponent not in {"shield_bearer", "shield_maiden", "jarl"}:
+            raise ArchiveError(
+                "Verification opponent must be shield_bearer, shield_maiden or jarl."
+            )
+        result["opponent"] = opponent
+    return result
+
+
+def sampler_config(value: Any) -> dict:
+    if value is None:
+        return {}
+    allowed = {"n_startup_trials", "multivariate", "group", "constant_liar"}
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise ArchiveError("Invalid optimization sampler settings.")
+    result: dict = {}
+    if "n_startup_trials" in value:
+        startup = value["n_startup_trials"]
+        if type(startup) is not int or not 0 <= startup <= 1000:
+            raise ArchiveError("Sampler startup trials must be between 0 and 1000.")
+        result["n_startup_trials"] = startup
+    for flag in ("multivariate", "group", "constant_liar"):
+        if flag in value:
+            if type(value[flag]) is not bool:
+                raise ArchiveError("Sampler flags must be booleans.")
+            result[flag] = value[flag]
+    return result
+
+
+def pruner_config(value: Any) -> dict:
+    if value is None:
+        return {}
+    allowed = {"n_startup_trials", "n_warmup_steps", "interval_steps"}
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise ArchiveError("Invalid optimization pruner settings.")
+    result: dict = {}
+    for key in allowed:
+        if key in value:
+            number = value[key]
+            if type(number) is not int or not 0 <= number <= 100000:
+                raise ArchiveError("Pruner settings must be non-negative integers.")
+            result[key] = number
+    return result
+
+
+def tuning_config(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) - {
         "trials",
         "study_name",
@@ -50,6 +206,12 @@ def tuning_config(value: dict) -> dict:
         "training",
         "output_dir",
         "storage",
+        "resume_study",
+        "opponents",
+        "verification",
+        "sampler",
+        "pruner",
+        "max_failures",
     }:
         raise ArchiveError("Unsupported optimization configuration.")
     result = portable(value)
@@ -64,48 +226,15 @@ def tuning_config(value: dict) -> dict:
     result["study_name"] = name
     base = training_config(result.get("training", {"preset": "smoke", "ruleset": "brandubh"}))
     result["training"] = base
-    search = result.get("search_space")
-    if search is not None:
-        if not isinstance(search, dict) or not search or set(search) - TUNABLE:
-            raise ArchiveError("Unsupported optimization search space.")
-        for field, distribution in search.items():
-            if not isinstance(distribution, dict):
-                raise ArchiveError("Invalid optimization distribution.")
-            kind = distribution.get("type", "float")
-            options = {k: v for k, v in distribution.items() if k != "type"}
-            if kind == "categorical":
-                if (
-                    set(options) != {"choices"}
-                    or not isinstance(options["choices"], list)
-                    or not options["choices"]
-                ):
-                    raise ArchiveError("Invalid optimization choices.")
-                values = options["choices"]
-                optuna.distributions.CategoricalDistribution(values)
-            elif kind in {"float", "int"}:
-                if (
-                    set(options) - {"low", "high", "log", *({"step"} if kind == "int" else set())}
-                    or not {"low", "high"} <= options.keys()
-                ):
-                    raise ArchiveError("Invalid optimization bounds.")
-                if "log" in options and type(options["log"]) is not bool:
-                    raise ArchiveError("Invalid optimization logarithmic flag.")
-                values = [options["low"], options["high"]]
-                if kind == "int":
-                    if (
-                        any(type(v) is not int for v in values)
-                        or type(options.get("step", 1)) is not int
-                    ):
-                        raise ArchiveError("Invalid integer optimization bounds.")
-                    optuna.distributions.IntDistribution(**options)
-                else:
-                    optuna.distributions.FloatDistribution(**options)
-            else:
-                raise ArchiveError("Unknown optimization distribution.")
-            for number in values:
-                if type(number) not in {int, float}:
-                    raise ArchiveError("Optimization choices must be numeric.")
-                training_config({**base, field: number})
+    result["search_space"] = search_space_config(result.get("search_space"))
+    result["opponents"] = opponents_config(result.get("opponents"))
+    result["verification"] = verification_config(result.get("verification"))
+    result["sampler"] = sampler_config(result.get("sampler"))
+    result["pruner"] = pruner_config(result.get("pruner"))
+    failures = result.get("max_failures", min(3, result["trials"]))
+    if type(failures) is not int or not 1 <= failures <= 10000:
+        raise ArchiveError("Invalid optimization failure budget.")
+    result["max_failures"] = failures
     return result
 
 

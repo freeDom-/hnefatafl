@@ -12,7 +12,11 @@ Python 3.11+ owns the deterministic engine, search, persistence and training. Fa
 exposes server-authoritative JSON sessions; React, TypeScript and Vite provide one
 responsive browser client for desktop and phones. SQLite keeps ordinary Linux and
 Proxmox LXC installations simple. PyTorch provides real CPU/CUDA policy/value learning;
-Optuna manages persistent search studies. Docker is not required.
+Optuna manages persistent search studies. A study ranks trials by the score of
+their best evaluated checkpoint, supports a selectable fixed evaluation opponent
+(Shield bearer, Shield maiden or Jarl) or an optional weighted multi-opponent
+aggregate, and records a held-out verification of the winning checkpoint. Docker
+is not required.
 
 Account and online positions/results are server-authoritative. Every position and
 move has a serializable representation, shared by interactive play, replay, AI and

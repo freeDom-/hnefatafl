@@ -1840,15 +1840,18 @@ def test_an_objective_failure_is_not_counted_and_not_masked(tmp_path, monkeypatc
     config = tune_config(tmp_path, trials=1)
     output = Path(config["output_dir"])
     snapshots: list[dict] = []
-    with pytest.raises(RuntimeError, match="attribute write failed"):
-        tune(config, snapshots.append)
+    # The failing trial is recorded as FAIL and the study stops once its failure
+    # budget is exhausted, instead of masking the study behind an exception.
+    result = tune(config, snapshots.append)
     assert written, "the attribute write was never attempted"
-    # The original failure is reported, and the trial is never counted: Optuna
-    # records it as FAIL because the objective did not return.
+    assert result["status"] == "completed"
+    assert result["completed_trials"] == 0
+    assert result["failed_trials"] == 1
+    assert result["trials"][0]["state"] == "FAIL"
     progress = read_json(output / "progress.json")
-    assert progress["status"] == "failed" and progress["error"] == "attribute write failed"
+    assert progress["status"] == "completed"
     assert all(state.get("completed_trials", 0) == 0 for state in snapshots)
-    assert not (output / "result.json").exists()
+    assert (output / "result.json").exists()
 
 
 def test_study_and_trial_revisions_never_move_backwards(tmp_path):
