@@ -172,8 +172,13 @@ def evaluate_model(
         raise ValueError("A neural opponent requires a compatible opponent model")
     if not neural_opponent and previous is not None:
         raise ValueError("A neural incumbent is only used for a neural opponent")
-    if previous is not None and previous.config != model.config:
-        raise ValueError("Opponent architecture and ruleset must match the candidate")
+    if previous is not None and previous.ruleset != model.ruleset:
+        raise ValueError(
+            "Opponent ruleset and board/action representation must match the candidate"
+        )
+    if previous is not None:
+        # Each model keeps its own architecture, inference backend and cache.
+        previous.to(next(model.parameters()).device)
     seed = context["seed"] if seed is None else seed
     outcomes: list[dict] = []
     wins = draws = losses = 0

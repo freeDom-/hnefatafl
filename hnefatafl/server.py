@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .identities import agent_identity, effective_ai_config
+from .training_identity import OPERATIONAL_TRAINING_FIELDS
 from .storage import ConflictError, Store
 from .versioning import application_metadata
 
@@ -184,23 +185,10 @@ def check_training_fields(
 # Fields that define what a tuning study optimizes. A resumed study may extend
 # its trial budget, but changing one of these would make its stored trials
 # incomparable, so it is rejected before the study is opened.
-STUDY_IDENTITY_TRAINING_FIELDS = (
-    "ruleset",
-    "channels",
-    "blocks",
-    "seed",
-    "optimizer",
-    "evaluation_opponent",
-    "evaluation_mode",
-    "evaluation_inference_backend",
-    "evaluation_games",
-    "evaluation_iterations",
-    "evaluation_max_plies",
-    "evaluation_time_limit",
-    "evaluation_jarl_depth",
-    "evaluation_jarl_time_limit",
-    "resume",
-)
+
+STUDY_IDENTITY_TRAINING_FIELDS = tuple(
+    sorted(set(TRAINING_FIELDS) - OPERATIONAL_TRAINING_FIELDS)
+) + ("resume",)
 
 
 def resume_study_conflicts(
@@ -240,7 +228,7 @@ def resume_study_conflicts(
 
     conflicts = [
         key
-        for key in ("study_name", "seed", "search_space", "opponents", "verification")
+        for key in ("study_name", "seed", "search_space", "opponents", "sampler", "pruner")
         if key in requested
         and key in previous_config
         and normalize(key, requested[key]) != normalize(key, previous_config[key])
@@ -1889,7 +1877,7 @@ def create_app(
 
     @app.get("/api/models/{model_id}/usage")
     def model_usage(model_id: str):
-        with catalog_lock:
+        with job_lock, catalog_lock:
             model_info(model_id)
             games = unfinished_model_games(model_id)
             return {
@@ -1919,7 +1907,7 @@ def create_app(
         discard_unfinished: bool = False,
         usage_token: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
     ):
-        with catalog_lock:
+        with job_lock, catalog_lock:
             model = model_info(model_id)
             if running_model_tournaments(model_id):
                 fail(
@@ -2159,6 +2147,25 @@ def create_app(
                     fail("Training job not found.", 404)
                 if job.get("status") not in TERMINAL or job_worker_alive(job):
                     fail("Stop this training job before exporting its data.", 409)
+                if job.get("kind") == "tune":
+                    from .job_studies import study_database
+
+                    database = study_database(directory, job["config"])
+                    for contributor in store.jobs():
+                        if contributor.get("kind") != "tune":
+                            continue
+                        saved_storage = contributor.get("config", {}).get(
+                            "storage",
+                            "sqlite:///" + str(job_path(contributor["id"]) / "study.sqlite3"),
+                        )
+                        if (
+                            saved_storage == "sqlite:///" + str(database)
+                            and read_job(contributor["id"])["status"] not in TERMINAL
+                        ):
+                            fail(
+                                "Stop every job contributing to this study before exporting it.",
+                                409,
+                            )
                 export_job(job, directory, registry(), archive, package_version)
             return FileResponse(
                 archive,
@@ -2312,7 +2319,7 @@ def create_app(
 
     @app.post("/api/training/jobs", status_code=201)
     def launch_training(config: dict[str, Any]):
-        with job_lock:
+        with job_lock, catalog_lock:
             config = dict(config)
             execution = config.pop("execution", "local")
             worker_id = config.pop("worker_id", None)
@@ -2354,22 +2361,26 @@ def create_app(
                     )
                 if Path(resume).is_absolute():
                     jobs_root = (root / "jobs").resolve()
-                    checkpoint = Path(resume).resolve()
+                    raw_checkpoint = Path(resume)
+                    if any(path.is_symlink() for path in (raw_checkpoint, *raw_checkpoint.parents)):
+                        fail("Checkpoint references must not contain symlinks.")
+                    checkpoint = raw_checkpoint.resolve()
                     if (
                         not checkpoint.is_relative_to(jobs_root)
-                        or checkpoint.name != "last.pt"
+                        or checkpoint.name not in {"last.pt", "objective.pt"}
                         or not checkpoint.is_file()
                     ):
                         fail("The saved checkpoint was not found.")
                     return str(checkpoint)
                 if ":" in resume:
                     prior_id, filename = resume.split(":", 1)
-                    if not filename.endswith("last.pt"):
-                        fail(
-                            "Only last.pt contains optimizer and replay state for training resumption."
-                        )
+                    if Path(filename).name not in {"last.pt", "objective.pt"}:
+                        fail("Select a full training checkpoint (last.pt or objective.pt).")
                     base = job_path(prior_id)
-                    checkpoint = (base / filename).resolve()
+                    raw_checkpoint = base / filename
+                    if any(path.is_symlink() for path in (raw_checkpoint, *raw_checkpoint.parents)):
+                        fail("Checkpoint references must not contain symlinks.")
+                    checkpoint = raw_checkpoint.resolve()
                     if not checkpoint.is_relative_to(base.resolve()) or not checkpoint.is_file():
                         fail("The saved checkpoint was not found.")
                     return str(checkpoint)
@@ -2464,6 +2475,13 @@ def create_app(
                         fail("The saved study is outside the job store.")
                     if previous["kind"] != "tune" or not database.is_file():
                         fail("This job has no saved optimization study.")
+                    if previous["status"] in {"running", "pending", "queued", "cancelling"} or any(
+                        entry.get("kind") == "tune"
+                        and entry.get("status") in {"running", "pending", "queued", "cancelling"}
+                        and entry.get("config", {}).get("storage") == "sqlite:///" + str(database)
+                        for entry in store.jobs()
+                    ):
+                        fail("Stop the active owning study before resuming it.")
                     config["storage"] = "sqlite:///" + str(database)
                     previous_config = previous.get("config", {})
                     # Server-authoritative identity: keep every previous setting the
@@ -2483,6 +2501,16 @@ def create_app(
                         if key not in requested and key in previous_config:
                             config[key] = previous_config[key]
 
+                if previous is not None:
+                    previous_training = {
+                        key: value
+                        for key, value in previous_config.get("training", {}).items()
+                        if key in training_fields
+                    }
+                    # Only stored server paths are removed. Explicit client-owned
+                    # path attempts still reach normal validation and are rejected.
+                    config["training"] = {**previous_training, **requested_training}
+
                 # A portable source-checkpoint token (for example from an
                 # imported study) is resolved to a server-owned path and injected
                 # into the nested training configuration for the CLI.
@@ -2490,7 +2518,18 @@ def create_app(
                 if source_checkpoint is not None:
                     resolved_source = resolve_resume_token(source_checkpoint)
                     training_input = dict(config.get("training") or {})
-                    training_input.setdefault("resume", resolved_source)
+                    if "source_checkpoint" in requested:
+                        if (
+                            "resume" in requested_training
+                            and resolve_resume_token(requested_training["resume"])
+                            != resolved_source
+                        ):
+                            fail(
+                                "source_checkpoint and training.resume identify different source checkpoints."
+                            )
+                        training_input["resume"] = resolved_source
+                    else:
+                        training_input.setdefault("resume", resolved_source)
                     config["training"] = training_input
 
                 training = validate_training(
@@ -2585,6 +2624,15 @@ def create_app(
                             + ", ".join(conflicts),
                         )
                 config.update(training=training, output_dir=str(directory))
+                from .training import requested_study_identity
+                from .training_identity import check_study_identity
+
+                try:
+                    identity = requested_study_identity(config)
+                    if previous is not None:
+                        check_study_identity(database, identity)
+                except (ValueError, OSError) as exc:
+                    fail(str(exc))
             if execution == "remote":
                 return remote_training.enqueue(identifier, config, worker_id)
             directory.mkdir()

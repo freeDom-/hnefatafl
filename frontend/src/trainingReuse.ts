@@ -3,7 +3,7 @@ import { object, jobRuleset } from './trainingDashboardData';
 import type { DeviceInfo, Job } from './types';
 import { validTrainingNumbers } from './TrainingFields';
 
-const tunable = [
+export const tunable = [
   'channels',
   'blocks',
   'learning_rate',

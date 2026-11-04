@@ -40,6 +40,12 @@ TUNABLE = {
     "dirichlet_fraction",
 }
 
+DEFAULT_SEARCH_SPACE = {
+    "learning_rate": {"type": "float", "low": 0.0001, "high": 0.01, "log": True},
+    "exploration": {"type": "float", "low": 0.5, "high": 2.0},
+    "channels": {"type": "categorical", "choices": [8, 16, 32]},
+}
+
 
 def search_space_config(value: Any) -> dict:
     """Validate and normalize the Optuna search-space contract.
@@ -273,6 +279,7 @@ def _migrate_study(
     destination: Path | None = None,
     ids: dict | None = None,
     study_name: str | None = None,
+    references: dict | None = None,
 ) -> None:
     """Validate a copied database, scrub attributes and rebase owned checkpoint refs.
 
@@ -324,10 +331,12 @@ def _migrate_study(
                     raise ArchiveError("Optimization attributes exceed metadata limits.")
                 value = json.loads(encoded)
                 validate_json(value)
-                if key == "checkpoint":
+                if key in {"checkpoint", "trial_checkpoint", "last_checkpoint"}:
                     if not isinstance(value, str):
                         raise ArchiveError("Invalid Optuna checkpoint reference.")
-                    if source_root:
+                    if references and value in references:
+                        value = "job://" + references[value]
+                    elif source_root:
                         try:
                             relative = Path(value).resolve().relative_to(source_root)
                         except ValueError as exc:
@@ -340,13 +349,23 @@ def _migrate_study(
                             "The study contains a nonportable checkpoint dependency."
                         )
                     relative_name = value[6:]
+                    if table != "trial_user_attributes":
+                        raise ArchiveError("Checkpoint references must belong to an Optuna trial.")
+                    number = db.execute(
+                        "SELECT trials.number FROM trials JOIN trial_user_attributes USING(trial_id) WHERE trial_user_attribute_id=?",
+                        (identifier,),
+                    ).fetchone()
+                    if number is None or relative_name.split("/")[0] != f"trial-{number[0]}":
+                        raise ArchiveError(
+                            "Optuna checkpoint ownership does not match its trial number."
+                        )
                     # rewrite applies the same path/type validation as job JSON.
                     rewrite(value, {}, artifact_root)
                     if not (artifact_root / relative_name).is_file():
                         raise ArchiveError(
                             "An Optuna trial checkpoint is missing from the archive."
                         )
-                value = portable({key: value}, source_root)
+                value = portable({key: value}, source_root, references=references)
                 if destination is not None:
                     value = rewrite(value, ids or {}, destination)
                 if key not in value:
@@ -381,22 +400,195 @@ def migrate_study(path: Path, artifact_root: Path, **kwargs) -> None:
         raise ArchiveError("Invalid or incompatible Optuna SQLite study.") from exc
 
 
-def copy_study(directory: Path, config: dict, target: Path) -> None:
+def study_database(directory: Path, config: dict) -> Path:
     storage = config.get("storage", "sqlite:///" + str(directory / "study.sqlite3"))
     if not isinstance(storage, str) or not storage.startswith("sqlite:///"):
         raise ArchiveError("Only job-owned SQLite optimization studies can be exported.")
-    source = Path(storage[10:]).resolve()
-    if source != directory / "study.sqlite3" or source.is_symlink() or not source.is_file():
+    source = Path(storage[10:])
+    jobs = directory.parent
+    if (
+        source.name != "study.sqlite3"
+        or source.parent.parent != jobs
+        or not re.fullmatch(r"[0-9a-f]{32}", source.parent.name)
+        or source.is_symlink()
+        or source.parent.is_symlink()
+        or source.resolve() != source
+        or not source.is_file()
+    ):
         raise ArchiveError(
-            "This optimization study uses shared or external storage; migrate its original owning job or use a full-instance backup."
+            "This study uses shared or external storage outside the owning job store."
         )
     if source.stat().st_size > 128 * 1024 * 1024:
         raise ArchiveError("Optimization study exceeds the file size limit.")
+    return source
+
+
+def study_artifacts(directory: Path, config: dict) -> tuple[dict, dict]:
+    """Consolidate global trial numbers from every contributing owned job.
+
+    No arbitrary paths are followed: references must resolve to known artifacts
+    in a sibling UUID job directory, without symlinks at any level.
+    """
+    source = study_database(directory, config)
+    refs: dict[str, str] = {}
+    contributors = {source.parent.name, directory.name}
+    trials = []
+
+    def add(value: str, archive_name: str):
+        path = Path(value)
+        try:
+            relative = path.relative_to(directory.parent)
+        except ValueError as error:
+            raise ArchiveError(
+                "Study has a nonportable dependency outside the job store."
+            ) from error
+        if len(relative.parts) < 2 or not re.fullmatch(r"[0-9a-f]{32}", relative.parts[0]):
+            raise ArchiveError("Study artifact has no valid owning job.")
+        if path.resolve() != path or any(parent.is_symlink() for parent in (path, *path.parents)):
+            raise ArchiveError("Study artifacts must not contain symlinks or traversal.")
+        if not path.is_file():
+            raise ArchiveError(f"Missing study dependency: {archive_name}.")
+        if not artifact_name_for_study(archive_name):
+            raise ArchiveError("Unsupported study artifact dependency.")
+        contributors.add(relative.parts[0])
+        refs[str(path)] = archive_name
+
+    with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA trusted_schema=OFF")
+        rows = db.execute("SELECT trial_id,number FROM trials").fetchall()
+        for trial_id, number in rows:
+            attrs = {
+                key: json.loads(value)
+                for key, value in db.execute(
+                    "SELECT key,value_json FROM trial_user_attributes WHERE trial_id=?", (trial_id,)
+                )
+            }
+            roots = set()
+            paths = {}
+            for key in ("checkpoint", "trial_checkpoint", "last_checkpoint"):
+                value = attrs.get(key)
+                if not value:
+                    continue
+                path = Path(value)
+                if path.parent.name != f"trial-{number}":
+                    raise ArchiveError("Optuna trial artifact ownership does not match its number.")
+                add(value, f"trial-{number}/{path.name}")
+                roots.add(path.parent)
+                paths[key] = "job://" + refs[value]
+            if len(roots) > 1:
+                raise ArchiveError("Optuna trial checkpoints have conflicting artifact owners.")
+            # Include other allowlisted artifacts (history, metrics, selected best,
+            # full last checkpoint), not just the winning inference copy.
+            for trial_root in roots:
+                for artifact in trial_root.rglob("*"):
+                    if artifact.is_symlink():
+                        raise ArchiveError("Study artifacts must not contain symlinks.")
+                    name = f"trial-{number}/" + artifact.relative_to(trial_root).as_posix()
+                    if artifact.is_file() and artifact_name_for_study(name):
+                        add(str(artifact), name)
+            trials.append({"number": number, "artifacts": paths})
+    resume = config.get("training", {}).get("resume") or config.get("source_checkpoint")
+    if resume:
+        add(resume, "dependencies/source/last.pt")
+    return refs, {
+        "version": 1,
+        "owning_job": source.parent.name,
+        "contributing_jobs": sorted(contributors),
+        "trials": trials,
+        "source_checkpoint": "job://dependencies/source/last.pt" if resume else None,
+    }
+
+
+def artifact_name_for_study(name: str) -> bool:
+    from .job_archives import artifact_name
+
+    return artifact_name(name, tuning=True)
+
+
+def copy_study(
+    directory: Path, config: dict, target: Path, *, references: dict | None = None
+) -> None:
+    source = study_database(directory, config)
     with (
         closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as src,
         closing(sqlite3.connect(target)) as dst,
     ):
         src.backup(dst)
     migrate_study(
-        target, directory, source_root=directory, study_name=config.get("study_name", "hnefatafl")
+        target,
+        target.parent,
+        source_root=directory,
+        study_name=config.get("study_name", "hnefatafl"),
+        references=references,
     )
+
+
+def trial_report(trial) -> dict:
+    """One persisted trial, shared by live results and portable study snapshots."""
+    return {
+        "number": trial.number,
+        "state": trial.state.name,
+        "score": trial.value,
+        "parameters": trial.params,
+        **{
+            key: trial.user_attrs.get(key)
+            for key in (
+                "best_score",
+                "best_iteration",
+                "best_source",
+                "source_best_score",
+                "final_score",
+                "aggregate_score",
+                "overall_selected_score",
+                "opponents",
+                "error",
+            )
+        },
+        "duration": trial.duration.total_seconds() if trial.duration else None,
+    }
+
+
+def winner_report(best) -> dict:
+    return {
+        "best_trial": best.number,
+        "best_score": best.value,
+        "best_parameters": best.params,
+        **{
+            key: best.user_attrs.get(attribute)
+            for key, attribute in {
+                "best_iteration": "best_iteration",
+                "best_source": "best_source",
+                "source_best_score": "source_best_score",
+                "best_checkpoint": "checkpoint",
+                "best_trial_checkpoint": "trial_checkpoint",
+                "best_configuration": "training_config",
+                "best_opponents": "opponents",
+            }.items()
+        },
+    }
+
+
+def portable_study_report(path: Path) -> dict:
+    """Project the copied study, which may be newer than its original job result."""
+    import optuna
+
+    storage = optuna.storages.RDBStorage(f"sqlite:///{path}")
+    try:
+        summary = optuna.get_all_study_summaries(storage)[0]
+        study = optuna.load_study(study_name=summary.study_name, storage=storage)
+        trials = study.trials
+        completed_trials = [
+            trial for trial in trials if trial.state == optuna.trial.TrialState.COMPLETE
+        ]
+        completed = len(completed_trials)
+        from .training import parameter_importance
+
+        return {
+            "parameter_importance": parameter_importance(completed_trials),
+            "trials": [trial_report(trial) for trial in trials],
+            "completed_trials": completed,
+            "failed_trials": sum(trial.state == optuna.trial.TrialState.FAIL for trial in trials),
+            **(winner_report(study.best_trial) if completed else {}),
+        }
+    finally:
+        storage.engine.dispose()

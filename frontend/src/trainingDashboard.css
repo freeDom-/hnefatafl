@@ -869,3 +869,8 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+.training-resume-dialog [data-changed='true'] {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold);
+}

@@ -71,6 +71,7 @@ export default function TrainingResumeDialog({
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
+  const [optimizedConfig, setOptimizedConfig] = useState<TrainingConfig>({});
   const update = (key: string, value: string | number | boolean) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
   const target = Number(config.iterations);
@@ -117,8 +118,9 @@ export default function TrainingResumeDialog({
         }
         // Reviewing tuning results must never apply them silently: overlay only
         // the compatible, editable winning fields and keep checkpoint identity.
-        if (prefill) Object.assign(saved, resumeOverrides({ ...saved, ...prefill }, saved));
-        savedConfig.current = saved;
+        savedConfig.current = { ...saved };
+        const optimized = prefill ? resumeOverrides({ ...saved, ...prefill }, saved) : {};
+        setOptimizedConfig(optimized);
         const priorTarget = Number(saved.iterations);
         const requested =
           additionalIterations && additionalIterations > 0
@@ -129,6 +131,7 @@ export default function TrainingResumeDialog({
               );
         setConfig({
           ...saved,
+          ...optimized,
           iterations: requested,
         });
       })
@@ -141,7 +144,13 @@ export default function TrainingResumeDialog({
     return () => {
       alive = false;
     };
-  }, [job]);
+  }, [job, prefill, additionalIterations]);
+  const changes = resumeOverrides(config, savedConfig.current);
+  useEffect(() => {
+    ref.current?.querySelectorAll<HTMLElement>('[data-training-field]').forEach((field) => {
+      field.dataset.changed = String(field.dataset.trainingField! in changes);
+    });
+  }, [config, loading]);
   const importConfig = async (file: File) => {
     if (!checkpoint) return;
     setImportingConfig(true);
@@ -322,6 +331,41 @@ export default function TrainingResumeDialog({
                     <p className="notice" role="status">
                       {importNotice}
                     </p>
+                  )}
+                  {Object.keys(changes).length > 0 && (
+                    <div className="table-scroll bounded-table">
+                      <table aria-label={t('Parameter changes')}>
+                        <caption>
+                          {t(
+                            'Review changes before continuing. Highlighted settings differ from the source checkpoint.',
+                          )}
+                        </caption>
+                        <thead>
+                          <tr>
+                            {[
+                              'Setting',
+                              'Source checkpoint',
+                              'Optimized value',
+                              'Current value',
+                            ].map((label) => (
+                              <th key={label} scope="col">
+                                {t(label)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(changes).map(([key, value]) => (
+                            <tr key={key}>
+                              <th scope="row">{t(trainingParameterLabel(key))}</th>
+                              <td>{String(savedConfig.current[key] ?? '—')}</td>
+                              <td>{String(optimizedConfig[key] ?? '—')}</td>
+                              <td>{String(value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                   <TrainingTarget
                     value={executionTarget}

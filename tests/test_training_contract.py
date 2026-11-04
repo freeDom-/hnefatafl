@@ -216,16 +216,11 @@ def test_resume_study_conflicts_name_changed_identity_fields():
         {},
         previous,
     ) == ["search_space"]
-    # Extending the iteration budget is allowed because it is not an identity field.
-    assert (
-        resume_study_conflicts(
-            {},
-            {"iterations": 8},
-            {"iterations": 8, "evaluation_opponent": "jarl"},
-            previous,
-        )
-        == []
-    )
+    # Per-trial workload is fixed; only the additional trial count may change.
+    assert resume_study_conflicts(
+        {}, {"iterations": 8}, {"iterations": 8, "evaluation_opponent": "jarl"}, previous
+    ) == ["training.iterations"]
+    assert resume_study_conflicts({"trials": 8}, {}, {}, previous) == []
 
 
 def test_a_tuning_source_checkpoint_token_is_validated(client):

@@ -214,6 +214,13 @@ export function tuneResumePayload(
     trials,
     resume_study: jobId,
   };
+  if (saved.training && typeof saved.training === 'object' && !Array.isArray(saved.training)) {
+    payload.training = Object.fromEntries(
+      Object.entries(saved.training).filter(
+        ([key]) => !['output_dir', 'registry_dir'].includes(key),
+      ),
+    );
+  }
   if (typeof saved.max_failures === 'number') {
     payload.max_failures = Math.min(saved.max_failures, trials);
   }

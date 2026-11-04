@@ -369,7 +369,7 @@ def test_optuna_accepts_every_fixed_opponent(tmp_path, monkeypatch, opponent):
     # rejects tuning the evaluation protocol itself or the evolving champion.
     seen = []
 
-    def fake_train(configuration, progress=None, should_stop=None):
+    def fake_train(configuration, progress=None, should_stop=None, **kwargs):
         seen.append(configuration["evaluation_opponent"])
         output = tmp_path / "trial"
         output.mkdir(parents=True, exist_ok=True)

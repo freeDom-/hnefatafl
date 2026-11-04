@@ -12,7 +12,7 @@ import {
   recordedTrainingParameters,
   type TrainingConfig,
 } from './trainingPresets';
-import { recordedJobParameters } from './trainingReuse';
+import { recordedJobParameters, tunable } from './trainingReuse';
 import { trainingParameterLabel } from './TrainingFields';
 import TrainingResumeDialog from './TrainingResumeDialog';
 import TrainingTuneDialog from './TrainingTuneDialog';
@@ -50,6 +50,7 @@ interface ModelUsage {
     total_moves: number;
   }[];
   running_tournaments: { id: string; name: string; status: string }[];
+  running_optimizations?: { id: string; name: string; status: string }[];
   usage_token?: string;
 }
 
@@ -715,7 +716,10 @@ export default function Training({
         storage: _storage,
         ...training
       } = best;
-      const iterations = Number(best.iterations ?? 1) + Math.max(1, additionalIterations);
+      const winningIteration = Number(
+        job.result?.best_iteration ?? job.progress?.best_iteration ?? best.iterations ?? 1,
+      );
+      const iterations = winningIteration + Math.max(1, additionalIterations);
       const next = await api<Job>('/training/jobs', {
         ...training,
         kind: 'train',
@@ -751,7 +755,14 @@ export default function Training({
       onError(t('The selected training job could not be found.'));
       return;
     }
-    setResumePrefill(best as TrainingConfig);
+    const optimized = (tuningJob.result?.best_parameters ??
+      tuningJob.progress?.best_parameters ??
+      best) as Record<string, unknown>;
+    setResumePrefill(
+      Object.fromEntries(
+        Object.entries(optimized).filter(([key]) => tunable.includes(key)),
+      ) as TrainingConfig,
+    );
     setResumeAdditional(Math.max(1, additionalIterations));
     setResumeJob(target);
   };
@@ -781,6 +792,7 @@ export default function Training({
       !modelUsage ||
       usageLoading ||
       modelUsage.running_tournaments.length ||
+      modelUsage.running_optimizations?.length ||
       (modelUsage.unfinished_games.length && !discardUnfinished)
     )
       return;
@@ -1322,6 +1334,7 @@ export default function Training({
       )}
       {tuneJob && (
         <TrainingTuneDialog
+          models={models}
           job={tuneJob}
           onClose={() => setTuneJob(null)}
           onStarted={(next) => {
@@ -1350,6 +1363,7 @@ export default function Training({
             usageLoading ||
             !modelUsage ||
             !!modelUsage.running_tournaments.length ||
+            !!modelUsage.running_optimizations?.length ||
             (!!modelUsage.unfinished_games.length && !discardUnfinished)
           }
           onCancel={() => setDeleteModel(null)}
@@ -1382,6 +1396,19 @@ export default function Training({
           )}
           {modelUsage && (
             <>
+              {!!modelUsage.running_optimizations?.length && (
+                <div className="model-usage-warning">
+                  <h3>{t('Running optimization studies')}</h3>
+                  <p>{t('Stop these studies before deleting their fixed opponent.')}</p>
+                  <ul>
+                    {modelUsage.running_optimizations.map((study) => (
+                      <li key={study.id}>
+                        {study.name} ({study.id.slice(0, 8)})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {!!modelUsage.running_tournaments.length && (
                 <div className="model-usage-warning">
                   <h3>{t('Running tournament')}</h3>
@@ -1422,7 +1449,11 @@ export default function Training({
                     <input
                       type="checkbox"
                       checked={discardUnfinished}
-                      disabled={deleting || !!modelUsage.running_tournaments.length}
+                      disabled={
+                        deleting ||
+                        !!modelUsage.running_tournaments.length ||
+                        !!modelUsage.running_optimizations?.length
+                      }
                       onChange={(event) => setDiscardUnfinished(event.target.checked)}
                     />
                     <span>{t('Discard unfinished games and delete model')}</span>

@@ -1,4 +1,6 @@
 import { useId } from 'react';
+import type { Model } from './types';
+import TuningOpponents from './TuningOpponents';
 import { useI18n } from './i18n';
 import { fieldErrorAttributes, numberField } from './TrainingFields';
 import { FieldLabel } from './FieldTooltip';
@@ -29,6 +31,7 @@ export const opponentName = (opponent: string) =>
     baseline: 'Shield bearer',
     jarl: 'Jarl',
     champion: 'Champion',
+    frozen_model: 'Frozen neural model',
     previous_model: 'Previous model',
   })[opponent] ?? opponent;
 
@@ -39,7 +42,13 @@ export default function EvaluationSettings({
   tuning = false,
   invalidFields = [],
   errorId,
+  models = [],
+  strategy,
+  onStrategyChange,
 }: {
+  models?: Model[];
+  strategy?: string;
+  onStrategyChange?: (value: string) => void;
   config: TrainingConfig;
   update: (key: string, value: string | number | boolean) => void;
   disabled?: boolean;
@@ -69,6 +78,11 @@ export default function EvaluationSettings({
           'Only the selected opponent is evaluated. The final iteration is also evaluated; checkpoint frequency is independent.',
         )}
       </p>
+      {tuning && values.evaluation_opponent === 'champion' && (
+        <p className="form-error" role="alert">
+          {t('Choose a fixed benchmark before starting tuning. Champion changes during training.')}
+        </p>
+      )}
       <div className="form-grid">
         <div className="training-field">
           <FieldLabel
@@ -79,7 +93,11 @@ export default function EvaluationSettings({
           <select
             id={opponentId}
             data-training-field="evaluation_opponent"
-            {...fieldErrorAttributes(rejected.has('evaluation_opponent'), errorId)}
+            {...fieldErrorAttributes(
+              rejected.has('evaluation_opponent') ||
+                (tuning && values.evaluation_opponent === 'champion'),
+              errorId,
+            )}
             value={String(values.evaluation_opponent)}
             disabled={disabled}
             onChange={(event) => update('evaluation_opponent', event.target.value)}
@@ -87,7 +105,9 @@ export default function EvaluationSettings({
             <option value="shield_bearer">{t('Shield bearer')}</option>
             <option value="shield_maiden">{t('Shield maiden')}</option>
             <option value="jarl">{t('Jarl')}</option>
-            <option value="champion">{t('Champion')}</option>
+            <option value="champion" disabled={tuning}>
+              {t('Champion')}
+            </option>
           </select>
         </div>
         <div className="training-field">
@@ -142,7 +162,7 @@ export default function EvaluationSettings({
       <p className="subtle">
         {t(
           tuning
-            ? 'Optimization evaluates every trial against this fixed reference so scores are comparable. Champion starts from the shared checkpoint and can promote during each trial.'
+            ? 'Optimization uses fixed references for comparable objectives. Champion evolves during training and is unavailable for tuning.'
             : values.evaluation_opponent === 'champion'
               ? 'Champion promotion requires complete side-swapped pairs and a confidence bound above 50% plus the required improvement. Small leads may be inconclusive.'
               : values.evaluation_opponent === 'shield_maiden'
@@ -152,6 +172,15 @@ export default function EvaluationSettings({
                   : 'Shield bearer is a heuristic benchmark for early training. Tied scores keep the earlier best checkpoint.',
         )}
       </p>
+      {tuning && onStrategyChange && (
+        <TuningOpponents
+          models={models}
+          ruleset={String(config.ruleset)}
+          strategy={strategy ?? ''}
+          onChange={onStrategyChange}
+          disabled={disabled}
+        />
+      )}
       {values.evaluation_opponent === 'champion' &&
         Number(values.evaluation_games) < 2 * Number(values.champion_min_pairs) && (
           <p role="status">

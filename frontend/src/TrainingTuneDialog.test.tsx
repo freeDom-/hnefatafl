@@ -95,3 +95,63 @@ it('refuses to start when the checkpoint is not resumable', async () => {
   );
   expect(screen.getByRole('button', { name: 'Start tuning' })).toBeDisabled();
 });
+
+it('selects a compatible frozen neural opponent and submits its immutable registry ID', async () => {
+  const fetcher = vi.fn((path: string, init?: RequestInit) =>
+    json(path.endsWith('/resume') ? resumeInfo : init?.method === 'POST' ? { id: 'new' } : []),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(
+    <TrainingTuneDialog
+      job={job}
+      models={[
+        {
+          id: 'a'.repeat(24),
+          name: 'Larger fixed raven',
+          ruleset: 'brandubh',
+          training_config: { channels: 16, blocks: 2 },
+        },
+        { id: 'b'.repeat(24), name: 'Incompatible Tablut model', ruleset: 'tablut' },
+      ]}
+      onClose={vi.fn()}
+      onStarted={vi.fn()}
+    />,
+  );
+  await screen.findByLabelText('Additional tuning iterations per trial');
+  expect(screen.getByRole('option', { name: 'Champion' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Add fixed opponent' }));
+  fireEvent.change(screen.getByLabelText('Fixed opponent 1'), {
+    target: { value: 'a'.repeat(24) },
+  });
+  expect(screen.queryByRole('option', { name: /Incompatible Tablut/ })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Opponent weight 1'), { target: { value: '0.75' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start tuning' }));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const sent = JSON.parse(
+    String(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1]?.body),
+  );
+  expect(sent.opponents).toEqual([
+    { opponent: 'frozen_model', model_id: 'a'.repeat(24), weight: 0.75 },
+  ]);
+  expect(sent.source_checkpoint).toBe(`${job.id}:last.pt`);
+});
+
+it('requires a fixed benchmark when the source trained against Champion', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      json({ ...resumeInfo, config: { ...resumeInfo.config, evaluation_opponent: 'champion' } }),
+    ),
+  );
+  render(<TrainingTuneDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  await screen.findByText(
+    'Choose a fixed benchmark before starting tuning. Champion changes during training.',
+  );
+  expect(screen.getByRole('button', { name: 'Start tuning' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Evaluation opponent'), {
+    target: { value: 'shield_bearer' },
+  });
+  expect(screen.getByRole('button', { name: 'Start tuning' })).toBeEnabled();
+});

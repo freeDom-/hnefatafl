@@ -43,7 +43,7 @@ class StubTrainer:
         self.evaluation = evaluation or {}
         self.calls: list[dict] = []
 
-    def __call__(self, config, progress=None, should_stop=None):
+    def __call__(self, config, progress=None, should_stop=None, **kwargs):
         self.calls.append(dict(config))
         trial_number = int(Path(config["output_dir"]).name.split("-")[1])
         if trial_number in self.fail_on:
@@ -162,6 +162,7 @@ def test_resume_seed_is_kept_and_fresh_trials_draw_separate_seeds(tmp_path, stub
             },
         ),
     )
+    (tmp_path / "source.pt").write_bytes(b"source")
     result = tune(
         {
             "trials": 2,
@@ -200,7 +201,8 @@ def test_weighted_multi_opponent_aggregate_objective(tmp_path, stub, monkeypatch
     stub(lambda config: [0.4])
 
     class DummyModel:
-        pass
+        def to(self, device):
+            return self
 
     monkeypatch.setattr("hnefatafl.training.load_checkpoint", lambda path: (DummyModel(), {}))
     seen: list[str] = []
@@ -243,7 +245,10 @@ def test_weighted_multi_opponent_aggregate_objective(tmp_path, stub, monkeypatch
 
 def test_held_out_verification_records_an_independent_score(tmp_path, stub, monkeypatch):
     stub(lambda config: [0.3])
-    monkeypatch.setattr("hnefatafl.training.load_checkpoint", lambda path: (object(), {}))
+    monkeypatch.setattr(
+        "hnefatafl.training.load_checkpoint",
+        lambda path: (type("StubModel", (), {"to": lambda self, device: self})(), {}),
+    )
     monkeypatch.setattr(
         "hnefatafl.training.evaluate_model",
         lambda model, config, **kwargs: {
@@ -367,6 +372,7 @@ def _checkpoint_source(tmp_path):
 
 def test_checkpoint_tuning_rejects_an_architecture_search_space(tmp_path, stub, monkeypatch):
     stub(lambda config: [0.5])
+    (tmp_path / "source.pt").write_bytes(b"source")
     monkeypatch.setattr(
         "hnefatafl.training.load_checkpoint", lambda path: _checkpoint_source(tmp_path)
     )
@@ -385,6 +391,7 @@ def test_checkpoint_tuning_rejects_an_architecture_search_space(tmp_path, stub, 
 
 def test_checkpoint_tuning_rejects_an_insufficient_iteration_target(tmp_path, stub, monkeypatch):
     stub(lambda config: [0.5])
+    (tmp_path / "source.pt").write_bytes(b"source")
     monkeypatch.setattr(
         "hnefatafl.training.load_checkpoint", lambda path: _checkpoint_source(tmp_path)
     )
@@ -442,7 +449,7 @@ def test_frozen_neural_opponent_is_pinned_and_scored(tmp_path, stub, monkeypatch
         }
     )
     assert result["best_score"] == pytest.approx(1.0)
-    assert result["frozen_models"] == {model_id: model_id}
+    assert len(result["frozen_models"][model_id]) == 64
     assert seen and seen[0][0] == model_id and seen[0][1] is not None
 
 
@@ -464,7 +471,10 @@ def test_frozen_neural_opponent_requires_a_registered_model(tmp_path, stub):
 
 def test_verification_failure_preserves_the_optimization_result(tmp_path, stub, monkeypatch):
     stub(lambda config: [0.6])
-    monkeypatch.setattr("hnefatafl.training.load_checkpoint", lambda path: (object(), {}))
+    monkeypatch.setattr(
+        "hnefatafl.training.load_checkpoint",
+        lambda path: (type("StubModel", (), {"to": lambda self, device: self})(), {}),
+    )
 
     def failing(model, config, **kwargs):
         raise RuntimeError("verification unavailable")

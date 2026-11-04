@@ -489,6 +489,7 @@ class Store:
         column = (
             "json_remove(data, '$.progress.history', '$.progress.trial_progress.history', "
             "'$.progress.metrics.self_play', '$.progress.metrics.evaluation.games', "
+            "'$.result.trials', '$.progress.trials', '$.progress.experiment_identity', "
             "'$.result.history', '$.result.metrics.self_play', '$.logs')"
             if summary
             else "data"

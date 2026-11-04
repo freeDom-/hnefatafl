@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { useI18n } from './i18n';
 import type { Job } from './types';
 import { opponentName } from './EvaluationSettings';
-import { trainingNumberFields } from './TrainingFields';
+import { trainingNumberFields, trainingParameterLabel } from './TrainingFields';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
 import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingMetricChart from './TrainingMetricChart';
 import TrainingPerformance from './TrainingPerformance';
+import TuningCharts from './TuningCharts';
 import { PhaseTimings } from './TrainingPhaseTimings';
 import TrainingEvaluationStatus, { type Selection } from './TrainingEvaluationStatus';
 import {
@@ -412,6 +413,7 @@ export function TrainingTuningView({
   const [targetJob, setTargetJob] = useState('');
   const [sortKey, setSortKey] = useState<'number' | 'score' | 'duration'>('number');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(0);
   const bestTrial = finite(progress.best_trial) ? progress.best_trial : undefined;
   const statuses = useMemo(
     () => Array.from(new Set(trials.map((row) => String(row.state ?? '—')))).sort(),
@@ -424,13 +426,16 @@ export function TrainingTuningView({
         : trials.filter((row) => String(row.state ?? '—') === statusFilter);
     const key = (row: Values) => {
       if (sortKey === 'score')
-        return finite(row.best_score) ? (row.best_score as number) : -Infinity;
+        return row.state === 'COMPLETE' && finite(row.score) ? row.score : -Infinity;
       if (sortKey === 'duration')
         return finite(row.duration) ? (row.duration as number) : -Infinity;
       return finite(row.number) ? (row.number as number) : 0;
     };
     return [...filtered].sort((a, b) => key(b) - key(a));
   }, [trials, sortKey, statusFilter]);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(rows.length / 50) - 1));
+  const pageRows = rows.slice(currentPage * 50, (currentPage + 1) * 50);
+  const weighted = !!bestOpponents || trials.some((row) => finite(row.aggregate_score));
   const number = (value: unknown) =>
     finite(value) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value) : '—';
   const candidates = trainingJobs.filter(
@@ -460,16 +465,26 @@ export function TrainingTuningView({
         </dl>
         <p className="subtle">
           {t(
-            'Trials are ranked by the score of their best evaluated checkpoint, not by the final iteration.',
+            'Optuna optimizes the objective score: the best newly evaluated candidate benchmark, or its weighted aggregate when fixed opponents are configured. Historical source scores are separate references.',
           )}
         </p>
-        {progress.best_source === 'inherited' && (
-          <p className="dashboard-message" role="status">
+        {!progress.objective_policy && (
+          <p className="subtle">
             {t(
-              'No candidate improved on the source checkpoint, so the reported objective is the inherited benchmark score and the selected checkpoint is the source best model.',
+              'Historical objective policy: retained trial scores and rankings are shown unchanged. Further trials require verified study compatibility.',
             )}
           </p>
         )}
+        {finite(progress.source_best_score) &&
+          finite(progress.best_score) &&
+          progress.source_best_score > progress.best_score &&
+          !weighted && (
+            <p className="dashboard-message" role="status">
+              {t(
+                'The source benchmark is higher than the winning candidate benchmark. The objective still measures the newly trained candidate; the source remains unchanged.',
+              )}
+            </p>
+          )}
       </section>
 
       {comparison.length > 0 && (
@@ -489,7 +504,7 @@ export function TrainingTuningView({
               <tbody>
                 {comparison.map((row) => (
                   <tr key={row.key}>
-                    <th scope="row">{t(row.key)}</th>
+                    <th scope="row">{t(trainingParameterLabel(row.key))}</th>
                     <td>{String(row.source ?? '—')}</td>
                     <td>{String(row.winning ?? '—')}</td>
                     <td>{t(row.changed ? 'Changed' : 'Unchanged')}</td>
@@ -535,6 +550,19 @@ export function TrainingTuningView({
         </section>
       )}
 
+      {!!progress.verification_status && (
+        <section aria-label={t('Verification status')}>
+          <TrainingKpi
+            label="Verification status"
+            value={t(String(progress.verification_status))}
+          />
+          {!!progress.verification_error && (
+            <p className="form-error" role="status">
+              {String(progress.verification_error)}
+            </p>
+          )}
+        </section>
+      )}
       {!!verification && (
         <section aria-label={t('Held-out verification')}>
           <h4>{t('Held-out verification')}</h4>
@@ -614,6 +642,9 @@ export function TrainingTuningView({
       )}
 
       {!!trials.length && (
+        <TuningCharts trials={trials} importance={object(progress.parameter_importance)} />
+      )}
+      {!!trials.length && (
         <TrainingDataDisclosure title="Trial history">
           {() => (
             <>
@@ -622,12 +653,13 @@ export function TrainingTuningView({
                   {t('Sort trials by')}
                   <select
                     value={sortKey}
-                    onChange={(event) =>
-                      setSortKey(event.target.value as 'number' | 'score' | 'duration')
-                    }
+                    onChange={(event) => {
+                      setPage(0);
+                      setSortKey(event.target.value as 'number' | 'score' | 'duration');
+                    }}
                   >
                     <option value="number">{t('Trial number')}</option>
-                    <option value="score">{t('Best checkpoint score')}</option>
+                    <option value="score">{t('Optuna objective score')}</option>
                     <option value="duration">{t('Duration')}</option>
                   </select>
                 </label>
@@ -635,7 +667,10 @@ export function TrainingTuningView({
                   {t('Filter by status')}
                   <select
                     value={statusFilter}
-                    onChange={(event) => setStatusFilter(event.target.value)}
+                    onChange={(event) => {
+                      setStatusFilter(event.target.value);
+                      setPage(0);
+                    }}
                   >
                     <option value="all">{t('All statuses')}</option>
                     {statuses.map((status) => (
@@ -653,8 +688,10 @@ export function TrainingTuningView({
                       {[
                         'Trial',
                         'Status',
-                        'Best checkpoint score',
+                        'Optuna objective score',
+                        'Best in-training benchmark score',
                         'Final iteration score',
+                        ...(weighted ? ['Weighted aggregate score'] : []),
                         'Best iteration',
                         'Source',
                         'Duration',
@@ -668,15 +705,17 @@ export function TrainingTuningView({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, index) => (
+                    {pageRows.map((row, index) => (
                       <tr
-                        key={index}
+                        key={String(row.number ?? index)}
                         className={row.number === bestTrial ? 'winning-trial' : undefined}
                       >
                         <th scope="row">{String(row.number ?? '—')}</th>
                         <td>{String(row.state ?? '—')}</td>
-                        <td>{number(row.best_score ?? row.score)}</td>
+                        <td>{number(row.score)}</td>
+                        <td>{number(row.best_score)}</td>
                         <td>{number(row.final_score)}</td>
+                        {weighted && <td>{number(row.aggregate_score)}</td>}
                         <td>{number(row.best_iteration)}</td>
                         <td>{row.best_source ? t(String(row.best_source)) : '—'}</td>
                         <td>{finite(row.duration) ? `${number(row.duration)} s` : '—'}</td>
@@ -697,6 +736,39 @@ export function TrainingTuningView({
                   </tbody>
                 </table>
               </div>
+              <nav className="online-toolbar" aria-label={t('Trial pages')}>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  {t('Previous page')}
+                </button>
+                <span>
+                  {t('Page {page}', { page: currentPage + 1 })} · {rows.length} {t('trials')}
+                </span>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  disabled={(currentPage + 1) * 50 >= rows.length}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  {t('Next page')}
+                </button>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  disabled={bestTrial === undefined}
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setSortKey('score');
+                    setPage(0);
+                  }}
+                >
+                  {t('Locate winning trial')}
+                </button>
+              </nav>
               <p className="subtle">
                 {t(
                   'The winning trial is highlighted. A small evaluation sample does not establish a statistically significant improvement.',

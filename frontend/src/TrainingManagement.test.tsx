@@ -204,3 +204,25 @@ describe('workshop model provenance and deletion', () => {
     expect(dialog.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
+
+it('names active optimization dependencies and blocks model deletion', async () => {
+  const fetcher = vi.fn((path: string, _init?: RequestInit) =>
+    json(
+      path.endsWith('/usage')
+        ? {
+            ...usage([unfinished('hidden-one')]),
+            running_optimizations: [
+              { id: 'study-id', name: 'Frozen Raven study', status: 'running' },
+            ],
+          }
+        : [],
+    ),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  show();
+  const dialog = openDelete();
+  await dialog.findByText(/Frozen Raven study/);
+  expect(dialog.getByRole('button', { name: 'Delete' })).toBeDisabled();
+  expect(dialog.getByRole('checkbox')).toBeDisabled();
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+});

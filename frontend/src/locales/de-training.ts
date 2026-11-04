@@ -1,4 +1,59 @@
 const translations: Record<string, string> = {
+  'Choose a fixed benchmark before starting tuning. Champion changes during training.':
+    'Vor der Optimierung einen festen Benchmark wählen. Champion ändert sich während des Trainings.',
+  'Historical objective policy: retained trial scores and rankings are shown unchanged. Further trials require verified study compatibility.':
+    'Historische Zielfunktion: Gespeicherte Versuchswerte und Rangfolgen werden unverändert angezeigt. Weitere Versuche erfordern nachgewiesene Studienkompatibilität.',
+  'Fixed evaluation opponents': 'Feste Auswertungsgegner',
+  'Optional weighted objective: evaluate each trial’s best new candidate against these fixed references. Registered model weights stay fixed; network sizes may differ.':
+    'Optionales gewichtetes Ziel: Den besten neuen Kandidaten jedes Versuchs gegen diese festen Referenzen auswerten. Registrierte Modellgewichte bleiben fest; Netzwerkgrößen dürfen sich unterscheiden.',
+  'Correct the optional study JSON to edit fixed opponents.':
+    'Das optionale Studien-JSON korrigieren, um feste Gegner zu bearbeiten.',
+  'Fixed opponent': 'Fester Gegner',
+  'Opponent weight': 'Gegnergewicht',
+  'Remove opponent': 'Gegner entfernen',
+  'Add fixed opponent': 'Festen Gegner hinzufügen',
+  'Select a compatible registered model or heuristic':
+    'Kompatibles registriertes Modell oder Heuristik auswählen',
+  'The selected frozen model is missing or has an incompatible battlefield.':
+    'Das ausgewählte feste Modell fehlt oder hat ein inkompatibles Schlachtfeld.',
+  'Optimization uses fixed references for comparable objectives. Champion evolves during training and is unavailable for tuning.':
+    'Die Optimierung nutzt feste Referenzen für vergleichbare Ziele. Champion verändert sich während des Trainings und steht für die Optimierung nicht zur Verfügung.',
+  'Frozen neural model': 'Festes neuronales Modell',
+  'Running optimization studies': 'Laufende Optimierungsstudien',
+  'Stop these studies before deleting their fixed opponent.':
+    'Diese Studien vor dem Löschen ihres festen Gegners stoppen.',
+  'Optuna objective score': 'Optuna-Zielwert',
+  'Best in-training benchmark score': 'Bester Benchmarkwert während des Trainings',
+  'Weighted aggregate score': 'Gewichteter Gesamtwert',
+  'Trial pages': 'Versuchsseiten',
+  'Locate winning trial': 'Gewinnenden Versuch anzeigen',
+  trials: 'Versuche',
+  'Optuna optimizes the objective score: the best newly evaluated candidate benchmark, or its weighted aggregate when fixed opponents are configured. Historical source scores are separate references.':
+    'Optuna optimiert den Zielwert: den besten neu ausgewerteten Kandidaten-Benchmark oder dessen gewichteten Gesamtwert bei konfigurierten festen Gegnern. Historische Quellwerte sind separate Referenzen.',
+  'The source benchmark is higher than the winning candidate benchmark. The objective still measures the newly trained candidate; the source remains unchanged.':
+    'Der Quell-Benchmark ist höher als der Benchmark des gewinnenden Kandidaten. Das Ziel misst weiterhin den neu trainierten Kandidaten; die Quelle bleibt unverändert.',
+  'Tuning charts': 'Optimierungsdiagramme',
+  'Trial objective scores': 'Zielwerte der Versuche',
+  'Best objective so far': 'Bisher bester Zielwert',
+  'Trial runtime comparisons': 'Laufzeitvergleich der Versuche',
+  'Parameter versus objective': 'Parameter gegen Zielwert',
+  'Exploratory parameter importance': 'Explorative Parameterwichtigkeit',
+  Seconds: 'Sekunden',
+  'Charts show completed objective values. Large studies are sampled for display; the trial table contains all observations.':
+    'Diagramme zeigen abgeschlossene Zielwerte. Große Studien werden zur Anzeige ausgedünnt; die Versuchstabelle enthält alle Beobachtungen.',
+  'Relative binned variance explained, with at least 20 completed trials. Exploratory associations can be confounded and do not establish causality or statistical significance.':
+    'Relativ erklärte Varianz in Gruppen ab mindestens 20 abgeschlossenen Versuchen. Explorative Zusammenhänge können verzerrt sein und belegen weder Kausalität noch statistische Signifikanz.',
+  'Importance requires at least 20 completed trials, varying parameters and varying objectives. Fewer observations are insufficient.':
+    'Die Wichtigkeit erfordert mindestens 20 abgeschlossene Versuche sowie unterschiedliche Parameter und Zielwerte. Weniger Beobachtungen reichen nicht aus.',
+  'Verification status': 'Verifizierungsstatus',
+  not_requested: 'Nicht angefordert',
+
+  'Parameter changes': 'Parameteränderungen',
+  'Optimized value': 'Optimierter Wert',
+  'Current value': 'Aktueller Wert',
+  'Review changes before continuing. Highlighted settings differ from the source checkpoint.':
+    'Änderungen vor dem Fortsetzen prüfen. Hervorgehobene Einstellungen unterscheiden sich vom Quellprüfpunkt.',
+
   'CPU search processes (0 disables)': 'CPU-Suchprozesse (0 deaktiviert)',
   'Import config.json': 'config.json importieren',
   'Importing configuration…': 'Konfiguration wird importiert…',

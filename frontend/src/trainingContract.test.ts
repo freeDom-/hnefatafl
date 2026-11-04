@@ -366,3 +366,20 @@ it('names rejected fields without collapsing or dropping any path', () => {
   // A plain error carries no field information and must not be treated as one.
   expect(rejectedTrainingFields(new Error('Unsupported'))).toEqual([]);
 });
+
+it('removes stored server paths from nested study-resume inputs while preserving source and workload', () => {
+  const payload = tuneResumePayload(
+    'saved',
+    {
+      training: {
+        output_dir: '/private/job',
+        registry_dir: '/private/models',
+        resume: 'source:last.pt',
+        iterations: 12,
+        games: 5,
+      },
+    },
+    2,
+  );
+  expect(payload.training).toEqual({ resume: 'source:last.pt', iterations: 12, games: 5 });
+});

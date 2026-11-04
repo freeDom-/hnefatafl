@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { api, errorMessage } from './api';
 import { notify } from './notifications';
 import { useI18n } from './i18n';
-import type { Job } from './types';
+import type { Job, Model } from './types';
 import { FieldLabel } from './FieldTooltip';
 import EvaluationSettings from './EvaluationSettings';
 import type { TrainingConfig } from './trainingPresets';
@@ -20,10 +20,12 @@ const DEFAULT_SPACE =
  */
 export default function TrainingTuneDialog({
   job,
+  models = [],
   onClose,
   onStarted,
 }: {
   job: Job;
+  models?: Model[];
   onClose: () => void;
   onStarted: (next: Job) => void;
 }) {
@@ -85,6 +87,7 @@ export default function TrainingTuneDialog({
   const target = completed + additional;
   const valid =
     !!checkpoint?.can_resume &&
+    training.evaluation_opponent !== 'champion' &&
     Number.isInteger(additional) &&
     additional >= 1 &&
     target <= 100000 &&
@@ -266,6 +269,10 @@ export default function TrainingTuneDialog({
               />
             </div>
             <EvaluationSettings
+              tuning
+              models={models}
+              strategy={strategy}
+              onStrategyChange={setStrategy}
               config={training}
               update={(key, value) => setTraining((previous) => ({ ...previous, [key]: value }))}
               disabled={busy}

@@ -1626,7 +1626,7 @@ def test_the_study_owns_the_heartbeat_while_a_trial_is_booked(tmp_path, monkeypa
     def blocking_set(self, key, value):
         # The first attribute write is real post-trial bookkeeping: the trial has
         # trained, but Optuna has not committed its state yet.
-        if not entered.is_set():
+        if key == "last_checkpoint" and not entered.is_set():
             entered.set()
             assert released.wait(120)
         return real_set(self, key, value)
@@ -1747,8 +1747,8 @@ def test_cancellation_between_trials_ends_the_study_safely(tmp_path, monkeypatch
     real_train = training_module.train
     stopped = {"value": False}
 
-    def cancelling_train(config, progress, should_stop):
-        result = real_train(config, progress, should_stop)
+    def cancelling_train(config, progress, should_stop, **kwargs):
+        result = real_train(config, progress, should_stop, **kwargs)
         # The stop arrives while the first trial is finishing.
         stopped["value"] = True
         return result

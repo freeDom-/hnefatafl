@@ -403,25 +403,27 @@ copying a job folder does not register it in the destination SQLite jobs table.
 ```
 
 Optuna uses a persisted SQLite study, seeded TPE proposals and a median pruner.
-Each trial runs real self-play/optimization and balanced evaluation; the
-objective is the **score of the trial's best evaluated checkpoint**, not the
-score of its final iteration. The trainer keeps the checkpoint with the highest
-benchmark score, so ranking by the final iteration could select a checkpoint that
-was never the best. Intermediate best-so-far scores drive the median pruner, so a
-trial that dips before recovering is not discarded. The pruner ignores the first
-`pruner.n_startup_trials` trials (default 3) and waits `pruner.n_warmup_steps`
-(default 1) before pruning. `sampler.n_startup_trials` (default 3) controls TPE's
-random startup phase; `sampler.multivariate`, `sampler.group` and
-`sampler.constant_liar` are passed through to `TPESampler`.
+Each trial performs real self-play and optimizer updates. Its objective is the
+**best newly evaluated candidate benchmark** from that invocation's additional
+training. The inherited source benchmark is a separate reference, even if it is
+higher than every candidate. The objective score and `objective.pt` always refer
+to the same newly trained model. Ordinary training still retains its overall
+best benchmark in `best.pt`, including an inherited best when appropriate.
 
-`trials` is the number of **additional** trials in the invocation; rerunning the
-same study resumes it. `study_name` and storage must remain stable for
-resumption. Default storage is `study.sqlite3` within the output directory. The
-study seed is the Optuna sampler seed; the nested `training.seed` is the model
-seed and defaults to the study seed. A fresh trial uses
-`training.seed + trial.number`, so every trial draws a deterministic but distinct
-seed. Resuming a shared full checkpoint keeps that checkpoint's saved model seed,
-because the resume contract treats the seed as immutable.
+For a single opponent, the candidate best-so-far drives median pruning. With a
+weighted objective, pruning by the different in-training benchmark is disabled;
+the selected new candidate is evaluated against every fixed weighted opponent.
+`sampler.n_startup_trials` defaults to 3; the median pruner defaults to 3 startup
+trials, 1 warmup step and an interval of 1. TPE also accepts `multivariate`,
+`group` and `constant_liar`.
+
+`trials` requests **additional** trials, up to 10000 total per study. Storage and
+`study_name` identify the owning database. The sampler seed is separate from
+`training.seed` (default 0). Fresh trials use `training.seed + trial.number`;
+checkpoint trials restore the source seed and RNG state. Evaluation uses the
+same fixed protocol seed across trials, independent of the per-trial model seed.
+Wall-clock search deadlines and numerical backends still limit bitwise
+reproducibility across hardware or under different system load.
 
 ### Selecting the evaluation opponent
 
@@ -433,14 +435,12 @@ its scores are not comparable; a fixed neural opponent is selected instead
 through the `opponents` list (see below). Evaluation protocol settings themselves
 cannot be tuned, only the model hyperparameters.
 
-The objective is the score of the **checkpoint the trainer actually selects**,
-not the highest evaluation ever seen. For a fixed benchmark the selected
-checkpoint is the best accepted snapshot; when a resumed checkpoint already holds
-a stronger historical benchmark, that inherited score is reported until a
-candidate replaces it, and the trial records `best_source: "inherited"`.
-A trial that never improves on its source therefore reports the source score and
-the source best model, never a newly observed score attributed to the inherited
-checkpoint.
+The source checkpoint's historical benchmark, best newly evaluated candidate,
+overall retained best, and final iteration are separate metrics. A candidate
+that scores 0.25 and one that scores 0.5 receive distinct objectives even when
+the source benchmark is 1.0. The source checkpoint is never rewritten. A trial
+without a newly evaluated candidate fails rather than attributing a candidate
+score to inherited weights.
 
 A fixed reference opponent may be supplied directly to `tune` (for example with
 `resume`):
@@ -459,7 +459,8 @@ A fixed reference opponent may be supplied directly to `tune` (for example with
     "ruleset": "brandubh",
     "evaluation_opponent": "jarl",
     "evaluation_jarl_depth": 3,
-    "resume": "job-id:last.pt"
+    "iterations": 15,
+    "resume": "/absolute/path/to/source/last.pt"
   },
   "verification": {"games": 16, "seed": 4242, "opponent": "shield_bearer"}
 }
@@ -475,21 +476,38 @@ target does not exceed the checkpoint or if the search space samples `channels`
 or `blocks`, which the checkpoint fixes. The HTTP API takes the source as a
 portable `source_checkpoint` token (`<job_id>:last.pt`), resolves it server-side
 and records it for archive export; the CLI uses the nested `training.resume`
-path. A `trial-N/last.pt` token likewise resumes one study trial's checkpoint.
+path. The API also accepts `<job_id>:trial-N/objective.pt` for the full state of the
+selected candidate, or `<job_id>:trial-N/last.pt` for the final trial state.
 
 ### Study identity and resumption
 
-Every study stores a canonical identity (an Optuna study user attribute) covering
-the tuning mode, source-checkpoint iteration/seed/optimizer, ruleset,
-architecture, search space, evaluation opponent(s) and protocol, frozen-model
-identity, sampler and pruner startup, and the objective policy. Resuming a study
-compares the stored identity with the requested configuration and rejects
-incompatible changes with the differing field names; the trial budget and failure
-budget are deliberately excluded, so a study can be extended without changing its
-experiment. A legacy study without an identity adopts the current one on first
-resume and keeps all its stored trials. The HTTP API performs the same comparison
-before spawning the study and rejects a changed identity with a field-specific
-error, so an incompatible resumption never starts.
+Identity version 2 records tuning mode; a stable content digest of source
+weights, optimizer, replay and RNG/checkpoint state; source iteration; ruleset and
+network architecture; all fixed effective training settings (including iterations,
+games, epochs, replay size, optimization, numerical backend, concurrency and
+search deadlines); model and sampler seeds; search space; evaluation protocol,
+game budgets and seeds; immutable frozen-model content; opponent weights;
+objective policy; and sampler/pruner settings. Machine-local paths and cosmetic
+names are excluded. Source identities are cached in a generation-checked sidecar
+when loaded for creation, never hashed during dashboard polls. Replacing a source
+file invalidates the cache.
+
+Both the API (before launching a subprocess) and the worker compare identities
+and report conflicting fields. The additional trial/failure budgets, verification
+request, model label and artifact publication cadence may change. Fixed trial
+workload, including iterations per trial, cannot. Previous configuration and
+Optuna history/result files are preserved on rejection. A nonblocking file lock
+serializes local SQLite CLI invocations through finalization. Each trial checks
+its loaded source generation/content before updating, so replaced/tampered source
+state cannot silently enter an existing study. External RDB deployments must
+serialize study invocations operationally; the server supports owned SQLite only.
+
+Legacy studies are **never assigned the current requested experiment**. A missing
+fingerprint can be reconstructed only when every historical trial independently
+records the same complete version-2 identity. Version-1 fingerprints lack required
+workload/content and use historical scoring semantics. Ambiguous older studies
+remain inspectable/exportable with unchanged rankings; further trials require a
+new study. Use the old winner's configuration or checkpoint to start that study.
 
 ### Weighted multi-opponent objective
 
@@ -505,10 +523,10 @@ trial against several fixed references and optimizes their weighted mean:
 ```
 
 Weights must be greater than 0 and at most 1; the aggregate is normalized by the
-sum of weights. This is a secondary goal: it re-evaluates each trial's best
-checkpoint, so it costs extra games. Only fixed references are accepted, because
+sum of weights. This **is the Optuna objective** when configured: it re-evaluates
+the best new benchmark candidate of each trial, so it costs extra games. Only fixed references are accepted, because
 the evolving Champion needs an incumbent that does not exist outside a trial.
-When `opponents` is absent, the objective is the in-training selected-checkpoint
+When `opponents` is absent, the objective is the best newly evaluated candidate benchmark
 score of `training.evaluation_opponent`.
 
 A **frozen neural opponent** is a registered model pinned for the whole study:
@@ -518,7 +536,10 @@ A **frozen neural opponent** is a registered model pinned for the whole study:
 ```
 
 The model is loaded once before the first trial, checked against the study's
-ruleset and architecture, and used as the same opponent for every trial. A
+ruleset and board/action representation, and used as the same opponent for every
+trial. Hidden channels and residual blocks may differ, including during
+architecture search. Each model has separate inference queues/caches/backends;
+sequential, batched and supported parallel MCTS evaluation use the same protocol. A
 missing or incompatible model fails the study before any trial runs, and the
 model cannot be deleted while a running study references it.
 
@@ -536,9 +557,10 @@ fixed reference. The result is persisted as `verification_result` in
 `result.json` (opponent, seed, games, score, wins/losses/draws/truncated), so a
 strong aggregate score can be checked independently instead of only re-read from
 the study objective. Verification runs after the optimization result is written
-and is retried once; a verification failure is recorded separately as
-`verification_error` and never discards the completed trials or the winning
-checkpoint.
+with `best-config.json` and winning checkpoint references already durable.
+`verification_status` is `not_requested`, `pending`, `running`, `completed`,
+`failed` or `cancelled`. Errors are retained separately in `verification_error`;
+a failed/cancelled verification leaves completed optimization results usable.
 
 ### Failure handling
 
@@ -559,7 +581,14 @@ also accepts a positive integer `step`, and `log` requires `step` 1; a
 numeric choices. Logarithmic ranges require positive bounds. Every sampled extreme
 is checked against the training validator, so an accepted search space can always
 produce a valid trial. The nested `training` object supplies the common training
-configuration. Each trial has its own output directory/checkpoints;
+configuration. Each trial owns `last.pt` (full final state), `objective.pt` (full
+state of its best new evaluated candidate) and `best.pt` (overall selected best).
+Full checkpoints retain optimizer state, replay, RNG and learning history.
+Trials do **not** register playable inference models, even with `save_all_best`.
+Pruned/failed trials retain any full checkpoint they reached. Continuing the
+winner is ordinary training in a new job, which retains normal registration.
+No trial model is registered automatically at study completion;
+
 `best-config.json` persists the winning full training configuration, while
 `result.json` lists every trial's state, best/final scores, best iteration,
 parameters, aggregate scores and error, plus the sampler/source seeds and the
@@ -567,7 +596,7 @@ verification result. A tiny study verifies plumbing; strength tuning needs
 substantially larger evaluation budgets and multiple independent seeds.
 
 A running study reports study-level phases (`initializing_study`,
-`preparing_trial`, `between_trials`, `finalizing_study`) with a monotonic study
+`preparing_trial`, `between_trials`, `finalizing_study`, `verification`) with a monotonic study
 duration, the completed-trial counter and the last trial's data, so a dashboard
 never shows a dead worker between trials or during a slow finalization. The
 study's heartbeat stops only at the terminal publication, which carries the

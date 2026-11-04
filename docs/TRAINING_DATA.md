@@ -217,8 +217,9 @@ The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
 In **AI Workshop → At the forge**, select an inactive job and choose **Export job**.
 Transfer the ZIP to another computer, open its workshop and choose **Import job**.
 The imported job opens with its configuration, learning graphs, evaluation and
-performance history. Its inference models join the normal model collection for
-games and tournaments. Existing jobs and models are kept; repeated imports create
+performance history. Ordinary training inference models join the normal collection for
+games and tournaments; tuning trials retain study-local artifacts without creating
+permanent playable models. Existing jobs and models are kept; repeated imports create
 new job IDs and deduplicate model content, preserving existing catalog names.
 
 The versioned archive contains `manifest.json`, a sanitized SQLite job-record
@@ -240,7 +241,7 @@ Original resume dependencies are detached: the full checkpoint carries its own
 optimizer, replay, RNG and portable best-model state.
 
 **Resume from checkpoint** uses the same checkpoint-review API as ordinary jobs.
-Only a full compatible `last.pt` is resumable; `best.pt` and inference-only imports
+Only a full compatible `last.pt` or tuning `objective.pt` is resumable; `best.pt` and inference-only imports
 remain playable without being advertised as full training state. Resumption creates
 a new job and leaves the imported source unchanged. CUDA-trained checkpoints load
 on CPU; select **CPU** or **Automatic** in the resume dialog on a CPU-only machine.
@@ -253,22 +254,37 @@ by a successful migration.
 
 ### Optimization studies and archive limits
 
-A tuning archive additionally includes its single owned `study.sqlite3`, trial
-folders and `best-config.json`. SQLite backup creates the snapshot; import validates
-the current Optuna schema, preserves trial results/history and rewrites study URLs
-and trial checkpoint attributes to the new destination. **Resume study** uses that
-restored database. The study result also records the winning trial's configuration,
-its checkpoint source and a held-out verification result; a `trial-N/last.pt`
-token resumes that trial's full checkpoint. A checkpoint-based study records the
-source checkpoint as a portable, validated reference and a frozen neural opponent
-records its registry model ID. If the source checkpoint or frozen model is missing
-or incompatible after import, the study is imported but is not presented as
-resumable until its dependencies are satisfied. Studies with active trials,
-multiple studies in one database, shared/external storage, missing trial
-checkpoints or unsupported schemas are rejected with an explanation. Export the
-original owning job if it still contains all trial outputs; otherwise use a
-consistent full-instance backup. A resumed study that writes trials into other job
-folders is not self-contained.
+Format **2** tuning archives consolidate a single persistent `study.sqlite3`
+and globally numbered `trial-N/` folders from **every contributing job** in the
+same owned job store. `study-artifacts.json` records the original database owner,
+contributing jobs and each trial's selected/full/final checkpoint references.
+The source full checkpoint is included as `dependencies/source/last.pt`;
+registered fixed opponents travel in `models/`. SQLite backup takes a consistent
+snapshot; every contributing job must be inactive. The archive inventory checksums
+all artifacts. External database/checkpoint paths, missing required trial/source
+files, symlinks and executable SQLite objects are rejected explicitly.
+
+Import validates/stages the entire inventory, then consolidates artifact ownership
+under one fresh job ID and rebases all trial checkpoint references, configuration,
+source dependencies and immutable model references. Trial numbers, scores and
+historical rankings do not change. Even exporting an earlier owning job projects
+the current database winner/history into the archive, leaving original result
+files unchanged. A held-out result for an earlier winner remains historical,
+rather than being attributed to the new winner. Full `objective.pt`/`last.pt` files preserve
+optimizer, replay, RNG and training history. Only required frozen opponents are registered for tuning imports; legacy trial
+inference artifacts do not populate the permanent registry. Study content identity and resumption checks remain active.
+Ambiguous legacy studies can be imported for inspection/export, but cannot acquire
+compatibility from the new requested configuration.
+
+For example, export the most recent inactive resumed study job, import its ZIP,
+select **Resume study** to add comparable trials, or **Continue winning trial**
+to create ordinary training from its full objective checkpoint. The original jobs
+are untouched; the imported job owns the consolidated artifacts and later resumed
+jobs may contribute further global trial numbers. Re-exporting includes them too.
+Missing frozen registry dependencies are reported before further trials can launch;
+restore the exact content or start a new study. Normal training resume dependencies
+are detached because its full state is self-contained; checkpoint-based tuning
+keeps its source dependency explicitly for repeated comparable branching.
 
 Only inactive jobs can be transferred. Remote jobs include artifacts already
 uploaded to the server, not unuploaded worker-private files; their original worker
@@ -279,7 +295,7 @@ ratio. Unsafe paths, symlinks, duplicate/conflicting entries and unknown artifac
 types are rejected. Missing optional files are allowed; unsafe/incompatible files
 that are present are rejected rather than silently discarded.
 
-Format **1** is independent of application version, but the destination must support
+Format **2** (with backward import support for format **1**) is independent of application version, but the destination must support
 its checkpoint architecture, training settings and (for tuning) Optuna schema 12.
 Future unsupported formats/configurations are rejected; do not bypass safe loading
 or rename an arbitrary ZIP to import it. No database-schema migration is needed.

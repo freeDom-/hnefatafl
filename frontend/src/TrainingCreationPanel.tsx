@@ -486,6 +486,9 @@ export default function TrainingCreationPanel({
           </p>
         )}
         <EvaluationSettings
+          models={models}
+          strategy={strategy}
+          onStrategyChange={kind === 'tune' ? setStrategy : undefined}
           config={config}
           update={update}
           tuning={kind === 'tune'}

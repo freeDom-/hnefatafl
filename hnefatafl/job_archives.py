@@ -21,7 +21,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .storage import Store
 
 FORMAT = "hnefatafl-training-job"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 MAX_FILE_BYTES = 128 * 1024 * 1024
@@ -39,8 +39,9 @@ JSON_FILES = {
     "history.json",
     "metrics.json",
     "evaluation.json",
+    "study-artifacts.json",
 }
-CHECKPOINTS = {"last.pt", "best.pt", "inference.pt", "resume.pt"}
+CHECKPOINTS = {"last.pt", "best.pt", "inference.pt", "resume.pt", "objective.pt"}
 RUNTIME_KEYS = {
     "pid",
     "worker_pid",
@@ -63,6 +64,7 @@ RUNTIME_KEYS = {
     "finish_requested_status",
     "uploaded_models",
     "checkpoint_iteration",
+    "artifact_owner",
 }
 SECRET_KEY = re.compile(r"token|secret|password|credential|authorization|lease|api[_-]?key", re.I)
 ABSOLUTE_PATH = re.compile(r"(?<![\w:])(?:[A-Za-z]:[\\/]|/)[^\s\"'<>]*")
@@ -140,20 +142,24 @@ def clean_text(value: str) -> str:
     return ABSOLUTE_PATH.sub("[local path]", SECRET_TEXT.sub("[redacted]", value))
 
 
-def portable(value: Any, directory: Path | None = None, depth: int = 0) -> Any:
+def portable(
+    value: Any, directory: Path | None = None, depth: int = 0, *, references: dict | None = None
+) -> Any:
     """Keep tensor training state, while stripping paths and execution ownership."""
     if depth > 30:
         raise ArchiveError("Job metadata nesting is too deep.")
     if isinstance(value, dict):
         return {
-            key: portable(item, directory, depth + 1)
+            key: portable(item, directory, depth + 1, references=references)
             for key, item in value.items()
             if not isinstance(key, str) or (key not in RUNTIME_KEYS and not SECRET_KEY.search(key))
         }
     if isinstance(value, (list, tuple)):
-        items = [portable(item, directory, depth + 1) for item in value]
+        items = [portable(item, directory, depth + 1, references=references) for item in value]
         return tuple(items) if isinstance(value, tuple) else items
     if isinstance(value, str):
+        if references and value in references:
+            return "job://" + references[value]
         if value.startswith("job://"):
             safe_name(value[6:])
             return value
@@ -180,6 +186,8 @@ def safe_name(name: str) -> None:
 def artifact_name(name: str, *, tuning: bool = False) -> bool:
     path = PurePosixPath(name)
     if tuning:
+        if name == "dependencies/source/last.pt":
+            return True
         if name in {"study.sqlite3", "best-config.json"}:
             return True
         if re.fullmatch(r"trial-\d{1,10}", path.parts[0]) and len(path.parts) > 1:
@@ -317,13 +325,18 @@ def job_config(value: Any, kind: str) -> dict:
 
 
 def write_checkpoint(
-    source: Path, target: Path, directory: Path | None = None, ids: dict | None = None
+    source: Path,
+    target: Path,
+    directory: Path | None = None,
+    ids: dict | None = None,
+    *,
+    references: dict | None = None,
 ) -> dict:
     import torch
     from .models import load_checkpoint
 
     model, payload = load_checkpoint(source)
-    payload = portable(payload, directory)
+    payload = portable(payload, directory, references=references)
     saved = payload["metadata"].get("training_config")
     if saved is not None:
         normalized = training_config(saved)
@@ -357,15 +370,37 @@ def model_ids(value: Any) -> set[str]:
 
 
 def export_job(job: dict, directory: Path, registry, output: Path, app_version: str) -> None:
+    """Keep the same study lease as CLI training while collecting its snapshot."""
+    if job.get("kind") == "tune":
+        from .training_identity import study_lease
+
+        with study_lease({**job["config"], "output_dir": str(directory)}):
+            _export_job(job, directory, registry, output, app_version)
+    else:
+        _export_job(job, directory, registry, output, app_version)
+
+
+def _export_job(job: dict, directory: Path, registry, output: Path, app_version: str) -> None:
     """Build on disk using bounded reads. Caller holds lifecycle/catalog locks."""
     validate_job(job)
     if directory.is_symlink() or directory.resolve() != directory or directory.parent.is_symlink():
         raise ArchiveError("The saved training directory is not a safe local job directory.")
     with tempfile.TemporaryDirectory(prefix="job-export-") as temporary:
         staging = Path(temporary)
+        artifact_refs: dict[str, str] = {}
+        study_inventory = None
+        if job["kind"] == "tune":
+            from .job_studies import study_artifacts
+
+            artifact_refs, study_inventory = study_artifacts(directory, job["config"])
         record = portable(
-            {key: value for key, value in job.items() if key in JOB_FIELDS}, directory
+            {key: value for key, value in job.items() if key in JOB_FIELDS},
+            directory,
+            references=artifact_refs,
         )
+        source = job.get("config", {}).get("training", {}).get("resume")
+        if source and source in artifact_refs:
+            record["config"]["source_checkpoint"] = "job://" + artifact_refs[source]
         # Remote inference copies live in the registry. A failed worker may
         # never send the final report that would expose those associations.
         uploaded = job.get("uploaded_models", {})
@@ -399,8 +434,12 @@ def export_job(job: dict, directory: Path, registry, output: Path, app_version: 
                 raise ArchiveError("Job archive exceeds the extracted size limit.")
 
         if directory.exists():
-            for source in sorted(directory.rglob("*")):
-                name = source.relative_to(directory).as_posix()
+            sources = {
+                str(path): path.relative_to(directory).as_posix() for path in directory.rglob("*")
+            }
+            sources.update(artifact_refs)
+            for source_name, name in sorted(sources.items()):
+                source = Path(source_name)
                 if source.is_symlink():
                     raise ArchiveError("Job artifacts must not contain symlinks.")
                 if not source.is_file() or not artifact_name(name, tuning=job["kind"] == "tune"):
@@ -412,10 +451,10 @@ def export_job(job: dict, directory: Path, registry, output: Path, app_version: 
                 if name == "study.sqlite3":
                     continue  # Copied below through SQLite's consistent backup API.
                 if source.suffix == ".pt":
-                    payload = write_checkpoint(source, target, directory)
+                    payload = write_checkpoint(source, target, directory, references=artifact_refs)
                     references.update(model_ids(payload))
                 elif source.suffix == ".json":
-                    data = portable(read_json(source), directory)
+                    data = portable(read_json(source), directory, references=artifact_refs)
                     validate_model_references(data)
                     references.update(model_ids(data))
                     target.write_bytes(json_bytes(data))
@@ -427,8 +466,37 @@ def export_job(job: dict, directory: Path, registry, output: Path, app_version: 
         if job["kind"] == "tune":
             from .job_studies import copy_study
 
-            copy_study(directory, job["config"], staging / "study.sqlite3")
+            copy_study(
+                directory, job["config"], staging / "study.sqlite3", references=artifact_refs
+            )
+            (staging / "study-artifacts.json").write_bytes(json_bytes(study_inventory))
+            include(staging / "study-artifacts.json", "study-artifacts.json")
+            # config.json must carry the portable source dependency too.
+            (staging / "config.json").write_bytes(json_bytes(record["config"]))
+            include(staging / "config.json", "config.json")
             include(staging / "study.sqlite3", "study.sqlite3")
+            from .job_studies import portable_study_report
+
+            projection = portable_study_report(staging / "study.sqlite3")
+            for section in ("progress", "result"):
+                previous = record.get(section) or {}
+                # Keep old verification as historical evidence when its model is
+                # no longer the current study winner. Never attach it to a new one.
+                if previous.get("best_trial") != projection.get("best_trial"):
+                    if previous.get("verification_result"):
+                        previous["historical_verification"] = previous.pop("verification_result")
+                    previous["verification_status"] = "not_requested"
+                    previous.pop("verification_error", None)
+                    previous.pop("parameter_importance", None)
+                record[section] = {**previous, **projection}
+                (staging / f"{section}.json").write_bytes(json_bytes(record[section]))
+                include(staging / f"{section}.json", f"{section}.json")
+            if projection.get("best_configuration"):
+                (staging / "best-config.json").write_bytes(
+                    json_bytes(projection["best_configuration"])
+                )
+                include(staging / "best-config.json", "best-config.json")
+
         # DB configuration and remote reports may be the only copies available.
         for name, value in (
             ("config.json", record["config"]),
@@ -438,6 +506,12 @@ def export_job(job: dict, directory: Path, registry, output: Path, app_version: 
             if name not in files and value is not None:
                 (staging / name).write_bytes(json_bytes(value))
                 include(staging / name, name)
+        if job["kind"] == "tune":
+            references = {
+                entry["model_id"]
+                for entry in job["config"].get("opponents", [])
+                if entry.get("opponent") == "frozen_model"
+            }
         models = []
         available = {entry["id"]: entry for entry in registry.list()}
         for identifier in sorted(references):
@@ -521,7 +595,7 @@ def extract(archive_path: Path, staging: Path) -> dict:
         if (
             manifest.get("format") != FORMAT
             or type(manifest.get("format_version")) is not int
-            or manifest["format_version"] != FORMAT_VERSION
+            or manifest["format_version"] not in {1, FORMAT_VERSION}
         ):
             raise ArchiveError("Unsupported training-job archive format version.")
         if (
@@ -552,7 +626,7 @@ def extract(archive_path: Path, staging: Path) -> dict:
 def rewrite(value: Any, ids: dict, directory: Path | None = None) -> Any:
     if isinstance(value, dict):
         result = {
-            key: item if key == "provenance" else rewrite(item, ids, directory)
+            ids.get(key, key) or key: item if key == "provenance" else rewrite(item, ids, directory)
             for key, item in value.items()
         }
         if isinstance(result.get("model"), dict) and result["model"].get("id") is None:
@@ -687,7 +761,14 @@ def import_job(
                             continue  # An unrelated damaged copy must not block migration.
                         portable_existing[sha256(probe)] = entry
                 probe.unlink(missing_ok=True)
+                frozen_dependencies = {
+                    entry["model_id"]
+                    for entry in record["config"].get("opponents", [])
+                    if entry.get("opponent") == "frozen_model"
+                }
                 for old, entry in models.items():
+                    if record["kind"] == "tune" and old not in frozen_dependencies:
+                        continue  # Legacy trial registrations stay local artifacts.
                     path = staging / entry["file"]
                     registered = portable_existing.get(sha256(path))
                     if registered is None:
@@ -696,7 +777,9 @@ def import_job(
                     ids[old] = registered["id"]
                 # Always register an inference artifact, including jobs whose source
                 # catalog copy had been removed before export.
-                for inference in sorted(staging.rglob("inference.pt")):
+                for inference in (
+                    sorted(staging.rglob("inference.pt")) if record["kind"] == "train" else []
+                ):
                     registered = portable_existing.get(sha256(inference))
                     if registered is None:
                         registered = registry.import_model(
