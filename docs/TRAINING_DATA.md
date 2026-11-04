@@ -133,6 +133,15 @@ records and the last evaluation. The existing tensor-only loader remains in use.
 The historical `best_score`/`best_snapshot` fields retain baseline meaning and
 cannot be overwritten by Jarl or Champion scores.
 
+New full checkpoints may also carry `extra.adaptation_state` when optional online
+learning-rate adaptation is enabled. It holds the algorithm name, state-schema
+version, candidate set, effective rate, bounded learned predictors, a bounded
+decision-event log and the controller's own random stream. It is JSON-finite and
+size-bounded, travels with the full checkpoint through job archives and remote
+artifacts, and is absent for jobs that never enabled adaptation. Resume resets the
+learned state (with a visible reason) when the candidate set, history window or
+evaluation settings changed; old checkpoints without the field load unchanged.
+
 Legacy iteration-100-style checkpoints migrate in memory: the saved baseline
 best becomes a historical benchmark, and can initialize the first provisional
 Champion incumbent. Legacy independent-game/iteration-derived seed results

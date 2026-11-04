@@ -100,6 +100,8 @@ const RESUME_TEXT_FIELDS = [
   'inference_cache_mode',
   'inference_device',
   'training_symmetry_mode',
+  'adaptation',
+  'adaptation_lr_candidates',
 ];
 
 export interface StudyInput {

@@ -64,6 +64,20 @@ export const trainingTooltips: Record<string, string> = {
     'Step size the optimizer applies to the network weights. Higher values learn faster but can become unstable or prevent convergence; lower values are steadier but need more training. Reduce it if losses fluctuate strongly. On resume, changing it overrides the restored value while the accumulated optimizer state is kept.',
   optimizer:
     'Algorithm that updates the network weights. AdamW is Adam with decoupled weight decay and is the default; Adam adapts a step size per parameter; SGD uses the momentum setting and often needs a higher learning rate. The optimizer is part of the checkpoint identity, so a resumed run cannot change it.',
+  adaptation:
+    'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and a fixed (non-Champion) evaluation opponent with at least four games is required.',
+  adaptation_lr_candidates:
+    'Comma-separated learning rates the controller may choose between. Each must be between 1e-7 and 1 and all must be distinct, with 2–8 values. The configured learning rate must appear in the list. A small set keeps each decision cheap and the saved controller state bounded.',
+  adaptation_cadence:
+    'Number of completed evaluations between controller decisions. 1 decides after every evaluation; higher values judge a longer interval before the rate can change.',
+  adaptation_warmup:
+    'Completed evaluations observed before the controller may change the learning rate. The configured starting rate is used during warm-up so the first decision is not made from too little evidence.',
+  adaptation_min_dwell:
+    'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy.',
+  adaptation_lag:
+    'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.',
+  adaptation_min_trials:
+    'Number of times every candidate must be observed before the controller may exploit its predictions. Guarantees each candidate is tried at least this often; 0 allows purely predictive selection once warm-up is complete.',
   weight_decay:
     'Regularization the optimizer applies to the weights. Higher values shrink weights more strongly and reduce overfitting at the cost of slower fitting; 0 disables it. AdamW applies it decoupled from the gradient update, Adam and SGD apply it through the optimizer itself.',
   momentum:

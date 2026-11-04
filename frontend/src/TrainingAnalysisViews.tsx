@@ -266,6 +266,10 @@ export function TrainingLearningView({
   const { t } = useI18n();
   const last = history.at(-1);
   const metrics = latestMetrics(progress);
+  const adaptation = object(progress.adaptation) ?? {};
+  const effectiveRate = finite(adaptation.effective_learning_rate)
+    ? adaptation.effective_learning_rate
+    : last?.learning_rate;
   const replay = useMemo(
     () => [
       { key: 'replay_positions', name: 'Replay buffer positions', color: 'var(--chart-value)' },
@@ -275,6 +279,9 @@ export function TrainingLearningView({
   return (
     <>
       <dl className="training-kpis learning-kpis">
+        {finite(effectiveRate) && (
+          <TrainingKpi label="Effective learning rate" value={effectiveRate} />
+        )}
         <TrainingKpi
           label="Replay buffer positions"
           value={last?.replay_positions ?? metrics.replay_positions}

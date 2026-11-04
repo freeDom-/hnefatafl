@@ -398,5 +398,28 @@ const translations: Record<string, string> = {
     'Startwert für den Optuna-Sampler, getrennt vom Zufallsstartwert des Modells. Der Modellstartwert jedes Versuchs wird daraus abgeleitet, sodass derselbe Studienstartwert bei gleicher Vorgeschichte dieselben Parameter vorschlägt, und eine fortgesetzte Studie behält den gespeicherten Startwert.',
   'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. The text is sent as the search space, so it must stay valid JSON.':
     'JSON-Objekt, das beschreibt, welche Parameter Optuna abtastet und in welchen Bereichen. Nur optimierbare Trainingsparameter sind erlaubt, etwa Kanäle, Blöcke, Lernrate, Gewichtsverfall, Exploration, Temperatur, Stapelgröße, Epochen, MCTS-Iterationen und die Dirichlet-Werte; Auswertungs- und Champion-Einstellungen können nicht optimiert werden. Der Text wird als Suchraum übermittelt und muss daher gültiges JSON bleiben.',
+  'Automatic hyperparameter updates': 'Automatische Hyperparameter-Aktualisierungen',
+  'Learning rate candidates': 'Lernraten-Kandidaten',
+  Off: 'Aus',
+  HyperController: 'HyperController',
+  'Decide every (evaluations)': 'Entscheidung alle (Evaluationen)',
+  'Warm-up evaluations': 'Aufwärm-Evaluationen',
+  'Minimum dwell (evaluations)': 'Minimale Verweildauer (Evaluationen)',
+  'Observation history window': 'Beobachtungsfenster',
+  'Minimum trials per candidate': 'Mindestversuche pro Kandidat',
+  'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and a fixed (non-Champion) evaluation opponent with at least four games is required.':
+    'Ob der Auftrag die Lernrate während des Trainings online anpasst. Aus lässt die konfigurierte Rate fest. HyperController passt sie innerhalb desselben Laufs anhand der Auswertungsergebnisse an; das ist nicht Optuna, das über getrennte Versuche statt über eine fortlaufende Bahn sucht. Solange es aktiv ist, besitzt der Controller die effektive Rate, die konfigurierte Lernrate ist der Startwert und muss einer der Kandidaten sein, und ein fester (nicht Champion-)Auswertungsgegner mit mindestens vier Partien ist erforderlich.',
+  'Comma-separated learning rates the controller may choose between. Each must be between 1e-7 and 1 and all must be distinct, with 2–8 values. The configured learning rate must appear in the list. A small set keeps each decision cheap and the saved controller state bounded.':
+    'Kommagetrennte Lernraten, zwischen denen der Controller wählen darf. Jede muss zwischen 1e-7 und 1 liegen und alle müssen verschieden sein, mit 2–8 Werten. Die konfigurierte Lernrate muss in der Liste vorkommen. Eine kleine Menge hält jede Entscheidung günstig und den gespeicherten Controller-Zustand begrenzt.',
+  'Number of completed evaluations between controller decisions. 1 decides after every evaluation; higher values judge a longer interval before the rate can change.':
+    'Anzahl abgeschlossener Auswertungen zwischen Controller-Entscheidungen. 1 entscheidet nach jeder Auswertung; höhere Werte beurteilen ein längeres Intervall, bevor sich die Rate ändern kann.',
+  'Completed evaluations observed before the controller may change the learning rate. The configured starting rate is used during warm-up so the first decision is not made from too little evidence.':
+    'Abgeschlossene Auswertungen, die beobachtet werden, bevor der Controller die Lernrate ändern darf. Während der Aufwärmphase wird die konfigurierte Startrate verwendet, damit die erste Entscheidung nicht aus zu wenig Evidenz getroffen wird.',
+  'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy.':
+    'Mindestanzahl an Auswertungen, die eine neu gewählte Lernrate beibehalten wird, bevor sie sich erneut ändern darf. Verhindert schnelles Oszillieren, wenn die Auswertungsergebnisse verrauscht sind.',
+  'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.':
+    'Anzahl der jüngsten Beobachtungen, die der Controller zur Vorhersage des nächsten Ergebnisses nutzt (1–3). Ein größeres Fenster stützt sich auf mehr Vorgeschichte, vergrößert aber den gelernten Zustand; 1 entspricht der Referenzkonfiguration.',
+  'Number of times every candidate must be observed before the controller may exploit its predictions. Guarantees each candidate is tried at least this often; 0 allows purely predictive selection once warm-up is complete.':
+    'Anzahl, wie oft jeder Kandidat beobachtet werden muss, bevor der Controller seine Vorhersagen ausnutzen darf. Garantiert, dass jeder Kandidat mindestens so oft versucht wird; 0 erlaubt nach Abschluss der Aufwärmphase eine rein vorhersagende Auswahl.',
 };
 export default translations;

@@ -1,6 +1,6 @@
 import { useI18n } from './i18n';
 import type { Job } from './types';
-import { jobProgress, object } from './trainingDashboardData';
+import { finite, jobProgress, object } from './trainingDashboardData';
 import {
   formatDuration,
   phaseSummary,
@@ -51,7 +51,14 @@ export default function TrainingLiveStatus({ job, observedAt }: Props) {
   const progress = jobProgress(job);
   const live = useLiveProgress(job, observedAt);
   const stage = typeof progress.stage === 'string' ? progress.stage : '';
-  const summary = phaseSummary(stage, object(progress.phase_progress) ?? {}, locale);
+  const adaptation = object(progress.adaptation) ?? {};
+  const counters = {
+    ...(object(progress.phase_progress) ?? {}),
+    ...(finite(adaptation.effective_learning_rate)
+      ? { effective_learning_rate: adaptation.effective_learning_rate }
+      : {}),
+  };
+  const summary = phaseSummary(stage, counters, locale);
   const heartbeat = live.heartbeat && live.heartbeat !== 'terminal' ? live.heartbeat : undefined;
   if (
     !heartbeat &&

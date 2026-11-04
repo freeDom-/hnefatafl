@@ -56,6 +56,13 @@ const base: TrainingConfig = {
   dirichlet_alpha: 0.3,
   dirichlet_fraction: 0.25,
   save_all_best: false,
+  adaptation: 'off',
+  adaptation_lr_candidates: '0.0003,0.001,0.003',
+  adaptation_cadence: 1,
+  adaptation_warmup: 2,
+  adaptation_min_dwell: 1,
+  adaptation_lag: 1,
+  adaptation_min_trials: 1,
 };
 /** Explicit schema for importable parameters. Anything else is metadata, not input. */
 export const trainingChoices: Record<string, string[]> = {
@@ -70,6 +77,7 @@ export const trainingChoices: Record<string, string[]> = {
   evaluation_mode: ['auto', 'sequential', 'batched'],
   evaluation_inference_backend: ['pytorch', 'training'],
   evaluation_opponent: ['shield_bearer', 'shield_maiden', 'jarl', 'champion'],
+  adaptation: ['off', 'hypercontroller'],
 };
 
 export function isTrainingParameter(key: string): boolean {
@@ -188,7 +196,20 @@ export function trainingConfig(ruleset: string, preset: TrainingPreset): Trainin
     ruleset,
     preset,
     evaluation_time_limit: options.mcts_time_limit ?? base.mcts_time_limit,
+    // Bounded candidate generation around the plan's starting rate, so enabling
+    // adaptation on any preset is valid without hand-editing the list.
+    adaptation_lr_candidates: boundedCandidates(
+      Number(options.learning_rate ?? base.learning_rate),
+    ),
   };
+}
+
+/** Three distinct candidates around a starting rate, kept inside the valid range. */
+function boundedCandidates(learningRate: number): string {
+  return [learningRate / 3, learningRate, learningRate * 3]
+    .map((value) => Math.min(1, Math.max(1e-7, Number(value.toPrecision(4)))))
+    .map((value) => String(value))
+    .join(',');
 }
 
 export function changeTrainingPlan(
@@ -213,6 +234,12 @@ export function changeTrainingPlan(
     inference_cache_mode: previous.inference_cache_mode ?? 'off',
     inference_cache_capacity: previous.inference_cache_capacity ?? 4096,
     training_symmetry_mode: previous.training_symmetry_mode ?? 'random_d4',
+    adaptation: previous.adaptation ?? 'off',
+    adaptation_cadence: previous.adaptation_cadence ?? 1,
+    adaptation_warmup: previous.adaptation_warmup ?? 2,
+    adaptation_min_dwell: previous.adaptation_min_dwell ?? 1,
+    adaptation_lag: previous.adaptation_lag ?? 1,
+    adaptation_min_trials: previous.adaptation_min_trials ?? 1,
   };
 }
 

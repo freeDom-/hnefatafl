@@ -103,6 +103,13 @@ TRAINING_FIELDS = frozenset(
         "search_workers",
         "resume",
         "model_name",
+        "adaptation",
+        "adaptation_lr_candidates",
+        "adaptation_cadence",
+        "adaptation_warmup",
+        "adaptation_min_dwell",
+        "adaptation_lag",
+        "adaptation_min_trials",
     }
 )
 
@@ -2312,6 +2319,11 @@ def create_app(
                 )
                 if training["evaluation_opponent"] != "shield_bearer":
                     fail("Optuna requires the comparable fixed Shield bearer objective")
+                if training.get("adaptation", "off") != "off":
+                    fail(
+                        "Disable automatic hyperparameter updates while tuning with Optuna; "
+                        "the study varies the learning rate across trials."
+                    )
                 trials = config.get("trials", 4)
                 study_name = config.get("study_name", "hnefatafl")
                 if not isinstance(study_name, str) or not 1 <= len(study_name) <= 100:

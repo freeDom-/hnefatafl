@@ -62,6 +62,15 @@ export default function TrainingResumeDialog({
   const optimizerNames: Record<string, string> = { adamw: 'AdamW', adam: 'Adam', sgd: 'SGD' };
   const ref = useRef<HTMLDialogElement>(null);
   const modelNameId = useId();
+  const adaptationId = useId();
+  // Rendered only while automatic hyperparameter updates are enabled.
+  const adaptationNumberFields = [
+    'adaptation_cadence',
+    'adaptation_warmup',
+    'adaptation_min_dwell',
+    'adaptation_lag',
+    'adaptation_min_trials',
+  ];
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
@@ -382,6 +391,7 @@ export default function TrainingResumeDialog({
                             'blocks',
                             'seed',
                             'inference_cache_capacity',
+                            ...adaptationNumberFields,
                           ].includes(key) &&
                           !key.startsWith('evaluation_') &&
                           !key.startsWith('champion_') &&
@@ -405,6 +415,46 @@ export default function TrainingResumeDialog({
                         onChange={(checked) => update('mixed_precision', checked)}
                       />
                     )}
+                    <div className="training-field">
+                      <FieldLabel
+                        htmlFor={adaptationId}
+                        label="Automatic hyperparameter updates"
+                        tooltipKey="adaptation"
+                      />
+                      <select
+                        id={adaptationId}
+                        data-training-field="adaptation"
+                        value={String(config.adaptation ?? 'off')}
+                        disabled={busy}
+                        onChange={(event) => update('adaptation', event.target.value)}
+                      >
+                        <option value="off">Off</option>
+                        <option value="hypercontroller">HyperController</option>
+                      </select>
+                    </div>
+                    {config.adaptation === 'hypercontroller' && (
+                      <div className="training-field">
+                        <FieldLabel
+                          htmlFor={`${adaptationId}-candidates`}
+                          label="Learning rate candidates"
+                          tooltipKey="adaptation_lr_candidates"
+                        />
+                        <input
+                          id={`${adaptationId}-candidates`}
+                          type="text"
+                          data-training-field="adaptation_lr_candidates"
+                          value={String(config.adaptation_lr_candidates ?? '')}
+                          disabled={busy}
+                          onChange={(event) =>
+                            update('adaptation_lr_candidates', event.target.value)
+                          }
+                        />
+                      </div>
+                    )}
+                    {config.adaptation === 'hypercontroller' &&
+                      adaptationNumberFields.map((key) =>
+                        numberField(key, config, update, { disabled: busy }),
+                      )}
                     {config.save_all_best !== undefined && (
                       <CheckboxField
                         fieldKey="save_all_best"

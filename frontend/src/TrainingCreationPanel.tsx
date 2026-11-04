@@ -62,7 +62,20 @@ const ADVANCED_NUMBER_FIELDS = [
   'search_workers',
   'seed',
 ];
-const ADVANCED_FIELDS = [...ADVANCED_NUMBER_FIELDS, 'momentum'];
+// Rendered only while automatic hyperparameter updates are enabled.
+const ADAPTATION_NUMBER_FIELDS = [
+  'adaptation_cadence',
+  'adaptation_warmup',
+  'adaptation_min_dwell',
+  'adaptation_lag',
+  'adaptation_min_trials',
+];
+const ADVANCED_FIELDS = [
+  ...ADVANCED_NUMBER_FIELDS,
+  ...ADAPTATION_NUMBER_FIELDS,
+  'adaptation_lr_candidates',
+  'momentum',
+];
 
 interface Props {
   config: TrainingConfig;
@@ -145,6 +158,7 @@ export default function TrainingCreationPanel({
   const presetId = useId();
   const modelNameId = useId();
   const optimizerId = useId();
+  const adaptationId = useId();
   const trialsId = useId();
   const studyNameId = useId();
   const studySeedId = useId();
@@ -418,6 +432,23 @@ export default function TrainingCreationPanel({
                 <option value="sgd">SGD</option>
               </select>
             </div>
+            <div className="training-field">
+              <FieldLabel
+                htmlFor={adaptationId}
+                label="Automatic hyperparameter updates"
+                tooltipKey="adaptation"
+              />
+              <select
+                id={adaptationId}
+                data-training-field="adaptation"
+                {...invalid('adaptation')}
+                value={String(config.adaptation)}
+                onChange={(e) => update('adaptation', e.target.value)}
+              >
+                <option value="off">Off</option>
+                <option value="hypercontroller">HyperController</option>
+              </select>
+            </div>
             <SymmetrySettings
               config={config}
               update={update}
@@ -428,7 +459,7 @@ export default function TrainingCreationPanel({
               }
               invalid={rejected.has('training_symmetry_mode')}
               errorId={alertId}
-            />
+            />{' '}
           </div>
         </fieldset>
         <fieldset className="creation-group">
@@ -522,6 +553,30 @@ export default function TrainingCreationPanel({
                 invalid: rejected.has('momentum'),
                 errorId: alertId,
               })}
+            {config.adaptation === 'hypercontroller' && (
+              <div className="training-field">
+                <FieldLabel
+                  htmlFor={`${adaptationId}-candidates`}
+                  label="Learning rate candidates"
+                  tooltipKey="adaptation_lr_candidates"
+                />
+                <input
+                  id={`${adaptationId}-candidates`}
+                  type="text"
+                  data-training-field="adaptation_lr_candidates"
+                  {...invalid('adaptation_lr_candidates')}
+                  value={String(config.adaptation_lr_candidates)}
+                  onChange={(e) => update('adaptation_lr_candidates', e.target.value)}
+                />
+              </div>
+            )}
+            {config.adaptation === 'hypercontroller' &&
+              ADAPTATION_NUMBER_FIELDS.map((key) =>
+                numberField(key, config, update, {
+                  invalid: rejected.has(key),
+                  errorId: alertId,
+                }),
+              )}
             <CheckboxField
               fieldKey="mixed_precision"
               label="Mixed precision when supported"

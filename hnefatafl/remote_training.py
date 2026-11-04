@@ -81,7 +81,28 @@ TRAINING_FIELDS = {
     "search_workers",
     "resume",
     "model_name",
+    "adaptation",
+    "adaptation_lr_candidates",
+    "adaptation_cadence",
+    "adaptation_warmup",
+    "adaptation_min_dwell",
+    "adaptation_lag",
+    "adaptation_min_trials",
 }
+
+#: Config keys that require a worker advertising the ``hyper_adaptation``
+#: capability. Older workers must never silently ignore an enabled controller.
+ADAPTATION_FIELDS = frozenset(
+    {
+        "adaptation",
+        "adaptation_lr_candidates",
+        "adaptation_cadence",
+        "adaptation_warmup",
+        "adaptation_min_dwell",
+        "adaptation_lag",
+        "adaptation_min_trials",
+    }
+)
 
 
 def validate_inference_capabilities(capabilities: dict) -> None:
@@ -107,6 +128,8 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         and type(capabilities["evaluation_batching"]) is not bool
     ):
         fail("Invalid worker evaluation_batching capability.")
+    if "hyper_adaptation" in capabilities and type(capabilities["hyper_adaptation"]) is not bool:
+        fail("Invalid worker hyper_adaptation capability.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -139,6 +162,13 @@ def validate_inference_capabilities(capabilities: dict) -> None:
 
 
 def worker_compatible(config: dict, capabilities: dict) -> bool:
+    if (
+        config.get("adaptation", "off") != "off"
+        and capabilities.get("hyper_adaptation") is not True
+    ):
+        # A worker that cannot run the controller must never be offered a job
+        # that has it enabled, including through an administrator override.
+        return False
     if config.get("search_workers", 0) and capabilities.get("parallel_search") is not True:
         return False
     if config.get("training_symmetry_mode", "off") not in capabilities.get(
@@ -797,6 +827,9 @@ class RemoteTraining:
                             "evaluation_inference_backend",
                         ):
                             configuration.pop(key, None)
+                    if worker.get("capabilities", {}).get("hyper_adaptation") is not True:
+                        for key in ADAPTATION_FIELDS:
+                            configuration.pop(key, None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
@@ -897,6 +930,8 @@ class RemoteTraining:
                             "evaluation_inference_backend",
                         }
                     )
+                if worker.get("capabilities", {}).get("hyper_adaptation") is not True:
+                    omitted.update(ADAPTATION_FIELDS)
                 if omitted:
                     from .models import load_checkpoint
                     import torch
@@ -907,7 +942,9 @@ class RemoteTraining:
                     _, payload = load_checkpoint(checkpoint)
                     saved = payload["metadata"].get("training_config", {})
                     if omitted.intersection(saved):
-                        suffix = "-".join(sorted(omitted))
+                        # A short digest keeps the derived file name well under the
+                        # filesystem limit even when many optional fields are omitted.
+                        suffix = hashlib.sha256("-".join(sorted(omitted)).encode()).hexdigest()[:16]
                         legacy = checkpoint.with_name(f"legacy-{suffix}.pt")
                         if not legacy.exists():
                             payload["metadata"]["training_config"] = {

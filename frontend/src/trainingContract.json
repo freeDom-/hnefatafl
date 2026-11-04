@@ -50,7 +50,14 @@
     "search_workers",
     "dirichlet_alpha",
     "dirichlet_fraction",
-    "save_all_best"
+    "save_all_best",
+    "adaptation",
+    "adaptation_lr_candidates",
+    "adaptation_cadence",
+    "adaptation_warmup",
+    "adaptation_min_dwell",
+    "adaptation_lag",
+    "adaptation_min_trials"
   ],
   "tune_fields": ["trials", "study_name", "seed", "search_space", "training", "resume_study"],
   "execution_fields": ["execution", "worker_id"],

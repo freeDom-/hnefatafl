@@ -363,9 +363,18 @@ export function phaseSummary(stage: string, counters: Values, locale: string): P
       typeof counters.evaluation_opponent === 'string' ? counters.evaluation_opponent : undefined,
     );
   }
+  // The controller's effective rate is top-level state, so it stays visible in
+  // every phase after the first decision, not only during optimization.
+  add('Effective learning rate', rate(counters.effective_learning_rate));
   return ratio === undefined ? { rows } : { ratio, rows };
 }
 
 function metric(value: unknown): string | undefined {
   return finite(value) ? value.toFixed(3) : undefined;
+}
+
+/** Compact learning-rate formatting: plain for common rates, exponential below. */
+function rate(value: unknown): string | undefined {
+  if (!finite(value)) return undefined;
+  return value >= 0.001 ? String(value) : value.toExponential(1);
 }
