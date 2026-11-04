@@ -183,6 +183,24 @@ def test_resume_names_the_fields_that_cannot_change(client):
     assert editable_only.status_code == 404
 
 
+def test_a_tuning_trial_checkpoint_token_stays_inside_its_job(client):
+    # A `trial-N/last.pt` token resumes one study trial's full checkpoint, but
+    # only inside the owning job directory; escaping paths are refused before a
+    # process is spawned.
+    job_id = "0" * 32
+    for token in (
+        f"{job_id}:trial-0/last.pt",
+        f"{job_id}:../../etc/passwd/last.pt",
+        f"{job_id}:trial-0/not-a-checkpoint.pt",
+    ):
+        response = launch(
+            client,
+            tune_payload(training={**contract_training(preset="smoke"), "resume": token}),
+        )
+        assert response.status_code == 400, response.text
+    assert client.get("/api/training/jobs").json() == []
+
+
 def smoke_config(tmp_path, **changes) -> dict:
     from hnefatafl.training import normalize_config
 
