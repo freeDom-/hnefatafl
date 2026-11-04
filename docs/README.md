@@ -98,6 +98,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.35.0](releases/0.35.0.md) | Custom single-player opponents, training parameter help, parallel CPU search and leaner evaluation progress |
 | [0.34.0](releases/0.34.0.md) | Live training monitoring, fixed-role tournaments, batched evaluation and faster engine/search paths |
 | [0.33.0](releases/0.33.0.md) | Responsive play/replay, detailed personal statistics, shared UI styles and configurable online clocks |
 | [0.32.0](releases/0.32.0.md) | Verified accounts, rated online multiplayer, personal dashboard and interface scale |

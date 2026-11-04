@@ -836,3 +836,42 @@ and lockfile/identity checks, documentation (106 files, 798 links/anchors),
 frontend formatting/typechecking, the production build and a clean committed source
 archive smoke (625 entries, synchronized `0.34.0` metadata). Full release-PR Verify
 and subsequent tagged-main Verify remain separate gates before publication.
+
+## Custom single-player opponents, training help and parallel search (`0.35.0` preparation)
+
+Release preparation starts from merged `main` at `6977bfc`, collecting all changes
+since `0.34.0`, including PRs #39, #48, #49 and #50. Python/npm metadata and
+lockfiles move together to `0.35.0` on a separate release branch. Tagging and stable
+publication follow the release PR merge and successful Verify on the exact `main`
+commit.
+
+Administrators can configure a fully custom AI opponent for a single-player game,
+reusing the tournament participant editor and the shared `resolve_ai_config`
+validation, stored with the game and re-derived on every move, reload and restart.
+Every training parameter in the new-job form and resume dialog gains an accessible
+information button backed by one shared registry.
+
+Optional `search_workers` is redesigned so the worker count sizes CPU parallelism
+only and never bounds game concurrency: one cooperative scheduler drives in-process
+and spawned-actor search, CPU actors evaluate their own leaves in one batched pass,
+and the parent merges the pool's outstanding CUDA/OpenVINO requests. Parallel
+evaluation reports progress on a nominal one-second cadence instead of once per
+neural batch, cutting IPC messages by roughly 150–180x with identical work hashes.
+
+No database migration, model/checkpoint format change or removed configuration key
+is introduced; schema stays 13 and workers negotiate the `parallel_search`
+capability.
+
+The merged application tree matches `6977bfc`, whose Verify run passed 2,227 backend
+tests (9 skips), 674 frontend tests and 117 general (9 intentional skips)/8
+registration/18 online/26 personal browser checks. The release PR reruns complete CI
+with the new metadata. See the [0.35.0 release notes](docs/releases/0.35.0.md) for
+installation, validation scope and limitations. Prior release and phase records are
+unchanged.
+
+Release-branch checks with installed `0.35.0` passed the full local `make check`
+suite (documentation, Ruff, Prettier, mypy, the full backend and frontend suites and
+the production build), frozen all-extras installation and lockfile/identity checks,
+documentation (110 files, 830 links/anchors) and a clean committed source archive
+smoke (656 entries, synchronized `0.35.0` metadata). Full release-PR Verify and subsequent
+tagged-main Verify remain separate gates before publication.
