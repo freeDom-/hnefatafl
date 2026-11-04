@@ -363,10 +363,10 @@ def test_validate_new_evaluation_inputs(tmp_path, changes):
         normalize_config(config(tmp_path, **changes))
 
 
-@pytest.mark.parametrize("opponent", ["jarl", "champion"])
-def test_optuna_accepts_every_selectable_opponent(tmp_path, monkeypatch, opponent):
-    # The evaluation opponent is selectable; the study only rejects tuning the
-    # evaluation protocol itself, never the choice of a fixed reference.
+@pytest.mark.parametrize("opponent", ["jarl", "shield_maiden", "shield_bearer"])
+def test_optuna_accepts_every_fixed_opponent(tmp_path, monkeypatch, opponent):
+    # The evaluation opponent is selectable among fixed references; the study only
+    # rejects tuning the evaluation protocol itself or the evolving champion.
     seen = []
 
     def fake_train(configuration, progress=None, should_stop=None):
@@ -394,6 +394,8 @@ def test_optuna_accepts_every_selectable_opponent(tmp_path, monkeypatch, opponen
                     "iteration": 1,
                     "revision": 1,
                     "run": "trial-0",
+                    "selected_score": 0.5,
+                    "selected_iteration": 1,
                     "metrics": {"evaluation": evaluation},
                 }
             )
@@ -402,6 +404,10 @@ def test_optuna_accepts_every_selectable_opponent(tmp_path, monkeypatch, opponen
             "metrics": {"evaluation": evaluation},
             "best_checkpoint": str(best),
             "checkpoint": str(last),
+            "selected_score": 0.5,
+            "selected_iteration": 1,
+            "selected_source": "candidate",
+            "source_best_score": -1.0,
         }
 
     monkeypatch.setattr(training, "train", fake_train)
@@ -416,6 +422,19 @@ def test_optuna_accepts_every_selectable_opponent(tmp_path, monkeypatch, opponen
     )
     assert result["status"] == "completed"
     assert seen == [opponent]
+
+
+def test_optuna_rejects_the_evolving_champion_objective(tmp_path):
+    # An evolving champion is not comparable across trials, so it must never be
+    # used to rank them.
+    with pytest.raises(ValueError, match="Champion"):
+        tune(
+            {
+                "trials": 1,
+                "output_dir": str(tmp_path),
+                "training": config(tmp_path, evaluation_opponent="champion"),
+            }
+        )
 
 
 def test_promoted_champion_survives_checkpoint_and_rejected_resume(tmp_path, monkeypatch):

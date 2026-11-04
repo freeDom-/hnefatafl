@@ -91,10 +91,11 @@ The summary above the tabs keeps the selected name, status, ruleset, execution
 location, recorded iteration/total, stage, live elapsed time and remote update
 time available. Rename, stop, checkpoint/study resume, job export, training-data
 deletion and refresh use their existing state restrictions and confirmation
-dialogs. **Tune this checkpoint** starts an optimization job whose every trial
-resumes the selected training job's full `last.pt`, so hyperparameters are
-compared from one common starting point. Progress uses recorded iteration counts;
-the interface does not invent an ETA.
+dialogs. **Tune this checkpoint** opens a review dialog for a resumable training
+job where the user sets **Additional tuning iterations per trial**; every trial
+then resumes the job's full `last.pt` for the same target and the source
+checkpoint is left unchanged. Progress uses recorded iteration counts; the
+interface does not invent an ETA.
 
 **Rename job** edits the display name only, for active and inactive jobs alike.
 The dialog starts from the current name; saving persists a separate display field
@@ -129,14 +130,18 @@ and execution state never change.
   JSON/log panes are bounded and support copying. Credential-shaped diagnostic
   fields are redacted.
 - **Tuning results** (optimization jobs only) shows completed and failed trials,
-  the best trial and its best-checkpoint score, the sampler and source seeds, the
-  weighted multi-opponent aggregate, the held-out verification result and a trial
-  table that keeps best and final scores distinct. **Train with best parameters**
-  loads the winning configuration into the creation form as a new job,
-  **Continue winning trial** resumes the winning trial's full checkpoint for an
-  additional iteration budget, **Apply best parameters** resumes a selected
-  training job from its own checkpoint with the winning editable settings, and
-  **Download best configuration** saves the winning configuration as JSON.
+  the best trial and its selected-checkpoint score, the sampler and source seeds,
+  the winning checkpoint source, the weighted multi-opponent aggregate, the
+  held-out verification result and a trial table that keeps best and final scores
+  distinct. The table can be sorted by trial number, selected-checkpoint score or
+  duration and filtered by status; the winning trial is highlighted, and failed
+  trials show their error. A checkpoint-based study also compares the source and
+  winning settings field by field. **Train with best parameters** loads the
+  winning configuration into the creation form as a new job, **Continue winning
+  trial** resumes the winning trial's full checkpoint (wherever it ran) for an
+  additional iteration budget, **Apply best parameters** opens the existing
+  Resume Training dialog with the winning editable settings prefilled for review,
+  and **Download best configuration** saves the winning configuration as JSON.
 
 Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
 left/right and Home/End keys for exact values and support pointer inspection.

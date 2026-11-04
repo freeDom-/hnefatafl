@@ -63,6 +63,35 @@ const translations: Record<string, string> = {
     'Beste Parameter aus Auftrag {name} geladen. Der Start erstellt einen neuen Trainingsauftrag.',
   'Tuning started from the saved checkpoint. Every trial begins from the same state.':
     'Optimierung vom gespeicherten Prüfpunkt gestartet. Jeder Versuch beginnt im selben Zustand.',
+  'Close tuning settings': 'Optimierungseinstellungen schließen',
+  'Additional tuning iterations per trial': 'Zusätzliche Optimierungsiterationen pro Versuch',
+  'Each trial targets {target} total iterations ({completed} already completed).':
+    'Jeder Versuch zielt auf {target} Iterationen insgesamt ({completed} bereits abgeschlossen).',
+  'Every trial resumes this full checkpoint for the same additional budget. The source checkpoint is never modified.':
+    'Jeder Versuch setzt diesen vollständigen Prüfpunkt mit demselben Zusatzbudget fort. Der Quellprüfpunkt wird nie verändert.',
+  'The selected training job could not be found.':
+    'Der ausgewählte Trainingsauftrag wurde nicht gefunden.',
+  'Source checkpoint best score': 'Beste Punktzahl des Quellprüfpunkts',
+  'Winning checkpoint source': 'Quelle des besten Prüfpunkts',
+  'No candidate improved on the source checkpoint, so the reported objective is the inherited benchmark score and the selected checkpoint is the source best model.':
+    'Kein Kandidat übertraf den Quellprüfpunkt, daher ist das gemeldete Ziel die übernommene Vergleichspunktzahl und der ausgewählte Prüfpunkt das beste Quellmodell.',
+  'Source versus winning settings': 'Quell- und Siegereinstellungen',
+  Setting: 'Einstellung',
+  'Source checkpoint': 'Quellprüfpunkt',
+  'Winning trial': 'Bester Versuch',
+  Change: 'Änderung',
+  Changed: 'Geändert',
+  Unchanged: 'Unverändert',
+  'Sort trials by': 'Versuche sortieren nach',
+  'Trial number': 'Versuchsnummer',
+  Duration: 'Dauer',
+  'Filter by status': 'Nach Status filtern',
+  Source: 'Quelle',
+  inherited: 'übernommen',
+  candidate: 'Kandidat',
+  none: 'keine',
+  'The winning trial is highlighted. A small evaluation sample does not establish a statistically significant improvement.':
+    'Der beste Versuch ist hervorgehoben. Eine kleine Auswertungsstichprobe belegt keine statistisch signifikante Verbesserung.',
 
   'Could not load training jobs. Use Refresh to try again.':
     'Trainingsaufträge konnten nicht geladen werden. Versuche es mit Aktualisieren erneut.',

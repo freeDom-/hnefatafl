@@ -37,9 +37,10 @@ def evaluation_context(config: dict) -> dict:
         "temperature": 0.0,
         "dirichlet_fraction": 0.0,
     }
+    neural_opponent = opponent in ("champion", "frozen_model")
     opponent_config = (
         dict(neural)
-        if opponent == "champion"
+        if neural_opponent
         else {
             "algorithm": "alpha_beta"
             if opponent == "jarl"
@@ -55,7 +56,7 @@ def evaluation_context(config: dict) -> dict:
     )
     from .evaluation_play import evaluation_backend
 
-    return {
+    context = {
         "protocol_version": 1,
         "ruleset": config["ruleset"],
         "rules_version": 1,
@@ -71,6 +72,12 @@ def evaluation_context(config: dict) -> dict:
         # starts a distinct comparison series.
         **({"inference_backend": "openvino"} if evaluation_backend(config) == "openvino" else {}),
     }
+    # A fixed neural opponent is pinned by its registry identity so two different
+    # frozen models never share a comparison series or benchmark slot.
+    frozen_model_id = config.get("evaluation_frozen_model_id")
+    if frozen_model_id:
+        context["frozen_model_id"] = str(frozen_model_id)
+    return context
 
 
 def context_identity(context: dict) -> str:
@@ -160,12 +167,13 @@ def evaluate_model(
 ) -> dict:
     """Evaluate exactly the selected opponent with equal neural budgets per side."""
     context = evaluation_context(config)
-    if context["opponent"] == "champion" and previous is None:
-        raise ValueError("Champion evaluation requires a compatible incumbent")
-    if context["opponent"] != "champion" and previous is not None:
-        raise ValueError("A neural incumbent is only used for Champion evaluation")
+    neural_opponent = context["opponent"] in ("champion", "frozen_model")
+    if neural_opponent and previous is None:
+        raise ValueError("A neural opponent requires a compatible opponent model")
+    if not neural_opponent and previous is not None:
+        raise ValueError("A neural incumbent is only used for a neural opponent")
     if previous is not None and previous.config != model.config:
-        raise ValueError("Champion architecture and ruleset must match the candidate")
+        raise ValueError("Opponent architecture and ruleset must match the candidate")
     seed = context["seed"] if seed is None else seed
     outcomes: list[dict] = []
     wins = draws = losses = 0
@@ -368,6 +376,9 @@ class EvaluationSelection:
                 "iteration": saved["metadata"].get("version", 0),
                 "provisional": True,
                 "source": "saved_best" if old or legacy else "initial_weights",
+                # The champion's own score, so the selected checkpoint and the
+                # reported objective always describe the same model state.
+                "score": float(old.get("score", -1.0)),
             }
 
     def accept(self, model: PolicyValueNet, metadata: dict, evaluation: dict, config: dict) -> bool:
@@ -393,6 +404,7 @@ class EvaluationSelection:
                     "iteration": iteration,
                     "provisional": False,
                     "source": "head_to_head",
+                    "score": float(evaluation["score"]),
                 }
                 self.data["promotions"].append(deepcopy(evaluation))
         else:
@@ -419,6 +431,39 @@ class EvaluationSelection:
         if self.context["opponent"] == "champion":
             return self.data["champion"]["snapshot"]
         return self.data["benchmarks"].get(self.identity, {}).get("snapshot")
+
+    def selected_score(self) -> float:
+        """Score of the checkpoint ``selected_snapshot`` returns, or -1 if none.
+
+        This is the only score a caller may associate with the selected
+        checkpoint: a fixed benchmark's recorded score (inherited from a resumed
+        checkpoint when no candidate improved) or a champion's promotion score.
+        """
+        if self.context["opponent"] == "champion":
+            champion = self.data["champion"]
+            return float(champion.get("score", -1.0)) if champion else -1.0
+        entry = self.data["benchmarks"].get(self.identity)
+        return float(entry["score"]) if entry else -1.0
+
+    def selected_iteration(self) -> int | None:
+        """Iteration that produced the checkpoint ``selected_snapshot`` returns."""
+        if self.context["opponent"] == "champion":
+            champion = self.data["champion"]
+            return int(champion["iteration"]) if champion else None
+        entry = self.data["benchmarks"].get(self.identity)
+        return int(entry["iteration"]) if entry else None
+
+    def selected_source(self, initial: dict | None) -> str:
+        """Whether the selected checkpoint is inherited or a new candidate.
+
+        ``initial`` is the snapshot selected before the first optimization
+        iteration. A resumed checkpoint with a historical benchmark therefore
+        stays ``inherited`` until a candidate actually replaces it.
+        """
+        current = self.selected_snapshot()
+        if current is None:
+            return "none"
+        return "inherited" if current is initial else "candidate"
 
     def summary(self) -> dict:
         champion = self.data["champion"]

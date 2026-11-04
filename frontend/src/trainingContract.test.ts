@@ -13,6 +13,7 @@ import {
   parseStudySpace,
   rejectedTrainingFields,
   resumeOverrides,
+  tuneResumePayload,
   type StudyInput,
 } from './trainingPayload';
 import { parseImportedConfig } from './trainingConfigImport';
@@ -157,6 +158,43 @@ it('keeps an imported configuration inside the contract and reports ignored fiel
   expect(unexpected(launchPayload('tune', tune.config, 'local', study), REQUEST_FIELDS)).toEqual(
     [],
   );
+});
+
+it('preserves a tuning study\u2019s checkpoint source and identity when resuming it', () => {
+  const saved = {
+    trials: 3,
+    study_name: 'brandubh-search',
+    seed: 7,
+    search_space: { learning_rate: { type: 'float', low: 0.001, high: 0.003 } },
+    opponents: [{ opponent: 'jarl', weight: 1 }],
+    verification: { games: 8, opponent: 'shield_bearer' },
+    sampler: { n_startup_trials: 5 },
+    pruner: { n_startup_trials: 2 },
+    max_failures: 4,
+    training: {
+      preset: 'smoke',
+      ruleset: 'brandubh',
+      resume: '/data/jobs/source/last.pt',
+      iterations: 12,
+      evaluation_opponent: 'jarl',
+    },
+    output_dir: '/data/jobs/old',
+    registry_dir: '/data/models',
+    storage: 'sqlite:///old/study.sqlite3',
+  };
+  const payload = tuneResumePayload('tunejob', saved, 3);
+  expect(payload.resume_study).toBe('tunejob');
+  expect(payload.trials).toBe(3);
+  // The checkpoint source and every objective-defining setting survive.
+  expect((payload.training as Record<string, unknown>).resume).toBe('/data/jobs/source/last.pt');
+  expect(payload.opponents).toEqual([{ opponent: 'jarl', weight: 1 }]);
+  expect(payload.verification).toEqual({ games: 8, opponent: 'shield_bearer' });
+  expect(payload.search_space).toEqual(saved.search_space);
+  expect(payload.max_failures).toBe(3);
+  // Server-owned paths are never sent back.
+  for (const key of ['output_dir', 'registry_dir', 'storage']) {
+    expect(payload).not.toHaveProperty(key);
+  }
 });
 
 it('builds a tune payload from study controls and one nested configuration', () => {

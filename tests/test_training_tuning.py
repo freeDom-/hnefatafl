@@ -56,6 +56,8 @@ class StubTrainer:
         last.write_bytes(b"stub")
         scores = self.scores(config)
         final = None
+        running_best = -1.0
+        best_iteration = None
         for iteration, score in enumerate(scores, start=1):
             evaluation = {
                 "score": score,
@@ -68,6 +70,9 @@ class StubTrainer:
                 **self.evaluation,
             }
             final = evaluation
+            if score > running_best:
+                running_best = score
+                best_iteration = iteration
             if progress is not None:
                 progress(
                     {
@@ -76,6 +81,9 @@ class StubTrainer:
                         "iteration": iteration,
                         "revision": iteration,
                         "run": f"trial-{trial_number}",
+                        "selected_score": running_best,
+                        "selected_iteration": best_iteration,
+                        "selected_source": "candidate",
                         "metrics": {"evaluation": evaluation},
                     }
                 )
@@ -84,6 +92,10 @@ class StubTrainer:
             "metrics": {"evaluation": final},
             "best_checkpoint": str(best),
             "checkpoint": str(last),
+            "selected_score": running_best,
+            "selected_iteration": best_iteration,
+            "selected_source": "candidate",
+            "source_best_score": -1.0,
         }
 
 
@@ -135,11 +147,19 @@ def test_selectable_evaluation_opponent_reaches_the_trainer(tmp_path, stub):
 
 def test_resume_seed_is_kept_and_fresh_trials_draw_separate_seeds(tmp_path, stub, monkeypatch):
     trainer = stub(lambda config: [0.5])
+
+    class SourceModel:
+        ruleset = "brandubh"
+        config = {"ruleset": "brandubh", "channels": 4, "blocks": 0}
+
     monkeypatch.setattr(
         "hnefatafl.training.load_checkpoint",
         lambda path: (
-            None,
-            {"metadata": {"training_config": {"seed": 99}}},
+            SourceModel(),
+            {
+                "metadata": {"training_config": {"seed": 99}},
+                "extra": {"iteration": 1},
+            },
         ),
     )
     result = tune(
@@ -171,7 +191,7 @@ def test_failure_budget_stops_a_failing_study(tmp_path, stub):
             "output_dir": str(tmp_path / "study"),
         }
     )
-    assert result["status"] == "completed"
+    assert result["status"] == "failed"
     assert result["completed_trials"] == 0
     assert result["failed_trials"] == 2
 
@@ -310,6 +330,181 @@ def test_search_space_contract_accepts_every_documented_kind():
 def test_search_space_contract_rejects_invalid_spaces(space):
     with pytest.raises(ArchiveError):
         search_space_config(space)
+
+
+# --- study identity, checkpoint compatibility and lifecycle ------------------
+
+
+def test_study_identity_rejects_a_changed_objective(tmp_path, stub):
+    stub(lambda config: [0.5])
+    config = {
+        "trials": 1,
+        "study_name": "identity",
+        "seed": 0,
+        "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+        "training": training(evaluation_opponent="jarl"),
+        "output_dir": str(tmp_path / "study"),
+    }
+    assert tune(config)["status"] == "completed"
+    # The same database with a different objective must be rejected, not merged.
+    with pytest.raises(ValueError, match="incompatible experiment identity"):
+        tune({**config, "training": training(evaluation_opponent="shield_maiden")})
+
+
+def _checkpoint_source(tmp_path):
+    class SourceModel:
+        ruleset = "brandubh"
+        config = {"ruleset": "brandubh", "channels": 4, "blocks": 0}
+
+    return (
+        SourceModel(),
+        {
+            "metadata": {"training_config": {"seed": 0, "channels": 4, "blocks": 0}},
+            "extra": {"iteration": 3},
+        },
+    )
+
+
+def test_checkpoint_tuning_rejects_an_architecture_search_space(tmp_path, stub, monkeypatch):
+    stub(lambda config: [0.5])
+    monkeypatch.setattr(
+        "hnefatafl.training.load_checkpoint", lambda path: _checkpoint_source(tmp_path)
+    )
+    with pytest.raises(ValueError, match="fixed by the source checkpoint"):
+        tune(
+            {
+                "trials": 1,
+                "study_name": "checkpoint-space",
+                "seed": 0,
+                "search_space": {"channels": {"type": "categorical", "choices": [4, 8]}},
+                "training": training(resume=str(tmp_path / "source.pt"), iterations=8),
+                "output_dir": str(tmp_path / "study"),
+            }
+        )
+
+
+def test_checkpoint_tuning_rejects_an_insufficient_iteration_target(tmp_path, stub, monkeypatch):
+    stub(lambda config: [0.5])
+    monkeypatch.setattr(
+        "hnefatafl.training.load_checkpoint", lambda path: _checkpoint_source(tmp_path)
+    )
+    with pytest.raises(ValueError, match="completed iteration"):
+        tune(
+            {
+                "trials": 1,
+                "study_name": "checkpoint-iterations",
+                "seed": 0,
+                "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+                "training": training(resume=str(tmp_path / "source.pt"), iterations=3),
+                "output_dir": str(tmp_path / "study"),
+            }
+        )
+
+
+def test_frozen_neural_opponent_is_pinned_and_scored(tmp_path, stub, monkeypatch):
+    from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
+
+    stub(lambda config: [0.4])
+    registry_dir = tmp_path / "models"
+    source = tmp_path / "frozen.pt"
+    save_checkpoint(
+        source, PolicyValueNet("brandubh", 4, 0), {"name": "Frozen raven", "version": 1}
+    )
+    model_id = ModelRegistry(registry_dir).register(source, name="Frozen raven")["id"]
+    seen: list[tuple[str | None, object]] = []
+
+    monkeypatch.setattr(
+        "hnefatafl.training.load_checkpoint", lambda path: (PolicyValueNet("brandubh", 4, 0), {})
+    )
+
+    def fake_evaluate(model, config, **kwargs):
+        seen.append((config.get("evaluation_frozen_model_id"), kwargs.get("previous")))
+        return {
+            "score": 1.0,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "truncated": 0,
+            "opponent": "frozen_model",
+            "opponent_identity": "frozen_model:pinned",
+        }
+
+    monkeypatch.setattr("hnefatafl.training.evaluate_model", fake_evaluate)
+    result = tune(
+        {
+            "trials": 1,
+            "study_name": "frozen-opponent",
+            "seed": 0,
+            "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+            "training": training(),
+            "opponents": [{"opponent": "frozen_model", "model_id": model_id, "weight": 1}],
+            "output_dir": str(tmp_path / "study"),
+        }
+    )
+    assert result["best_score"] == pytest.approx(1.0)
+    assert result["frozen_models"] == {model_id: model_id}
+    assert seen and seen[0][0] == model_id and seen[0][1] is not None
+
+
+def test_frozen_neural_opponent_requires_a_registered_model(tmp_path, stub):
+    stub(lambda config: [0.4])
+    with pytest.raises(ValueError, match="not registered"):
+        tune(
+            {
+                "trials": 1,
+                "study_name": "missing-frozen",
+                "seed": 0,
+                "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+                "training": training(),
+                "opponents": [{"opponent": "frozen_model", "model_id": "0" * 24, "weight": 1}],
+                "output_dir": str(tmp_path / "study"),
+            }
+        )
+
+
+def test_verification_failure_preserves_the_optimization_result(tmp_path, stub, monkeypatch):
+    stub(lambda config: [0.6])
+    monkeypatch.setattr("hnefatafl.training.load_checkpoint", lambda path: (object(), {}))
+
+    def failing(model, config, **kwargs):
+        raise RuntimeError("verification unavailable")
+
+    monkeypatch.setattr("hnefatafl.training.evaluate_model", failing)
+    result = tune(
+        {
+            "trials": 1,
+            "study_name": "verify-failure",
+            "seed": 0,
+            "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+            "training": training(),
+            "verification": {"games": 2, "opponent": "jarl"},
+            "output_dir": str(tmp_path / "study"),
+        }
+    )
+    assert result["status"] == "completed"
+    assert result["completed_trials"] == 1
+    assert result["best_trial"] == 0
+    assert result["verification_error"] == "verification unavailable"
+    assert "verification_result" not in result
+    assert (tmp_path / "study" / "result.json").exists()
+
+
+def test_winning_trial_checkpoint_is_persisted(tmp_path, stub):
+    stub(lambda config: [0.7])
+    output = tmp_path / "study"
+    result = tune(
+        {
+            "trials": 1,
+            "study_name": "winning-checkpoint",
+            "seed": 0,
+            "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+            "training": training(),
+            "output_dir": str(output),
+        }
+    )
+    assert result["best_trial_checkpoint"] == str(output / "trial-0" / "last.pt")
+    persisted = json.loads((output / "result.json").read_text())
+    assert persisted["best_trial_checkpoint"] == result["best_trial_checkpoint"]
 
 
 # --- portable tuning configuration -------------------------------------------

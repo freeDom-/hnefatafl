@@ -28,7 +28,9 @@ const studySeed =
 const studySearchSpace =
   'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. Supported distributions are float (optional log), int (optional positive step, log requires step 1) and categorical choices. The text is sent as the search space, so it must stay valid JSON.';
 const studyStrategy =
-  'Optional JSON for advanced study settings: “opponents” is a weighted list of fixed references ({opponent, weight}) for a multi-opponent objective, “verification” re-evaluates the winning checkpoint with a held-out seed ({games, seed, opponent}), “sampler”/“pruner” set TPE and median-pruner startup, and “max_failures” bounds consecutive failing trials. Leave empty for the default single-opponent objective.';
+  'Optional JSON for advanced study settings: “opponents” is a weighted list of fixed references ({opponent, weight}, or {opponent: "frozen_model", model_id, weight}) for a multi-opponent objective, “verification” re-evaluates the winning checkpoint with a held-out seed ({games, seed, opponent}), “sampler”/“pruner” set TPE and median-pruner startup, and “max_failures” bounds consecutive failing trials. Leave empty for the default single-opponent objective.';
+const additionalTuningIterations =
+  'Extra training iterations each checkpoint-based trial runs on top of the source checkpoint\u2019s completed iteration. Every trial uses the same total, so hyperparameters are compared from one common state without modifying the source checkpoint.';
 
 export const trainingTooltips: Record<string, string> = {
   // ── General ──────────────────────────────────────────────────────────────
@@ -159,6 +161,7 @@ export const trainingTooltips: Record<string, string> = {
   'study.seed': studySeed,
   'study.search_space': studySearchSpace,
   strategy: studyStrategy,
+  additional_tuning_iterations: additionalTuningIterations,
   trials: studyTrials,
   study_name: studyName,
   study_seed: studySeed,

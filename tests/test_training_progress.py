@@ -1844,12 +1844,12 @@ def test_an_objective_failure_is_not_counted_and_not_masked(tmp_path, monkeypatc
     # budget is exhausted, instead of masking the study behind an exception.
     result = tune(config, snapshots.append)
     assert written, "the attribute write was never attempted"
-    assert result["status"] == "completed"
+    assert result["status"] == "failed"
     assert result["completed_trials"] == 0
     assert result["failed_trials"] == 1
     assert result["trials"][0]["state"] == "FAIL"
     progress = read_json(output / "progress.json")
-    assert progress["status"] == "completed"
+    assert progress["status"] == "failed"
     assert all(state.get("completed_trials", 0) == 0 for state in snapshots)
     assert (output / "result.json").exists()
 

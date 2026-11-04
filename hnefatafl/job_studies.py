@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -112,25 +113,41 @@ def search_space_config(value: Any) -> dict:
 
 
 def opponents_config(value: Any) -> list[dict]:
-    """Validate the optional weighted multi-opponent objective."""
-    if value is None:
+    """Validate the optional weighted multi-opponent objective.
+
+    Fixed heuristics (Shield bearer, Shield maiden, Jarl) and a frozen neural
+    model from the registry are accepted. The registry model ID is a content
+    identity, so every trial evaluates the same pinned artifact.
+    """
+    if value is None or value == []:
         return []
-    if not isinstance(value, list) or not value or len(value) > 8:
+    if not isinstance(value, list) or len(value) > 8:
         raise ArchiveError("Invalid optimization opponents.")
-    allowed = {"shield_bearer", "shield_maiden", "jarl"}
+    allowed = {"shield_bearer", "shield_maiden", "jarl", "frozen_model"}
+    model_id_pattern = re.compile(r"[0-9a-f]{24}")
     result = []
     for entry in value:
-        if not isinstance(entry, dict) or set(entry) - {"opponent", "weight"}:
+        if not isinstance(entry, dict):
             raise ArchiveError("Invalid optimization opponent.")
         opponent = entry.get("opponent", "shield_bearer")
         if opponent not in allowed:
             raise ArchiveError(
-                "Optimization opponents must be fixed references: shield_bearer, shield_maiden or jarl."
+                "Optimization opponents must be fixed references: shield_bearer, "
+                "shield_maiden, jarl or a frozen registered model."
             )
         weight = entry.get("weight", 1.0)
         if type(weight) is bool or type(weight) not in (int, float) or not 0 < float(weight) <= 1:
             raise ArchiveError("Optimization opponent weights must be between 0 and 1.")
-        result.append({"opponent": opponent, "weight": float(weight)})
+        record: dict = {"opponent": opponent, "weight": float(weight)}
+        if opponent == "frozen_model":
+            if set(entry) != {"opponent", "weight", "model_id"} or not model_id_pattern.fullmatch(
+                str(entry.get("model_id", ""))
+            ):
+                raise ArchiveError("A frozen neural opponent needs a registered model ID.")
+            record["model_id"] = entry["model_id"]
+        elif set(entry) - {"opponent", "weight"}:
+            raise ArchiveError("Invalid optimization opponent.")
+        result.append(record)
     return result
 
 
@@ -207,6 +224,7 @@ def tuning_config(value: dict) -> dict:
         "output_dir",
         "storage",
         "resume_study",
+        "source_checkpoint",
         "opponents",
         "verification",
         "sampler",
@@ -215,6 +233,15 @@ def tuning_config(value: dict) -> dict:
     }:
         raise ArchiveError("Unsupported optimization configuration.")
     result = portable(value)
+    source_checkpoint = result.get("source_checkpoint")
+    if source_checkpoint is not None:
+        if (
+            not isinstance(source_checkpoint, str)
+            or not source_checkpoint
+            or len(source_checkpoint) > 300
+        ):
+            raise ArchiveError("Invalid optimization source checkpoint reference.")
+        result["source_checkpoint"] = source_checkpoint
     for key, default, low, high in (("trials", 4, 1, 10000), ("seed", 0, 0, 2**32 - 1)):
         number = result.get(key, default)
         if type(number) is not int or not low <= number <= high:

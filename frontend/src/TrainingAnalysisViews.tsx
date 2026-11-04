@@ -385,14 +385,52 @@ export function TrainingTuningView({
   onDownloadBestConfig: () => void;
 }) {
   const { t, locale } = useI18n();
-  const trials = Array.isArray(progress.trials)
-    ? progress.trials.map(object).filter((row): row is Values => !!row)
-    : [];
+  const trials = useMemo(
+    () =>
+      (Array.isArray(progress.trials)
+        ? progress.trials.map(object).filter((row): row is Values => !!row)
+        : []) as Values[],
+    [progress.trials],
+  );
   const bestConfig = object(progress.best_configuration);
   const verification = object(progress.verification_result);
   const bestOpponents = object(progress.best_opponents);
+  const sourceConfig = object(progress.source_configuration);
+  const comparison = useMemo(() => {
+    if (!bestConfig || !sourceConfig) return [];
+    const keys = Array.from(new Set([...Object.keys(sourceConfig), ...Object.keys(bestConfig)]))
+      .filter((key) => !['output_dir', 'registry_dir', 'storage', 'resume'].includes(key))
+      .sort();
+    return keys.map((key) => ({
+      key,
+      source: sourceConfig[key],
+      winning: bestConfig[key],
+      changed: JSON.stringify(sourceConfig[key]) !== JSON.stringify(bestConfig[key]),
+    }));
+  }, [bestConfig, sourceConfig]);
   const [additional, setAdditional] = useState(5);
   const [targetJob, setTargetJob] = useState('');
+  const [sortKey, setSortKey] = useState<'number' | 'score' | 'duration'>('number');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const bestTrial = finite(progress.best_trial) ? progress.best_trial : undefined;
+  const statuses = useMemo(
+    () => Array.from(new Set(trials.map((row) => String(row.state ?? '—')))).sort(),
+    [trials],
+  );
+  const rows = useMemo(() => {
+    const filtered =
+      statusFilter === 'all'
+        ? trials
+        : trials.filter((row) => String(row.state ?? '—') === statusFilter);
+    const key = (row: Values) => {
+      if (sortKey === 'score')
+        return finite(row.best_score) ? (row.best_score as number) : -Infinity;
+      if (sortKey === 'duration')
+        return finite(row.duration) ? (row.duration as number) : -Infinity;
+      return finite(row.number) ? (row.number as number) : 0;
+    };
+    return [...filtered].sort((a, b) => key(b) - key(a));
+  }, [trials, sortKey, statusFilter]);
   const number = (value: unknown) =>
     finite(value) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value) : '—';
   const candidates = trainingJobs.filter(
@@ -414,13 +452,54 @@ export function TrainingTuningView({
           <TrainingKpi label="Best checkpoint iteration" value={progress.best_iteration} />
           <TrainingKpi label="Study sampler seed" value={progress.sampler_seed} />
           <TrainingKpi label="Source training seed" value={progress.source_seed} />
+          <TrainingKpi label="Source checkpoint best score" value={progress.source_best_score} />
+          <TrainingKpi
+            label="Winning checkpoint source"
+            value={progress.best_source ? t(String(progress.best_source)) : undefined}
+          />
         </dl>
         <p className="subtle">
           {t(
             'Trials are ranked by the score of their best evaluated checkpoint, not by the final iteration.',
           )}
         </p>
+        {progress.best_source === 'inherited' && (
+          <p className="dashboard-message" role="status">
+            {t(
+              'No candidate improved on the source checkpoint, so the reported objective is the inherited benchmark score and the selected checkpoint is the source best model.',
+            )}
+          </p>
+        )}
       </section>
+
+      {comparison.length > 0 && (
+        <section aria-label={t('Source versus winning settings')}>
+          <h4>{t('Source versus winning settings')}</h4>
+          <div className="table-scroll bounded-table">
+            <table aria-label={t('Source versus winning settings')}>
+              <thead>
+                <tr>
+                  {['Setting', 'Source checkpoint', 'Winning trial', 'Change'].map((label) => (
+                    <th key={label} scope="col">
+                      {t(label)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.map((row) => (
+                  <tr key={row.key}>
+                    <th scope="row">{t(row.key)}</th>
+                    <td>{String(row.source ?? '—')}</td>
+                    <td>{String(row.winning ?? '—')}</td>
+                    <td>{t(row.changed ? 'Changed' : 'Unchanged')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {!!bestOpponents && (
         <section aria-label={t('Weighted opponent aggregate')}>
@@ -537,40 +616,93 @@ export function TrainingTuningView({
       {!!trials.length && (
         <TrainingDataDisclosure title="Trial history">
           {() => (
-            <div className="table-scroll bounded-table">
-              <table aria-label={t('Trial history')}>
-                <thead>
-                  <tr>
-                    {[
-                      'Trial',
-                      'Status',
-                      'Best checkpoint score',
-                      'Final iteration score',
-                      'Best iteration',
-                      'Parameters',
-                    ].map((label) => (
-                      <th key={label} scope="col">
-                        {t(label)}
-                      </th>
+            <>
+              <div className="tuning-actions">
+                <label className="training-field">
+                  {t('Sort trials by')}
+                  <select
+                    value={sortKey}
+                    onChange={(event) =>
+                      setSortKey(event.target.value as 'number' | 'score' | 'duration')
+                    }
+                  >
+                    <option value="number">{t('Trial number')}</option>
+                    <option value="score">{t('Best checkpoint score')}</option>
+                    <option value="duration">{t('Duration')}</option>
+                  </select>
+                </label>
+                <label className="training-field">
+                  {t('Filter by status')}
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => setStatusFilter(event.target.value)}
+                  >
+                    <option value="all">{t('All statuses')}</option>
+                    {statuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {trials.map((row, index) => (
-                    <tr key={index}>
-                      <th scope="row">{String(row.number ?? '—')}</th>
-                      <td>{String(row.state ?? '—')}</td>
-                      <td>{number(row.best_score ?? row.score)}</td>
-                      <td>{number(row.final_score)}</td>
-                      <td>{number(row.best_iteration)}</td>
-                      <td>
-                        <code>{JSON.stringify(safeDiagnostics(row.parameters))}</code>
-                      </td>
+                  </select>
+                </label>
+              </div>
+              <div className="table-scroll bounded-table">
+                <table aria-label={t('Trial history')}>
+                  <thead>
+                    <tr>
+                      {[
+                        'Trial',
+                        'Status',
+                        'Best checkpoint score',
+                        'Final iteration score',
+                        'Best iteration',
+                        'Source',
+                        'Duration',
+                        'Parameters',
+                        'Details',
+                      ].map((label) => (
+                        <th key={label} scope="col">
+                          {t(label)}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, index) => (
+                      <tr
+                        key={index}
+                        className={row.number === bestTrial ? 'winning-trial' : undefined}
+                      >
+                        <th scope="row">{String(row.number ?? '—')}</th>
+                        <td>{String(row.state ?? '—')}</td>
+                        <td>{number(row.best_score ?? row.score)}</td>
+                        <td>{number(row.final_score)}</td>
+                        <td>{number(row.best_iteration)}</td>
+                        <td>{row.best_source ? t(String(row.best_source)) : '—'}</td>
+                        <td>{finite(row.duration) ? `${number(row.duration)} s` : '—'}</td>
+                        <td>
+                          <code>{JSON.stringify(safeDiagnostics(row.parameters))}</code>
+                        </td>
+                        <td>
+                          {row.error ? (
+                            <span className="tuning-trial-error">{String(row.error)}</span>
+                          ) : row.opponents ? (
+                            <code>{JSON.stringify(safeDiagnostics(row.opponents))}</code>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="subtle">
+                {t(
+                  'The winning trial is highlighted. A small evaluation sample does not establish a statistically significant improvement.',
+                )}
+              </p>
+            </>
           )}
         </TrainingDataDisclosure>
       )}

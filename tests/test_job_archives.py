@@ -576,7 +576,7 @@ def test_owned_optimization_study_roundtrip_and_resume(client, tmp_path):
         if state["status"] not in {"running", "cancelling"}:
             break
         time.sleep(0.05)
-    assert state["status"] == "completed", state
+    assert state["status"] == "completed", state.get("error") or state
     assert len(optuna.load_study(study_name=config["study_name"], storage=storage).trials) == 2
     # The resumed run now shares the source study, so it cannot be exported alone.
     rejected = client.get(f"/api/training/jobs/{state['id']}/export")

@@ -42,7 +42,12 @@ from .training_augmentation import (
 )
 from .training_presets import RECOMMENDED
 from .game_statistics import checkpoint_cumulative, self_play_statistics
-from .training_evaluation import EvaluationSelection, evaluate_model, frozen_model
+from .training_evaluation import (
+    EvaluationSelection,
+    evaluate_model,
+    evaluation_context,
+    frozen_model,
+)
 from .training_monitoring import (
     HEARTBEAT_FILENAME,
     ProgressSink,
@@ -804,6 +809,10 @@ def train(
             "replay": replay,
             "best_score": best_score,
             "best_snapshot": best_snapshot,
+            "selected_score": selected_score,
+            "selected_iteration": selected_iteration,
+            "selected_source": selected_source,
+            "source_best_score": source_best_score,
             "training_state_version": 2,
             "evaluation_state": selection.data,
             "history": history,
@@ -832,6 +841,13 @@ def train(
     replay: list[dict] = []
     best_score = -1.0
     best_snapshot: dict | None = None
+    # The selected checkpoint's own score, iteration and provenance. Unlike the
+    # legacy shield_bearer ``best_score``, this tracks every opponent and is the
+    # quantity the tuning objective and pruner use.
+    selected_score = -1.0
+    selected_iteration: int | None = None
+    selected_source = "none"
+    source_best_score = -1.0
     metrics: dict = {}
     history: list[dict] = []
     best_models: list[dict] = []
@@ -968,6 +984,15 @@ def train(
                 },
                 best_snapshot,
             )
+        # The selected checkpoint and its reported score must describe the same
+        # model state. A resumed checkpoint may already carry a historical
+        # benchmark result; that inherited score stays authoritative until a
+        # candidate actually replaces the selected snapshot.
+        initial_selected = selection.selected_snapshot()
+        source_best_score = selection.selected_score()
+        selected_score = source_best_score
+        selected_iteration = selection.selected_iteration()
+        selected_source = "inherited" if initial_selected is not None else "none"
         selected = selection.selected_snapshot() or best_snapshot
         if selected:
             save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
@@ -988,6 +1013,12 @@ def train(
                 "history": history,
                 "best_models": best_models,
                 "evaluation_selection": selection.summary(),
+                # The score, iteration and provenance of the selected checkpoint.
+                "best_score": best_score,
+                "selected_score": selected_score,
+                "selected_iteration": selected_iteration,
+                "selected_source": selected_source,
+                "source_best_score": source_best_score,
             }
         )
         _write_json(output / "config.json", config)
@@ -1141,6 +1172,13 @@ def train(
                 if should_stop and should_stop():
                     raise InterruptedError("Evaluation was cancelled")
                 record_improvement = selection.accept(model, current_metadata(), evaluation, config)
+                # Always track the score and iteration of the checkpoint the
+                # trainer actually keeps, including an inherited benchmark when
+                # no candidate improved. This keeps the tuning objective and the
+                # saved best checkpoint describing the same weights.
+                selected_score = selection.selected_score()
+                selected_iteration = selection.selected_iteration()
+                selected_source = selection.selected_source(initial_selected)
                 if selection.identity == legacy_identity and record_improvement:
                     best_score = evaluation["score"]
                     best_snapshot = selection.selected_snapshot()
@@ -1208,6 +1246,10 @@ def train(
                 policy_loss=metrics["policy_loss"],
                 value_loss=metrics["value_loss"],
                 checkpoint=str(checkpoint) if checkpoint.exists() else None,
+                best_score=best_score,
+                selected_score=selected_score,
+                selected_iteration=selected_iteration,
+                selected_source=selected_source,
                 metrics=metrics,
                 performance=performance,
             )
@@ -1312,6 +1354,73 @@ def train(
             search_pool.close()
 
 
+def study_identity(
+    *,
+    resuming: bool,
+    resume_payload: dict | None,
+    evaluation_base: dict,
+    search_space: dict,
+    opponents: list[dict],
+    sampler: dict,
+    pruner: dict,
+) -> dict:
+    """Canonical fingerprint of everything that defines what a study optimizes.
+
+    Two configurations with different identities must never share a study
+    database: their trial scores would not be comparable. The trial budget and
+    failure budget are deliberately excluded so a study can be extended without
+    changing its identity.
+    """
+    source = None
+    if resuming and resume_payload is not None:
+        saved = resume_payload.get("metadata", {}).get("training_config", {})
+        source = {
+            "iteration": int(resume_payload.get("extra", {}).get("iteration", 0)),
+            "seed": saved.get("seed"),
+            "optimizer": saved.get("optimizer"),
+        }
+    context = evaluation_context(evaluation_base)
+    return {
+        "version": 1,
+        "mode": "checkpoint" if resuming else "scratch",
+        "source": source,
+        "ruleset": evaluation_base["ruleset"],
+        "channels": evaluation_base["channels"],
+        "blocks": evaluation_base["blocks"],
+        "search_space": search_space,
+        "opponents": opponents,
+        "evaluation": {
+            key: context[key]
+            for key in (
+                "opponent",
+                "opponent_config",
+                "candidate_config",
+                "games",
+                "max_plies",
+                "seed",
+                "scoring",
+                "pairing",
+                "protocol_version",
+            )
+        },
+        "frozen_model_id": context.get("frozen_model_id"),
+        "sampler": sampler,
+        "pruner": pruner,
+        "objective": "best_selected_checkpoint",
+    }
+
+
+def identity_differences(stored: object, requested: object, prefix: str = "") -> list[str]:
+    """Names of the identity fields that differ between two stored studies."""
+    if isinstance(stored, dict) and isinstance(requested, dict):
+        names: list[str] = []
+        for key in sorted(set(stored) | set(requested)):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            names.extend(identity_differences(stored.get(key), requested.get(key), path))
+        return names
+    return [] if stored == requested else [prefix or "identity"]
+
+
 def tune(
     configuration: dict,
     progress: Callable[[dict], None] | None = None,
@@ -1346,18 +1455,15 @@ def tune(
             "channels": {"type": "categorical", "choices": [8, 16, 32]},
         }
     )
-    base = configuration.get(
+    raw_training = configuration.get(
         "training", {"preset": "smoke", "ruleset": configuration.get("ruleset", "brandubh")}
     )
     if any(name.startswith("evaluation_") or name.startswith("champion_") for name in search_space):
         raise ValueError("Optuna cannot tune evaluation protocol settings")
-    # Self-play time may be tuned independently, but evaluation uses a fixed deadline.
-    base = {
-        **base,
-        "evaluation_time_limit": base.get(
-            "evaluation_time_limit", base.get("mcts_time_limit", 10.0)
-        ),
-    }
+    # Normalize the common configuration once, so preset defaults (including the
+    # search deadline) are identical whether the caller passed a partial or an
+    # already-normalized training configuration.
+    base = normalize_config({**raw_training, "output_dir": str(output)})
     opponents = opponents_config(configuration.get("opponents"))
     verification = verification_config(configuration.get("verification"))
     sampler_options = sampler_config(configuration.get("sampler"))
@@ -1369,15 +1475,86 @@ def tune(
     # checkpoint keeps its saved model seed so the immutable resume check
     # passes; otherwise every trial draws a deterministic per-trial seed.
     resuming = bool(base.get("resume"))
-    source_seed = int(base.get("seed", seed))
+    source_seed = (
+        int(raw_training["seed"])
+        if isinstance(raw_training, dict) and "seed" in raw_training
+        else seed
+    )
+    resume_payload: dict | None = None
     if resuming:
-        _, resume_payload = load_checkpoint(base["resume"])
+        resume_model, resume_payload = load_checkpoint(base["resume"])
         saved_inputs = resume_payload.get("metadata", {}).get("training_config", {})
         source_seed = int(saved_inputs.get("seed", source_seed))
+    if base.get("evaluation_opponent", "shield_bearer") == "champion":
+        raise ValueError(
+            "Tuning cannot use the evolving Champion as its objective; select a fixed "
+            "opponent (shield_bearer, shield_maiden, jarl) or a frozen neural model."
+        )
+    if resuming:
+        # Checkpoint-based tuning must be validated before any expensive trial.
+        assert resume_model is not None and resume_payload is not None
+        completed_iteration = int(resume_payload.get("extra", {}).get("iteration", 0))
+        target_iterations = base.get("iterations")
+        if type(target_iterations) is not int or target_iterations <= completed_iteration:
+            raise ValueError(
+                "Checkpoint-based tuning needs training.iterations greater than the "
+                f"checkpoint's completed iteration ({completed_iteration}); set it to "
+                f"{completed_iteration} + additional tuning iterations."
+            )
+        if target_iterations > 100000:
+            raise ValueError("iterations must not exceed 100000")
+        # Architecture is fixed by the checkpoint and cannot be sampled.
+        for name in ("channels", "blocks"):
+            if name in search_space:
+                raise ValueError(
+                    f"{name} is fixed by the source checkpoint and cannot be tuned "
+                    "while resuming it"
+                )
+            expected = resume_model.config.get(name)
+            requested = base.get(name)
+            if requested is not None and requested != expected:
+                raise ValueError(f"{name} must match the source checkpoint ({expected})")
+        if base.get("ruleset") is not None and base["ruleset"] != resume_model.ruleset:
+            raise ValueError(f"ruleset must match the source checkpoint ({resume_model.ruleset})")
     # The optional aggregate and held-out stages evaluate a saved checkpoint
-    # outside a trial, so they need a fully normalized configuration rather than
-    # the possibly partial nested `training` object.
-    evaluation_base = normalize_config({**base, "output_dir": str(output)})
+    # outside a trial; ``base`` is already normalized above.
+    evaluation_base = base
+    # A frozen neural opponent is loaded once and pinned for the whole study, so
+    # every trial is scored against the same artifact and a missing or
+    # incompatible model fails before the first trial starts.
+    frozen_models: dict[str, PolicyValueNet] = {}
+    frozen_identities: dict[str, str] = {}
+    for entry in opponents:
+        if entry["opponent"] != "frozen_model":
+            continue
+        model_id = entry["model_id"]
+        if model_id in frozen_models:
+            continue
+        registry_root = evaluation_base.get("registry_dir", output.parent / "models")
+        record = ModelRegistry(registry_root).get(model_id)
+        frozen, _ = load_checkpoint(record["path"])
+        if frozen.ruleset != evaluation_base["ruleset"]:
+            raise ValueError(
+                f"Frozen model {model_id} is for {frozen.ruleset}, not {evaluation_base['ruleset']}"
+            )
+        if (
+            frozen.config["channels"] != evaluation_base["channels"]
+            or frozen.config["blocks"] != evaluation_base["blocks"]
+        ):
+            raise ValueError("Frozen model architecture does not match the training architecture")
+        frozen.eval()
+        frozen.requires_grad_(False)
+        frozen_models[model_id] = frozen
+        frozen_identities[model_id] = str(record.get("content_id", model_id))
+    identity = study_identity(
+        resuming=resuming,
+        resume_payload=resume_payload,
+        evaluation_base=evaluation_base,
+        search_space=search_space,
+        opponents=opponents,
+        sampler=sampler_options,
+        pruner=pruner_options,
+    )
     # The study's own elapsed time is measured here, on the monotonic clock, so it
     # spans every trial, the preparation between them and the finalization instead
     # of restarting with each trial's monitor.
@@ -1474,18 +1651,26 @@ def tune(
             weighted = 0.0
             per_opponent: dict = {}
             for index, entry in enumerate(opponents):
-                evaluation = evaluate_model(
-                    model,
-                    {
-                        **evaluation_base,
-                        "evaluation_opponent": entry["opponent"],
-                        # Distinct, deterministic per-opponent seeds keep the
-                        # aggregate reproducible without reusing a trial seed.
-                        "seed": source_seed + 2_000_000 + index,
-                    },
-                    should_stop=should_stop,
-                )
-                per_opponent[entry["opponent"]] = {
+                opponent = entry["opponent"]
+                eval_config = {
+                    **evaluation_base,
+                    "evaluation_opponent": opponent,
+                    # Distinct, deterministic per-opponent seeds keep the
+                    # aggregate reproducible without reusing a trial seed.
+                    "seed": source_seed + 2_000_000 + index,
+                }
+                if opponent == "frozen_model":
+                    eval_config["evaluation_frozen_model_id"] = entry["model_id"]
+                    evaluation = evaluate_model(
+                        model,
+                        eval_config,
+                        previous=frozen_models[entry["model_id"]],
+                        should_stop=should_stop,
+                    )
+                else:
+                    evaluation = evaluate_model(model, eval_config, should_stop=should_stop)
+                key = f"{opponent}:{entry['model_id']}" if opponent == "frozen_model" else opponent
+                per_opponent[key] = {
                     key: evaluation[key]
                     for key in (
                         "score",
@@ -1539,10 +1724,6 @@ def tune(
             }
 
             latest_revision = None
-            # The objective is the score of the best evaluated checkpoint, not the
-            # final iteration: the trainer keeps the checkpoint with the highest
-            # benchmark score, so the ranking must follow that same checkpoint.
-            trial_best: dict = {"score": None, "iteration": None, "evaluation": None}
 
             def report(state):
                 nonlocal latest_revision
@@ -1593,17 +1774,15 @@ def tune(
                 latest_revision = revision
                 evaluation = state.get("metrics", {}).get("evaluation")
                 if state.get("stage") == "iteration_complete" and evaluation:
-                    if trial_best["score"] is None or evaluation["score"] > trial_best["score"]:
-                        trial_best.update(
-                            score=evaluation["score"],
-                            iteration=state["iteration"],
-                            evaluation=deepcopy(evaluation),
-                        )
-                    # Report the monotonic best so the median pruner never discards
-                    # a trial that dipped before recovering.
-                    trial.report(float(trial_best["score"]), step=state["iteration"])
-                    if trial.should_prune():
-                        raise optuna.TrialPruned("Best playing score below study median")
+                    # The selected checkpoint's own score, so the pruner ranks the
+                    # same quantity the objective returns. It is monotonic for a
+                    # fixed benchmark, so a trial that dips before recovering is
+                    # not discarded.
+                    selected_score = state.get("selected_score")
+                    if selected_score is not None and selected_score >= 0:
+                        trial.report(float(selected_score), step=state["iteration"])
+                        if trial.should_prune():
+                            raise optuna.TrialPruned("Selected checkpoint below study median")
 
             # Handing the files to the trial and taking them back are serialized
             # against the study's own heartbeat, so neither publisher can overwrite
@@ -1642,17 +1821,20 @@ def tune(
             trial.set_user_attr("training_config", normalize_config(config))
             trial.set_user_attr("checkpoint", result.get("best_checkpoint"))
             trial.set_user_attr("trial_checkpoint", result.get("checkpoint"))
-            trial.set_user_attr("best_iteration", trial_best["iteration"])
-            trial.set_user_attr("best_score", trial_best["score"])
+            trial.set_user_attr("best_iteration", result.get("selected_iteration"))
+            trial.set_user_attr("best_score", result.get("selected_score"))
+            trial.set_user_attr("best_source", result.get("selected_source"))
+            trial.set_user_attr("source_best_score", result.get("source_best_score"))
             trial.set_user_attr("final_score", evaluation["score"] if evaluation else None)
             aggregate = score_opponents(result)
             if aggregate is not None:
                 trial.set_user_attr("opponents", aggregate["opponents"])
                 trial.set_user_attr("aggregate_score", aggregate["score"])
                 return float(aggregate["score"])
-            if trial_best["score"] is None:
-                raise ValueError("Trial completed without an evaluation")
-            return float(trial_best["score"])
+            selected_score = result.get("selected_score")
+            if selected_score is None or selected_score < 0:
+                raise ValueError("Trial completed without a selected checkpoint evaluation")
+            return float(selected_score)
 
         # The callback runs after each trial's state is stored, so the completed
         # counter follows Optuna's own record instead of the objective returning.
@@ -1730,6 +1912,12 @@ def tune(
             "source_seed": source_seed,
             "opponents": opponents,
             "verification": verification,
+            "frozen_models": frozen_identities,
+            "source_configuration": (
+                resume_payload.get("metadata", {}).get("training_config")
+                if resume_payload
+                else None
+            ),
             "trials": [
                 {
                     "number": trial.number,
@@ -1738,9 +1926,12 @@ def tune(
                     "parameters": trial.params,
                     "best_score": trial.user_attrs.get("best_score"),
                     "best_iteration": trial.user_attrs.get("best_iteration"),
+                    "best_source": trial.user_attrs.get("best_source"),
+                    "source_best_score": trial.user_attrs.get("source_best_score"),
                     "final_score": trial.user_attrs.get("final_score"),
                     "opponents": trial.user_attrs.get("opponents"),
                     "error": trial.user_attrs.get("error"),
+                    "duration": trial.duration.total_seconds() if trial.duration else None,
                 }
                 for trial in study.trials
             ],
@@ -1752,15 +1943,34 @@ def tune(
                 best_score=best.value,
                 best_parameters=best.params,
                 best_iteration=best.user_attrs.get("best_iteration"),
+                best_source=best.user_attrs.get("best_source"),
+                source_best_score=best.user_attrs.get("source_best_score"),
                 best_checkpoint=best.user_attrs.get("checkpoint"),
+                best_trial_checkpoint=best.user_attrs.get("trial_checkpoint"),
                 best_configuration=best.user_attrs.get("training_config"),
                 best_opponents=best.user_attrs.get("opponents"),
             )
+            # The optimization result is persisted before the optional held-out
+            # verification, so a verification failure can never discard it.
             _write_json(output / "best-config.json", result["best_configuration"])
-            # The held-out check runs while the heartbeat is still live, so a long
-            # verification is visible and a slow one cannot look like a stalled
-            # finalization.
-            result["verification_result"] = verify_best(best)
+            # Verification is optional and retried once; its failure is recorded
+            # separately from an optimization failure.
+            for _attempt in range(2):
+                try:
+                    result["verification_result"] = verify_best(best)
+                    result.pop("verification_error", None)
+                    break
+                except InterruptedError:
+                    raise
+                except Exception as error:
+                    result["verification_error"] = str(error)
+        elif not cancelled:
+            # No successful trial is an unsuccessful optimization, not a
+            # completed study with a winner.
+            result["status"] = "failed"
+            result["error"] = (
+                "No trial completed successfully; inspect the failed trials for their errors."
+            )
         # Nothing slow happens past this point: the heartbeat stops, the duration is
         # measured at the terminal moment, and both terminal files are written from
         # one state, so the published duration never falls behind the last
@@ -1785,13 +1995,29 @@ def tune(
             storage=storage,
             direction="maximize",
             load_if_exists=True,
-            sampler=optuna.samplers.TPESampler(seed=seed, **sampler_options),
+            # The documented default is three random startup trials. An explicit
+            # sampler setting still wins, and a resumed study keeps its stored
+            # identity because the sampler is part of that identity.
+            sampler=optuna.samplers.TPESampler(
+                seed=seed, **{"n_startup_trials": 3, **sampler_options}
+            ),
             pruner=optuna.pruners.MedianPruner(
                 n_startup_trials=pruner_options.get("n_startup_trials", 3),
                 n_warmup_steps=pruner_options.get("n_warmup_steps", 1),
                 interval_steps=pruner_options.get("interval_steps", 1),
             ),
         )
+        stored_identity = study.user_attrs.get("hnefatafl_identity")
+        if stored_identity is None:
+            # Legacy studies predate the fingerprint. Adopt the current identity
+            # without discarding any stored trial history.
+            study.set_user_attr("hnefatafl_identity", identity)
+        elif stored_identity != identity:
+            differences = identity_differences(stored_identity, identity)
+            raise ValueError(
+                "The saved study was created with an incompatible experiment identity: "
+                + ", ".join(differences)
+            )
         latest["completed_trials"] = count_completed(study)
         publish_study()
         # Cancellation during the study load is honored at this safe point: the

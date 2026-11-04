@@ -425,14 +425,22 @@ because the resume contract treats the seed as immutable.
 
 ### Selecting the evaluation opponent
 
-The nested `training.evaluation_opponent` is selectable: `shield_bearer`,
-`shield_maiden`, `jarl` (with `evaluation_jarl_depth` and
-`evaluation_jarl_time_limit`) and `champion`. A fixed heuristic or alpha-beta
-reference makes scores comparable across trials. `champion` starts from the
-shared checkpoint's saved best (or the trial's initial weights) and may promote
-during a trial, so its reference moves; use a fixed opponent when a single
-unchanging reference matters. Evaluation protocol settings themselves cannot be
-tuned, only the model hyperparameters.
+The nested `training.evaluation_opponent` is selectable among **fixed**
+references: `shield_bearer`, `shield_maiden` and `jarl` (with
+`evaluation_jarl_depth` and `evaluation_jarl_time_limit`). The evolving
+`champion` is rejected for tuning, because its reference moves between trials and
+its scores are not comparable; a fixed neural opponent is selected instead
+through the `opponents` list (see below). Evaluation protocol settings themselves
+cannot be tuned, only the model hyperparameters.
+
+The objective is the score of the **checkpoint the trainer actually selects**,
+not the highest evaluation ever seen. For a fixed benchmark the selected
+checkpoint is the best accepted snapshot; when a resumed checkpoint already holds
+a stronger historical benchmark, that inherited score is reported until a
+candidate replaces it, and the trial records `best_source: "inherited"`.
+A trial that never improves on its source therefore reports the source score and
+the source best model, never a newly observed score attributed to the inherited
+checkpoint.
 
 A fixed reference opponent may be supplied directly to `tune` (for example with
 `resume`):
@@ -457,9 +465,31 @@ A fixed reference opponent may be supplied directly to `tune` (for example with
 }
 ```
 
-The dashboard's **Tune this checkpoint** action builds this configuration from a
-completed training job's own full `last.pt`, so every trial resumes the same
-state. A `trial-N/last.pt` token likewise resumes one study trial's checkpoint.
+The dashboard's **Tune this checkpoint** action opens a review dialog for a
+completed, cancelled or otherwise resumable training job. It reads the
+checkpoint's completed iteration from validated backend metadata and lets the
+user set **Additional tuning iterations per trial**; every trial targets
+`completed_iteration + additional_iterations` (at most 100000). The source
+checkpoint is never modified, and the request is rejected before any trial if the
+target does not exceed the checkpoint or if the search space samples `channels`
+or `blocks`, which the checkpoint fixes. The HTTP API takes the source as a
+portable `source_checkpoint` token (`<job_id>:last.pt`), resolves it server-side
+and records it for archive export; the CLI uses the nested `training.resume`
+path. A `trial-N/last.pt` token likewise resumes one study trial's checkpoint.
+
+### Study identity and resumption
+
+Every study stores a canonical identity (an Optuna study user attribute) covering
+the tuning mode, source-checkpoint iteration/seed/optimizer, ruleset,
+architecture, search space, evaluation opponent(s) and protocol, frozen-model
+identity, sampler and pruner startup, and the objective policy. Resuming a study
+compares the stored identity with the requested configuration and rejects
+incompatible changes with the differing field names; the trial budget and failure
+budget are deliberately excluded, so a study can be extended without changing its
+experiment. A legacy study without an identity adopts the current one on first
+resume and keeps all its stored trials. The HTTP API performs the same comparison
+before spawning the study and rejects a changed identity with a field-specific
+error, so an incompatible resumption never starts.
 
 ### Weighted multi-opponent objective
 
@@ -476,10 +506,21 @@ trial against several fixed references and optimizes their weighted mean:
 
 Weights must be greater than 0 and at most 1; the aggregate is normalized by the
 sum of weights. This is a secondary goal: it re-evaluates each trial's best
-checkpoint, so it costs extra games. Only fixed references are accepted in the
-aggregate, because Champion needs an incumbent that does not exist outside a
-trial. When `opponents` is absent, the objective is the in-training best-checkpoint
-score of the selected `evaluation_opponent`.
+checkpoint, so it costs extra games. Only fixed references are accepted, because
+the evolving Champion needs an incumbent that does not exist outside a trial.
+When `opponents` is absent, the objective is the in-training selected-checkpoint
+score of `training.evaluation_opponent`.
+
+A **frozen neural opponent** is a registered model pinned for the whole study:
+
+```json
+"opponents": [{"opponent": "frozen_model", "model_id": "<24-hex registry id>", "weight": 1}]
+```
+
+The model is loaded once before the first trial, checked against the study's
+ruleset and architecture, and used as the same opponent for every trial. A
+missing or incompatible model fails the study before any trial runs, and the
+model cannot be deleted while a running study references it.
 
 ### Held-out verification
 
@@ -494,14 +535,21 @@ checkpoint with a seed the trials never used:
 fixed reference. The result is persisted as `verification_result` in
 `result.json` (opponent, seed, games, score, wins/losses/draws/truncated), so a
 strong aggregate score can be checked independently instead of only re-read from
-the study objective.
+the study objective. Verification runs after the optimization result is written
+and is retried once; a verification failure is recorded separately as
+`verification_error` and never discards the completed trials or the winning
+checkpoint.
 
 ### Failure handling
 
 A trial that raises is recorded as `FAIL` and the study continues; `max_failures`
 (default 3, at most `trials`) consecutive failures stop the study before the whole
 budget is wasted. Failed trials carry their error string and are never counted as
-completed.
+completed. A study with **no completed trial** ends as `failed` with an error
+instead of a completed study with a winner, while a study that already has
+completed trials keeps them even if later trials fail. Cancellation preserves its
+`cancelled` status. The job never stays running after an exception, and the
+heartbeat keeps running through finalization and verification.
 
 The JSON `search_space` supports `float` (with optional `log`), `int` (with
 optional `step`/`log`) and `categorical` (`choices`) distributions. A `float`

@@ -115,6 +115,7 @@ TUNE_FIELDS = frozenset(
         "search_space",
         "training",
         "resume_study",
+        "source_checkpoint",
         "opponents",
         "verification",
         "sampler",
@@ -178,6 +179,79 @@ def check_training_fields(
 ) -> None:
     if isinstance(values, dict):
         reject_training_fields(set(values) - set(allowed), prefix=prefix)
+
+
+# Fields that define what a tuning study optimizes. A resumed study may extend
+# its trial budget, but changing one of these would make its stored trials
+# incomparable, so it is rejected before the study is opened.
+STUDY_IDENTITY_TRAINING_FIELDS = (
+    "ruleset",
+    "channels",
+    "blocks",
+    "seed",
+    "optimizer",
+    "evaluation_opponent",
+    "evaluation_mode",
+    "evaluation_inference_backend",
+    "evaluation_games",
+    "evaluation_iterations",
+    "evaluation_max_plies",
+    "evaluation_time_limit",
+    "evaluation_jarl_depth",
+    "evaluation_jarl_time_limit",
+    "resume",
+)
+
+
+def resume_study_conflicts(
+    requested: dict,
+    requested_training: dict,
+    training: dict,
+    previous_config: dict,
+) -> list[str]:
+    """Names of the experiment-identity fields a study resumption changes.
+
+    Only fields the client explicitly sent are compared; a field it omitted is
+    taken from the previous job, so it can never count as a change.
+    """
+    from .job_studies import (
+        opponents_config,
+        pruner_config,
+        sampler_config,
+        search_space_config,
+        verification_config,
+    )
+
+    def normalize(key: str, value: object) -> object:
+        try:
+            if key == "search_space":
+                return search_space_config(value)
+            if key == "opponents":
+                return opponents_config(value)
+            if key == "verification":
+                return verification_config(value)
+            if key == "sampler":
+                return sampler_config(value)
+            if key == "pruner":
+                return pruner_config(value)
+        except Exception:
+            return value
+        return value
+
+    conflicts = [
+        key
+        for key in ("study_name", "seed", "search_space", "opponents", "verification")
+        if key in requested
+        and key in previous_config
+        and normalize(key, requested[key]) != normalize(key, previous_config[key])
+    ]
+    previous_training = previous_config.get("training") or {}
+    conflicts.extend(
+        f"training.{key}"
+        for key in STUDY_IDENTITY_TRAINING_FIELDS
+        if key in requested_training and training.get(key) != previous_training.get(key)
+    )
+    return sorted(set(conflicts))
 
 
 class VersionRequest(BaseModel):
@@ -1783,6 +1857,32 @@ def create_app(
             )
         ]
 
+    def running_model_tunings(model_id: str) -> list[dict]:
+        """Running optimization studies that pinned this model as an opponent."""
+        found = []
+        for job in store.jobs():
+            if job.get("kind") != "tune":
+                continue
+            if read_job(job["id"])["status"] not in {
+                "running",
+                "cancelling",
+                "pending",
+                "queued",
+            }:
+                continue
+            opponents = job.get("config", {}).get("opponents") or []
+            if any(
+                isinstance(entry, dict) and entry.get("model_id") == model_id for entry in opponents
+            ):
+                found.append(
+                    {
+                        "id": job["id"],
+                        "name": job.get("name", job["id"]),
+                        "status": job.get("status", "running"),
+                    }
+                )
+        return found
+
     def model_usage_token(model_id: str, games: list[dict]) -> str:
         versions = sorted((game["id"], game["version"]) for game in games)
         return hashlib.sha256(json.dumps([model_id, versions]).encode()).hexdigest()
@@ -1810,6 +1910,7 @@ def create_app(
                     for game in games
                 ],
                 "running_tournaments": running_model_tournaments(model_id),
+                "running_optimizations": running_model_tunings(model_id),
             }
 
     @app.delete("/api/models/{model_id}")
@@ -1823,6 +1924,12 @@ def create_app(
             if running_model_tournaments(model_id):
                 fail(
                     "This model is used by a running tournament. Stop it before deleting the model.",
+                    409,
+                )
+            if running_model_tunings(model_id):
+                fail(
+                    "This model is a frozen opponent of a running optimization study. "
+                    "Stop it before deleting the model.",
                     409,
                 )
             games = unfinished_model_games(model_id)
@@ -2232,6 +2339,47 @@ def create_app(
             identifier = uuid4().hex
             directory = job_path(identifier)
 
+            def resolve_resume_token(resume: object) -> str:
+                """Resolve an opaque server-issued checkpoint reference to a path.
+
+                Accepted forms are an unambiguous `last.pt`, a
+                `<job_id>:<relative>/last.pt` token, or an absolute path already
+                inside this server's job store (a study's persisted source).
+                """
+                if not isinstance(resume, str):
+                    fail("Resume must name a saved training job checkpoint.")
+                if next((m for m in models_list() if m["id"] == resume), None):
+                    fail(
+                        "Registered models are for play. Resume using a training job's last checkpoint."
+                    )
+                if Path(resume).is_absolute():
+                    jobs_root = (root / "jobs").resolve()
+                    checkpoint = Path(resume).resolve()
+                    if (
+                        not checkpoint.is_relative_to(jobs_root)
+                        or checkpoint.name != "last.pt"
+                        or not checkpoint.is_file()
+                    ):
+                        fail("The saved checkpoint was not found.")
+                    return str(checkpoint)
+                if ":" in resume:
+                    prior_id, filename = resume.split(":", 1)
+                    if not filename.endswith("last.pt"):
+                        fail(
+                            "Only last.pt contains optimizer and replay state for training resumption."
+                        )
+                    base = job_path(prior_id)
+                    checkpoint = (base / filename).resolve()
+                    if not checkpoint.is_relative_to(base.resolve()) or not checkpoint.is_file():
+                        fail("The saved checkpoint was not found.")
+                    return str(checkpoint)
+                if resume != "last.pt":
+                    fail("Resume requires a job checkpoint token or an unambiguous last.pt.")
+                matches = [p for p in (root / "jobs").glob("*/last.pt")]
+                if len(matches) != 1:
+                    fail("The saved checkpoint was not found or its name is ambiguous.")
+                return str(matches[0].resolve())
+
             def validate_training(values: dict, *, prefix: str = "") -> dict:
                 if not isinstance(values, dict):
                     fail("A training configuration must be an object.")
@@ -2239,37 +2387,7 @@ def create_app(
                 values = dict(values)
                 resume = values.pop("resume", None)
                 if resume:
-                    # Resolve only opaque server-issued tokens, never arbitrary paths.
-                    if not isinstance(resume, str):
-                        fail("Resume must name a saved training job checkpoint.")
-                    found = next((m for m in models_list() if m["id"] == resume), None)
-                    if found:
-                        fail(
-                            "Registered models are for play. Resume using a training job's last checkpoint."
-                        )
-                    elif ":" in resume:
-                        prior_id, filename = resume.split(":", 1)
-                        if not filename.endswith("last.pt"):
-                            fail(
-                                "Only last.pt contains optimizer and replay state for training resumption."
-                            )
-                        base = job_path(prior_id)
-                        checkpoint = (base / filename).resolve()
-                        if (
-                            not checkpoint.is_relative_to(base.resolve())
-                            or not checkpoint.is_file()
-                        ):
-                            fail("The saved checkpoint was not found.")
-                        values["resume"] = str(checkpoint)
-                    else:
-                        if resume != "last.pt":
-                            fail(
-                                "Resume requires a job checkpoint token or an unambiguous last.pt."
-                            )
-                        matches = [p for p in (root / "jobs").glob("*/last.pt")]
-                        if len(matches) != 1:
-                            fail("The saved checkpoint was not found or its name is ambiguous.")
-                        values["resume"] = str(matches[0].resolve())
+                    values["resume"] = resolve_resume_token(resume)
                 values.update(output_dir=str(directory), registry_dir=str(root / "models"))
                 try:
                     from .models import load_checkpoint, resolve_device
@@ -2322,14 +2440,68 @@ def create_app(
             if kind == "train":
                 config = validate_training(config)
             else:
+                from .job_archives import ArchiveError
+                from .job_studies import (
+                    opponents_config,
+                    pruner_config,
+                    sampler_config,
+                    search_space_config,
+                    verification_config,
+                )
+
+                requested = dict(config)
+                requested_training = dict(requested.get("training") or {})
+                resume_study = config.pop("resume_study", None)
+                previous: dict | None = None
+                previous_config: dict = {}
+                if resume_study:
+                    previous = read_job(str(resume_study))
+                    database = job_path(previous["id"]) / "study.sqlite3"
+                    previous_storage = previous["config"].get("storage", "")
+                    if previous_storage.startswith("sqlite:///"):
+                        database = Path(previous_storage[len("sqlite:///") :]).resolve()
+                    if not database.is_relative_to((root / "jobs").resolve()):
+                        fail("The saved study is outside the job store.")
+                    if previous["kind"] != "tune" or not database.is_file():
+                        fail("This job has no saved optimization study.")
+                    config["storage"] = "sqlite:///" + str(database)
+                    previous_config = previous.get("config", {})
+                    # Server-authoritative identity: keep every previous setting the
+                    # client did not explicitly override, so a resumed study keeps
+                    # its checkpoint source, opponent, verification and strategy.
+                    for key in (
+                        "training",
+                        "search_space",
+                        "opponents",
+                        "verification",
+                        "sampler",
+                        "pruner",
+                        "seed",
+                        "study_name",
+                        "source_checkpoint",
+                    ):
+                        if key not in requested and key in previous_config:
+                            config[key] = previous_config[key]
+
+                # A portable source-checkpoint token (for example from an
+                # imported study) is resolved to a server-owned path and injected
+                # into the nested training configuration for the CLI.
+                source_checkpoint = config.get("source_checkpoint")
+                if source_checkpoint is not None:
+                    resolved_source = resolve_resume_token(source_checkpoint)
+                    training_input = dict(config.get("training") or {})
+                    training_input.setdefault("resume", resolved_source)
+                    config["training"] = training_input
+
                 training = validate_training(
                     config.get("training", {"preset": "smoke", "ruleset": "brandubh"}),
                     prefix="training.",
                 )
-                # The evaluation opponent is selectable. A fixed reference
-                # (shield_bearer, shield_maiden, jarl) gives comparable scores
-                # across trials; champion is accepted and evaluated against its
-                # own incumbent.
+                if training["evaluation_opponent"] == "champion":
+                    fail(
+                        "Optimization cannot use the evolving Champion as its objective; "
+                        "select a fixed opponent or a frozen registered model."
+                    )
                 trials = config.get("trials", 4)
                 study_name = config.get("study_name", "hnefatafl")
                 if not isinstance(study_name, str) or not 1 <= len(study_name) <= 100:
@@ -2339,14 +2511,6 @@ def create_app(
                     fail("seed must be an unsigned 32-bit integer.")
                 if type(trials) is not int or not 1 <= trials <= 10000:
                     fail("trials must be an integer between 1 and 10000.")
-                from .job_archives import ArchiveError
-                from .job_studies import (
-                    opponents_config,
-                    pruner_config,
-                    sampler_config,
-                    search_space_config,
-                    verification_config,
-                )
 
                 search = config.get("search_space")
                 if search is not None:
@@ -2373,6 +2537,8 @@ def create_app(
                                     name: value,
                                 }
                             )
+                else:
+                    search = {}
                 # Optional aggregate objective, held-out verification and study
                 # strategy use the same portable contract as archive import.
                 try:
@@ -2389,18 +2555,35 @@ def create_app(
                 max_failures = config.get("max_failures", min(3, trials))
                 if type(max_failures) is not int or not 1 <= max_failures <= trials:
                     fail("max_failures must be an integer between 1 and the trial budget.")
-                resume_study = config.pop("resume_study", None)
-                if resume_study:
-                    previous = read_job(str(resume_study))
-                    database = job_path(previous["id"]) / "study.sqlite3"
-                    previous_storage = previous["config"].get("storage", "")
-                    if previous_storage.startswith("sqlite:///"):
-                        database = Path(previous_storage[len("sqlite:///") :]).resolve()
-                    if not database.is_relative_to((root / "jobs").resolve()):
-                        fail("The saved study is outside the job store.")
-                    if previous["kind"] != "tune" or not database.is_file():
-                        fail("This job has no saved optimization study.")
-                    config["storage"] = "sqlite:///" + str(database)
+
+                # Checkpoint-based tuning is validated before any trial runs: the
+                # iteration target must exceed the checkpoint, and architecture
+                # fixed by the checkpoint cannot be sampled.
+                if training.get("resume"):
+                    from .models import load_checkpoint
+
+                    _, checkpoint_data = load_checkpoint(training["resume"])
+                    completed = int(checkpoint_data.get("extra", {}).get("iteration", 0))
+                    target = training.get("iterations")
+                    if type(target) is not int or target <= completed:
+                        fail(
+                            "Checkpoint-based tuning needs iterations greater than the "
+                            f"checkpoint's completed iteration ({completed})."
+                        )
+                    for name in ("channels", "blocks"):
+                        if name in search:
+                            fail(f"{name} is fixed by the source checkpoint and cannot be tuned.")
+
+                if previous is not None:
+                    conflicts = resume_study_conflicts(
+                        requested, requested_training, training, previous_config
+                    )
+                    if conflicts:
+                        raise TrainingFieldsRejected(
+                            conflicts,
+                            "Resume study cannot change the experiment identity: "
+                            + ", ".join(conflicts),
+                        )
                 config.update(training=training, output_dir=str(directory))
             if execution == "remote":
                 return remote_training.enqueue(identifier, config, worker_id)

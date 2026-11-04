@@ -95,7 +95,8 @@ it('shows the best-checkpoint objective, verification and weighted aggregate', (
   disclosure.open = true;
   fireEvent(disclosure, new Event('toggle'));
   expect(screen.getByRole('table', { name: 'Trial history' })).toBeInTheDocument();
-  expect(screen.getByText('Best checkpoint score')).toBeInTheDocument();
+  // The column header and the sort option both carry this label.
+  expect(screen.getAllByText('Best checkpoint score').length).toBeGreaterThan(0);
 });
 
 it('invokes the apply actions with the configured additional iterations', () => {

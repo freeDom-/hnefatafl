@@ -20,7 +20,7 @@ import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
 import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
-import { resumePayload } from './trainingPayload';
+import { resumeOverrides, resumePayload } from './trainingPayload';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -44,12 +44,18 @@ export default function TrainingResumeDialog({
   job,
   workers = [],
   localDevice,
+  prefill,
+  additionalIterations,
   onClose,
   onStarted,
 }: {
   job: Job;
   workers?: TrainingWorker[];
   localDevice?: DeviceInfo;
+  /** Winning tuning settings to review before continuing, never applied silently. */
+  prefill?: TrainingConfig;
+  /** Extra iterations to prefill on top of the checkpoint's completed iteration. */
+  additionalIterations?: number;
   onClose: () => void;
   onStarted: (next: Job, completed: number, target: number) => void;
 }) {
@@ -109,14 +115,21 @@ export default function TrainingResumeDialog({
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
+        // Reviewing tuning results must never apply them silently: overlay only
+        // the compatible, editable winning fields and keep checkpoint identity.
+        if (prefill) Object.assign(saved, resumeOverrides({ ...saved, ...prefill }, saved));
         savedConfig.current = saved;
         const priorTarget = Number(saved.iterations);
+        const requested =
+          additionalIterations && additionalIterations > 0
+            ? info.completed_iteration + additionalIterations
+            : Math.max(
+                info.completed_iteration + 1,
+                Number.isInteger(priorTarget) ? priorTarget : 1,
+              );
         setConfig({
           ...saved,
-          iterations: Math.max(
-            info.completed_iteration + 1,
-            Number.isInteger(priorTarget) ? priorTarget : 1,
-          ),
+          iterations: requested,
         });
       })
       .catch((error) => {

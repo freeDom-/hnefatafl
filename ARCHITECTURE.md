@@ -13,10 +13,11 @@ exposes server-authoritative JSON sessions; React, TypeScript and Vite provide o
 responsive browser client for desktop and phones. SQLite keeps ordinary Linux and
 Proxmox LXC installations simple. PyTorch provides real CPU/CUDA policy/value learning;
 Optuna manages persistent search studies. A study ranks trials by the score of
-their best evaluated checkpoint, supports a selectable fixed evaluation opponent
-(Shield bearer, Shield maiden or Jarl) or an optional weighted multi-opponent
-aggregate, and records a held-out verification of the winning checkpoint. Docker
-is not required.
+their selected best checkpoint, supports a selectable fixed evaluation opponent
+(Shield bearer, Shield maiden, Jarl or a pinned registered neural model) or an
+optional weighted multi-opponent aggregate, records a held-out verification of
+the winning checkpoint, and stores a canonical identity that rejects
+incompatible resumptions. Docker is not required.
 
 Account and online positions/results are server-authoritative. Every position and
 move has a serializable representation, shared by interactive play, replay, AI and
