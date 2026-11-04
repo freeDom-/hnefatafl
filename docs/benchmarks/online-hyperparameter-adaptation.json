@@ -1,0 +1,135 @@
+{
+  "kind": "smoke",
+  "note": "Tiny CPU budget; not a strength experiment.",
+  "environment": {
+    "python": "3.12.15",
+    "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43"
+  },
+  "parameters": {
+    "seeds": 3,
+    "iterations": 4,
+    "evaluation_games": 4
+  },
+  "runs": [
+    {
+      "mode": "fixed",
+      "seed": 0,
+      "wall_seconds": 6.0798452070002895,
+      "updates": 6,
+      "evaluation_games": 4,
+      "evaluation_score": 0.25,
+      "evaluation_seconds": 0.2931621999996423,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ],
+      "adaptation_changes": null
+    },
+    {
+      "mode": "hypercontroller",
+      "seed": 0,
+      "wall_seconds": 0.6027618010002698,
+      "updates": 6,
+      "evaluation_games": 4,
+      "evaluation_score": 0.25,
+      "evaluation_seconds": 0.2728452000010293,
+      "adaptation_seconds": 0.0002238000006400398,
+      "learning_rate_trajectory": [
+        0.0003,
+        0.003,
+        0.0003,
+        0.003
+      ],
+      "adaptation_changes": 4
+    },
+    {
+      "mode": "fixed",
+      "seed": 1,
+      "wall_seconds": 0.703516901000512,
+      "updates": 6,
+      "evaluation_games": 4,
+      "evaluation_score": 0.25,
+      "evaluation_seconds": 0.3450055999992401,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ],
+      "adaptation_changes": null
+    },
+    {
+      "mode": "hypercontroller",
+      "seed": 1,
+      "wall_seconds": 1.0207701009994707,
+      "updates": 6,
+      "evaluation_games": 4,
+      "evaluation_score": 0.25,
+      "evaluation_seconds": 0.5091471009991437,
+      "adaptation_seconds": 0.00018769999951473437,
+      "learning_rate_trajectory": [
+        0.003,
+        0.0003,
+        0.0003,
+        0.0003
+      ],
+      "adaptation_changes": 2
+    },
+    {
+      "mode": "fixed",
+      "seed": 2,
+      "wall_seconds": 0.6489224000006288,
+      "updates": 6,
+      "evaluation_games": 4,
+      "evaluation_score": 0.0,
+      "evaluation_seconds": 0.28507250000075146,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ],
+      "adaptation_changes": null
+    },
+    {
+      "mode": "hypercontroller",
+      "seed": 2,
+      "wall_seconds": 0.6597979010002746,
+      "updates": 6,
+      "evaluation_games": 4,
+      "evaluation_score": 0.0,
+      "evaluation_seconds": 0.2842945009997493,
+      "adaptation_seconds": 0.00014480000027106144,
+      "learning_rate_trajectory": [
+        0.003,
+        0.0003,
+        0.0003,
+        0.0003
+      ],
+      "adaptation_changes": 2
+    }
+  ],
+  "summary": {
+    "fixed": {
+      "runs": 3,
+      "median_wall_seconds": 0.703516901000512,
+      "median_updates": 6,
+      "evaluation_games": 4,
+      "median_evaluation_seconds": 0.2931621999996423,
+      "median_adaptation_seconds": 0.0
+    },
+    "hypercontroller": {
+      "runs": 3,
+      "median_wall_seconds": 0.6597979010002746,
+      "median_updates": 6,
+      "evaluation_games": 4,
+      "median_evaluation_seconds": 0.2842945009997493,
+      "median_adaptation_seconds": 0.00018769999951473437
+    }
+  }
+}

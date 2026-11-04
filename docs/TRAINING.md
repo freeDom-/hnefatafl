@@ -432,7 +432,9 @@ resume. Changing the candidate set, the history window or the evaluation setting
 resets the learned state with a visible reason instead of mixing incomparable
 observations. The full design record, honest signal limits, algorithm comparison
 and reproducible benchmark instructions are in
-[online hyperparameter adaptation](designs/online-hyperparameter-adaptation.md).
+[online hyperparameter adaptation](designs/online-hyperparameter-adaptation.md);
+the measured controller overhead is in the
+[smoke benchmark](benchmarks/online-hyperparameter-adaptation.md).
 
 Adaptation is a research feature: a lower training loss is not evidence of
 stronger play, and neither is a successful adaptation run by itself. Compare

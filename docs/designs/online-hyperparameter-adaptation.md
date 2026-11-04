@@ -188,6 +188,10 @@ being validated). This implementation is intentionally conservative.
 
 ## Reproducible benchmark instructions
 
+The measured controller overhead on a tiny CPU smoke budget is recorded in the
+[online adaptation benchmark](../benchmarks/online-hyperparameter-adaptation.md)
+(~0.05 ms per decision, negligible against the evaluation it reads).
+
 The controller only adds a bounded decision at evaluation boundaries, so compare
 equal-budget runs and report the controller overhead separately:
 
