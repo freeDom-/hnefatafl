@@ -1,0 +1,1051 @@
+{
+  "protocol": "Post-review paired A/B. One SearchPool per worker count, warmed with both monitoring modes and reused; one off and one on sample per pair with the first arm reversed every pair. Fixed candidate/Champion snapshots and seeds. Evaluation workload: 16 games, 128 visits, 24-ply cap, 16 concurrency, batch 16. Self-play initial-active workload: 8 games, 64 visits, 16-ply cap, 8 concurrency, batch 8. This appends to training-evaluation-progress.json and does not replace it.",
+  "environment": {
+    "platform": "Linux-7.0.14-26-pve-x86_64-with-glibc2.41",
+    "python": "3.13.5 (main, Aug 10 2026, 12:06:59) [GCC 14.2.0]"
+  },
+  "evaluation": {
+    "before_main": {
+      "arms": [
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            22.6926,
+            21.4807,
+            20.743
+          ],
+          "median_seconds": 21.4807,
+          "progress_messages": [
+            0,
+            0,
+            0
+          ],
+          "inference_batches": [
+            7651,
+            7651,
+            7651
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            22.4596,
+            21.6142,
+            22.2096
+          ],
+          "median_seconds": 22.2096,
+          "progress_messages": [
+            7655,
+            7655,
+            7655
+          ],
+          "inference_batches": [
+            7651,
+            7651,
+            7651
+          ],
+          "messages_per_batch": [
+            1.000523,
+            1.000523,
+            1.000523
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            25.1186,
+            23.2094,
+            22.4438
+          ],
+          "median_seconds": 23.2094,
+          "progress_messages": [
+            0,
+            0,
+            0
+          ],
+          "inference_batches": [
+            14320,
+            14320,
+            14320
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            24.6225,
+            25.1103,
+            25.6265
+          ],
+          "median_seconds": 25.1103,
+          "progress_messages": [
+            14324,
+            14324,
+            14324
+          ],
+          "inference_batches": [
+            14320,
+            14320,
+            14320
+          ],
+          "messages_per_batch": [
+            1.000279,
+            1.000279,
+            1.000279
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": [
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "paired": [
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "pairs": 3,
+          "median_absolute_difference_seconds": 0.1335,
+          "median_percentage_overhead": 0.6216,
+          "absolute_differences_seconds": [
+            -0.2331,
+            0.1335,
+            1.4665
+          ]
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "pairs": 3,
+          "median_absolute_difference_seconds": 1.9009,
+          "median_percentage_overhead": 8.1901,
+          "absolute_differences_seconds": [
+            -0.4962,
+            1.9009,
+            3.1827
+          ]
+        }
+      ]
+    },
+    "after_fix": {
+      "arms": [
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            21.4551,
+            22.1937,
+            20.326
+          ],
+          "median_seconds": 21.4551,
+          "progress_messages": [
+            0,
+            0,
+            0
+          ],
+          "inference_batches": [
+            7651,
+            7651,
+            7651
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            20.4172,
+            21.0694,
+            20.7877
+          ],
+          "median_seconds": 20.7877,
+          "progress_messages": [
+            52,
+            53,
+            51
+          ],
+          "inference_batches": [
+            7651,
+            7651,
+            7651
+          ],
+          "messages_per_batch": [
+            0.006796,
+            0.006927,
+            0.006666
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            22.9464,
+            23.7213,
+            22.7616
+          ],
+          "median_seconds": 22.9464,
+          "progress_messages": [
+            0,
+            0,
+            0
+          ],
+          "inference_batches": [
+            14320,
+            14320,
+            14320
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            22.2415,
+            22.5849,
+            23.9868
+          ],
+          "median_seconds": 22.5849,
+          "progress_messages": [
+            92,
+            95,
+            99
+          ],
+          "inference_batches": [
+            14320,
+            14320,
+            14320
+          ],
+          "messages_per_batch": [
+            0.006425,
+            0.006634,
+            0.006913
+          ],
+          "neural_evaluations": [
+            42539,
+            42539,
+            42539
+          ],
+          "work_hashes": [
+            "7b1fe4ebd54978d23253e1aa7ef1c8022b2a32a865dfec2164daebd4ff0b5334"
+          ],
+          "first_active_seconds": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "self_play",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            20.0979,
+            20.5788,
+            18.6318
+          ],
+          "median_seconds": 20.0979,
+          "progress_messages": [
+            0,
+            0,
+            0
+          ],
+          "inference_batches": [
+            6194,
+            6194,
+            6194
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            42926,
+            42926,
+            42926
+          ],
+          "work_hashes": [
+            "728f5ae63ca061f4e34ef8824c6239150453ca02ab18f28419d2261a69f1eea1"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "self_play",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            19.237,
+            18.7106,
+            19.0916
+          ],
+          "median_seconds": 19.0916,
+          "progress_messages": [
+            360,
+            360,
+            360
+          ],
+          "inference_batches": [
+            6194,
+            6194,
+            6194
+          ],
+          "messages_per_batch": [
+            0.058121,
+            0.058121,
+            0.058121
+          ],
+          "neural_evaluations": [
+            42926,
+            42926,
+            42926
+          ],
+          "work_hashes": [
+            "728f5ae63ca061f4e34ef8824c6239150453ca02ab18f28419d2261a69f1eea1"
+          ],
+          "first_active_seconds": [
+            0.007826673041563481,
+            0.005161782959476113,
+            0.007288460968993604
+          ]
+        },
+        {
+          "kind": "self_play",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            22.0033,
+            22.1177,
+            21.2211
+          ],
+          "median_seconds": 22.0033,
+          "progress_messages": [
+            0,
+            0,
+            0
+          ],
+          "inference_batches": [
+            12386,
+            12386,
+            12386
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            42926,
+            42926,
+            42926
+          ],
+          "work_hashes": [
+            "728f5ae63ca061f4e34ef8824c6239150453ca02ab18f28419d2261a69f1eea1"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "self_play",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            22.2159,
+            21.1947,
+            21.5391
+          ],
+          "median_seconds": 21.5391,
+          "progress_messages": [
+            362,
+            362,
+            362
+          ],
+          "inference_batches": [
+            12386,
+            12386,
+            12386
+          ],
+          "messages_per_batch": [
+            0.029227,
+            0.029227,
+            0.029227
+          ],
+          "neural_evaluations": [
+            42926,
+            42926,
+            42926
+          ],
+          "work_hashes": [
+            "728f5ae63ca061f4e34ef8824c6239150453ca02ab18f28419d2261a69f1eea1"
+          ],
+          "first_active_seconds": [
+            0.009167782962322235,
+            0.008096090983599424,
+            0.009422585018910468
+          ]
+        }
+      ],
+      "paired": [
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "pairs": 3,
+          "median_absolute_difference_seconds": -1.0379,
+          "median_percentage_overhead": -4.8376,
+          "absolute_differences_seconds": [
+            -1.0379,
+            -1.1243,
+            0.4617
+          ]
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "pairs": 3,
+          "median_absolute_difference_seconds": -0.7049,
+          "median_percentage_overhead": -3.072,
+          "absolute_differences_seconds": [
+            -0.7049,
+            -1.1363,
+            1.2252
+          ]
+        }
+      ]
+    }
+  },
+  "self_play_initial_active": {
+    "before_pr50_prefix": {
+      "arms": [
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            4.5632,
+            5.5554
+          ],
+          "median_seconds": 5.0593,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            2099,
+            2099
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            4.0263,
+            4.5918
+          ],
+          "median_seconds": 4.309,
+          "progress_messages": [
+            15,
+            16
+          ],
+          "inference_batches": [
+            2099,
+            2099
+          ],
+          "messages_per_batch": [
+            0.007146,
+            0.007623
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": [
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            6.3588,
+            5.658
+          ],
+          "median_seconds": 6.0084,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            4179,
+            4179
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            5.4438,
+            5.5407
+          ],
+          "median_seconds": 5.4923,
+          "progress_messages": [
+            26,
+            26
+          ],
+          "inference_batches": [
+            4179,
+            4179
+          ],
+          "messages_per_batch": [
+            0.006222,
+            0.006222
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": [
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "self_play",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            4.6716,
+            4.3948
+          ],
+          "median_seconds": 4.5332,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            2082,
+            2082
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "self_play",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            4.2776,
+            4.9618
+          ],
+          "median_seconds": 4.6197,
+          "progress_messages": [
+            117,
+            117
+          ],
+          "inference_batches": [
+            2082,
+            2082
+          ],
+          "messages_per_batch": [
+            0.056196,
+            0.056196
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": [
+            0.3775200349627994,
+            0.3562635220005177
+          ]
+        },
+        {
+          "kind": "self_play",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            4.847,
+            5.4428
+          ],
+          "median_seconds": 5.1449,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            4163,
+            4163
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "self_play",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            4.5059,
+            5.1822
+          ],
+          "median_seconds": 4.844,
+          "progress_messages": [
+            117,
+            117
+          ],
+          "inference_batches": [
+            4163,
+            4163
+          ],
+          "messages_per_batch": [
+            0.028105,
+            0.028105
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": [
+            0.2251672629499808,
+            0.23801569099305198
+          ]
+        }
+      ],
+      "first_active_seconds": [
+        0.3775200349627994,
+        0.3562635220005177,
+        0.2251672629499808,
+        0.23801569099305198
+      ],
+      "first_tick_seconds": [
+        0.37751104694325477,
+        0.356257044011727,
+        0.2251583649776876,
+        0.23800882196519524
+      ]
+    },
+    "after_fix": {
+      "arms": [
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            4.2229,
+            5.2967
+          ],
+          "median_seconds": 4.7598,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            2099,
+            2099
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            4.443,
+            4.9857
+          ],
+          "median_seconds": 4.7143,
+          "progress_messages": [
+            16,
+            16
+          ],
+          "inference_batches": [
+            2099,
+            2099
+          ],
+          "messages_per_batch": [
+            0.007623,
+            0.007623
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": [
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            6.4845,
+            6.6471
+          ],
+          "median_seconds": 6.5658,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            4179,
+            4179
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "evaluation",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            5.7252,
+            6.3024
+          ],
+          "median_seconds": 6.0138,
+          "progress_messages": [
+            27,
+            30
+          ],
+          "inference_batches": [
+            4179,
+            4179
+          ],
+          "messages_per_batch": [
+            0.006461,
+            0.007179
+          ],
+          "neural_evaluations": [
+            8318,
+            8318
+          ],
+          "work_hashes": [
+            "518edcf4527e2901f1d0d110ee1ab855651e23702ab585a5ec3acf5558286ba6"
+          ],
+          "first_active_seconds": [
+            null,
+            null
+          ]
+        },
+        {
+          "kind": "self_play",
+          "workers": 2,
+          "monitor": "off",
+          "samples": [
+            4.3543,
+            4.0514
+          ],
+          "median_seconds": 4.2028,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            2082,
+            2082
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "self_play",
+          "workers": 2,
+          "monitor": "on",
+          "samples": [
+            3.9091,
+            4.9187
+          ],
+          "median_seconds": 4.4139,
+          "progress_messages": [
+            119,
+            119
+          ],
+          "inference_batches": [
+            2082,
+            2082
+          ],
+          "messages_per_batch": [
+            0.057157,
+            0.057157
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": [
+            0.005181557033210993,
+            0.006036976003088057
+          ]
+        },
+        {
+          "kind": "self_play",
+          "workers": 4,
+          "monitor": "off",
+          "samples": [
+            5.2256,
+            5.4249
+          ],
+          "median_seconds": 5.3252,
+          "progress_messages": [
+            0,
+            0
+          ],
+          "inference_batches": [
+            4163,
+            4163
+          ],
+          "messages_per_batch": [
+            0.0,
+            0.0
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": []
+        },
+        {
+          "kind": "self_play",
+          "workers": 4,
+          "monitor": "on",
+          "samples": [
+            5.0647,
+            5.5343
+          ],
+          "median_seconds": 5.2995,
+          "progress_messages": [
+            121,
+            121
+          ],
+          "inference_batches": [
+            4163,
+            4163
+          ],
+          "messages_per_batch": [
+            0.029066,
+            0.029066
+          ],
+          "neural_evaluations": [
+            6893,
+            6893
+          ],
+          "work_hashes": [
+            "71854ac32d4dcf9049c9ebe7ffebcda621db4d1ecdbed798c8eb54730de00fca"
+          ],
+          "first_active_seconds": [
+            0.017853924015071243,
+            0.015646777988877147
+          ]
+        }
+      ],
+      "first_active_seconds": [
+        0.005181557033210993,
+        0.006036976003088057,
+        0.017853924015071243,
+        0.015646777988877147
+      ],
+      "first_tick_seconds": [
+        0.2692325580283068,
+        0.29510434705298394,
+        0.26686801499454305,
+        0.300551999011077
+      ]
+    }
+  }
+}

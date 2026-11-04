@@ -152,10 +152,12 @@ per-position counters the in-process path ticks, but into an actor-local accumul
 that batches them into bounded messages. Self-play ticks once per played move, so it
 flushes each tick and keeps its existing per-move cadence. Evaluation ticks once per
 neural batch, which a CPU or GPU evaluator can complete thousands of times per second;
-it reports on a wall-clock cadence instead (at most one message per second, with a
-generous 16,384-leaf work cap as a safety bound), so message volume tracks elapsed
-time rather than forward passes. The parent applies each batch as a delta, drops a
-message whose per-worker sequence it has already seen, and lets a completion
+it reports on a nominal one-second wall-clock interval instead, so message volume
+tracks elapsed time rather than forward passes. This is not a strict rate limit:
+the 16,384-leaf work cap can fire earlier during a fast burst, and game completion,
+slice end, cancellation and failure flush immediately, so multiple messages can
+legitimately arrive within one second. The parent applies each batch as a delta,
+drops a message whose per-worker sequence it has already seen, and lets a completion
 contribute only its own completion counter, so nothing is counted twice and the
 dashboard advances during a long game instead of waiting for it to end. A
 counter-free message that only carries an active-game count never marks computational
@@ -166,9 +168,11 @@ the actor's live active-game count, which the parent sums across workers. With
 Earlier pool builds flushed the accumulator after every cooperative scheduler step.
 Because evaluation ticked once per inference batch and the scheduler stepped once per
 batch, that produced one progress message per forward pass regardless of the batching
-bounds. The refill callback now only records the active-game count; the next tick or
-lifecycle boundary flushes it, and a cancelled or failed slice flushes its confirmed
-counters before propagating the error. The per-message trigger reason and the time
+bounds. The refill callback now only records the active-game count; a first self-play
+refill announces the initial active contexts before the first expensive move, and
+later refills leave the count to the next tick or lifecycle boundary. A cancelled or
+failed slice flushes its confirmed counters before propagating the error. The
+per-message trigger reason and the time
 spent sending and handling messages are reported as bounded phase metrics. See
 [the evaluation progress measurements](benchmarks/training-evaluation-progress.md).
 
