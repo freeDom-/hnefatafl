@@ -3,6 +3,8 @@ import { api, apiFetch } from './api';
 import type { DeviceInfo, Job, Model, Ruleset, TrainingWorker } from './types';
 import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
+import StudyDeletionDialog from './StudyDeletionDialog';
+import { useAuth } from './Auth';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
@@ -74,6 +76,7 @@ export default function Training({
   onGamesDeleted?: (ids: string[]) => void;
 }) {
   const { locale } = useI18n();
+  const { account } = useAuth();
   const [creationOpen, setCreationOpen] = useState<boolean | null>(null);
   const [modelsOpen, setModelsOpen] = useState<boolean | null>(null);
   const [workersOpen, setWorkersOpen] = useState(false);
@@ -100,6 +103,7 @@ export default function Training({
   const [renameModel, setRenameModel] = useState<Model | null>(null);
   const [renameJob, setRenameJob] = useState<Job | null>(null);
   const [deleteJob, setDeleteJob] = useState<Job | null>(null);
+  const [deleteStudyJob, setDeleteStudyJob] = useState<Job | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
   const [deleteJobError, setDeleteJobError] = useState('');
   const trainingForm = useRef<HTMLElement>(null);
@@ -1051,6 +1055,11 @@ export default function Training({
                     setDeleteJob(selectedJob);
                     setDeleteJobError('');
                   }}
+                  onDeleteStudy={
+                    account?.permissions.includes('training')
+                      ? () => setDeleteStudyJob(selectedJob)
+                      : undefined
+                  }
                   onRename={() => setRenameJob(selectedJob)}
                 />
               ) : (
@@ -1295,10 +1304,40 @@ export default function Training({
           </p>
           {deleteJob.kind === 'tune' && (
             <p>
-              {t('A study shared by other saved jobs must be kept until those jobs are removed.')}
+              {t(
+                'Shared studies may block individual deletion. Use “Delete entire tuning study” to review and remove the whole study.',
+              )}
             </p>
           )}
         </RecordsConfirm>
+      )}
+      {deleteStudyJob && account?.permissions.includes('training') && (
+        <StudyDeletionDialog
+          jobId={deleteStudyJob.id}
+          onClose={() => setDeleteStudyJob(null)}
+          onDeleted={(ids, cleanupPending) => {
+            refreshRevision.current++;
+            for (const id of ids) {
+              detailControllers.current.get(id)?.abort();
+              detailControllers.current.delete(id);
+              detailRequests.current.delete(id);
+              summaries.current.delete(id);
+              observedJobs.current?.delete(id);
+            }
+            setJobs((previous) => previous.filter((job) => !ids.includes(job.id)));
+            if (currentSelection.current && ids.includes(currentSelection.current.id))
+              selectJob(null);
+            setDeleteStudyJob(null);
+            setNotice(
+              t(
+                cleanupPending
+                  ? 'Study deleted. Remaining quarantined files will be cleaned up on the next deletion preview or server restart.'
+                  : 'Study and contributing tuning jobs deleted. Source jobs, registered models and saved game history have been kept.',
+              ),
+            );
+            void refresh().catch((error: Error) => onError(error.message));
+          }}
+        />
       )}
       {resumeJob && (
         <TrainingResumeDialog

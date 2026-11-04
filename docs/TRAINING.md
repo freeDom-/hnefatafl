@@ -396,6 +396,13 @@ covers rename, load settings and separate deletion actions. For installation mov
 read [migration and backup](TRAINING_DATA.md#moving-data-between-installations):
 copying a job folder does not register it in the destination SQLite jobs table.
 
+Shared Optuna studies can form cycles between database owners and trial jobs.
+Administrators use **Delete entire tuning study** from an inactive member to
+preview and confirm all participating jobs. Source training jobs, registered
+models and saved games are kept; external checkpoint dependencies or live workers
+block deletion. See the same management guide for staging, rollback and restart
+recovery when filesystem cleanup is interrupted.
+
 ## Hyperparameter optimization
 
 ```sh

@@ -481,6 +481,22 @@ class Store:
                 raise ConflictError("Training job not found.")
             yield
 
+    def job_ids(self) -> set[str]:
+        with self.connection() as connection:
+            return {row["id"] for row in connection.execute("SELECT id FROM jobs")}
+
+    @contextmanager
+    def discard_jobs(self, job_ids: list[str]) -> Iterator[None]:
+        """Commit all study participants together, after directory staging."""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for identifier in job_ids:
+                if connection.execute("DELETE FROM jobs WHERE id=?", (identifier,)).rowcount != 1:
+                    raise ConflictError(
+                        "A participating training job changed; refresh the study preview."
+                    )
+            yield
+
     def jobs(self, *, statuses: tuple[str, ...] | None = None, summary: bool = False) -> list[dict]:
         if statuses is not None and not statuses:
             return []

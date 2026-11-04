@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 from contextlib import closing
@@ -302,6 +303,7 @@ def study_attributes(path: Path, study_name: str | None = None) -> list[tuple[st
     try:
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
             db.execute("PRAGMA trusted_schema=OFF")
+            db.execute("BEGIN")
             validate_study_schema(db, study_name)
             attributes = []
             for table in (
@@ -310,12 +312,14 @@ def study_attributes(path: Path, study_name: str | None = None) -> list[tuple[st
                 "trial_user_attributes",
                 "trial_system_attributes",
             ):
-                count, size = db.execute(
-                    f"SELECT COUNT(*),COALESCE(SUM(length(value_json)),0) FROM {table}"
+                count, size, longest_key = db.execute(
+                    f"SELECT COUNT(*),COALESCE(SUM(length(value_json)),0),COALESCE(MAX(length(key)),0) FROM {table}"
                 ).fetchone()
-                if count > 100000 or size > 16 * 1024 * 1024:
+                if count > 100000 or size > 16 * 1024 * 1024 or longest_key > 200:
                     raise ArchiveError("Optimization attributes exceed metadata limits.")
                 for key, encoded in db.execute(f"SELECT key,value_json FROM {table}"):
+                    if not isinstance(key, str) or not isinstance(encoded, str):
+                        raise ArchiveError("Optimization attributes have malformed types.")
                     value = json.loads(encoded)
                     validate_json(value)
                     attributes.append((key, value))
@@ -339,21 +343,18 @@ _REFERENCE_FIELDS = {
 }
 
 
-def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) -> list[dict]:
-    """Reverse references from retained studies, including inactive contributors.
+class StudyReferences:
+    """One bounded metadata snapshot for a deletion calculation, never weights."""
 
-    Inspect each owned SQLite database once, using only validated metadata. A
-    missing artifact still reserves its owner: deleting more files cannot repair
-    an incomplete study. Unknown/unsafe metadata fails closed before deletion.
-    """
-    from .job_archives import safe_name
+    def __init__(self, jobs_root: Path):
+        self.root = jobs_root
+        self.cached: dict[Path, dict] = {}
 
-    cached: dict[Path, tuple[str, set[str]]] = {}
-    dependencies = []
+    def owned(self, path: Path) -> str:
+        from .job_archives import safe_name
 
-    def owned(path: Path) -> str:
         try:
-            relative = path.relative_to(jobs_root)
+            relative = path.relative_to(self.root)
         except ValueError as error:
             raise ArchiveError("A retained study references data outside the job store.") from error
         safe_name(relative.as_posix())
@@ -363,45 +364,85 @@ def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) ->
             raise ArchiveError("A retained study reference contains a symlink.")
         return relative.parts[0]
 
-    def references(value: Any, base: Path, key: str = "") -> set[str]:
+    def paths(self, value: Any, base: Path, key: str = ""):
+        from .job_archives import safe_name
+
         if key in _REFERENCE_FIELDS and value is not None and not isinstance(value, str):
             raise ArchiveError("A retained study has a malformed checkpoint reference.")
         if isinstance(value, dict):
-            return set().union(*(references(child, base, name) for name, child in value.items()))
+            for name, child in value.items():
+                yield from self.paths(child, base, name)
+            return
         if isinstance(value, (list, tuple)):
-            return set().union(*(references(child, base, key) for child in value))
+            for child in value:
+                yield from self.paths(child, base, key)
+            return
         if not isinstance(value, str) or not value:
-            return set()
+            return
+        path = None
         if value.startswith("sqlite:///"):
-            return {owned(Path(value[10:]))}
-        if value.startswith("job://"):
+            path = Path(value[10:])
+        elif value.startswith("job://"):
             safe_name(value[6:])
-            return {owned(base / value[6:])}
-        match = re.fullmatch(r"([0-9a-f]{32}):(.+)", value)
-        if match:
+            path = base / value[6:]
+        elif match := re.fullmatch(r"([0-9a-f]{32}):(.+)", value):
             safe_name(match[2])
             if not artifact_name_for_study(match[2]):
                 raise ArchiveError("A retained study has an invalid checkpoint token.")
-            return {owned(jobs_root / match[1] / match[2])}
-        path = Path(value)
-        if path.is_absolute() and path.is_relative_to(jobs_root):
-            return {owned(path)}
-        if key in _REFERENCE_FIELDS:
-            if not path.is_absolute() and artifact_name_for_study(value):
-                safe_name(value)
-                return {owned(base / value)}
-            raise ArchiveError(
-                "A retained study has an unsafe or nonportable checkpoint reference."
-            )
-        return set()
+            path = self.root / match[1] / match[2]
+        elif Path(value).is_absolute() and Path(value).is_relative_to(self.root):
+            path = Path(value)
+        elif key in _REFERENCE_FIELDS:
+            if Path(value).is_absolute() or not artifact_name_for_study(value):
+                raise ArchiveError(
+                    "A retained study has an unsafe or nonportable checkpoint reference."
+                )
+            safe_name(value)
+            path = base / value
+        if path is not None:
+            self.owned(path)
+            yield path
 
-    for job in jobs:
-        if job["id"] == target_id or job.get("kind") != "tune":
-            continue
+    def owners(self, value: Any, base: Path, key: str = "") -> set[str]:
+        return {self.owned(path) for path in self.paths(value, base, key)}
+
+    def database(self, job: dict) -> Path:
+        directory = self.root / job["id"]
+        self.owned(directory)
+        config = job.get("config", {})
+        if not isinstance(config, dict):
+            raise ArchiveError("The retained study has malformed configuration.")
+        storage = config.get("storage", "sqlite:///" + str(directory / "study.sqlite3"))
+        if not isinstance(storage, str) or not storage.startswith("sqlite:///"):
+            raise ArchiveError("The retained study does not use owned SQLite storage.")
+        path = Path(storage[10:])
+        self.owned(path)
+        if path.name != "study.sqlite3" or path.parent.parent != self.root:
+            raise ArchiveError("The retained study database has an invalid owner.")
+        for suffix in ("-wal", "-shm", "-journal"):
+            self.owned(path.with_name(path.name + suffix))
+        return path
+
+    @staticmethod
+    def generation(database: Path) -> list:
+        # Include WAL replacement/writes as well as the main database file.
+        return [
+            [stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+            if (stat := path.stat() if path.exists() else None)
+            else None
+            for path in (database, database.with_name(database.name + "-wal"))
+        ]
+
+    def read(self, job: dict, *, database_override: Path | None = None) -> set[str]:
+        """Validate/cache the study, returning only this job row's references.
+
+        Study artifact owners remain shared in cached[database], avoiding a
+        copy per contributor when resolving group and reverse dependencies.
+        """
         label = f"{job.get('name') or 'study'} (job {job['id']})"
         try:
-            directory = jobs_root / job["id"]
-            owned(directory)
+            directory = self.root / job["id"]
+            self.owned(directory)
             config = job.get("config", {})
             if not isinstance(config, dict):
                 raise ArchiveError("The retained study has malformed configuration.")
@@ -409,26 +450,31 @@ def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) ->
             if any(not isinstance(report, dict) for report in reports):
                 raise ArchiveError("The retained study has malformed result metadata.")
             label = f"{job.get('name') or config.get('study_name', 'study')} (job {job['id']})"
-            owners = references(
-                {key: job.get(key) for key in ("config", "progress", "result")}, directory
+            owners = self.owners(
+                {key: job.get(key) for key in ("config", "progress", "result", "checkpoint")},
+                directory,
             )
-            storage = config.get("storage", "sqlite:///" + str(directory / "study.sqlite3"))
-            if not isinstance(storage, str) or not storage.startswith("sqlite:///"):
-                raise ArchiveError("The retained study does not use owned SQLite storage.")
-            database = Path(storage[10:])
-            owners.add(owned(database))
-            if database.name != "study.sqlite3" or database.parent.parent != jobs_root:
-                raise ArchiveError("The retained study database has an invalid owner.")
+            if job.get("kind") != "tune":
+                return owners
+            database = database_override or self.database(job)
+            owners.add(self.owned(database))
             if database.exists():
                 study_name = config.get("study_name", "hnefatafl")
-                if database not in cached:
+                if database not in self.cached:
+                    before = self.generation(database)
+                    attrs = study_attributes(database, study_name)
                     database_owners: set[str] = set()
-                    for key, value in study_attributes(database, study_name):
-                        database_owners.update(references(value, database.parent, key))
-                    cached[database] = (study_name, database_owners)
-                if cached[database][0] != study_name:
+                    for key, value in attrs:
+                        database_owners.update(self.owners(value, database.parent, key))
+                    if before != self.generation(database):
+                        raise ArchiveError(
+                            "Study metadata changed while reading it; stop its workers and retry."
+                        )
+                    self.cached[database] = dict(
+                        name=study_name, attrs=attrs, owners=database_owners, generation=before
+                    )
+                if self.cached[database]["name"] != study_name:
                     raise ArchiveError("Retained jobs disagree about the shared study name.")
-                owners.update(cached[database][1])
             elif config.get("storage") or any(
                 report.get("trials")
                 or report.get("completed_trials")
@@ -436,13 +482,233 @@ def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) ->
                 for report in reports
             ):
                 raise ArchiveError("The retained study database is missing.")
-            if target_id in owners:
-                dependencies.append({"id": job["id"], "name": label})
+            return owners
         except (ArchiveError, OSError, TypeError, KeyError) as error:
             raise ArchiveError(
                 f"Cannot establish dependencies of {label}: {error}. Repair or remove that study before deleting training data."
             ) from error
+
+
+def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) -> list[dict]:
+    """Reverse references from other retained studies, including inactive ones."""
+    index = StudyReferences(jobs_root)
+    dependencies = []
+    for job in jobs:
+        if job["id"] == target_id or job.get("kind") != "tune":
+            continue
+        direct = index.read(job)
+        stored = index.cached.get(index.database(job), {}).get("owners", set())
+        if target_id in direct or target_id in stored:
+            dependencies.append(
+                {
+                    "id": job["id"],
+                    "name": f"{job.get('name') or job.get('config', {}).get('study_name', 'study')} (job {job['id']})",
+                }
+            )
     return dependencies
+
+
+def study_deletion_group(
+    jobs: list[dict], jobs_root: Path, job_id: str, worker_alive
+) -> tuple[dict, StudyReferences]:
+    """Internal edges are allowed; incoming edges from any retained job block deletion."""
+    from .job_deletion import MAX_STUDY_JOBS
+
+    index = StudyReferences(jobs_root)
+    records = {job["id"]: job for job in jobs}
+    selected = records.get(job_id)
+    if not selected or selected.get("kind") != "tune":
+        raise ArchiveError("Select a saved tuning job to delete its entire study.")
+    # Read existing/explicit databases first. Historical contributor rows may
+    # omit storage, but immutable trial artifact_owner/checkpoint references can
+    # establish their group without treating a source dependency as membership.
+    declared = {}
+    for job in jobs:
+        if job.get("kind") == "tune":
+            path = index.database(job)
+            declared[job["id"]] = path
+            if path.exists() or job["config"].get("storage"):
+                index.read(job)
+    evidence: dict[str, set[Path]] = {}
+    for path, snapshot in index.cached.items():
+        for key, value in snapshot["attrs"]:
+            if key in {
+                "artifact_owner",
+                "checkpoint",
+                "trial_checkpoint",
+                "last_checkpoint",
+                "objective_checkpoint",
+                "best_checkpoint",
+            }:
+                for identifier in index.owners(value, path.parent, key):
+                    evidence.setdefault(identifier, set()).add(path)
+    references = {}
+    actual = dict(declared)
+    for job in jobs:
+        override = None
+        declared_path = declared.get(job["id"])
+        if (
+            declared_path is not None
+            and not declared_path.exists()
+            and not job["config"].get("storage")
+        ):
+            candidates = evidence.get(job["id"], set())
+            if len(candidates) > 1:
+                raise ArchiveError(
+                    f"Contributing job {job['id']} has ambiguous study ownership; repair its saved storage reference."
+                )
+            if candidates:
+                override = next(iter(candidates))
+                actual[job["id"]] = override
+        references[job["id"]] = index.read(job, database_override=override)
+    database = actual[job_id]
+    if database not in index.cached:
+        raise ArchiveError(
+            "The study database is missing; repair its metadata before deleting the study."
+        )
+    saved = index.cached[database]
+    owner = database.parent.name
+    group = {owner}
+    trial_directories: dict[str, set[str]] = {}
+    for key, value in saved["attrs"]:
+        if key == "artifact_owner" and value:
+            for path in index.paths(value, database.parent, key):
+                identifier = index.owned(path)
+                if path != jobs_root / identifier or not path.is_dir():
+                    raise ArchiveError(
+                        "A saved trial has an ambiguous artifact owner. Repair its study metadata first."
+                    )
+                group.add(identifier)
+            continue
+        if (
+            key
+            not in {
+                "checkpoint",
+                "trial_checkpoint",
+                "last_checkpoint",
+                "objective_checkpoint",
+                "best_checkpoint",
+            }
+            or not value
+        ):
+            continue
+        for path in index.paths(value, database.parent, key):
+            if not re.fullmatch(r"trial-\d{1,10}", path.parent.name) or path.name not in {
+                "best.pt",
+                "last.pt",
+                "objective.pt",
+            }:
+                raise ArchiveError(
+                    "A trial checkpoint has ambiguous study ownership. Repair its saved reference first."
+                )
+            if not path.is_file():
+                raise ArchiveError(
+                    f"A trial checkpoint is missing in job {index.owned(path)}; restore it or repair the study first."
+                )
+            identifier = index.owned(path)
+            group.add(identifier)
+            trial_directories.setdefault(identifier, set()).add(path.parent.name + "/")
+    for job in jobs:
+        if actual.get(job["id"]) == database:
+            group.add(job["id"])
+    if job_id not in group:
+        raise ArchiveError("The selected job does not belong to the saved study.")
+    if len(group) > MAX_STUDY_JOBS:
+        raise ArchiveError(
+            "Study deletion exceeds the bounded job-count limit; administrator maintenance is required."
+        )
+    for identifier in group:
+        participant = records.get(identifier)
+        if not participant or participant.get("kind") != "tune":
+            raise ArchiveError(
+                f"Cannot establish the contributing tuning job {identifier}; restore its job record first."
+            )
+        if actual.get(identifier) != database:
+            raise ArchiveError(
+                f"Contributing job {identifier} belongs to a different study. Repair its ownership before deleting."
+            )
+        if participant["config"].get("study_name", "hnefatafl") != saved["name"]:
+            raise ArchiveError(f"Contributing job {identifier} has a conflicting study name.")
+        directory = jobs_root / identifier
+        if not directory.is_dir():
+            raise ArchiveError(f"Contributing job {identifier} has a missing artifact directory.")
+        # Walk metadata only. Never follow links, inspect tensor payloads or hash weights.
+        for path in directory.rglob("*"):
+            index.owned(path)
+    affected = [
+        {
+            "id": identifier,
+            "name": records[identifier].get("name") or saved["name"],
+            "status": records[identifier]["status"],
+            "worker_alive": worker_alive(records[identifier]),
+            "directory": f"jobs/{identifier}/",
+            "trial_directories": sorted(trial_directories.get(identifier, set())),
+        }
+        for identifier in sorted(group)
+    ]
+    # A shared database can reference thousands of contributors. Keep one owner
+    # set per database, rather than copying that set into every job (quadratic
+    # memory). The preview names every external job and bounds diagnostic edges.
+    overlaps = {path: snapshot["owners"] & group for path, snapshot in index.cached.items()}
+    overlap_samples = {path: sorted(owners)[:20] for path, owners in overlaps.items()}
+    external = []
+    for job in jobs:
+        if job["id"] in group:
+            continue
+        external_database = actual.get(job["id"])
+        stored = overlaps.get(external_database, set()) if external_database is not None else set()
+        extra = (references[job["id"]] & group) - stored
+        count = len(stored) + len(extra)
+        if not count:
+            continue
+        external.append(
+            {
+                "id": job["id"],
+                "name": job.get("name")
+                or job.get("config", {}).get("study_name")
+                or "Training job",
+                "kind": job["kind"],
+                "status": job["status"],
+                "artifact_job_ids": sorted(
+                    overlap_samples.get(external_database, []) + list(extra)
+                )[:20]
+                if external_database is not None
+                else sorted(extra)[:20],
+                "artifact_job_count": count,
+            }
+        )
+    reasons = [
+        f"Job {job['id']} is active or has a live worker. Stop it before deleting the study."
+        for job in affected
+        if job["status"] not in {"completed", "cancelled", "failed"} or job["worker_alive"]
+    ]
+    reasons += [
+        f"External job {job['name']} ({job['id']}) depends on this study's checkpoints. Remove or rebase that dependency first."
+        for job in external
+    ]
+    identities = [value for key, value in saved["attrs"] if key == "hnefatafl_identity"]
+    identity = (
+        hashlib.sha256(json.dumps(identities[0], sort_keys=True).encode()).hexdigest()
+        if identities
+        else None
+    )
+    preview = dict(
+        study_name=saved["name"],
+        study_identity=identity,
+        owner_job_id=owner,
+        jobs=affected,
+        preserved_source_job_ids=sorted(
+            (saved["owners"] | set().union(*(references[identifier] for identifier in group)))
+            - group
+        ),
+        external_dependencies=external,
+        blocked_reasons=reasons,
+        can_delete=not reasons,
+    )
+    preview["confirmation_token"] = hashlib.sha256(
+        json.dumps([preview, saved["generation"], saved["attrs"]], sort_keys=True).encode()
+    ).hexdigest()
+    return preview, index
 
 
 def frozen_study_dependencies(config: dict, database: Path) -> dict[str, str]:

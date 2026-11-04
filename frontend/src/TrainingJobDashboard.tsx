@@ -38,6 +38,7 @@ interface Props {
   onExport: () => void;
   onRefresh: () => void;
   onDelete: () => void;
+  onDeleteStudy?: () => void;
   onRename: () => void;
   onUseParameters: () => void;
   onTuneCheckpoint: () => void;
@@ -61,6 +62,7 @@ export default function TrainingJobDashboard({
   onExport,
   onRefresh,
   onDelete,
+  onDeleteStudy,
   onRename,
   onUseParameters,
   onTuneCheckpoint,
@@ -194,6 +196,15 @@ export default function TrainingJobDashboard({
           {!activeJob(job) && (
             <button className="button secondary small danger-text" onClick={onDelete}>
               {t('Delete training data')}
+            </button>
+          )}
+          {!activeJob(job) && job.kind === 'tune' && onDeleteStudy && (
+            <button
+              className="button secondary small danger-text"
+              disabled={busy}
+              onClick={onDeleteStudy}
+            >
+              {t('Delete entire tuning study')}
             </button>
           )}
           <button className="text-button" onClick={onRefresh}>

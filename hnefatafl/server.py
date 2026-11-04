@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -344,6 +345,11 @@ def create_app(
     (root / "jobs").mkdir(exist_ok=True)
     (root / "models").mkdir(exist_ok=True)
     store = Store(root / "hnefatafl.sqlite3")
+    from .job_deletion import StudyDeletion
+
+    study_deletion = StudyDeletion(root / "jobs", store)
+    study_deletion.recover()
+    app.state.study_deletion = study_deletion
     from .tournaments import TournamentManager
 
     tournaments = TournamentManager(store, root)
@@ -1992,6 +1998,11 @@ def create_app(
         )
 
     def job_path(identifier: str) -> Path:
+        if study_deletion.recovery_required:
+            fail(
+                "Interrupted study deletion needs recovery. Retry its deletion preview or restart after repairing filesystem access.",
+                503,
+            )
         # Identifiers are server-generated hex; this also protects reads from URL traversal.
         if len(identifier) != 32 or any(c not in "0123456789abcdef" for c in identifier):
             fail("Training job not found.", 404)
@@ -2247,7 +2258,11 @@ def create_app(
 
     def job_worker_alive(job: dict) -> bool:
         if job.get("execution") == "remote":
-            return job["status"] in {"running", "cancelling"}
+            return job["status"] in {"running", "cancelling"} or bool(
+                job.get("lease_hash")
+                and not job.get("finish_received")
+                and job.get("lease_expires", 0) > time.time()
+            )
         process = processes.get(job["id"])
         if process is not None:
             return process.poll() is None
@@ -2261,6 +2276,88 @@ def create_app(
             )
         except OSError:
             return False
+
+    def study_preview_locked(job_id: str):
+        from .job_studies import study_deletion_group
+
+        study_deletion.recover()
+        job_path(job_id)
+        jobs = store.jobs()
+        if not any(job["id"] == job_id for job in jobs):
+            fail("Training job not found.", 404)
+        return study_deletion_group(jobs, root / "jobs", job_id, job_worker_alive)
+
+    @app.get("/api/training/jobs/{job_id}/study-deletion-preview")
+    def preview_study_deletion(job_id: str):
+        import sqlite3
+        from .job_archives import ArchiveError
+
+        with job_lock, catalog_lock:
+            try:
+                preview, _ = study_preview_locked(job_id)
+                return preview
+            except ArchiveError as error:
+                fail(str(error), 409)
+            except (KeyError, TypeError):
+                fail(
+                    "Study job metadata is incomplete. Repair the saved records before deleting this study.",
+                    409,
+                )
+            except (OSError, sqlite3.Error):
+                fail(
+                    "Study deletion recovery or artifact inspection failed. Repair filesystem access and retry.",
+                    503,
+                )
+
+    @app.delete("/api/training/jobs/{job_id}/study")
+    def delete_study(job_id: str, confirmation_token: str = Query(..., pattern=r"^[0-9a-f]{64}$")):
+        import sqlite3
+        from .job_archives import ArchiveError
+        from .training_identity import study_lease
+
+        with job_lock, catalog_lock:
+            try:
+                preview, index = study_preview_locked(job_id)
+                if not preview["can_delete"]:
+                    fail(" ".join(preview["blocked_reasons"]), 409)
+                if not secrets.compare_digest(confirmation_token, preview["confirmation_token"]):
+                    fail(
+                        "The study deletion scope changed. Refresh the preview and confirm the affected jobs again.",
+                        409,
+                    )
+                # Same CLI lease as training/export. The calculation reads each
+                # database once; generation guards reject a concurrent writer
+                # rather than re-reading and silently enlarging confirmed scope.
+                database = next(
+                    path for path in index.cached if path.parent.name == preview["owner_job_id"]
+                )
+                with study_lease(
+                    {"storage": "sqlite:///" + str(database), "output_dir": str(database.parent)}
+                ):
+                    if index.cached[database]["generation"] != index.generation(database):
+                        fail(
+                            "Study metadata changed. Refresh its deletion preview before confirming again.",
+                            409,
+                        )
+                    identifiers = [job["id"] for job in preview["jobs"]]
+                    cleanup_pending = study_deletion.delete(identifiers)
+                for identifier in identifiers:
+                    processes.pop(identifier, None)
+                return {"deleted": True, "job_ids": identifiers, "cleanup_pending": cleanup_pending}
+            except ArchiveError as error:
+                fail(str(error), 409 if not study_deletion.recovery_required else 503)
+            except (KeyError, TypeError):
+                fail(
+                    "Study job metadata is incomplete. Repair the saved records before deleting this study.",
+                    409,
+                )
+            except ValueError as error:
+                fail(str(error), 409)
+            except (OSError, sqlite3.Error):
+                fail(
+                    "Study deletion could not finish. Preserved or quarantined data will be recovered when the preview is retried or the server restarts.",
+                    503,
+                )
 
     @app.delete("/api/training/jobs/{job_id}")
     def delete_training_job(job_id: str):

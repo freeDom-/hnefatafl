@@ -1,4 +1,31 @@
 const translations: Record<string, string> = {
+  'Delete entire tuning study': 'Gesamte Optimierungsstudie löschen',
+  'Delete entire tuning study?': 'Gesamte Optimierungsstudie löschen?',
+  'Delete entire study': 'Gesamte Studie löschen',
+  'Permanently delete this study and every listed tuning job? This cannot be undone.':
+    'Diese Studie und alle aufgeführten Optimierungsaufträge dauerhaft löschen? Dies kann nicht rückgängig gemacht werden.',
+  'Loading study deletion preview…': 'Löschvorschau für die Studie wird geladen…',
+  'Study owner': 'Studieneigentümer',
+  'Study identity': 'Studienidentität',
+  'Legacy identity unavailable': 'Identität der Altstudie nicht verfügbar',
+  'All files in these directories will be removed, including the study database, trial checkpoints, replay buffers, results, history and logs.':
+    'Alle Dateien in diesen Verzeichnissen werden entfernt, einschließlich Studiendatenbank, Versuchsprüfpunkten, Erfahrungsspeichern, Ergebnissen, Verlauf und Protokollen.',
+  'Source training jobs, registered models, saved games and tournaments are kept.':
+    'Ursprüngliche Trainingsaufträge, registrierte Modelle, gespeicherte Spiele und Turniere bleiben erhalten.',
+  'Preserved source jobs': 'Erhaltene Quellaufträge',
+  'Affected tuning jobs': 'Betroffene Optimierungsaufträge',
+  'External checkpoint dependencies': 'Externe Prüfpunktabhängigkeiten',
+  'Worker still active; stop it before deletion.': 'Worker noch aktiv; vor dem Löschen stoppen.',
+  'Stop participating jobs and remove or rebase external checkpoint dependencies before deleting this study.':
+    'Vor dem Löschen dieser Studie beteiligte Aufträge stoppen und externe Prüfpunktabhängigkeiten entfernen oder auf andere Prüfpunkte umstellen.',
+  'I confirm deletion of the entire study and all listed tuning jobs.':
+    'Ich bestätige das Löschen der gesamten Studie und aller aufgeführten Optimierungsaufträge.',
+  'Study deleted. Remaining quarantined files will be cleaned up on the next deletion preview or server restart.':
+    'Studie gelöscht. Verbleibende Dateien im Quarantäneverzeichnis werden bei der nächsten Löschvorschau oder beim Serverneustart bereinigt.',
+  'Study and contributing tuning jobs deleted. Source jobs, registered models and saved game history have been kept.':
+    'Studie und beteiligte Optimierungsaufträge gelöscht. Quellaufträge, registrierte Modelle und gespeicherte Spielverläufe bleiben erhalten.',
+  'Shared studies may block individual deletion. Use “Delete entire tuning study” to review and remove the whole study.':
+    'Gemeinsam genutzte Studien können das Löschen einzelner Aufträge verhindern. Mit „Gesamte Optimierungsstudie löschen“ die gesamte Studie prüfen und entfernen.',
   skipped_no_winner: 'Übersprungen: kein Gewinner',
   'Relative contribution to Optuna’s aggregate score. Weights are normalized by their total; larger weights make an opponent more influential. They do not change evaluation game counts. Every trial uses the same configured weights.':
     'Relativer Beitrag zum Optuna-Gesamtwert. Gewichte werden durch ihre Summe normalisiert; höhere Gewichte geben einem Gegner mehr Einfluss. Sie ändern nicht die Anzahl der Auswertungspartien. Jeder Versuch verwendet dieselben konfigurierten Gewichte.',

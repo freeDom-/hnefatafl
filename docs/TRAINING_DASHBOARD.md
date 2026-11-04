@@ -97,6 +97,18 @@ then resumes the job's full `last.pt` for the same target and the source
 checkpoint is left unchanged. Progress uses recorded iteration counts; the
 interface does not invent an ETA.
 
+For an inactive tuning job, administrators can choose **Delete entire tuning
+study** separately from **Delete training data**. The existing confirmation dialog
+loads a fresh preview of the study identity, database owner, all affected jobs and
+directories, and preserved source jobs. External checkpoint consumers and active
+workers disable confirmation. Review the irreversible removal and tick the
+explicit whole-study consent checkbox. A changed scope or API failure reloads the
+preview and clears consent; successful deletion refreshes the navigator and
+selection for every removed job. Source jobs, registered models and saved
+game/tournament history remain available. A cleanup-pending notice explains retry
+on the next deletion preview or restart; see
+[recovery details](TRAINING_DATA.md#managing-models-and-retained-training-data).
+
 **Rename job** edits the display name only, for active and inactive jobs alike.
 The dialog starts from the current name; saving persists a separate display field
 and refreshes the rail and header without a page reload, while cancelling keeps

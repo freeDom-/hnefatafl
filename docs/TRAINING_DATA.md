@@ -214,8 +214,49 @@ unreadable database or unsafe reference also blocks deletion until repaired or
 removed. The check reads bounded Optuna metadata, without loading model weights,
 and never automatically deletes dependent studies.
 
+For a study spanning several jobs, these references form a valid cycle: the owner
+holds the database, while later jobs hold trial artifacts. Administrators can
+choose **Delete entire tuning study** from any inactive member. The preview lists
+the database owner, study identity (when recorded), every contributing tuning job,
+their directories/statuses and external dependencies. Review it and explicitly
+confirm all listed jobs. A changed scope requires a fresh preview and confirmation.
+The operation removes their complete directories, including the SQLite study,
+trial/full/objective checkpoints, replay buffers, results, history and logs.
+Source training jobs, registered models, saved games and tournaments remain intact.
+
+Internal group references do not block whole-study deletion. References from
+**any retained external job**, including completed training continued from a
+winning checkpoint or another study's source, do block it with HTTP 409. Remove
+or explicitly rebase those dependencies first; deletion never cascades to them.
+To retain an external completed run/study while detaching its old paths, export
+and import it, verify its resumable checkpoints, then remove the original
+referencing jobs. The importer consolidates required source dependencies locally.
+Stop all participating jobs and workers first. Pending/queued jobs, actual local
+processes, unfinished remote leases and a held CLI study lease are protected.
+Unknown/corrupt metadata or unsafe/missing trial ownership must be repaired first;
+there is no force option. Individual-job deletion keeps its existing safeguards.
+
+Deletion uses the existing single API-worker job/catalog locks and study lease.
+Complete directories are renamed on the same filesystem into
+`jobs/.study-deletions/<operation-id>/` before one transaction removes all job rows.
+A durable `manifest.json` journals the participating UUIDs. Before commit, failure
+or restart restores quarantined directories; after commit, cleanup resumes there.
+If cleanup cannot reclaim files immediately, the API reports `cleanup_pending`
+and retries on the next deletion preview/operation or server startup. If rollback
+cannot restore data, training reads are blocked until recovery succeeds. Retry the
+preview after repairing filesystem access, or restart the server. Preserve the
+quarantine and journal; mixed records, conflicting paths or invalid journals need
+manual repair and fail closed. Filesystem and SQLite changes are recoverable,
+not one atomic transaction; power-loss recovery also depends on filesystem and
+storage durability. Stop unmanaged CLI writers before administrative cleanup.
+
 The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
 `DELETE /api/training/jobs/{id}`. These are separate from model deletion.
+Whole-study operations use administrator-only
+`GET /api/training/jobs/{id}/study-deletion-preview` and
+`DELETE /api/training/jobs/{id}/study?confirmation_token=<preview-token>`.
+Execution recalculates the group and dependencies under the locks; the preview
+token never grants permission to bypass those checks.
 
 ## Moving data between installations
 
