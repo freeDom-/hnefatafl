@@ -2,6 +2,14 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Custom single-player opponents, training help and parallel search (`0.35.0` preparation)
+
+The [0.35.0 release notes](releases/0.35.0.md#validation) identify the verified
+implementation tree, exact test counts and release-branch checks. They also cover
+the absent schema migration, the `search_workers` worker capability negotiation,
+the opt-in status of parallel search and the final tagged-main CI requirement.
+Historical evidence below keeps its original commit scope.
+
 ## Live training monitoring, fixed-role tournaments and training optimizations (`0.34.0` preparation)
 
 The [0.34.0 release notes](releases/0.34.0.md#validation) identify the verified
