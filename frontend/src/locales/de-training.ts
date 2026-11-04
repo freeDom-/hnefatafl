@@ -1,4 +1,8 @@
 const translations: Record<string, string> = {
+  skipped_no_winner: 'Übersprungen: kein Gewinner',
+  'Relative contribution to Optuna’s aggregate score. Weights are normalized by their total; larger weights make an opponent more influential. They do not change evaluation game counts. Every trial uses the same configured weights.':
+    'Relativer Beitrag zum Optuna-Gesamtwert. Gewichte werden durch ihre Summe normalisiert; höhere Gewichte geben einem Gegner mehr Einfluss. Sie ändern nicht die Anzahl der Auswertungspartien. Jeder Versuch verwendet dieselben konfigurierten Gewichte.',
+
   'Choose a fixed benchmark before starting tuning. Champion changes during training.':
     'Vor der Optimierung einen festen Benchmark wählen. Champion ändert sich während des Trainings.',
   'Historical objective policy: retained trial scores and rankings are shown unchanged. Further trials require verified study compatibility.':

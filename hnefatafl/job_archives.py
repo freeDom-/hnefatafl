@@ -512,16 +512,36 @@ def _export_job(job: dict, directory: Path, registry, output: Path, app_version:
                 for entry in job["config"].get("opponents", [])
                 if entry.get("opponent") == "frozen_model"
             }
+        frozen_pins = {}
+        if job["kind"] == "tune":
+            from .job_studies import frozen_study_dependencies
+
+            frozen_pins = frozen_study_dependencies(job["config"], staging / "study.sqlite3")
         models = []
         available = {entry["id"]: entry for entry in registry.list()}
         for identifier in sorted(references):
             entry = available.get(identifier)
             if not entry:
+                if identifier in frozen_pins:
+                    raise ArchiveError(
+                        f"Required frozen model {identifier} is missing from the registry; restore it before exporting this study."
+                    )
                 continue  # Deleted inference copies remain historical references only.
             name = f"models/{identifier}.pt"
             source = Path(entry["path"])
             if source.is_symlink() or not source.is_file():
+                if identifier in frozen_pins:
+                    raise ArchiveError(f"Required frozen model {identifier} is missing or unsafe.")
                 raise ArchiveError("An associated registered model is missing or unsafe.")
+            if identifier in frozen_pins:
+                from .job_studies import validate_frozen_artifact
+
+                validate_frozen_artifact(
+                    source,
+                    identifier,
+                    frozen_pins[identifier],
+                    job["config"]["training"]["ruleset"],
+                )
             write_checkpoint(source, staging / name)
             include(staging / name, name)
             models.append({"original_id": identifier, "file": name, "name": entry["name"]})
@@ -731,6 +751,21 @@ def import_job(
             migrate_study(
                 staging / "study.sqlite3", staging, study_name=record["config"]["study_name"]
             )
+        if record["kind"] == "tune":
+            from .job_studies import frozen_study_dependencies, validate_frozen_artifact
+
+            pins = frozen_study_dependencies(record["config"], staging / "study.sqlite3")
+            for model_id, expected in pins.items():
+                if model_id not in models:
+                    raise ArchiveError(
+                        f"Required frozen model {model_id} is missing from the archive."
+                    )
+                validate_frozen_artifact(
+                    staging / models[model_id]["file"],
+                    model_id,
+                    expected,
+                    record["config"]["training"]["ruleset"],
+                )
         identifier = uuid4().hex
         destination = jobs_root / identifier
         if destination.exists() or store.get_job(identifier):
@@ -774,6 +809,15 @@ def import_job(
                     if registered is None:
                         registered = registry.import_model(path, entry["name"])
                         portable_existing[sha256(path)] = registered
+                    if record["kind"] == "tune":
+                        # A catalog ID may already exist with damaged bytes. Do
+                        # not silently reuse it, or overwrite it during import.
+                        validate_frozen_artifact(
+                            Path(registered["path"]),
+                            old,
+                            pins[old],
+                            record["config"]["training"]["ruleset"],
+                        )
                     ids[old] = registered["id"]
                 # Always register an inference artifact, including jobs whose source
                 # catalog copy had been removed before export.

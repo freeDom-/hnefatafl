@@ -199,14 +199,18 @@ def test_delete_checks_live_worker_even_when_saved_status_is_stale(client, monke
 def test_delete_retains_shared_optimization_study_until_dependents_are_removed(client):
     source, directory = saved_job(client, kind="tune")
     database = directory / "study.sqlite3"
-    database.write_bytes(b"retained study")
+    import optuna
+
+    optuna.create_study(storage="sqlite:///" + str(database), study_name="hnefatafl")
+    before = database.read_bytes()
     dependent, other = saved_job(
         client, "b" * 32, kind="tune", config={"storage": "sqlite:///" + str(database)}
     )
     response = client.delete(f"/api/training/jobs/{source['id']}")
     assert response.status_code == 409
-    assert "dependent optimization job" in response.json()["detail"]
-    assert database.read_bytes() == b"retained study"
+    assert dependent["id"] in response.json()["detail"]
+    assert "dependent" in response.json()["detail"]
+    assert database.read_bytes() == before
     assert client.delete(f"/api/training/jobs/{dependent['id']}").status_code == 200
     assert not other.exists()
     assert database.is_file()

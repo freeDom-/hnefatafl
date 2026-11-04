@@ -146,8 +146,10 @@ def opponents_config(value: Any) -> list[dict]:
             raise ArchiveError("Optimization opponent weights must be between 0 and 1.")
         record: dict = {"opponent": opponent, "weight": float(weight)}
         if opponent == "frozen_model":
-            if set(entry) != {"opponent", "weight", "model_id"} or not model_id_pattern.fullmatch(
-                str(entry.get("model_id", ""))
+            if (
+                set(entry) != {"opponent", "weight", "model_id"}
+                or not isinstance(entry.get("model_id"), str)
+                or not model_id_pattern.fullmatch(entry["model_id"])
             ):
                 raise ArchiveError("A frozen neural opponent needs a registered model ID.")
             record["model_id"] = entry["model_id"]
@@ -271,6 +273,230 @@ def tuning_config(value: dict) -> dict:
     return result
 
 
+def validate_study_schema(db, study_name: str | None = None) -> None:
+    """Validate metadata reads without executing archive-supplied SQL objects."""
+    schema = db.execute(
+        "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    tables = {name for kind, name, _ in schema if kind == "table"}
+    if tables != TABLES or any(
+        kind not in {"table", "index"} or (sql and "VIRTUAL TABLE" in sql.upper())
+        for kind, _, sql in schema
+    ):
+        raise ArchiveError("Unsupported Optuna SQLite schema or executable database objects.")
+    if db.execute("PRAGMA quick_check(1)").fetchall() != [("ok",)]:
+        raise ArchiveError("The optimization study database is corrupt.")
+    if db.execute("SELECT schema_version FROM version_info").fetchall() != [(12,)]:
+        raise ArchiveError("Unsupported Optuna study schema version (expected 12).")
+    names = db.execute("SELECT study_name FROM studies").fetchall()
+    if len(names) != 1:
+        raise ArchiveError("Only a single job-owned Optuna study can be migrated.")
+    if study_name is not None and names != [(study_name,)]:
+        raise ArchiveError("Study name does not match the optimization job configuration.")
+
+
+def study_attributes(path: Path, study_name: str | None = None) -> list[tuple[str, Any]]:
+    """Bounded, read-only metadata; never deserialize neural checkpoints."""
+    if path.stat().st_size > 128 * 1024 * 1024:
+        raise ArchiveError("Optimization study exceeds the file size limit.")
+    try:
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
+            db.execute("PRAGMA trusted_schema=OFF")
+            validate_study_schema(db, study_name)
+            attributes = []
+            for table in (
+                "study_user_attributes",
+                "study_system_attributes",
+                "trial_user_attributes",
+                "trial_system_attributes",
+            ):
+                count, size = db.execute(
+                    f"SELECT COUNT(*),COALESCE(SUM(length(value_json)),0) FROM {table}"
+                ).fetchone()
+                if count > 100000 or size > 16 * 1024 * 1024:
+                    raise ArchiveError("Optimization attributes exceed metadata limits.")
+                for key, encoded in db.execute(f"SELECT key,value_json FROM {table}"):
+                    value = json.loads(encoded)
+                    validate_json(value)
+                    attributes.append((key, value))
+            return attributes
+    except (sqlite3.Error, ValueError) as error:
+        raise ArchiveError(
+            f"Cannot safely read the retained optimization study: {error}"
+        ) from error
+
+
+_REFERENCE_FIELDS = {
+    "resume",
+    "source_checkpoint",
+    "checkpoint",
+    "trial_checkpoint",
+    "last_checkpoint",
+    "best_checkpoint",
+    "best_trial_checkpoint",
+    "objective_checkpoint",
+    "artifact_owner",
+}
+
+
+def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) -> list[dict]:
+    """Reverse references from retained studies, including inactive contributors.
+
+    Inspect each owned SQLite database once, using only validated metadata. A
+    missing artifact still reserves its owner: deleting more files cannot repair
+    an incomplete study. Unknown/unsafe metadata fails closed before deletion.
+    """
+    from .job_archives import safe_name
+
+    cached: dict[Path, tuple[str, set[str]]] = {}
+    dependencies = []
+
+    def owned(path: Path) -> str:
+        try:
+            relative = path.relative_to(jobs_root)
+        except ValueError as error:
+            raise ArchiveError("A retained study references data outside the job store.") from error
+        safe_name(relative.as_posix())
+        if not re.fullmatch(r"[0-9a-f]{32}", relative.parts[0]):
+            raise ArchiveError("A retained study reference has no valid owning job.")
+        if any(part.is_symlink() for part in (*reversed(path.parents), path)):
+            raise ArchiveError("A retained study reference contains a symlink.")
+        return relative.parts[0]
+
+    def references(value: Any, base: Path, key: str = "") -> set[str]:
+        if key in _REFERENCE_FIELDS and value is not None and not isinstance(value, str):
+            raise ArchiveError("A retained study has a malformed checkpoint reference.")
+        if isinstance(value, dict):
+            return set().union(*(references(child, base, name) for name, child in value.items()))
+        if isinstance(value, (list, tuple)):
+            return set().union(*(references(child, base, key) for child in value))
+        if not isinstance(value, str) or not value:
+            return set()
+        if value.startswith("sqlite:///"):
+            return {owned(Path(value[10:]))}
+        if value.startswith("job://"):
+            safe_name(value[6:])
+            return {owned(base / value[6:])}
+        match = re.fullmatch(r"([0-9a-f]{32}):(.+)", value)
+        if match:
+            safe_name(match[2])
+            if not artifact_name_for_study(match[2]):
+                raise ArchiveError("A retained study has an invalid checkpoint token.")
+            return {owned(jobs_root / match[1] / match[2])}
+        path = Path(value)
+        if path.is_absolute() and path.is_relative_to(jobs_root):
+            return {owned(path)}
+        if key in _REFERENCE_FIELDS:
+            if not path.is_absolute() and artifact_name_for_study(value):
+                safe_name(value)
+                return {owned(base / value)}
+            raise ArchiveError(
+                "A retained study has an unsafe or nonportable checkpoint reference."
+            )
+        return set()
+
+    for job in jobs:
+        if job["id"] == target_id or job.get("kind") != "tune":
+            continue
+        label = f"{job.get('name') or 'study'} (job {job['id']})"
+        try:
+            directory = jobs_root / job["id"]
+            owned(directory)
+            config = job.get("config", {})
+            if not isinstance(config, dict):
+                raise ArchiveError("The retained study has malformed configuration.")
+            reports = [job.get(section) or {} for section in ("progress", "result")]
+            if any(not isinstance(report, dict) for report in reports):
+                raise ArchiveError("The retained study has malformed result metadata.")
+            label = f"{job.get('name') or config.get('study_name', 'study')} (job {job['id']})"
+            owners = references(
+                {key: job.get(key) for key in ("config", "progress", "result")}, directory
+            )
+            storage = config.get("storage", "sqlite:///" + str(directory / "study.sqlite3"))
+            if not isinstance(storage, str) or not storage.startswith("sqlite:///"):
+                raise ArchiveError("The retained study does not use owned SQLite storage.")
+            database = Path(storage[10:])
+            owners.add(owned(database))
+            if database.name != "study.sqlite3" or database.parent.parent != jobs_root:
+                raise ArchiveError("The retained study database has an invalid owner.")
+            if database.exists():
+                study_name = config.get("study_name", "hnefatafl")
+                if database not in cached:
+                    database_owners: set[str] = set()
+                    for key, value in study_attributes(database, study_name):
+                        database_owners.update(references(value, database.parent, key))
+                    cached[database] = (study_name, database_owners)
+                if cached[database][0] != study_name:
+                    raise ArchiveError("Retained jobs disagree about the shared study name.")
+                owners.update(cached[database][1])
+            elif config.get("storage") or any(
+                report.get("trials")
+                or report.get("completed_trials")
+                or report.get("failed_trials")
+                for report in reports
+            ):
+                raise ArchiveError("The retained study database is missing.")
+            if target_id in owners:
+                dependencies.append({"id": job["id"], "name": label})
+        except (ArchiveError, OSError, TypeError, KeyError) as error:
+            raise ArchiveError(
+                f"Cannot establish dependencies of {label}: {error}. Repair or remove that study before deleting training data."
+            ) from error
+    return dependencies
+
+
+def frozen_study_dependencies(config: dict, database: Path) -> dict[str, str]:
+    """Resolve required model pins from saved study evidence, never current weights."""
+    attrs = study_attributes(database, config.get("study_name", "hnefatafl"))
+    identities = [
+        value
+        for key, value in attrs
+        if key in {"hnefatafl_identity", "experiment_identity"} and isinstance(value, dict)
+    ]
+    expected = opponents_config(config.get("opponents"))
+    for identity in identities:
+        if "opponents" in identity and opponents_config(identity["opponents"]) != expected:
+            raise ArchiveError(
+                "Frozen opponent configuration conflicts with the saved study identity."
+            )
+    pins = {}
+    for entry in expected:
+        if entry["opponent"] != "frozen_model":
+            continue
+        identifier = entry["model_id"]
+        recorded = set()
+        for identity in identities:
+            frozen = identity.get("frozen_models", {})
+            if not isinstance(frozen, dict) or (
+                identifier in frozen and not isinstance(frozen[identifier], str)
+            ):
+                raise ArchiveError(f"Invalid pinned identity of frozen model {identifier}.")
+            if identifier in frozen:
+                recorded.add(frozen[identifier])
+        if len(recorded) != 1 or not re.fullmatch(r"[0-9a-f]{64}", next(iter(recorded), "")):
+            raise ArchiveError(
+                f"Cannot establish the pinned content identity of frozen model {identifier}."
+            )
+        pins[identifier] = recorded.pop()
+    return pins
+
+
+def validate_frozen_artifact(path: Path, identifier: str, expected: str, ruleset: str) -> None:
+    from .models import load_checkpoint
+    from .training_identity import content_digest
+
+    if any(part.is_symlink() for part in (*reversed(path.parents), path)) or not path.is_file():
+        raise ArchiveError(f"Required frozen model {identifier} is missing or unsafe.")
+    try:
+        model, _ = load_checkpoint(path)
+        if model.ruleset != ruleset:
+            raise ValueError("incompatible ruleset/board representation")
+        if content_digest(model.state_dict()) != expected:
+            raise ValueError("contents do not match the study's pinned identity")
+    except (ValueError, RuntimeError, OSError) as error:
+        raise ArchiveError(f"Invalid frozen model {identifier}: {error}.") from error
+
+
 def _migrate_study(
     path: Path,
     artifact_root: Path,
@@ -289,25 +515,7 @@ def _migrate_study(
     with closing(sqlite3.connect(path)) as db, db:
         db.execute("PRAGMA trusted_schema=OFF")
         db.execute("PRAGMA secure_delete=ON")
-        schema = db.execute(
-            "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
-        ).fetchall()
-        tables = {name for kind, name, _ in schema if kind == "table"}
-        if tables != TABLES or any(
-            kind not in {"table", "index"} or (sql and "VIRTUAL TABLE" in sql.upper())
-            for kind, _, sql in schema
-        ):
-            raise ArchiveError("Unsupported Optuna SQLite schema or executable database objects.")
-        if db.execute("PRAGMA quick_check(1)").fetchall() != [("ok",)]:
-            raise ArchiveError("The optimization study database is corrupt.")
-        if db.execute("SELECT schema_version FROM version_info").fetchall() != [(12,)]:
-            raise ArchiveError("Unsupported Optuna study schema version (expected 12).")
-        if study_name is not None and db.execute("SELECT study_name FROM studies").fetchall() != [
-            (study_name,)
-        ]:
-            raise ArchiveError("Study name does not match the optimization job configuration.")
-        if db.execute("SELECT COUNT(*) FROM studies").fetchone()[0] != 1:
-            raise ArchiveError("Only a single job-owned Optuna study can be migrated.")
+        validate_study_schema(db, study_name)
         if db.execute(
             "SELECT COUNT(*) FROM trials WHERE state NOT IN ('COMPLETE','PRUNED','FAIL')"
         ).fetchone()[0]:

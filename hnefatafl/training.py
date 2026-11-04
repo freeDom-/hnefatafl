@@ -2105,7 +2105,7 @@ def _tune(
             "source_seed": source_seed,
             "opponents": opponents,
             "verification": verification,
-            "verification_status": "not_requested" if not verification else "pending",
+            "verification_status": "not_requested" if not verification else "skipped_no_winner",
             "parameter_importance": parameter_importance(completed_trials),
             "experiment_identity": identity,
             "objective_policy": identity["objective"],

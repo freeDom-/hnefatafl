@@ -206,8 +206,13 @@ Select a saved job and choose **Delete training data** to remove its job record,
 checkpoints, replay state, progress and logs after confirmation. Registered model
 copies and existing game/tournament histories remain available. Deleting a source
 job removes the ability to resume that source checkpoint. Stop a running worker
-before deleting its data. Shared optimization study data remains protected while
-another saved job references it; remove dependent jobs first.
+before deleting its data. Retained optimization studies protect their source
+checkpoints, database owner and every contributing job's referenced trial/winner
+checkpoints, including after completion, failure or cancellation. Deletion returns
+HTTP 409 naming the dependent study/job; remove those dependencies first. An
+unreadable database or unsafe reference also blocks deletion until repaired or
+removed. The check reads bounded Optuna metadata, without loading model weights,
+and never automatically deletes dependent studies.
 
 The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
 `DELETE /api/training/jobs/{id}`. These are separate from model deletion.
@@ -264,6 +269,15 @@ snapshot; every contributing job must be inactive. The archive inventory checksu
 all artifacts. External database/checkpoint paths, missing required trial/source
 files, symlinks and executable SQLite objects are rejected explicitly.
 
+Every required frozen opponent must be present, loadable in the supported safe
+format, compatible with the study's ruleset and identical to its saved content pin.
+Export rejects missing, changed or unverifiable opponents and identifies the model;
+it cannot silently produce an incomplete portable study. Import checks the required
+model inventory and pins before publication, preserves model-ID rebasing and
+deduplication, and never replaces an existing registry file. A failed import rolls
+back newly registered models and job data. Ordinary training exports still allow
+missing historical inference copies.
+
 Import validates/stages the entire inventory, then consolidates artifact ownership
 under one fresh job ID and rebases all trial checkpoint references, configuration,
 source dependencies and immutable model references. Trial numbers, scores and
@@ -274,7 +288,10 @@ rather than being attributed to the new winner. Full `objective.pt`/`last.pt` fi
 optimizer, replay, RNG and training history. Only required frozen opponents are registered for tuning imports; legacy trial
 inference artifacts do not populate the permanent registry. Study content identity and resumption checks remain active.
 Ambiguous legacy studies can be imported for inspection/export, but cannot acquire
-compatibility from the new requested configuration.
+compatibility from the new requested configuration. Legacy frozen-opponent archives
+need reliable saved content pins to pass dependency validation; absent pins must
+not be inferred from whichever model is currently registered. Formats 1 and 2
+remain supported with that evidence.
 
 For example, export the most recent inactive resumed study job, import its ZIP,
 select **Resume study** to add comparable trials, or **Continue winning trial**

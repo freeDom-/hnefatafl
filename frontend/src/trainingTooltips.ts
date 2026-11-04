@@ -33,6 +33,8 @@ const additionalTuningIterations =
   'Extra training iterations each checkpoint-based trial runs on top of the source checkpoint\u2019s completed iteration. Every trial uses the same total, so hyperparameters are compared from one common state without modifying the source checkpoint.';
 
 export const trainingTooltips: Record<string, string> = {
+  opponent_weight:
+    'Relative contribution to Optuna’s aggregate score. Weights are normalized by their total; larger weights make an opponent more influential. They do not change evaluation game counts. Every trial uses the same configured weights.',
   // ── General ──────────────────────────────────────────────────────────────
   target:
     'Where the job runs: this server, any compatible remote worker, or one specific worker. Remote jobs wait in the queue until a matching worker has capacity. The target determines which training devices and inference backends are available.',

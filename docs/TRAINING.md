@@ -559,7 +559,10 @@ strong aggregate score can be checked independently instead of only re-read from
 the study objective. Verification runs after the optimization result is written
 with `best-config.json` and winning checkpoint references already durable.
 `verification_status` is `not_requested`, `pending`, `running`, `completed`,
-`failed` or `cancelled`. Errors are retained separately in `verification_error`;
+`failed`, `cancelled` or `skipped_no_winner`. If verification was requested but no
+trial completed successfully, it is skipped without loading a checkpoint; the
+optimization remains failed and trial errors remain available. Errors from an
+attempted verification are retained separately in `verification_error`;
 a failed/cancelled verification leaves completed optimization results usable.
 
 ### Failure handling

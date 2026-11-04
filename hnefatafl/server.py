@@ -2278,6 +2278,20 @@ def create_app(
                 fail("The saved training directory is not a safe local job directory.", 409)
             if directory.exists() and not directory.is_dir():
                 fail("The saved training directory is not a safe local job directory.", 409)
+            from .job_studies import study_job_dependencies
+            from .job_archives import ArchiveError
+
+            try:
+                dependencies = study_job_dependencies(store.jobs(), jobs_root, job_id)
+            except ArchiveError as error:
+                fail(str(error), 409)
+            if dependencies:
+                fail(
+                    "Retained optimization "
+                    + ", ".join(item["name"] for item in dependencies)
+                    + " depends on this job's training data. Remove its dependent study/job references before deleting these checkpoints.",
+                    409,
+                )
             for candidate in store.jobs():
                 if candidate["id"] == job_id:
                     continue

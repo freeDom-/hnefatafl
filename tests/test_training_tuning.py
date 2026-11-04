@@ -277,6 +277,9 @@ def test_held_out_verification_records_an_independent_score(tmp_path, stub, monk
     assert result["verification_result"]["opponent"] == "jarl"
     assert result["verification_result"]["seed"] == 123
     assert result["verification_result"]["games"] == 4
+    assert result["verification_status"] == "completed"
+    for name in ["progress.json", "result.json"]:
+        assert json.loads((tmp_path / "study" / name).read_text()) == result
 
 
 def test_result_json_and_best_config_are_persisted(tmp_path, stub):
@@ -495,8 +498,10 @@ def test_verification_failure_preserves_the_optimization_result(tmp_path, stub, 
     assert result["completed_trials"] == 1
     assert result["best_trial"] == 0
     assert result["verification_error"] == "verification unavailable"
+    assert result["verification_status"] == "failed"
     assert "verification_result" not in result
-    assert (tmp_path / "study" / "result.json").exists()
+    for name in ["progress.json", "result.json"]:
+        assert json.loads((tmp_path / "study" / name).read_text()) == result
 
 
 def test_winning_trial_checkpoint_is_persisted(tmp_path, stub):
@@ -568,3 +573,39 @@ def test_tuning_config_rejects_invalid_study_settings(changes):
     }
     with pytest.raises(ArchiveError):
         tuning_config(payload)
+
+
+@pytest.mark.parametrize("outcome", ["failed", "pruned"])
+@pytest.mark.parametrize("verify", [False, True])
+def test_no_winner_has_terminal_verification_state(tmp_path, monkeypatch, outcome, verify):
+    import optuna
+
+    def unsuccessful(*args, **kwargs):
+        if outcome == "pruned":
+            raise optuna.TrialPruned("No candidate")
+        raise RuntimeError("No trained candidate")
+
+    monkeypatch.setattr("hnefatafl.training.train", unsuccessful)
+    monkeypatch.setattr(
+        "hnefatafl.training.evaluate_model",
+        lambda *args, **kwargs: pytest.fail("No winner must never be verified"),
+    )
+    config = {
+        "trials": 2,
+        "output_dir": str(tmp_path / "study"),
+        "study_name": "No winner",
+        "training": training(),
+        "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+    }
+    if verify:
+        config["verification"] = {"games": 2, "seed": 1234}
+    result = tune(config)
+    assert result["status"] == "failed" and result["completed_trials"] == 0
+    assert result["verification_status"] == ("skipped_no_winner" if verify else "not_requested")
+    if outcome == "failed":
+        assert result["failed_trials"] == 2
+        assert all(row["error"] == "No trained candidate" for row in result["trials"])
+    else:
+        assert all(row["state"] == "PRUNED" for row in result["trials"])
+    for name in ["progress.json", "result.json"]:
+        assert json.loads((tmp_path / "study" / name).read_text()) == result

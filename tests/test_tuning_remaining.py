@@ -229,7 +229,8 @@ def test_verification_persists_optimization_before_any_cancellable_work(
     assert result["verification_status"] == (
         "cancelled" if isinstance(failure, InterruptedError) else "failed"
     )
-    assert json.loads((tmp_path / "study" / "result.json").read_text()) == result
+    for name in ["progress.json", "result.json"]:
+        assert json.loads((tmp_path / "study" / name).read_text()) == result
     assert (tmp_path / "study" / "best-config.json").is_file()
 
 

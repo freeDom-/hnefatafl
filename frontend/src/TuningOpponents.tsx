@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { FieldLabel } from './FieldTooltip';
 import { useI18n } from './i18n';
 import type { Model } from './types';
 import { modelOptionLabel } from './modelLabel';
@@ -114,9 +115,14 @@ export default function TuningOpponents({
                 </p>
               )}
             </div>
-            <label className="training-field">
-              {t('Opponent weight')} {index + 1}
+            <div className="training-field">
+              <FieldLabel
+                htmlFor={`${id}-weight-${index}`}
+                label={`${t('Opponent weight')} ${index + 1}`}
+                tooltipKey="opponent_weight"
+              />
               <input
+                id={`${id}-weight-${index}`}
                 type="number"
                 min="0.000001"
                 max="1"
@@ -134,7 +140,7 @@ export default function TuningOpponents({
                   )
                 }
               />
-            </label>
+            </div>
             <button
               type="button"
               className="button secondary small"
