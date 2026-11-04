@@ -1,4 +1,90 @@
 const translations: Record<string, string> = {
+  'Delete entire tuning study': 'Gesamte Optimierungsstudie löschen',
+  'Delete entire tuning study?': 'Gesamte Optimierungsstudie löschen?',
+  'Delete entire study': 'Gesamte Studie löschen',
+  'Permanently delete this study and every listed tuning job? This cannot be undone.':
+    'Diese Studie und alle aufgeführten Optimierungsaufträge dauerhaft löschen? Dies kann nicht rückgängig gemacht werden.',
+  'Loading study deletion preview…': 'Löschvorschau für die Studie wird geladen…',
+  'Study owner': 'Studieneigentümer',
+  'Study identity': 'Studienidentität',
+  'Legacy identity unavailable': 'Identität der Altstudie nicht verfügbar',
+  'All files in these directories will be removed, including the study database, trial checkpoints, replay buffers, results, history and logs.':
+    'Alle Dateien in diesen Verzeichnissen werden entfernt, einschließlich Studiendatenbank, Versuchsprüfpunkten, Erfahrungsspeichern, Ergebnissen, Verlauf und Protokollen.',
+  'Source training jobs, registered models, saved games and tournaments are kept.':
+    'Ursprüngliche Trainingsaufträge, registrierte Modelle, gespeicherte Spiele und Turniere bleiben erhalten.',
+  'Preserved source jobs': 'Erhaltene Quellaufträge',
+  'Affected tuning jobs': 'Betroffene Optimierungsaufträge',
+  'External checkpoint dependencies': 'Externe Prüfpunktabhängigkeiten',
+  'Worker still active; stop it before deletion.': 'Worker noch aktiv; vor dem Löschen stoppen.',
+  'Stop participating jobs and remove or rebase external checkpoint dependencies before deleting this study.':
+    'Vor dem Löschen dieser Studie beteiligte Aufträge stoppen und externe Prüfpunktabhängigkeiten entfernen oder auf andere Prüfpunkte umstellen.',
+  'I confirm deletion of the entire study and all listed tuning jobs.':
+    'Ich bestätige das Löschen der gesamten Studie und aller aufgeführten Optimierungsaufträge.',
+  'Study deleted. Remaining quarantined files will be cleaned up on the next deletion preview or server restart.':
+    'Studie gelöscht. Verbleibende Dateien im Quarantäneverzeichnis werden bei der nächsten Löschvorschau oder beim Serverneustart bereinigt.',
+  'Study and contributing tuning jobs deleted. Source jobs, registered models and saved game history have been kept.':
+    'Studie und beteiligte Optimierungsaufträge gelöscht. Quellaufträge, registrierte Modelle und gespeicherte Spielverläufe bleiben erhalten.',
+  'Shared studies may block individual deletion. Use “Delete entire tuning study” to review and remove the whole study.':
+    'Gemeinsam genutzte Studien können das Löschen einzelner Aufträge verhindern. Mit „Gesamte Optimierungsstudie löschen“ die gesamte Studie prüfen und entfernen.',
+  skipped_no_winner: 'Übersprungen: kein Gewinner',
+  'Relative contribution to Optuna’s aggregate score. Weights are normalized by their total; larger weights make an opponent more influential. They do not change evaluation game counts. Every trial uses the same configured weights.':
+    'Relativer Beitrag zum Optuna-Gesamtwert. Gewichte werden durch ihre Summe normalisiert; höhere Gewichte geben einem Gegner mehr Einfluss. Sie ändern nicht die Anzahl der Auswertungspartien. Jeder Versuch verwendet dieselben konfigurierten Gewichte.',
+
+  'Choose a fixed benchmark before starting tuning. Champion changes during training.':
+    'Vor der Optimierung einen festen Benchmark wählen. Champion ändert sich während des Trainings.',
+  'Historical objective policy: retained trial scores and rankings are shown unchanged. Further trials require verified study compatibility.':
+    'Historische Zielfunktion: Gespeicherte Versuchswerte und Rangfolgen werden unverändert angezeigt. Weitere Versuche erfordern nachgewiesene Studienkompatibilität.',
+  'Fixed evaluation opponents': 'Feste Auswertungsgegner',
+  'Optional weighted objective: evaluate each trial’s best new candidate against these fixed references. Registered model weights stay fixed; network sizes may differ.':
+    'Optionales gewichtetes Ziel: Den besten neuen Kandidaten jedes Versuchs gegen diese festen Referenzen auswerten. Registrierte Modellgewichte bleiben fest; Netzwerkgrößen dürfen sich unterscheiden.',
+  'Correct the optional study JSON to edit fixed opponents.':
+    'Das optionale Studien-JSON korrigieren, um feste Gegner zu bearbeiten.',
+  'Fixed opponent': 'Fester Gegner',
+  'Opponent weight': 'Gegnergewicht',
+  'Remove opponent': 'Gegner entfernen',
+  'Add fixed opponent': 'Festen Gegner hinzufügen',
+  'Select a compatible registered model or heuristic':
+    'Kompatibles registriertes Modell oder Heuristik auswählen',
+  'The selected frozen model is missing or has an incompatible battlefield.':
+    'Das ausgewählte feste Modell fehlt oder hat ein inkompatibles Schlachtfeld.',
+  'Optimization uses fixed references for comparable objectives. Champion evolves during training and is unavailable for tuning.':
+    'Die Optimierung nutzt feste Referenzen für vergleichbare Ziele. Champion verändert sich während des Trainings und steht für die Optimierung nicht zur Verfügung.',
+  'Frozen neural model': 'Festes neuronales Modell',
+  'Running optimization studies': 'Laufende Optimierungsstudien',
+  'Stop these studies before deleting their fixed opponent.':
+    'Diese Studien vor dem Löschen ihres festen Gegners stoppen.',
+  'Optuna objective score': 'Optuna-Zielwert',
+  'Best in-training benchmark score': 'Bester Benchmarkwert während des Trainings',
+  'Weighted aggregate score': 'Gewichteter Gesamtwert',
+  'Trial pages': 'Versuchsseiten',
+  'Locate winning trial': 'Gewinnenden Versuch anzeigen',
+  trials: 'Versuche',
+  'Optuna optimizes the objective score: the best newly evaluated candidate benchmark, or its weighted aggregate when fixed opponents are configured. Historical source scores are separate references.':
+    'Optuna optimiert den Zielwert: den besten neu ausgewerteten Kandidaten-Benchmark oder dessen gewichteten Gesamtwert bei konfigurierten festen Gegnern. Historische Quellwerte sind separate Referenzen.',
+  'The source benchmark is higher than the winning candidate benchmark. The objective still measures the newly trained candidate; the source remains unchanged.':
+    'Der Quell-Benchmark ist höher als der Benchmark des gewinnenden Kandidaten. Das Ziel misst weiterhin den neu trainierten Kandidaten; die Quelle bleibt unverändert.',
+  'Tuning charts': 'Optimierungsdiagramme',
+  'Trial objective scores': 'Zielwerte der Versuche',
+  'Best objective so far': 'Bisher bester Zielwert',
+  'Trial runtime comparisons': 'Laufzeitvergleich der Versuche',
+  'Parameter versus objective': 'Parameter gegen Zielwert',
+  'Exploratory parameter importance': 'Explorative Parameterwichtigkeit',
+  Seconds: 'Sekunden',
+  'Charts show completed objective values. Large studies are sampled for display; the trial table contains all observations.':
+    'Diagramme zeigen abgeschlossene Zielwerte. Große Studien werden zur Anzeige ausgedünnt; die Versuchstabelle enthält alle Beobachtungen.',
+  'Relative binned variance explained, with at least 20 completed trials. Exploratory associations can be confounded and do not establish causality or statistical significance.':
+    'Relativ erklärte Varianz in Gruppen ab mindestens 20 abgeschlossenen Versuchen. Explorative Zusammenhänge können verzerrt sein und belegen weder Kausalität noch statistische Signifikanz.',
+  'Importance requires at least 20 completed trials, varying parameters and varying objectives. Fewer observations are insufficient.':
+    'Die Wichtigkeit erfordert mindestens 20 abgeschlossene Versuche sowie unterschiedliche Parameter und Zielwerte. Weniger Beobachtungen reichen nicht aus.',
+  'Verification status': 'Verifizierungsstatus',
+  not_requested: 'Nicht angefordert',
+
+  'Parameter changes': 'Parameteränderungen',
+  'Optimized value': 'Optimierter Wert',
+  'Current value': 'Aktueller Wert',
+  'Review changes before continuing. Highlighted settings differ from the source checkpoint.':
+    'Änderungen vor dem Fortsetzen prüfen. Hervorgehobene Einstellungen unterscheiden sich vom Quellprüfpunkt.',
+
   'CPU search processes (0 disables)': 'CPU-Suchprozesse (0 deaktiviert)',
   'Import config.json': 'config.json importieren',
   'Importing configuration…': 'Konfiguration wird importiert…',
@@ -394,9 +480,16 @@ const translations: Record<string, string> = {
     'Anzahl der auszuführenden Optuna-Versuche. Jeder Versuch trainiert ein vollständiges Modell mit abgetasteten Hyperparametern, daher dauert ein Optimierungsauftrag viel länger als ein einzelner Trainingslauf. Wird eine gespeicherte Studie fortgesetzt, ist dies das zusätzliche Budget oberhalb ihrer abgeschlossenen Versuche.',
   'Name that identifies the Optuna study inside the job’s own study database. A new tuning job always starts a fresh database, so the same name alone does not continue an earlier study; continuing uses the saved job’s “Resume study” action. Must contain 1–100 characters.':
     'Name, der die Optuna-Studie innerhalb der eigenen Studien-Datenbank des Auftrags identifiziert. Ein neuer Optimierungsauftrag beginnt immer mit einer frischen Datenbank, daher setzt derselbe Name allein keine frühere Studie fort; zum Fortsetzen dient die Aktion „Studie fortsetzen“ des gespeicherten Auftrags. Muss 1–100 Zeichen enthalten.',
-  'Seed for the Optuna sampler, separate from the model’s random seed. Each trial’s model seed is derived from it, so the same study seed suggests the same parameters for a study with the same history, and a continued study keeps the saved seed.':
-    'Startwert für den Optuna-Sampler, getrennt vom Zufallsstartwert des Modells. Der Modellstartwert jedes Versuchs wird daraus abgeleitet, sodass derselbe Studienstartwert bei gleicher Vorgeschichte dieselben Parameter vorschlägt, und eine fortgesetzte Studie behält den gespeicherten Startwert.',
-  'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. The text is sent as the search space, so it must stay valid JSON.':
-    'JSON-Objekt, das beschreibt, welche Parameter Optuna abtastet und in welchen Bereichen. Nur optimierbare Trainingsparameter sind erlaubt, etwa Kanäle, Blöcke, Lernrate, Gewichtsverfall, Exploration, Temperatur, Stapelgröße, Epochen, MCTS-Iterationen und die Dirichlet-Werte; Auswertungs- und Champion-Einstellungen können nicht optimiert werden. Der Text wird als Suchraum übermittelt und muss daher gültiges JSON bleiben.',
+  'Seed for the Optuna sampler, separate from the model’s random seed. A fresh trial derives its model seed from the nested training seed (or this study seed when none is set), so the same inputs suggest the same parameters for a study with the same history, and a continued study keeps the saved seed.':
+    'Startwert für den Optuna-Sampler, getrennt vom Zufallsstartwert des Modells. Ein frischer Versuch leitet seinen Modellstartwert vom verschachtelten Trainingsstartwert ab (oder von diesem Studienstartwert, wenn keiner gesetzt ist), sodass dieselben Eingaben bei gleicher Vorgeschichte dieselben Parameter vorschlagen, und eine fortgesetzte Studie behält den gespeicherten Startwert.',
+  'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. Supported distributions are float (optional log), int (optional positive step, log requires step 1) and categorical choices. The text is sent as the search space, so it must stay valid JSON.':
+    'JSON-Objekt, das beschreibt, welche Parameter Optuna abtastet und in welchen Bereichen. Nur optimierbare Trainingsparameter sind erlaubt, etwa Kanäle, Blöcke, Lernrate, Gewichtsverfall, Exploration, Temperatur, Stapelgröße, Epochen, MCTS-Iterationen und die Dirichlet-Werte; Auswertungs- und Champion-Einstellungen können nicht optimiert werden. Unterstützte Verteilungen sind float (optional log), int (optional positiver step, log erfordert step 1) und kategorische Auswahl. Der Text wird als Suchraum übermittelt und muss daher gültiges JSON bleiben.',
+  'Optional JSON for advanced study settings: “opponents” is a weighted list of fixed references ({opponent, weight}, or {opponent: "frozen_model", model_id, weight}) for a multi-opponent objective, “verification” re-evaluates the winning checkpoint with a held-out seed ({games, seed, opponent}), “sampler”/“pruner” set TPE and median-pruner startup, and “max_failures” bounds consecutive failing trials. Leave empty for the default single-opponent objective.':
+    'Optionales JSON für erweiterte Studien-Einstellungen: „opponents“ ist eine gewichtete Liste fester Vergleichsgegner ({opponent, weight} oder {opponent: „frozen_model“, model_id, weight}) für ein Mehrgegner-Ziel, „verification“ bewertet den besten Prüfpunkt mit einem zurückgehaltenen Startwert erneut ({games, seed, opponent}), „sampler“/„pruner“ legen TPE- und Median-Pruner-Startphasen fest, und „max_failures“ begrenzt aufeinanderfolgende fehlgeschlagene Versuche. Leer lassen für das standardmäßige Einzelgegner-Ziel.',
+  'Extra training iterations each checkpoint-based trial runs on top of the source checkpoint’s completed iteration. Every trial uses the same total, so hyperparameters are compared from one common state without modifying the source checkpoint.':
+    'Zusätzliche Trainingsiterationen, die jeder prüfpunktbasierte Versuch oberhalb der abgeschlossenen Iteration des Quellprüfpunkts ausführt. Jeder Versuch nutzt dieselbe Gesamtzahl, sodass Hyperparameter von einem gemeinsamen Zustand aus verglichen werden, ohne den Quellprüfpunkt zu verändern.',
+  'Optional study settings (JSON)': 'Optionale Studien-Einstellungen (JSON)',
+  'Optional opponents, held-out verification, sampler/pruner startup and failure budget. Leave empty for the default single-opponent objective.':
+    'Optionale Gegner, zurückgehaltene Überprüfung, Sampler-/Pruner-Startphase und Fehlerbudget. Leer lassen für das standardmäßige Einzelgegner-Ziel.',
 };
 export default translations;

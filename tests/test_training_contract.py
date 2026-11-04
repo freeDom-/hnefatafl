@@ -183,6 +183,72 @@ def test_resume_names_the_fields_that_cannot_change(client):
     assert editable_only.status_code == 404
 
 
+def test_resume_study_conflicts_name_changed_identity_fields():
+    from hnefatafl.server import resume_study_conflicts
+
+    previous = {
+        "study_name": "saved",
+        "seed": 0,
+        "search_space": {"learning_rate": {"type": "float", "low": 0.001, "high": 0.002}},
+        "training": {"evaluation_opponent": "jarl", "channels": 4, "iterations": 4},
+    }
+    # Unchanged or omitted identity fields never conflict.
+    assert (
+        resume_study_conflicts(
+            {"study_name": "saved"},
+            {"evaluation_opponent": "jarl"},
+            {"evaluation_opponent": "jarl"},
+            previous,
+        )
+        == []
+    )
+    # A changed opponent is named with its nested path.
+    assert resume_study_conflicts(
+        {},
+        {"evaluation_opponent": "shield_maiden"},
+        {"evaluation_opponent": "shield_maiden"},
+        previous,
+    ) == ["training.evaluation_opponent"]
+    # A changed search space is named.
+    assert resume_study_conflicts(
+        {"search_space": {"learning_rate": {"type": "float", "low": 0.001, "high": 0.005}}},
+        {},
+        {},
+        previous,
+    ) == ["search_space"]
+    # Per-trial workload is fixed; only the additional trial count may change.
+    assert resume_study_conflicts(
+        {}, {"iterations": 8}, {"iterations": 8, "evaluation_opponent": "jarl"}, previous
+    ) == ["training.iterations"]
+    assert resume_study_conflicts({"trials": 8}, {}, {}, previous) == []
+
+
+def test_a_tuning_source_checkpoint_token_is_validated(client):
+    # The portable token is resolved before spawning, so a missing dependency is
+    # a clear client error instead of a failed worker.
+    response = launch(client, tune_payload(source_checkpoint=f"{'0' * 32}:last.pt"))
+    assert response.status_code == 400
+    assert client.get("/api/training/jobs").json() == []
+
+
+def test_a_tuning_trial_checkpoint_token_stays_inside_its_job(client):
+    # A `trial-N/last.pt` token resumes one study trial's full checkpoint, but
+    # only inside the owning job directory; escaping paths are refused before a
+    # process is spawned.
+    job_id = "0" * 32
+    for token in (
+        f"{job_id}:trial-0/last.pt",
+        f"{job_id}:../../etc/passwd/last.pt",
+        f"{job_id}:trial-0/not-a-checkpoint.pt",
+    ):
+        response = launch(
+            client,
+            tune_payload(training={**contract_training(preset="smoke"), "resume": token}),
+        )
+        assert response.status_code == 400, response.text
+    assert client.get("/api/training/jobs").json() == []
+
+
 def smoke_config(tmp_path, **changes) -> dict:
     from hnefatafl.training import normalize_config
 

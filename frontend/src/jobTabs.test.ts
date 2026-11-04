@@ -22,13 +22,15 @@ describe('job tabs', () => {
     expect(resolveJobTab('Learning', [])).toBe(defaultJobTab);
   });
 
-  it('exposes every analysis tab for every job kind and status', () => {
-    for (const kind of ['train', 'tune']) {
-      for (const status of ['running', 'queued', 'completed', 'failed', 'cancelled']) {
-        expect(availableJobTabs(job({ kind, status }))).toEqual(jobTabs);
-      }
+  it('exposes every shared analysis tab, plus tuning only for optimization jobs', () => {
+    for (const status of ['running', 'queued', 'completed', 'failed', 'cancelled']) {
+      expect(availableJobTabs(job({ kind: 'tune', status }))).toEqual(jobTabs);
+      expect(availableJobTabs(job({ kind: 'train', status }))).toEqual(
+        jobTabs.filter((tab) => tab !== 'Tuning results'),
+      );
     }
     expect(isJobTab('Learning')).toBe(true);
+    expect(isJobTab('Tuning results')).toBe(true);
     expect(isJobTab('learning')).toBe(false);
     expect(isJobTab(3)).toBe(false);
   });

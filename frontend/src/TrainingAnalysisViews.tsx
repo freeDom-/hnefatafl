@@ -2,16 +2,18 @@ import { useMemo, useState } from 'react';
 import { useI18n } from './i18n';
 import type { Job } from './types';
 import { opponentName } from './EvaluationSettings';
-import { trainingNumberFields } from './TrainingFields';
+import { trainingNumberFields, trainingParameterLabel } from './TrainingFields';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
 import TrainingHistoryChart from './TrainingHistoryChart';
 import TrainingMetricChart from './TrainingMetricChart';
 import TrainingPerformance from './TrainingPerformance';
+import TuningCharts from './TuningCharts';
 import { PhaseTimings } from './TrainingPhaseTimings';
 import TrainingEvaluationStatus, { type Selection } from './TrainingEvaluationStatus';
 import {
   evaluationGroups,
   finite,
+  jobName,
   latestMetrics,
   latestPerformance,
   object,
@@ -364,6 +366,422 @@ export function TrainingEvaluationView({
     </>
   );
 }
+export function TrainingTuningView({
+  job,
+  progress,
+  trainingJobs,
+  busy,
+  onUseBestParameters,
+  onContinueTrial,
+  onApplyToJob,
+  onDownloadBestConfig,
+}: {
+  job: Job;
+  progress: Values;
+  trainingJobs: Job[];
+  busy: boolean;
+  onUseBestParameters: () => void;
+  onContinueTrial: (additionalIterations: number) => void;
+  onApplyToJob: (targetJobId: string, additionalIterations: number) => void;
+  onDownloadBestConfig: () => void;
+}) {
+  const { t, locale } = useI18n();
+  const trials = useMemo(
+    () =>
+      (Array.isArray(progress.trials)
+        ? progress.trials.map(object).filter((row): row is Values => !!row)
+        : []) as Values[],
+    [progress.trials],
+  );
+  const bestConfig = object(progress.best_configuration);
+  const verification = object(progress.verification_result);
+  const bestOpponents = object(progress.best_opponents);
+  const sourceConfig = object(progress.source_configuration);
+  const comparison = useMemo(() => {
+    if (!bestConfig || !sourceConfig) return [];
+    const keys = Array.from(new Set([...Object.keys(sourceConfig), ...Object.keys(bestConfig)]))
+      .filter((key) => !['output_dir', 'registry_dir', 'storage', 'resume'].includes(key))
+      .sort();
+    return keys.map((key) => ({
+      key,
+      source: sourceConfig[key],
+      winning: bestConfig[key],
+      changed: JSON.stringify(sourceConfig[key]) !== JSON.stringify(bestConfig[key]),
+    }));
+  }, [bestConfig, sourceConfig]);
+  const [additional, setAdditional] = useState(5);
+  const [targetJob, setTargetJob] = useState('');
+  const [sortKey, setSortKey] = useState<'number' | 'score' | 'duration'>('number');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(0);
+  const bestTrial = finite(progress.best_trial) ? progress.best_trial : undefined;
+  const statuses = useMemo(
+    () => Array.from(new Set(trials.map((row) => String(row.state ?? '—')))).sort(),
+    [trials],
+  );
+  const rows = useMemo(() => {
+    const filtered =
+      statusFilter === 'all'
+        ? trials
+        : trials.filter((row) => String(row.state ?? '—') === statusFilter);
+    const key = (row: Values) => {
+      if (sortKey === 'score')
+        return row.state === 'COMPLETE' && finite(row.score) ? row.score : -Infinity;
+      if (sortKey === 'duration')
+        return finite(row.duration) ? (row.duration as number) : -Infinity;
+      return finite(row.number) ? (row.number as number) : 0;
+    };
+    return [...filtered].sort((a, b) => key(b) - key(a));
+  }, [trials, sortKey, statusFilter]);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(rows.length / 50) - 1));
+  const pageRows = rows.slice(currentPage * 50, (currentPage + 1) * 50);
+  const weighted = !!bestOpponents || trials.some((row) => finite(row.aggregate_score));
+  const number = (value: unknown) =>
+    finite(value) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value) : '—';
+  const candidates = trainingJobs.filter(
+    (entry) =>
+      entry.kind !== 'tune' &&
+      !['running', 'pending', 'queued', 'cancelling'].includes(entry.status) &&
+      entry.checkpoint &&
+      entry.resumable !== false,
+  );
+  return (
+    <div className="training-tuning">
+      <section aria-label={t('Study progress')}>
+        <h4>{String(progress.study_name ?? job.config?.study_name ?? t('Tune parameters'))}</h4>
+        <dl className="training-kpis">
+          <TrainingKpi label="Completed trials" value={progress.completed_trials} />
+          <TrainingKpi label="Failed trials" value={progress.failed_trials} />
+          <TrainingKpi label="Best trial" value={progress.best_trial} />
+          <TrainingKpi label="Best trial score" value={progress.best_score} />
+          <TrainingKpi label="Best checkpoint iteration" value={progress.best_iteration} />
+          <TrainingKpi label="Study sampler seed" value={progress.sampler_seed} />
+          <TrainingKpi label="Source training seed" value={progress.source_seed} />
+          <TrainingKpi label="Source checkpoint best score" value={progress.source_best_score} />
+          <TrainingKpi
+            label="Winning checkpoint source"
+            value={progress.best_source ? t(String(progress.best_source)) : undefined}
+          />
+        </dl>
+        <p className="subtle">
+          {t(
+            'Optuna optimizes the objective score: the best newly evaluated candidate benchmark, or its weighted aggregate when fixed opponents are configured. Historical source scores are separate references.',
+          )}
+        </p>
+        {!progress.objective_policy && (
+          <p className="subtle">
+            {t(
+              'Historical objective policy: retained trial scores and rankings are shown unchanged. Further trials require verified study compatibility.',
+            )}
+          </p>
+        )}
+        {finite(progress.source_best_score) &&
+          finite(progress.best_score) &&
+          progress.source_best_score > progress.best_score &&
+          !weighted && (
+            <p className="dashboard-message" role="status">
+              {t(
+                'The source benchmark is higher than the winning candidate benchmark. The objective still measures the newly trained candidate; the source remains unchanged.',
+              )}
+            </p>
+          )}
+      </section>
+
+      {comparison.length > 0 && (
+        <section aria-label={t('Source versus winning settings')}>
+          <h4>{t('Source versus winning settings')}</h4>
+          <div className="table-scroll bounded-table">
+            <table aria-label={t('Source versus winning settings')}>
+              <thead>
+                <tr>
+                  {['Setting', 'Source checkpoint', 'Winning trial', 'Change'].map((label) => (
+                    <th key={label} scope="col">
+                      {t(label)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.map((row) => (
+                  <tr key={row.key}>
+                    <th scope="row">{t(trainingParameterLabel(row.key))}</th>
+                    <td>{String(row.source ?? '—')}</td>
+                    <td>{String(row.winning ?? '—')}</td>
+                    <td>{t(row.changed ? 'Changed' : 'Unchanged')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {!!bestOpponents && (
+        <section aria-label={t('Weighted opponent aggregate')}>
+          <h4>{t('Weighted opponent aggregate')}</h4>
+          <div className="table-scroll bounded-table">
+            <table aria-label={t('Weighted opponent aggregate')}>
+              <thead>
+                <tr>
+                  {['Opponent', 'Score', 'Wins', 'Losses', 'Draws', 'Unfinished'].map((label) => (
+                    <th key={label} scope="col">
+                      {t(label)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(bestOpponents).map(([opponent, raw]) => {
+                  const row = object(raw) ?? {};
+                  return (
+                    <tr key={opponent}>
+                      <th scope="row">{t(opponentName(opponent))}</th>
+                      <td>{number(row.score)}</td>
+                      <td>{number(row.wins)}</td>
+                      <td>{number(row.losses)}</td>
+                      <td>{number(row.draws)}</td>
+                      <td>{number(row.truncated)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {!!progress.verification_status && (
+        <section aria-label={t('Verification status')}>
+          <TrainingKpi
+            label="Verification status"
+            value={t(String(progress.verification_status))}
+          />
+          {!!progress.verification_error && (
+            <p className="form-error" role="status">
+              {String(progress.verification_error)}
+            </p>
+          )}
+        </section>
+      )}
+      {!!verification && (
+        <section aria-label={t('Held-out verification')}>
+          <h4>{t('Held-out verification')}</h4>
+          <dl className="training-kpis">
+            <TrainingKpi
+              label="Verification opponent"
+              value={t(opponentName(String(verification.opponent ?? 'shield_bearer')))}
+            />
+            <TrainingKpi label="Verification score" value={verification.score} />
+            <TrainingKpi label="Verification games" value={verification.games} />
+            <TrainingKpi label="Verification seed" value={verification.seed} />
+          </dl>
+          <p className="subtle">
+            {t(
+              'The verification stage uses a seed the trials never used, so it is an independent check of the winning checkpoint.',
+            )}
+          </p>
+        </section>
+      )}
+
+      {!!bestConfig && (
+        <section aria-label={t('Best configuration')}>
+          <h4>{t('Best configuration')}</h4>
+          <DiagnosticDisclosure title="Winning trial configuration" value={bestConfig} />
+          <div className="tuning-actions">
+            <button
+              className="button secondary small"
+              disabled={busy}
+              onClick={onUseBestParameters}
+            >
+              {t('Train with best parameters')}
+            </button>
+            <button
+              className="button secondary small"
+              disabled={busy || !finite(progress.best_trial)}
+              onClick={() => onContinueTrial(additional)}
+            >
+              {t('Continue winning trial')}
+            </button>
+            <button className="button secondary small" onClick={onDownloadBestConfig}>
+              {t('Download best configuration')}
+            </button>
+            <label className="training-field">
+              {t('Additional iterations')}
+              <input
+                type="number"
+                min={1}
+                max={100000}
+                value={additional}
+                onChange={(event) => setAdditional(Number(event.target.value))}
+              />
+            </label>
+          </div>
+          {!!candidates.length && (
+            <div className="tuning-actions">
+              <label className="training-field">
+                {t('Apply to existing training')}
+                <select value={targetJob} onChange={(event) => setTargetJob(event.target.value)}>
+                  <option value="">{t('Select a training job')}</option>
+                  {candidates.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {`${jobName(entry)} (${entry.id.slice(0, 8)})`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="button secondary small"
+                disabled={busy || !targetJob}
+                onClick={() => onApplyToJob(targetJob, additional)}
+              >
+                {t('Apply best parameters')}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {!!trials.length && (
+        <TuningCharts trials={trials} importance={object(progress.parameter_importance)} />
+      )}
+      {!!trials.length && (
+        <TrainingDataDisclosure title="Trial history">
+          {() => (
+            <>
+              <div className="tuning-actions">
+                <label className="training-field">
+                  {t('Sort trials by')}
+                  <select
+                    value={sortKey}
+                    onChange={(event) => {
+                      setPage(0);
+                      setSortKey(event.target.value as 'number' | 'score' | 'duration');
+                    }}
+                  >
+                    <option value="number">{t('Trial number')}</option>
+                    <option value="score">{t('Optuna objective score')}</option>
+                    <option value="duration">{t('Duration')}</option>
+                  </select>
+                </label>
+                <label className="training-field">
+                  {t('Filter by status')}
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => {
+                      setStatusFilter(event.target.value);
+                      setPage(0);
+                    }}
+                  >
+                    <option value="all">{t('All statuses')}</option>
+                    {statuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="table-scroll bounded-table">
+                <table aria-label={t('Trial history')}>
+                  <thead>
+                    <tr>
+                      {[
+                        'Trial',
+                        'Status',
+                        'Optuna objective score',
+                        'Best in-training benchmark score',
+                        'Final iteration score',
+                        ...(weighted ? ['Weighted aggregate score'] : []),
+                        'Best iteration',
+                        'Source',
+                        'Duration',
+                        'Parameters',
+                        'Details',
+                      ].map((label) => (
+                        <th key={label} scope="col">
+                          {t(label)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageRows.map((row, index) => (
+                      <tr
+                        key={String(row.number ?? index)}
+                        className={row.number === bestTrial ? 'winning-trial' : undefined}
+                      >
+                        <th scope="row">{String(row.number ?? '—')}</th>
+                        <td>{String(row.state ?? '—')}</td>
+                        <td>{number(row.score)}</td>
+                        <td>{number(row.best_score)}</td>
+                        <td>{number(row.final_score)}</td>
+                        {weighted && <td>{number(row.aggregate_score)}</td>}
+                        <td>{number(row.best_iteration)}</td>
+                        <td>{row.best_source ? t(String(row.best_source)) : '—'}</td>
+                        <td>{finite(row.duration) ? `${number(row.duration)} s` : '—'}</td>
+                        <td>
+                          <code>{JSON.stringify(safeDiagnostics(row.parameters))}</code>
+                        </td>
+                        <td>
+                          {row.error ? (
+                            <span className="tuning-trial-error">{String(row.error)}</span>
+                          ) : row.opponents ? (
+                            <code>{JSON.stringify(safeDiagnostics(row.opponents))}</code>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <nav className="online-toolbar" aria-label={t('Trial pages')}>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  {t('Previous page')}
+                </button>
+                <span>
+                  {t('Page {page}', { page: currentPage + 1 })} · {rows.length} {t('trials')}
+                </span>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  disabled={(currentPage + 1) * 50 >= rows.length}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  {t('Next page')}
+                </button>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  disabled={bestTrial === undefined}
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setSortKey('score');
+                    setPage(0);
+                  }}
+                >
+                  {t('Locate winning trial')}
+                </button>
+              </nav>
+              <p className="subtle">
+                {t(
+                  'The winning trial is highlighted. A small evaluation sample does not establish a statistically significant improvement.',
+                )}
+              </p>
+            </>
+          )}
+        </TrainingDataDisclosure>
+      )}
+    </div>
+  );
+}
+
 export function DiagnosticDisclosure({ title, value }: { title: string; value: unknown }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);

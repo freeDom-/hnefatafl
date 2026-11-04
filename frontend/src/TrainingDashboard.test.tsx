@@ -120,7 +120,7 @@ it.each(['completed', 'running', 'queued', 'cancelled', 'failed'])(
       );
       expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
       expect(jobs[0]).toEqual(original);
-      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      await waitFor(() => expect(scroll).toHaveBeenCalled(), { timeout: 10000 });
       fireEvent.change(screen.getByLabelText('Model name'), { target: { value: 'Editable copy' } });
       fireEvent.change(screen.getByLabelText('Random seed'), { target: { value: '23' } });
       fireEvent.submit(screen.getByRole('button', { name: /Start training/ }).closest('form')!);

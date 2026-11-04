@@ -1626,7 +1626,7 @@ def test_the_study_owns_the_heartbeat_while_a_trial_is_booked(tmp_path, monkeypa
     def blocking_set(self, key, value):
         # The first attribute write is real post-trial bookkeeping: the trial has
         # trained, but Optuna has not committed its state yet.
-        if not entered.is_set():
+        if key == "last_checkpoint" and not entered.is_set():
             entered.set()
             assert released.wait(120)
         return real_set(self, key, value)
@@ -1747,8 +1747,8 @@ def test_cancellation_between_trials_ends_the_study_safely(tmp_path, monkeypatch
     real_train = training_module.train
     stopped = {"value": False}
 
-    def cancelling_train(config, progress, should_stop):
-        result = real_train(config, progress, should_stop)
+    def cancelling_train(config, progress, should_stop, **kwargs):
+        result = real_train(config, progress, should_stop, **kwargs)
         # The stop arrives while the first trial is finishing.
         stopped["value"] = True
         return result
@@ -1840,15 +1840,18 @@ def test_an_objective_failure_is_not_counted_and_not_masked(tmp_path, monkeypatc
     config = tune_config(tmp_path, trials=1)
     output = Path(config["output_dir"])
     snapshots: list[dict] = []
-    with pytest.raises(RuntimeError, match="attribute write failed"):
-        tune(config, snapshots.append)
+    # The failing trial is recorded as FAIL and the study stops once its failure
+    # budget is exhausted, instead of masking the study behind an exception.
+    result = tune(config, snapshots.append)
     assert written, "the attribute write was never attempted"
-    # The original failure is reported, and the trial is never counted: Optuna
-    # records it as FAIL because the objective did not return.
+    assert result["status"] == "failed"
+    assert result["completed_trials"] == 0
+    assert result["failed_trials"] == 1
+    assert result["trials"][0]["state"] == "FAIL"
     progress = read_json(output / "progress.json")
-    assert progress["status"] == "failed" and progress["error"] == "attribute write failed"
+    assert progress["status"] == "failed"
     assert all(state.get("completed_trials", 0) == 0 for state in snapshots)
-    assert not (output / "result.json").exists()
+    assert (output / "result.json").exists()
 
 
 def test_study_and_trial_revisions_never_move_backwards(tmp_path):

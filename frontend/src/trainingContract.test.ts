@@ -13,6 +13,7 @@ import {
   parseStudySpace,
   rejectedTrainingFields,
   resumeOverrides,
+  tuneResumePayload,
   type StudyInput,
 } from './trainingPayload';
 import { parseImportedConfig } from './trainingConfigImport';
@@ -159,13 +160,54 @@ it('keeps an imported configuration inside the contract and reports ignored fiel
   );
 });
 
+it('preserves a tuning study\u2019s checkpoint source and identity when resuming it', () => {
+  const saved = {
+    trials: 3,
+    study_name: 'brandubh-search',
+    seed: 7,
+    search_space: { learning_rate: { type: 'float', low: 0.001, high: 0.003 } },
+    opponents: [{ opponent: 'jarl', weight: 1 }],
+    verification: { games: 8, opponent: 'shield_bearer' },
+    sampler: { n_startup_trials: 5 },
+    pruner: { n_startup_trials: 2 },
+    max_failures: 4,
+    training: {
+      preset: 'smoke',
+      ruleset: 'brandubh',
+      resume: '/data/jobs/source/last.pt',
+      iterations: 12,
+      evaluation_opponent: 'jarl',
+    },
+    output_dir: '/data/jobs/old',
+    registry_dir: '/data/models',
+    storage: 'sqlite:///old/study.sqlite3',
+  };
+  const payload = tuneResumePayload('tunejob', saved, 3);
+  expect(payload.resume_study).toBe('tunejob');
+  expect(payload.trials).toBe(3);
+  // The checkpoint source and every objective-defining setting survive.
+  expect((payload.training as Record<string, unknown>).resume).toBe('/data/jobs/source/last.pt');
+  expect(payload.opponents).toEqual([{ opponent: 'jarl', weight: 1 }]);
+  expect(payload.verification).toEqual({ games: 8, opponent: 'shield_bearer' });
+  expect(payload.search_space).toEqual(saved.search_space);
+  expect(payload.max_failures).toBe(3);
+  // Server-owned paths are never sent back.
+  for (const key of ['output_dir', 'registry_dir', 'storage']) {
+    expect(payload).not.toHaveProperty(key);
+  }
+});
+
 it('builds a tune payload from study controls and one nested configuration', () => {
   const payload = launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
     ...study,
     resumeStudy: 'study-id',
   });
-  expect(keysOf(payload)).toEqual([...contract.tune_fields, 'kind'].sort());
+  // Optional study controls are only sent when the form sets them, but every
+  // key the payload can carry must be in the shared contract.
   expect(unexpected(payload, REQUEST_FIELDS)).toEqual([]);
+  expect(keysOf(payload)).toEqual(
+    ['kind', 'resume_study', 'search_space', 'seed', 'study_name', 'training', 'trials'].sort(),
+  );
   expect(payload.resume_study).toBe('study-id');
   expect(payload.search_space).toEqual(SEARCH_SPACE);
   expect(unexpected(payload.training as Record<string, unknown>, TRAINING_FIELDS)).toEqual([]);
@@ -223,6 +265,38 @@ it('never reads the tuning search space for ordinary training', () => {
   expect(launchPayload('train', trainingConfig('tablut', 'smoke'), 'local', malformed).kind).toBe(
     'train',
   );
+});
+
+it('carries optional study strategy settings into the tune payload', () => {
+  const payload = launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
+    ...study,
+    strategy: JSON.stringify({
+      opponents: [{ opponent: 'jarl', weight: 1 }],
+      verification: { games: 8, opponent: 'shield_bearer' },
+      max_failures: 2,
+    }),
+  });
+  expect(unexpected(payload, REQUEST_FIELDS)).toEqual([]);
+  expect(payload.opponents).toEqual([{ opponent: 'jarl', weight: 1 }]);
+  expect(payload.verification).toEqual({ games: 8, opponent: 'shield_bearer' });
+  expect(payload.max_failures).toBe(2);
+  // Empty strategy text keeps the default single-opponent objective.
+  expect(
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', study),
+  ).not.toHaveProperty('opponents');
+  // Malformed or non-object strategy text is a named input error.
+  expect(() =>
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
+      ...study,
+      strategy: '[1, 2]',
+    }),
+  ).toThrow(TrainingInputError);
+  expect(() =>
+    launchPayload('tune', trainingConfig('tablut', 'smoke'), 'local', {
+      ...study,
+      strategy: '{',
+    }),
+  ).toThrow(TrainingInputError);
 });
 
 it('reports malformed tuning JSON as a search-space field error', () => {
@@ -291,4 +365,21 @@ it('names rejected fields without collapsing or dropping any path', () => {
   ]);
   // A plain error carries no field information and must not be treated as one.
   expect(rejectedTrainingFields(new Error('Unsupported'))).toEqual([]);
+});
+
+it('removes stored server paths from nested study-resume inputs while preserving source and workload', () => {
+  const payload = tuneResumePayload(
+    'saved',
+    {
+      training: {
+        output_dir: '/private/job',
+        registry_dir: '/private/models',
+        resume: 'source:last.pt',
+        iterations: 12,
+        games: 5,
+      },
+    },
+    2,
+  );
+  expect(payload.training).toEqual({ resume: 'source:last.pt', iterations: 12, games: 5 });
 });

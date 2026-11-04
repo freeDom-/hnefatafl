@@ -1,6 +1,13 @@
 import type { Job } from './types';
 
-export const jobTabs = ['Overview', 'Learning', 'Evaluation', 'Performance', 'Details'] as const;
+export const jobTabs = [
+  'Overview',
+  'Tuning results',
+  'Learning',
+  'Evaluation',
+  'Performance',
+  'Details',
+] as const;
 export type JobTab = (typeof jobTabs)[number];
 export const defaultJobTab: JobTab = 'Overview';
 
@@ -9,12 +16,11 @@ export function isJobTab(value: unknown): value is JobTab {
 }
 
 /**
- * Analysis tabs a job can render. Every current job kind and status supports the
- * same views, so all tabs stay available; this stays a function so a future job
- * variant can narrow the set in one place.
+ * Analysis tabs a job can render. Every current job kind supports the shared
+ * views; an optimization job additionally exposes its dedicated tuning tab.
  */
-export function availableJobTabs(_job: Job): readonly JobTab[] {
-  return jobTabs;
+export function availableJobTabs(job: Job): readonly JobTab[] {
+  return job.kind === 'tune' ? jobTabs : jobTabs.filter((tab) => tab !== 'Tuning results');
 }
 
 /**

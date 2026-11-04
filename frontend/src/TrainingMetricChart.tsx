@@ -18,6 +18,8 @@ export default memo(function TrainingMetricChart({
   unit = 'Loss',
   score = false,
   gaps = false,
+  xLabel = 'Iteration',
+  scatter = false,
 }: {
   title: string;
   rows: HistoryPoint[];
@@ -25,6 +27,8 @@ export default memo(function TrainingMetricChart({
   unit?: string;
   score?: boolean;
   gaps?: boolean;
+  xLabel?: string;
+  scatter?: boolean;
 }) {
   const { t, locale } = useI18n();
   const container = useRef<HTMLElement>(null);
@@ -45,7 +49,7 @@ export default memo(function TrainingMetricChart({
     bottom = 43;
   const minIteration = rows[0]?.iteration ?? 0;
   const lastIteration = rows.at(-1)?.iteration ?? minIteration;
-  const maxIteration = Math.max(minIteration + 1, lastIteration);
+  const maxIteration = lastIteration > minIteration ? lastIteration : minIteration + 1;
   const maximum = useMemo(
     () =>
       score
@@ -175,7 +179,11 @@ export default memo(function TrainingMetricChart({
         {[
           minIteration,
           ...(lastIteration - minIteration > 2
-            ? [Math.round((minIteration + lastIteration) / 2)]
+            ? [
+                xLabel === 'Iteration' || xLabel === 'Trial'
+                  ? Math.round((minIteration + lastIteration) / 2)
+                  : (minIteration + lastIteration) / 2,
+              ]
             : []),
           ...(lastIteration !== minIteration ? [lastIteration] : []),
         ].map((iteration) => (
@@ -184,34 +192,31 @@ export default memo(function TrainingMetricChart({
           </text>
         ))}
         <text x={(left + width - right) / 2} y={height - 5} textAnchor="middle">
-          {t('Iteration')}
+          {t(xLabel)}
         </text>
         {paths.map((item) => (
           <g key={item.key}>
-            <path
-              d={item.path}
-              fill="none"
-              stroke={item.color}
-              strokeWidth="2"
-              vectorEffect="non-scaling-stroke"
-            />
-            {(score || rows.length <= 25) &&
+            {!scatter && (
+              <path
+                d={item.path}
+                fill="none"
+                stroke={item.color}
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            {(scatter || score || rows.length <= 25) &&
               rows
                 .filter((row) => finite(row[item.key]))
-                .map((row) => (
+                .map((row, index) => (
                   <circle
-                    key={row.iteration}
+                    key={index}
                     cx={x(row.iteration)}
                     cy={y(row[item.key] as number)}
                     r={gaps ? 3 : 2.5}
                     fill={item.color}
                   >
-                    <title>
-                      {t('Iteration {iteration}: {value}', {
-                        iteration: row.iteration,
-                        value: format(row[item.key]),
-                      })}
-                    </title>
+                    <title>{`${t(xLabel)} ${row.iteration}: ${format(row[item.key])}`}</title>
                   </circle>
                 ))}
           </g>
@@ -231,7 +236,7 @@ export default memo(function TrainingMetricChart({
               <text x={x(row.iteration)} y={top - 7} textAnchor="middle">
                 ◆
                 <title>
-                  {t('Champion promotion')} · {t('Iteration')} {row.iteration}
+                  {t('Champion promotion')} · {t(xLabel)} {row.iteration}
                 </title>
               </text>
             </g>
@@ -261,7 +266,7 @@ export default memo(function TrainingMetricChart({
       </div>
       <output className="chart-tooltip" aria-live="polite">
         {point
-          ? `${t('Iteration')} ${point.iteration} · ${series.map((item) => `${t(item.name)}: ${format(point[item.key])}`).join(' · ')}`
+          ? `${t(xLabel)} ${point.iteration} · ${series.map((item) => `${t(item.name)}: ${format(point[item.key])}`).join(' · ')}`
           : t('Point to the chart or use arrow keys for exact values.')}
       </output>
     </figure>

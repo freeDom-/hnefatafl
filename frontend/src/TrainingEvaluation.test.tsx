@@ -241,3 +241,35 @@ it('selects the localized Shield maiden evaluation benchmark', async () => {
       .evaluation_opponent,
   ).toBe('shield_maiden');
 });
+
+it('uses the fixed model selector in fresh tuning and restores Champion for ordinary training', async () => {
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' ? { id: 'fresh-tune', kind: 'tune', status: 'running' } : []),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  render(
+    <Training
+      rulesets={rules}
+      models={[{ id: 'a'.repeat(24), name: 'Frozen raven', ruleset: 'brandubh' }]}
+      onModelsChanged={vi.fn()}
+      onError={vi.fn()}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Battlefield'), { target: { value: 'brandubh' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Tune parameters' }));
+  expect(screen.getByRole('option', { name: 'Champion' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Add fixed opponent' }));
+  fireEvent.change(screen.getByLabelText('Fixed opponent 1'), {
+    target: { value: 'a'.repeat(24) },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Start tuning/ }));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const sent = JSON.parse(
+    String(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1]?.body),
+  );
+  expect(sent.opponents).toEqual([
+    { opponent: 'frozen_model', model_id: 'a'.repeat(24), weight: 1 },
+  ]);
+});

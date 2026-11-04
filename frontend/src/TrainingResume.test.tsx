@@ -366,3 +366,69 @@ it('keeps the historical preset without exposing a selector or resetting effecti
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ iterations: 9 });
 });
+
+it('applies a completed study through the real dashboard and resume form, transmitting winning overrides', async () => {
+  const source = {
+    ...job,
+    resumable: true,
+    config: { ...job.config, learning_rate: 0.001, mcts_iterations: 2 },
+  };
+  const tuning: Job = {
+    id: 'completed-tuning',
+    kind: 'tune',
+    status: 'completed',
+    config: { study_name: 'Completed optimization' },
+    result: {
+      best_trial: 0,
+      best_score: 0.5,
+      best_configuration: {
+        learning_rate: 0.004,
+        weight_decay: 0.01,
+        mcts_iterations: 7,
+        channels: 64,
+        blocks: 4,
+        seed: 999,
+        optimizer: 'sgd',
+      },
+    },
+  };
+  tuning.progress = tuning.result;
+  const fetcher = vi.fn((path: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return json({ ...source, id: 'continued', status: 'running' });
+    if (path.endsWith('/resume')) return json({ ...info, config: { mcts_iterations: 2 } });
+    if (path.split('?')[0] === '/api/training/jobs') return json([tuning, source]);
+    if (path.startsWith('/api/training/jobs/completed-tuning')) return json(tuning);
+    return json([]);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: /Completed optimization/ }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Tuning results' }));
+  fireEvent.change(screen.getByLabelText('Apply to existing training'), {
+    target: { value: source.id },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply best parameters' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Resume training' });
+  expect(await within(dialog).findByLabelText('Learning rate')).toHaveValue(0.004);
+  expect(within(dialog).getByLabelText('Weight decay')).toHaveValue(0.01);
+  expect(within(dialog).getByLabelText('MCTS iterations per move')).toHaveValue(7);
+  expect(within(dialog).getByText('32 channels · 2 blocks')).toBeInTheDocument();
+  expect(within(dialog).getByRole('table', { name: 'Parameter changes' })).toHaveTextContent(
+    '0.0007',
+  );
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  // The administrator can still adjust the winner before submitting.
+  fireEvent.change(within(dialog).getByLabelText('Weight decay'), { target: { value: '0.02' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Continue training' }));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const sent = fetcher.mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(sent[0]).toBe('/api/training/jobs/source-job/resume');
+  expect(JSON.parse(String(sent[1]?.body))).toEqual({
+    iterations: 10,
+    learning_rate: 0.004,
+    weight_decay: 0.02,
+    mcts_iterations: 7,
+  });
+});

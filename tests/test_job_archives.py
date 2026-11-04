@@ -116,7 +116,7 @@ def test_export_inactive_metadata_optional_files_and_no_mutation(client):
             "progress.json",
         }
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["format_version"] == 1
+        assert manifest["format_version"] == 2
         assert manifest["original_job_id"] == job["id"]
         for name, info in manifest["files"].items():
             assert info["size"] == len(archive.read(name))
@@ -543,9 +543,10 @@ def test_owned_optimization_study_roundtrip_and_resume(client, tmp_path):
     assert Path(study.best_trial.user_attrs["checkpoint"]).is_file()
     assert imported["result"]["trials"] == result["trials"]
     models = client.get("/api/models").json()
-    assert models
+    assert models == []
     trial_result = json.loads((destination / "trial-0" / "result.json").read_text())
-    assert trial_result["model"]["id"] in {entry["id"] for entry in models}
+    assert trial_result["model"] is None
+    assert (destination / "trial-0" / "objective.pt").is_file()
     resumed = client.post(
         "/api/training/jobs",
         json={
@@ -576,11 +577,26 @@ def test_owned_optimization_study_roundtrip_and_resume(client, tmp_path):
         if state["status"] not in {"running", "cancelling"}:
             break
         time.sleep(0.05)
-    assert state["status"] == "completed", state
+    assert state["status"] == "completed", state.get("error") or state
     assert len(optuna.load_study(study_name=config["study_name"], storage=storage).trials) == 2
-    # The resumed run now shares the source study, so it cannot be exported alone.
-    rejected = client.get(f"/api/training/jobs/{state['id']}/export")
-    assert rejected.status_code == 400 and "shared or external" in rejected.json()["detail"]
+    # A resumed job exports every contributor to the shared study.
+    content = export(client, state)
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        assert "trial-0/objective.pt" in archive.namelist()
+        assert "trial-1/last.pt" in archive.namelist()
+    migrated = upload(client, content)
+    assert migrated.status_code == 201, migrated.text
+    restored = migrated.json()
+    restored_study = optuna.load_study(
+        study_name=config["study_name"], storage=restored["config"]["storage"]
+    )
+    assert [(trial.number, trial.value) for trial in restored_study.trials] == [
+        (trial.number, trial.value)
+        for trial in optuna.load_study(study_name=config["study_name"], storage=storage).trials
+    ]
+    for trial in restored_study.trials:
+        assert Path(trial.user_attrs["trial_checkpoint"]).is_file()
+    assert client.get("/api/models").json() == []
 
 
 def test_optimization_archive_without_study_is_rejected(client):
@@ -753,3 +769,211 @@ def test_archive_preserves_champion_and_benchmark_state(client, tmp_path):
         assert torch.equal(actual["champion"]["snapshot"]["state_dict"][key], tensor)
     info = client.get(f"/api/training/jobs/{imported['id']}/resume").json()
     assert info["can_resume"] and info["config"]["evaluation_opponent"] == "champion"
+
+
+def test_multijob_checkpoint_study_with_frozen_dependency_roundtrips_and_continues(
+    client, tmp_path
+):
+    import optuna
+    from hnefatafl.training import tune
+    from hnefatafl.training_identity import source_identity
+
+    root = tmp_path / "multi-source"
+    with TestClient(create_app(root)) as source:
+        source_job, source_dir = job_record(source, identifier="1" * 32)
+        trained = train(
+            {
+                "preset": "smoke",
+                "device": "cpu",
+                "seed": 17,
+                "cpu_threads": 1,
+                "max_game_plies": 2,
+                "evaluation_max_plies": 2,
+                "output_dir": str(source_dir),
+                "registry_dir": str(root / "models"),
+            }
+        )
+        _, checkpoint = load_checkpoint(trained["checkpoint"])
+        source_job.update(
+            config=checkpoint["metadata"]["training_config"], progress=trained, result=trained
+        )
+        source.app.state.store.save_job(source_job)
+        frozen_file = root / "frozen.pt"
+        save_checkpoint(
+            frozen_file, PolicyValueNet("brandubh", 8, 1), {"name": "Fixed larger model"}
+        )
+        frozen = ModelRegistry(root / "models").register(frozen_file)
+        first_job, first_dir = job_record(source, identifier="2" * 32, kind="tune")
+        config = {
+            "study_name": "Multi-job branches",
+            "trials": 1,
+            "seed": 5,
+            "search_space": {"learning_rate": {"type": "categorical", "choices": [0.002]}},
+            "training": {
+                **checkpoint["metadata"]["training_config"],
+                "resume": trained["checkpoint"],
+                "iterations": 2,
+            },
+            "opponents": [{"opponent": "frozen_model", "model_id": frozen["id"], "weight": 1}],
+            "output_dir": str(first_dir),
+        }
+        first_result = tune(config)
+        first_job.update(config=config, result=first_result, progress=first_result)
+        source.app.state.store.save_job(first_job)
+        second_job, second_dir = job_record(source, identifier="3" * 32, kind="tune")
+        second_config = {
+            **config,
+            "storage": first_result["storage"],
+            "output_dir": str(second_dir),
+        }
+        second_result = tune(second_config)
+        second_job.update(config=second_config, result=second_result, progress=second_result)
+        source.app.state.store.save_job(second_job)
+        content = export(source, second_job)
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            assert "dependencies/source/last.pt" in archive.namelist()
+            inventory = json.loads(archive.read("study-artifacts.json"))
+            assert inventory["owning_job"] == first_job["id"]
+            assert set(inventory["contributing_jobs"]) == {
+                source_job["id"],
+                first_job["id"],
+                second_job["id"],
+            }
+            for number in (0, 1):
+                assert f"trial-{number}/objective.pt" in archive.namelist()
+                assert f"trial-{number}/last.pt" in archive.namelist()
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    imported = response.json()
+    dependency = Path(imported["config"]["source_checkpoint"])
+    _, restored = load_checkpoint(dependency)
+    assert source_identity(restored) == source_identity(checkpoint)
+    study = optuna.load_study(
+        study_name=config["study_name"], storage=imported["config"]["storage"]
+    )
+    assert [(trial.number, trial.value) for trial in study.trials] == [
+        (trial["number"], trial["score"]) for trial in second_result["trials"]
+    ]
+    for trial in study.trials:
+        _, full = load_checkpoint(trial.user_attrs["trial_checkpoint"])
+        assert full["optimizer_state"] and full["extra"]["replay"]
+        assert full["extra"]["history"][0] == checkpoint["extra"]["history"][0]
+    # Actual API and subprocess must accept the rebased content identities.
+    response = client.post(
+        "/api/training/jobs", json={"kind": "tune", "trials": 1, "resume_study": imported["id"]}
+    )
+    assert response.status_code == 201, response.text
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        job = client.get(f"/api/training/jobs/{response.json()['id']}").json()
+        if job["status"] not in {"running", "cancelling"}:
+            break
+        time.sleep(0.05)
+    assert job["status"] == "completed", job
+    assert job["result"]["completed_trials"] == 3
+    # Continue the objective's full state through the API, without deleting it.
+    original = Path(job["result"]["best_trial_checkpoint"]).read_bytes()
+    continued = client.post(
+        "/api/training/jobs",
+        json={
+            **{
+                key: value
+                for key, value in job["result"]["best_configuration"].items()
+                if key not in {"resume", "output_dir", "registry_dir"}
+            },
+            "resume": job["result"]["best_trial_checkpoint"],
+            "iterations": job["result"]["best_iteration"] + 1,
+        },
+    )
+    assert continued.status_code == 201, continued.text
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        resumed = client.get(f"/api/training/jobs/{continued.json()['id']}").json()
+        if resumed["status"] not in {"running", "cancelling"}:
+            break
+        time.sleep(0.05)
+    assert resumed["status"] == "completed", resumed
+    assert Path(job["result"]["best_trial_checkpoint"]).read_bytes() == original
+
+
+def test_format_one_archives_remain_importable(client, trained_archive):
+    content, _, _ = trained_archive
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(content)) as source, zipfile.ZipFile(output, "w") as target:
+        for name in source.namelist():
+            data = source.read(name)
+            if name == "manifest.json":
+                manifest = json.loads(data)
+                manifest["format_version"] = 1
+                data = json.dumps(manifest).encode()
+            target.writestr(name, data)
+    response = upload(client, output.getvalue())
+    assert response.status_code == 201, response.text
+    assert response.json()["resumable"]
+
+
+@pytest.mark.parametrize("case", ["wrong_trial", "symlink", "source_missing"])
+def test_multijob_export_rejects_unsafe_dependency_ownership(client, tmp_path, case):
+    import optuna
+
+    job, directory = job_record(
+        client, kind="tune", config={"study_name": "Safe", "training": {"preset": "smoke"}}
+    )
+    study = optuna.create_study(
+        storage="sqlite:///" + str(directory / "study.sqlite3"), study_name="Safe"
+    )
+    trial = directory / ("trial-1" if case == "wrong_trial" else "trial-0")
+    trial.mkdir()
+    path = trial / "best.pt"
+    save_checkpoint(path, PolicyValueNet("brandubh", 4, 0), {"name": "Trial"})
+    if case == "symlink":
+        path.unlink()
+        path.symlink_to(tmp_path / "outside.pt")
+    if case == "source_missing":
+        job["config"]["training"]["resume"] = str(directory / "missing.pt")
+    study.add_trial(optuna.trial.create_trial(value=0.5, user_attrs={"checkpoint": str(path)}))
+    client.app.state.store.save_job(job)
+    response = client.get(f"/api/training/jobs/{job['id']}/export")
+    assert response.status_code == 400, response.text
+
+
+def test_exporting_earlier_owner_uses_the_current_persisted_study_winner(client, monkeypatch):
+    from hnefatafl import training
+    from test_training_evaluation import match
+
+    scores = iter([0.25, 0.75])
+    monkeypatch.setattr(
+        training, "evaluate_model", lambda *args, **kwargs: match([next(scores)] * 2)
+    )
+    first_job, first_dir = job_record(client, identifier="4" * 32, kind="tune")
+    config = {
+        "study_name": "Current winner",
+        "trials": 1,
+        "training": {
+            "preset": "smoke",
+            "device": "cpu",
+            "cpu_threads": 1,
+            "max_game_plies": 2,
+            "evaluation_max_plies": 2,
+        },
+        "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+        "output_dir": str(first_dir),
+    }
+    first = training.tune(config)
+    first_job.update(config=config, result=first, progress=first)
+    client.app.state.store.save_job(first_job)
+    second_job, second_dir = job_record(client, identifier="5" * 32, kind="tune")
+    second_config = {**config, "storage": first["storage"], "output_dir": str(second_dir)}
+    second = training.tune(second_config)
+    second_job.update(config=second_config, result=second, progress=second)
+    client.app.state.store.save_job(second_job)
+    assert first["best_trial"] == 0 and second["best_trial"] == 1
+    original = (first_dir / "result.json").read_bytes()
+    response = upload(client, export(client, first_job))
+    assert response.status_code == 201, response.text
+    restored = response.json()["result"]
+    assert restored["best_trial"] == 1 and restored["best_score"] == 0.75
+    assert [trial["number"] for trial in restored["trials"]] == [0, 1]
+    assert restored["completed_trials"] == 2
+    assert Path(restored["best_trial_checkpoint"]).is_file()
+    assert (first_dir / "result.json").read_bytes() == original

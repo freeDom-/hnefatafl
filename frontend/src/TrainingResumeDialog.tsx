@@ -20,7 +20,7 @@ import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
 import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
-import { resumePayload } from './trainingPayload';
+import { resumeOverrides, resumePayload } from './trainingPayload';
 
 export interface ResumeCheckpoint {
   job_id: string;
@@ -44,12 +44,18 @@ export default function TrainingResumeDialog({
   job,
   workers = [],
   localDevice,
+  prefill,
+  additionalIterations,
   onClose,
   onStarted,
 }: {
   job: Job;
   workers?: TrainingWorker[];
   localDevice?: DeviceInfo;
+  /** Winning tuning settings to review before continuing, never applied silently. */
+  prefill?: TrainingConfig;
+  /** Extra iterations to prefill on top of the checkpoint's completed iteration. */
+  additionalIterations?: number;
   onClose: () => void;
   onStarted: (next: Job, completed: number, target: number) => void;
 }) {
@@ -65,6 +71,7 @@ export default function TrainingResumeDialog({
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
+  const [optimizedConfig, setOptimizedConfig] = useState<TrainingConfig>({});
   const update = (key: string, value: string | number | boolean) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
   const target = Number(config.iterations);
@@ -109,14 +116,23 @@ export default function TrainingResumeDialog({
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
-        savedConfig.current = saved;
+        // Reviewing tuning results must never apply them silently: overlay only
+        // the compatible, editable winning fields and keep checkpoint identity.
+        savedConfig.current = { ...saved };
+        const optimized = prefill ? resumeOverrides({ ...saved, ...prefill }, saved) : {};
+        setOptimizedConfig(optimized);
         const priorTarget = Number(saved.iterations);
+        const requested =
+          additionalIterations && additionalIterations > 0
+            ? info.completed_iteration + additionalIterations
+            : Math.max(
+                info.completed_iteration + 1,
+                Number.isInteger(priorTarget) ? priorTarget : 1,
+              );
         setConfig({
           ...saved,
-          iterations: Math.max(
-            info.completed_iteration + 1,
-            Number.isInteger(priorTarget) ? priorTarget : 1,
-          ),
+          ...optimized,
+          iterations: requested,
         });
       })
       .catch((error) => {
@@ -128,7 +144,13 @@ export default function TrainingResumeDialog({
     return () => {
       alive = false;
     };
-  }, [job]);
+  }, [job, prefill, additionalIterations]);
+  const changes = resumeOverrides(config, savedConfig.current);
+  useEffect(() => {
+    ref.current?.querySelectorAll<HTMLElement>('[data-training-field]').forEach((field) => {
+      field.dataset.changed = String(field.dataset.trainingField! in changes);
+    });
+  }, [config, loading]);
   const importConfig = async (file: File) => {
     if (!checkpoint) return;
     setImportingConfig(true);
@@ -309,6 +331,41 @@ export default function TrainingResumeDialog({
                     <p className="notice" role="status">
                       {importNotice}
                     </p>
+                  )}
+                  {Object.keys(changes).length > 0 && (
+                    <div className="table-scroll bounded-table">
+                      <table aria-label={t('Parameter changes')}>
+                        <caption>
+                          {t(
+                            'Review changes before continuing. Highlighted settings differ from the source checkpoint.',
+                          )}
+                        </caption>
+                        <thead>
+                          <tr>
+                            {[
+                              'Setting',
+                              'Source checkpoint',
+                              'Optimized value',
+                              'Current value',
+                            ].map((label) => (
+                              <th key={label} scope="col">
+                                {t(label)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(changes).map(([key, value]) => (
+                            <tr key={key}>
+                              <th scope="row">{t(trainingParameterLabel(key))}</th>
+                              <td>{String(savedConfig.current[key] ?? '—')}</td>
+                              <td>{String(optimizedConfig[key] ?? '—')}</td>
+                              <td>{String(value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                   <TrainingTarget
                     value={executionTarget}
