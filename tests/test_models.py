@@ -393,3 +393,138 @@ def test_valid_public_metadata_round_trips(tmp_path, version):
     assert entry["version"] == version
     assert entry["created_at"] == metadata["created_at"]
     assert entry["name"] == metadata["name"]
+
+
+def _same_weight_checkpoint(tmp_path, name, created_at, version):
+    """A checkpoint with fixed weights but caller-controlled metadata."""
+    torch.manual_seed(1234)
+    model = PolicyValueNet("brandubh", channels=8, blocks=0)
+    return save_checkpoint(
+        tmp_path / f"{name}.pt",
+        model,
+        {
+            "name": name,
+            "ruleset": "brandubh",
+            "created_at": created_at,
+            "version": version,
+            "metrics": {"score": version},
+        },
+    )
+
+
+def test_registry_reuses_identical_weights_across_different_metadata(tmp_path):
+    first_path = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    second_path = _same_weight_checkpoint(tmp_path, "Second", "2021-06-01T00:00:00Z", 9)
+    registry = ModelRegistry(tmp_path / "registry")
+    first = registry.register(first_path, "First")
+    second = registry.register(second_path, "Second")
+    assert first["reused"] is False
+    assert second["reused"] is True
+    assert second["id"] == first["id"]
+    assert len(registry.list()) == 1
+    assert len(list((tmp_path / "registry").glob("*.pt"))) == 1
+    # Reuse keeps the original catalog name rather than silently renaming it.
+    assert registry.get(first["id"])["name"] == "First"
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    assert len(stored) == 1
+    assert stored[0]["weights_sha256"]
+    # The transient registration signal never leaks into persisted metadata.
+    assert "reused" not in stored[0]
+
+
+def test_registry_same_configuration_different_weights_stay_distinct(tmp_path):
+    torch.manual_seed(0)
+    model_a = PolicyValueNet("brandubh", channels=8, blocks=0)
+    torch.manual_seed(1)
+    model_b = PolicyValueNet("brandubh", channels=8, blocks=0)
+    path_a = save_checkpoint(tmp_path / "a.pt", model_a, {"name": "A"})
+    path_b = save_checkpoint(tmp_path / "b.pt", model_b, {"name": "B"})
+    registry = ModelRegistry(tmp_path / "registry")
+    first = registry.register(path_a)
+    second = registry.register(path_b)
+    assert first["id"] != second["id"]
+    assert second["reused"] is False
+    assert len(registry.list()) == 2
+    assert len(list((tmp_path / "registry").glob("*.pt"))) == 2
+
+
+def test_registry_concurrent_identical_weight_import_creates_one_entry(tmp_path):
+    first_path = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    second_path = _same_weight_checkpoint(tmp_path, "Second", "2021-06-01T00:00:00Z", 2)
+    registry = ModelRegistry(tmp_path / "registry")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(registry.import_model, path) for path in (first_path, second_path)
+        ]
+        results = [future.result() for future in futures]
+    assert {result["id"] for result in results} == {results[0]["id"]}
+    assert sorted(result["reused"] for result in results) == [False, True]
+    assert len(registry.list()) == 1
+    assert len(list((tmp_path / "registry").glob("*.pt"))) == 1
+
+
+def test_registry_backfills_legacy_fingerprint_and_dedupes(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    first_path = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(first_path, "First")
+    # Simulate a catalog written before weight fingerprints existed.
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    stored[0].pop("weights_sha256")
+    registry.index_path.write_text(json.dumps(stored), encoding="utf-8")
+    second_path = _same_weight_checkpoint(tmp_path, "Second", "2021-06-01T00:00:00Z", 2)
+    second = registry.import_model(second_path, "Second")
+    assert second["id"] == first["id"]
+    assert second["reused"] is True
+    assert len(registry.list()) == 1
+    refreshed = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    assert refreshed[0]["weights_sha256"]
+
+
+def test_registry_reused_match_repairs_missing_owned_copy(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    first_path = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(first_path, "First")
+    Path(first["path"]).unlink()
+    second_path = _same_weight_checkpoint(tmp_path, "Second", "2021-06-01T00:00:00Z", 2)
+    second = registry.import_model(second_path, "Second")
+    assert second["id"] == first["id"]
+    assert Path(second["path"]).is_file()
+    assert len(registry.list()) == 1
+
+
+def test_registry_duplicates_reports_without_deleting(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    first_path = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(first_path, "First")
+    # Force a second entry with identical weights to model a historical duplicate.
+    source = Path(first["path"])
+    duplicate_id = "b" * 24
+    duplicate_path = tmp_path / "registry" / f"{duplicate_id}.pt"
+    duplicate_path.write_bytes(source.read_bytes())
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    for entry in stored:
+        entry.pop("weights_sha256", None)
+    stored.append({**stored[0], "id": duplicate_id, "name": "Duplicate"})
+    registry.index_path.write_text(json.dumps(stored), encoding="utf-8")
+    groups = registry.duplicates()
+    assert len(groups) == 1
+    assert {entry["id"] for entry in groups[0]} == {first["id"], duplicate_id}
+    # Detection is read-only: entries and files remain untouched.
+    assert len(registry.list()) == 2
+    assert Path(first["path"]).is_file() and duplicate_path.is_file()
+
+
+def test_registry_delete_keeps_other_models_and_source_checkpoints(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    first_path = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    second_path = _same_weight_checkpoint(tmp_path, "Second", "2020-01-01T00:00:00Z", 2)
+    torch.manual_seed(7)
+    other = PolicyValueNet("brandubh", channels=8, blocks=0)
+    other_path = save_checkpoint(tmp_path / "other.pt", other, {"name": "Other"})
+    first = registry.register(first_path, "First")
+    second = registry.register(other_path, "Other")
+    registry.delete(first["id"])
+    assert [entry["id"] for entry in registry.list()] == [second["id"]]
+    assert Path(second["path"]).is_file()
+    # Original training/job checkpoints are never touched by catalog deletion.
+    assert first_path.is_file() and second_path.is_file() and other_path.is_file()

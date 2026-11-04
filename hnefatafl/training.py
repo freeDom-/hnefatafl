@@ -835,6 +835,7 @@ def train(
     metrics: dict = {}
     history: list[dict] = []
     best_models: list[dict] = []
+    produced_best = False
     resume_payload: dict | None = None
     saved_config: dict = {}
     extra: dict = {}
@@ -1141,6 +1142,7 @@ def train(
                 if should_stop and should_stop():
                     raise InterruptedError("Evaluation was cancelled")
                 record_improvement = selection.accept(model, current_metadata(), evaluation, config)
+                produced_best = produced_best or record_improvement
                 if selection.identity == legacy_identity and record_improvement:
                     best_score = evaluation["score"]
                     best_snapshot = selection.selected_snapshot()
@@ -1228,11 +1230,15 @@ def train(
         registered = ModelRegistry(registry_root).register(
             inference_checkpoint, name=config["model_name"]
         )
+        # ``reused`` is a transient registration signal, not catalog metadata.
+        model_reused = bool(registered.pop("reused", False))
         monitor.phase("completed", iteration=completed)
         publish(
             status="completed",
             checkpoint=str(checkpoint),
             model=registered,
+            model_reused=model_reused,
+            produced_best=produced_best,
             best_checkpoint=str(best_checkpoint),
             inference_checkpoint=str(inference_checkpoint),
         )

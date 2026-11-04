@@ -166,7 +166,22 @@ JSON; they need not mirror every local file. Tuning has its own study/trial tree
 The compact model is automatically registered with name/version, ruleset,
 architecture, date, configuration and metrics. Select that model in Human vs AI
 or AI vs AI with any compatible [neural search wrapper](AI.md#neural-search-wrappers).
-Models are content-addressed so repeated imports do not produce duplicate entries.
+
+Registration is idempotent by **inference weights**. Every catalog entry carries a
+fingerprint of the architecture and the model tensors; optimizer state, timestamps,
+training configuration and evaluation metadata are deliberately excluded. Importing
+a checkpoint whose weights already exist reuses the existing entry (and its stable
+ID, rune and name) instead of copying the file or creating a second entry, so a run
+that does not improve its best model adds no model and no checkpoint copy. The
+training job still records its own `result.model` reference to the reused model and
+flags `model_reused`; a run that does produce a genuinely different best registers a
+new model normally. The same rule deduplicates repeated imports, identical resumed
+runs and best-model snapshots that match an already registered model.
+
+Catalog entries written before weight fingerprints existed are backfilled on the
+next import (once, then persisted), so an upgraded installation still deduplicates
+against its historical models. No database migration or file rewrite is required;
+legacy `index.json` entries stay readable because the field is optional.
 
 ```sh
 .venv/bin/python -m hnefatafl.cli models --registry data/models
@@ -211,6 +226,25 @@ another saved job references it; remove dependent jobs first.
 
 The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
 `DELETE /api/training/jobs/{id}`. These are separate from model deletion.
+
+### Detecting and cleaning up existing duplicates
+
+Installations upgraded from an earlier release may already contain catalog entries
+with identical weights. Detection is read-only and never deletes anything:
+
+```sh
+.venv/bin/python -m hnefatafl.cli models --registry data/models --duplicates
+```
+
+The command groups entries that share an inference-weight fingerprint. Review each
+group, then remove only the redundant catalog copies you no longer need through the
+normal `DELETE /api/models/{id}` flow (or the UI model card), which removes that
+entry's owned `models/<id>.pt` copy. Do **not** delete files by hand: registered
+model copies are separate from job `last.pt`/`best.pt` checkpoints, and deleting a
+model never removes a training checkpoint or rewrites existing IDs. Check games,
+running tournaments and unfinished references first, exactly as the deletion preview
+does; never automatically deduplicate historical records. Model IDs and runes stay
+stable, so game, tournament and job references remain valid.
 
 ## Moving data between installations
 

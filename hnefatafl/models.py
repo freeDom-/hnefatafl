@@ -400,6 +400,28 @@ def export_checkpoint(source: str | Path, target: str | Path) -> Path:
     return save_checkpoint(target, model, payload["metadata"])
 
 
+def weights_fingerprint(model: PolicyValueNet) -> str:
+    """Deterministic identity of the inference weights, independent of metadata.
+
+    The digest covers the architecture and every tensor's key, shape, dtype and
+    bytes. Optimizer state, training metadata, timestamps and file layout are
+    deliberately excluded, so two checkpoints with identical inference behavior
+    share a fingerprint even when their JSON metadata differs. This is a CPU-only
+    operation and never moves a model to the GPU.
+    """
+    digest = hashlib.sha256()
+    digest.update(ARCHITECTURE.encode("utf-8"))
+    digest.update(json.dumps(model.config, sort_keys=True).encode("utf-8"))
+    state = model.state_dict()
+    for key in sorted(state):
+        tensor = state[key].detach().to("cpu").contiguous()
+        digest.update(key.encode("utf-8"))
+        digest.update(str(tuple(tensor.shape)).encode("utf-8"))
+        digest.update(str(tensor.dtype).encode("utf-8"))
+        digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
+
+
 @contextmanager
 def _registry_lock(path: Path) -> Iterator[None]:
     # The documented deployment target is Linux. Windows uses its native file lock.
@@ -493,6 +515,75 @@ class ModelRegistry:
         finally:
             Path(temporary).unlink(missing_ok=True)
 
+    def _matching_entry(
+        self, entries: list[dict[str, Any]], fingerprint: str, model: PolicyValueNet
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Find an existing entry with the same inference weights.
+
+        Entries imported before weight fingerprints existed are lazily backfilled
+        once and persisted, so an upgraded installation still deduplicates against
+        its historical models. The returned boolean reports whether the index was
+        changed and therefore needs writing.
+        """
+        changed = False
+        for entry in entries:
+            if entry.get("weights_sha256") == fingerprint:
+                return entry, changed
+        for entry in entries:
+            if entry.get("weights_sha256") or entry.get("ruleset") != model.ruleset:
+                continue
+            architecture = entry.get("architecture")
+            if (
+                not isinstance(architecture, dict)
+                or {
+                    "ruleset": architecture.get("ruleset"),
+                    "channels": architecture.get("channels"),
+                    "blocks": architecture.get("blocks"),
+                }
+                != model.config
+            ):
+                continue
+            candidate = self.root / f"{entry['id']}.pt"
+            if not candidate.is_file():
+                continue
+            try:
+                loaded, _ = load_checkpoint(candidate)
+            except (ValueError, RuntimeError, OSError, EOFError):
+                # An unrelated damaged copy must not block a valid import.
+                continue
+            entry["weights_sha256"] = weights_fingerprint(loaded)
+            changed = True
+            if entry["weights_sha256"] == fingerprint:
+                return entry, changed
+        return None, changed
+
+    def duplicates(self) -> list[list[dict[str, Any]]]:
+        """Read-only groups of registered entries that share inference weights.
+
+        Detection never deletes or rewrites anything. It backfills missing
+        fingerprints in memory only, so an operator can inspect existing
+        duplicates and decide which catalog entries to remove deliberately.
+        """
+        with self._locked():
+            entries = [dict(entry) for entry in self._read_index()]
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for entry in entries:
+            fingerprint = entry.get("weights_sha256")
+            if not fingerprint:
+                candidate = self.root / f"{entry['id']}.pt"
+                if not candidate.is_file():
+                    continue
+                try:
+                    loaded, _ = load_checkpoint(candidate)
+                except (ValueError, RuntimeError, OSError, EOFError):
+                    continue
+                fingerprint = weights_fingerprint(loaded)
+                entry["weights_sha256"] = fingerprint
+            groups.setdefault(fingerprint, []).append(
+                {**entry, "path": str(self.root / f"{entry['id']}.pt")}
+            )
+        return [group for group in groups.values() if len(group) > 1]
+
     def list(self) -> list[dict[str, Any]]:
         with self._locked():
             entries = self._read_index()
@@ -549,7 +640,13 @@ class ModelRegistry:
             return dict(removed)
 
     def import_model(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
-        """Copy first, validate that exact copy, then publish metadata atomically."""
+        """Copy first, validate that exact copy, then publish metadata atomically.
+
+        Registration is idempotent by inference weights: an equivalent model
+        already in the catalog is reused instead of copied, and a repeated import
+        of the exact file repairs its owned copy. The returned mapping carries a
+        transient ``reused`` flag that is never persisted in the index.
+        """
         if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 100):
             raise ValueError("Model name must contain 1 to 100 characters")
         source = Path(path)
@@ -563,6 +660,7 @@ class ModelRegistry:
         try:
             shutil.copyfile(source, temporary)
             model, payload = load_checkpoint(temporary)
+            fingerprint = weights_fingerprint(model)
             with temporary.open("rb") as handle:
                 identifier = hashlib.file_digest(handle, "sha256").hexdigest()[:24]
             metadata = payload["metadata"]
@@ -603,6 +701,7 @@ class ModelRegistry:
                 "created_at": metadata.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "imported_at": datetime.now(timezone.utc).isoformat(),
                 "metrics": {},
+                "weights_sha256": fingerprint,
                 **json_metadata,
             }
             destination = self.root / f"{identifier}.pt"
@@ -613,12 +712,26 @@ class ModelRegistry:
                     # Re-import also repairs a missing or accidentally damaged copy.
                     if not self._in_transaction:
                         os.replace(temporary, destination)
-                    return {**existing, "path": str(destination)}
+                    if "weights_sha256" not in existing:
+                        existing["weights_sha256"] = fingerprint
+                        self._write_index(entries)
+                    return {**existing, "path": str(destination), "reused": True}
+                match, changed = self._matching_entry(entries, fingerprint, model)
+                if match is not None:
+                    match_path = self.root / f"{match['id']}.pt"
+                    if not match_path.is_file():
+                        # Repair the owned copy from the identical incoming weights.
+                        os.replace(temporary, match_path)
+                    if changed:
+                        self._write_index(entries)
+                    return {**match, "path": str(match_path), "reused": True}
+                if changed:
+                    self._write_index(entries)
                 if self._in_transaction and destination.exists():
                     raise ValueError("An unregistered model file already occupies this model ID")
                 os.replace(temporary, destination)
                 entries.append(entry)
                 self._write_index(entries)
-            return {**entry, "path": str(destination)}
+            return {**entry, "path": str(destination), "reused": False}
         finally:
             temporary.unlink(missing_ok=True)

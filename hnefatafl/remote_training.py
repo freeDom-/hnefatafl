@@ -371,6 +371,7 @@ class RemoteTraining:
                 "finish_received",
                 "finish_requested_status",
                 "checkpoint_iteration",
+                "inference_reused",
             }
         }
         if isinstance(visible.get("progress"), dict):
@@ -594,6 +595,11 @@ class RemoteTraining:
                 with self.catalog_lock:
                     model = ModelRegistry(self.root / "models").register(path, config["model_name"])
                     model["rune"] = self.store.rune(f"model:{model['id']}")
+                # ``reused`` is a transient registration signal; keep the artifact
+                # response idempotent and record the first upload's outcome only.
+                reused = bool(model.pop("reused", False))
+                if kind == "inference" and "inference" not in job.get("uploaded_models", {}):
+                    job["inference_reused"] = reused
                 job.setdefault("uploaded_models", {})[kind] = model
                 result = {"model": model}
             self.renew(job)
@@ -999,6 +1005,8 @@ class RemoteTraining:
                 result = {**job.get("progress", {}), "status": status}
                 if status == "completed":
                     result["model"] = models["inference"]
+                    # The server performed the registration, so it owns the reuse flag.
+                    result["model_reused"] = bool(job.get("inference_reused", False))
                     job["model_id"] = models["inference"]["id"]
                 job.update(
                     status=status,
