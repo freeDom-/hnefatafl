@@ -200,10 +200,14 @@ in-process path ticks, but into an actor-local accumulator that batches them int
 bounded progress messages instead of one message per simulation; the parent applies
 each batch as a delta and drops a message whose per-worker sequence it has already
 seen, so a completion contributes only its own completion counter and no work is
-counted twice. The same messages carry the actor's live active-game count, which the
-parent sums across workers. `train()` forwards its `TrainingMonitor` into both
-parallel entry points, so a worker pool advances the dashboard's games, positions and
-simulations while long games are still running rather than only when they finish.
+counted twice. Self-play ticks once per played move and keeps that per-move cadence;
+evaluation ticks once per neural batch, so it reports on a nominal one-second
+wall-clock interval (with a work cap and immediate lifecycle flushes) rather than one
+message per forward pass. The
+same messages carry the actor's live active-game count, which the parent sums across
+workers; self-play announces the first active contexts before its first expensive move. `train()` forwards its `TrainingMonitor` into both parallel entry points, so
+a worker pool advances the dashboard's games, positions and simulations while long
+games are still running rather than only when they finish.
 
 Replay commits
 remain in game-index order, the pool keeps only a completion count rather than a copy
