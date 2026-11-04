@@ -265,6 +265,8 @@ export default function TrainingCreationPanel({
               onFieldsCleared?.();
               setKind('tune');
               update('evaluation_opponent', 'shield_bearer');
+              // The controller and a tuning study both own the learning rate.
+              update('adaptation', 'off');
             }}
           >
             {t('Tune parameters')}
@@ -442,12 +444,18 @@ export default function TrainingCreationPanel({
                 id={adaptationId}
                 data-training-field="adaptation"
                 {...invalid('adaptation')}
-                value={String(config.adaptation)}
+                value={kind === 'tune' ? 'off' : String(config.adaptation)}
+                disabled={kind === 'tune'}
                 onChange={(e) => update('adaptation', e.target.value)}
               >
                 <option value="off">Off</option>
                 <option value="hypercontroller">HyperController</option>
               </select>
+              {kind === 'tune' && (
+                <small>
+                  {t('Unavailable while tuning: the study varies the learning rate across trials.')}
+                </small>
+              )}
             </div>
             <SymmetrySettings
               config={config}

@@ -138,9 +138,13 @@ learning-rate adaptation is enabled. It holds the algorithm name, state-schema
 version, candidate set, effective rate, bounded learned predictors, a bounded
 decision-event log and the controller's own random stream. It is JSON-finite and
 size-bounded, travels with the full checkpoint through job archives and remote
-artifacts, and is absent for jobs that never enabled adaptation. Resume resets the
-learned state (with a visible reason) when the candidate set, history window or
-evaluation settings changed; old checkpoints without the field load unchanged.
+artifacts, and is absent for jobs that never enabled adaptation. Resume validates
+it atomically and resets only the controller state (with a visible reason) when
+the candidate set, history window or evaluation settings changed, when the state
+is malformed, or when its version is unknown; the model, optimizer and history are
+never affected. State schema version 1 (the same learned contexts, the earlier
+global exploration gate) migrates in place. Old checkpoints without the field load
+unchanged.
 
 Legacy iteration-100-style checkpoints migrate in memory: the saved baseline
 best becomes a historical benchmark, and can initialize the first provisional

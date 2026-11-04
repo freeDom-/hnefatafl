@@ -41,8 +41,12 @@ from typing import Any
 #: The only accepted values of the ``adaptation`` training option.
 ALGORITHMS = ("off", "hypercontroller")
 
-#: Version of the serialized controller state.
-STATE_VERSION = 1
+#: Version of the serialized controller state. Version 1 stored the same learned
+#: contexts but gated exploration on global per-candidate counts; version 2 gates
+#: exploration per (candidate, context) and records the learned/coverage counters.
+#: Version 1 is migrated on load; unknown versions reset only the controller state.
+STATE_VERSION = 2
+COMPATIBLE_STATE_VERSIONS = (1, 2)
 
 #: Bounds that keep the learned state small and the decisions cheap.
 MIN_CANDIDATES = 2
@@ -54,6 +58,10 @@ MAX_LAG = 3
 #: stores the contexts it actually visits.
 MAX_CONTEXTS = 512
 MAX_EVENTS = 100
+#: Number of decision events retained in the published progress snapshot. The
+#: controller keeps up to :data:`MAX_EVENTS`; the training loop exposes this tail
+#: so the persisted progress stays bounded and never grows with the run.
+ADAPTATION_EVENT_TAIL = 50
 MAX_REWARD_HISTORY = 64
 RIDGE = 1e-6
 
@@ -142,7 +150,7 @@ def normalize_adaptation(full_config: dict) -> dict:
         ("adaptation_warmup", 0, 10000),
         ("adaptation_min_dwell", 1, 10000),
         ("adaptation_lag", 1, MAX_LAG),
-        ("adaptation_min_trials", 0, 100),
+        ("adaptation_min_trials", 1, 100),
     ):
         value = values[key]
         if type(value) is not int or not low <= value <= high:
@@ -263,6 +271,136 @@ def _restore_rng(state: Any, seed: int) -> random.Random:
     return rng
 
 
+def _finite_float(value: Any) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("Controller state contains a non-finite number")
+    return number
+
+
+def _is_positive_definite(matrix: list[list[float]]) -> bool:
+    """Cholesky test for the small ridge systems this controller inverts."""
+    size = len(matrix)
+    lower = [[0.0] * size for _ in range(size)]
+    for row in range(size):
+        for column in range(row + 1):
+            total = matrix[row][column] - sum(
+                lower[row][index] * lower[column][index] for index in range(column)
+            )
+            if row == column:
+                if total <= 0:
+                    return False
+                lower[row][row] = math.sqrt(total)
+            else:
+                if lower[column][column] == 0:
+                    return False
+                lower[row][column] = total / lower[column][column]
+    return True
+
+
+def _validate_contexts(value: Any, lag: int, candidate_count: int) -> dict[str, dict[str, Any]]:
+    """Validate the whole learned-context map, rejecting anything malformed."""
+    if not isinstance(value, dict):
+        raise ValueError("Controller contexts must be an object")
+    if len(value) > MAX_CONTEXTS:
+        raise ValueError(f"Controller state exceeds the {MAX_CONTEXTS}-context limit")
+    contexts: dict[str, dict[str, Any]] = {}
+    for key, entry in value.items():
+        if not isinstance(key, str):
+            raise ValueError("Controller context key must be a string")
+        action_text, separator, context_text = key.partition(":")
+        if not separator or not action_text.isdigit() or not context_text:
+            raise ValueError("Controller context key is malformed")
+        action = int(action_text)
+        if not 0 <= action < candidate_count:
+            raise ValueError("Controller context key names an illegal action")
+        parts = context_text.split(",")
+        if len(parts) != lag or any(not part.isdigit() for part in parts):
+            raise ValueError("Controller context key has the wrong shape")
+        context = [int(part) for part in parts]
+        if any(not 0 <= item < candidate_count for item in context):
+            raise ValueError("Controller context key names an illegal action")
+        if not isinstance(entry, dict):
+            raise ValueError("Controller context entry must be an object")
+        matrix = entry.get("V")
+        vector = entry.get("b")
+        if not isinstance(matrix, list) or len(matrix) != lag:
+            raise ValueError("Controller context matrix has the wrong shape")
+        validated_matrix: list[list[float]] = []
+        for row in matrix:
+            if not isinstance(row, list) or len(row) != lag:
+                raise ValueError("Controller context matrix has the wrong shape")
+            validated_matrix.append([_finite_float(item) for item in row])
+        for row in range(lag):
+            if validated_matrix[row][row] <= 0:
+                raise ValueError("Controller context matrix is not positive definite")
+            for column in range(row):
+                if abs(validated_matrix[row][column] - validated_matrix[column][row]) > 1e-9:
+                    raise ValueError("Controller context matrix is not symmetric")
+        if not _is_positive_definite(validated_matrix):
+            raise ValueError("Controller context matrix is not positive definite")
+        if not isinstance(vector, list) or len(vector) != lag:
+            raise ValueError("Controller context vector has the wrong shape")
+        count = entry.get("n")
+        if type(count) is not int or count < 0:
+            raise ValueError("Controller context count is invalid")
+        contexts[key] = {
+            "V": validated_matrix,
+            "b": [_finite_float(item) for item in vector],
+            "n": count,
+        }
+    return contexts
+
+
+def _validate_number_list(value: Any, limit: int, name: str) -> list[float]:
+    if not isinstance(value, list) or len(value) > limit:
+        raise ValueError(f"Controller {name} history is invalid")
+    return [_finite_float(item) for item in value]
+
+
+def _validate_action_list(value: Any, candidate_count: int, limit: int) -> list[int]:
+    if not isinstance(value, list) or len(value) > limit:
+        raise ValueError("Controller action history is invalid")
+    actions: list[int] = []
+    for item in value:
+        if type(item) is not int or not 0 <= item < candidate_count:
+            raise ValueError("Controller action history names an illegal action")
+        actions.append(item)
+    return actions
+
+
+def _validate_count_list(value: Any, candidate_count: int) -> list[int]:
+    if not isinstance(value, list) or len(value) != candidate_count:
+        raise ValueError("Controller candidate counts are invalid")
+    counts: list[int] = []
+    for item in value:
+        if type(item) is not int or item < 0:
+            raise ValueError("Controller candidate counts are invalid")
+        counts.append(item)
+    return counts
+
+
+def _validate_counter(value: Any, name: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"Controller {name} counter is invalid")
+    return value
+
+
+def _validate_index(value: Any, candidate_count: int) -> int:
+    if type(value) is not int or not 0 <= value < candidate_count:
+        raise ValueError("Controller effective index is invalid")
+    return value
+
+
+def _validate_events(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ValueError("Controller event history is invalid")
+    for event in value:
+        if not isinstance(event, dict):
+            raise ValueError("Controller event history is invalid")
+    return [dict(event) for event in value][-MAX_EVENTS:]
+
+
 class HyperController:
     """Bounded online learning-rate controller with serializable state.
 
@@ -289,6 +427,10 @@ class HyperController:
             raise ValueError("Invalid candidate count")
         if not 0 <= initial_index < len(candidates):
             raise ValueError("Initial candidate index is out of range")
+        if lag < 1 or cadence < 1 or min_dwell < 1 or min_trials < 1:
+            raise ValueError("Invalid controller schedule")
+        if len(candidates) ** (lag + 1) > MAX_CONTEXTS:
+            raise ValueError("Candidate and lag combination exceeds the context limit")
         self.candidates = list(candidates)
         self.lag = lag
         self.cadence = cadence
@@ -300,18 +442,23 @@ class HyperController:
         self.rng = random.Random(seed)
         self.rewards: list[float] = []
         self.actions: list[int] = []
+        # Observations attributed per candidate (telemetry only). Exploration is
+        # gated on the per-context count in ``contexts[...]["n"]`` instead.
         self.counts = [0] * len(self.candidates)
         # Keyed by "candidate|context..." with the same ``lag`` shape for every
         # entry, so the state-size bound is ``candidates ** (lag + 1)``.
         self.contexts: dict[str, dict[str, Any]] = {}
         self.observations = 0
+        self.learned = 0
         self.decisions = 0
         self.changes = 0
+        self.coverage_pulls = 0
         self.last_decision_observation = 0
         self.last_change_observation = 0
         self.limit_hits = 0
         self.events: list[dict[str, Any]] = []
         self.reset_reason: str | None = None
+        self.migrated_from: int | None = None
 
     # -- public interface -------------------------------------------------
 
@@ -333,14 +480,17 @@ class HyperController:
             "effective_index": self.effective_index,
             "effective_learning_rate": self.effective_learning_rate,
             "observations": self.observations,
+            "learned": self.learned,
             "decisions": self.decisions,
             "changes": self.changes,
+            "coverage_pulls": self.coverage_pulls,
             "last_decision_observation": self.last_decision_observation,
             "last_change_observation": self.last_change_observation,
             "evaluation_identity": self.evaluation_identity,
             "contexts": len(self.contexts),
             "limit_hits": self.limit_hits,
             "reset_reason": self.reset_reason,
+            "migrated_from": self.migrated_from,
             "last_event": self.events[-1] if self.events else None,
         }
 
@@ -360,11 +510,11 @@ class HyperController:
                 "iteration": iteration,
                 "observation": None,
                 "provenance": provenance,
+                "attributed_learning_rate": self.effective_learning_rate,
+                "previous_learning_rate": self.effective_learning_rate,
+                "selected_learning_rate": self.effective_learning_rate,
                 "changed": False,
                 "skipped": "missing_observation",
-                "previous_index": self.effective_index,
-                "effective_index": self.effective_index,
-                "effective_learning_rate": self.effective_learning_rate,
                 "observations": self.observations,
             }
             self._record_event(event, started)
@@ -379,7 +529,10 @@ class HyperController:
             self.rewards = self.rewards[-MAX_REWARD_HISTORY:]
             self.actions = self.actions[-MAX_REWARD_HISTORY:]
         try:
-            self._learn()
+            if self._learn():
+                # Only an observation that actually updated a predictor counts as
+                # learned; warm-up observations cannot satisfy coverage.
+                self.learned += 1
         except (ValueError, TypeError, ZeroDivisionError):
             # A malformed window must never abort training; skip this update.
             pass
@@ -388,13 +541,17 @@ class HyperController:
         return event
 
     def _decide(self, iteration: int, reward: float, provenance: dict[str, Any]) -> dict[str, Any]:
+        previous_index = self.effective_index
+        previous_rate = self.candidates[previous_index]
         event: dict[str, Any] = {
             "iteration": iteration,
             "observation": round(reward, 6),
             "provenance": provenance,
-            "previous_index": self.effective_index,
-            "effective_index": self.effective_index,
-            "effective_learning_rate": self.effective_learning_rate,
+            # The rate that produced the observation and is still effective until
+            # a decision changes it.
+            "attributed_learning_rate": previous_rate,
+            "previous_learning_rate": previous_rate,
+            "selected_learning_rate": previous_rate,
             "changed": False,
             "skipped": None,
             "observations": self.observations,
@@ -416,51 +573,69 @@ class HyperController:
             event["skipped"] = "fallback"
             return event
         event["selected_index"] = chosen
-        if chosen != self.effective_index:
+        event["selected_learning_rate"] = self.candidates[chosen]
+        if chosen != previous_index:
             self.effective_index = chosen
             self.last_change_observation = self.observations
             self.changes += 1
             event["changed"] = True
-        event["effective_index"] = self.effective_index
         event["effective_learning_rate"] = self.effective_learning_rate
         return event
 
     def _select(self) -> int:
         size = len(self.candidates)
-        untried = [index for index in range(size) if self.counts[index] < self.min_trials]
-        if untried:
-            return untried[self.rng.randrange(len(untried))]
         if len(self.rewards) < self.lag:
+            # Too little history to form a context window; explore uniformly.
+            self.coverage_pulls += 1
             return self.rng.randrange(size)
         context = tuple(self.actions[-self.lag :])
         window = self.rewards[-self.lag :]
-        best_index, best_value = 0, None
+        # Coverage is per (candidate, context): a predictor that has never seen a
+        # context cannot be compared with one that has, and a positive prediction
+        # elsewhere must not hide it. The number of contexts is bounded by the
+        # state limit, so the forced-exploration burden is bounded too.
+        untried = [
+            index for index in range(size) if self._context_count(index, context) < self.min_trials
+        ]
+        if untried:
+            self.coverage_pulls += 1
+            return untried[self.rng.randrange(len(untried))]
+        best_index = 0
+        best_value: float | None = None
+        best_count = 0
         for index in range(size):
             value = self._prediction(index, context, window)
-            if best_value is None or value > best_value:
-                best_index, best_value = index, value
+            count = self._context_count(index, context)
+            if best_value is None or value > best_value + 1e-12:
+                best_index, best_value, best_count = index, value, count
+            elif abs(value - best_value) <= 1e-12 and count < best_count:
+                best_index, best_count = index, count
         return best_index
 
-    def _learn(self) -> None:
+    def _context_count(self, action: int, context: tuple[int, ...]) -> int:
+        entry = self.contexts.get(self._key(action, context))
+        return int(entry["n"]) if entry is not None else 0
+
+    def _learn(self) -> bool:
         if len(self.rewards) < self.lag + 1:
-            return
+            return False
         target = len(self.rewards) - 1
         context = tuple(self.actions[target - self.lag : target])
         window = self.rewards[target - self.lag : target]
         action = self.actions[target]
         if len(context) != self.lag or len(window) != self.lag:
-            return
-        self._update(action, context, window, self.rewards[target])
+            return False
+        return self._update(action, context, window, self.rewards[target])
 
     def _update(
         self, action: int, context: tuple[int, ...], window: list[float], reward: float
-    ) -> None:
+    ) -> bool:
         key = self._key(action, context)
         entry = self.contexts.get(key)
         if entry is None:
             if len(self.contexts) >= MAX_CONTEXTS:
                 self.limit_hits += 1
-                return
+                return False
             entry = {
                 "V": [
                     [RIDGE if row == column else 0.0 for column in range(self.lag)]
@@ -477,6 +652,7 @@ class HyperController:
                 matrix[row][column] += window[row] * window[column]
             vector[row] += reward * window[row]
         entry["n"] += 1
+        return True
 
     def _prediction(self, action: int, context: tuple[int, ...], window: list[float]) -> float:
         entry = self.contexts.get(self._key(action, context))
@@ -511,8 +687,10 @@ class HyperController:
             "evaluation_identity": self.evaluation_identity,
             "effective_index": self.effective_index,
             "observations": self.observations,
+            "learned": self.learned,
             "decisions": self.decisions,
             "changes": self.changes,
+            "coverage_pulls": self.coverage_pulls,
             "last_decision_observation": self.last_decision_observation,
             "last_change_observation": self.last_change_observation,
             "counts": list(self.counts),
@@ -567,7 +745,8 @@ class HyperController:
         )
         if not isinstance(state, dict) or not state:
             return controller
-        if state.get("version") != STATE_VERSION or state.get("algorithm") != "hypercontroller":
+        version = state.get("version")
+        if version not in COMPATIBLE_STATE_VERSIONS or state.get("algorithm") != "hypercontroller":
             controller.reset_reason = "unsupported_state"
             return controller
         saved_candidates = state.get("candidates")
@@ -580,50 +759,58 @@ class HyperController:
         if state.get("evaluation_identity") != evaluation_identity:
             controller.reset_reason = "evaluation_changed"
             return controller
+        # Validate every field into locals first; the controller adopts nothing
+        # until all of them pass, so a partially valid state can never leak into
+        # telemetry or a later checkpoint. A malformed state resets only the
+        # controller: the model, optimizer and replay are untouched.
         try:
-            contexts: dict[str, dict[str, Any]] = {}
-            for key, entry in state.get("contexts", {}).items():
-                matrix = [[float(value) for value in row] for row in entry["V"]]
-                vector = [float(value) for value in entry["b"]]
-                if len(matrix) != lag or any(len(row) != lag for row in matrix):
-                    raise ValueError("Invalid controller matrix")
-                if len(vector) != lag:
-                    raise ValueError("Invalid controller vector")
-                contexts[str(key)] = {"V": matrix, "b": vector, "n": int(entry.get("n", 0))}
-            rewards = [float(value) for value in state.get("rewards", [])][-MAX_REWARD_HISTORY:]
-            actions = [int(value) for value in state.get("actions", [])][-MAX_REWARD_HISTORY:]
-            if len(rewards) != len(actions) or any(
-                not 0 <= value < len(candidates) for value in actions
-            ):
-                raise ValueError("Invalid controller history")
-            counts = [int(value) for value in state.get("counts", [])]
-            if len(counts) != len(candidates):
-                counts = [0] * len(candidates)
-            effective_index = int(state.get("effective_index", initial_index))
-            if not 0 <= effective_index < len(candidates):
-                raise ValueError("Invalid effective index")
-            controller.contexts = contexts
-            controller.rewards = rewards
-            controller.actions = actions
-            controller.counts = counts
-            controller.effective_index = effective_index
-            controller.observations = max(0, int(state.get("observations", 0)))
-            controller.decisions = max(0, int(state.get("decisions", 0)))
-            controller.changes = max(0, int(state.get("changes", 0)))
-            controller.last_decision_observation = max(
-                0, int(state.get("last_decision_observation", 0))
+            contexts = _validate_contexts(state.get("contexts"), lag, len(candidates))
+            rewards = _validate_number_list(state.get("rewards"), MAX_REWARD_HISTORY, "reward")
+            actions = _validate_action_list(
+                state.get("actions"), len(candidates), MAX_REWARD_HISTORY
             )
-            controller.last_change_observation = max(
-                0, int(state.get("last_change_observation", 0))
+            if len(rewards) != len(actions):
+                raise ValueError("Controller reward and action histories disagree")
+            counts = _validate_count_list(state.get("counts"), len(candidates))
+            effective_index = _validate_index(
+                state.get("effective_index", initial_index), len(candidates)
             )
-            controller.limit_hits = max(0, int(state.get("limit_hits", 0)))
-            controller.events = [
-                event for event in state.get("events", []) if isinstance(event, dict)
-            ][-MAX_EVENTS:]
-            controller.rng = _restore_rng(state.get("rng"), seed)
-        except (KeyError, TypeError, ValueError, IndexError):
+            observations = _validate_counter(state.get("observations", 0), "observation")
+            learned = _validate_counter(state.get("learned", 0), "learned")
+            decisions = _validate_counter(state.get("decisions", 0), "decision")
+            changes = _validate_counter(state.get("changes", 0), "change")
+            coverage_pulls = _validate_counter(state.get("coverage_pulls", 0), "coverage")
+            last_decision = _validate_counter(
+                state.get("last_decision_observation", 0), "last-decision"
+            )
+            last_change = _validate_counter(state.get("last_change_observation", 0), "last-change")
+            limit_hits = _validate_counter(state.get("limit_hits", 0), "limit-hit")
+            if last_decision > observations or last_change > observations:
+                raise ValueError("Controller observation counters are inconsistent")
+            events = _validate_events(state.get("events", []))
+            rng = _restore_rng(state.get("rng"), seed)
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError):
             controller.reset_reason = "unreadable_state"
             return controller
+        controller.contexts = contexts
+        controller.rewards = rewards
+        controller.actions = actions
+        controller.counts = counts
+        controller.effective_index = effective_index
+        controller.observations = observations
+        controller.learned = learned
+        controller.decisions = decisions
+        controller.changes = changes
+        controller.coverage_pulls = coverage_pulls
+        controller.last_decision_observation = last_decision
+        controller.last_change_observation = last_change
+        controller.limit_hits = limit_hits
+        controller.events = events
+        controller.rng = rng
+        if version == 1:
+            # Version 1 stored the same learned contexts; only the exploration
+            # gate changed, so it is migrated in place rather than reset.
+            controller.migrated_from = 1
         return controller
 
 

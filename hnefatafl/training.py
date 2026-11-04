@@ -43,6 +43,7 @@ from .training_augmentation import (
 from .training_presets import RECOMMENDED
 from .game_statistics import checkpoint_cumulative, self_play_statistics
 from .hyper_adaptation import (
+    ADAPTATION_EVENT_TAIL,
     adaptation_defaults,
     normalize_adaptation,
     observation_from_evaluation,
@@ -319,6 +320,11 @@ def compact_progress(state: dict) -> dict:
             for key, value in performance.items()
             if type(value) in (int, float, str, bool)
         }
+    # A short decision tail for subprocess logs; the full bounded history stays in
+    # the retained progress file so a one-line log never grows with the run.
+    events = state.get("adaptation_events")
+    if isinstance(events, list) and events:
+        result["adaptation_events"] = events[-5:]
     return result
 
 
@@ -1008,7 +1014,7 @@ def train(
             _set_optimizer_learning_rate(optimizer, controller.effective_learning_rate)
             config["learning_rate"] = controller.effective_learning_rate
             state["adaptation"] = controller.summary()
-            state["adaptation_events"] = list(controller.events[-20:])
+            state["adaptation_events"] = list(controller.events[-ADAPTATION_EVENT_TAIL:])
         elif resume_payload is not None and saved_config.get("adaptation", "off") != "off":
             # Adaptation was disabled on resume. The optimizer keeps the
             # checkpoint's last effective rate; an explicit learning_rate override
@@ -1062,6 +1068,11 @@ def train(
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
             iteration_start = time.monotonic()
+            # The rate set at the previous boundary is the one this iteration's
+            # self-play, optimization and evaluation actually use. Capture it
+            # before any adaptation decision so the reported history attributes
+            # the losses to the rate that produced them.
+            interval_learning_rate = float(optimizer.param_groups[0]["lr"])
 
             def commit_game(index: int, examples: list[dict], result: dict) -> None:
                 nonlocal replay, job_games
@@ -1207,14 +1218,20 @@ def train(
                     config["learning_rate"] = controller.effective_learning_rate
                 performance["adaptation_seconds"] = time.monotonic() - adaptation_started
                 state["adaptation"] = controller.summary()
-                state["adaptation_events"] = list(controller.events[-20:])
+                state["adaptation_events"] = list(controller.events[-ADAPTATION_EVENT_TAIL:])
             point = {
                 "iteration": iteration,
                 "policy_loss": metrics["policy_loss"],
                 "value_loss": metrics["value_loss"],
                 "replay_positions": metrics["replay_positions"],
+                "updates": metrics["updates"],
                 "iteration_duration": metrics["iteration_duration"],
-                "learning_rate": float(optimizer.param_groups[0]["lr"]),
+                # The rate this iteration actually trained with.
+                "learning_rate": interval_learning_rate,
+                # The rate in effect after this iteration's decision, i.e. the one
+                # the next interval will use. Equal to ``learning_rate`` when
+                # adaptation is off or no change was selected.
+                "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "performance": dict(performance),
             }
             if "evaluation" in metrics:

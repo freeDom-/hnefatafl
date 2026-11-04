@@ -961,3 +961,42 @@ def test_bounded_reports_keep_the_sequence_guard_and_the_lease(client):
     job = client.app.state.store.get_job(lease["id"])
     assert job["lease_sequence"] == 2
     assert job["lease_expires"] > datetime.now(timezone.utc).timestamp()
+
+
+def test_remote_progress_retains_bounded_adaptation_events(client):
+    remote, headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "hyper_adaptation": True,
+            }
+        },
+    )
+    queued = queue(client, adaptation="hypercontroller", evaluation_games=4)
+    assert queued["config"]["adaptation"] == "hypercontroller"
+    lease = claim(client, headers)
+    events = [
+        {
+            "iteration": index,
+            "observation": 0.5,
+            "previous_learning_rate": 0.001,
+            "selected_learning_rate": 0.003 if index % 2 else 0.001,
+            "changed": bool(index % 2),
+            "skipped": None,
+        }
+        for index in range(50)
+    ]
+    assert report(client, headers, lease, sequence=0, adaptation_events=events).status_code == 200
+    job = client.get(f"/api/training/jobs/{lease['id']}").json()
+    retained = job["progress"]["adaptation_events"]
+    assert len(retained) == 50
+    assert retained[-1]["selected_learning_rate"] == 0.003
+    # A later partial report without events keeps the retained tail rather than
+    # dropping it, and the merge is what makes that possible.
+    assert report(client, headers, lease, sequence=1, policy_loss=0.5).status_code == 200
+    job = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert len(job["progress"]["adaptation_events"]) == 50

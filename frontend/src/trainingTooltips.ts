@@ -77,7 +77,7 @@ export const trainingTooltips: Record<string, string> = {
   adaptation_lag:
     'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.',
   adaptation_min_trials:
-    'Number of times every candidate must be observed before the controller may exploit its predictions. Guarantees each candidate is tried at least this often; 0 allows purely predictive selection once warm-up is complete.',
+    'Number of times every candidate must be observed in a given action-history context before the controller may exploit its predictions there. Coverage is per context, so a new context is always explored and a promising candidate cannot hide an unobserved alternative; the value must be at least 1.',
   weight_decay:
     'Regularization the optimizer applies to the weights. Higher values shrink weights more strongly and reduce overfitting at the cost of slower fitting; 0 disables it. AdamW applies it decoupled from the gradient update, Adam and SGD apply it through the optimizer itself.',
   momentum:

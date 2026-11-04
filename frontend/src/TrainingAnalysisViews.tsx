@@ -323,9 +323,84 @@ export function TrainingLearningView({
       <p className="subtle">
         {t('Missing metrics were not recorded; they are never interpreted as zero.')}
       </p>
+      <AdaptationHistory progress={progress} />
     </>
   );
 }
+
+const SKIP_LABELS: Record<string, string> = {
+  warmup: 'Warm-up',
+  cadence: 'Waiting for cadence',
+  dwell: 'Minimum dwell',
+  fallback: 'Fallback',
+};
+
+function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {
+  if (event.skipped === 'missing_observation') return <>{t('No observation')}</>;
+  if (typeof event.skipped === 'string' && SKIP_LABELS[event.skipped])
+    return <>{t(SKIP_LABELS[event.skipped])}</>;
+  return <>{event.changed === true ? t('Changed') : t('Kept')}</>;
+}
+
+/**
+ * Bounded controller decision log. Older jobs have no events and render nothing,
+ * so a legacy checkpoint never shows an invented history.
+ */
+function AdaptationHistory({ progress }: { progress: Values }) {
+  const { t, locale } = useI18n();
+  const raw = progress.adaptation_events;
+  const events = Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : [];
+  if (!events.length) return null;
+  const rate = (value: unknown) =>
+    finite(value)
+      ? new Intl.NumberFormat(locale, { maximumSignificantDigits: 4 }).format(value)
+      : '—';
+  const observation = (value: unknown) =>
+    value === null || value === undefined
+      ? t('Unavailable')
+      : finite(value)
+        ? new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value)
+        : '—';
+  return (
+    <TrainingDataDisclosure title="Automatic hyperparameter updates">
+      {() => (
+        <div className="table-scroll bounded-table">
+          <table aria-label={t('Automatic hyperparameter updates')}>
+            <thead>
+              <tr>
+                {[
+                  'Iteration',
+                  'Used learning rate',
+                  'Selected learning rate',
+                  'Observation',
+                  'Decision',
+                ].map((label) => (
+                  <th key={label} scope="col">
+                    {t(label)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((event, index) => (
+                <tr key={index}>
+                  <th scope="row">{finite(event.iteration) ? String(event.iteration) : '—'}</th>
+                  <td>{rate(event.previous_learning_rate)}</td>
+                  <td>{rate(event.selected_learning_rate)}</td>
+                  <td>{observation(event.observation)}</td>
+                  <td>
+                    <AdaptationDecision event={event} t={t} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </TrainingDataDisclosure>
+  );
+}
+
 export function TrainingEvaluationView({
   progress,
   history,

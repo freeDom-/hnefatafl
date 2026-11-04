@@ -419,7 +419,27 @@ const translations: Record<string, string> = {
     'Mindestanzahl an Auswertungen, die eine neu gewählte Lernrate beibehalten wird, bevor sie sich erneut ändern darf. Verhindert schnelles Oszillieren, wenn die Auswertungsergebnisse verrauscht sind.',
   'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.':
     'Anzahl der jüngsten Beobachtungen, die der Controller zur Vorhersage des nächsten Ergebnisses nutzt (1–3). Ein größeres Fenster stützt sich auf mehr Vorgeschichte, vergrößert aber den gelernten Zustand; 1 entspricht der Referenzkonfiguration.',
-  'Number of times every candidate must be observed before the controller may exploit its predictions. Guarantees each candidate is tried at least this often; 0 allows purely predictive selection once warm-up is complete.':
-    'Anzahl, wie oft jeder Kandidat beobachtet werden muss, bevor der Controller seine Vorhersagen ausnutzen darf. Garantiert, dass jeder Kandidat mindestens so oft versucht wird; 0 erlaubt nach Abschluss der Aufwärmphase eine rein vorhersagende Auswahl.',
+  'Number of times every candidate must be observed in a given action-history context before the controller may exploit its predictions there. Coverage is per context, so a new context is always explored and a promising candidate cannot hide an unobserved alternative; the value must be at least 1.':
+    'Anzahl, wie oft jeder Kandidat in einem gegebenen Aktionsverlauf-Kontext beobachtet werden muss, bevor der Controller dort seine Vorhersagen ausnutzen darf. Die Abdeckung ist pro Kontext, daher wird ein neuer Kontext immer erkundet und ein vielversprechender Kandidat kann keine unbeobachtete Alternative verbergen; der Wert muss mindestens 1 sein.',
+  'Effective learning rate': 'Effektive Lernrate',
+  'Used learning rate': 'Verwendete Lernrate',
+  'Selected learning rate': 'Gewählte Lernrate',
+  Observation: 'Beobachtung',
+  Decision: 'Entscheidung',
+  Changed: 'Geändert',
+  Kept: 'Beibehalten',
+  'Warm-up': 'Aufwärmphase',
+  'Waiting for cadence': 'Warte auf Takt',
+  'Minimum dwell': 'Minimale Verweildauer',
+  'No observation': 'Keine Beobachtung',
+  Fallback: 'Rückfall',
+  'Unavailable while tuning: the study varies the learning rate across trials.':
+    'Während der Optimierung nicht verfügbar: Die Studie variiert die Lernrate über die Versuche hinweg.',
+  'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.':
+    'Automatische Hyperparameter-Aktualisierungen benötigen einen festen Auswertungsgegner, nicht Champion.',
+  'Automatic hyperparameter updates need at least 4 evaluation games.':
+    'Automatische Hyperparameter-Aktualisierungen benötigen mindestens 4 Auswertungspartien.',
+  'The learning rate must be one of the adaptation candidates.':
+    'Die Lernrate muss einer der Anpassungskandidaten sein.',
 };
 export default translations;

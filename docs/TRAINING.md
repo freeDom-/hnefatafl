@@ -116,7 +116,7 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `adaptation` | `off` (default) or `hypercontroller`; optional online learning-rate adaptation described below |
 | `adaptation_lr_candidates` | Comma-separated learning-rate candidates (2–8 distinct, each 1e-7–1); the configured `learning_rate` must be one of them |
 | `adaptation_cadence`, `adaptation_warmup`, `adaptation_min_dwell` | Evaluations between decisions; evaluations before any decision; evaluations a chosen rate is kept |
-| `adaptation_lag`, `adaptation_min_trials` | Observation history window (1–3); forced trials of each candidate before exploitation |
+| `adaptation_lag`, `adaptation_min_trials` | Observation history window (1–3); per-context forced trials of each candidate (1–100) |
 
 See [TRAINING_PLAN.md](TRAINING_PLAN.md) for the 7×7, 9×9 and 11×11 recommended
 budgets, receptive fields, learning targets and comparison plan. The workshop
@@ -200,7 +200,7 @@ Gameplay search has [different defaults and limits](AI.md#configuration).
 | `adaptation` | `off` (default) or `hypercontroller` |
 | `adaptation_lr_candidates` | 2–8 distinct values, each 1e-7–1; the configured `learning_rate` must be present |
 | `adaptation_cadence`; `adaptation_warmup`; `adaptation_min_dwell` | Integers 1–10,000; 0–10,000; 1–10,000 |
-| `adaptation_lag`; `adaptation_min_trials` | Integer 1–3; integer 0–100 |
+| `adaptation_lag`; `adaptation_min_trials` | Integer 1–3; integer 1–100 |
 
 Numeric real-valued bounds require finite values. `mixed_precision` defaults to
 true and takes effect on CUDA; `cpu_threads` defaults to two. JSON CLI paths are
@@ -425,16 +425,25 @@ observation is the completed-game score against that opponent. Unfinished games
 are excluded from the observation rather than scored as losses, and no extra
 evaluation is added.
 
-The current effective rate and a compact decision history are published in
-monitoring (`progress.adaptation` and the per-iteration `learning_rate` history
-field); the controller state is stored inside the full checkpoint and survives
-resume. Changing the candidate set, the history window or the evaluation settings
-resets the learned state with a visible reason instead of mixing incomparable
-observations. The full design record, honest signal limits, algorithm comparison
-and reproducible benchmark instructions are in
+The current effective rate and a bounded decision history are published in
+monitoring (`progress.adaptation`, the per-iteration history fields and
+`progress.adaptation_events`); the controller state is stored inside the full
+checkpoint and survives resume. Changing the candidate set, the history window or
+the evaluation settings resets the learned state with a visible reason instead of
+mixing incomparable observations. Malformed saved controller state resets only
+the controller (with a visible reason) after an atomic validation pass; the model,
+optimizer and history are never touched. The full design record, honest signal
+limits, algorithm comparison and reproducible benchmark instructions are in
 [online hyperparameter adaptation](designs/online-hyperparameter-adaptation.md);
-the measured controller overhead is in the
+the measured controller overhead and baselines are in the
 [smoke benchmark](benchmarks/online-hyperparameter-adaptation.md).
+
+In the history, `learning_rate` is the rate the reported iteration actually
+trained with, while `effective_learning_rate` is the rate selected at that
+iteration's boundary for the next interval. The dashboard labels them “Used” and
+“Selected”. Coverage is per action-history context, so every candidate is tried in
+each context before that context's predictions are exploited; a new context is
+always explored.
 
 Adaptation is a research feature: a lower training loss is not evidence of
 stronger play, and neither is a successful adaptation run by itself. Compare

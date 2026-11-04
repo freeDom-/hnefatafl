@@ -103,6 +103,26 @@ export function validTrainingInput(key: string, value: unknown): boolean {
   );
 }
 
+/**
+ * Cross-field constraints the controller needs. Per-field validation cannot see
+ * these, and the server is the security boundary; this gives the workshop an
+ * immediate explanation for a configuration that cannot run.
+ */
+export function adaptationConfigError(config: TrainingConfig): string | null {
+  if (config.adaptation !== 'hypercontroller') return null;
+  if (config.evaluation_opponent === 'champion')
+    return 'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.';
+  if (Number(config.evaluation_games) < 4)
+    return 'Automatic hyperparameter updates need at least 4 evaluation games.';
+  const candidates = String(config.adaptation_lr_candidates ?? '')
+    .split(',')
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value));
+  if (!candidates.includes(Number(config.learning_rate)))
+    return 'The learning rate must be one of the adaptation candidates.';
+  return null;
+}
+
 const plans: Record<string, TrainingConfig> = {
   brandubh: {
     channels: 32,

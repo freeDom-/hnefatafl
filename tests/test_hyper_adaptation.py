@@ -182,19 +182,19 @@ def test_observation_is_missing_when_every_game_is_unfinished():
 
 def test_warmup_cadence_and_dwell_gate_decisions():
     # Warm-up: no decision before the configured number of observations.
-    warm = make_controller(warmup=3, cadence=1, min_dwell=1, min_trials=0)
+    warm = make_controller(warmup=3, cadence=1, min_dwell=1, min_trials=1)
     assert [warm.observe(iteration=i + 1, score=0.5) for i in range(2)][-1]["skipped"] == "warmup"
     assert warm.observe(iteration=3, score=0.5)["skipped"] is None
 
     # Cadence: a decision is made once every two observations.
-    paced = make_controller(warmup=0, cadence=2, min_dwell=1, min_trials=0)
+    paced = make_controller(warmup=0, cadence=2, min_dwell=1, min_trials=1)
     assert paced.observe(iteration=1, score=0.5)["skipped"] == "cadence"
     assert paced.observe(iteration=2, score=0.5)["skipped"] is None
     assert paced.observe(iteration=3, score=0.5)["skipped"] == "cadence"
     assert paced.observe(iteration=4, score=0.5)["skipped"] is None
 
     # Dwell: after a change, the next decision is held until the dwell elapses.
-    dwell = make_controller(warmup=0, cadence=1, min_dwell=3, min_trials=0)
+    dwell = make_controller(warmup=0, cadence=1, min_dwell=3, min_trials=1)
     assert dwell.observe(iteration=1, score=0.0)["skipped"] == "dwell"
     assert dwell.observe(iteration=2, score=0.0)["skipped"] == "dwell"
     changed = dwell.observe(iteration=3, score=0.0)
@@ -203,7 +203,7 @@ def test_warmup_cadence_and_dwell_gate_decisions():
 
 
 def test_missing_and_nonfinite_observations_never_advance_counters():
-    controller = make_controller(warmup=1, min_trials=0)
+    controller = make_controller(warmup=1, min_trials=1)
     for bad in (None, float("nan"), float("inf")):
         event = controller.observe(iteration=1, score=bad)
         assert event["skipped"] == "missing_observation"
@@ -213,7 +213,7 @@ def test_missing_and_nonfinite_observations_never_advance_counters():
 
 
 def test_delayed_observation_is_credited_to_the_active_action():
-    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=0)
+    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
     controller.observe(iteration=1, score=0.0)  # action = initial index 1
     # The credited action is the index active for the interval just scored.
     assert controller.actions[-1] == 1
@@ -223,7 +223,7 @@ def test_delayed_observation_is_credited_to_the_active_action():
 
 
 def test_state_growth_is_bounded_and_serialization_is_finite():
-    controller = make_controller(lag=2, min_trials=0, cadence=1)
+    controller = make_controller(lag=2, min_trials=1, cadence=1)
     for step in range(400):
         controller.observe(iteration=step, score=(step % 5) / 4)
     state = controller.state_dict()
@@ -238,7 +238,7 @@ def test_state_growth_is_bounded_and_serialization_is_finite():
 
 
 def test_controller_survives_degenerate_rewards():
-    controller = make_controller(lag=1, min_trials=0)
+    controller = make_controller(lag=1, min_trials=1)
     for step in range(20):
         controller.observe(iteration=step, score=0.0)
     # Zero regressors keep the solve well conditioned through the ridge term.
@@ -521,3 +521,294 @@ def test_api_accepts_and_queues_a_valid_adaptation_job(client):
     )
     assert response.status_code == 201, response.text
     assert response.json()["config"]["adaptation"] == "hypercontroller"
+
+
+# ── Per-context exploration and delayed-feedback attribution ─────────────────
+
+
+def _trained_controller(**changes) -> HyperController:
+    controller = make_controller(**changes)
+    for step in range(120):
+        action = controller.effective_index
+        # Candidate 2 is the genuinely better choice; the others look promising
+        # until every context has actually been observed.
+        controller.observe(iteration=step, score=1.0 if action == 2 else 0.5)
+    return controller
+
+
+def test_exploration_covers_every_candidate_in_every_context():
+    controller = _trained_controller(lag=1, min_trials=1)
+    # With lag 1 there are candidates^2 = 9 reachable (action, context) pairs;
+    # per-context coverage must visit all of them, unlike a global count.
+    assert len(controller.contexts) == 9
+    assert controller.coverage_pulls >= 9
+    # Once coverage is complete the genuinely better candidate is exploited.
+    assert controller.effective_index == 2
+    assert set(controller.actions[-10:]) == {2}
+
+
+def test_new_context_after_earlier_coverage_is_still_explored():
+    controller = make_controller(lag=1, min_trials=1, cadence=1, warmup=0)
+    for step in range(120):
+        action = controller.effective_index
+        controller.observe(iteration=step, score=1.0 if action == 2 else 0.5)
+    # Every context, including the ones first reached late, was explored.
+    for key, entry in controller.contexts.items():
+        assert entry["n"] >= 1, key
+    assert len(controller.contexts) == 9
+
+
+def test_history_insufficiency_does_not_satisfy_coverage():
+    controller = make_controller(lag=2, min_trials=1, cadence=1, warmup=0)
+    controller.observe(iteration=1, score=0.5)
+    controller.observe(iteration=2, score=0.5)
+    # Two observations cannot form a two-step window, so nothing was learned and
+    # no context exists yet; coverage cannot be satisfied by those pulls.
+    assert controller.observations == 2
+    assert controller.learned == 0
+    assert controller.contexts == {}
+    controller.observe(iteration=3, score=0.5)
+    assert controller.learned == 1
+    assert len(controller.contexts) == 1
+
+
+def test_missing_observations_do_not_advance_coverage_or_learning():
+    controller = make_controller(lag=1, min_trials=1)
+    for bad in (None, float("nan"), float("inf"), float("-inf")):
+        event = controller.observe(iteration=1, score=bad)
+        assert event["skipped"] == "missing_observation"
+    assert controller.observations == 0
+    assert controller.learned == 0
+    assert controller.contexts == {}
+    assert controller.coverage_pulls == 0
+
+
+def test_delayed_feedback_is_credited_to_the_active_rate():
+    controller = make_controller(lag=1, min_trials=1, cadence=1, warmup=0)
+    credited = []
+    for step in range(30):
+        action = controller.effective_index
+        credited.append(action)
+        event = controller.observe(iteration=step, score=0.5)
+        # The observation is attributed to the rate that produced it, never to
+        # the rate the same call just selected.
+        assert event["attributed_learning_rate"] == controller.candidates[action]
+    # The recorded action history matches the rates that were active per interval.
+    assert controller.actions == credited
+
+
+def test_round_trip_preserves_coverage_learning_and_attribution():
+    controller = _trained_controller(lag=1, min_trials=1)
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+    )
+    assert restored.reset_reason is None
+    assert restored.learned == controller.learned
+    assert restored.coverage_pulls == controller.coverage_pulls
+    assert restored.actions == controller.actions
+    assert restored.contexts == controller.contexts
+    # The next decision, driven by the restored RNG, matches the original.
+    before = controller.observe(iteration=500, score=0.5)
+    after = restored.observe(iteration=500, score=0.5)
+    assert before["selected_learning_rate"] == after["selected_learning_rate"]
+    assert before["changed"] == after["changed"]
+
+
+# ── Atomic controller-state validation ───────────────────────────────────────
+
+
+def _valid_state(**changes) -> dict:
+    controller = _trained_controller(lag=1, min_trials=1)
+    state = controller.state_dict()
+    state.update(changes)
+    return state
+
+
+def _restore(state: dict, **changes) -> HyperController:
+    options = {
+        "candidates": [0.0003, 0.001, 0.003],
+        "lag": 1,
+        "cadence": 1,
+        "warmup": 1,
+        "min_dwell": 1,
+        "min_trials": 1,
+        "initial_index": 1,
+        "seed": 7,
+        "evaluation_identity": "shield_bearer:test",
+    }
+    options.update(changes)
+    return HyperController.from_state(state, **options)
+
+
+def test_from_state_rejects_non_finite_numbers():
+    for mutate in (
+        lambda s: s["contexts"]["0:1"]["V"][0].__setitem__(0, float("nan")),
+        lambda s: s["contexts"]["0:1"]["b"].__setitem__(0, float("inf")),
+        lambda s: s["rewards"].__setitem__(0, float("-inf")),
+    ):
+        state = _valid_state()
+        mutate(state)
+        restored = _restore(state)
+        assert restored.reset_reason == "unreadable_state"
+        assert restored.contexts == {}
+
+
+def test_from_state_rejects_excessive_contexts():
+    state = _valid_state()
+    entry = next(iter(state["contexts"].values()))
+    state["contexts"] = {f"0:{index}": dict(entry) for index in range(MAX_CONTEXTS + 1)}
+    restored = _restore(state)
+    assert restored.reset_reason == "unreadable_state"
+
+
+def test_from_state_rejects_malformed_context_keys():
+    for key in ("not-a-key", "9:0", "0:", "0:a", "0:0,1", "0:0,0,0"):
+        state = _valid_state()
+        state["contexts"] = {key: next(iter(state["contexts"].values()))}
+        restored = _restore(state)
+        assert restored.reset_reason == "unreadable_state", key
+
+
+def test_from_state_rejects_wrong_matrix_dimensions():
+    for matrix in ([[1.0, 0.0]], [[1.0], [0.0]], []):
+        state = _valid_state()
+        state["contexts"]["0:1"]["V"] = matrix
+        restored = _restore(state)
+        assert restored.reset_reason == "unreadable_state"
+
+
+def test_from_state_rejects_non_positive_definite_matrices():
+    controller = _trained_controller(lag=2, min_trials=1)
+    state = controller.state_dict()
+    key = next(iter(state["contexts"]))
+    # Symmetric with a positive diagonal but an indefinite 2x2 matrix.
+    state["contexts"][key]["V"] = [[1.0, 2.0], [2.0, 1.0]]
+    restored = _restore(state, lag=2)
+    assert restored.reset_reason == "unreadable_state"
+
+
+def test_from_state_rejects_invalid_counts_and_counters():
+    for key, value in (
+        ("n", -1),
+        ("n", 1.5),
+        ("n", True),
+    ):
+        state = _valid_state()
+        state["contexts"]["0:1"][key] = value
+        assert _restore(state).reset_reason == "unreadable_state", (key, value)
+    for key, value in (
+        ("observations", -1),
+        ("learned", -5),
+        ("decisions", 1.5),
+        ("changes", True),
+        ("coverage_pulls", -1),
+        ("counts", [1, -1, 0]),
+        ("effective_index", 9),
+        ("effective_index", 1.5),
+        ("last_decision_observation", 10_000),
+    ):
+        state = _valid_state()
+        state[key] = value
+        assert _restore(state).reset_reason == "unreadable_state", (key, value)
+
+
+def test_from_state_rejects_incompatible_versions():
+    state = _valid_state(version=99)
+    assert _restore(state).reset_reason == "unsupported_state"
+    assert _restore(_valid_state(algorithm="pbt")).reset_reason == "unsupported_state"
+    assert _restore([]).reset_reason is None  # empty state is a fresh controller
+
+
+def test_version_one_state_is_migrated_in_place():
+    state = _valid_state()
+    state["version"] = 1
+    state.pop("learned")
+    state.pop("coverage_pulls")
+    restored = _restore(state)
+    assert restored.reset_reason is None
+    assert restored.migrated_from == 1
+    assert restored.contexts == _valid_state()["contexts"]
+
+
+def test_rejected_state_cannot_leak_into_telemetry_or_a_checkpoint():
+    state = _valid_state()
+    # The contexts validate but a later field is corrupt: adoption must be atomic.
+    state["observations"] = -1
+    restored = _restore(state)
+    assert restored.reset_reason == "unreadable_state"
+    assert restored.contexts == {}
+    assert restored.rewards == []
+    assert restored.effective_index == 1
+    summary = restored.summary()
+    assert summary["reset_reason"] == "unreadable_state"
+    assert summary["contexts"] == 0
+    # The fresh state serializes cleanly, so the malformed state never reaches a
+    # later checkpoint.
+    assert restored.state_dict()["version"] == 2
+    assert restored.state_dict()["contexts"] == {}
+
+
+# ── Learning-rate reporting ──────────────────────────────────────────────────
+
+
+def test_history_attributes_each_iteration_to_the_rate_that_trained_it(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    result = train(adapted_config(tmp_path))
+    history = load_checkpoint(result["checkpoint"])[1]["extra"]["history"]
+    # Iteration i+1 trains with the rate selected at the end of iteration i.
+    for previous, point in zip(history, history[1:]):
+        assert point["learning_rate"] == previous["effective_learning_rate"]
+    assert history[0]["learning_rate"] == 0.001
+    # At least one boundary changed the rate, so the two fields are genuinely
+    # distinct and the reported loss is not associated with the next rate.
+    assert any(point["learning_rate"] != point["effective_learning_rate"] for point in history)
+    assert result["adaptation"]["effective_learning_rate"] == history[-1]["effective_learning_rate"]
+
+
+# ── Bounded decision history ─────────────────────────────────────────────────
+
+
+def test_training_result_exposes_a_bounded_decision_history(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    result = train(adapted_config(tmp_path))
+    events = result["adaptation_events"]
+    assert 0 < len(events) <= 50
+    last = events[-1]
+    assert {"iteration", "observation", "previous_learning_rate", "selected_learning_rate"} <= set(
+        last
+    )
+    assert last["attributed_learning_rate"] == last["previous_learning_rate"]
+
+
+def test_compact_progress_carries_only_a_small_event_tail():
+    from hnefatafl.training import compact_progress
+
+    state = {
+        "status": "running",
+        "adaptation": {"effective_learning_rate": 0.003},
+        "adaptation_events": [{"iteration": index} for index in range(50)],
+    }
+    compact = compact_progress(state)
+    assert compact["adaptation"]["effective_learning_rate"] == 0.003
+    assert len(compact["adaptation_events"]) == 5
+    assert compact["adaptation_events"][-1]["iteration"] == 49
+
+
+def test_remote_clean_truncates_an_oversized_event_list():
+    from hnefatafl.remote_training import clean
+
+    cleaned = clean({"adaptation_events": [{"iteration": index} for index in range(3000)]})
+    assert len(cleaned["adaptation_events"]) == 2000
+    assert cleaned["adaptation_events"][-1]["iteration"] == 2999

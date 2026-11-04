@@ -16,6 +16,7 @@ import {
 } from './TrainingFields';
 import { FieldLabel, ReadOnlyFieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
+import { adaptationConfigError } from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
@@ -205,6 +206,7 @@ export default function TrainingResumeDialog({
     target > checkpoint.completed_iteration &&
     target <= 100000 &&
     validTrainingNumbers(config) &&
+    adaptationConfigError(config) === null &&
     (config.model_name === undefined ||
       (String(config.model_name).length >= 1 && String(config.model_name).length <= 100)) &&
     (!executionTarget.startsWith('worker:') ||
@@ -455,6 +457,11 @@ export default function TrainingResumeDialog({
                       adaptationNumberFields.map((key) =>
                         numberField(key, config, update, { disabled: busy }),
                       )}
+                    {adaptationConfigError(config) && (
+                      <p className="form-error" role="alert">
+                        {t(adaptationConfigError(config)!)}
+                      </p>
+                    )}
                     {config.save_all_best !== undefined && (
                       <CheckboxField
                         fieldKey="save_all_best"

@@ -35,6 +35,20 @@ HyperController is the only candidate that (a) adapts inside one continuing
 trajectory, (b) needs no population or restart, and (c) has a small, bounded,
 checkpointable state. That is exactly the shape of this training loop.
 
+Primary sources: Gornet, Kantaros and Sinopoli,
+[HyperController](https://arxiv.org/abs/2504.19382); Jaderberg et al.,
+[Population Based Training](https://arxiv.org/abs/1711.09846); Parker-Holder,
+Nguyen and Roberts, [PB2](https://arxiv.org/abs/2002.02518) (NeurIPS 2020);
+Baydin et al., [Hypergradient Descent](https://arxiv.org/abs/1703.04782)
+(ICLR 2018); Li et al., [Hyperband](https://arxiv.org/abs/1603.06560)
+(JMLR 2018); Akiba et al., [Optuna](https://arxiv.org/abs/1907.10902) (KDD 2019).
+
+This is an **architectural suitability** argument, not a demonstrated
+superiority claim. The shipped smoke benchmark shows that the controller's cost
+is negligible and that it acts; it does not show that it plays better than a
+fixed rate or a scheduler. Such a claim would need the multi-seed, adequate-budget
+strength experiment described below, which has not been run.
+
 ## How the selected algorithm works
 
 HyperController models the objective as an unknown Linear Gaussian Dynamical
@@ -52,7 +66,12 @@ and a small explicit candidate set, so no continuous space is discretized.
 * `adaptation_cadence` — evaluations between decisions.
 * `adaptation_warmup` — evaluations before any decision.
 * `adaptation_min_dwell` — evaluations a chosen rate is kept before it may change.
-* `adaptation_min_trials` — forced trials of every candidate before exploitation.
+* `adaptation_min_trials` — forced trials of every candidate **in each
+  action-history context** before that context's predictions may be exploited.
+  Coverage is per `(candidate, context)`, not global: a predictor that has never
+  seen a context cannot be compared with one that has, and a positive prediction
+  elsewhere must not hide an unobserved alternative. The number of contexts is
+  bounded by the state limit, so the forced-exploration burden is bounded too.
 
 ## Honest feedback signal
 
@@ -131,6 +150,23 @@ transport.
   applies through the normal resume path).
 * Old checkpoints without `adaptation_state` load unchanged with adaptation off.
 
+## State validation and recovery
+
+Restored controller state is validated atomically before any of it is adopted.
+Every field is checked into locals first; if any check fails, only the controller
+state resets (with an explicit `reset_reason`), and the model, optimizer, replay
+and training history are never touched. Malformed state is therefore never
+silently accepted, and it cannot leak into telemetry or a later checkpoint.
+
+Validation covers the advertised `MAX_CONTEXTS` (512) bound, the `candidate:context`
+key structure and legal action identifiers, matrix/vector dimensions, finite
+values, symmetry and positive definiteness of each ridge system, history lengths,
+non-negative integer counters, the effective index, event types, and the state
+version. Version 1 (the same learned contexts, the earlier global exploration
+gate) is migrated in place; unknown versions reset with `unsupported_state`.
+Loading goes through the existing tensor-only checkpoint loader; no arbitrary
+objects are deserialized.
+
 ## Remote workers
 
 The controller executes inside the training process, so it works identically on a
@@ -149,11 +185,17 @@ being validated). This implementation is intentionally conservative.
   only the learning rate.
 * **Discrete candidates.** The paper discretizes a continuous space into `d`
   values; here the user supplies the finite candidate set directly.
-* **Explicit exploration.** The reference's uncertainty/perturbation term is
-  present but commented out (`self.perturbation[a] = 0`), so it is effectively
-  greedy after the initial uniform warm-up. This implementation adds explicit
-  forced trials (`adaptation_min_trials`) and deterministic tie-breaking so a
-  context cannot freeze on the first learned value.
+* **Per-context exploration.** The paper's Algorithm 1 uses a uniform random
+  warm-up for the first `s` steps and is greedy afterwards; the reference's
+  uncertainty/perturbation term is present but commented out
+  (`self.perturbation[a] = 0`). This implementation deliberately generalizes the
+  warm-up into bounded, ongoing **per-context** coverage
+  (`adaptation_min_trials`), because predictions are conditioned on the
+  action-history context: a global count can finish before a context's predictor
+  receives any observation, and an observed positive prediction would then hide
+  an unobserved alternative. Counts advance only when an observation actually
+  updated a predictor (`learned`), never during warm-up. This is a documented
+  deviation, not an exact reproduction of the published algorithm.
 * **Reference indexing.** In the reference `learn`, the window slice
   `self.actions[t-s-1:t]` has length `s`, while the guard is
   `if len(a_encoder) > self.s`, which is false for every `s`, so the update block
@@ -196,13 +238,19 @@ The controller only adds a bounded decision at evaluation boundaries, so compare
 equal-budget runs and report the controller overhead separately:
 
 1. Run the same configuration three ways with identical seeds, iterations and
-   evaluation budget: fixed `learning_rate`, an inexpensive plateau/step
-   scheduler baseline, and `adaptation="hypercontroller"`.
+   evaluation budget: fixed `learning_rate`, an inexpensive two-phase step
+   scheduler, and `adaptation="hypercontroller"`. The shipped benchmark
+   (`scripts/benchmark_hyper_adaptation.py`) does this; the scheduler is realised
+   through the existing resume path and is not a training option.
 2. Keep `evaluation_opponent`, `evaluation_games` and `evaluation_iterations`
    identical; otherwise the scores are not comparable.
-3. Report wall time, `updates`, evaluation budget, the effective learning-rate
-   trajectory (from the per-iteration `learning_rate` history field) and any
-   failures. Separate `performance.adaptation_seconds` from
+3. Report wall time, cumulative optimizer updates, **cumulative** evaluation
+   games (distinct from the final evaluation's game count), the effective
+   learning-rate trajectory (the per-iteration `learning_rate` history field) and
+   any failures. Separate `performance.adaptation_seconds` from
    `performance.evaluation_seconds`.
-4. Label smoke runs as smoke tests. Only a multi-seed, adequate-budget run can
+4. Keep the controller's feedback evaluation separate from a held-out strength
+   evaluation. The shipped smoke benchmark does **not** run a held-out strength
+   evaluation and reports that explicitly.
+5. Label smoke runs as smoke tests. Only a multi-seed, adequate-budget run can
    support a strength statement, and even then only about the measured protocol.
