@@ -173,6 +173,9 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
       device: 'cpu',
       cpu_threads: 1,
       model_name: name,
+      // Distinct per project so the deterministic smoke run is not reused by the
+      // other project's identically configured job.
+      seed: info.project.name === 'mobile' ? 410001 : 410000,
       max_game_plies: 2,
       evaluation_max_plies: 2,
     },
