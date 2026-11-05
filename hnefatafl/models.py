@@ -540,7 +540,9 @@ class ModelRegistry:
         A recorded ``weights_sha256`` is the immutable inference-weight identity of
         the entry: a readable file whose bytes changed may only refresh the
         file-integrity hash when its weights are identical, and different weights
-        are reported as inconsistent without changing the recorded identity. Intact
+        are reported as inconsistent without changing the recorded identity. A
+        legacy entry has no recorded identity; it is content-addressed, so its
+        owned file must still hash to its ID before its weights are adopted. Intact
         files are checked with a streaming hash and are never deserialized; only a
         changed or legacy file is loaded, always on the CPU. Oversized files are
         rejected from their size before any hashing.
@@ -569,13 +571,18 @@ class ModelRegistry:
             return "unreadable", None, False
         if not self._same_architecture(entry, loaded):
             return "inconsistent", None, False
-        actual = weights_fingerprint(loaded)
         if recorded_fingerprint is None:
-            # A legacy entry had no recorded identity; backfill it once the file and
-            # its architecture have been validated.
+            # Legacy entries predate weight fingerprinting. The registry originally
+            # content-addressed IDs as the first 24 hex characters of the checkpoint
+            # file hash, so an untouched legacy copy must still match its ID. A
+            # mismatch means the owned file was replaced: never adopt its weights.
+            if file_hash[:24] != entry["id"]:
+                return "inconsistent", None, False
+            actual = weights_fingerprint(loaded)
             entry["weights_sha256"] = actual
             entry["checkpoint_sha256"] = file_hash
             return "ok", actual, True
+        actual = weights_fingerprint(loaded)
         if actual != recorded_fingerprint:
             # Identity violation: keep the recorded fingerprint and integrity hash.
             return "inconsistent", actual, False
@@ -803,6 +810,17 @@ class ModelRegistry:
                     if state == "ok" and actual != fingerprint:
                         raise ValueError(
                             "A registered model file with this ID contains different weights"
+                        )
+                    recorded_fingerprint = existing.get("weights_sha256")
+                    if (
+                        isinstance(recorded_fingerprint, str)
+                        and recorded_fingerprint != fingerprint
+                    ):
+                        # A damaged file cannot prove a different incoming identity;
+                        # never replace a recorded identity with unrelated weights.
+                        raise ValueError(
+                            "A registered model with this ID has a different recorded "
+                            "identity; refusing to overwrite it"
                         )
                     if state != "ok":
                         # Re-import repairs a missing or damaged owned copy atomically.
