@@ -178,11 +178,13 @@ it('validates every learning-rate candidate like the backend', () => {
   // Valid lists, including supported scientific notation and surrounding whitespace.
   expect(error('0.001,0.002,0.003')).toBeNull();
   expect(error(' 0.0003 , 1e-3 , 0.003 ')).toBeNull();
+  // Digit-separating underscores are accepted exactly where Python's float() allows them.
+  expect(error('0.0_003,0.001,0.003')).toBeNull();
   // Empty entries are skipped exactly like the backend, not treated as zero.
   expect(error('0.001,,0.003')).toBeNull();
 
   // Trailing garbage and partial numbers are rejected, never filtered away.
-  for (const candidates of ['0.001,garbage', '0.001abc,0.003', '0.001,0.002.5.5']) {
+  for (const candidates of ['0.001,garbage', '0.001abc,0.003', '0.001,0.002.5.5', '_0.001,0.003']) {
     expect(error(candidates)).toMatchObject({ field: 'adaptation_lr_candidates' });
     expect(error(candidates)?.message).toMatch(/decimal numbers/);
   }

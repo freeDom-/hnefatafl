@@ -117,8 +117,10 @@ const MAX_ADAPTATION_CONTEXTS = 512;
 const ADAPTATION_LR_MIN = 1e-7;
 const ADAPTATION_LR_MAX = 1;
 // Decimal/scientific notation only, so trailing garbage, hex, Infinity and NaN
-// are rejected instead of being silently dropped.
-const ADAPTATION_CANDIDATE_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+// are rejected instead of being silently dropped. Digit-separating underscores
+// are accepted like Python's float(), never adjacent to '.', 'e' or the sign.
+const ADAPTATION_CANDIDATE_SYNTAX =
+  /^[+-]?(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?$/;
 
 /**
  * Cross-field constraints the controller needs. Per-field validation cannot see
@@ -149,7 +151,7 @@ export function adaptationConfigError(config: TrainingConfig): AdaptationConfigE
         field: 'adaptation_lr_candidates',
         message: 'Learning rate candidates must be decimal numbers separated by commas.',
       };
-    const value = Number(token);
+    const value = Number(token.replace(/_/g, ''));
     if (!Number.isFinite(value) || value < ADAPTATION_LR_MIN || value > ADAPTATION_LR_MAX)
       return {
         field: 'adaptation_lr_candidates',
