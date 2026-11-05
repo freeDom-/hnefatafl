@@ -108,8 +108,16 @@ test('historical trained opponents retain names, runes and legal play while the 
 }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  const ulf = await trainedModel(request, `UI Ulf ${info.project.name}`, 40171);
-  const freydis = await trainedModel(request, `UI Freydis ${info.project.name}`, 40172);
+  const ulf = await trainedModel(
+    request,
+    `UI Ulf ${info.project.name}`,
+    (info.project.name === 'mobile' ? 500000 : 0) + 40171,
+  );
+  const freydis = await trainedModel(
+    request,
+    `UI Freydis ${info.project.name}`,
+    (info.project.name === 'mobile' ? 500000 : 0) + 40172,
+  );
   expect(ulf.id).not.toBe(freydis.id);
   expect(ulf.rune).toBeTruthy();
   expect(freydis.rune).toBeTruthy();

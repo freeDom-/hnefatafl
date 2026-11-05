@@ -423,3 +423,86 @@ def test_best_model_retention_and_history_survive_resume(tmp_path, monkeypatch):
     assert payload["extra"]["history"] == resumed["history"]
     assert payload["extra"]["best_models"] == resumed["best_models"]
     assert first["best_models"][0]["model_id"] != first["best_models"][1]["model_id"]
+
+
+def _patch_training_scores(monkeypatch, scores):
+    """Deterministic evaluation scores, independent of real self-play strength."""
+    remaining = list(scores)
+
+    def evaluate(model, config, **kwargs):
+        score = 0.0 if kwargs.get("previous") is not None else remaining.pop(0)
+        return {
+            "opponent": "baseline",
+            "score": score,
+            "wins": int(2 * score),
+            "losses": int(2 * (1 - score)),
+            "draws": 0,
+            "truncated": 0,
+            "games": [],
+        }
+
+    monkeypatch.setattr("hnefatafl.training.evaluate_model", evaluate)
+
+
+def test_training_without_improvement_reuses_registered_model(tmp_path, monkeypatch):
+    # Two runs share one registry: the second must reuse the first's model.
+    _patch_training_scores(monkeypatch, [0.0, 0.0])
+    registry_dir = str(tmp_path / "models")
+    first = train(smoke_config(tmp_path / "first", registry_dir=registry_dir))
+    registry = ModelRegistry(registry_dir)
+    assert len(registry.list()) == 1
+    model_id = first["model"]["id"]
+    resumed = train(
+        smoke_config(
+            tmp_path / "resumed",
+            registry_dir=registry_dir,
+            iterations=2,
+            resume=first["checkpoint"],
+        )
+    )
+    assert len(registry.list()) == 1
+    assert resumed["model"]["id"] == model_id
+    assert first["model"]["id"] == resumed["model"]["id"]
+    assert resumed["model_reused"] is True
+    assert resumed["produced_best"] is False
+    # Both jobs remain independently resumable and retain their own history.
+    assert Path(first["checkpoint"]).is_file()
+    assert Path(resumed["checkpoint"]).is_file()
+    assert Path(resumed["best_checkpoint"]).is_file()
+    assert [row["iteration"] for row in resumed["history"]] == [1, 2]
+
+
+def test_training_resume_with_improvement_registers_new_model(tmp_path, monkeypatch):
+    _patch_training_scores(monkeypatch, [0.0, 1.0])
+    registry_dir = str(tmp_path / "models")
+    first = train(smoke_config(tmp_path / "first", registry_dir=registry_dir))
+    registry = ModelRegistry(registry_dir)
+    original_id = first["model"]["id"]
+    resumed = train(
+        smoke_config(
+            tmp_path / "resumed",
+            registry_dir=registry_dir,
+            iterations=2,
+            resume=first["checkpoint"],
+        )
+    )
+    assert len(registry.list()) == 2
+    assert resumed["model"]["id"] != original_id
+    assert resumed["model_reused"] is False
+    assert resumed["produced_best"] is True
+    assert registry.get(original_id)["id"] == original_id
+
+
+def test_training_repeated_identical_run_reuses_existing_model(tmp_path, monkeypatch):
+    # Same seed and configuration reproduce bit-identical weights, so a second
+    # independent run must not add a duplicate catalog entry.
+    _patch_training_scores(monkeypatch, [0.5, 0.5])
+    registry_dir = str(tmp_path / "models")
+    common = {"mcts_time_limit": 5, "cpu_threads": 1}
+    first = train(smoke_config(tmp_path / "first", registry_dir=registry_dir, **common))
+    second = train(smoke_config(tmp_path / "second", registry_dir=registry_dir, **common))
+    assert first["model"]["id"] == second["model"]["id"]
+    assert len(ModelRegistry(registry_dir).list()) == 1
+    assert second["model_reused"] is True
+    # The two jobs remain separate even though they share the registered model.
+    assert first["checkpoint"] != second["checkpoint"]

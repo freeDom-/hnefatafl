@@ -166,7 +166,30 @@ JSON; they need not mirror every local file. Tuning has its own study/trial tree
 The compact model is automatically registered with name/version, ruleset,
 architecture, date, configuration and metrics. Select that model in Human vs AI
 or AI vs AI with any compatible [neural search wrapper](AI.md#neural-search-wrappers).
-Models are content-addressed so repeated imports do not produce duplicate entries.
+
+Registration is idempotent by **inference weights**. Every catalog entry carries a
+fingerprint of the architecture and the model tensors; optimizer state, timestamps,
+training configuration and evaluation metadata are deliberately excluded. Importing
+a checkpoint whose weights already exist reuses the existing entry (and its stable
+ID, rune and name) instead of copying the file or creating a second entry, so a run
+that does not improve its best model adds no model and no checkpoint copy. The
+training job still records its own `result.model` reference to the reused model and
+flags `model_reused`; a run that does produce a genuinely different best registers a
+new model normally. The same rule deduplicates repeated imports, identical resumed
+runs and best-model snapshots that match an already registered model.
+
+Catalog entries written before weight fingerprints existed are backfilled on the
+next import (once, then persisted), so an upgraded installation still deduplicates
+against its historical models. No database migration or file rewrite is required;
+legacy `index.json` entries stay readable because the field is optional.
+
+Before reusing a registered copy, the registry verifies its recorded integrity
+hash and weight fingerprint. A missing, truncated or corrupted copy is restored
+atomically from the validated incoming file only when its recorded weights match;
+a valid copy with different weights is never overwritten. If a copy needs repair
+and cannot be restored (for example during a job-archive import, which must roll
+back completely), the import fails explicitly and leaves the registry unchanged;
+re-import the model normally to repair it, then retry.
 
 ```sh
 .venv/bin/python -m hnefatafl.cli models --registry data/models
@@ -257,6 +280,61 @@ Whole-study operations use administrator-only
 `DELETE /api/training/jobs/{id}/study?confirmation_token=<preview-token>`.
 Execution recalculates the group and dependencies under the locks; the preview
 token never grants permission to bypass those checks.
+
+### Detecting and cleaning up existing duplicates
+
+Installations upgraded from an earlier release may already contain catalog entries
+with identical weights. **Detection and deletion are separate steps.** Detection is
+read-only and never deletes anything:
+
+```sh
+.venv/bin/python -m hnefatafl.cli models --registry data/models --duplicates
+```
+
+The command groups entries that share a verified inference-weight fingerprint. It
+holds the registry lock for the scan, so concurrent imports cannot produce
+inconsistent groups, and it never rewrites the index.
+
+Removing a duplicate is an ordinary catalog deletion through
+`DELETE /api/models/{id}` (or the UI model card). That endpoint only protects
+**active** use: unfinished games, running tournaments and other live references are
+previewed and must be explicitly discarded before deletion. It does not rewrite
+history and does not look at retained job metadata.
+
+Historical references are **not** protected. Completed and recorded games,
+tournaments, evaluations and training jobs can keep a deleted model's ID and name
+snapshot indefinitely; they stay readable because the ID is opaque and the name is
+retained. Deleting a catalog copy therefore removes the playable weights while the
+historical labels remain. This is intentional and is not a reason to rewrite IDs.
+
+Before removing a duplicate:
+
+- Inspect the groups and the model cards, and confirm the entries really share
+  weights; a shared name or evaluation score alone is not identity.
+- Check unfinished games and running tournaments with the deletion preview, and
+  check retained jobs by their recorded `model_id`/`best_models` if those still
+  matter for resumption or comparison.
+- Keep at least one copy of any model you may still want to play or export.
+
+Do **not** delete `models/<id>.pt` files by hand: the index, runes, game and
+tournament references and the deletion/repair logic all assume the catalog is the
+owner of those copies, and a stray file can be silently repaired or reused.
+Registered model copies are separate from job `last.pt`/`best.pt` checkpoints, so
+deleting a model never removes a training checkpoint. Do not rewrite or renumber
+model IDs to "fix" duplicates either: IDs and runes are referenced by retained
+games, tournaments, jobs and archives, and rewriting them would break those
+references without freeing meaningful space.
+
+Sometimes retaining historical duplicates is the better choice. Disk cost is one
+copy per distinct weight, catalog entries are cheap, and a duplicate entry can be
+the only link from a retained job to its playable model. Prefer deleting the job
+or leaving the duplicate in place over an irreversible cleanup that breaks a
+record you may still want to inspect. There is no automatic historical cleanup and
+no broad reference migration.
+
+If a registered copy is missing or corrupted, do not delete the entry to hide it:
+re-import a valid copy of the same weights (outside any archive import) so the
+existing ID, name, rune and references are repaired in place.
 
 ## Moving data between installations
 

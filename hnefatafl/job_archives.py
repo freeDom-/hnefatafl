@@ -784,18 +784,6 @@ def import_job(
         moved = False
         try:
             with registry.import_transaction():
-                # Compare portable copies too: stripping local paths must not duplicate
-                # a model whose original bytes are already registered here.
-                portable_existing = {}
-                probe = staging / ".model-probe.pt"
-                for entry in registry.list():
-                    if Path(entry["path"]).is_file():
-                        try:
-                            write_checkpoint(Path(entry["path"]), probe)
-                        except (ValueError, RuntimeError, OSError):
-                            continue  # An unrelated damaged copy must not block migration.
-                        portable_existing[sha256(probe)] = entry
-                probe.unlink(missing_ok=True)
                 frozen_dependencies = {
                     entry["model_id"]
                     for entry in record["config"].get("opponents", [])
@@ -805,10 +793,11 @@ def import_job(
                     if record["kind"] == "tune" and old not in frozen_dependencies:
                         continue  # Legacy trial registrations stay local artifacts.
                     path = staging / entry["file"]
-                    registered = portable_existing.get(sha256(path))
-                    if registered is None:
-                        registered = registry.import_model(path, entry["name"])
-                        portable_existing[sha256(path)] = registered
+                    # The registry is the sole authority for registering or reusing
+                    # archive models. It verifies each owned copy's immutable weight
+                    # identity and integrity hash before deduplication, so a replaced
+                    # but valid registered checkpoint can never be adopted here.
+                    registered = registry.import_model(path, entry["name"])
                     if record["kind"] == "tune":
                         # A catalog ID may already exist with damaged bytes. Do
                         # not silently reuse it, or overwrite it during import.
@@ -824,16 +813,13 @@ def import_job(
                 for inference in (
                     sorted(staging.rglob("inference.pt")) if record["kind"] == "train" else []
                 ):
-                    registered = portable_existing.get(sha256(inference))
-                    if registered is None:
-                        registered = registry.import_model(
-                            inference,
-                            record["config"].get(
-                                "model_name", record["config"].get("training", {}).get("model_name")
-                            ),
-                        )
+                    registered = registry.import_model(
+                        inference,
+                        record["config"].get(
+                            "model_name", record["config"].get("training", {}).get("model_name")
+                        ),
+                    )
                     ids.setdefault(registered["id"], registered["id"])
-                    portable_existing[sha256(inference)] = registered
                     for report_name in ("progress.json", "result.json"):
                         report_path = inference.parent / report_name
                         if report_path.is_file():

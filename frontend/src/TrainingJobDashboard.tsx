@@ -124,6 +124,17 @@ export default function TrainingJobDashboard({
             {t(progress.queue_reason)}
           </p>
         )}
+        {job.status === 'completed' && job.result?.model_reused === true && (
+          <p className="job-worker" role="status">
+            {t(
+              job.result?.produced_best === true
+                ? 'The trained weights already matched a registered model, which was reused.'
+                : job.result?.produced_best === false
+                  ? 'No new best model was produced. The existing registered model was reused.'
+                  : 'The existing registered model was reused.',
+            )}
+          </p>
+        )}
         <div className="dashboard-progress">
           <strong>
             {t('Iteration')} {iteration ?? '—'} / {finite(total) ? total : '—'}

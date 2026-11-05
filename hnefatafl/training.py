@@ -859,6 +859,7 @@ def train(
     metrics: dict = {}
     history: list[dict] = []
     best_models: list[dict] = []
+    produced_best = False
     resume_payload: dict | None = None
     saved_config: dict = {}
     extra: dict = {}
@@ -1202,6 +1203,7 @@ def train(
                     candidate_score = float(evaluation["score"])
                     candidate_iteration = iteration
                 record_improvement = selection.accept(model, current_metadata(), evaluation, config)
+                produced_best = produced_best or record_improvement
                 # Always track the score and iteration of the checkpoint the
                 # trainer actually keeps, including an inherited benchmark when
                 # no candidate improved. This keeps the tuning objective and the
@@ -1302,16 +1304,21 @@ def train(
         registry_root = Path(config.get("registry_dir", output.parent / "models"))
         inference_checkpoint = None
         registered = None
+        model_reused = False
         if not trial_mode:
             inference_checkpoint = export_checkpoint(best_checkpoint, output / "inference.pt")
             registered = ModelRegistry(registry_root).register(
                 inference_checkpoint, name=config["model_name"]
             )
+            # ``reused`` is a transient registration signal, not catalog metadata.
+            model_reused = bool(registered.pop("reused", False))
         monitor.phase("completed", iteration=completed)
         publish(
             status="completed",
             checkpoint=str(checkpoint),
             model=registered,
+            model_reused=model_reused,
+            produced_best=produced_best,
             best_checkpoint=str(best_checkpoint),
             inference_checkpoint=str(inference_checkpoint) if inference_checkpoint else None,
             candidate_score=candidate_score,

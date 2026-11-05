@@ -34,7 +34,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS with bounded transposition tables and full-state symmetry pruning, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
 | [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; reused by the Jarl alpha-beta and Seer MCTS model-free paths |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
-| [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and content-addressed model registry |
+| [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and a content-addressed model registry that is idempotent by inference-weight fingerprint |
 | [training.py](hnefatafl/training.py), [training_identity.py](hnefatafl/training_identity.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
 | [training_augmentation.py](hnefatafl/training_augmentation.py), [symmetry_benchmark.py](hnefatafl/symmetry_benchmark.py) | Tensor-level D4 transforms of replay examples (input, action ids, legal mask), cached action permutations, minibatch collation and evidence tooling; no engine, search or inference dependency |
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |

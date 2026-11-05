@@ -16,6 +16,9 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
   request,
 }, info) => {
   const name = `Counted Freydis ${info.project.name}`;
+  // Distinct per project: identical smoke runs would otherwise share weights and
+  // reuse one catalog model, so the second project could not find its own card.
+  const seedBase = info.project.name === 'mobile' ? 1000000 : 0;
   const response = await request.post(endpoint, {
     data: {
       preset: 'smoke',
@@ -26,7 +29,7 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
       max_game_plies: 2,
       evaluation_max_plies: 2,
       mcts_time_limit: 5,
-      seed: 0,
+      seed: seedBase,
       mixed_precision: false,
     },
   });
@@ -54,20 +57,20 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
     'aria-expanded',
     'true',
   );
-  await expect(page.getByLabel('Random seed', { exact: true })).toHaveValue('0');
+  await expect(page.getByLabel('Random seed', { exact: true })).toHaveValue(String(seedBase));
   await expect(
     page.getByLabel('Mixed precision when supported', { exact: true }),
   ).not.toBeChecked();
   await page.getByLabel('Model name', { exact: true }).fill(`${name} copy`);
   await page.getByLabel('Training iterations', { exact: true }).fill('2');
-  await page.getByLabel('Random seed', { exact: true }).fill('23');
+  await page.getByLabel('Random seed', { exact: true }).fill(String(seedBase + 23));
   const created = page.waitForResponse(
     (r) => r.url().endsWith('/api/training/jobs') && r.request().method() === 'POST',
   );
   await page.getByRole('button', { name: /Start training/ }).click();
   const nextResponse = await created;
   const posted = nextResponse.request().postDataJSON();
-  expect(posted).toMatchObject({ model_name: `${name} copy`, seed: 23, iterations: 2 });
+  expect(posted).toMatchObject({ model_name: `${name} copy`, seed: seedBase + 23, iterations: 2 });
   expect(posted).not.toHaveProperty('resume');
   const copy = await finished(request, (await nextResponse.json()).id);
   expect(copy.progress.self_play_games).toEqual({ version: 1, job: 2, baseline: 0, cumulative: 2 });
@@ -102,7 +105,7 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
     .getByRole('button', { name: `Load training parameters for ${name} copy`, exact: true })
     .click();
   await expect(page.getByLabel('Model name', { exact: true })).toHaveValue(`${name} copy`);
-  await expect(page.getByLabel('Random seed', { exact: true })).toHaveValue('23');
+  await expect(page.getByLabel('Random seed', { exact: true })).toHaveValue(String(seedBase + 23));
   await page.getByLabel('Language', { exact: true }).selectOption('de');
   await expect(
     page.getByRole('button', { name: 'Parameter übernehmen', exact: true }),

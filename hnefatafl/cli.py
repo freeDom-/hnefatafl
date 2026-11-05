@@ -178,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
     models.add_argument("--name")
     models.add_argument("--export", dest="export_id")
     models.add_argument("--output")
+    models.add_argument(
+        "--duplicates",
+        action="store_true",
+        help="List groups of registered models that share identical inference weights",
+    )
     args = parser.parse_args(argv)
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -264,7 +269,9 @@ def main(argv: list[str] | None = None) -> int:
             from .models import ModelRegistry
 
             registry = ModelRegistry(args.registry)
-            if args.import_path:
+            if args.duplicates:
+                result = {"duplicates": registry.duplicates()}
+            elif args.import_path:
                 result = registry.import_model(args.import_path, args.name)
             elif args.export_id:
                 if not args.output:

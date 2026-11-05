@@ -400,6 +400,28 @@ def export_checkpoint(source: str | Path, target: str | Path) -> Path:
     return save_checkpoint(target, model, payload["metadata"])
 
 
+def weights_fingerprint(model: PolicyValueNet) -> str:
+    """Deterministic identity of the inference weights, independent of metadata.
+
+    The digest covers the architecture and every tensor's key, shape, dtype and
+    bytes. Optimizer state, training metadata, timestamps and file layout are
+    deliberately excluded, so two checkpoints with identical inference behavior
+    share a fingerprint even when their JSON metadata differs. This is a CPU-only
+    operation and never moves a model to the GPU.
+    """
+    digest = hashlib.sha256()
+    digest.update(ARCHITECTURE.encode("utf-8"))
+    digest.update(json.dumps(model.config, sort_keys=True).encode("utf-8"))
+    state = model.state_dict()
+    for key in sorted(state):
+        tensor = state[key].detach().to("cpu").contiguous()
+        digest.update(key.encode("utf-8"))
+        digest.update(str(tuple(tensor.shape)).encode("utf-8"))
+        digest.update(str(tensor.dtype).encode("utf-8"))
+        digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
+
+
 @contextmanager
 def _registry_lock(path: Path) -> Iterator[None]:
     # The documented deployment target is Linux. Windows uses its native file lock.
@@ -493,6 +515,141 @@ class ModelRegistry:
         finally:
             Path(temporary).unlink(missing_ok=True)
 
+    def _same_architecture(self, entry: dict[str, Any], model: PolicyValueNet) -> bool:
+        """Whether a catalog entry describes the same ruleset and network shape."""
+        architecture = entry.get("architecture")
+        return (
+            entry.get("ruleset") == model.ruleset
+            and isinstance(architecture, dict)
+            and architecture.get("ruleset") == model.config["ruleset"]
+            and architecture.get("channels") == model.config["channels"]
+            and architecture.get("blocks") == model.config["blocks"]
+        )
+
+    def _inspect_entry(self, entry: dict[str, Any]) -> tuple[str, str | None, bool]:
+        """Verify one owned copy against its recorded identity and integrity hash.
+
+        Returns ``(state, fingerprint, changed)``. ``state`` is ``"ok"`` when the
+        file is present, valid and its weights match the recorded fingerprint (or a
+        legacy entry was safely backfilled), ``"missing"`` when the file is absent,
+        ``"unreadable"`` when the file is present but cannot be validated
+        (truncated, corrupted, oversized or unreadable), and ``"inconsistent"``
+        when the file is valid but its weights or architecture differ from the
+        recorded fingerprint.
+
+        A recorded ``weights_sha256`` is the immutable inference-weight identity of
+        the entry: a readable file whose bytes changed may only refresh the
+        file-integrity hash when its weights are identical, and different weights
+        are reported as inconsistent without changing the recorded identity. A
+        legacy entry has no recorded identity; it is content-addressed, so its
+        owned file must still hash to its ID before its weights are adopted. Intact
+        files are checked with a streaming hash and are never deserialized; only a
+        changed or legacy file is loaded, always on the CPU. Oversized files are
+        rejected from their size before any hashing.
+        """
+        path = self.root / f"{entry['id']}.pt"
+        if not path.is_file():
+            return "missing", None, False
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return "unreadable", None, False
+        if not 0 < size <= MAX_CHECKPOINT_BYTES:
+            return "unreadable", None, False
+        try:
+            with path.open("rb") as handle:
+                file_hash = hashlib.file_digest(handle, "sha256").hexdigest()
+        except OSError:
+            return "unreadable", None, False
+        recorded_hash = entry.get("checkpoint_sha256")
+        recorded_fingerprint = entry.get("weights_sha256")
+        if recorded_hash == file_hash and isinstance(recorded_fingerprint, str):
+            return "ok", recorded_fingerprint, False
+        try:
+            loaded, _ = load_checkpoint(path)
+        except (ValueError, RuntimeError, OSError, EOFError, zipfile.BadZipFile):
+            return "unreadable", None, False
+        if not self._same_architecture(entry, loaded):
+            return "inconsistent", None, False
+        if recorded_fingerprint is None:
+            # Legacy entries predate weight fingerprinting. The registry originally
+            # content-addressed IDs as the first 24 hex characters of the checkpoint
+            # file hash, so an untouched legacy copy must still match its ID. A
+            # mismatch means the owned file was replaced: never adopt its weights.
+            if file_hash[:24] != entry["id"]:
+                return "inconsistent", None, False
+            actual = weights_fingerprint(loaded)
+            entry["weights_sha256"] = actual
+            entry["checkpoint_sha256"] = file_hash
+            return "ok", actual, True
+        actual = weights_fingerprint(loaded)
+        if actual != recorded_fingerprint:
+            # Identity violation: keep the recorded fingerprint and integrity hash.
+            return "inconsistent", actual, False
+        if recorded_hash != file_hash:
+            # Same weights, different bytes (metadata-only change): refresh the hash.
+            entry["checkpoint_sha256"] = file_hash
+            return "ok", actual, True
+        return "ok", actual, False
+
+    def _matching_entry(
+        self, entries: list[dict[str, Any]], fingerprint: str, model: PolicyValueNet
+    ) -> tuple[dict[str, Any] | None, bool, str | None]:
+        """Find an existing entry whose verified weights match ``fingerprint``.
+
+        A healthy entry is always preferred over a missing or unreadable one, even
+        when the damaged entry appears first in registry order. This avoids
+        unnecessary repairs, keeps archive imports from failing when a healthy
+        duplicate is available, and never returns a damaged entry before checking
+        the rest of the registry. A recorded fingerprint is never changed to match a
+        file with different weights, and legacy entries without a fingerprint are
+        lazily backfilled once and persisted.
+
+        Returns ``(entry, changed, state)`` where ``state`` is ``None`` when no
+        match was found, ``"ok"`` for a healthy copy, or ``"missing"``/``"unreadable"``
+        for a damaged copy that can be repaired from the validated incoming file.
+        """
+        changed = False
+        repairable: dict[str, Any] | None = None
+        repairable_state: str | None = None
+        for entry in entries:
+            stored = entry.get("weights_sha256")
+            if stored is None:
+                if not self._same_architecture(entry, model):
+                    continue
+            elif stored != fingerprint:
+                continue
+            state, actual, entry_changed = self._inspect_entry(entry)
+            changed = changed or entry_changed
+            if state == "ok" and actual == fingerprint:
+                # Registry order is stable, so the first healthy match wins.
+                return entry, changed, "ok"
+            if state in ("missing", "unreadable") and stored == fingerprint and repairable is None:
+                # Remember the first repairable copy but keep looking for a healthy one.
+                repairable, repairable_state = entry, state
+        if repairable is not None:
+            return repairable, changed, repairable_state
+        return None, changed, None
+
+    def duplicates(self) -> list[list[dict[str, Any]]]:
+        """Read-only groups of registered entries that share inference weights.
+
+        Detection never deletes or rewrites anything. It holds the registry lock
+        for the whole scan, so concurrent imports cannot make the groups internally
+        inconsistent, and backfills missing fingerprints on in-memory copies only.
+        """
+        groups: dict[str, list[dict[str, Any]]] = {}
+        with self._locked():
+            for source in self._read_index():
+                entry = dict(source)
+                state, fingerprint, _ = self._inspect_entry(entry)
+                if state != "ok" or fingerprint is None:
+                    continue
+                groups.setdefault(fingerprint, []).append(
+                    {**entry, "path": str(self.root / f"{entry['id']}.pt")}
+                )
+        return [group for group in groups.values() if len(group) > 1]
+
     def list(self) -> list[dict[str, Any]]:
         with self._locked():
             entries = self._read_index()
@@ -548,8 +705,34 @@ class ModelRegistry:
                 raise
             return dict(removed)
 
+    def _install_repair(self, temporary: Path, target: Path) -> None:
+        """Atomically restore an owned copy, refusing to touch it in a transaction.
+
+        An archive import must roll back completely on failure, so an existing
+        registered file is never replaced inside ``import_transaction()``. The
+        operator can re-import the model normally to repair it, then retry.
+        """
+        if self._in_transaction:
+            raise ValueError(
+                "A registered model copy is missing or damaged and cannot be "
+                "repaired during an archive import; re-import the model first"
+            )
+        os.replace(temporary, target)
+
     def import_model(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
-        """Copy first, validate that exact copy, then publish metadata atomically."""
+        """Copy first, validate that exact copy, then publish metadata atomically.
+
+        Registration is idempotent by verified inference weights: an equivalent
+        model already in the catalog is reused instead of copied. A recorded
+        ``weights_sha256`` is the immutable identity of a catalog entry, so a valid
+        copy with different weights is never overwritten and never silently adopts
+        the existing ID; an inconsistent entry raises a clear error. Existing copies
+        are integrity-checked before reuse, a missing, truncated or corrupted copy is
+        restored atomically from the validated incoming file when its recorded
+        weights match, and a metadata-only byte change refreshes the integrity hash.
+        The returned mapping carries a transient ``reused`` flag that is never
+        persisted in the index.
+        """
         if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 100):
             raise ValueError("Model name must contain 1 to 100 characters")
         source = Path(path)
@@ -563,8 +746,10 @@ class ModelRegistry:
         try:
             shutil.copyfile(source, temporary)
             model, payload = load_checkpoint(temporary)
+            fingerprint = weights_fingerprint(model)
             with temporary.open("rb") as handle:
-                identifier = hashlib.file_digest(handle, "sha256").hexdigest()[:24]
+                file_sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
+            identifier = file_sha256[:24]
             metadata = payload["metadata"]
             from .game_statistics import checkpoint_statistics
 
@@ -603,6 +788,8 @@ class ModelRegistry:
                 "created_at": metadata.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "imported_at": datetime.now(timezone.utc).isoformat(),
                 "metrics": {},
+                "weights_sha256": fingerprint,
+                "checkpoint_sha256": file_sha256,
                 **json_metadata,
             }
             destination = self.root / f"{identifier}.pt"
@@ -610,15 +797,58 @@ class ModelRegistry:
                 entries = self._read_index()
                 existing = next((value for value in entries if value["id"] == identifier), None)
                 if existing is not None:
-                    # Re-import also repairs a missing or accidentally damaged copy.
-                    if not self._in_transaction:
-                        os.replace(temporary, destination)
-                    return {**existing, "path": str(destination)}
+                    state, actual, entry_changed = self._inspect_entry(existing)
+                    changed = entry_changed
+                    if state == "inconsistent":
+                        # The owned copy holds different weights than the recorded
+                        # identity. Never overwrite it or adopt those weights.
+                        raise ValueError(
+                            "The registered model copy has different weights than its "
+                            "recorded identity; delete or repair the inconsistent "
+                            "entry before importing this model"
+                        )
+                    if state == "ok" and actual != fingerprint:
+                        raise ValueError(
+                            "A registered model file with this ID contains different weights"
+                        )
+                    recorded_fingerprint = existing.get("weights_sha256")
+                    if (
+                        isinstance(recorded_fingerprint, str)
+                        and recorded_fingerprint != fingerprint
+                    ):
+                        # A damaged file cannot prove a different incoming identity;
+                        # never replace a recorded identity with unrelated weights.
+                        raise ValueError(
+                            "A registered model with this ID has a different recorded "
+                            "identity; refusing to overwrite it"
+                        )
+                    if state != "ok":
+                        # Re-import repairs a missing or damaged owned copy atomically.
+                        self._install_repair(temporary, destination)
+                        existing["weights_sha256"] = fingerprint
+                        existing["checkpoint_sha256"] = file_sha256
+                        changed = True
+                    if changed:
+                        self._write_index(entries)
+                    return {**existing, "path": str(destination), "reused": True}
+                match, changed, match_state = self._matching_entry(entries, fingerprint, model)
+                if match is not None:
+                    match_path = self.root / f"{match['id']}.pt"
+                    if match_state != "ok":
+                        # Restore the expected weights from the validated incoming copy.
+                        self._install_repair(temporary, match_path)
+                        match["checkpoint_sha256"] = file_sha256
+                        changed = True
+                    if changed:
+                        self._write_index(entries)
+                    return {**match, "path": str(match_path), "reused": True}
+                if changed:
+                    self._write_index(entries)
                 if self._in_transaction and destination.exists():
                     raise ValueError("An unregistered model file already occupies this model ID")
                 os.replace(temporary, destination)
                 entries.append(entry)
                 self._write_index(entries)
-            return {**entry, "path": str(destination)}
+            return {**entry, "path": str(destination), "reused": False}
         finally:
             temporary.unlink(missing_ok=True)

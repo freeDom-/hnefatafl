@@ -56,6 +56,39 @@ def export(client, job):
     return response.content
 
 
+def register_model(registry, path, *, ruleset="brandubh", seed=1, name="Model"):
+    """Create and register a deterministic model for import-integrity tests."""
+    torch.manual_seed(seed)
+    checkpoint = save_checkpoint(path, PolicyValueNet(ruleset, 4, 0), {"name": name})
+    return registry.import_model(checkpoint, name)
+
+
+def single_model_archive(tmp_path, *, ruleset="brandubh", seed=1, name="Archived model"):
+    """Build a completed job archive that owns one registered model."""
+    root = tmp_path / "archive-source"
+    with TestClient(create_app(root)) as source:
+        torch.manual_seed(seed)
+        checkpoint = save_checkpoint(
+            root / "source-model.pt", PolicyValueNet(ruleset, 4, 0), {"name": name}
+        )
+        model = ModelRegistry(root / "models").import_model(checkpoint, name)
+        reference = {"id": model["id"], "name": name}
+        job, _ = job_record(
+            source,
+            config={"preset": "smoke", "ruleset": ruleset},
+            model_id=model["id"],
+            progress={
+                "model": dict(reference),
+                "best_models": [{"iteration": 1, "model_id": model["id"]}],
+            },
+            result={
+                "model": dict(reference),
+                "best_models": [{"iteration": 1, "model_id": model["id"]}],
+            },
+        )
+        return export(source, job), model
+
+
 @pytest.fixture(scope="module")
 def trained_archive(tmp_path_factory):
     root = tmp_path_factory.mktemp("job-source")
@@ -623,10 +656,287 @@ def test_existing_original_model_is_deduplicated_after_path_scrubbing(client, tr
     for entry in source_registry.list():
         destination_registry.import_model(entry["path"], "Locally named")
     before = destination_registry.list()
+    before_index = destination_registry.index_path.read_bytes()
+    before_files = {path.name: path.read_bytes() for path in destination_registry.root.glob("*.pt")}
     response = upload(client, content)
     assert response.status_code == 201, response.text
     assert destination_registry.list() == before
     assert response.json()["model_id"] == original["model_id"]
+    # Deduplication must not rewrite the index or any owned checkpoint.
+    assert destination_registry.index_path.read_bytes() == before_index
+    assert {
+        path.name: path.read_bytes() for path in destination_registry.root.glob("*.pt")
+    } == before_files
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt", "truncated"])
+def test_archive_import_refuses_to_repair_a_damaged_registered_copy(
+    client, trained_archive, damage
+):
+    content, original, _ = trained_archive
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    source_registry = ModelRegistry(Path(original["config"]["registry_dir"]))
+    for entry in source_registry.list():
+        registry.import_model(entry["path"], "Locally named")
+    target = Path(registry.get(original["model_id"])["path"])
+    original_bytes = target.read_bytes()
+    if damage == "missing":
+        target.unlink()
+    elif damage == "corrupt":
+        target.write_bytes(b"not a checkpoint")
+    else:
+        target.write_bytes(original_bytes[:64])
+    before_index = registry.index_path.read_bytes()
+    response = upload(client, content)
+    # A transaction cannot restore a replaced existing file, so repair is refused.
+    assert response.status_code in {400, 500}, response.text
+    assert client.app.state.store.jobs() == []
+    assert not list((client.app.state.data_dir / "jobs").iterdir())
+    assert registry.index_path.read_bytes() == before_index
+    # The damaged copy is left exactly as found for an explicit manual repair.
+    if damage == "missing":
+        assert not target.exists()
+    elif damage == "corrupt":
+        assert target.read_bytes() == b"not a checkpoint"
+    else:
+        assert target.read_bytes() == original_bytes[:64]
+
+
+def test_archive_import_reuses_a_healthy_duplicate_over_a_damaged_entry(client, trained_archive):
+    content, original, _ = trained_archive
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    source_registry = ModelRegistry(Path(original["config"]["registry_dir"]))
+    for entry in source_registry.list():
+        registry.import_model(entry["path"], "Locally named")
+    target = Path(registry.get(original["model_id"])["path"])
+    # Add a healthy duplicate of the same weights, then damage the original copy.
+    duplicate_id = "a1" * 12
+    duplicate_path = registry.root / f"{duplicate_id}.pt"
+    duplicate_path.write_bytes(target.read_bytes())
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    entry = next(item for item in stored if item["id"] == original["model_id"])
+    stored.append({**entry, "id": duplicate_id, "name": "Healthy duplicate"})
+    registry.index_path.write_text(json.dumps(stored), encoding="utf-8")
+    target.write_bytes(b"corrupted")
+    response = upload(client, content)
+    # The healthy duplicate is reused instead of attempting a prohibited repair.
+    assert response.status_code == 201, response.text
+    assert registry.get(duplicate_id)["id"] == duplicate_id
+    assert target.read_bytes() == b"corrupted"
+    assert duplicate_path.is_file()
+
+
+def test_archive_import_never_overwrites_a_valid_copy_with_different_weights(
+    client, trained_archive, tmp_path
+):
+    content, original, _ = trained_archive
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    source_registry = ModelRegistry(Path(original["config"]["registry_dir"]))
+    for entry in source_registry.list():
+        registry.import_model(entry["path"], "Locally named")
+    target = Path(registry.get(original["model_id"])["path"])
+    torch.manual_seed(123)
+    replacement = save_checkpoint(
+        tmp_path / "replacement.pt",
+        PolicyValueNet("brandubh", 4, 0),
+        {"name": "Replacement"},
+    )
+    target.write_bytes(replacement.read_bytes())
+    replacement_bytes = target.read_bytes()
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    # The archive model gets its own new entry; the valid different copy is intact.
+    assert response.json()["model_id"] != original["model_id"]
+    assert target.read_bytes() == replacement_bytes
+    assert registry.get(original["model_id"])["id"] == original["model_id"]
+
+
+def test_archive_import_cannot_reuse_a_replaced_registered_checkpoint(client, tmp_path):
+    """A valid but replaced owned copy must never lend its ID to other weights."""
+    content, model_b = single_model_archive(tmp_path, seed=11, name="Model B")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    model_a = register_model(registry, tmp_path / "model-a.pt", seed=22, name="Model A")
+    target = Path(registry.get(model_a["id"])["path"])
+    # Keep A's registry metadata and fingerprints, but give it B's valid weights.
+    target.write_bytes(Path(model_b["path"]).read_bytes())
+    before_a = next(entry for entry in registry.list() if entry["id"] == model_a["id"])
+
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    imported = response.json()
+    # B is registered under its own verified identity, never as Model A.
+    assert imported["model_id"] != model_a["id"]
+    registered_b = registry.get(imported["model_id"])
+    assert registered_b["weights_sha256"] == model_b["weights_sha256"]
+    assert registered_b["ruleset"] == "brandubh"
+    # A's immutable identity, integrity hash and metadata are untouched.
+    assert next(entry for entry in registry.list() if entry["id"] == model_a["id"]) == before_a
+    assert target.read_bytes() == Path(model_b["path"]).read_bytes()
+    # Every reference resolves to the new Model B entry, never Model A.
+    assert imported["progress"]["model"]["id"] == imported["model_id"]
+    assert imported["result"]["model"]["id"] == imported["model_id"]
+    assert imported["progress"]["best_models"][0]["model_id"] == imported["model_id"]
+
+
+def test_archive_import_cannot_associate_tablut_weights_with_a_brandubh_entry(client, tmp_path):
+    """Replaced architecture bytes must not be adopted under a registered ruleset."""
+    content, tablut = single_model_archive(tmp_path, ruleset="tablut", seed=5, name="Tablut")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    brandubh = register_model(registry, tmp_path / "brandubh.pt", seed=6, name="Brandubh")
+    target = Path(registry.get(brandubh["id"])["path"])
+    target.write_bytes(Path(tablut["path"]).read_bytes())
+    before = next(entry for entry in registry.list() if entry["id"] == brandubh["id"])
+
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    imported = response.json()
+    assert imported["model_id"] != brandubh["id"]
+    registered = registry.get(imported["model_id"])
+    assert registered["ruleset"] == "tablut"
+    assert registered["weights_sha256"] == tablut["weights_sha256"]
+    assert next(entry for entry in registry.list() if entry["id"] == brandubh["id"]) == before
+
+
+def test_archive_import_reuses_healthy_weights_without_duplicate_or_copy(client, tmp_path):
+    content, source_model = single_model_archive(tmp_path, seed=7, name="Shared weights")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    model, payload = load_checkpoint(Path(source_model["path"]))
+    # Same inference weights, deliberately different metadata.
+    same = save_checkpoint(
+        tmp_path / "same.pt",
+        model,
+        {
+            **payload["metadata"],
+            "created_at": "2019-01-01T00:00:00+00:00",
+            "metrics": {"note": "different"},
+        },
+    )
+    existing = registry.import_model(same, "Existing duplicate")
+    before_index = registry.index_path.read_bytes()
+    before_files = {path.name: path.read_bytes() for path in registry.root.glob("*.pt")}
+
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    assert response.json()["model_id"] == existing["id"]
+    assert [entry["id"] for entry in registry.list()] == [existing["id"]]
+    # Deduplication neither rewrites the index nor copies a persistent checkpoint.
+    assert registry.index_path.read_bytes() == before_index
+    assert {path.name: path.read_bytes() for path in registry.root.glob("*.pt")} == before_files
+
+
+def test_archive_import_deduplicates_identical_weights_with_different_metadata(client, tmp_path):
+    content, source_model = single_model_archive(tmp_path, seed=8, name="Metadata source")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    model, payload = load_checkpoint(Path(source_model["path"]))
+    existing = registry.import_model(
+        save_checkpoint(
+            tmp_path / "existing.pt",
+            model,
+            {
+                **payload["metadata"],
+                "created_at": "2018-05-06T07:08:09+00:00",
+                "metrics": {"evaluation": {"win_rate": 0.5}},
+                "training_config": {"preset": "smoke"},
+            },
+        ),
+        "Different metadata",
+    )
+    before = registry.get(existing["id"])
+
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    assert response.json()["model_id"] == existing["id"]
+    # The incoming metadata never overwrites the existing registered entry.
+    assert registry.get(existing["id"]) == before
+    assert len(registry.list()) == 1
+
+
+def test_archive_import_prefers_a_healthy_duplicate_over_a_damaged_entry(client, tmp_path):
+    content, source_model = single_model_archive(tmp_path, seed=9, name="Duplicated weights")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    healthy = registry.import_model(Path(source_model["path"]), "Healthy")
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    healthy_entry = next(entry for entry in stored if entry["id"] == healthy["id"])
+    damaged_id = "a1" * 12
+    damaged_path = registry.root / f"{damaged_id}.pt"
+    damaged_path.write_bytes(b"corrupted")
+    stored.insert(0, {**healthy_entry, "id": damaged_id, "name": "Damaged"})
+    registry.index_path.write_text(json.dumps(stored), encoding="utf-8")
+    before_damaged = damaged_path.read_bytes()
+    before_healthy = Path(registry.get(healthy["id"])["path"]).read_bytes()
+
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    # The healthy entry is reused and the damaged copy is left for a manual repair.
+    assert response.json()["model_id"] == healthy["id"]
+    assert damaged_path.read_bytes() == before_damaged
+    assert Path(registry.get(healthy["id"])["path"]).read_bytes() == before_healthy
+
+
+def test_archive_import_remaps_every_reference_to_a_deduplicated_model(client, tmp_path):
+    content, source_model = single_model_archive(tmp_path, seed=10, name="Referenced model")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    model, _ = load_checkpoint(Path(source_model["path"]))
+    existing = registry.import_model(
+        save_checkpoint(tmp_path / "existing.pt", model, {"name": "Existing"}),
+        "Existing",
+    )
+
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    imported = response.json()
+    assert imported["model_id"] == existing["id"]
+    assert imported["progress"]["model"]["id"] == existing["id"]
+    assert imported["result"]["model"]["id"] == existing["id"]
+    assert imported["progress"]["best_models"][0]["model_id"] == existing["id"]
+    assert imported["result"]["best_models"][0]["model_id"] == existing["id"]
+    assert len(registry.list()) == 1
+
+
+def test_archive_import_rolls_back_a_new_model_after_a_late_failure(client, tmp_path, monkeypatch):
+    content, _ = single_model_archive(tmp_path, seed=12, name="New archive model")
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    register_model(registry, tmp_path / "existing.pt", seed=13, name="Existing")
+    before_index = registry.index_path.read_bytes()
+    before_files = {path.name: path.read_bytes() for path in registry.root.glob("*.pt")}
+    original = ModelRegistry.import_model
+    calls = {"count": 0}
+
+    def fail_after_publish(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        calls["count"] += 1
+        if calls["count"] >= 1:
+            raise ValueError("Injected failure after model registration")
+        return result
+
+    monkeypatch.setattr(ModelRegistry, "import_model", fail_after_publish)
+    response = upload(client, content)
+    monkeypatch.undo()
+    assert response.status_code in {400, 500}, response.text
+    assert client.app.state.store.jobs() == []
+    assert list((client.app.state.data_dir / "jobs").iterdir()) == []
+    # The newly registered model is rolled back and the original catalog is intact.
+    assert registry.index_path.read_bytes() == before_index
+    assert {path.name: path.read_bytes() for path in registry.root.glob("*.pt")} == before_files
+
+
+def test_archive_import_rolls_back_a_damaged_destination_without_partial_rows(
+    client, trained_archive
+):
+    content, original, _ = trained_archive
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    source_registry = ModelRegistry(Path(original["config"]["registry_dir"]))
+    for entry in source_registry.list():
+        registry.import_model(entry["path"], "Locally named")
+    target = Path(registry.get(original["model_id"])["path"])
+    target.unlink()
+    before_files = sorted(path.name for path in registry.root.glob("*.pt"))
+    response = upload(client, content)
+    assert response.status_code in {400, 500}, response.text
+    # No half-imported job directory, row or model file survives the rollback.
+    assert client.app.state.store.jobs() == []
+    assert list((client.app.state.data_dir / "jobs").iterdir()) == []
+    assert sorted(path.name for path in registry.root.glob("*.pt")) == before_files
 
 
 @pytest.mark.parametrize(

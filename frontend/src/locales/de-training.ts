@@ -177,6 +177,12 @@ const translations: Record<string, string> = {
   'A board-specific starting budget, not a proven strongest configuration. Full runs can take hours or days; choose Quick check to verify your setup.':
     'Ein auf die Brettgröße abgestimmtes Startbudget, keine nachweislich stärkste Konfiguration. Vollständige Läufe können Stunden oder Tage dauern; prüfe deine Einrichtung zunächst mit dem Kurztest.',
   'Save every new best model': 'Jedes neue beste Modell speichern',
+  'No new best model was produced. The existing registered model was reused.':
+    'Es wurde kein neues bestes Modell erzeugt. Das vorhandene registrierte Modell wurde wiederverwendet.',
+  'The trained weights already matched a registered model, which was reused.':
+    'Die trainierten Gewichte entsprachen bereits einem registrierten Modell, das wiederverwendet wurde.',
+  'The existing registered model was reused.':
+    'Das vorhandene registrierte Modell wurde wiederverwendet.',
   'Retain and register each strict evaluation improvement. Tied scores do not create extra models. Uses additional disk space.':
     'Jede echte Verbesserung der Bewertung speichern und registrieren. Gleiche Punktzahlen erzeugen keine zusätzlichen Modelle. Benötigt mehr Speicherplatz.',
   'Advanced configuration': 'Erweiterte Konfiguration',
