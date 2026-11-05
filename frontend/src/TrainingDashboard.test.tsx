@@ -7,9 +7,11 @@ import {
   evaluationGroups,
   trainingHistory,
   filterJobs,
+  iterationRanges,
+  recentHistory,
   safeDiagnostics,
 } from './trainingDashboardData';
-import { workshopFixtures } from '../tests/workshop-fixtures';
+import { workshopFixture, workshopFixtures } from '../tests/workshop-fixtures';
 import { setLanguage } from './i18n';
 import type { Job } from './types';
 import { recordedJobParameters } from './trainingReuse';
@@ -361,6 +363,48 @@ it('keeps the explicit job, tab and range during polling refresh and filtering',
     within(await screen.findByRole('table', { name: 'Training history data' })).getAllByRole('row'),
   ).toHaveLength(11);
 });
+it('offers and applies the 100 and 250 iteration windows across the analysis tabs', async () => {
+  jobs = [workshopFixture('big', 300, 'completed')];
+  show();
+  await loaded();
+  const rangeOptions = () =>
+    [...screen.getByLabelText('Iteration range').querySelectorAll('option')].map((option) =>
+      option.getAttribute('value'),
+    );
+  // Every shared analysis view offers the same ordered options and defaults to All.
+  for (const view of ['Learning', 'Evaluation', 'Performance']) {
+    fireEvent.click(screen.getByRole('tab', { name: view }));
+    expect(screen.getByLabelText('Iteration range')).toHaveValue('0');
+    expect(rangeOptions()).toEqual(['0', '10', '25', '50', '100', '250']);
+  }
+  // Learning: the 250 window keeps the latest 250 iterations.
+  fireEvent.click(screen.getByRole('tab', { name: 'Learning' }));
+  fireEvent.change(screen.getByLabelText('Iteration range'), { target: { value: '250' } });
+  fireEvent.click(screen.getByText('View graph data'));
+  expect(
+    within(await screen.findByRole('table', { name: 'Training history data' })).getAllByRole('row'),
+  ).toHaveLength(251);
+  // The selected window survives a tab switch and applies to Evaluation.
+  fireEvent.click(screen.getByRole('tab', { name: 'Evaluation' }));
+  expect(screen.getByLabelText('Iteration range')).toHaveValue('250');
+  fireEvent.change(screen.getByLabelText('Iteration range'), { target: { value: '100' } });
+  fireEvent.click(screen.getByText('View graph data'));
+  expect(
+    within(await screen.findByRole('table', { name: 'Training history data' })).getAllByRole('row'),
+  ).toHaveLength(101);
+  // Performance reuses the same window for its throughput history.
+  fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
+  expect(screen.getByLabelText('Iteration range')).toHaveValue('100');
+  fireEvent.click(screen.getByText('Throughput history'));
+  expect(
+    within(await screen.findByRole('table', { name: 'Throughput history' })).getAllByRole('row'),
+  ).toHaveLength(101);
+  // All iterations restores the complete history.
+  fireEvent.change(screen.getByLabelText('Iteration range'), { target: { value: '0' } });
+  expect(
+    within(await screen.findByRole('table', { name: 'Throughput history' })).getAllByRole('row'),
+  ).toHaveLength(301);
+});
 it('opens job details on the default Overview tab', async () => {
   show();
   await loaded();
@@ -538,6 +582,34 @@ it('keeps sparse observations, effective settings and champion incumbent changes
   ).toBe(true);
   view.rerender(<TrainingHistoryChart history={rows} view="evaluation" selectable />);
   expect(document.querySelector('.series-context')).toHaveTextContent('Series 4');
+});
+it('windows history by iteration number so resumed and sparse jobs stay correct', () => {
+  expect(iterationRanges).toEqual([10, 25, 50, 100, 250]);
+  const consecutive = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, index) => ({ iteration: from + index }));
+  // A full 100/250 window keeps exactly the latest iterations, in order.
+  expect(recentHistory(consecutive(1, 1000), 100).map((row) => row.iteration)).toEqual(
+    Array.from({ length: 100 }, (_, index) => 901 + index),
+  );
+  expect(recentHistory(consecutive(1, 1000), 250).map((row) => row.iteration)).toEqual(
+    Array.from({ length: 250 }, (_, index) => 751 + index),
+  );
+  // Fewer available iterations return the whole history instead of an empty tail.
+  expect(recentHistory(consecutive(1, 42), 100)).toHaveLength(42);
+  expect(recentHistory(consecutive(1, 42), 250)).toHaveLength(42);
+  // A resumed job with a nonzero start keeps its true iteration span.
+  expect(recentHistory(consecutive(1201, 1500), 100).map((row) => row.iteration)).toEqual(
+    Array.from({ length: 100 }, (_, index) => 1401 + index),
+  );
+  // Gaps are never back-filled: only recorded iterations inside the numeric
+  // window are returned, and the original order is preserved.
+  const sparse = [1, 2, 400, 450, 500].map((iteration) => ({ iteration }));
+  expect(recentHistory(sparse, 150).map((row) => row.iteration)).toEqual([400, 450, 500]);
+  expect(recentHistory(sparse, 100).map((row) => row.iteration)).toEqual([450, 500]);
+  expect(recentHistory(sparse, 60).map((row) => row.iteration)).toEqual([450, 500]);
+  // The All sentinel disables filtering.
+  expect(recentHistory(sparse, 0)).toHaveLength(5);
+  expect(recentHistory([], 250)).toEqual([]);
 });
 it('omits dense point markers, provides exact keyboard values and does not invent missing loss', () => {
   const rows = Array.from({ length: 1000 }, (_, index) => ({

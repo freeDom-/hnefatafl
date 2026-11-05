@@ -162,10 +162,24 @@ export function latestPerformance(progress: Values, history: HistoryPoint[]) {
     object(history.at(-1)?.performance)
   );
 }
+/**
+ * Selectable iteration windows for the shared analysis range control. One
+ * window is applied to every chart in the Learning, Evaluation and Performance
+ * tabs, so the options live here instead of being repeated per view.
+ */
+export const iterationRanges = [10, 25, 50, 100, 250] as const;
+
+/**
+ * Latest `range` iterations of a chronological history. The window is anchored
+ * to the last recorded iteration number rather than the array length, so a
+ * resumed job with a nonzero start keeps its true span and sparse or gapped
+ * histories are never back-filled with missing iterations. `rows` is already
+ * sorted by iteration; filtering preserves that order.
+ */
 export const recentHistory = (rows: HistoryPoint[], range: number) => {
   if (!range || !rows.length) return rows;
-  const first = rows.at(-1)!.iteration - range + 1;
-  return rows.filter((row) => row.iteration >= first);
+  const windowStart = rows.at(-1)!.iteration - range + 1;
+  return rows.filter((row) => row.iteration >= windowStart);
 };
 /** Diagnostic views must never expose a future credential added to a public payload. */
 export function safeDiagnostics(value: unknown): unknown {

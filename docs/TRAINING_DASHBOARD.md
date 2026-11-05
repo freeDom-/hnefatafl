@@ -178,10 +178,10 @@ Historical trials remain inspectable and their checkpoints remain usable.
 
 Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
 left/right and Home/End keys for exact values and support pointer inspection.
-All/recent 10/25/50 iteration controls are shared across analysis views and remain
-selected during polling; switching jobs resets them for the new job. Data tables
-mount when opened, keeping long histories out of the DOM during ordinary
-monitoring.
+All/recent 10/25/50/100/250 iteration controls are shared across analysis views
+and remain selected during polling; switching jobs resets them for the new job.
+Data tables mount when opened, keeping long histories out of the DOM during
+ordinary monitoring.
 
 ## Live monitoring
 

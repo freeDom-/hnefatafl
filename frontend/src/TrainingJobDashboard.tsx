@@ -6,6 +6,7 @@ import { jobGameCounts } from './trainingGameCounts';
 import {
   activeJob,
   finite,
+  iterationRanges,
   jobName,
   jobProgress,
   jobRuleset,
@@ -252,7 +253,7 @@ export default function TrainingJobDashboard({
               onChange={(event) => setRange(Number(event.target.value))}
             >
               <option value={0}>{t('All iterations')}</option>
-              {[10, 25, 50].map((value) => (
+              {iterationRanges.map((value) => (
                 <option key={value} value={value}>
                   {t('Recent {count} iterations', { count: value })}
                 </option>
