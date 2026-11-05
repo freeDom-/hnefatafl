@@ -4,6 +4,7 @@ import Training from './Training';
 import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDialog';
 import { TrainingLearningView } from './TrainingAnalysisViews';
 import { setLanguage, translate } from './i18n';
+import type { HistoryPoint } from './trainingDashboardData';
 import {
   adaptationConfigError,
   boundedCandidates,
@@ -269,18 +270,37 @@ const eventsProgress = {
   ],
 };
 
-function renderLearning(progress: Record<string, unknown>) {
+function renderLearning(
+  progress: Record<string, unknown>,
+  history: HistoryPoint[] = [
+    { iteration: 4, learning_rate: 0.001, effective_learning_rate: 0.003 },
+    { iteration: 5, learning_rate: 0.003, effective_learning_rate: 0.003 },
+  ],
+  range = 10,
+) {
   return render(
-    <TrainingLearningView
-      progress={progress}
-      history={[
-        { iteration: 4, learning_rate: 0.001, effective_learning_rate: 0.003 },
-        { iteration: 5, learning_rate: 0.003, effective_learning_rate: 0.003 },
-      ]}
-      config={{}}
-      range={10}
-    />,
+    <TrainingLearningView progress={progress} history={history} config={{}} range={range} />,
   );
+}
+
+/** Iteration column of the opened decision log, in table order. */
+function adaptationIterations() {
+  const table = screen.getByRole('table', { name: 'Automatic hyperparameter updates' });
+  return within(table)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => row.querySelector('th')!.textContent);
+}
+
+function adaptationEvent(iteration: number, changed = true) {
+  return {
+    iteration,
+    observation: 0.5,
+    previous_learning_rate: 0.001,
+    selected_learning_rate: changed ? 0.002 : 0.001,
+    changed,
+    skipped: null,
+  };
 }
 
 it('shows the effective rate and the used/selected decision history', async () => {
@@ -293,6 +313,76 @@ it('shows the effective rate and the used/selected decision history', async () =
   expect(screen.getByText('Selected learning rate')).toBeInTheDocument();
   expect(screen.getByText('Changed')).toBeInTheDocument();
   expect(screen.getByText('No observation')).toBeInTheDocument();
+});
+
+it('filters the decision history to the selected iteration window', async () => {
+  const history = Array.from({ length: 300 }, (_, index) => ({ iteration: index + 1 }));
+  const progress = {
+    adaptation_events: [
+      adaptationEvent(10),
+      adaptationEvent(150, false),
+      adaptationEvent(260),
+      adaptationEvent(300),
+    ],
+  };
+  const view = renderLearning(progress, history, 100);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  // The window is [201, 300], anchored to the latest training iteration.
+  expect(adaptationIterations()).toEqual(['260', '300']);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={250} />,
+  );
+  expect(adaptationIterations()).toEqual(['150', '260', '300']);
+});
+
+it('anchors the decision window to the latest training iteration, not the last event', async () => {
+  const history = Array.from({ length: 300 }, (_, index) => ({ iteration: index + 1 }));
+  // A trailing event beyond the recorded history must not move the window.
+  renderLearning(
+    { adaptation_events: [adaptationEvent(240), adaptationEvent(290), adaptationEvent(305)] },
+    history,
+    100,
+  );
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(adaptationIterations()).toEqual(['240', '290']);
+});
+
+it('keeps sparse decisions and resumed nonzero iterations inside the window', async () => {
+  const resumed = Array.from({ length: 300 }, (_, index) => ({ iteration: 1001 + index }));
+  const progress = {
+    adaptation_events: [adaptationEvent(1005), adaptationEvent(1100), adaptationEvent(1250)],
+  };
+  renderLearning(progress, resumed, 100);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  // The window is [1201, 1300] for the resumed run.
+  expect(adaptationIterations()).toEqual(['1250']);
+});
+
+it('restores the complete decision history for All iterations and reacts to range changes', async () => {
+  const history = Array.from({ length: 300 }, (_, index) => ({ iteration: index + 1 }));
+  const progress = {
+    adaptation_events: [adaptationEvent(10), adaptationEvent(150), adaptationEvent(260)],
+  };
+  const view = renderLearning(progress, history, 100);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(adaptationIterations()).toEqual(['260']);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={0} />,
+  );
+  expect(adaptationIterations()).toEqual(['10', '150', '260']);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={250} />,
+  );
+  expect(adaptationIterations()).toEqual(['150', '260']);
+  // A window that contains no decisions removes the disclosure entirely.
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={10} />,
+  );
+  expect(screen.queryByText('Automatic hyperparameter updates')).toBeNull();
 });
 
 it('keeps closely spaced learning rates distinguishable in the UI', async () => {

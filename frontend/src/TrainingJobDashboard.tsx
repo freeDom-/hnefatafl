@@ -267,9 +267,9 @@ export default function TrainingJobDashboard({
         {tab === 'Learning' && (
           <TrainingLearningView
             progress={progress}
-            history={rangedHistory}
+            history={history}
             config={config}
-            range={0}
+            range={range}
           />
         )}
         {tab === 'Evaluation' && (

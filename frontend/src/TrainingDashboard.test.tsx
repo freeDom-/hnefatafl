@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Training from './Training';
 import TrainingHistoryChart from './TrainingHistoryChart';
+import TrainingMetricChart from './TrainingMetricChart';
 import TrainingPerformance from './TrainingPerformance';
 import {
   evaluationGroups,
@@ -623,6 +624,100 @@ it('omits dense point markers, provides exact keyboard values and does not inven
   expect(screen.getByRole('status')).toHaveTextContent(
     'Iteration 1000 · Policy loss: 0.001 · Value loss: —',
   );
+});
+const evaluationSeries = [
+  { key: 'evaluation_score', name: 'Completion-aware score', color: 'var(--chart-evaluation)' },
+];
+const scoreRows = (iterations: number[]) =>
+  iterations.map((iteration) => ({ iteration, evaluation_score: 0.5 }));
+it('keeps a marker per point for a small evaluation series', () => {
+  render(
+    <TrainingMetricChart
+      title="Evaluation by iteration"
+      rows={scoreRows([1, 2, 3, 4, 5])}
+      series={evaluationSeries}
+      score
+      gaps
+    />,
+  );
+  expect(document.querySelectorAll('circle')).toHaveLength(5);
+});
+it('thins markers on dense connected evaluation series while keeping segment ends', () => {
+  for (const length of [100, 250]) {
+    const view = render(
+      <TrainingMetricChart
+        title="Evaluation by iteration"
+        rows={scoreRows(Array.from({ length }, (_, index) => index + 1))}
+        series={evaluationSeries}
+        score
+        gaps
+      />,
+    );
+    // The path connects every point, so only its two ends need a marker.
+    expect(document.querySelectorAll('circle')).toHaveLength(2);
+    view.unmount();
+  }
+});
+it('keeps markers for isolated observations and both sides of an iteration gap', () => {
+  render(
+    <TrainingMetricChart
+      title="Evaluation by iteration"
+      rows={[
+        { iteration: 1, evaluation_score: 0.5 },
+        { iteration: 2, evaluation_score: 0.6 },
+        { iteration: 10, evaluation_score: 0.7 },
+        { iteration: 11, evaluation_score: 0.8 },
+        { iteration: 250 },
+      ]}
+      series={evaluationSeries}
+      score
+      gaps
+    />,
+  );
+  // Two connected segments; every endpoint stays visible.
+  expect(document.querySelectorAll('circle')).toHaveLength(4);
+  expect(document.querySelector('svg path')!.getAttribute('d')!.match(/M/g)).toHaveLength(2);
+});
+it('keeps every marker for an explicit scatter plot', () => {
+  render(
+    <TrainingMetricChart
+      title="Trial objective scores"
+      rows={scoreRows(Array.from({ length: 100 }, (_, index) => index + 1))}
+      series={evaluationSeries}
+      score
+      scatter
+    />,
+  );
+  expect(document.querySelectorAll('circle')).toHaveLength(100);
+});
+it('keeps champion promotion indicators on a thinned evaluation chart', () => {
+  const rows = Array.from({ length: 100 }, (_, index) => ({
+    iteration: index + 1,
+    evaluation_score: 0.5,
+    evaluation: { opponent: 'champion', promoted: index === 50 },
+  }));
+  render(<TrainingHistoryChart history={rows} view="evaluation" />);
+  expect(document.querySelectorAll('.chart-promotion')).toHaveLength(1);
+  expect(document.querySelectorAll('circle')).toHaveLength(2);
+});
+it('keeps keyboard inspection working on a dense evaluation chart', () => {
+  const rows = Array.from({ length: 250 }, (_, index) => ({
+    iteration: index + 1,
+    evaluation_score: index / 250,
+  }));
+  render(
+    <TrainingMetricChart
+      title="Evaluation by iteration"
+      rows={rows}
+      series={evaluationSeries}
+      score
+      gaps
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole('img'), { key: 'End' });
+  expect(screen.getByRole('status')).toHaveTextContent('Iteration 250');
+  fireEvent.keyDown(screen.getByRole('img'), { key: 'Home' });
+  expect(screen.getByRole('status')).toHaveTextContent('Iteration 1');
 });
 it('keeps overlapping activity counters outside the phase comparison and reports units', () => {
   render(<TrainingPerformance progress={jobs[1].progress} />);

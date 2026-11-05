@@ -180,8 +180,10 @@ Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
 left/right and Home/End keys for exact values and support pointer inspection.
 All/recent 10/25/50/100/250 iteration controls are shared across analysis views
 and remain selected during polling; switching jobs resets them for the new job.
-Data tables mount when opened, keeping long histories out of the DOM during
-ordinary monitoring.
+The same window also bounds the automatic hyperparameter decision log, anchored
+to the latest recorded training iteration rather than the last decision. Data
+tables mount when opened, keeping long histories out of the DOM during ordinary
+monitoring.
 
 ## Live monitoring
 

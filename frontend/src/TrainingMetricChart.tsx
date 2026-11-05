@@ -11,6 +11,32 @@ export const policySeries: ChartSeries[] = [
   { key: 'policy_loss', name: 'Policy loss', color: 'var(--chart-policy)' },
   { key: 'value_loss', name: 'Value loss', color: 'var(--chart-value)' },
 ];
+/**
+ * Indices of the markers to draw for one series. Connected stretches are
+ * already visible through the path, so a dense evaluation series only keeps the
+ * markers that would otherwise disappear: the first and last observation and
+ * both sides of a missing value or an iteration gap. Small series and explicit
+ * scatter plots keep every recorded point. `rows` is chronological, so the
+ * result preserves order.
+ */
+function markerIndices(rows: HistoryPoint[], key: string, gaps: boolean, all: boolean): number[] {
+  const recorded: number[] = [];
+  for (let index = 0; index < rows.length; index += 1)
+    if (finite(rows[index][key])) recorded.push(index);
+  if (all) return recorded;
+  // A continuous path already joins every point, so a lone observation is the
+  // only one that would vanish without a marker.
+  if (!gaps) return recorded.length === 1 ? recorded : [];
+  return recorded.filter((index) => {
+    const previous = index > 0 ? rows[index - 1] : undefined;
+    const next = index < rows.length - 1 ? rows[index + 1] : undefined;
+    const connectedBefore =
+      !!previous && finite(previous[key]) && previous.iteration + 1 === rows[index].iteration;
+    const connectedAfter =
+      !!next && finite(next[key]) && next.iteration === rows[index].iteration + 1;
+    return !connectedBefore || !connectedAfter;
+  });
+}
 export default memo(function TrainingMetricChart({
   title,
   rows,
@@ -105,6 +131,18 @@ export default memo(function TrainingMetricChart({
       }),
     [rows, series, width, maximum, minIteration, maxIteration, gaps],
   );
+  // Dense charts follow the data instead of forcing a circle per observation:
+  // non-score series only mark small datasets, while dense evaluation series
+  // keep the endpoints their broken path cannot draw. Scatter plots stay exact.
+  const markers = useMemo(() => {
+    const all = scatter || rows.length <= 25;
+    return new Map(
+      series.map((item): [string, number[]] => [
+        item.key,
+        all || score ? markerIndices(rows, item.key, gaps, all) : [],
+      ]),
+    );
+  }, [rows, series, gaps, scatter, score]);
   const point = selected === null ? undefined : rows[Math.min(selected, rows.length - 1)];
   return (
     <figure ref={container} className="training-chart">
@@ -205,20 +243,20 @@ export default memo(function TrainingMetricChart({
                 vectorEffect="non-scaling-stroke"
               />
             )}
-            {(scatter || score || rows.length <= 25) &&
-              rows
-                .filter((row) => finite(row[item.key]))
-                .map((row, index) => (
-                  <circle
-                    key={index}
-                    cx={x(row.iteration)}
-                    cy={y(row[item.key] as number)}
-                    r={gaps ? 3 : 2.5}
-                    fill={item.color}
-                  >
-                    <title>{`${t(xLabel)} ${row.iteration}: ${format(row[item.key])}`}</title>
-                  </circle>
-                ))}
+            {markers.get(item.key)!.map((index) => {
+              const row = rows[index];
+              return (
+                <circle
+                  key={index}
+                  cx={x(row.iteration)}
+                  cy={y(row[item.key] as number)}
+                  r={gaps ? 3 : 2.5}
+                  fill={item.color}
+                >
+                  <title>{`${t(xLabel)} ${row.iteration}: ${format(row[item.key])}`}</title>
+                </circle>
+              );
+            })}
           </g>
         ))}
         {(score ? rows : [])
