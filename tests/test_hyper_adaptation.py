@@ -261,6 +261,27 @@ def test_parse_candidates_bounds_oversized_input():
     assert parse_candidates(",,,,0.001,,,,0.002,,,,") == [0.001, 0.002]
 
 
+def test_parse_candidates_bounds_oversized_list_elements():
+    oversized = "9" * (MAX_CANDIDATES_TEXT + 1)
+    # A list or tuple element is bounded before float() conversion, so an
+    # oversized element cannot consume unbounded time or memory.
+    for value in ([oversized, 0.001], (oversized, 0.001)):
+        with pytest.raises(ValueError, match="elements must be at most .* characters"):
+            parse_candidates(value)
+    # Exactly the permitted length passes the size guard and is then rejected as
+    # an out-of-range value, not by the element bound.
+    with pytest.raises(ValueError, match="between 1e-7 and 1"):
+        parse_candidates(["9" * MAX_CANDIDATES_TEXT, 0.001])
+    # Valid numeric, alternate-syntax and near-identical entries still parse.
+    assert parse_candidates(["0.001", 0.002, "0.003"]) == [0.001, 0.002, 0.003]
+    assert parse_candidates(("1e-3", "0.0_002", "0.003")) == [0.0002, 0.001, 0.003]
+    assert parse_candidates(["0.00012345678912", "0.00012345678913", 0.001]) == [
+        0.00012345678912,
+        0.00012345678913,
+        0.001,
+    ]
+
+
 def test_parse_candidates_rejects_overflow_and_non_finite():
     # An arbitrarily large integer raises OverflowError inside float(); it must
     # become the same controlled validation error as any other bad entry.
@@ -882,6 +903,18 @@ def test_api_rejects_oversized_and_overflowing_candidates(client):
     )
     assert overflow.status_code == 400, overflow.text
     assert "adaptation_lr_candidates" in overflow.text
+    # An oversized individual list element is rejected before conversion, and no
+    # job is created for the invalid request.
+    element = client.post(
+        "/api/training/jobs",
+        json={
+            **base,
+            "adaptation_lr_candidates": ["9" * (MAX_CANDIDATES_TEXT + 1), 0.001],
+        },
+    )
+    assert element.status_code == 400, element.text
+    assert "adaptation_lr_candidates" in element.text
+    assert client.get("/api/training/jobs").json() == []
 
 
 def test_api_accepts_and_queues_a_valid_adaptation_job(client):

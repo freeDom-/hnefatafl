@@ -181,6 +181,14 @@ def parse_candidates(value: Any) -> list[float]:
             continue
         if isinstance(item, bool):
             raise ValueError("adaptation_lr_candidates must contain numbers")
+        if isinstance(item, str) and len(item) > MAX_CANDIDATES_TEXT:
+            # A list/tuple element is not covered by the whole-transport length
+            # check; bound it before float() so an oversized element cannot
+            # consume unbounded time or memory during conversion.
+            raise ValueError(
+                "adaptation_lr_candidates elements must be at most "
+                f"{MAX_CANDIDATES_TEXT} characters"
+            )
         try:
             number = float(item)
         except (TypeError, ValueError, OverflowError) as error:
