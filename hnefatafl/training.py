@@ -889,6 +889,9 @@ def train(
     best_models: list[dict] = []
     resume_payload: dict | None = None
     saved_config: dict = {}
+    #: Set when a resume explicitly requested a different learning rate, so the
+    #: controller can honour it instead of silently keeping the saved rate.
+    explicit_learning_rate: float | None = None
     extra: dict = {}
     selection: EvaluationSelection | None = None
     scaler: torch.amp.GradScaler | None = None
@@ -965,6 +968,14 @@ def train(
                 raise ValueError("Resume optimizer must match the checkpoint")
             if "seed" in saved_config and config["seed"] != saved_config["seed"]:
                 raise ValueError("Resume seed must match the checkpoint")
+            # Distinguish an unchanged resume from an explicit override. The API
+            # merges the saved inputs into the request, so the presence of the key
+            # alone is not enough; the value must differ from the checkpoint.
+            requested_learning_rate = float(config["learning_rate"])
+            if requested_learning_rate != float(
+                saved_config.get("learning_rate", requested_learning_rate)
+            ):
+                explicit_learning_rate = requested_learning_rate
             optimizer = _make_optimizer(model, config)
             if payload.get("optimizer_state") is None:
                 raise ValueError(
@@ -1059,6 +1070,7 @@ def train(
             evaluation_identity=selection.identity,
             seed=config["seed"] + 900000,
             resume=bool(config.get("resume")),
+            override_learning_rate=explicit_learning_rate,
         )
         if controller is not None:
             _set_optimizer_learning_rate(optimizer, controller.effective_learning_rate)

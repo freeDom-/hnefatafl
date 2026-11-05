@@ -148,6 +148,13 @@ transport.
 * Disabling adaptation on resume drops the controller state and keeps the
   checkpoint's last effective rate (an explicit `learning_rate` override still
   applies through the normal resume path).
+* An explicit `learning_rate` override on resume is **honoured**, never silently
+  discarded: the restored controller keeps its learned predictors and counters but
+  moves its effective rate to the requested candidate and restarts its dwell timer.
+  There is no pending feedback to reconcile because the checkpoint is written after
+  each decision. The override is shown in monitoring as
+  `adaptation.override_learning_rate`. An unchanged resume (the request carries the
+  saved value) keeps the selected rate exactly.
 * Old checkpoints without `adaptation_state` load unchanged with adaptation off.
 
 ## State validation and recovery
@@ -159,13 +166,20 @@ and training history are never touched. Malformed state is therefore never
 silently accepted, and it cannot leak into telemetry or a later checkpoint.
 
 Validation covers the advertised `MAX_CONTEXTS` (512) bound, the `candidate:context`
-key structure and legal action identifiers, matrix/vector dimensions, finite
-values, symmetry and positive definiteness of each ridge system, history lengths,
-non-negative integer counters, the effective index, event types, and the state
-version. Version 1 (the same learned contexts, the earlier global exploration
-gate) is migrated in place; unknown versions reset with `unsupported_state`.
-Loading goes through the existing tensor-only checkpoint loader; no arbitrary
-objects are deserialized.
+key structure and legal action identifiers, matrix/vector dimensions, numeric
+(not string) finite values, symmetry and positive definiteness of each ridge
+system, history lengths, non-negative integer counters, the effective index, the
+state version, the saved RNG stream, and the bounded decision-event schema
+(accepted fields, finite in-range numbers, candidate references, legal skip
+reasons, bounded provenance strings, no unexpected nested data). The RNG is
+validated **before** adoption: a malformed stream resets the controller with
+`unreadable_state`, and a state without a saved stream resets with `rng_absent`,
+so learned predictors are never adopted under a silently different exploration
+sequence. Version 1 (the same learned contexts, the earlier global exploration
+gate, and its own saved RNG) is migrated in place; unknown versions reset with
+`unsupported_state`. Accepted telemetry is JSON-serializable. Loading goes through
+the existing tensor-only checkpoint loader; no arbitrary objects are
+deserialized.
 
 ## Remote workers
 

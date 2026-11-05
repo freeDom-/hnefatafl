@@ -514,6 +514,13 @@ export default function TrainingResumeDialog({
                       adaptationNumberFields.map((key) =>
                         numberField(key, config, update, { disabled: busy }),
                       )}
+                    {config.adaptation === 'hypercontroller' && (
+                      <small>
+                        {t(
+                          'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.',
+                        )}
+                      </small>
+                    )}
                     {adaptationConfigError(config) && (
                       <p className="form-error" role="alert">
                         {t(adaptationConfigError(config)!)}

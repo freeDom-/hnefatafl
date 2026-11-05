@@ -35,9 +35,13 @@ OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_hyper_adaptation.py \
 
 Cumulative evaluation work is the total the run actually paid; the final
 evaluation's game count (4) is reported separately so the two are never confused.
-The controller's own cost is `adaptation_seconds`, reported separately from
-`evaluation_seconds`: ~0.08 ms per decision here (four decisions per run), three
-orders of magnitude below the evaluation it reads.
+The resumed scheduler phase restores the earlier history, so the aggregation counts
+only iterations at or after the resume boundary and never double-counts or drops
+the boundary evaluation; `tests/test_benchmark_hyper_adaptation.py` pins that with
+synthetic phase results and one real tiny scheduler run. The controller's own cost
+is `adaptation_seconds`, reported separately from `evaluation_seconds`: ~0.08 ms
+per decision here (four decisions per run), three orders of magnitude below the
+evaluation it reads.
 
 The effective-rate trajectories confirm each strategy acts:
 

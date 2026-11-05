@@ -67,7 +67,7 @@ export const trainingTooltips: Record<string, string> = {
   epochs:
     'Gradient-training passes over the whole replay buffer per iteration. More epochs extract more from the collected positions but take longer and can overfit. Total passes are the iterations multiplied by this value.',
   learning_rate:
-    'Step size the optimizer applies to the network weights. Higher values learn faster but can become unstable or prevent convergence; lower values are steadier but need more training. Reduce it if losses fluctuate strongly. On resume, changing it overrides the restored value while the accumulated optimizer state is kept.',
+    'Step size the optimizer applies to the network weights. Higher values learn faster but can become unstable or prevent convergence; lower values are steadier but need more training. Reduce it if losses fluctuate strongly. On resume, changing it overrides the restored value while the accumulated optimizer state is kept. When automatic hyperparameter updates are enabled, this is the controller’s starting rate and must be one of the candidates; overriding it on resume moves the controller’s effective rate while its learned state is kept.',
   optimizer:
     'Algorithm that updates the network weights. AdamW is Adam with decoupled weight decay and is the default; Adam adapts a step size per parameter; SGD uses the momentum setting and often needs a higher learning rate. The optimizer is part of the checkpoint identity, so a resumed run cannot change it.',
   adaptation:

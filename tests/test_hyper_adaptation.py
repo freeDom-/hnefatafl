@@ -9,6 +9,7 @@ against one fixed opponent; see docs/designs/online-hyperparameter-adaptation.md
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -54,6 +55,18 @@ def adapted_config(tmp_path, **changes):
     }
     options.update(changes)
     return smoke_config(tmp_path, **options)
+
+
+def resumed_adapted_config(tmp_path, **changes):
+    """An adapted resume that does not explicitly override the learning rate.
+
+    The API merges the saved inputs into the request, so an unchanged resume
+    carries the saved value. Omitting the key here models that; passing it would
+    be an explicit override.
+    """
+    config = adapted_config(tmp_path, **changes)
+    config.pop("learning_rate", None)
+    return config
 
 
 def make_controller(**changes) -> HyperController:
@@ -385,7 +398,7 @@ def test_resume_continues_the_controller_and_preserves_effective_rate(tmp_path):
     _, first_payload = load_checkpoint(first["checkpoint"])
     first_state = first_payload["extra"]["adaptation_state"]
     resumed = train(
-        adapted_config(
+        resumed_adapted_config(
             tmp_path / "resumed",
             iterations=4,
             resume=first["checkpoint"],
@@ -407,7 +420,9 @@ def test_controller_is_deterministic_across_split_and_resume(tmp_path):
     full = train(adapted_config(tmp_path / "full", iterations=4))
     torch.manual_seed(0)
     first = train(adapted_config(tmp_path / "first", iterations=2))
-    resumed = train(adapted_config(tmp_path / "resumed", iterations=4, resume=first["checkpoint"]))
+    resumed = train(
+        resumed_adapted_config(tmp_path / "resumed", iterations=4, resume=first["checkpoint"])
+    )
     full_state = load_checkpoint(full["checkpoint"])[1]["extra"]["adaptation_state"]
     resumed_state = load_checkpoint(resumed["checkpoint"])[1]["extra"]["adaptation_state"]
     # The controller's dedicated RNG stream is checkpointed, so a split run makes
@@ -812,3 +827,178 @@ def test_remote_clean_truncates_an_oversized_event_list():
     cleaned = clean({"adaptation_events": [{"iteration": index} for index in range(3000)]})
     assert len(cleaned["adaptation_events"]) == 2000
     assert cleaned["adaptation_events"][-1]["iteration"] == 2999
+
+
+# ── RNG restoration ──────────────────────────────────────────────────────────
+
+
+def test_from_state_rejects_malformed_rng():
+    for rng in (
+        "not-a-state",
+        [],
+        [3],
+        [3, "bad", None],
+        [3, [1, 2, 3], None],
+        [3, list(range(624)), None],
+        ["3", list(range(625)), None],
+    ):
+        state = _valid_state()
+        state["rng"] = rng
+        restored = _restore(state)
+        assert restored.reset_reason == "unreadable_state", rng
+        assert restored.contexts == {}
+        assert restored.rewards == []
+
+
+def test_from_state_rejects_absent_rng():
+    state = _valid_state()
+    state.pop("rng")
+    restored = _restore(state)
+    # A missing stream is never silently replaced while keeping learned state.
+    assert restored.reset_reason == "rng_absent"
+    assert restored.contexts == {}
+
+
+def test_supported_legacy_state_restores_its_rng():
+    controller = _trained_controller(lag=1, min_trials=1)
+    state = controller.state_dict()
+    state["version"] = 1
+    state.pop("learned")
+    state.pop("coverage_pulls")
+    restored = _restore(state)
+    assert restored.reset_reason is None
+    assert restored.migrated_from == 1
+    # The saved stream is restored, so the next decision matches the original.
+    before = controller.observe(iteration=500, score=0.5)
+    after = restored.observe(iteration=500, score=0.5)
+    assert before["selected_learning_rate"] == after["selected_learning_rate"]
+
+
+def test_resume_with_malformed_controller_rng_resets_only_the_controller(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    first = train(adapted_config(tmp_path / "first", iterations=2))
+    _, payload = load_checkpoint(first["checkpoint"])
+    # Keep the learned state valid but corrupt the saved stream.
+    payload["extra"]["adaptation_state"]["rng"] = "not-a-rng-state"
+    corrupted = tmp_path / "corrupted.pt"
+    torch.save(payload, corrupted)
+    resumed = train(adapted_config(tmp_path / "resumed", iterations=4, resume=str(corrupted)))
+    assert resumed["status"] == "completed"
+    assert resumed["adaptation"]["reset_reason"] == "unreadable_state"
+    # The malformed state was not adopted: the controller restarted its counters
+    # and re-learned only during the two resumed iterations.
+    _, after = load_checkpoint(resumed["checkpoint"])
+    assert after["optimizer_state"] is not None
+    assert after["extra"]["replay"]
+    assert after["extra"]["adaptation_state"]["observations"] == 2
+
+
+# ── Event payload validation ─────────────────────────────────────────────────
+
+
+def test_from_state_rejects_malformed_event_payloads():
+    mutations = [
+        lambda events: events[0].__setitem__("observation", float("nan")),
+        lambda events: events[0].__setitem__("observation", float("inf")),
+        lambda events: events[0].__setitem__("observation", "0.5"),
+        lambda events: events[0].__setitem__("iteration", -1),
+        lambda events: events[0].__setitem__("changed", "yes"),
+        lambda events: events[0].__setitem__("selected_learning_rate", 0.999),
+        lambda events: events[0].__setitem__("skipped", "made-up"),
+        lambda events: events[0].__setitem__("unexpected", {"nested": {"deep": [1, 2, 3]}}),
+        lambda events: events[0].__setitem__("provenance", {"unexpected": 1}),
+        lambda events: events[0]["provenance"].__setitem__("score", 2.0),
+        lambda events: events[0]["provenance"].__setitem__("wins", -1),
+        lambda events: events[0]["provenance"].__setitem__("opponent", "x" * 500),
+    ]
+    for mutate in mutations:
+        state = _valid_state()
+        mutate(state["events"])
+        restored = _restore(state)
+        assert restored.reset_reason == "unreadable_state"
+
+
+def test_from_state_accepts_valid_historical_events():
+    state = _valid_state()
+    # A v1-style event (previous/effective index and rate) alongside a v2 event.
+    state["events"] = [
+        {
+            "iteration": 3,
+            "observation": 0.5,
+            "provenance": {"opponent": "shield_bearer", "completed_games": 4, "wins": 2},
+            "changed": True,
+            "skipped": None,
+            "previous_index": 1,
+            "effective_index": 2,
+            "effective_learning_rate": 0.003,
+            "observations": 3,
+            "seconds": 0.0001,
+        },
+        {
+            "iteration": 4,
+            "observation": None,
+            "provenance": {},
+            "attributed_learning_rate": 0.003,
+            "previous_learning_rate": 0.003,
+            "selected_learning_rate": 0.003,
+            "selected_index": 2,
+            "changed": False,
+            "skipped": "missing_observation",
+            "observations": 4,
+            "seconds": 0.0002,
+        },
+    ]
+    restored = _restore(state)
+    assert restored.reset_reason is None
+    assert len(restored.events) == 2
+    # Accepted telemetry is JSON-serializable, so it can be published and stored.
+    json.dumps(restored.state_dict(), allow_nan=False)
+    json.dumps(restored.summary(), allow_nan=False)
+
+
+def test_from_state_rejects_oversized_event_history():
+    state = _valid_state()
+    state["events"] = [dict(state["events"][0]) for _ in range(MAX_EVENTS + 1)]
+    assert _restore(state).reset_reason == "unreadable_state"
+
+
+# ── Resume learning-rate semantics ───────────────────────────────────────────
+
+
+def test_resume_preserves_the_selected_rate_without_an_override(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    first = train(adapted_config(tmp_path / "first", iterations=2))
+    first_state = load_checkpoint(first["checkpoint"])[1]["extra"]["adaptation_state"]
+    resumed = train(
+        resumed_adapted_config(tmp_path / "resumed", iterations=4, resume=first["checkpoint"])
+    )
+    history = load_checkpoint(resumed["checkpoint"])[1]["extra"]["history"]
+    # The first resumed iteration trains with the rate the checkpoint selected.
+    assert history[2]["learning_rate"] == first_state["candidates"][first_state["effective_index"]]
+    assert resumed["adaptation"]["override_learning_rate"] is None
+
+
+def test_resume_honours_an_explicit_learning_rate_override(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    # Warm-up is effectively disabled so the first phase keeps the starting rate,
+    # making the override unambiguous.
+    first = train(adapted_config(tmp_path / "first", iterations=2, adaptation_warmup=1000))
+    resumed = train(
+        adapted_config(
+            tmp_path / "resumed",
+            iterations=4,
+            adaptation_warmup=1000,
+            resume=first["checkpoint"],
+            learning_rate=0.003,
+        )
+    )
+    adaptation = resumed["adaptation"]
+    assert adaptation["effective_learning_rate"] == 0.003
+    assert adaptation["override_learning_rate"] == 0.003
+    state = load_checkpoint(resumed["checkpoint"])[1]["extra"]["adaptation_state"]
+    # The override moved the effective rate; the learned state was preserved.
+    assert state["observations"] == 4
+    assert state["contexts"]

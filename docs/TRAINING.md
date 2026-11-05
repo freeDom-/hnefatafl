@@ -437,10 +437,14 @@ monitoring (`progress.adaptation`, the per-iteration history fields and
 `progress.adaptation_events`); the controller state is stored inside the full
 checkpoint and survives resume. Changing the candidate set, the history window or
 the evaluation settings resets the learned state with a visible reason instead of
-mixing incomparable observations. Malformed saved controller state resets only
-the controller (with a visible reason) after an atomic validation pass; the model,
-optimizer and history are never touched. The full design record, honest signal
-limits, algorithm comparison and reproducible benchmark instructions are in
+mixing incomparable observations. An explicit `learning_rate` override on resume
+is honoured by moving the controller's effective rate while keeping its learned
+state (shown as `adaptation.override_learning_rate`); an unchanged resume keeps
+the selected rate. Malformed saved controller state (including a malformed or
+missing RNG stream) resets only the controller (with a visible reason) after an
+atomic validation pass; the model, optimizer and history are never touched. The
+full design record, honest signal limits, algorithm comparison and reproducible
+benchmark instructions are in
 [online hyperparameter adaptation](designs/online-hyperparameter-adaptation.md);
 the measured controller overhead and baselines are in the
 [smoke benchmark](benchmarks/online-hyperparameter-adaptation.md).

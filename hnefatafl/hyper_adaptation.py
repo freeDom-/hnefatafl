@@ -65,6 +65,46 @@ ADAPTATION_EVENT_TAIL = 50
 MAX_REWARD_HISTORY = 64
 RIDGE = 1e-6
 
+#: Accepted decision-event fields. The v2 schema is the primary one; the v1
+#: ``previous_index``/``effective_index``/``effective_learning_rate`` fields are
+#: accepted for checkpoints written by the earlier state version and are validated
+#: the same way. Any other field is rejected as unexpected nested data.
+EVENT_KEYS = frozenset(
+    {
+        "iteration",
+        "observation",
+        "provenance",
+        "attributed_learning_rate",
+        "previous_learning_rate",
+        "selected_learning_rate",
+        "selected_index",
+        "changed",
+        "skipped",
+        "observations",
+        "seconds",
+        # Documented v1 fields.
+        "previous_index",
+        "effective_index",
+        "effective_learning_rate",
+    }
+)
+PROVENANCE_KEYS = frozenset(
+    {
+        "opponent",
+        "opponent_identity",
+        "iteration",
+        "completed_games",
+        "truncated_games",
+        "wins",
+        "draws",
+        "losses",
+        "score",
+    }
+)
+SKIP_REASONS = frozenset({"warmup", "cadence", "dwell", "fallback", "missing_observation"})
+#: Longest accepted provenance string (opponent name or identity).
+MAX_PROVENANCE_TEXT = 200
+
 #: Default candidate set: roughly half, equal to and triple the shipped 0.001.
 DEFAULT_CANDIDATES = "0.0003,0.001,0.003"
 
@@ -262,16 +302,34 @@ def _rng_state(rng: random.Random) -> list[Any]:
 
 
 def _restore_rng(state: Any, seed: int) -> random.Random:
+    """Restore an explicit saved RNG stream, raising on malformed input.
+
+    A missing or malformed stream is never silently replaced: the caller resets
+    the controller instead, so learned predictors are not adopted with a different
+    exploration stream than the one they were learned under. The optional
+    ``seed`` only seeds the fresh generator that is then overwritten by the saved
+    state; it is not a fallback.
+    """
+    if not isinstance(state, (list, tuple)) or len(state) != 3:
+        raise ValueError("Controller RNG state must be a three-element sequence")
+    version, values, gauss = state
+    if type(version) is not int:
+        raise ValueError("Controller RNG version is malformed")
+    if not isinstance(values, (list, tuple)) or not values:
+        raise ValueError("Controller RNG values are malformed")
+    if gauss is not None and not isinstance(gauss, (list, tuple)):
+        raise ValueError("Controller RNG Gaussian state is malformed")
     rng = random.Random(seed)
     try:
-        version, values, gauss = state
-        rng.setstate((int(version), tuple(int(value) for value in values), gauss))
-    except (TypeError, ValueError, IndexError):
-        pass
+        rng.setstate((version, tuple(int(value) for value in values), gauss))
+    except (TypeError, ValueError, IndexError) as error:
+        raise ValueError("Controller RNG state is malformed") from error
     return rng
 
 
 def _finite_float(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Controller state contains a non-numeric value")
     number = float(value)
     if not math.isfinite(number):
         raise ValueError("Controller state contains a non-finite number")
@@ -392,13 +450,91 @@ def _validate_index(value: Any, candidate_count: int) -> int:
     return value
 
 
-def _validate_events(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
+def _validate_provenance(value: Any) -> dict[str, Any]:
+    """Validate one event's provenance, rejecting unexpected nested data."""
+    if not isinstance(value, dict):
+        raise ValueError("Controller event provenance must be an object")
+    if set(value) - PROVENANCE_KEYS:
+        raise ValueError("Controller event provenance has an unexpected field")
+    validated: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in ("opponent", "opponent_identity"):
+            if item is not None and (not isinstance(item, str) or len(item) > MAX_PROVENANCE_TEXT):
+                raise ValueError("Controller event provenance text is invalid")
+            validated[key] = item
+        elif key == "iteration":
+            if item is not None and (type(item) is not int or item < 0):
+                raise ValueError("Controller event provenance iteration is invalid")
+            validated[key] = item
+        elif key == "score":
+            if item is not None:
+                score = _finite_float(item)
+                if not 0.0 <= score <= 1.0:
+                    raise ValueError("Controller event provenance score is invalid")
+                validated[key] = score
+            else:
+                validated[key] = None
+        else:
+            if type(item) is not int or item < 0:
+                raise ValueError("Controller event provenance count is invalid")
+            validated[key] = item
+    return validated
+
+
+def _validate_event(event: Any, candidates: list[float]) -> dict[str, Any]:
+    """Validate one bounded decision event against the documented schema."""
+    if not isinstance(event, dict):
+        raise ValueError("Controller event must be an object")
+    if set(event) - EVENT_KEYS:
+        raise ValueError("Controller event has an unexpected field")
+    validated: dict[str, Any] = {}
+    iteration = event.get("iteration")
+    if type(iteration) is not int or iteration < 0:
+        raise ValueError("Controller event iteration is invalid")
+    validated["iteration"] = iteration
+    observation = event.get("observation")
+    if observation is not None:
+        observation = _finite_float(observation)
+        if not 0.0 <= observation <= 1.0:
+            raise ValueError("Controller event observation is invalid")
+    validated["observation"] = observation
+    validated["provenance"] = _validate_provenance(event.get("provenance", {}))
+    for key in (
+        "attributed_learning_rate",
+        "previous_learning_rate",
+        "selected_learning_rate",
+        "effective_learning_rate",
+    ):
+        if key in event:
+            rate = _finite_float(event[key])
+            if rate not in candidates:
+                raise ValueError("Controller event learning rate is not a candidate")
+            validated[key] = rate
+    for key in ("selected_index", "previous_index", "effective_index"):
+        if key in event:
+            validated[key] = _validate_index(event[key], len(candidates))
+    changed = event.get("changed", False)
+    if type(changed) is not bool:
+        raise ValueError("Controller event change flag is invalid")
+    validated["changed"] = changed
+    skipped = event.get("skipped")
+    if skipped is not None and skipped not in SKIP_REASONS:
+        raise ValueError("Controller event skip reason is invalid")
+    validated["skipped"] = skipped
+    if "observations" in event:
+        validated["observations"] = _validate_counter(event["observations"], "event observation")
+    if "seconds" in event:
+        seconds = _finite_float(event["seconds"])
+        if seconds < 0:
+            raise ValueError("Controller event duration is invalid")
+        validated["seconds"] = seconds
+    return validated
+
+
+def _validate_events(value: Any, candidates: list[float]) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > MAX_EVENTS:
         raise ValueError("Controller event history is invalid")
-    for event in value:
-        if not isinstance(event, dict):
-            raise ValueError("Controller event history is invalid")
-    return [dict(event) for event in value][-MAX_EVENTS:]
+    return [_validate_event(event, candidates) for event in value]
 
 
 class HyperController:
@@ -459,12 +595,29 @@ class HyperController:
         self.events: list[dict[str, Any]] = []
         self.reset_reason: str | None = None
         self.migrated_from: int | None = None
+        #: Set when a resume explicitly overrode the effective rate, so the
+        #: override is visible in monitoring rather than silent.
+        self.override_learning_rate: float | None = None
 
     # -- public interface -------------------------------------------------
 
     @property
     def effective_learning_rate(self) -> float:
         return self.candidates[self.effective_index]
+
+    def set_effective_index(self, index: int) -> None:
+        """Adopt an externally requested effective rate (a resume override).
+
+        The learned predictors and counters are kept: the override only changes
+        the rate applied from the next interval, and the dwell timer is restarted
+        so the override is not immediately replaced. There is no pending feedback
+        to reconcile because the checkpoint is written after each decision.
+        """
+        if not 0 <= index < len(self.candidates):
+            raise ValueError("Effective index is out of range")
+        self.effective_index = index
+        self.last_change_observation = self.observations
+        self.override_learning_rate = self.candidates[index]
 
     def summary(self) -> dict[str, Any]:
         """A bounded live projection for progress files and monitoring."""
@@ -491,6 +644,7 @@ class HyperController:
             "limit_hits": self.limit_hits,
             "reset_reason": self.reset_reason,
             "migrated_from": self.migrated_from,
+            "override_learning_rate": self.override_learning_rate,
             "last_event": self.events[-1] if self.events else None,
         }
 
@@ -759,6 +913,12 @@ class HyperController:
         if state.get("evaluation_identity") != evaluation_identity:
             controller.reset_reason = "evaluation_changed"
             return controller
+        if "rng" not in state:
+            # A state without a saved stream cannot be resumed with the same
+            # exploration sequence. Reset explicitly instead of adopting learned
+            # predictors under a silently different RNG.
+            controller.reset_reason = "rng_absent"
+            return controller
         # Validate every field into locals first; the controller adopts nothing
         # until all of them pass, so a partially valid state can never leak into
         # telemetry or a later checkpoint. A malformed state resets only the
@@ -787,8 +947,8 @@ class HyperController:
             limit_hits = _validate_counter(state.get("limit_hits", 0), "limit-hit")
             if last_decision > observations or last_change > observations:
                 raise ValueError("Controller observation counters are inconsistent")
-            events = _validate_events(state.get("events", []))
-            rng = _restore_rng(state.get("rng"), seed)
+            events = _validate_events(state.get("events", []), candidates)
+            rng = _restore_rng(state["rng"], seed)
         except (KeyError, TypeError, ValueError, IndexError, OverflowError):
             controller.reset_reason = "unreadable_state"
             return controller
@@ -821,12 +981,16 @@ def resolve_controller(
     evaluation_identity: str,
     seed: int,
     resume: bool,
+    override_learning_rate: float | None = None,
 ) -> HyperController | None:
     """Build the controller for a run, or ``None`` when adaptation is off.
 
     A resume whose evaluation identity differs from the saved one resets the
     learned state inside :meth:`HyperController.from_state`, so observations from
-    a different objective are never mixed.
+    a different objective are never mixed. ``override_learning_rate`` is a rate
+    the caller explicitly requested for a resume; it is honoured by moving the
+    restored controller's effective rate (keeping the learned state) so the
+    override is never silently discarded.
     """
     if config.get("adaptation", "off") == "off":
         return None
@@ -834,7 +998,7 @@ def resolve_controller(
     learning_rate = float(config.get("learning_rate", candidates[0]))
     initial_index = candidates.index(learning_rate) if learning_rate in candidates else 0
     if resume and isinstance(saved_state, dict) and saved_state:
-        return HyperController.from_state(
+        controller = HyperController.from_state(
             saved_state,
             candidates=candidates,
             lag=int(config["adaptation_lag"]),
@@ -846,6 +1010,10 @@ def resolve_controller(
             seed=seed,
             evaluation_identity=evaluation_identity,
         )
+        if override_learning_rate is not None and controller.reset_reason is None:
+            # The rate must already be a candidate: normalize_config enforces it.
+            controller.set_effective_index(candidates.index(override_learning_rate))
+        return controller
     return HyperController(
         candidates=candidates,
         lag=int(config["adaptation_lag"]),
