@@ -59,7 +59,20 @@
     "adaptation_lag",
     "adaptation_min_trials"
   ],
-  "tune_fields": ["trials", "study_name", "seed", "search_space", "training", "resume_study"],
+  "tune_fields": [
+    "trials",
+    "study_name",
+    "seed",
+    "search_space",
+    "training",
+    "resume_study",
+    "source_checkpoint",
+    "opponents",
+    "verification",
+    "sampler",
+    "pruner",
+    "max_failures"
+  ],
   "execution_fields": ["execution", "worker_id"],
   "resume_immutable_fields": ["ruleset", "channels", "blocks", "seed", "optimizer", "iterations"],
   "training_phases": [

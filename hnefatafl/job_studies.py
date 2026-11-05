@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 from .job_archives import ArchiveError, portable, rewrite, training_config, validate_json
 
@@ -38,10 +41,189 @@ TUNABLE = {
     "dirichlet_fraction",
 }
 
+DEFAULT_SEARCH_SPACE = {
+    "learning_rate": {"type": "float", "low": 0.0001, "high": 0.01, "log": True},
+    "exploration": {"type": "float", "low": 0.5, "high": 2.0},
+    "channels": {"type": "categorical", "choices": [8, 16, 32]},
+}
 
-def tuning_config(value: dict) -> dict:
+
+def search_space_config(value: Any) -> dict:
+    """Validate and normalize the Optuna search-space contract.
+
+    Three distribution kinds are supported and each extreme is checked against
+    the training validator by the caller:
+
+    * ``float`` — optional ``log`` for a positive logarithmic range;
+    * ``int`` — optional positive integer ``step`` (``log`` requires step 1);
+    * ``categorical`` — a non-empty list of numeric choices.
+
+    The returned mapping is a normalized copy, so callers never mutate the
+    stored configuration and unknown options are rejected by name.
+    """
     import optuna
 
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not value or set(value) - TUNABLE:
+        raise ArchiveError("Unsupported optimization search space.")
+    result: dict = {}
+    for field, distribution in value.items():
+        if not isinstance(distribution, dict):
+            raise ArchiveError("Invalid optimization distribution.")
+        kind = distribution.get("type", "float")
+        if not isinstance(kind, str):
+            raise ArchiveError("A search distribution type must be a string.")
+        if kind == "categorical":
+            if set(distribution) != {"type", "choices"}:
+                raise ArchiveError("Invalid optimization choices.")
+            choices = distribution["choices"]
+            if not isinstance(choices, list) or not choices:
+                raise ArchiveError("Invalid optimization choices.")
+            if any(type(choice) is bool or type(choice) not in (int, float) for choice in choices):
+                raise ArchiveError("Optimization choices must be numeric.")
+            optuna.distributions.CategoricalDistribution(choices)
+            result[field] = {"type": "categorical", "choices": list(choices)}
+            continue
+        if kind not in {"float", "int"}:
+            raise ArchiveError("Unknown optimization distribution.")
+        allowed = {"type", "low", "high", "log"} | ({"step"} if kind == "int" else set())
+        if set(distribution) - allowed or not {"low", "high"} <= set(distribution):
+            raise ArchiveError("Invalid optimization bounds.")
+        low, high = distribution["low"], distribution["high"]
+        if any(type(v) is bool or type(v) not in (int, float) for v in (low, high)):
+            raise ArchiveError("Optimization bounds must be numeric.")
+        if low > high:
+            raise ArchiveError("Invalid optimization bounds.")
+        logarithmic = distribution.get("log", False)
+        if type(logarithmic) is not bool:
+            raise ArchiveError("Invalid optimization logarithmic flag.")
+        if logarithmic and low <= 0:
+            raise ArchiveError("Logarithmic optimization requires positive bounds.")
+        normalized: dict = {"type": kind, "low": low, "high": high, "log": logarithmic}
+        if kind == "int":
+            if type(low) is not int or type(high) is not int:
+                raise ArchiveError("Integer optimization requires integer bounds.")
+            step = distribution.get("step", 1)
+            if type(step) is not int or step < 1 or (logarithmic and step != 1):
+                raise ArchiveError(
+                    "Integer optimization requires a positive step, and step 1 for logarithmic sampling."
+                )
+            normalized["step"] = step
+            optuna.distributions.IntDistribution(low, high, step=step, log=logarithmic)
+        else:
+            if "step" in distribution:
+                raise ArchiveError("Float optimization does not accept a step.")
+            optuna.distributions.FloatDistribution(low, high, log=logarithmic)
+        result[field] = normalized
+    return result
+
+
+def opponents_config(value: Any) -> list[dict]:
+    """Validate the optional weighted multi-opponent objective.
+
+    Fixed heuristics (Shield bearer, Shield maiden, Jarl) and a frozen neural
+    model from the registry are accepted. The registry model ID is a content
+    identity, so every trial evaluates the same pinned artifact.
+    """
+    if value is None or value == []:
+        return []
+    if not isinstance(value, list) or len(value) > 8:
+        raise ArchiveError("Invalid optimization opponents.")
+    allowed = {"shield_bearer", "shield_maiden", "jarl", "frozen_model"}
+    model_id_pattern = re.compile(r"[0-9a-f]{24}")
+    result = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ArchiveError("Invalid optimization opponent.")
+        opponent = entry.get("opponent", "shield_bearer")
+        if opponent not in allowed:
+            raise ArchiveError(
+                "Optimization opponents must be fixed references: shield_bearer, "
+                "shield_maiden, jarl or a frozen registered model."
+            )
+        weight = entry.get("weight", 1.0)
+        if type(weight) is bool or type(weight) not in (int, float) or not 0 < float(weight) <= 1:
+            raise ArchiveError("Optimization opponent weights must be between 0 and 1.")
+        record: dict = {"opponent": opponent, "weight": float(weight)}
+        if opponent == "frozen_model":
+            if (
+                set(entry) != {"opponent", "weight", "model_id"}
+                or not isinstance(entry.get("model_id"), str)
+                or not model_id_pattern.fullmatch(entry["model_id"])
+            ):
+                raise ArchiveError("A frozen neural opponent needs a registered model ID.")
+            record["model_id"] = entry["model_id"]
+        elif set(entry) - {"opponent", "weight"}:
+            raise ArchiveError("Invalid optimization opponent.")
+        result.append(record)
+    return result
+
+
+def verification_config(value: Any) -> dict:
+    """Validate the optional held-out verification stage."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or set(value) - {"games", "seed", "opponent"}:
+        raise ArchiveError("Invalid optimization verification settings.")
+    result: dict = {}
+    if "games" in value:
+        games = value["games"]
+        if type(games) is not int or not 2 <= games <= 10000 or games % 2:
+            raise ArchiveError("Verification games must be an even integer between 2 and 10000.")
+        result["games"] = games
+    if "seed" in value:
+        seed = value["seed"]
+        if type(seed) is not int or not 0 <= seed < 2**32:
+            raise ArchiveError("Verification seed must be an unsigned 32-bit integer.")
+        result["seed"] = seed
+    if "opponent" in value:
+        opponent = value["opponent"]
+        if opponent not in {"shield_bearer", "shield_maiden", "jarl"}:
+            raise ArchiveError(
+                "Verification opponent must be shield_bearer, shield_maiden or jarl."
+            )
+        result["opponent"] = opponent
+    return result
+
+
+def sampler_config(value: Any) -> dict:
+    if value is None:
+        return {}
+    allowed = {"n_startup_trials", "multivariate", "group", "constant_liar"}
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise ArchiveError("Invalid optimization sampler settings.")
+    result: dict = {}
+    if "n_startup_trials" in value:
+        startup = value["n_startup_trials"]
+        if type(startup) is not int or not 0 <= startup <= 1000:
+            raise ArchiveError("Sampler startup trials must be between 0 and 1000.")
+        result["n_startup_trials"] = startup
+    for flag in ("multivariate", "group", "constant_liar"):
+        if flag in value:
+            if type(value[flag]) is not bool:
+                raise ArchiveError("Sampler flags must be booleans.")
+            result[flag] = value[flag]
+    return result
+
+
+def pruner_config(value: Any) -> dict:
+    if value is None:
+        return {}
+    allowed = {"n_startup_trials", "n_warmup_steps", "interval_steps"}
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise ArchiveError("Invalid optimization pruner settings.")
+    result: dict = {}
+    for key in allowed:
+        if key in value:
+            number = value[key]
+            if type(number) is not int or not 0 <= number <= 100000:
+                raise ArchiveError("Pruner settings must be non-negative integers.")
+            result[key] = number
+    return result
+
+
+def tuning_config(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) - {
         "trials",
         "study_name",
@@ -50,9 +232,25 @@ def tuning_config(value: dict) -> dict:
         "training",
         "output_dir",
         "storage",
+        "resume_study",
+        "source_checkpoint",
+        "opponents",
+        "verification",
+        "sampler",
+        "pruner",
+        "max_failures",
     }:
         raise ArchiveError("Unsupported optimization configuration.")
     result = portable(value)
+    source_checkpoint = result.get("source_checkpoint")
+    if source_checkpoint is not None:
+        if (
+            not isinstance(source_checkpoint, str)
+            or not source_checkpoint
+            or len(source_checkpoint) > 300
+        ):
+            raise ArchiveError("Invalid optimization source checkpoint reference.")
+        result["source_checkpoint"] = source_checkpoint
     for key, default, low, high in (("trials", 4, 1, 10000), ("seed", 0, 0, 2**32 - 1)):
         number = result.get(key, default)
         if type(number) is not int or not low <= number <= high:
@@ -64,49 +262,505 @@ def tuning_config(value: dict) -> dict:
     result["study_name"] = name
     base = training_config(result.get("training", {"preset": "smoke", "ruleset": "brandubh"}))
     result["training"] = base
-    search = result.get("search_space")
-    if search is not None:
-        if not isinstance(search, dict) or not search or set(search) - TUNABLE:
-            raise ArchiveError("Unsupported optimization search space.")
-        for field, distribution in search.items():
-            if not isinstance(distribution, dict):
-                raise ArchiveError("Invalid optimization distribution.")
-            kind = distribution.get("type", "float")
-            options = {k: v for k, v in distribution.items() if k != "type"}
-            if kind == "categorical":
-                if (
-                    set(options) != {"choices"}
-                    or not isinstance(options["choices"], list)
-                    or not options["choices"]
-                ):
-                    raise ArchiveError("Invalid optimization choices.")
-                values = options["choices"]
-                optuna.distributions.CategoricalDistribution(values)
-            elif kind in {"float", "int"}:
-                if (
-                    set(options) - {"low", "high", "log", *({"step"} if kind == "int" else set())}
-                    or not {"low", "high"} <= options.keys()
-                ):
-                    raise ArchiveError("Invalid optimization bounds.")
-                if "log" in options and type(options["log"]) is not bool:
-                    raise ArchiveError("Invalid optimization logarithmic flag.")
-                values = [options["low"], options["high"]]
-                if kind == "int":
-                    if (
-                        any(type(v) is not int for v in values)
-                        or type(options.get("step", 1)) is not int
-                    ):
-                        raise ArchiveError("Invalid integer optimization bounds.")
-                    optuna.distributions.IntDistribution(**options)
-                else:
-                    optuna.distributions.FloatDistribution(**options)
-            else:
-                raise ArchiveError("Unknown optimization distribution.")
-            for number in values:
-                if type(number) not in {int, float}:
-                    raise ArchiveError("Optimization choices must be numeric.")
-                training_config({**base, field: number})
+    result["search_space"] = search_space_config(result.get("search_space"))
+    result["opponents"] = opponents_config(result.get("opponents"))
+    result["verification"] = verification_config(result.get("verification"))
+    result["sampler"] = sampler_config(result.get("sampler"))
+    result["pruner"] = pruner_config(result.get("pruner"))
+    failures = result.get("max_failures", min(3, result["trials"]))
+    if type(failures) is not int or not 1 <= failures <= 10000:
+        raise ArchiveError("Invalid optimization failure budget.")
+    result["max_failures"] = failures
     return result
+
+
+def validate_study_schema(db, study_name: str | None = None) -> None:
+    """Validate metadata reads without executing archive-supplied SQL objects."""
+    schema = db.execute(
+        "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    tables = {name for kind, name, _ in schema if kind == "table"}
+    if tables != TABLES or any(
+        kind not in {"table", "index"} or (sql and "VIRTUAL TABLE" in sql.upper())
+        for kind, _, sql in schema
+    ):
+        raise ArchiveError("Unsupported Optuna SQLite schema or executable database objects.")
+    if db.execute("PRAGMA quick_check(1)").fetchall() != [("ok",)]:
+        raise ArchiveError("The optimization study database is corrupt.")
+    if db.execute("SELECT schema_version FROM version_info").fetchall() != [(12,)]:
+        raise ArchiveError("Unsupported Optuna study schema version (expected 12).")
+    names = db.execute("SELECT study_name FROM studies").fetchall()
+    if len(names) != 1:
+        raise ArchiveError("Only a single job-owned Optuna study can be migrated.")
+    if study_name is not None and names != [(study_name,)]:
+        raise ArchiveError("Study name does not match the optimization job configuration.")
+
+
+def study_attributes(path: Path, study_name: str | None = None) -> list[tuple[str, Any]]:
+    """Bounded, read-only metadata; never deserialize neural checkpoints."""
+    if path.stat().st_size > 128 * 1024 * 1024:
+        raise ArchiveError("Optimization study exceeds the file size limit.")
+    try:
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
+            db.execute("PRAGMA trusted_schema=OFF")
+            db.execute("BEGIN")
+            validate_study_schema(db, study_name)
+            attributes = []
+            for table in (
+                "study_user_attributes",
+                "study_system_attributes",
+                "trial_user_attributes",
+                "trial_system_attributes",
+            ):
+                count, size, longest_key = db.execute(
+                    f"SELECT COUNT(*),COALESCE(SUM(length(value_json)),0),COALESCE(MAX(length(key)),0) FROM {table}"
+                ).fetchone()
+                if count > 100000 or size > 16 * 1024 * 1024 or longest_key > 200:
+                    raise ArchiveError("Optimization attributes exceed metadata limits.")
+                for key, encoded in db.execute(f"SELECT key,value_json FROM {table}"):
+                    if not isinstance(key, str) or not isinstance(encoded, str):
+                        raise ArchiveError("Optimization attributes have malformed types.")
+                    value = json.loads(encoded)
+                    validate_json(value)
+                    attributes.append((key, value))
+            return attributes
+    except (sqlite3.Error, ValueError) as error:
+        raise ArchiveError(
+            f"Cannot safely read the retained optimization study: {error}"
+        ) from error
+
+
+_REFERENCE_FIELDS = {
+    "resume",
+    "source_checkpoint",
+    "checkpoint",
+    "trial_checkpoint",
+    "last_checkpoint",
+    "best_checkpoint",
+    "best_trial_checkpoint",
+    "objective_checkpoint",
+    "artifact_owner",
+}
+
+
+class StudyReferences:
+    """One bounded metadata snapshot for a deletion calculation, never weights."""
+
+    def __init__(self, jobs_root: Path):
+        self.root = jobs_root
+        self.cached: dict[Path, dict] = {}
+
+    def owned(self, path: Path) -> str:
+        from .job_archives import safe_name
+
+        try:
+            relative = path.relative_to(self.root)
+        except ValueError as error:
+            raise ArchiveError("A retained study references data outside the job store.") from error
+        safe_name(relative.as_posix())
+        if not re.fullmatch(r"[0-9a-f]{32}", relative.parts[0]):
+            raise ArchiveError("A retained study reference has no valid owning job.")
+        if any(part.is_symlink() for part in (*reversed(path.parents), path)):
+            raise ArchiveError("A retained study reference contains a symlink.")
+        return relative.parts[0]
+
+    def paths(self, value: Any, base: Path, key: str = ""):
+        from .job_archives import safe_name
+
+        if key in _REFERENCE_FIELDS and value is not None and not isinstance(value, str):
+            raise ArchiveError("A retained study has a malformed checkpoint reference.")
+        if isinstance(value, dict):
+            for name, child in value.items():
+                yield from self.paths(child, base, name)
+            return
+        if isinstance(value, (list, tuple)):
+            for child in value:
+                yield from self.paths(child, base, key)
+            return
+        if not isinstance(value, str) or not value:
+            return
+        path = None
+        if value.startswith("sqlite:///"):
+            path = Path(value[10:])
+        elif value.startswith("job://"):
+            safe_name(value[6:])
+            path = base / value[6:]
+        elif match := re.fullmatch(r"([0-9a-f]{32}):(.+)", value):
+            safe_name(match[2])
+            if not artifact_name_for_study(match[2]):
+                raise ArchiveError("A retained study has an invalid checkpoint token.")
+            path = self.root / match[1] / match[2]
+        elif Path(value).is_absolute() and Path(value).is_relative_to(self.root):
+            path = Path(value)
+        elif key in _REFERENCE_FIELDS:
+            if Path(value).is_absolute() or not artifact_name_for_study(value):
+                raise ArchiveError(
+                    "A retained study has an unsafe or nonportable checkpoint reference."
+                )
+            safe_name(value)
+            path = base / value
+        if path is not None:
+            self.owned(path)
+            yield path
+
+    def owners(self, value: Any, base: Path, key: str = "") -> set[str]:
+        return {self.owned(path) for path in self.paths(value, base, key)}
+
+    def database(self, job: dict) -> Path:
+        directory = self.root / job["id"]
+        self.owned(directory)
+        config = job.get("config", {})
+        if not isinstance(config, dict):
+            raise ArchiveError("The retained study has malformed configuration.")
+        storage = config.get("storage", "sqlite:///" + str(directory / "study.sqlite3"))
+        if not isinstance(storage, str) or not storage.startswith("sqlite:///"):
+            raise ArchiveError("The retained study does not use owned SQLite storage.")
+        path = Path(storage[10:])
+        self.owned(path)
+        if path.name != "study.sqlite3" or path.parent.parent != self.root:
+            raise ArchiveError("The retained study database has an invalid owner.")
+        for suffix in ("-wal", "-shm", "-journal"):
+            self.owned(path.with_name(path.name + suffix))
+        return path
+
+    @staticmethod
+    def generation(database: Path) -> list:
+        # Include WAL replacement/writes as well as the main database file.
+        return [
+            [stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+            if (stat := path.stat() if path.exists() else None)
+            else None
+            for path in (database, database.with_name(database.name + "-wal"))
+        ]
+
+    def read(self, job: dict, *, database_override: Path | None = None) -> set[str]:
+        """Validate/cache the study, returning only this job row's references.
+
+        Study artifact owners remain shared in cached[database], avoiding a
+        copy per contributor when resolving group and reverse dependencies.
+        """
+        label = f"{job.get('name') or 'study'} (job {job['id']})"
+        try:
+            directory = self.root / job["id"]
+            self.owned(directory)
+            config = job.get("config", {})
+            if not isinstance(config, dict):
+                raise ArchiveError("The retained study has malformed configuration.")
+            reports = [job.get(section) or {} for section in ("progress", "result")]
+            if any(not isinstance(report, dict) for report in reports):
+                raise ArchiveError("The retained study has malformed result metadata.")
+            label = f"{job.get('name') or config.get('study_name', 'study')} (job {job['id']})"
+            owners = self.owners(
+                {key: job.get(key) for key in ("config", "progress", "result", "checkpoint")},
+                directory,
+            )
+            if job.get("kind") != "tune":
+                return owners
+            database = database_override or self.database(job)
+            owners.add(self.owned(database))
+            if database.exists():
+                study_name = config.get("study_name", "hnefatafl")
+                if database not in self.cached:
+                    before = self.generation(database)
+                    attrs = study_attributes(database, study_name)
+                    database_owners: set[str] = set()
+                    for key, value in attrs:
+                        database_owners.update(self.owners(value, database.parent, key))
+                    if before != self.generation(database):
+                        raise ArchiveError(
+                            "Study metadata changed while reading it; stop its workers and retry."
+                        )
+                    self.cached[database] = dict(
+                        name=study_name, attrs=attrs, owners=database_owners, generation=before
+                    )
+                if self.cached[database]["name"] != study_name:
+                    raise ArchiveError("Retained jobs disagree about the shared study name.")
+            elif config.get("storage") or any(
+                report.get("trials")
+                or report.get("completed_trials")
+                or report.get("failed_trials")
+                for report in reports
+            ):
+                raise ArchiveError("The retained study database is missing.")
+            return owners
+        except (ArchiveError, OSError, TypeError, KeyError) as error:
+            raise ArchiveError(
+                f"Cannot establish dependencies of {label}: {error}. Repair or remove that study before deleting training data."
+            ) from error
+
+
+def study_job_dependencies(jobs: list[dict], jobs_root: Path, target_id: str) -> list[dict]:
+    """Reverse references from other retained studies, including inactive ones."""
+    index = StudyReferences(jobs_root)
+    dependencies = []
+    for job in jobs:
+        if job["id"] == target_id or job.get("kind") != "tune":
+            continue
+        direct = index.read(job)
+        stored = index.cached.get(index.database(job), {}).get("owners", set())
+        if target_id in direct or target_id in stored:
+            dependencies.append(
+                {
+                    "id": job["id"],
+                    "name": f"{job.get('name') or job.get('config', {}).get('study_name', 'study')} (job {job['id']})",
+                }
+            )
+    return dependencies
+
+
+def study_deletion_group(
+    jobs: list[dict], jobs_root: Path, job_id: str, worker_alive
+) -> tuple[dict, StudyReferences]:
+    """Internal edges are allowed; incoming edges from any retained job block deletion."""
+    from .job_deletion import MAX_STUDY_JOBS
+
+    index = StudyReferences(jobs_root)
+    records = {job["id"]: job for job in jobs}
+    selected = records.get(job_id)
+    if not selected or selected.get("kind") != "tune":
+        raise ArchiveError("Select a saved tuning job to delete its entire study.")
+    # Read existing/explicit databases first. Historical contributor rows may
+    # omit storage, but immutable trial artifact_owner/checkpoint references can
+    # establish their group without treating a source dependency as membership.
+    declared = {}
+    for job in jobs:
+        if job.get("kind") == "tune":
+            path = index.database(job)
+            declared[job["id"]] = path
+            if path.exists() or job["config"].get("storage"):
+                index.read(job)
+    evidence: dict[str, set[Path]] = {}
+    for path, snapshot in index.cached.items():
+        for key, value in snapshot["attrs"]:
+            if key in {
+                "artifact_owner",
+                "checkpoint",
+                "trial_checkpoint",
+                "last_checkpoint",
+                "objective_checkpoint",
+                "best_checkpoint",
+            }:
+                for identifier in index.owners(value, path.parent, key):
+                    evidence.setdefault(identifier, set()).add(path)
+    references = {}
+    actual = dict(declared)
+    for job in jobs:
+        override = None
+        declared_path = declared.get(job["id"])
+        if (
+            declared_path is not None
+            and not declared_path.exists()
+            and not job["config"].get("storage")
+        ):
+            candidates = evidence.get(job["id"], set())
+            if len(candidates) > 1:
+                raise ArchiveError(
+                    f"Contributing job {job['id']} has ambiguous study ownership; repair its saved storage reference."
+                )
+            if candidates:
+                override = next(iter(candidates))
+                actual[job["id"]] = override
+        references[job["id"]] = index.read(job, database_override=override)
+    database = actual[job_id]
+    if database not in index.cached:
+        raise ArchiveError(
+            "The study database is missing; repair its metadata before deleting the study."
+        )
+    saved = index.cached[database]
+    owner = database.parent.name
+    group = {owner}
+    trial_directories: dict[str, set[str]] = {}
+    for key, value in saved["attrs"]:
+        if key == "artifact_owner" and value:
+            for path in index.paths(value, database.parent, key):
+                identifier = index.owned(path)
+                if path != jobs_root / identifier or not path.is_dir():
+                    raise ArchiveError(
+                        "A saved trial has an ambiguous artifact owner. Repair its study metadata first."
+                    )
+                group.add(identifier)
+            continue
+        if (
+            key
+            not in {
+                "checkpoint",
+                "trial_checkpoint",
+                "last_checkpoint",
+                "objective_checkpoint",
+                "best_checkpoint",
+            }
+            or not value
+        ):
+            continue
+        for path in index.paths(value, database.parent, key):
+            if not re.fullmatch(r"trial-\d{1,10}", path.parent.name) or path.name not in {
+                "best.pt",
+                "last.pt",
+                "objective.pt",
+            }:
+                raise ArchiveError(
+                    "A trial checkpoint has ambiguous study ownership. Repair its saved reference first."
+                )
+            if not path.is_file():
+                raise ArchiveError(
+                    f"A trial checkpoint is missing in job {index.owned(path)}; restore it or repair the study first."
+                )
+            identifier = index.owned(path)
+            group.add(identifier)
+            trial_directories.setdefault(identifier, set()).add(path.parent.name + "/")
+    for job in jobs:
+        if actual.get(job["id"]) == database:
+            group.add(job["id"])
+    if job_id not in group:
+        raise ArchiveError("The selected job does not belong to the saved study.")
+    if len(group) > MAX_STUDY_JOBS:
+        raise ArchiveError(
+            "Study deletion exceeds the bounded job-count limit; administrator maintenance is required."
+        )
+    for identifier in group:
+        participant = records.get(identifier)
+        if not participant or participant.get("kind") != "tune":
+            raise ArchiveError(
+                f"Cannot establish the contributing tuning job {identifier}; restore its job record first."
+            )
+        if actual.get(identifier) != database:
+            raise ArchiveError(
+                f"Contributing job {identifier} belongs to a different study. Repair its ownership before deleting."
+            )
+        if participant["config"].get("study_name", "hnefatafl") != saved["name"]:
+            raise ArchiveError(f"Contributing job {identifier} has a conflicting study name.")
+        directory = jobs_root / identifier
+        if not directory.is_dir():
+            raise ArchiveError(f"Contributing job {identifier} has a missing artifact directory.")
+        # Walk metadata only. Never follow links, inspect tensor payloads or hash weights.
+        for path in directory.rglob("*"):
+            index.owned(path)
+    affected = [
+        {
+            "id": identifier,
+            "name": records[identifier].get("name") or saved["name"],
+            "status": records[identifier]["status"],
+            "worker_alive": worker_alive(records[identifier]),
+            "directory": f"jobs/{identifier}/",
+            "trial_directories": sorted(trial_directories.get(identifier, set())),
+        }
+        for identifier in sorted(group)
+    ]
+    # A shared database can reference thousands of contributors. Keep one owner
+    # set per database, rather than copying that set into every job (quadratic
+    # memory). The preview names every external job and bounds diagnostic edges.
+    overlaps = {path: snapshot["owners"] & group for path, snapshot in index.cached.items()}
+    overlap_samples = {path: sorted(owners)[:20] for path, owners in overlaps.items()}
+    external = []
+    for job in jobs:
+        if job["id"] in group:
+            continue
+        external_database = actual.get(job["id"])
+        stored = overlaps.get(external_database, set()) if external_database is not None else set()
+        extra = (references[job["id"]] & group) - stored
+        count = len(stored) + len(extra)
+        if not count:
+            continue
+        external.append(
+            {
+                "id": job["id"],
+                "name": job.get("name")
+                or job.get("config", {}).get("study_name")
+                or "Training job",
+                "kind": job["kind"],
+                "status": job["status"],
+                "artifact_job_ids": sorted(
+                    overlap_samples.get(external_database, []) + list(extra)
+                )[:20]
+                if external_database is not None
+                else sorted(extra)[:20],
+                "artifact_job_count": count,
+            }
+        )
+    reasons = [
+        f"Job {job['id']} is active or has a live worker. Stop it before deleting the study."
+        for job in affected
+        if job["status"] not in {"completed", "cancelled", "failed"} or job["worker_alive"]
+    ]
+    reasons += [
+        f"External job {job['name']} ({job['id']}) depends on this study's checkpoints. Remove or rebase that dependency first."
+        for job in external
+    ]
+    identities = [value for key, value in saved["attrs"] if key == "hnefatafl_identity"]
+    identity = (
+        hashlib.sha256(json.dumps(identities[0], sort_keys=True).encode()).hexdigest()
+        if identities
+        else None
+    )
+    preview = dict(
+        study_name=saved["name"],
+        study_identity=identity,
+        owner_job_id=owner,
+        jobs=affected,
+        preserved_source_job_ids=sorted(
+            (saved["owners"] | set().union(*(references[identifier] for identifier in group)))
+            - group
+        ),
+        external_dependencies=external,
+        blocked_reasons=reasons,
+        can_delete=not reasons,
+    )
+    preview["confirmation_token"] = hashlib.sha256(
+        json.dumps([preview, saved["generation"], saved["attrs"]], sort_keys=True).encode()
+    ).hexdigest()
+    return preview, index
+
+
+def frozen_study_dependencies(config: dict, database: Path) -> dict[str, str]:
+    """Resolve required model pins from saved study evidence, never current weights."""
+    attrs = study_attributes(database, config.get("study_name", "hnefatafl"))
+    identities = [
+        value
+        for key, value in attrs
+        if key in {"hnefatafl_identity", "experiment_identity"} and isinstance(value, dict)
+    ]
+    expected = opponents_config(config.get("opponents"))
+    for identity in identities:
+        if "opponents" in identity and opponents_config(identity["opponents"]) != expected:
+            raise ArchiveError(
+                "Frozen opponent configuration conflicts with the saved study identity."
+            )
+    pins = {}
+    for entry in expected:
+        if entry["opponent"] != "frozen_model":
+            continue
+        identifier = entry["model_id"]
+        recorded = set()
+        for identity in identities:
+            frozen = identity.get("frozen_models", {})
+            if not isinstance(frozen, dict) or (
+                identifier in frozen and not isinstance(frozen[identifier], str)
+            ):
+                raise ArchiveError(f"Invalid pinned identity of frozen model {identifier}.")
+            if identifier in frozen:
+                recorded.add(frozen[identifier])
+        if len(recorded) != 1 or not re.fullmatch(r"[0-9a-f]{64}", next(iter(recorded), "")):
+            raise ArchiveError(
+                f"Cannot establish the pinned content identity of frozen model {identifier}."
+            )
+        pins[identifier] = recorded.pop()
+    return pins
+
+
+def validate_frozen_artifact(path: Path, identifier: str, expected: str, ruleset: str) -> None:
+    from .models import load_checkpoint
+    from .training_identity import content_digest
+
+    if any(part.is_symlink() for part in (*reversed(path.parents), path)) or not path.is_file():
+        raise ArchiveError(f"Required frozen model {identifier} is missing or unsafe.")
+    try:
+        model, _ = load_checkpoint(path)
+        if model.ruleset != ruleset:
+            raise ValueError("incompatible ruleset/board representation")
+        if content_digest(model.state_dict()) != expected:
+            raise ValueError("contents do not match the study's pinned identity")
+    except (ValueError, RuntimeError, OSError) as error:
+        raise ArchiveError(f"Invalid frozen model {identifier}: {error}.") from error
 
 
 def _migrate_study(
@@ -117,6 +771,7 @@ def _migrate_study(
     destination: Path | None = None,
     ids: dict | None = None,
     study_name: str | None = None,
+    references: dict | None = None,
 ) -> None:
     """Validate a copied database, scrub attributes and rebase owned checkpoint refs.
 
@@ -126,25 +781,7 @@ def _migrate_study(
     with closing(sqlite3.connect(path)) as db, db:
         db.execute("PRAGMA trusted_schema=OFF")
         db.execute("PRAGMA secure_delete=ON")
-        schema = db.execute(
-            "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
-        ).fetchall()
-        tables = {name for kind, name, _ in schema if kind == "table"}
-        if tables != TABLES or any(
-            kind not in {"table", "index"} or (sql and "VIRTUAL TABLE" in sql.upper())
-            for kind, _, sql in schema
-        ):
-            raise ArchiveError("Unsupported Optuna SQLite schema or executable database objects.")
-        if db.execute("PRAGMA quick_check(1)").fetchall() != [("ok",)]:
-            raise ArchiveError("The optimization study database is corrupt.")
-        if db.execute("SELECT schema_version FROM version_info").fetchall() != [(12,)]:
-            raise ArchiveError("Unsupported Optuna study schema version (expected 12).")
-        if study_name is not None and db.execute("SELECT study_name FROM studies").fetchall() != [
-            (study_name,)
-        ]:
-            raise ArchiveError("Study name does not match the optimization job configuration.")
-        if db.execute("SELECT COUNT(*) FROM studies").fetchone()[0] != 1:
-            raise ArchiveError("Only a single job-owned Optuna study can be migrated.")
+        validate_study_schema(db, study_name)
         if db.execute(
             "SELECT COUNT(*) FROM trials WHERE state NOT IN ('COMPLETE','PRUNED','FAIL')"
         ).fetchone()[0]:
@@ -168,10 +805,12 @@ def _migrate_study(
                     raise ArchiveError("Optimization attributes exceed metadata limits.")
                 value = json.loads(encoded)
                 validate_json(value)
-                if key == "checkpoint":
+                if key in {"checkpoint", "trial_checkpoint", "last_checkpoint"}:
                     if not isinstance(value, str):
                         raise ArchiveError("Invalid Optuna checkpoint reference.")
-                    if source_root:
+                    if references and value in references:
+                        value = "job://" + references[value]
+                    elif source_root:
                         try:
                             relative = Path(value).resolve().relative_to(source_root)
                         except ValueError as exc:
@@ -184,13 +823,23 @@ def _migrate_study(
                             "The study contains a nonportable checkpoint dependency."
                         )
                     relative_name = value[6:]
+                    if table != "trial_user_attributes":
+                        raise ArchiveError("Checkpoint references must belong to an Optuna trial.")
+                    number = db.execute(
+                        "SELECT trials.number FROM trials JOIN trial_user_attributes USING(trial_id) WHERE trial_user_attribute_id=?",
+                        (identifier,),
+                    ).fetchone()
+                    if number is None or relative_name.split("/")[0] != f"trial-{number[0]}":
+                        raise ArchiveError(
+                            "Optuna checkpoint ownership does not match its trial number."
+                        )
                     # rewrite applies the same path/type validation as job JSON.
                     rewrite(value, {}, artifact_root)
                     if not (artifact_root / relative_name).is_file():
                         raise ArchiveError(
                             "An Optuna trial checkpoint is missing from the archive."
                         )
-                value = portable({key: value}, source_root)
+                value = portable({key: value}, source_root, references=references)
                 if destination is not None:
                     value = rewrite(value, ids or {}, destination)
                 if key not in value:
@@ -225,22 +874,195 @@ def migrate_study(path: Path, artifact_root: Path, **kwargs) -> None:
         raise ArchiveError("Invalid or incompatible Optuna SQLite study.") from exc
 
 
-def copy_study(directory: Path, config: dict, target: Path) -> None:
+def study_database(directory: Path, config: dict) -> Path:
     storage = config.get("storage", "sqlite:///" + str(directory / "study.sqlite3"))
     if not isinstance(storage, str) or not storage.startswith("sqlite:///"):
         raise ArchiveError("Only job-owned SQLite optimization studies can be exported.")
-    source = Path(storage[10:]).resolve()
-    if source != directory / "study.sqlite3" or source.is_symlink() or not source.is_file():
+    source = Path(storage[10:])
+    jobs = directory.parent
+    if (
+        source.name != "study.sqlite3"
+        or source.parent.parent != jobs
+        or not re.fullmatch(r"[0-9a-f]{32}", source.parent.name)
+        or source.is_symlink()
+        or source.parent.is_symlink()
+        or source.resolve() != source
+        or not source.is_file()
+    ):
         raise ArchiveError(
-            "This optimization study uses shared or external storage; migrate its original owning job or use a full-instance backup."
+            "This study uses shared or external storage outside the owning job store."
         )
     if source.stat().st_size > 128 * 1024 * 1024:
         raise ArchiveError("Optimization study exceeds the file size limit.")
+    return source
+
+
+def study_artifacts(directory: Path, config: dict) -> tuple[dict, dict]:
+    """Consolidate global trial numbers from every contributing owned job.
+
+    No arbitrary paths are followed: references must resolve to known artifacts
+    in a sibling UUID job directory, without symlinks at any level.
+    """
+    source = study_database(directory, config)
+    refs: dict[str, str] = {}
+    contributors = {source.parent.name, directory.name}
+    trials = []
+
+    def add(value: str, archive_name: str):
+        path = Path(value)
+        try:
+            relative = path.relative_to(directory.parent)
+        except ValueError as error:
+            raise ArchiveError(
+                "Study has a nonportable dependency outside the job store."
+            ) from error
+        if len(relative.parts) < 2 or not re.fullmatch(r"[0-9a-f]{32}", relative.parts[0]):
+            raise ArchiveError("Study artifact has no valid owning job.")
+        if path.resolve() != path or any(parent.is_symlink() for parent in (path, *path.parents)):
+            raise ArchiveError("Study artifacts must not contain symlinks or traversal.")
+        if not path.is_file():
+            raise ArchiveError(f"Missing study dependency: {archive_name}.")
+        if not artifact_name_for_study(archive_name):
+            raise ArchiveError("Unsupported study artifact dependency.")
+        contributors.add(relative.parts[0])
+        refs[str(path)] = archive_name
+
+    with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA trusted_schema=OFF")
+        rows = db.execute("SELECT trial_id,number FROM trials").fetchall()
+        for trial_id, number in rows:
+            attrs = {
+                key: json.loads(value)
+                for key, value in db.execute(
+                    "SELECT key,value_json FROM trial_user_attributes WHERE trial_id=?", (trial_id,)
+                )
+            }
+            roots = set()
+            paths = {}
+            for key in ("checkpoint", "trial_checkpoint", "last_checkpoint"):
+                value = attrs.get(key)
+                if not value:
+                    continue
+                path = Path(value)
+                if path.parent.name != f"trial-{number}":
+                    raise ArchiveError("Optuna trial artifact ownership does not match its number.")
+                add(value, f"trial-{number}/{path.name}")
+                roots.add(path.parent)
+                paths[key] = "job://" + refs[value]
+            if len(roots) > 1:
+                raise ArchiveError("Optuna trial checkpoints have conflicting artifact owners.")
+            # Include other allowlisted artifacts (history, metrics, selected best,
+            # full last checkpoint), not just the winning inference copy.
+            for trial_root in roots:
+                for artifact in trial_root.rglob("*"):
+                    if artifact.is_symlink():
+                        raise ArchiveError("Study artifacts must not contain symlinks.")
+                    name = f"trial-{number}/" + artifact.relative_to(trial_root).as_posix()
+                    if artifact.is_file() and artifact_name_for_study(name):
+                        add(str(artifact), name)
+            trials.append({"number": number, "artifacts": paths})
+    resume = config.get("training", {}).get("resume") or config.get("source_checkpoint")
+    if resume:
+        add(resume, "dependencies/source/last.pt")
+    return refs, {
+        "version": 1,
+        "owning_job": source.parent.name,
+        "contributing_jobs": sorted(contributors),
+        "trials": trials,
+        "source_checkpoint": "job://dependencies/source/last.pt" if resume else None,
+    }
+
+
+def artifact_name_for_study(name: str) -> bool:
+    from .job_archives import artifact_name
+
+    return artifact_name(name, tuning=True)
+
+
+def copy_study(
+    directory: Path, config: dict, target: Path, *, references: dict | None = None
+) -> None:
+    source = study_database(directory, config)
     with (
         closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as src,
         closing(sqlite3.connect(target)) as dst,
     ):
         src.backup(dst)
     migrate_study(
-        target, directory, source_root=directory, study_name=config.get("study_name", "hnefatafl")
+        target,
+        target.parent,
+        source_root=directory,
+        study_name=config.get("study_name", "hnefatafl"),
+        references=references,
     )
+
+
+def trial_report(trial) -> dict:
+    """One persisted trial, shared by live results and portable study snapshots."""
+    return {
+        "number": trial.number,
+        "state": trial.state.name,
+        "score": trial.value,
+        "parameters": trial.params,
+        **{
+            key: trial.user_attrs.get(key)
+            for key in (
+                "best_score",
+                "best_iteration",
+                "best_source",
+                "source_best_score",
+                "final_score",
+                "aggregate_score",
+                "overall_selected_score",
+                "opponents",
+                "error",
+            )
+        },
+        "duration": trial.duration.total_seconds() if trial.duration else None,
+    }
+
+
+def winner_report(best) -> dict:
+    return {
+        "best_trial": best.number,
+        "best_score": best.value,
+        "best_parameters": best.params,
+        **{
+            key: best.user_attrs.get(attribute)
+            for key, attribute in {
+                "best_iteration": "best_iteration",
+                "best_source": "best_source",
+                "source_best_score": "source_best_score",
+                "best_checkpoint": "checkpoint",
+                "best_trial_checkpoint": "trial_checkpoint",
+                "best_configuration": "training_config",
+                "best_opponents": "opponents",
+            }.items()
+        },
+    }
+
+
+def portable_study_report(path: Path) -> dict:
+    """Project the copied study, which may be newer than its original job result."""
+    import optuna
+
+    storage = optuna.storages.RDBStorage(f"sqlite:///{path}")
+    try:
+        summary = optuna.get_all_study_summaries(storage)[0]
+        study = optuna.load_study(study_name=summary.study_name, storage=storage)
+        trials = study.trials
+        completed_trials = [
+            trial for trial in trials if trial.state == optuna.trial.TrialState.COMPLETE
+        ]
+        completed = len(completed_trials)
+        from .training import parameter_importance
+
+        return {
+            "parameter_importance": parameter_importance(completed_trials),
+            "trials": [trial_report(trial) for trial in trials],
+            "completed_trials": completed,
+            "failed_trials": sum(trial.state == optuna.trial.TrialState.FAIL for trial in trials),
+            **(winner_report(study.best_trial) if completed else {}),
+        }
+    finally:
+        storage.engine.dispose()

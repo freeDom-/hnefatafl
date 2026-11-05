@@ -74,6 +74,12 @@ export const TUNE_FIELDS = [
   'search_space',
   'training',
   'resume_study',
+  'source_checkpoint',
+  'opponents',
+  'verification',
+  'sampler',
+  'pruner',
+  'max_failures',
 ];
 
 /** Checkpoint identity a resume may not change, plus the explicit new target. */
@@ -112,6 +118,47 @@ export interface StudyInput {
   space: string;
   /** Set when a saved study is continued instead of started. */
   resumeStudy?: string;
+  /** Optional JSON text for opponents, verification, sampler, pruner and failures. */
+  strategy?: string;
+}
+
+/** Parse the optional advanced study settings; empty text means no overrides. */
+/** Optional study settings the tuning form may forward, with no overrides. */
+export const STUDY_STRATEGY_FIELDS = [
+  'opponents',
+  'verification',
+  'sampler',
+  'pruner',
+  'max_failures',
+] as const;
+
+export function parseStudyStrategy(strategy: string | undefined): Record<string, unknown> {
+  if (!strategy?.trim()) return {};
+  let value: unknown;
+  try {
+    value = JSON.parse(strategy);
+  } catch {
+    throw new TrainingInputError(['strategy'], 'The optional study settings are not valid JSON.');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TrainingInputError(
+      ['strategy'],
+      'The optional study settings must be a JSON object.',
+    );
+  }
+  // Only the documented strategy fields are accepted, so the text can never
+  // override the authoritative study controls (search space, training config,
+  // study identity) or smuggle in an unknown top-level request field.
+  const unknown = Object.keys(value).filter(
+    (key) => !(STUDY_STRATEGY_FIELDS as readonly string[]).includes(key),
+  );
+  if (unknown.length) {
+    throw new TrainingInputError(
+      ['strategy'],
+      `The optional study settings contain unsupported fields: ${unknown.sort().join(', ')}.`,
+    );
+  }
+  return value as Record<string, unknown>;
 }
 
 export function launchPayload(
@@ -128,12 +175,58 @@ export function launchPayload(
       seed: study.studySeed,
       search_space: parseStudySpace(study.space),
       training: config,
+      ...parseStudyStrategy(study.strategy),
       ...(study.resumeStudy ? { resume_study: study.resumeStudy } : {}),
     };
   }
   // Ordinary training never reads the tuning search space, so malformed tuning
   // JSON can never prevent a valid model-training job from starting.
   return { ...config, kind, ...(target !== 'local' ? targetRequest(target) : {}) };
+}
+
+/**
+ * Preserve a tuning study's full configuration when resuming it.
+ *
+ * The checkpoint source (`training.resume`), opponent, search space and strategy
+ * must survive so a resumed study does not silently restart from fresh weights
+ * or change its objective. The server merges and validates this against the
+ * stored study identity.
+ */
+export function tuneResumePayload(
+  jobId: string,
+  saved: Record<string, unknown>,
+  trials: number,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    ...Object.fromEntries(
+      Object.entries(saved).filter(
+        ([key]) =>
+          ![
+            'output_dir',
+            'registry_dir',
+            'storage',
+            'execution',
+            'worker_id',
+            'kind',
+            'max_failures',
+          ].includes(key),
+      ),
+    ),
+    kind: 'tune',
+    trials,
+    resume_study: jobId,
+  };
+  if (saved.training && typeof saved.training === 'object' && !Array.isArray(saved.training)) {
+    payload.training = Object.fromEntries(
+      Object.entries(saved.training).filter(
+        ([key]) => !['output_dir', 'registry_dir'].includes(key),
+      ),
+    );
+  }
+  if (typeof saved.max_failures === 'number') {
+    payload.max_failures = Math.min(saved.max_failures, trials);
+  }
+  return payload;
 }
 
 /** Only changed, resume-editable settings; checkpoint identity never leaves the server. */

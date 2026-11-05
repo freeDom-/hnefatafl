@@ -21,6 +21,77 @@ const translations: Record<string, string> = {
   'Trial history': 'Versuchsverlauf',
   Trial: 'Versuch',
   Parameters: 'Parameter',
+  'Failed trials': 'Fehlgeschlagene Versuche',
+  'Best trial': 'Bester Versuch',
+  'Best checkpoint iteration': 'Iteration des besten Prüfpunkts',
+  'Study sampler seed': 'Startwert des Studien-Samplers',
+  'Source training seed': 'Startwert des Quelltrainings',
+  'Trials are ranked by the score of their best evaluated checkpoint, not by the final iteration.':
+    'Versuche werden nach der Punktzahl ihres besten ausgewerteten Prüfpunkts gereiht, nicht nach der letzten Iteration.',
+  'Weighted opponent aggregate': 'Gewichtete Gegner-Zusammenfassung',
+  Unfinished: 'Unvollendet',
+  'Held-out verification': 'Zurückgehaltene Überprüfung',
+  'Verification opponent': 'Überprüfungsgegner',
+  'Verification score': 'Überprüfungspunktzahl',
+  'Verification games': 'Überprüfungspartien',
+  'Verification seed': 'Überprüfungsstartwert',
+  'The verification stage uses a seed the trials never used, so it is an independent check of the winning checkpoint.':
+    'Die Überprüfungsphase verwendet einen Startwert, den die Versuche nie nutzten, und ist damit eine unabhängige Prüfung des besten Prüfpunkts.',
+  'Best configuration': 'Beste Konfiguration',
+  'Winning trial configuration': 'Konfiguration des besten Versuchs',
+  'Train with best parameters': 'Mit besten Parametern trainieren',
+  'Continue winning trial': 'Besten Versuch fortsetzen',
+  'Download best configuration': 'Beste Konfiguration herunterladen',
+  'Additional iterations': 'Zusätzliche Iterationen',
+  'Apply to existing training': 'Auf bestehendes Training anwenden',
+  'Apply best parameters': 'Beste Parameter anwenden',
+  'Best checkpoint score': 'Punktzahl des besten Prüfpunkts',
+  'Final iteration score': 'Punktzahl der letzten Iteration',
+  'Best iteration': 'Beste Iteration',
+  'Tune this checkpoint': 'Diesen Prüfpunkt optimieren',
+  'This job has no recorded best configuration.':
+    'Für diesen Auftrag ist keine beste Konfiguration erfasst.',
+  'This job has no recorded winning trial checkpoint.':
+    'Für diesen Auftrag ist kein Prüfpunkt des besten Versuchs erfasst.',
+  'Continuing the winning trial from its full checkpoint. A new training job has started.':
+    'Der beste Versuch wird von seinem vollständigen Prüfpunkt fortgesetzt. Ein neuer Trainingsauftrag wurde gestartet.',
+  'The selected training job cannot be resumed.':
+    'Der ausgewählte Trainingsauftrag kann nicht fortgesetzt werden.',
+  'Best parameters applied. The training job resumed from its own checkpoint.':
+    'Beste Parameter angewendet. Der Trainingsauftrag wurde von seinem eigenen Prüfpunkt fortgesetzt.',
+  'Best parameters loaded from job {name}. Starting creates a new training job.':
+    'Beste Parameter aus Auftrag {name} geladen. Der Start erstellt einen neuen Trainingsauftrag.',
+  'Tuning started from the saved checkpoint. Every trial begins from the same state.':
+    'Optimierung vom gespeicherten Prüfpunkt gestartet. Jeder Versuch beginnt im selben Zustand.',
+  'Close tuning settings': 'Optimierungseinstellungen schließen',
+  'Additional tuning iterations per trial': 'Zusätzliche Optimierungsiterationen pro Versuch',
+  'Each trial targets {target} total iterations ({completed} already completed).':
+    'Jeder Versuch zielt auf {target} Iterationen insgesamt ({completed} bereits abgeschlossen).',
+  'Every trial resumes this full checkpoint for the same additional budget. The source checkpoint is never modified.':
+    'Jeder Versuch setzt diesen vollständigen Prüfpunkt mit demselben Zusatzbudget fort. Der Quellprüfpunkt wird nie verändert.',
+  'The selected training job could not be found.':
+    'Der ausgewählte Trainingsauftrag wurde nicht gefunden.',
+  'Source checkpoint best score': 'Beste Punktzahl des Quellprüfpunkts',
+  'Winning checkpoint source': 'Quelle des besten Prüfpunkts',
+  'No candidate improved on the source checkpoint, so the reported objective is the inherited benchmark score and the selected checkpoint is the source best model.':
+    'Kein Kandidat übertraf den Quellprüfpunkt, daher ist das gemeldete Ziel die übernommene Vergleichspunktzahl und der ausgewählte Prüfpunkt das beste Quellmodell.',
+  'Source versus winning settings': 'Quell- und Siegereinstellungen',
+  Setting: 'Einstellung',
+  'Source checkpoint': 'Quellprüfpunkt',
+  'Winning trial': 'Bester Versuch',
+  Change: 'Änderung',
+  Changed: 'Geändert',
+  Unchanged: 'Unverändert',
+  'Sort trials by': 'Versuche sortieren nach',
+  'Trial number': 'Versuchsnummer',
+  Duration: 'Dauer',
+  'Filter by status': 'Nach Status filtern',
+  Source: 'Quelle',
+  inherited: 'übernommen',
+  candidate: 'Kandidat',
+  none: 'keine',
+  'The winning trial is highlighted. A small evaluation sample does not establish a statistically significant improvement.':
+    'Der beste Versuch ist hervorgehoben. Eine kleine Auswertungsstichprobe belegt keine statistisch signifikante Verbesserung.',
 
   'Could not load training jobs. Use Refresh to try again.':
     'Trainingsaufträge konnten nicht geladen werden. Versuche es mit Aktualisieren erneut.',
@@ -56,6 +127,7 @@ const translations: Record<string, string> = {
   'Refresh job': 'Auftrag aktualisieren',
   'Training analysis': 'Trainingsanalyse',
   Overview: 'Übersicht',
+  'Tuning results': 'Optimierungsergebnisse',
   Learning: 'Lernen',
   Evaluation: 'Auswertung',
   Performance: 'Leistung',

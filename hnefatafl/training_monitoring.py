@@ -336,7 +336,19 @@ def compact_progress(progress: dict) -> dict:
     result = {
         key: value
         for key, value in progress.items()
-        if key not in {"history", "metrics", "evaluation_selection", "trial_progress"}
+        if key
+        not in {
+            "history",
+            "metrics",
+            "evaluation_selection",
+            "trial_progress",
+            "trials",
+            "experiment_identity",
+            "source_configuration",
+            "parameter_importance",
+            "best_configuration",
+            "best_opponents",
+        }
     }
     metrics = progress.get("metrics")
     if isinstance(metrics, dict):

@@ -19,6 +19,7 @@ import {
   TrainingEvaluationView,
   TrainingPerformance,
   TrainingJobDetails,
+  TrainingTuningView,
 } from './TrainingAnalysisViews';
 import TrainingLiveStatus, { LiveElapsed } from './TrainingLiveStatus';
 import { availableJobTabs, type JobTab } from './jobTabs';
@@ -37,9 +38,16 @@ interface Props {
   onExport: () => void;
   onRefresh: () => void;
   onDelete: () => void;
+  onDeleteStudy?: () => void;
   onRename: () => void;
   onUseParameters: () => void;
+  onTuneCheckpoint: () => void;
   canUseParameters: boolean;
+  trainingJobs: Job[];
+  onUseBestParameters: () => void;
+  onContinueTrial: (additionalIterations: number) => void;
+  onApplyToJob: (targetJobId: string, additionalIterations: number) => void;
+  onDownloadBestConfig: () => void;
 }
 export default function TrainingJobDashboard({
   job,
@@ -54,9 +62,16 @@ export default function TrainingJobDashboard({
   onExport,
   onRefresh,
   onDelete,
+  onDeleteStudy,
   onRename,
   onUseParameters,
+  onTuneCheckpoint,
   canUseParameters,
+  trainingJobs,
+  onUseBestParameters,
+  onContinueTrial,
+  onApplyToJob,
+  onDownloadBestConfig,
 }: Props) {
   const { t, locale } = useI18n();
   const id = useId();
@@ -137,6 +152,11 @@ export default function TrainingJobDashboard({
           <button className="button secondary small" onClick={onRename}>
             {t('Rename job')}
           </button>
+          {job.kind === 'train' && !activeJob(job) && job.checkpoint && job.resumable !== false && (
+            <button className="button secondary small" disabled={busy} onClick={onTuneCheckpoint}>
+              {t('Tune this checkpoint')}
+            </button>
+          )}
           <button
             className="button secondary small"
             disabled={!canUseParameters}
@@ -178,6 +198,15 @@ export default function TrainingJobDashboard({
               {t('Delete training data')}
             </button>
           )}
+          {!activeJob(job) && job.kind === 'tune' && onDeleteStudy && (
+            <button
+              className="button secondary small danger-text"
+              disabled={busy}
+              onClick={onDeleteStudy}
+            >
+              {t('Delete entire tuning study')}
+            </button>
+          )}
           <button className="text-button" onClick={onRefresh}>
             {t('Refresh job')}
           </button>
@@ -203,7 +232,7 @@ export default function TrainingJobDashboard({
         tabIndex={0}
         className="training-analysis-panel"
       >
-        {!['Overview', 'Details'].includes(tab) && (
+        {!['Overview', 'Details', 'Tuning results'].includes(tab) && (
           <label className="training-range">
             {t('Iteration range')}
             <select
@@ -236,6 +265,18 @@ export default function TrainingJobDashboard({
         )}
         {tab === 'Performance' && (
           <TrainingPerformance progress={{ ...progress, history: rangedHistory }} />
+        )}
+        {tab === 'Tuning results' && (
+          <TrainingTuningView
+            job={job}
+            progress={progress}
+            trainingJobs={trainingJobs}
+            busy={busy}
+            onUseBestParameters={onUseBestParameters}
+            onContinueTrial={onContinueTrial}
+            onApplyToJob={onApplyToJob}
+            onDownloadBestConfig={onDownloadBestConfig}
+          />
         )}
         {tab === 'Details' && <TrainingJobDetails job={job} progress={progress} />}
       </section>

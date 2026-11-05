@@ -616,6 +616,22 @@
     "user_specific": false
   },
   {
+    "method": "DELETE",
+    "route": "/api/training/jobs/{job_id}/study",
+    "authentication": "session",
+    "permission": "training",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/training/jobs/{job_id}/study-deletion-preview",
+    "authentication": "session",
+    "permission": "training",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
     "method": "GET",
     "route": "/api/training/presets",
     "authentication": "session",

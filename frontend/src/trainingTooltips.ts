@@ -24,11 +24,17 @@ const studyTrials =
 const studyName =
   'Name that identifies the Optuna study inside the job’s own study database. A new tuning job always starts a fresh database, so the same name alone does not continue an earlier study; continuing uses the saved job’s “Resume study” action. Must contain 1–100 characters.';
 const studySeed =
-  'Seed for the Optuna sampler, separate from the model’s random seed. Each trial’s model seed is derived from it, so the same study seed suggests the same parameters for a study with the same history, and a continued study keeps the saved seed.';
+  'Seed for the Optuna sampler, separate from the model’s random seed. A fresh trial derives its model seed from the nested training seed (or this study seed when none is set), so the same inputs suggest the same parameters for a study with the same history, and a continued study keeps the saved seed.';
 const studySearchSpace =
-  'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. The text is sent as the search space, so it must stay valid JSON.';
+  'JSON object describing which parameters Optuna samples and their ranges. Only tunable training parameters are allowed, such as channels, blocks, learning rate, weight decay, exploration, temperature, batch size, epochs, MCTS iterations and the Dirichlet values; evaluation and champion settings cannot be tuned. Supported distributions are float (optional log), int (optional positive step, log requires step 1) and categorical choices. The text is sent as the search space, so it must stay valid JSON.';
+const studyStrategy =
+  'Optional JSON for advanced study settings: “opponents” is a weighted list of fixed references ({opponent, weight}, or {opponent: "frozen_model", model_id, weight}) for a multi-opponent objective, “verification” re-evaluates the winning checkpoint with a held-out seed ({games, seed, opponent}), “sampler”/“pruner” set TPE and median-pruner startup, and “max_failures” bounds consecutive failing trials. Leave empty for the default single-opponent objective.';
+const additionalTuningIterations =
+  'Extra training iterations each checkpoint-based trial runs on top of the source checkpoint\u2019s completed iteration. Every trial uses the same total, so hyperparameters are compared from one common state without modifying the source checkpoint.';
 
 export const trainingTooltips: Record<string, string> = {
+  opponent_weight:
+    'Relative contribution to Optuna’s aggregate score. Weights are normalized by their total; larger weights make an opponent more influential. They do not change evaluation game counts. Every trial uses the same configured weights.',
   // ── General ──────────────────────────────────────────────────────────────
   target:
     'Where the job runs: this server, any compatible remote worker, or one specific worker. Remote jobs wait in the queue until a matching worker has capacity. The target determines which training devices and inference backends are available.',
@@ -170,6 +176,8 @@ export const trainingTooltips: Record<string, string> = {
   'study.study_name': studyName,
   'study.seed': studySeed,
   'study.search_space': studySearchSpace,
+  strategy: studyStrategy,
+  additional_tuning_iterations: additionalTuningIterations,
   trials: studyTrials,
   study_name: studyName,
   study_seed: studySeed,

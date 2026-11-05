@@ -419,3 +419,45 @@ def test_resume_api_shows_legacy_off_and_reviews_symmetry_override(client, tmp_p
     assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
     unchanged = completed(client, client.post(route, json={"iterations": 2}))
     assert unchanged["config"]["training_symmetry_mode"] == "off"
+
+
+def test_winning_adamw_settings_resume_real_checkpoint_without_resetting_state(client):
+    first = completed(
+        client,
+        client.post(
+            "/api/training/jobs",
+            json={
+                "preset": "smoke",
+                "device": "cpu",
+                "cpu_threads": 1,
+                "seed": 43,
+                "learning_rate": 0.001,
+                "weight_decay": 0.0001,
+            },
+        ),
+    )
+    root = client.app.state.data_dir / "jobs"
+    source = root / first["id"] / "last.pt"
+    original_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    _, before = load_checkpoint(source)
+    resumed = completed(
+        client,
+        client.post(
+            f"/api/training/jobs/{first['id']}/resume",
+            json={
+                "iterations": 2,
+                "learning_rate": 0.003,
+                "weight_decay": 0.02,
+            },
+        ),
+    )
+    _, after = load_checkpoint(root / resumed["id"] / "last.pt")
+    group = after["optimizer_state"]["param_groups"][0]
+    assert (group["lr"], group["weight_decay"]) == (0.003, 0.02)
+    updates = resumed["progress"]["metrics"]["updates"]
+    for key, values in before["optimizer_state"]["state"].items():
+        assert after["optimizer_state"]["state"][key]["step"] == values["step"] + updates
+        assert after["optimizer_state"]["state"][key]["exp_avg"].abs().sum() > 0
+    assert after["extra"]["history"][:1] == before["extra"]["history"]
+    assert len(after["extra"]["replay"]) >= len(before["extra"]["replay"])
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == original_digest

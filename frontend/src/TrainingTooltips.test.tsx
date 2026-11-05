@@ -87,6 +87,7 @@ function CreationHarness({
   const [studySeed, setStudySeed] = useState(0);
   const [studyName, setStudyName] = useState('hnefatafl-search');
   const [space, setSpace] = useState('{}');
+  const [strategy, setStrategy] = useState('');
   const [advanced, setAdvanced] = useState(false);
   return (
     <TrainingCreationPanel
@@ -105,6 +106,8 @@ function CreationHarness({
       setStudyName={setStudyName}
       space={space}
       setSpace={setSpace}
+      strategy={strategy}
+      setStrategy={setStrategy}
       advanced={advanced}
       setAdvanced={setAdvanced}
       busy={false}

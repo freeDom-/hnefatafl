@@ -47,9 +47,10 @@ to CPU/PyTorch when recorded devices are unavailable. Choose another target befo
 starting if required. Supported local OpenVINO devices are retained.
 
 Tuning jobs restore their nested training settings, valid search space, trial
-budget, study name and study seed. Starting creates a new job and an independent
-study database even if its name matches the source. **Resume study** remains the
-separate action for continuing the original study.
+budget, study name and study seed, including the selectable evaluation opponent.
+Starting creates a new job and an independent study database even if its name
+matches the source. **Resume study** remains the separate action for continuing
+the original study.
 
 **Import config.json** loads a local `config.json` exported from a job, or the
 equivalent saved object, into **Forge a new strategist**. Recognized training
@@ -90,8 +91,23 @@ The summary above the tabs keeps the selected name, status, ruleset, execution
 location, recorded iteration/total, stage, live elapsed time and remote update
 time available. Rename, stop, checkpoint/study resume, job export, training-data
 deletion and refresh use their existing state restrictions and confirmation
-dialogs. Progress uses recorded iteration counts; the interface does not invent
-an ETA.
+dialogs. **Tune this checkpoint** opens a review dialog for a resumable training
+job where the user sets **Additional tuning iterations per trial**; every trial
+then resumes the job's full `last.pt` for the same target and the source
+checkpoint is left unchanged. Progress uses recorded iteration counts; the
+interface does not invent an ETA.
+
+For an inactive tuning job, administrators can choose **Delete entire tuning
+study** separately from **Delete training data**. The existing confirmation dialog
+loads a fresh preview of the study identity, database owner, all affected jobs and
+directories, and preserved source jobs. External checkpoint consumers and active
+workers disable confirmation. Review the irreversible removal and tick the
+explicit whole-study consent checkbox. A changed scope or API failure reloads the
+preview and clears consent; successful deletion refreshes the navigator and
+selection for every removed job. Source jobs, registered models and saved
+game/tournament history remain available. A cleanup-pending notice explains retry
+on the next deletion preview or restart; see
+[recovery details](TRAINING_DATA.md#managing-models-and-retained-training-data).
 
 **Rename job** edits the display name only, for active and inactive jobs alike.
 The dialog starts from the current name; saving persists a separate display field
@@ -125,6 +141,40 @@ and execution state never change.
   raw progress, logs, checkpoints, execution metadata and transfer guidance.
   JSON/log panes are bounded and support copying. Credential-shaped diagnostic
   fields are redacted.
+- **Tuning results** (optimization jobs only) separates the **Optuna objective**,
+  best new in-training benchmark, final iteration score and optional weighted
+  aggregate. Ranking, score sorting, winner highlighting and best-so-far plots
+  use the actual persisted Optuna objective. The persisted winner is easy to
+  locate; filtering/sorting covers the complete dataset with 50 rows per page.
+  Charts reuse the training chart controls for objective history, best-so-far,
+  parameter-versus-objective and runtime. Large plots are bounded samples; exact
+  observations remain in the paginated table. Parameter importance is computed
+  once after optimization from binned variance associations, shown only after
+  at least 20 completed, varying observations, and labelled exploratory rather
+  than causal or statistically significant. Navigation polls omit trial arrays
+  and diagnostics; selected-job details retain the full result.
+  Verification status/errors are separate from the completed optimization.
+  **Train with best parameters** loads a new training form. **Continue winning
+  trial** uses the persisted full objective checkpoint, including its optimizer,
+  replay and history, for an additional budget starting at the winning iteration.
+  **Apply best parameters** opens the existing Resume Training dialog, loads the
+  target checkpoint's effective optimizer configuration and preserves it as the
+  payload baseline. Compatible optimized settings prefill only editable fields;
+  changed controls and a source/optimized/current table support review and edits.
+  Immutable architecture, ruleset, optimizer and seed remain read-only. Training
+  starts only on explicit submission; the API receives every changed setting.
+  **Download best configuration** saves the full winning configuration as JSON.
+
+Tuning forms provide **Fixed evaluation opponents** using existing registered-model
+labels and form classes. Add heuristics or compatible neural models and adjust
+weights; the advanced JSON remains the same import/export representation.
+Different hidden network sizes are compatible. Champion remains available in
+ordinary training but is disabled in tuning because it changes the reference.
+The model-deletion dialog lists active optimization dependencies and disables
+deletion until those studies stop; backend enforcement also covers stale UI state.
+Inactive studies do not reserve models forever: deleting a fixed dependency makes
+further trials unavailable until that exact compatible artifact is restored.
+Historical trials remain inspectable and their checkpoints remain usable.
 
 Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
 left/right and Home/End keys for exact values and support pointer inspection.
