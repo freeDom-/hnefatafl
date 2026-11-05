@@ -411,8 +411,8 @@ export default function Training({
       const incompatible = adaptationConfigError(submitted);
       if (incompatible) {
         throw new TrainingInputError(
-          [kind === 'tune' ? 'training.adaptation' : 'adaptation'],
-          incompatible,
+          [kind === 'tune' ? `training.${incompatible.field}` : incompatible.field],
+          incompatible.message,
         );
       }
       const params = launchPayload(kind, submitted, target, {

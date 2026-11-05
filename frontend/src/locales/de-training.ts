@@ -534,6 +534,14 @@ const translations: Record<string, string> = {
     'Automatische Hyperparameter-Aktualisierungen benötigen mindestens 4 Auswertungspartien.',
   'The learning rate must be one of the adaptation candidates.':
     'Die Lernrate muss einer der Anpassungskandidaten sein.',
+  'Learning rate candidates must be decimal numbers separated by commas.':
+    'Die Lernraten-Kandidaten müssen durch Kommas getrennte Dezimalzahlen sein.',
+  'Learning rate candidates must be between 1e-7 and 1.':
+    'Die Lernraten-Kandidaten müssen zwischen 1e-7 und 1 liegen.',
+  'Learning rate candidates must contain between 2 and 8 distinct values.':
+    'Die Lernraten-Kandidaten müssen zwischen 2 und 8 verschiedene Werte enthalten.',
+  'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.':
+    'Lernraten-Kandidaten und das Beobachtungsverlaufsfenster erzeugen zu viele Controller-Kontexte; weniger Kandidaten oder ein kleineres Fenster verwenden.',
   'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.':
     'Eine Änderung der Lernrate beim Fortsetzen verschiebt die effektive Rate des Controllers; sein gelernter Zustand bleibt erhalten.',
 };

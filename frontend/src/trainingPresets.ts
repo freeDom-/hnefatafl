@@ -103,23 +103,80 @@ export function validTrainingInput(key: string, value: unknown): boolean {
   );
 }
 
+/** A controller configuration problem and the form input the user must fix. */
+export interface AdaptationConfigError {
+  field: string;
+  message: string;
+}
+
+// Candidate bounds mirror hnefatafl/hyper_adaptation.py: 2..8 distinct rates in
+// [1e-7, 1], and candidates ** (lag + 1) learned contexts at most.
+const MIN_ADAPTATION_CANDIDATES = 2;
+const MAX_ADAPTATION_CANDIDATES = 8;
+const MAX_ADAPTATION_CONTEXTS = 512;
+const ADAPTATION_LR_MIN = 1e-7;
+const ADAPTATION_LR_MAX = 1;
+// Decimal/scientific notation only, so trailing garbage, hex, Infinity and NaN
+// are rejected instead of being silently dropped.
+const ADAPTATION_CANDIDATE_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 /**
  * Cross-field constraints the controller needs. Per-field validation cannot see
  * these, and the server is the security boundary; this gives the workshop an
- * immediate explanation for a configuration that cannot run.
+ * immediate explanation for a configuration that cannot run. Every candidate is
+ * validated (never filtered away) against the backend's contract.
  */
-export function adaptationConfigError(config: TrainingConfig): string | null {
+export function adaptationConfigError(config: TrainingConfig): AdaptationConfigError | null {
   if (config.adaptation !== 'hypercontroller') return null;
   if (config.evaluation_opponent === 'champion')
-    return 'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.';
+    return {
+      field: 'evaluation_opponent',
+      message: 'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.',
+    };
   if (Number(config.evaluation_games) < 4)
-    return 'Automatic hyperparameter updates need at least 4 evaluation games.';
-  const candidates = String(config.adaptation_lr_candidates ?? '')
-    .split(',')
-    .map((value) => Number(value.trim()))
-    .filter((value) => Number.isFinite(value));
+    return {
+      field: 'evaluation_games',
+      message: 'Automatic hyperparameter updates need at least 4 evaluation games.',
+    };
+
+  const candidates: number[] = [];
+  for (const entry of String(config.adaptation_lr_candidates ?? '').split(',')) {
+    const token = entry.trim();
+    // The backend skips empty entries, including whitespace-only ones.
+    if (token === '') continue;
+    if (!ADAPTATION_CANDIDATE_SYNTAX.test(token))
+      return {
+        field: 'adaptation_lr_candidates',
+        message: 'Learning rate candidates must be decimal numbers separated by commas.',
+      };
+    const value = Number(token);
+    if (!Number.isFinite(value) || value < ADAPTATION_LR_MIN || value > ADAPTATION_LR_MAX)
+      return {
+        field: 'adaptation_lr_candidates',
+        message: 'Learning rate candidates must be between 1e-7 and 1.',
+      };
+    if (!candidates.includes(value)) candidates.push(value);
+  }
+  if (
+    candidates.length < MIN_ADAPTATION_CANDIDATES ||
+    candidates.length > MAX_ADAPTATION_CANDIDATES
+  )
+    return {
+      field: 'adaptation_lr_candidates',
+      message: 'Learning rate candidates must contain between 2 and 8 distinct values.',
+    };
+  const lag = Number(config.adaptation_lag ?? 1);
+  if (candidates.length ** (lag + 1) > MAX_ADAPTATION_CONTEXTS)
+    return {
+      field: 'adaptation_lr_candidates',
+      message:
+        'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
+    };
   if (!candidates.includes(Number(config.learning_rate)))
-    return 'The learning rate must be one of the adaptation candidates.';
+    return {
+      field: 'learning_rate',
+      message: 'The learning rate must be one of the adaptation candidates.',
+    };
   return null;
 }
 

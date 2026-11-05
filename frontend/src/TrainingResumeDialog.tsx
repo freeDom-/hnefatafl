@@ -214,6 +214,7 @@ export default function TrainingResumeDialog({
     executionTarget === 'local'
       ? localDevice
       : workers.find((worker) => `worker:${worker.id}` === executionTarget)?.capabilities;
+  const adaptationError = adaptationConfigError(config);
   const valid =
     checkpoint?.can_resume &&
     !symmetryTargetError(config, targetCapabilities) &&
@@ -228,7 +229,7 @@ export default function TrainingResumeDialog({
     target > checkpoint.completed_iteration &&
     target <= 100000 &&
     validTrainingNumbers(config) &&
-    adaptationConfigError(config) === null &&
+    adaptationError === null &&
     (config.model_name === undefined ||
       (String(config.model_name).length >= 1 && String(config.model_name).length <= 100)) &&
     (!executionTarget.startsWith('worker:') ||
@@ -521,9 +522,9 @@ export default function TrainingResumeDialog({
                         )}
                       </small>
                     )}
-                    {adaptationConfigError(config) && (
+                    {adaptationError && (
                       <p className="form-error" role="alert">
-                        {t(adaptationConfigError(config)!)}
+                        {t(adaptationError.message)}
                       </p>
                     )}
                     {config.save_all_best !== undefined && (

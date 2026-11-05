@@ -4,7 +4,7 @@ import Training from './Training';
 import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDialog';
 import { TrainingLearningView } from './TrainingAnalysisViews';
 import { setLanguage, translate } from './i18n';
-import { adaptationConfigError, trainingConfig } from './trainingPresets';
+import { adaptationConfigError, trainingConfig, type TrainingConfig } from './trainingPresets';
 import type { Job, Ruleset } from './types';
 
 /**
@@ -120,6 +120,26 @@ it('explains an incompatible controller configuration before submitting', async 
   expect(posts).toHaveLength(0);
 });
 
+it('blocks malformed learning-rate candidates before submitting', async () => {
+  const { posts } = harness();
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Automatic hyperparameter updates' }), {
+    target: { value: 'hypercontroller' },
+  });
+  fireEvent.change(screen.getByLabelText('Evaluation games (even)'), {
+    target: { value: '6' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Advanced configuration/ }));
+  const candidates = screen.getByLabelText('Learning rate candidates');
+  fireEvent.change(candidates, { target: { value: '0.001,garbage' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Learning rate candidates');
+  expect(alert).toHaveTextContent(/decimal numbers/);
+  expect(candidates).toHaveAttribute('aria-invalid', 'true');
+  expect(posts).toHaveLength(0);
+});
+
 it('reports the cross-field controller constraints directly', () => {
   const base = trainingConfig('brandubh', 'recommended');
   expect(adaptationConfigError(base)).toBeNull();
@@ -128,10 +148,10 @@ it('reports the cross-field controller constraints directly', () => {
       ...base,
       adaptation: 'hypercontroller',
       evaluation_opponent: 'champion',
-    }),
+    })?.message,
   ).toMatch(/fixed evaluation opponent/);
   expect(
-    adaptationConfigError({ ...base, adaptation: 'hypercontroller', evaluation_games: 2 }),
+    adaptationConfigError({ ...base, adaptation: 'hypercontroller', evaluation_games: 2 })?.message,
   ).toMatch(/at least 4 evaluation games/);
   expect(
     adaptationConfigError({
@@ -140,7 +160,62 @@ it('reports the cross-field controller constraints directly', () => {
       adaptation_lr_candidates: '0.0003,0.001,0.003',
       learning_rate: 0.002,
     }),
-  ).toMatch(/must be one of the adaptation candidates/);
+  ).toMatchObject({ field: 'learning_rate' });
+});
+
+it('validates every learning-rate candidate like the backend', () => {
+  const base = trainingConfig('brandubh', 'recommended');
+  const enabled = {
+    ...base,
+    adaptation: 'hypercontroller',
+    evaluation_opponent: 'shield_bearer',
+    evaluation_games: 6,
+    learning_rate: 0.001,
+  };
+  const error = (candidates: string, extra: Partial<TrainingConfig> = {}) =>
+    adaptationConfigError({ ...enabled, adaptation_lr_candidates: candidates, ...extra });
+
+  // Valid lists, including supported scientific notation and surrounding whitespace.
+  expect(error('0.001,0.002,0.003')).toBeNull();
+  expect(error(' 0.0003 , 1e-3 , 0.003 ')).toBeNull();
+  // Empty entries are skipped exactly like the backend, not treated as zero.
+  expect(error('0.001,,0.003')).toBeNull();
+
+  // Trailing garbage and partial numbers are rejected, never filtered away.
+  for (const candidates of ['0.001,garbage', '0.001abc,0.003', '0.001,0.002.5.5']) {
+    expect(error(candidates)).toMatchObject({ field: 'adaptation_lr_candidates' });
+    expect(error(candidates)?.message).toMatch(/decimal numbers/);
+  }
+
+  // Non-finite values are rejected by the numeric syntax check.
+  for (const candidates of ['0.001,NaN', '0.001,Infinity', '0.001,-Infinity']) {
+    expect(error(candidates)).toMatchObject({ field: 'adaptation_lr_candidates' });
+    expect(error(candidates)?.message).toMatch(/decimal numbers/);
+  }
+
+  // Out-of-range values are rejected after parsing.
+  for (const candidates of ['0.001,0', '0.001,2', '0.001,1e-8']) {
+    expect(error(candidates)).toMatchObject({ field: 'adaptation_lr_candidates' });
+    expect(error(candidates)?.message).toMatch(/between 1e-7 and 1/);
+  }
+
+  // Duplicates collapse before the count check.
+  expect(error('0.001,0.001')?.message).toMatch(/between 2 and 8 distinct values/);
+  expect(error('0.001,0.001,0.003')).toBeNull();
+  // A single (or empty) list is insufficient, and more than eight is rejected.
+  expect(error('0.001,')).toMatchObject({ field: 'adaptation_lr_candidates' });
+  expect(error('0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009')?.message).toMatch(
+    /between 2 and 8 distinct values/,
+  );
+  // Eight candidates with lag 3 produce 8**4 contexts, above the backend limit.
+  expect(
+    error('0.0001,0.0002,0.0003,0.0004,0.001,0.002,0.003,0.01', { adaptation_lag: 3 })?.message,
+  ).toMatch(/too many controller contexts/);
+
+  // The configured rate must be one of the parsed candidates.
+  expect(error('0.0003,0.002,0.003', { learning_rate: 0.001 })).toMatchObject({
+    field: 'learning_rate',
+  });
 });
 
 const eventsProgress = {
@@ -278,6 +353,10 @@ it('translates the new controller labels and tooltips into German', () => {
     'No observation',
     'Fallback',
     'Unavailable while tuning: the study varies the learning rate across trials.',
+    'Learning rate candidates must be decimal numbers separated by commas.',
+    'Learning rate candidates must be between 1e-7 and 1.',
+    'Learning rate candidates must contain between 2 and 8 distinct values.',
+    'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
   ]) {
     expect(translate(source, {}, 'de'), `untranslated ${source}`).not.toBe(source);
   }
