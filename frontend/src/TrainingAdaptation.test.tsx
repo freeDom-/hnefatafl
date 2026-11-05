@@ -7,6 +7,7 @@ import { setLanguage, translate } from './i18n';
 import {
   adaptationConfigError,
   boundedCandidates,
+  candidateRates,
   trainingConfig,
   type TrainingConfig,
 } from './trainingPresets';
@@ -145,6 +146,24 @@ it('blocks malformed learning-rate candidates before submitting', async () => {
   expect(posts).toHaveLength(0);
 });
 
+it('blocks an oversized learning-rate candidate list before submitting', async () => {
+  const { posts } = harness();
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Automatic hyperparameter updates' }), {
+    target: { value: 'hypercontroller' },
+  });
+  fireEvent.change(screen.getByLabelText('Evaluation games (even)'), {
+    target: { value: '6' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Advanced configuration/ }));
+  const candidates = screen.getByLabelText('Learning rate candidates');
+  fireEvent.change(candidates, { target: { value: '0.001,'.repeat(200) } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent(/at most 512 characters/);
+  expect(posts).toHaveLength(0);
+});
+
 it('reports the cross-field controller constraints directly', () => {
   const base = trainingConfig('brandubh', 'recommended');
   expect(adaptationConfigError(base)).toBeNull();
@@ -223,6 +242,9 @@ it('validates every learning-rate candidate like the backend', () => {
   expect(error('0.0003,0.002,0.003', { learning_rate: 0.001 })).toMatchObject({
     field: 'learning_rate',
   });
+  // An oversized transport is rejected before it is parsed on every render.
+  expect(error('0.001,'.repeat(200))?.message).toMatch(/at most 512 characters/);
+  expect(candidateRates('0.001,'.repeat(200))).toBeNull();
 });
 
 const eventsProgress = {
@@ -626,6 +648,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Learning rate candidates must be decimal numbers separated by commas.',
     'Learning rate candidates must be between 1e-7 and 1.',
     'Learning rate candidates must contain between 2 and 8 distinct values.',
+    'Learning rate candidates must be at most 512 characters.',
     'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
     'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.',
   ]) {

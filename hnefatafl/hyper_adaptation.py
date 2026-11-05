@@ -52,10 +52,14 @@ COMPATIBLE_STATE_VERSIONS = (1, 2)
 MIN_CANDIDATES = 2
 MAX_CANDIDATES = 8
 MAX_LAG = 3
-#: Longest inactive candidate transport accepted before falling back to the default.
-#: A valid list of at most eight floats is far shorter; the cap prevents an
-#: arbitrarily large inactive string from being parsed or persisted.
-MAX_INACTIVE_CANDIDATES_TEXT = 512
+#: Longest scalar candidate transport accepted before it is split. A valid list
+#: of at most eight exact floats is far shorter; the cap rejects oversized
+#: untrusted input before any allocation or conversion happens.
+MAX_CANDIDATES_TEXT = 512
+#: Most entries accepted from a list/tuple transport before conversion. The
+#: distinct-rate limit is 2..8, but duplicate and empty entries are still allowed
+#: within this bound so reasonable existing configurations keep working.
+MAX_CANDIDATES_ITEMS = 256
 #: ``candidates ** (lag + 1)`` contexts is the hard upper bound on learned
 #: predictors; the derived limit below keeps every accepted configuration well
 #: inside the checkpoint size budget. Lazy allocation means a run only ever
@@ -148,10 +152,24 @@ def format_candidates(values: list[float]) -> str:
 
 
 def parse_candidates(value: Any) -> list[float]:
-    """Parse and validate the candidate list from its scalar transport form."""
+    """Parse and validate the candidate list from its scalar transport form.
+
+    The transport size is bounded before splitting or conversion so arbitrarily
+    large untrusted input is rejected with a controlled ``ValueError`` instead of
+    consuming unbounded time or memory. Duplicate and empty entries remain
+    allowed; the distinct-rate limit is still enforced.
+    """
     if isinstance(value, (list, tuple)):
+        if len(value) > MAX_CANDIDATES_ITEMS:
+            raise ValueError(
+                f"adaptation_lr_candidates must contain at most {MAX_CANDIDATES_ITEMS} entries"
+            )
         items: list[Any] = list(value)
     elif isinstance(value, str):
+        if len(value) > MAX_CANDIDATES_TEXT:
+            raise ValueError(
+                f"adaptation_lr_candidates must be at most {MAX_CANDIDATES_TEXT} characters"
+            )
         items = [item.strip() for item in value.split(",")]
     else:
         raise ValueError(
@@ -165,7 +183,9 @@ def parse_candidates(value: Any) -> list[float]:
             raise ValueError("adaptation_lr_candidates must contain numbers")
         try:
             number = float(item)
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError, OverflowError) as error:
+            # An arbitrarily large integer raises OverflowError; reject it with
+            # the same controlled validation error as other malformed entries.
             raise ValueError("adaptation_lr_candidates must contain numbers") from error
         if not math.isfinite(number) or not 1e-7 <= number <= 1.0:
             raise ValueError("adaptation_lr_candidates must be between 1e-7 and 1")
@@ -192,7 +212,7 @@ def sanitize_inactive_adaptation(values: dict) -> dict:
     defaults = adaptation_defaults()
     sanitized: dict[str, Any] = {"adaptation": "off"}
     raw_candidates = values.get("adaptation_lr_candidates")
-    if isinstance(raw_candidates, str) and len(raw_candidates) <= MAX_INACTIVE_CANDIDATES_TEXT:
+    if isinstance(raw_candidates, str) and len(raw_candidates) <= MAX_CANDIDATES_TEXT:
         try:
             candidates = parse_candidates(raw_candidates)
         except ValueError:
@@ -238,11 +258,8 @@ def normalize_adaptation(full_config: dict, *, resolved: bool = True) -> dict:
         **{key: full_config[key] for key in ADAPTATION_FIELDS if key in full_config},
     }
     algorithm = values["adaptation"]
-    if not isinstance(algorithm, str):
-        # An unsupported structure cannot mean "enabled". Treat it as the
-        # inactive default instead of failing an otherwise ordinary job.
-        values["adaptation"] = "off"
-        algorithm = "off"
+    # The mode selector is semantically important: reject any value that is not
+    # exactly the two supported modes instead of silently treating it as off.
     if algorithm not in ALGORITHMS:
         raise ValueError("adaptation must be off or hypercontroller")
     if algorithm == "off":

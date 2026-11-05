@@ -119,6 +119,9 @@ export interface AdaptationConfigError {
 const MIN_ADAPTATION_CANDIDATES = 2;
 const MAX_ADAPTATION_CANDIDATES = 8;
 const MAX_ADAPTATION_CONTEXTS = 512;
+// Mirror the backend's transport bound so an oversized paste is rejected before
+// it is split on every render instead of only at the server boundary.
+const MAX_ADAPTATION_CANDIDATES_TEXT = 512;
 const ADAPTATION_LR_MIN = 1e-7;
 const ADAPTATION_LR_MAX = 1;
 // Decimal/scientific notation only, so trailing garbage, hex, Infinity and NaN
@@ -133,8 +136,10 @@ const ADAPTATION_CANDIDATE_SYNTAX =
  * candidate list already covers a checkpoint's effective learning rate.
  */
 export function candidateRates(value: unknown): number[] | null {
+  const text = String(value ?? '');
+  if (text.length > MAX_ADAPTATION_CANDIDATES_TEXT) return null;
   const candidates: number[] = [];
-  for (const entry of String(value ?? '').split(',')) {
+  for (const entry of text.split(',')) {
     const token = entry.trim();
     if (token === '') continue;
     if (!ADAPTATION_CANDIDATE_SYNTAX.test(token)) return null;
@@ -170,8 +175,14 @@ export function adaptationConfigError(config: TrainingConfig): AdaptationConfigE
       message: 'Automatic hyperparameter updates need at least 4 evaluation games.',
     };
 
+  const rawCandidates = String(config.adaptation_lr_candidates ?? '');
+  if (rawCandidates.length > MAX_ADAPTATION_CANDIDATES_TEXT)
+    return {
+      field: 'adaptation_lr_candidates',
+      message: 'Learning rate candidates must be at most 512 characters.',
+    };
   const candidates: number[] = [];
-  for (const entry of String(config.adaptation_lr_candidates ?? '').split(',')) {
+  for (const entry of rawCandidates.split(',')) {
     const token = entry.trim();
     // The backend skips empty entries, including whitespace-only ones.
     if (token === '') continue;

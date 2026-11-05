@@ -540,6 +540,8 @@ const translations: Record<string, string> = {
     'Die Lernraten-Kandidaten müssen zwischen 1e-7 und 1 liegen.',
   'Learning rate candidates must contain between 2 and 8 distinct values.':
     'Die Lernraten-Kandidaten müssen zwischen 2 und 8 verschiedene Werte enthalten.',
+  'Learning rate candidates must be at most 512 characters.':
+    'Die Lernraten-Kandidaten dürfen höchstens 512 Zeichen lang sein.',
   'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.':
     'Lernraten-Kandidaten und das Beobachtungsverlaufsfenster erzeugen zu viele Controller-Kontexte; weniger Kandidaten oder ein kleineres Fenster verwenden.',
   'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.':

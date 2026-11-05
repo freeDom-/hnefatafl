@@ -16,6 +16,8 @@ import pytest
 import torch
 
 from hnefatafl.hyper_adaptation import (
+    MAX_CANDIDATES_ITEMS,
+    MAX_CANDIDATES_TEXT,
     MAX_CONTEXTS,
     MAX_EVENTS,
     HyperController,
@@ -121,6 +123,37 @@ def test_adaptation_rejects_invalid_inputs(tmp_path, changes):
         normalize_config(adapted_config(tmp_path, **changes))
 
 
+@pytest.mark.parametrize(
+    "mode",
+    [True, False, None, 1, 0.5, ["off"], {"mode": "off"}, "pbt", "OFF", ""],
+)
+def test_adaptation_rejects_invalid_modes(tmp_path, mode):
+    # The mode selector must never be silently coerced to off.
+    with pytest.raises(ValueError, match="adaptation must be off or hypercontroller"):
+        normalize_config({**smoke_config(tmp_path), "adaptation": mode})
+
+
+def test_adaptation_mode_absent_defaults_off(tmp_path):
+    # Legacy configurations that omit the field entirely still default to off.
+    config = normalize_config(smoke_config(tmp_path))
+    assert config["adaptation"] == "off"
+    assert config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+
+
+def test_adaptation_off_still_sanitizes_malformed_subordinate_fields(tmp_path):
+    config = normalize_config(
+        {
+            **smoke_config(tmp_path),
+            "adaptation": "off",
+            "adaptation_lr_candidates": "0.001,garbage",
+            "adaptation_cadence": 0,
+        }
+    )
+    assert config["adaptation"] == "off"
+    assert config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+    assert config["adaptation_cadence"] == 1
+
+
 def test_adaptation_requires_fixed_opponent_and_informative_games(tmp_path):
     with pytest.raises(ValueError, match="fixed evaluation opponent"):
         normalize_config(adapted_config(tmp_path, evaluation_opponent="champion"))
@@ -213,6 +246,45 @@ def test_tune_rejects_adaptation(tmp_path):
 def test_candidate_parsing_is_sorted_unique_and_bounded():
     assert parse_candidates("0.003, 0.0003,0.001,0.001") == [0.0003, 0.001, 0.003]
     assert parse_candidates(["0.001", 0.0003]) == [0.0003, 0.001]
+
+
+def test_parse_candidates_bounds_oversized_input():
+    # A string is rejected by length before it is split into entries.
+    with pytest.raises(ValueError, match="at most .* characters"):
+        parse_candidates("0.001," * (MAX_CANDIDATES_TEXT // 2 + 1))
+    # A list is rejected by item count before any conversion.
+    with pytest.raises(ValueError, match="at most .* entries"):
+        parse_candidates([0.001] * (MAX_CANDIDATES_ITEMS + 1))
+    # Duplicates and empty entries within the bounds still deduplicate.
+    assert parse_candidates([0.001] * 200 + [0.002]) == [0.001, 0.002]
+    assert parse_candidates("0.001," * 80 + "0.002") == [0.001, 0.002]
+    assert parse_candidates(",,,,0.001,,,,0.002,,,,") == [0.001, 0.002]
+
+
+def test_parse_candidates_rejects_overflow_and_non_finite():
+    # An arbitrarily large integer raises OverflowError inside float(); it must
+    # become the same controlled validation error as any other bad entry.
+    with pytest.raises(ValueError, match="must contain numbers"):
+        parse_candidates([10**400, 0.001])
+    for value in ("0.001,inf", "0.001,nan", "0.001,1e400"):
+        with pytest.raises(ValueError, match="between 1e-7 and 1"):
+            parse_candidates(value)
+
+
+def test_parse_candidates_keeps_exact_and_alternate_syntax():
+    close = [0.00012345678912, 0.00012345678913, 0.001]
+    assert parse_candidates(format_candidates(close)) == close
+    # Scientific notation and Python-compatible underscores remain supported.
+    assert parse_candidates("1e-3,0.0_002,0.003") == [0.0002, 0.001, 0.003]
+
+
+def test_oversized_or_overflowing_candidates_rejected_before_training(tmp_path):
+    # normalize_config runs before any checkpoint load or output directory write,
+    # so an invalid candidate transport never reaches expensive setup.
+    with pytest.raises(ValueError, match="adaptation_lr_candidates"):
+        train(adapted_config(tmp_path, adaptation_lr_candidates="0.001," * 1000))
+    with pytest.raises(ValueError, match="adaptation_lr_candidates"):
+        train(adapted_config(tmp_path, adaptation_lr_candidates=[10**400, 0.001]))
 
 
 def test_candidate_serialization_round_trips_exactly():
@@ -315,11 +387,12 @@ def test_reenabling_after_inactive_sanitization_validates_strictly(tmp_path):
         {**smoke_config(tmp_path), "adaptation": "off", "adaptation_lr_candidates": "0.001,garbage"}
     )
     assert config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
-    # The sanitized defaults can be enabled, and an unsupported mode structure is
-    # treated as inactive rather than silently enabling the controller.
+    # The sanitized defaults can be enabled; an unsupported mode is rejected
+    # instead of being silently treated as inactive.
     enabled = normalize_config({**config, "adaptation": "hypercontroller", "evaluation_games": 4})
     assert enabled["adaptation"] == "hypercontroller"
-    assert normalize_config({**config, "adaptation": None})["adaptation"] == "off"
+    with pytest.raises(ValueError, match="adaptation must be off or hypercontroller"):
+        normalize_config({**config, "adaptation": None})
 
 
 # ── Observation signal ───────────────────────────────────────────────────────
@@ -776,6 +849,39 @@ def test_api_rejects_incompatible_adaptation_with_a_named_reason(client):
     )
     assert response.status_code == 400, response.text
     assert "fixed evaluation opponent" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("mode", [True, False, None, 1, ["off"], {"mode": "off"}, "pbt"])
+def test_api_rejects_invalid_adaptation_modes(client, mode):
+    response = client.post(
+        "/api/training/jobs",
+        json={"execution": "remote", "preset": "smoke", "device": "cpu", "adaptation": mode},
+    )
+    assert response.status_code == 400, response.text
+    assert "adaptation must be off or hypercontroller" in response.text
+    # No job was started for an invalid mode.
+    assert client.get("/api/training/jobs").json() == []
+
+
+def test_api_rejects_oversized_and_overflowing_candidates(client):
+    base = {
+        "execution": "remote",
+        "preset": "smoke",
+        "device": "cpu",
+        "adaptation": "hypercontroller",
+        "evaluation_games": 4,
+    }
+    oversized = client.post(
+        "/api/training/jobs", json={**base, "adaptation_lr_candidates": "0.001," * 1000}
+    )
+    assert oversized.status_code == 400, oversized.text
+    assert "adaptation_lr_candidates" in oversized.text
+    # A JSON integer too large for float() must be a controlled 400, not a 500.
+    overflow = client.post(
+        "/api/training/jobs", json={**base, "adaptation_lr_candidates": [10**400, 0.001]}
+    )
+    assert overflow.status_code == 400, overflow.text
+    assert "adaptation_lr_candidates" in overflow.text
 
 
 def test_api_accepts_and_queues_a_valid_adaptation_job(client):
