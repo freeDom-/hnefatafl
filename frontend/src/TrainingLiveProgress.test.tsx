@@ -2,7 +2,12 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import TrainingLiveStatus, { LiveElapsed } from './TrainingLiveStatus';
 import { setLanguage } from './i18n';
-import { formatDuration, phaseSummary, useLiveProgress } from './trainingLiveProgress';
+import {
+  formatDuration,
+  formatLearningRate,
+  phaseSummary,
+  useLiveProgress,
+} from './trainingLiveProgress';
 import type { Job } from './types';
 
 function runningJob(progress: Record<string, unknown>): Job {
@@ -252,6 +257,32 @@ it('projects phase counters without inventing totals', () => {
 it('formats durations the same way the job header always has', () => {
   expect(formatDuration(0)).toBe('0m 0s');
   expect(formatDuration(3725)).toBe('1h 2m 5s');
+});
+
+it('keeps closely spaced learning rates distinguishable', () => {
+  expect(formatLearningRate(0.00012341, 'en')).toBe('1.2341E-4');
+  expect(formatLearningRate(0.00012342, 'en')).toBe('1.2342E-4');
+  expect(formatLearningRate(0.00012341, 'en')).not.toBe(formatLearningRate(0.00012342, 'en'));
+  // Seventeen significant digits keep even the closest supported candidates apart.
+  expect(formatLearningRate(0.00012345678912, 'en')).toBe('1.2345678912E-4');
+  expect(formatLearningRate(0.00012345678913, 'en')).toBe('1.2345678913E-4');
+  expect(formatLearningRate(0.00012345678912, 'en')).not.toBe(
+    formatLearningRate(0.00012345678913, 'en'),
+  );
+  // The supported range ends stay recognizable in both locales.
+  expect(formatLearningRate(1e-7, 'en')).toBe('1E-7');
+  expect(formatLearningRate(1, 'en')).toBe('1');
+  expect(formatLearningRate(0.00012345678912, 'de')).toBe('1,2345678912E-4');
+  // Common rates stay plain and localized; unknown values stay absent.
+  expect(formatLearningRate(0.003, 'en')).toBe('0.003');
+  expect(formatLearningRate(0.003, 'de')).toBe('0,003');
+  expect(formatLearningRate(undefined, 'en')).toBeUndefined();
+  expect(phaseSummary('optimization', { effective_learning_rate: 0.00012341 }, 'en')).toEqual({
+    rows: [{ label: 'Effective learning rate', value: '1.2341E-4' }],
+  });
+  expect(phaseSummary('optimization', { effective_learning_rate: 0.00012345678912 }, 'en')).toEqual(
+    { rows: [{ label: 'Effective learning rate', value: '1.2345678912E-4' }] },
+  );
 });
 
 it('keeps the header elapsed time in its own ticking element', async () => {

@@ -105,6 +105,13 @@ TRAINING_FIELDS = frozenset(
         "search_workers",
         "resume",
         "model_name",
+        "adaptation",
+        "adaptation_lr_candidates",
+        "adaptation_cadence",
+        "adaptation_warmup",
+        "adaptation_min_dwell",
+        "adaptation_lag",
+        "adaptation_min_trials",
     }
 )
 
@@ -2652,6 +2659,11 @@ def create_app(
                         "Optimization cannot use the evolving Champion as its objective; "
                         "select a fixed opponent or a frozen registered model."
                     )
+                if training.get("adaptation", "off") != "off":
+                    fail(
+                        "Disable automatic hyperparameter updates while tuning with Optuna; "
+                        "the study varies the learning rate across trials."
+                    )
                 trials = config.get("trials", 4)
                 study_name = config.get("study_name", "hnefatafl")
                 if not isinstance(study_name, str) or not 1 <= len(study_name) <= 100:
@@ -2748,7 +2760,10 @@ def create_app(
                 return remote_training.enqueue(identifier, config, worker_id)
             directory.mkdir()
             config_file = directory / "config.json"
-            config_file.write_text(json.dumps(config, indent=2))
+            # normalize_config already bounds every field, so a finite-only dump
+            # can never fail here; it stays explicit so an unsafe value can never
+            # be written as non-standard JSON for a later reader.
+            config_file.write_text(json.dumps(config, indent=2, allow_nan=False))
             command = [sys.executable, "-m", "hnefatafl.cli", kind, "--config", str(config_file)]
             logfile = directory / "worker.log"
             with logfile.open("wb") as output:

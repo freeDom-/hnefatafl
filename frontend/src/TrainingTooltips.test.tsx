@@ -411,6 +411,12 @@ it('documents every parameter the new-job form can show, including conditional a
   fireEvent.change(combobox('Optimizer'), { target: { value: 'sgd' } });
   for (const key of expectEveryFieldDocumented()) seen.add(key);
 
+  // Automatic hyperparameter updates reveal their candidate and schedule fields.
+  fireEvent.change(combobox('Automatic hyperparameter updates'), {
+    target: { value: 'hypercontroller' },
+  });
+  for (const key of expectEveryFieldDocumented()) seen.add(key);
+
   // Tuning-only study controls.
   fireEvent.click(screen.getByRole('button', { name: 'Tune parameters' }));
   for (const key of expectEveryFieldDocumented()) seen.add(key);
@@ -432,6 +438,13 @@ it('documents every parameter the new-job form can show, including conditional a
     'epochs',
     'learning_rate',
     'optimizer',
+    'adaptation',
+    'adaptation_lr_candidates',
+    'adaptation_cadence',
+    'adaptation_warmup',
+    'adaptation_min_dwell',
+    'adaptation_lag',
+    'adaptation_min_trials',
     'momentum',
     'training_symmetry_mode',
     'games',
@@ -500,6 +513,10 @@ it('documents every parameter the resume dialog can show', async () => {
   for (const key of expectEveryFieldDocumented()) seen.add(key);
   fireEvent.change(combobox('Evaluation opponent'), { target: { value: 'champion' } });
   for (const key of expectEveryFieldDocumented()) seen.add(key);
+  fireEvent.change(combobox('Automatic hyperparameter updates'), {
+    target: { value: 'hypercontroller' },
+  });
+  for (const key of expectEveryFieldDocumented()) seen.add(key);
 
   for (const key of [
     'target',
@@ -519,6 +536,13 @@ it('documents every parameter the resume dialog can show', async () => {
     'inference_batch_size',
     'epochs',
     'learning_rate',
+    'adaptation',
+    'adaptation_lr_candidates',
+    'adaptation_cadence',
+    'adaptation_warmup',
+    'adaptation_min_dwell',
+    'adaptation_lag',
+    'adaptation_min_trials',
     'mcts_time_limit',
     'exploration',
     'temperature',

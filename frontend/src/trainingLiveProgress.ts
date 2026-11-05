@@ -363,9 +363,33 @@ export function phaseSummary(stage: string, counters: Values, locale: string): P
       typeof counters.evaluation_opponent === 'string' ? counters.evaluation_opponent : undefined,
     );
   }
+  // The controller's effective rate is top-level state, so it stays visible in
+  // every phase after the first decision, not only during optimization.
+  add('Effective learning rate', formatLearningRate(counters.effective_learning_rate, locale));
   return ratio === undefined ? { rows } : { ratio, rows };
 }
 
 function metric(value: unknown): string | undefined {
   return finite(value) ? value.toFixed(3) : undefined;
+}
+
+/**
+ * Distinguishable, localized learning-rate text. Seventeen significant digits
+ * uniquely identify any IEEE-754 double, so even the closest supported candidate
+ * rates stay apart instead of collapsing. Scientific notation keeps very small
+ * rates readable, and no trailing zeros are invented. Callers that need a compact
+ * label can add the full value as accessible text or a title attribute.
+ */
+export function formatLearningRate(value: unknown, locale: string): string | undefined {
+  if (!finite(value)) return undefined;
+  if (Math.abs(value) < 1e-3) {
+    return new Intl.NumberFormat(locale, {
+      notation: 'scientific',
+      maximumSignificantDigits: 17,
+    }).format(value);
+  }
+  return new Intl.NumberFormat(locale, {
+    maximumSignificantDigits: 17,
+    useGrouping: false,
+  }).format(value);
 }

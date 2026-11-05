@@ -9,6 +9,7 @@ import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
 import {
+  adaptationConfigError,
   trainingConfig,
   recordedTrainingConfig,
   recordedTrainingParameters,
@@ -403,7 +404,18 @@ export default function Training({
     setNotice('');
     clearAllRejectedFields();
     try {
-      const params = launchPayload(kind, config, target, {
+      // Tuning varies the learning rate across trials, so the controller is
+      // incompatible there. The panel shows this; the payload is normalised too
+      // so an imported tuning config cannot smuggle it through.
+      const submitted = kind === 'tune' ? { ...config, adaptation: 'off' } : config;
+      const incompatible = adaptationConfigError(submitted);
+      if (incompatible) {
+        throw new TrainingInputError(
+          [kind === 'tune' ? `training.${incompatible.field}` : incompatible.field],
+          incompatible.message,
+        );
+      }
+      const params = launchPayload(kind, submitted, target, {
         trials,
         studyName,
         studySeed,

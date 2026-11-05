@@ -333,3 +333,15 @@ rejected at queue time. Workers that predate the feature never receive the key f
 `off` jobs, and legacy resume transports omit it from the saved configuration.
 Resumed checkpoints carry the optional `augmentation_rng` state unchanged.
 
+
+## Online hyperparameter adaptation
+
+Jobs carry the optional `adaptation` learning-rate controller like any other
+training field. It runs inside the worker's training process, so a worker needs no
+extra service. Workers advertise `hyper_adaptation` in their capabilities; a job
+with adaptation enabled is only assigned to (or accepted for) a worker that
+advertises it, and an administrator version override cannot bypass that gate.
+Legacy resume transports omit the adaptation keys from the saved configuration, so
+a worker that cannot run the controller can never silently ignore it. The
+controller state travels inside the full checkpoint artifact and is restored on a
+remote resume, exactly like the other checkpoint state.

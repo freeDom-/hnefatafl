@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import TrainingWorkers from './TrainingWorkers';
-import TrainingTarget from './TrainingTarget';
+import TrainingTarget, { workerCapabilityError, workerEligible } from './TrainingTarget';
 import { setLanguage } from './i18n';
 import type { TrainingWorker } from './types';
 
@@ -154,6 +154,67 @@ it('disables incompatible and unknown worker selections but allows a server-appr
   );
   expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeEnabled();
   expect(screen.getByRole('status')).toHaveTextContent('Unsupported version combination');
+});
+
+it('requires the hyper-adaptation capability only for adapted jobs', () => {
+  const legacy: TrainingWorker = { ...compatible, capabilities: { cuda_available: true } };
+  const capable: TrainingWorker = {
+    ...compatible,
+    capabilities: { cuda_available: true, hyper_adaptation: true },
+  };
+  expect(workerEligible(legacy, { adaptation: 'off' })).toBe(true);
+  expect(workerEligible(legacy, { adaptation: 'hypercontroller' })).toBe(false);
+  expect(workerCapabilityError(legacy, { adaptation: 'hypercontroller' })).toMatch(
+    /does not support automatic hyperparameter updates/,
+  );
+  expect(workerEligible(capable, { adaptation: 'hypercontroller' })).toBe(true);
+
+  const { rerender } = render(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[legacy]}
+      config={{ adaptation: 'hypercontroller' }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    /does not support automatic hyperparameter updates/,
+  );
+  // Ordinary training still accepts the legacy worker.
+  rerender(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[legacy]}
+      config={{ adaptation: 'off' }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeEnabled();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  // A capable worker is selectable.
+  rerender(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[capable]}
+      config={{ adaptation: 'hypercontroller' }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeEnabled();
+  // An administrator version override cannot bypass the missing capability.
+  rerender(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[{ ...legacy, version_override_enabled: true }]}
+      config={{ adaptation: 'hypercontroller' }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    /does not support automatic hyperparameter updates/,
+  );
 });
 
 it('localizes compatibility, version and override labels in German', () => {

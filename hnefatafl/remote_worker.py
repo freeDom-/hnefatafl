@@ -771,6 +771,9 @@ def run_worker(
         "protocol_version": PROTOCOL_VERSION,
         **application_metadata(),
         **device_info(),
+        # Advertised so a server never offers an adaptation-enabled job to a
+        # worker whose training binary cannot run the controller.
+        "hyper_adaptation": True,
     }
     results: list[dict] = []
     with (

@@ -16,6 +16,12 @@ import {
 } from './TrainingFields';
 import { FieldLabel, ReadOnlyFieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
+import {
+  adaptationConfigError,
+  adaptationDefaults,
+  boundedCandidates,
+  candidateRates,
+} from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
@@ -68,6 +74,15 @@ export default function TrainingResumeDialog({
   const optimizerNames: Record<string, string> = { adamw: 'AdamW', adam: 'Adam', sgd: 'SGD' };
   const ref = useRef<HTMLDialogElement>(null);
   const modelNameId = useId();
+  const adaptationId = useId();
+  // Rendered only while automatic hyperparameter updates are enabled.
+  const adaptationNumberFields = [
+    'adaptation_cadence',
+    'adaptation_warmup',
+    'adaptation_min_dwell',
+    'adaptation_lag',
+    'adaptation_min_trials',
+  ];
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
@@ -116,9 +131,28 @@ export default function TrainingResumeDialog({
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
+        // Fill the controller settings for display. Change detection and imports
+        // stay anchored to the checkpoint's real values, so the display candidate
+        // list is set only after the saved snapshot is captured.
+        const effectiveLearningRate = Number(saved.learning_rate ?? 0.001);
+        for (const [key, value] of Object.entries(adaptationDefaults)) {
+          if (key !== 'adaptation_lr_candidates') saved[key] ??= value;
+        }
         // Reviewing tuning results must never apply them silently: overlay only
         // the compatible, editable winning fields and keep checkpoint identity.
         savedConfig.current = { ...saved };
+        // The candidate list shown must contain the effective optimizer rate. An
+        // already adapted checkpoint keeps its validated list; an ordinary job
+        // whose inactive list misses the rate is regenerated when the controller
+        // is enabled, and the difference is sent as an explicit override.
+        const alreadyAdapted = saved.adaptation === 'hypercontroller';
+        const inactiveRates = candidateRates(saved.adaptation_lr_candidates);
+        if (
+          saved.adaptation_lr_candidates === undefined ||
+          (!alreadyAdapted && (!inactiveRates || !inactiveRates.includes(effectiveLearningRate)))
+        ) {
+          saved.adaptation_lr_candidates = boundedCandidates(effectiveLearningRate);
+        }
         const optimized = prefill ? resumeOverrides({ ...saved, ...prefill }, saved) : {};
         setOptimizedConfig(optimized);
         const priorTarget = Number(saved.iterations);
@@ -204,6 +238,7 @@ export default function TrainingResumeDialog({
     executionTarget === 'local'
       ? localDevice
       : workers.find((worker) => `worker:${worker.id}` === executionTarget)?.capabilities;
+  const adaptationError = adaptationConfigError(config);
   const valid =
     checkpoint?.can_resume &&
     !symmetryTargetError(config, targetCapabilities) &&
@@ -218,11 +253,12 @@ export default function TrainingResumeDialog({
     target > checkpoint.completed_iteration &&
     target <= 100000 &&
     validTrainingNumbers(config) &&
+    adaptationError === null &&
     (config.model_name === undefined ||
       (String(config.model_name).length >= 1 && String(config.model_name).length <= 100)) &&
     (!executionTarget.startsWith('worker:') ||
       workers.some(
-        (worker) => `worker:${worker.id}` === executionTarget && workerEligible(worker),
+        (worker) => `worker:${worker.id}` === executionTarget && workerEligible(worker, config),
       ));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -370,6 +406,7 @@ export default function TrainingResumeDialog({
                   <TrainingTarget
                     value={executionTarget}
                     workers={workers}
+                    config={config}
                     onChange={setExecutionTarget}
                     disabled={busy}
                   />
@@ -439,6 +476,7 @@ export default function TrainingResumeDialog({
                             'blocks',
                             'seed',
                             'inference_cache_capacity',
+                            ...adaptationNumberFields,
                           ].includes(key) &&
                           !key.startsWith('evaluation_') &&
                           !key.startsWith('champion_') &&
@@ -461,6 +499,58 @@ export default function TrainingResumeDialog({
                         disabled={busy}
                         onChange={(checked) => update('mixed_precision', checked)}
                       />
+                    )}
+                    <div className="training-field">
+                      <FieldLabel
+                        htmlFor={adaptationId}
+                        label="Automatic hyperparameter updates"
+                        tooltipKey="adaptation"
+                      />
+                      <select
+                        id={adaptationId}
+                        data-training-field="adaptation"
+                        value={String(config.adaptation ?? 'off')}
+                        disabled={busy}
+                        onChange={(event) => update('adaptation', event.target.value)}
+                      >
+                        <option value="off">{t('Off')}</option>
+                        <option value="hypercontroller">HyperController</option>
+                      </select>
+                    </div>
+                    {config.adaptation === 'hypercontroller' && (
+                      <div className="training-field">
+                        <FieldLabel
+                          htmlFor={`${adaptationId}-candidates`}
+                          label="Learning rate candidates"
+                          tooltipKey="adaptation_lr_candidates"
+                        />
+                        <input
+                          id={`${adaptationId}-candidates`}
+                          type="text"
+                          data-training-field="adaptation_lr_candidates"
+                          value={String(config.adaptation_lr_candidates ?? '')}
+                          disabled={busy}
+                          onChange={(event) =>
+                            update('adaptation_lr_candidates', event.target.value)
+                          }
+                        />
+                      </div>
+                    )}
+                    {config.adaptation === 'hypercontroller' &&
+                      adaptationNumberFields.map((key) =>
+                        numberField(key, config, update, { disabled: busy }),
+                      )}
+                    {config.adaptation === 'hypercontroller' && (
+                      <small>
+                        {t(
+                          'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.',
+                        )}
+                      </small>
+                    )}
+                    {adaptationError && (
+                      <p className="form-error" role="alert">
+                        {t(adaptationError.message)}
+                      </p>
                     )}
                     {config.save_all_best !== undefined && (
                       <CheckboxField

@@ -82,6 +82,16 @@ export const TUNE_FIELDS = [
   'max_failures',
 ];
 
+/** Controller settings that are inert while adaptation is off. */
+export const ADAPTATION_SETTINGS = [
+  'adaptation_lr_candidates',
+  'adaptation_cadence',
+  'adaptation_warmup',
+  'adaptation_min_dwell',
+  'adaptation_lag',
+  'adaptation_min_trials',
+];
+
 /** Checkpoint identity a resume may not change, plus the explicit new target. */
 export const RESUME_IMMUTABLE_FIELDS = [
   'ruleset',
@@ -106,6 +116,8 @@ const RESUME_TEXT_FIELDS = [
   'inference_cache_mode',
   'inference_device',
   'training_symmetry_mode',
+  'adaptation',
+  'adaptation_lr_candidates',
 ];
 
 export interface StudyInput {
@@ -230,9 +242,14 @@ export function tuneResumePayload(
 /** Only changed, resume-editable settings; checkpoint identity never leaves the server. */
 export function resumeOverrides(config: TrainingConfig, saved: TrainingConfig): TrainingConfig {
   const overrides: TrainingConfig = {};
+  const adaptationActive = config.adaptation === 'hypercontroller';
   for (const [key, value] of Object.entries(config)) {
     if (RESUME_IMMUTABLE_FIELDS.includes(key)) continue;
     if (!(key in trainingNumberFields) && !RESUME_TEXT_FIELDS.includes(key)) continue;
+    // Inactive controller settings are inert: sending a generated display list
+    // when the controller is off would be an unnecessary override. The mode
+    // itself is always compared so disabling it still reaches the server.
+    if (!adaptationActive && ADAPTATION_SETTINGS.includes(key)) continue;
     if (value === saved[key]) continue;
     overrides[key] = value;
   }
