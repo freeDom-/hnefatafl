@@ -363,13 +363,76 @@ def test_validate_new_evaluation_inputs(tmp_path, changes):
         normalize_config(config(tmp_path, **changes))
 
 
-@pytest.mark.parametrize("opponent", ["jarl", "champion"])
-def test_optuna_never_uses_moving_or_changed_objective(tmp_path, opponent):
-    with pytest.raises(ValueError, match="fixed Shield bearer"):
+@pytest.mark.parametrize("opponent", ["jarl", "shield_maiden", "shield_bearer"])
+def test_optuna_accepts_every_fixed_opponent(tmp_path, monkeypatch, opponent):
+    # The evaluation opponent is selectable among fixed references; the study only
+    # rejects tuning the evaluation protocol itself or the evolving champion.
+    seen = []
+
+    def fake_train(configuration, progress=None, should_stop=None, **kwargs):
+        seen.append(configuration["evaluation_opponent"])
+        output = tmp_path / "trial"
+        output.mkdir(parents=True, exist_ok=True)
+        best = output / "best.pt"
+        best.write_bytes(b"stub")
+        last = output / "last.pt"
+        last.write_bytes(b"stub")
+        evaluation = {
+            "score": 0.5,
+            "opponent": configuration["evaluation_opponent"],
+            "opponent_identity": "stub:identity",
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "truncated": 0,
+        }
+        if progress is not None:
+            progress(
+                {
+                    "status": "running",
+                    "stage": "iteration_complete",
+                    "iteration": 1,
+                    "revision": 1,
+                    "run": "trial-0",
+                    "selected_score": 0.5,
+                    "selected_iteration": 1,
+                    "metrics": {"evaluation": evaluation},
+                }
+            )
+        return {
+            "status": "completed",
+            "metrics": {"evaluation": evaluation},
+            "best_checkpoint": str(best),
+            "checkpoint": str(last),
+            "selected_score": 0.5,
+            "selected_iteration": 1,
+            "selected_source": "candidate",
+            "source_best_score": -1.0,
+        }
+
+    monkeypatch.setattr(training, "train", fake_train)
+    result = tune(
+        {
+            "trials": 1,
+            "study_name": f"selectable-{opponent}",
+            "search_space": {"learning_rate": {"type": "categorical", "choices": [0.001]}},
+            "output_dir": str(tmp_path),
+            "training": config(tmp_path, evaluation_opponent=opponent),
+        }
+    )
+    assert result["status"] == "completed"
+    assert seen == [opponent]
+
+
+def test_optuna_rejects_the_evolving_champion_objective(tmp_path):
+    # An evolving champion is not comparable across trials, so it must never be
+    # used to rank them.
+    with pytest.raises(ValueError, match="Champion"):
         tune(
             {
+                "trials": 1,
                 "output_dir": str(tmp_path),
-                "training": config(tmp_path, evaluation_opponent=opponent),
+                "training": config(tmp_path, evaluation_opponent="champion"),
             }
         )
 

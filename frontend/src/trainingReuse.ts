@@ -3,7 +3,7 @@ import { object, jobRuleset } from './trainingDashboardData';
 import type { DeviceInfo, Job } from './types';
 import { validTrainingNumbers } from './TrainingFields';
 
-const tunable = [
+export const tunable = [
   'channels',
   'blocks',
   'learning_rate',
@@ -80,10 +80,6 @@ export function recordedJobParameters(previous: TrainingConfig, job: Job, device
     search = undefined;
     result.warnings.push('search_space');
   }
-  if (tuning && result.config.evaluation_opponent !== 'shield_bearer') {
-    result.config.evaluation_opponent = 'shield_bearer';
-    result.warnings.push('evaluation_opponent');
-  }
   if (tuning) {
     if (
       trials !== undefined &&
@@ -95,6 +91,12 @@ export function recordedJobParameters(previous: TrainingConfig, job: Job, device
     if (study !== undefined && !(typeof study === 'string' && study.trim() && study.length <= 100))
       result.warnings.push('study_name');
   }
+  // Optional study settings are restored as one editable JSON document, so a
+  // reused tuning job keeps its opponents, verification and strategy.
+  const strategyKeys = ['opponents', 'verification', 'sampler', 'pruner', 'max_failures'];
+  const strategy = Object.fromEntries(
+    strategyKeys.filter((key) => saved[key] !== undefined).map((key) => [key, saved[key]]),
+  );
   return {
     ...result,
     kind: tuning ? ('tune' as const) : ('train' as const),
@@ -106,5 +108,6 @@ export function recordedJobParameters(previous: TrainingConfig, job: Job, device
     studyName:
       typeof study === 'string' && study.trim() && study.length <= 100 ? study : 'hnefatafl-search',
     search,
+    strategy: Object.keys(strategy).length ? JSON.stringify(strategy, null, 2) : undefined,
   };
 }

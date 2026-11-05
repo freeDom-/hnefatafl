@@ -23,7 +23,9 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   const source = await started.json();
   await expect
     .poll(
-      async () => (await (await request.get(`${api}/training/jobs/${source.id}`)).json()).status,
+      async () =>
+        (await (await request.get(`${api}/training/jobs/${source.id}`, { maxRetries: 2 })).json())
+          .status,
       { timeout: 30000 },
     )
     .toBe('completed');
@@ -84,11 +86,15 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   const resumed = await resumedResponse.json();
   await expect
     .poll(
-      async () => (await (await request.get(`${api}/training/jobs/${resumed.id}`)).json()).status,
+      async () =>
+        (await (await request.get(`${api}/training/jobs/${resumed.id}`, { maxRetries: 2 })).json())
+          .status,
       { timeout: 30000 },
     )
     .toBe('completed');
-  const continued = await (await request.get(`${api}/training/jobs/${resumed.id}`)).json();
+  const continued = await (
+    await request.get(`${api}/training/jobs/${resumed.id}`, { maxRetries: 2 })
+  ).json();
   expect(continued.progress.metrics.evaluation.opponent).toBe('champion');
   expect(continued.progress.evaluation_selection.champion_iteration).toBe(1);
   const retained = await (await request.get(`${api}/training/jobs/${imported.id}`)).json();

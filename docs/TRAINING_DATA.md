@@ -183,6 +183,14 @@ next import (once, then persisted), so an upgraded installation still deduplicat
 against its historical models. No database migration or file rewrite is required;
 legacy `index.json` entries stay readable because the field is optional.
 
+Before reusing a registered copy, the registry verifies its recorded integrity
+hash and weight fingerprint. A missing, truncated or corrupted copy is restored
+atomically from the validated incoming file only when its recorded weights match;
+a valid copy with different weights is never overwritten. If a copy needs repair
+and cannot be restored (for example during a job-archive import, which must roll
+back completely), the import fails explicitly and leaves the registry unchanged;
+re-import the model normally to repair it, then retry.
+
 ```sh
 .venv/bin/python -m hnefatafl.cli models --registry data/models
 .venv/bin/python -m hnefatafl.cli models --registry data/models --import data/training-brandubh/inference.pt --name "Brandubh experiment"
@@ -221,38 +229,121 @@ Select a saved job and choose **Delete training data** to remove its job record,
 checkpoints, replay state, progress and logs after confirmation. Registered model
 copies and existing game/tournament histories remain available. Deleting a source
 job removes the ability to resume that source checkpoint. Stop a running worker
-before deleting its data. Shared optimization study data remains protected while
-another saved job references it; remove dependent jobs first.
+before deleting its data. Retained optimization studies protect their source
+checkpoints, database owner and every contributing job's referenced trial/winner
+checkpoints, including after completion, failure or cancellation. Deletion returns
+HTTP 409 naming the dependent study/job; remove those dependencies first. An
+unreadable database or unsafe reference also blocks deletion until repaired or
+removed. The check reads bounded Optuna metadata, without loading model weights,
+and never automatically deletes dependent studies.
+
+For a study spanning several jobs, these references form a valid cycle: the owner
+holds the database, while later jobs hold trial artifacts. Administrators can
+choose **Delete entire tuning study** from any inactive member. The preview lists
+the database owner, study identity (when recorded), every contributing tuning job,
+their directories/statuses and external dependencies. Review it and explicitly
+confirm all listed jobs. A changed scope requires a fresh preview and confirmation.
+The operation removes their complete directories, including the SQLite study,
+trial/full/objective checkpoints, replay buffers, results, history and logs.
+Source training jobs, registered models, saved games and tournaments remain intact.
+
+Internal group references do not block whole-study deletion. References from
+**any retained external job**, including completed training continued from a
+winning checkpoint or another study's source, do block it with HTTP 409. Remove
+or explicitly rebase those dependencies first; deletion never cascades to them.
+To retain an external completed run/study while detaching its old paths, export
+and import it, verify its resumable checkpoints, then remove the original
+referencing jobs. The importer consolidates required source dependencies locally.
+Stop all participating jobs and workers first. Pending/queued jobs, actual local
+processes, unfinished remote leases and a held CLI study lease are protected.
+Unknown/corrupt metadata or unsafe/missing trial ownership must be repaired first;
+there is no force option. Individual-job deletion keeps its existing safeguards.
+
+Deletion uses the existing single API-worker job/catalog locks and study lease.
+Complete directories are renamed on the same filesystem into
+`jobs/.study-deletions/<operation-id>/` before one transaction removes all job rows.
+A durable `manifest.json` journals the participating UUIDs. Before commit, failure
+or restart restores quarantined directories; after commit, cleanup resumes there.
+If cleanup cannot reclaim files immediately, the API reports `cleanup_pending`
+and retries on the next deletion preview/operation or server startup. If rollback
+cannot restore data, training reads are blocked until recovery succeeds. Retry the
+preview after repairing filesystem access, or restart the server. Preserve the
+quarantine and journal; mixed records, conflicting paths or invalid journals need
+manual repair and fail closed. Filesystem and SQLite changes are recoverable,
+not one atomic transaction; power-loss recovery also depends on filesystem and
+storage durability. Stop unmanaged CLI writers before administrative cleanup.
 
 The API provides `PATCH /api/models/{id}` with `{ "name": "New name" }` and
 `DELETE /api/training/jobs/{id}`. These are separate from model deletion.
+Whole-study operations use administrator-only
+`GET /api/training/jobs/{id}/study-deletion-preview` and
+`DELETE /api/training/jobs/{id}/study?confirmation_token=<preview-token>`.
+Execution recalculates the group and dependencies under the locks; the preview
+token never grants permission to bypass those checks.
 
 ### Detecting and cleaning up existing duplicates
 
 Installations upgraded from an earlier release may already contain catalog entries
-with identical weights. Detection is read-only and never deletes anything:
+with identical weights. **Detection and deletion are separate steps.** Detection is
+read-only and never deletes anything:
 
 ```sh
 .venv/bin/python -m hnefatafl.cli models --registry data/models --duplicates
 ```
 
-The command groups entries that share an inference-weight fingerprint. Review each
-group, then remove only the redundant catalog copies you no longer need through the
-normal `DELETE /api/models/{id}` flow (or the UI model card), which removes that
-entry's owned `models/<id>.pt` copy. Do **not** delete files by hand: registered
-model copies are separate from job `last.pt`/`best.pt` checkpoints, and deleting a
-model never removes a training checkpoint or rewrites existing IDs. Check games,
-running tournaments and unfinished references first, exactly as the deletion preview
-does; never automatically deduplicate historical records. Model IDs and runes stay
-stable, so game, tournament and job references remain valid.
+The command groups entries that share a verified inference-weight fingerprint. It
+holds the registry lock for the scan, so concurrent imports cannot produce
+inconsistent groups, and it never rewrites the index.
+
+Removing a duplicate is an ordinary catalog deletion through
+`DELETE /api/models/{id}` (or the UI model card). That endpoint only protects
+**active** use: unfinished games, running tournaments and other live references are
+previewed and must be explicitly discarded before deletion. It does not rewrite
+history and does not look at retained job metadata.
+
+Historical references are **not** protected. Completed and recorded games,
+tournaments, evaluations and training jobs can keep a deleted model's ID and name
+snapshot indefinitely; they stay readable because the ID is opaque and the name is
+retained. Deleting a catalog copy therefore removes the playable weights while the
+historical labels remain. This is intentional and is not a reason to rewrite IDs.
+
+Before removing a duplicate:
+
+- Inspect the groups and the model cards, and confirm the entries really share
+  weights; a shared name or evaluation score alone is not identity.
+- Check unfinished games and running tournaments with the deletion preview, and
+  check retained jobs by their recorded `model_id`/`best_models` if those still
+  matter for resumption or comparison.
+- Keep at least one copy of any model you may still want to play or export.
+
+Do **not** delete `models/<id>.pt` files by hand: the index, runes, game and
+tournament references and the deletion/repair logic all assume the catalog is the
+owner of those copies, and a stray file can be silently repaired or reused.
+Registered model copies are separate from job `last.pt`/`best.pt` checkpoints, so
+deleting a model never removes a training checkpoint. Do not rewrite or renumber
+model IDs to "fix" duplicates either: IDs and runes are referenced by retained
+games, tournaments, jobs and archives, and rewriting them would break those
+references without freeing meaningful space.
+
+Sometimes retaining historical duplicates is the better choice. Disk cost is one
+copy per distinct weight, catalog entries are cheap, and a duplicate entry can be
+the only link from a retained job to its playable model. Prefer deleting the job
+or leaving the duplicate in place over an irreversible cleanup that breaks a
+record you may still want to inspect. There is no automatic historical cleanup and
+no broad reference migration.
+
+If a registered copy is missing or corrupted, do not delete the entry to hide it:
+re-import a valid copy of the same weights (outside any archive import) so the
+existing ID, name, rune and references are repaired in place.
 
 ## Moving data between installations
 
 In **AI Workshop → At the forge**, select an inactive job and choose **Export job**.
 Transfer the ZIP to another computer, open its workshop and choose **Import job**.
 The imported job opens with its configuration, learning graphs, evaluation and
-performance history. Its inference models join the normal model collection for
-games and tournaments. Existing jobs and models are kept; repeated imports create
+performance history. Ordinary training inference models join the normal collection for
+games and tournaments; tuning trials retain study-local artifacts without creating
+permanent playable models. Existing jobs and models are kept; repeated imports create
 new job IDs and deduplicate model content, preserving existing catalog names.
 
 The versioned archive contains `manifest.json`, a sanitized SQLite job-record
@@ -274,7 +365,7 @@ Original resume dependencies are detached: the full checkpoint carries its own
 optimizer, replay, RNG and portable best-model state.
 
 **Resume from checkpoint** uses the same checkpoint-review API as ordinary jobs.
-Only a full compatible `last.pt` is resumable; `best.pt` and inference-only imports
+Only a full compatible `last.pt` or tuning `objective.pt` is resumable; `best.pt` and inference-only imports
 remain playable without being advertised as full training state. Resumption creates
 a new job and leaves the imported source unchanged. CUDA-trained checkpoints load
 on CPU; select **CPU** or **Automatic** in the resume dialog on a CPU-only machine.
@@ -287,15 +378,49 @@ by a successful migration.
 
 ### Optimization studies and archive limits
 
-A tuning archive additionally includes its single owned `study.sqlite3`, trial
-folders and `best-config.json`. SQLite backup creates the snapshot; import validates
-the current Optuna schema, preserves trial results/history and rewrites study URLs
-and trial checkpoint attributes to the new destination. **Resume study** uses that
-restored database. Studies with active trials, multiple studies in one database,
-shared/external storage, missing trial checkpoints or unsupported schemas are
-rejected with an explanation. Export the original owning job if it still contains
-all trial outputs; otherwise use a consistent full-instance backup. A resumed
-study that writes trials into other job folders is not self-contained.
+Format **2** tuning archives consolidate a single persistent `study.sqlite3`
+and globally numbered `trial-N/` folders from **every contributing job** in the
+same owned job store. `study-artifacts.json` records the original database owner,
+contributing jobs and each trial's selected/full/final checkpoint references.
+The source full checkpoint is included as `dependencies/source/last.pt`;
+registered fixed opponents travel in `models/`. SQLite backup takes a consistent
+snapshot; every contributing job must be inactive. The archive inventory checksums
+all artifacts. External database/checkpoint paths, missing required trial/source
+files, symlinks and executable SQLite objects are rejected explicitly.
+
+Every required frozen opponent must be present, loadable in the supported safe
+format, compatible with the study's ruleset and identical to its saved content pin.
+Export rejects missing, changed or unverifiable opponents and identifies the model;
+it cannot silently produce an incomplete portable study. Import checks the required
+model inventory and pins before publication, preserves model-ID rebasing and
+deduplication, and never replaces an existing registry file. A failed import rolls
+back newly registered models and job data. Ordinary training exports still allow
+missing historical inference copies.
+
+Import validates/stages the entire inventory, then consolidates artifact ownership
+under one fresh job ID and rebases all trial checkpoint references, configuration,
+source dependencies and immutable model references. Trial numbers, scores and
+historical rankings do not change. Even exporting an earlier owning job projects
+the current database winner/history into the archive, leaving original result
+files unchanged. A held-out result for an earlier winner remains historical,
+rather than being attributed to the new winner. Full `objective.pt`/`last.pt` files preserve
+optimizer, replay, RNG and training history. Only required frozen opponents are registered for tuning imports; legacy trial
+inference artifacts do not populate the permanent registry. Study content identity and resumption checks remain active.
+Ambiguous legacy studies can be imported for inspection/export, but cannot acquire
+compatibility from the new requested configuration. Legacy frozen-opponent archives
+need reliable saved content pins to pass dependency validation; absent pins must
+not be inferred from whichever model is currently registered. Formats 1 and 2
+remain supported with that evidence.
+
+For example, export the most recent inactive resumed study job, import its ZIP,
+select **Resume study** to add comparable trials, or **Continue winning trial**
+to create ordinary training from its full objective checkpoint. The original jobs
+are untouched; the imported job owns the consolidated artifacts and later resumed
+jobs may contribute further global trial numbers. Re-exporting includes them too.
+Missing frozen registry dependencies are reported before further trials can launch;
+restore the exact content or start a new study. Normal training resume dependencies
+are detached because its full state is self-contained; checkpoint-based tuning
+keeps its source dependency explicitly for repeated comparable branching.
 
 Only inactive jobs can be transferred. Remote jobs include artifacts already
 uploaded to the server, not unuploaded worker-private files; their original worker
@@ -306,7 +431,7 @@ ratio. Unsafe paths, symlinks, duplicate/conflicting entries and unknown artifac
 types are rejected. Missing optional files are allowed; unsafe/incompatible files
 that are present are rejected rather than silently discarded.
 
-Format **1** is independent of application version, but the destination must support
+Format **2** (with backward import support for format **1**) is independent of application version, but the destination must support
 its checkpoint architecture, training settings and (for tuning) Optuna schema 12.
 Future unsupported formats/configurations are rejected; do not bypass safe loading
 or rename an arbitrary ZIP to import it. No database-schema migration is needed.

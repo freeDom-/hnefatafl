@@ -10,7 +10,7 @@ from auth_support import AuthenticatedClient as TestClient
 import pytest
 import torch
 
-from hnefatafl.models import PolicyValueNet, export_checkpoint, save_checkpoint
+from hnefatafl.models import PolicyValueNet, export_checkpoint, load_checkpoint, save_checkpoint
 from hnefatafl.server import create_app
 from hnefatafl.training import normalize_config
 from hnefatafl.game_statistics import self_play_statistics
@@ -382,6 +382,69 @@ def test_artifacts_are_validated_and_completion_requires_owned_full_state(
     monkeypatch.setattr("hnefatafl.models.MAX_CHECKPOINT_BYTES", 8)
     assert upload(client, headers, invalid, "checkpoint", corrupt).status_code == 413
     assert not list((client.app.state.data_dir / ".uploads").iterdir())
+
+
+def _inference_with_metadata(source, target, **changes):
+    """Same weights as ``source`` with caller-controlled checkpoint metadata."""
+    model, payload = load_checkpoint(source)
+    return save_checkpoint(target, model, {**payload["metadata"], **changes})
+
+
+def test_remote_inference_registration_deduplicates_across_jobs(client, artifacts, tmp_path):
+    full, inference = artifacts
+    _, headers = worker(client, capacity=4)
+    queue(client, model_name="First raven")
+    second_job = queue(client, model_name="Second raven")
+    third_job = queue(client, model_name="Third raven", save_all_best=True)
+    queue(client, model_name="Fourth raven")
+    first = claim(client, headers, "dedupe-first")
+    second = claim(client, headers, "dedupe-second")
+    third = claim(client, headers, "dedupe-third")
+    fourth = claim(client, headers, "dedupe-fourth")
+    for lease in (first, second, third, fourth):
+        assert upload(client, headers, lease, "checkpoint", full).status_code == 200
+    # The first inference upload creates the model; its response is clean and idempotent.
+    created = upload(client, headers, first, "inference", inference)
+    assert created.status_code == 200, created.text
+    created_model = created.json()["model"]
+    assert "reused" not in created_model
+    assert upload(client, headers, first, "inference", inference).json() == created.json()
+    # The same weights with different checkpoint metadata in another job reuse it.
+    variant = _inference_with_metadata(
+        inference, tmp_path / "variant.pt", created_at="2031-01-01T00:00:00Z", version=99
+    )
+    reused = upload(client, headers, second, "inference", variant)
+    assert reused.status_code == 200, reused.text
+    assert reused.json()["model"]["id"] == created_model["id"]
+    assert "reused" not in reused.json()["model"]
+    # ``best-*`` snapshots are inference-only and deduplicate identically.
+    best = upload(client, headers, third, "best-1", variant)
+    assert best.status_code == 200, best.text
+    assert best.json()["model"]["id"] == created_model["id"]
+    # Genuinely different weights produce a separate model.
+    torch.manual_seed(7)
+    other_inference = export_checkpoint(
+        save_checkpoint(
+            tmp_path / "other.pt",
+            PolicyValueNet("brandubh", 4, 0),
+            {"name": "Other raven", "training_config": {"ruleset": "brandubh"}},
+        ),
+        tmp_path / "other-inference.pt",
+    )
+    distinct = upload(client, headers, fourth, "inference", other_inference)
+    assert distinct.status_code == 200, distinct.text
+    assert distinct.json()["model"]["id"] != created_model["id"]
+    assert len(client.get("/api/models").json()) == 2
+    # The server owns the reuse flag; the worker response never leaks it.
+    assert finish(client, headers, first).json()["result"]["model_reused"] is False
+    finished = finish(client, headers, second)
+    assert finished.json()["result"]["model_reused"] is True
+    assert finish(client, headers, second).json() == finished.json()
+    assert "inference_reused" not in client.get(f"/api/training/jobs/{second_job['id']}").json()
+    # Cancelling a job after an identical upload does not disturb the registry.
+    client.post(f"/api/training/jobs/{third_job['id']}/cancel", json={})
+    assert finish(client, headers, third, "cancelled").status_code == 200
+    assert len(client.get("/api/models").json()) == 2
 
 
 def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(

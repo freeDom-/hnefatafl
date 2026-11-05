@@ -17,8 +17,8 @@ const translations: Record<string, string> = {
   'Required champion improvement': 'Erforderliche Verbesserung gegenüber dem Champion',
   'Only the selected opponent is evaluated. The final iteration is also evaluated; checkpoint frequency is independent.':
     'Nur der gewählte Gegner wird ausgewertet. Die letzte Iteration wird ebenfalls ausgewertet; das Speicherintervall ist unabhängig davon.',
-  'Optuna uses the fixed Shield bearer objective for comparable trials.':
-    'Optuna verwendet den festen Schildträger-Vergleich für vergleichbare Versuche.',
+  'Optimization evaluates every trial against this fixed reference so scores are comparable. Champion starts from the shared checkpoint and can promote during each trial.':
+    'Die Optimierung bewertet jeden Versuch anhand dieses festen Vergleichs, damit die Ergebnisse vergleichbar bleiben. Champion startet vom gemeinsamen Prüfpunkt und kann während eines Versuchs aufsteigen.',
   'Champion promotion requires complete side-swapped pairs and a confidence bound above 50% plus the required improvement. Small leads may be inconclusive.':
     'Ein neuer Champion benötigt vollständige Partienpaare mit Seitenwechsel und eine Konfidenzgrenze über 50 % zuzüglich der erforderlichen Verbesserung. Kleine Vorsprünge können ohne eindeutiges Ergebnis bleiben.',
   'Jarl uses alpha-beta search. Depth and deadlines can make evaluation expensive.':

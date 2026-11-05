@@ -80,6 +80,8 @@ interface Props {
   setStudyName: Dispatch<SetStateAction<string>>;
   space: string;
   setSpace: Dispatch<SetStateAction<string>>;
+  strategy: string;
+  setStrategy: Dispatch<SetStateAction<string>>;
   advanced: boolean;
   setAdvanced: Dispatch<SetStateAction<boolean>>;
   busy: boolean;
@@ -116,6 +118,8 @@ export default function TrainingCreationPanel({
   setStudyName,
   space,
   setSpace,
+  strategy,
+  setStrategy,
   advanced,
   setAdvanced,
   busy,
@@ -149,6 +153,7 @@ export default function TrainingCreationPanel({
   const studyNameId = useId();
   const studySeedId = useId();
   const spaceId = useId();
+  const strategyId = useId();
   // The form edits one nested configuration, so a rejected path maps to the input
   // that owns it. `training.seed` and `seed` stay distinct: the first is the model
   // seed, the second the Optuna study seed.
@@ -481,6 +486,9 @@ export default function TrainingCreationPanel({
           </p>
         )}
         <EvaluationSettings
+          models={models}
+          strategy={strategy}
+          onStrategyChange={kind === 'tune' ? setStrategy : undefined}
           config={config}
           update={update}
           tuning={kind === 'tune'}
@@ -616,6 +624,29 @@ export default function TrainingCreationPanel({
                 rows={7}
                 spellCheck={false}
               />
+            </div>
+            <div className="training-field">
+              <FieldLabel
+                htmlFor={strategyId}
+                label="Optional study settings (JSON)"
+                tooltipKey="strategy"
+              />
+              <textarea
+                id={strategyId}
+                data-training-field="strategy"
+                value={strategy}
+                placeholder={
+                  '{\n  "opponents": [{"opponent": "jarl", "weight": 1}],\n  "verification": {"games": 8, "opponent": "shield_bearer"},\n  "max_failures": 3\n}'
+                }
+                onChange={(e) => setStrategy(e.target.value)}
+                rows={5}
+                spellCheck={false}
+              />
+              <small className="subtle">
+                {t(
+                  'Optional opponents, held-out verification, sampler/pruner startup and failure budget. Leave empty for the default single-opponent objective.',
+                )}
+              </small>
             </div>
           </div>
         )}

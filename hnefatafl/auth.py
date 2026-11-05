@@ -389,6 +389,7 @@ grant(
     "/api/training/jobs/{job_id}",
     "/api/training/jobs/{job_id}/export",
     "/api/training/jobs/{job_id}/resume",
+    "/api/training/jobs/{job_id}/study-deletion-preview",
     "/api/training/workers",
 )
 grant(
@@ -401,7 +402,13 @@ grant(
     "/api/training/workers",
 )
 grant("training", "PATCH", "/api/training/jobs/{job_id}")
-grant("training", "DELETE", "/api/training/jobs/{job_id}", "/api/training/workers/{worker_id}")
+grant(
+    "training",
+    "DELETE",
+    "/api/training/jobs/{job_id}",
+    "/api/training/jobs/{job_id}/study",
+    "/api/training/workers/{worker_id}",
+)
 grant("accounts", "PATCH", "/api/training/workers/{worker_id}/version-override")
 grant(
     "worker",

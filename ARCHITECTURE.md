@@ -12,7 +12,12 @@ Python 3.11+ owns the deterministic engine, search, persistence and training. Fa
 exposes server-authoritative JSON sessions; React, TypeScript and Vite provide one
 responsive browser client for desktop and phones. SQLite keeps ordinary Linux and
 Proxmox LXC installations simple. PyTorch provides real CPU/CUDA policy/value learning;
-Optuna manages persistent search studies. Docker is not required.
+Optuna manages persistent search studies. A study ranks trials by the score of
+their best newly evaluated candidate checkpoint, supports a selectable fixed evaluation opponent
+(Shield bearer, Shield maiden, Jarl or a pinned registered neural model) or an
+optional weighted multi-opponent aggregate, records a held-out verification of
+the winning checkpoint, and stores a canonical identity that rejects
+incompatible resumptions. Docker is not required.
 
 Account and online positions/results are server-authoritative. Every position and
 move has a serializable representation, shared by interactive play, replay, AI and
@@ -30,7 +35,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; reused by the Jarl alpha-beta and Seer MCTS model-free paths |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
 | [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and a content-addressed model registry that is idempotent by inference-weight fingerprint |
-| [training.py](hnefatafl/training.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
+| [training.py](hnefatafl/training.py), [training_identity.py](hnefatafl/training_identity.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
 | [training_augmentation.py](hnefatafl/training_augmentation.py), [symmetry_benchmark.py](hnefatafl/symmetry_benchmark.py) | Tensor-level D4 transforms of replay examples (input, action ids, legal mask), cached action permutations, minibatch collation and evidence tooling; no engine, search or inference dependency |
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
 | [benchmark.py](hnefatafl/benchmark.py), [alpha_beta_benchmark.py](hnefatafl/alpha_beta_benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons, alpha-beta optimization ablations and headless command dispatch |
@@ -385,6 +390,27 @@ record separately from inference model copies. Job lifecycle locking prevents
 late worker reconciliation from recreating deleted records, and retained shared
 optimization studies are protected while referenced. Tournament model summaries
 use path-free saved metadata rather than depending on retained training folders.
+
+Tuning identity version 2 covers source model/full-state content, fixed workload,
+seeds, numerical/search settings, fixed evaluation references/protocol and scoring,
+search space and sampler/pruner. Source hashing is generation-cached at creation,
+not part of polling. API preflight and worker validation reject incompatible or
+ambiguous legacy history without relabelling trials. New candidate, inherited
+benchmark, overall selection and Optuna objective remain separate. Each trial owns
+full `last.pt` and selected `objective.pt` checkpoints without permanent registry
+publication. Ordinary training registration is unchanged. Compatible neural
+opponents may have different hidden architectures and use independent inference
+models/queues. Optimization results are durable before optional cancellable
+verification; verification status cannot erase the winner.
+
+Format-2 study archives consolidate contributing sibling UUID jobs and a portable
+source checkpoint into a fresh owning job on import. All paths, checksums, tensor
+payloads and SQLite schema are validated before publication; format-1 import and
+historical rankings remain supported. Lifecycle/catalog lock ordering prevents
+concurrent launch/deletion of a fixed model. Running dependencies block deletion;
+inactive studies with deleted dependencies fail explicit preflight. Dashboard
+trial pagination and bounded existing chart components use Optuna objective values;
+frequent summary polls exclude trial arrays and retained diagnostics.
 
 ## Remote training
 

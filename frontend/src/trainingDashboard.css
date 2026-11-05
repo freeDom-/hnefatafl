@@ -815,6 +815,38 @@
   margin-bottom: var(--gap-card);
   padding-bottom: var(--pad-panel-sm);
 }
+.training-workshop .training-tuning {
+  display: grid;
+  gap: var(--gap-card);
+}
+.training-workshop .training-tuning > section {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--pad-panel-sm);
+}
+.training-workshop .training-tuning h4 {
+  margin: 0 0 var(--gap-stack);
+}
+.training-workshop .tuning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--gap-stack) var(--gap-card);
+  margin-top: var(--gap-stack);
+}
+.training-workshop .tuning-actions .training-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 12rem;
+}
+.training-workshop .training-tuning tr.winning-trial {
+  background: color-mix(in srgb, var(--gold) 14%, var(--surface));
+  font-weight: 600;
+}
+.training-workshop .training-tuning .tuning-trial-error {
+  color: var(--ui-copy);
+  font-size: 0.85rem;
+}
 .training-workshop .training-range,
 .training-workshop .performance-metric-control,
 .training-workshop .evaluation-series-control {
@@ -836,4 +868,9 @@
   font-size: 1.2rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.training-resume-dialog [data-changed='true'] {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold);
 }

@@ -3,6 +3,8 @@ import { api, apiFetch } from './api';
 import type { DeviceInfo, Job, Model, Ruleset, TrainingWorker } from './types';
 import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
+import StudyDeletionDialog from './StudyDeletionDialog';
+import { useAuth } from './Auth';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
@@ -10,10 +12,12 @@ import {
   trainingConfig,
   recordedTrainingConfig,
   recordedTrainingParameters,
+  type TrainingConfig,
 } from './trainingPresets';
-import { recordedJobParameters } from './trainingReuse';
+import { recordedJobParameters, tunable } from './trainingReuse';
 import { trainingParameterLabel } from './TrainingFields';
 import TrainingResumeDialog from './TrainingResumeDialog';
+import TrainingTuneDialog from './TrainingTuneDialog';
 import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
 import { opponentName } from './EvaluationSettings';
 import Rune from './Rune';
@@ -27,13 +31,14 @@ import {
   fieldIdentity,
   launchPayload,
   rejectedTrainingFields,
+  tuneResumePayload,
 } from './trainingPayload';
 import TrainingCreationPanel from './TrainingCreationPanel';
 import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
-import { activeJob, sortJobs, jobName, mergeJobSummary } from './trainingDashboardData';
+import { activeJob, sortJobs, jobName, jobRuleset, mergeJobSummary } from './trainingDashboardData';
 import './trainingDashboard.css';
 
 interface ModelUsage {
@@ -47,6 +52,7 @@ interface ModelUsage {
     total_moves: number;
   }[];
   running_tournaments: { id: string; name: string; status: string }[];
+  running_optimizations?: { id: string; name: string; status: string }[];
   usage_token?: string;
 }
 
@@ -70,6 +76,7 @@ export default function Training({
   onGamesDeleted?: (ids: string[]) => void;
 }) {
   const { locale } = useI18n();
+  const { account } = useAuth();
   const [creationOpen, setCreationOpen] = useState<boolean | null>(null);
   const [modelsOpen, setModelsOpen] = useState<boolean | null>(null);
   const [workersOpen, setWorkersOpen] = useState(false);
@@ -90,9 +97,13 @@ export default function Training({
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [jobTab, setJobTab] = useState<JobTab>(defaultJobTab);
   const [resumeJob, setResumeJob] = useState<Job | null>(null);
+  const [resumePrefill, setResumePrefill] = useState<TrainingConfig | null>(null);
+  const [resumeAdditional, setResumeAdditional] = useState<number | undefined>(undefined);
+  const [tuneJob, setTuneJob] = useState<Job | null>(null);
   const [renameModel, setRenameModel] = useState<Model | null>(null);
   const [renameJob, setRenameJob] = useState<Job | null>(null);
   const [deleteJob, setDeleteJob] = useState<Job | null>(null);
+  const [deleteStudyJob, setDeleteStudyJob] = useState<Job | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
   const [deleteJobError, setDeleteJobError] = useState('');
   const trainingForm = useRef<HTMLElement>(null);
@@ -107,6 +118,7 @@ export default function Training({
   const [space, setSpace] = useState(
     '{\n  "learning_rate": {"type": "float", "low": 0.0001, "high": 0.003, "log": true},\n  "mcts_iterations": {"type": "int", "low": 4, "high": 16}\n}',
   );
+  const [strategy, setStrategy] = useState('');
   const [busy, setBusy] = useState(false);
   const [importingConfig, setImportingConfig] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -396,6 +408,7 @@ export default function Training({
         studyName,
         studySeed,
         space,
+        strategy,
       });
       const job = await api<Job>('/training/jobs', params);
       refreshRevision.current++;
@@ -443,25 +456,16 @@ export default function Training({
     if (job.kind === 'tune') {
       setBusy(true);
       try {
+        // A resumed study must keep its checkpoint source, opponent, search
+        // space and strategy. Send the previous configuration unchanged and let
+        // the server merge and validate it against the stored study identity;
+        // stripping `training.resume` would silently restart from fresh weights.
         const saved = job.config ?? {};
-        const training =
-          saved.training && typeof saved.training === 'object'
-            ? Object.fromEntries(
-                Object.entries(saved.training).filter(
-                  ([key]) => !['output_dir', 'registry_dir', 'resume'].includes(key),
-                ),
-              )
-            : undefined;
-        const next = await api<Job>('/training/jobs', {
-          ...Object.fromEntries(
-            Object.entries(saved).filter(([key]) =>
-              ['trials', 'study_name', 'seed', 'search_space'].includes(key),
-            ),
-          ),
-          ...(training ? { training } : {}),
-          kind: 'tune',
-          resume_study: job.id,
-        });
+        const trials =
+          typeof saved.trials === 'number' && Number.isInteger(saved.trials) && saved.trials >= 1
+            ? saved.trials
+            : 3;
+        const next = await api<Job>('/training/jobs', tuneResumePayload(job.id, saved, trials));
         refreshRevision.current++;
         selectJob(next);
         showMonitoring();
@@ -633,6 +637,7 @@ export default function Training({
       setStudySeed(loaded.seed);
       setStudyName(loaded.studyName);
       if (loaded.search) setSpace(JSON.stringify(loaded.search, null, 2));
+      setStrategy(loaded.strategy ?? '');
     }
     setAdvanced(true);
     setCreationOpen(true);
@@ -644,12 +649,154 @@ export default function Training({
     );
     requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
   };
+  /** The winning trial's full configuration, as persisted by the study. */
+  const bestConfiguration = (job: Job): Record<string, unknown> | undefined => {
+    const result = (job.result ?? {}) as Record<string, unknown>;
+    const progress = (job.progress ?? {}) as Record<string, unknown>;
+    const best = result.best_configuration ?? progress.best_configuration;
+    return best && typeof best === 'object' ? (best as Record<string, unknown>) : undefined;
+  };
+  const bestTrialNumber = (job: Job): number | undefined => {
+    const result = (job.result ?? {}) as Record<string, unknown>;
+    const progress = (job.progress ?? {}) as Record<string, unknown>;
+    const value = result.best_trial ?? progress.best_trial;
+    return typeof value === 'number' && Number.isInteger(value) ? value : undefined;
+  };
+  /** Server-persisted full checkpoint of the winning trial, wherever it ran. */
+  const bestTrialCheckpoint = (job: Job): string | undefined => {
+    const result = (job.result ?? {}) as Record<string, unknown>;
+    const progress = (job.progress ?? {}) as Record<string, unknown>;
+    const value = result.best_trial_checkpoint ?? progress.best_trial_checkpoint;
+    return typeof value === 'string' && value ? value : undefined;
+  };
+  /** Load the winning trial's hyperparameters as a new from-scratch training job. */
+  const loadBestParameters = (job: Job) => {
+    const best = bestConfiguration(job);
+    if (!best) {
+      onError(t('This job has no recorded best configuration.'));
+      return;
+    }
+    const loaded = recordedTrainingParameters(
+      config,
+      {
+        name: typeof best.model_name === 'string' ? best.model_name : jobName(job),
+        ruleset: typeof best.ruleset === 'string' ? best.ruleset : jobRuleset(job),
+        training_config: best,
+      },
+      device,
+    );
+    if (!loaded) return;
+    replaceConfig(loaded.config);
+    setKind('train');
+    setTarget('local');
+    setAdvanced(true);
+    setCreationOpen(true);
+    setNotice(
+      t('Best parameters loaded from job {name}. Starting creates a new training job.', {
+        name: jobName(job),
+      }) + parameterWarnings(loaded.warnings),
+    );
+    requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
+  };
+  /** Launch a new training job that resumes the winning trial's full checkpoint. */
+  const continueWinningTrial = async (job: Job, additionalIterations: number) => {
+    const best = bestConfiguration(job);
+    const trial = bestTrialNumber(job);
+    // The winning trial may belong to an earlier job that shares this study, so
+    // use the checkpoint the server persisted instead of rebuilding the path
+    // from the current job ID.
+    const checkpoint = bestTrialCheckpoint(job);
+    if (!best || trial === undefined || !checkpoint) {
+      onError(t('This job has no recorded winning trial checkpoint.'));
+      return;
+    }
+    setBusy(true);
+    setNotice('');
+    try {
+      const {
+        output_dir: _output,
+        registry_dir: _registry,
+        resume: _resume,
+        storage: _storage,
+        ...training
+      } = best;
+      const winningIteration = Number(
+        job.result?.best_iteration ?? job.progress?.best_iteration ?? best.iterations ?? 1,
+      );
+      const iterations = winningIteration + Math.max(1, additionalIterations);
+      const next = await api<Job>('/training/jobs', {
+        ...training,
+        kind: 'train',
+        iterations,
+        resume: checkpoint,
+      });
+      refreshRevision.current++;
+      selectJob(next);
+      showMonitoring();
+      setJobs((previous) => [next, ...previous]);
+      setNotice(
+        t('Continuing the winning trial from its full checkpoint. A new training job has started.'),
+      );
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  /**
+   * Review the winning settings in the existing Resume Training dialog before
+   * they are applied to another job. Nothing is submitted until the user
+   * confirms, and immutable checkpoint identity is preserved by the dialog.
+   */
+  const applyBestToJob = (tuningJob: Job, targetJobId: string, additionalIterations: number) => {
+    const best = bestConfiguration(tuningJob);
+    if (!best) {
+      onError(t('This job has no recorded best configuration.'));
+      return;
+    }
+    const target = jobs.find((entry) => entry.id === targetJobId);
+    if (!target) {
+      onError(t('The selected training job could not be found.'));
+      return;
+    }
+    const optimized = (tuningJob.result?.best_parameters ??
+      tuningJob.progress?.best_parameters ??
+      best) as Record<string, unknown>;
+    setResumePrefill(
+      Object.fromEntries(
+        Object.entries(optimized).filter(([key]) => tunable.includes(key)),
+      ) as TrainingConfig,
+    );
+    setResumeAdditional(Math.max(1, additionalIterations));
+    setResumeJob(target);
+  };
+  const downloadBestConfig = (job: Job) => {
+    const best = bestConfiguration(job);
+    if (!best) {
+      onError(t('This job has no recorded best configuration.'));
+      return;
+    }
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(best, null, 2)], { type: 'application/json' }),
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `hnefatafl-best-config-${job.id.slice(0, 8)}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  /** Tune from a training job's full checkpoint so every trial starts from it. */
+  /** Open the checkpoint-tuning review dialog instead of starting immediately. */
+  const tuneFromCheckpoint = (job: Job) => {
+    setTuneJob(job);
+  };
   const removeModel = async () => {
     if (
       !deleteModel ||
       !modelUsage ||
       usageLoading ||
       modelUsage.running_tournaments.length ||
+      modelUsage.running_optimizations?.length ||
       (modelUsage.unfinished_games.length && !discardUnfinished)
     )
       return;
@@ -792,6 +939,8 @@ export default function Training({
               setStudyName,
               space,
               setSpace,
+              strategy,
+              setStrategy,
               advanced,
               setAdvanced,
               busy,
@@ -888,6 +1037,16 @@ export default function Training({
                   exporting={exportingJob}
                   canUseParameters={Boolean(recordedJobParameters(config, selectedJob))}
                   onUseParameters={() => loadJobParameters(selectedJob)}
+                  onTuneCheckpoint={() => void tuneFromCheckpoint(selectedJob)}
+                  trainingJobs={jobs}
+                  onUseBestParameters={() => loadBestParameters(selectedJob)}
+                  onContinueTrial={(additional) =>
+                    void continueWinningTrial(selectedJob, additional)
+                  }
+                  onApplyToJob={(targetId, additional) =>
+                    void applyBestToJob(selectedJob, targetId, additional)
+                  }
+                  onDownloadBestConfig={() => downloadBestConfig(selectedJob)}
                   onCancel={() => void cancel(selectedJob.id)}
                   onResume={() => void resume(selectedJob)}
                   onExport={() => void exportTrainingJob(selectedJob)}
@@ -896,6 +1055,11 @@ export default function Training({
                     setDeleteJob(selectedJob);
                     setDeleteJobError('');
                   }}
+                  onDeleteStudy={
+                    account?.permissions.includes('training')
+                      ? () => setDeleteStudyJob(selectedJob)
+                      : undefined
+                  }
                   onRename={() => setRenameJob(selectedJob)}
                 />
               ) : (
@@ -1140,19 +1304,57 @@ export default function Training({
           </p>
           {deleteJob.kind === 'tune' && (
             <p>
-              {t('A study shared by other saved jobs must be kept until those jobs are removed.')}
+              {t(
+                'Shared studies may block individual deletion. Use “Delete entire tuning study” to review and remove the whole study.',
+              )}
             </p>
           )}
         </RecordsConfirm>
+      )}
+      {deleteStudyJob && account?.permissions.includes('training') && (
+        <StudyDeletionDialog
+          jobId={deleteStudyJob.id}
+          onClose={() => setDeleteStudyJob(null)}
+          onDeleted={(ids, cleanupPending) => {
+            refreshRevision.current++;
+            for (const id of ids) {
+              detailControllers.current.get(id)?.abort();
+              detailControllers.current.delete(id);
+              detailRequests.current.delete(id);
+              summaries.current.delete(id);
+              observedJobs.current?.delete(id);
+            }
+            setJobs((previous) => previous.filter((job) => !ids.includes(job.id)));
+            if (currentSelection.current && ids.includes(currentSelection.current.id))
+              selectJob(null);
+            setDeleteStudyJob(null);
+            setNotice(
+              t(
+                cleanupPending
+                  ? 'Study deleted. Remaining quarantined files will be cleaned up on the next deletion preview or server restart.'
+                  : 'Study and contributing tuning jobs deleted. Source jobs, registered models and saved game history have been kept.',
+              ),
+            );
+            void refresh().catch((error: Error) => onError(error.message));
+          }}
+        />
       )}
       {resumeJob && (
         <TrainingResumeDialog
           localDevice={device}
           job={resumeJob}
           workers={workers}
-          onClose={() => setResumeJob(null)}
+          prefill={resumePrefill ?? undefined}
+          additionalIterations={resumeAdditional}
+          onClose={() => {
+            setResumeJob(null);
+            setResumePrefill(null);
+            setResumeAdditional(undefined);
+          }}
           onStarted={(next, completed, target) => {
             setResumeJob(null);
+            setResumePrefill(null);
+            setResumeAdditional(undefined);
             refreshRevision.current++;
             if (!observedJobs.current) observedJobs.current = new Map();
             observedJobs.current.set(next.id, next.status);
@@ -1169,6 +1371,28 @@ export default function Training({
           }}
         />
       )}
+      {tuneJob && (
+        <TrainingTuneDialog
+          models={models}
+          job={tuneJob}
+          onClose={() => setTuneJob(null)}
+          onStarted={(next) => {
+            setTuneJob(null);
+            refreshRevision.current++;
+            if (!observedJobs.current) observedJobs.current = new Map();
+            observedJobs.current.set(next.id, next.status);
+            selectJob(next);
+            showMonitoring();
+            setJobs((previous) => [next, ...previous]);
+            setNotice(
+              t(
+                'Tuning started from the saved checkpoint. Every trial begins from the same state.',
+              ),
+            );
+            void refresh().catch((error) => onError(error.message));
+          }}
+        />
+      )}
       {deleteModel && (
         <RecordsConfirm
           title={t('Delete model {name}?', { name: deleteModel.name })}
@@ -1178,6 +1402,7 @@ export default function Training({
             usageLoading ||
             !modelUsage ||
             !!modelUsage.running_tournaments.length ||
+            !!modelUsage.running_optimizations?.length ||
             (!!modelUsage.unfinished_games.length && !discardUnfinished)
           }
           onCancel={() => setDeleteModel(null)}
@@ -1210,6 +1435,19 @@ export default function Training({
           )}
           {modelUsage && (
             <>
+              {!!modelUsage.running_optimizations?.length && (
+                <div className="model-usage-warning">
+                  <h3>{t('Running optimization studies')}</h3>
+                  <p>{t('Stop these studies before deleting their fixed opponent.')}</p>
+                  <ul>
+                    {modelUsage.running_optimizations.map((study) => (
+                      <li key={study.id}>
+                        {study.name} ({study.id.slice(0, 8)})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {!!modelUsage.running_tournaments.length && (
                 <div className="model-usage-warning">
                   <h3>{t('Running tournament')}</h3>
@@ -1250,7 +1488,11 @@ export default function Training({
                     <input
                       type="checkbox"
                       checked={discardUnfinished}
-                      disabled={deleting || !!modelUsage.running_tournaments.length}
+                      disabled={
+                        deleting ||
+                        !!modelUsage.running_tournaments.length ||
+                        !!modelUsage.running_optimizations?.length
+                      }
                       onChange={(event) => setDiscardUnfinished(event.target.checked)}
                     />
                     <span>{t('Discard unfinished games and delete model')}</span>
