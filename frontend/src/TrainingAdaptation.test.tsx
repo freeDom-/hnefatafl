@@ -385,6 +385,110 @@ it('restores the complete decision history for All iterations and reacts to rang
   expect(screen.queryByText('Automatic hyperparameter updates')).toBeNull();
 });
 
+it('windows the Learning charts with the same boundaries as the decision log', async () => {
+  const history = Array.from({ length: 300 }, (_, index) => ({
+    iteration: index + 1,
+    policy_loss: 1 / (index + 1),
+  }));
+  const progress = { adaptation_events: [adaptationEvent(150), adaptationEvent(260)] };
+  const view = renderLearning(progress, history, 100);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(adaptationIterations()).toEqual(['260']);
+  fireEvent.click(screen.getByText('View graph data'));
+  // The loss chart receives the already-windowed history: 100 rows plus header.
+  expect(
+    within(await screen.findByRole('table', { name: 'Training history data' })).getAllByRole('row'),
+  ).toHaveLength(101);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={0} />,
+  );
+  // All restores the complete chart and decision history together.
+  expect(adaptationIterations()).toEqual(['150', '260']);
+  expect(
+    within(screen.getByRole('table', { name: 'Training history data' })).getAllByRole('row'),
+  ).toHaveLength(301);
+});
+
+it('keeps malformed historical decisions under All and excludes them from numeric windows', async () => {
+  const history = Array.from({ length: 300 }, (_, index) => ({ iteration: index + 1 }));
+  const progress = {
+    adaptation_events: [
+      adaptationEvent(10),
+      {
+        observation: 0.4,
+        previous_learning_rate: 0.001,
+        selected_learning_rate: 0.002,
+        changed: true,
+      },
+      {
+        iteration: null,
+        observation: 0.3,
+        previous_learning_rate: 0.001,
+        selected_learning_rate: 0.002,
+        changed: false,
+      },
+      {
+        iteration: 'invalid',
+        observation: 0.2,
+        previous_learning_rate: 0.001,
+        selected_learning_rate: 0.002,
+        changed: true,
+      },
+      adaptationEvent(260),
+    ],
+  };
+  const view = renderLearning(progress, history, 0);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  // All iterations keeps every object-shaped record, with — for the bad ones.
+  expect(adaptationIterations()).toEqual(['10', '—', '—', '—', '260']);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={100} />,
+  );
+  // Numeric windows keep only valid records inside [201, 300].
+  expect(adaptationIterations()).toEqual(['260']);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={250} />,
+  );
+  expect(adaptationIterations()).toEqual(['260']);
+});
+
+it('filters valid decisions at the exact numeric window boundaries', async () => {
+  const history = Array.from({ length: 300 }, (_, index) => ({ iteration: index + 1 }));
+  const progress = {
+    adaptation_events: [50, 51, 250, 251, 300].map((iteration) => adaptationEvent(iteration)),
+  };
+  const view = renderLearning(progress, history, 250);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(adaptationIterations()).toEqual(['51', '250', '251', '300']);
+  view.rerender(
+    <TrainingLearningView progress={progress} history={history} config={{}} range={100} />,
+  );
+  expect(adaptationIterations()).toEqual(['250', '251', '300']);
+});
+
+it('handles empty and malformed adaptation event arrays safely', async () => {
+  const history = [{ iteration: 1 }];
+  const view = renderLearning({ adaptation_events: 'not-an-array' }, history, 0);
+  expect(screen.queryByText('Automatic hyperparameter updates')).toBeNull();
+  view.rerender(
+    <TrainingLearningView
+      progress={{ adaptation_events: [null, 42, 'x', { observation: 1 }] }}
+      history={history}
+      config={{}}
+      range={0}
+    />,
+  );
+  // Only the object-shaped record survives, and All keeps it without a window.
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  expect(
+    await screen.findByRole('table', { name: 'Automatic hyperparameter updates' }),
+  ).toBeInTheDocument();
+  expect(adaptationIterations()).toEqual(['—']);
+});
+
 it('keeps closely spaced learning rates distinguishable in the UI', async () => {
   renderLearning({
     adaptation: { effective_learning_rate: 0.00012341 },

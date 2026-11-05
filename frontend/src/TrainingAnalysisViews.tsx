@@ -324,7 +324,7 @@ export function TrainingLearningView({
             />
           ))}
       </dl>
-      <TrainingHistoryChart history={history} view="learning" range={range} />
+      <TrainingHistoryChart history={windowedHistory} view="learning" range={0} />
       {windowedHistory.some((row) => finite(row.replay_positions)) && (
         <TrainingMetricChart
           title="Replay buffer positions"
@@ -373,16 +373,20 @@ function AdaptationHistory({
   const { t, locale } = useI18n();
   const raw = progress.adaptation_events;
   const events = useMemo(
-    () =>
-      (Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : []).filter(
-        (event): event is Values & { iteration: number } => finite(event.iteration),
-      ),
+    () => (Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : []),
     [raw],
   );
-  const anchor = history.at(-1)?.iteration ?? events.at(-1)?.iteration;
+  // Only well-formed events can join a numeric window; malformed historical
+  // records are still shown under All iterations with a missing iteration.
+  const recorded = useMemo(
+    () =>
+      events.filter((event): event is Values & { iteration: number } => finite(event.iteration)),
+    [events],
+  );
+  const anchor = history.at(-1)?.iteration ?? recorded.at(-1)?.iteration;
   const windowed = useMemo(
-    () => withinIterationWindow(events, range, anchor),
-    [events, range, anchor],
+    () => (range ? withinIterationWindow(recorded, range, anchor) : events),
+    [range, recorded, events, anchor],
   );
   if (!windowed.length) return null;
   const rate = (value: unknown) => formatLearningRate(value, locale) ?? '—';
