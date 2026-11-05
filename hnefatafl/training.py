@@ -42,6 +42,13 @@ from .training_augmentation import (
 )
 from .training_presets import RECOMMENDED
 from .game_statistics import checkpoint_cumulative, self_play_statistics
+from .hyper_adaptation import (
+    ADAPTATION_EVENT_TAIL,
+    adaptation_defaults,
+    normalize_adaptation,
+    observation_from_evaluation,
+    resolve_controller,
+)
 from .training_evaluation import (
     EvaluationSelection,
     evaluate_model,
@@ -110,6 +117,8 @@ DEFAULTS = {
     "output_dir": "data/training",
     "model_name": "Self-play learner",
     "save_all_best": False,
+    # Optional online learning-rate adaptation (off by default).
+    **adaptation_defaults(),
 }
 
 PRESETS: dict[str, dict] = {
@@ -143,7 +152,7 @@ PRESETS: dict[str, dict] = {
 }
 
 
-def normalize_config(configuration: dict) -> dict:
+def normalize_config(configuration: dict, *, resolved: bool = True) -> dict:
     unknown = set(configuration) - set(DEFAULTS) - {"registry_dir", "resume"}
     if unknown:
         raise ValueError(f"Unknown training parameters: {', '.join(sorted(unknown))}")
@@ -231,6 +240,7 @@ def normalize_config(configuration: dict) -> dict:
     if config["inference_cache_mode"] not in ("off", "exact"):
         raise ValueError("inference_cache_mode must be off or exact")
     validate_mode(config["training_symmetry_mode"])
+    config.update(normalize_adaptation(config, resolved=resolved))
     normalize_inference(config)
     return config
 
@@ -279,6 +289,7 @@ def compact_progress(state: dict) -> dict:
             "last_progress_seconds",
             "revision",
             "phase_progress",
+            "adaptation",
         )
         if key in state
     }
@@ -314,6 +325,11 @@ def compact_progress(state: dict) -> dict:
             for key, value in performance.items()
             if type(value) in (int, float, str, bool)
         }
+    # A short decision tail for subprocess logs; the full bounded history stays in
+    # the retained progress file so a one-line log never grows with the run.
+    events = state.get("adaptation_events")
+    if isinstance(events, list) and events:
+        result["adaptation_events"] = events[-5:]
     return result
 
 
@@ -626,6 +642,16 @@ def _make_optimizer(model: PolicyValueNet, config: dict):
     return torch.optim.AdamW(model.parameters(), **arguments)
 
 
+def _set_optimizer_learning_rate(optimizer: torch.optim.Optimizer, value: float) -> None:
+    """Update the learning rate in place, preserving parameter groups and moments.
+
+    Rebuilding the optimizer would discard accumulated Adam moments and SGD
+    momentum, so adaptation only writes the existing parameter groups.
+    """
+    for group in optimizer.param_groups:
+        group["lr"] = float(value)
+
+
 def optimize_replay(
     model: PolicyValueNet,
     optimizer: torch.optim.Optimizer,
@@ -731,8 +757,11 @@ def train(
     # checkpoint, building the model and moving it to the device can take a long
     # time, and a job that is already running must never look like a dead worker.
     # The explicit inputs are validated first so an invalid configuration still
-    # fails before anything is written.
-    provisional = normalize_config(configuration)
+    # fails before anything is written. A resume's effective evaluation and
+    # learning-rate settings are only known after its checkpoint is loaded, so
+    # the configuration-dependent adaptation checks are deferred until then.
+    resuming = bool(configuration.get("resume"))
+    provisional = normalize_config(configuration, resolved=not resuming)
     output = Path(provisional["output_dir"]).resolve()
     if provisional.get("resume") and (output / "last.pt" == Path(provisional["resume"]).resolve()):
         raise ValueError("Resume output_dir must preserve the source checkpoint path")
@@ -829,6 +858,8 @@ def train(
             "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
             "grad_scaler": scaler.state_dict(),
         }
+        if controller is not None:
+            extra["adaptation_state"] = controller.state_dict()
         save_checkpoint(path, model, current_metadata(), optimizer, extra)
 
     def stopped() -> None:
@@ -862,10 +893,14 @@ def train(
     produced_best = False
     resume_payload: dict | None = None
     saved_config: dict = {}
+    #: Set when a resume explicitly requested a different learning rate, so the
+    #: controller can honour it instead of silently keeping the saved rate.
+    explicit_learning_rate: float | None = None
     extra: dict = {}
     selection: EvaluationSelection | None = None
     scaler: torch.amp.GradScaler | None = None
     optimizer: torch.optim.Optimizer | None = None
+    controller = None
     model: PolicyValueNet | None = None
     initialized = False
     backend = None
@@ -937,6 +972,14 @@ def train(
                 raise ValueError("Resume optimizer must match the checkpoint")
             if "seed" in saved_config and config["seed"] != saved_config["seed"]:
                 raise ValueError("Resume seed must match the checkpoint")
+            # Distinguish an unchanged resume from an explicit override. The API
+            # merges the saved inputs into the request, so the presence of the key
+            # alone is not enough; the value must differ from the checkpoint.
+            requested_learning_rate = float(config["learning_rate"])
+            if requested_learning_rate != float(
+                saved_config.get("learning_rate", requested_learning_rate)
+            ):
+                explicit_learning_rate = requested_learning_rate
             optimizer = _make_optimizer(model, config)
             if payload.get("optimizer_state") is None:
                 raise ValueError(
@@ -1022,6 +1065,31 @@ def train(
         selected = selection.selected_snapshot() or best_snapshot
         if selected:
             save_checkpoint(best_checkpoint, frozen_model(model, selected), selected["metadata"])
+        # Optional online learning-rate adaptation. The controller owns the
+        # effective rate only while it is enabled; a fresh run starts from the
+        # configured learning_rate, which validation guarantees is a candidate.
+        controller = resolve_controller(
+            config,
+            saved_state=extra.get("adaptation_state"),
+            evaluation_identity=selection.identity,
+            seed=config["seed"] + 900000,
+            resume=bool(config.get("resume")),
+            override_learning_rate=explicit_learning_rate,
+        )
+        if controller is not None:
+            _set_optimizer_learning_rate(optimizer, controller.effective_learning_rate)
+            config["learning_rate"] = controller.effective_learning_rate
+            state["adaptation"] = controller.summary()
+            state["adaptation_events"] = list(controller.events[-ADAPTATION_EVENT_TAIL:])
+        elif resume_payload is not None and saved_config.get("adaptation", "off") != "off":
+            # Adaptation was disabled on resume. The optimizer keeps the
+            # checkpoint's last effective rate; an explicit learning_rate override
+            # was already applied by the normal resume path above.
+            state["adaptation"] = {
+                "algorithm": "off",
+                "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
+                "reset_reason": "disabled_on_resume",
+            }
         mixed = bool(config["mixed_precision"] and device.type == "cuda")
         scaler = torch.amp.GradScaler("cuda", enabled=mixed)
         if resume_payload and resume_payload["extra"].get("grad_scaler"):
@@ -1072,6 +1140,11 @@ def train(
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
             iteration_start = time.monotonic()
+            # The rate set at the previous boundary is the one this iteration's
+            # self-play, optimization and evaluation actually use. Capture it
+            # before any adaptation decision so the reported history attributes
+            # the losses to the rate that produced them.
+            interval_learning_rate = float(optimizer.param_groups[0]["lr"])
 
             def commit_game(index: int, examples: list[dict], result: dict) -> None:
                 nonlocal replay, job_games
@@ -1215,12 +1288,35 @@ def train(
                     best_score = evaluation["score"]
                     best_snapshot = selection.selected_snapshot()
             state["evaluation_selection"] = selection.summary()
+            if controller is not None and evaluation is not None and updates > 0:
+                # Adapt only at an evaluation boundary, after the just-finished
+                # interval is scored. The credited action is the rate that was
+                # active during that interval; a changed rate applies from the
+                # next iteration. No extra evaluation is performed here.
+                adaptation_started = time.monotonic()
+                observation, provenance = observation_from_evaluation(evaluation)
+                decision = controller.observe(
+                    iteration=iteration, score=observation, provenance=provenance
+                )
+                if decision.get("changed"):
+                    _set_optimizer_learning_rate(optimizer, controller.effective_learning_rate)
+                    config["learning_rate"] = controller.effective_learning_rate
+                performance["adaptation_seconds"] = time.monotonic() - adaptation_started
+                state["adaptation"] = controller.summary()
+                state["adaptation_events"] = list(controller.events[-ADAPTATION_EVENT_TAIL:])
             point = {
                 "iteration": iteration,
                 "policy_loss": metrics["policy_loss"],
                 "value_loss": metrics["value_loss"],
                 "replay_positions": metrics["replay_positions"],
+                "updates": metrics["updates"],
                 "iteration_duration": metrics["iteration_duration"],
+                # The rate this iteration actually trained with.
+                "learning_rate": interval_learning_rate,
+                # The rate in effect after this iteration's decision, i.e. the one
+                # the next interval will use. Equal to ``learning_rate`` when
+                # adaptation is off or no change was selected.
+                "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "performance": dict(performance),
             }
             if "evaluation" in metrics:
@@ -1627,6 +1723,10 @@ def _tune(
     # search deadline) are identical whether the caller passed a partial or an
     # already-normalized training configuration.
     base = normalize_config({**raw_training, "output_dir": str(output)})
+    if base.get("adaptation", "off") != "off":
+        # The study varies the learning rate across trials; a controller adapting
+        # it inside a trial would compete with the study's own search.
+        raise ValueError("Disable automatic hyperparameter updates while tuning with Optuna")
     opponents = opponents_config(configuration.get("opponents"))
     verification = verification_config(configuration.get("verification"))
     sampler_options = sampler_config(configuration.get("sampler"))

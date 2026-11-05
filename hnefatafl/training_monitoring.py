@@ -58,6 +58,7 @@ _HEARTBEAT_KEYS = (
     "last_progress_seconds",
     "revision",
     "phase_progress",
+    "adaptation",
 )
 
 

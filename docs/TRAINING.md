@@ -113,6 +113,10 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `output_dir`, `registry_dir`, `model_name` | Persistent outputs and human-readable model name |
 | `resume` | Optional safe full checkpoint path |
 | `save_all_best` | Keep and register each strict best-score improvement (boolean, default false) |
+| `adaptation` | `off` (default) or `hypercontroller`; optional online learning-rate adaptation described below |
+| `adaptation_lr_candidates` | Comma-separated learning-rate candidates (2–8 distinct, each 1e-7–1); the configured `learning_rate` must be one of them |
+| `adaptation_cadence`, `adaptation_warmup`, `adaptation_min_dwell` | Evaluations between decisions; evaluations before any decision; evaluations a chosen rate is kept |
+| `adaptation_lag`, `adaptation_min_trials` | Observation history window (1–3); per-context forced trials of each candidate (1–100) |
 
 See [TRAINING_PLAN.md](TRAINING_PLAN.md) for the 7×7, 9×9 and 11×11 recommended
 budgets, receptive fields, learning targets and comparison plan. The workshop
@@ -193,6 +197,10 @@ Gameplay search has [different defaults and limits](AI.md#configuration).
 | `optimizer` | `adamw` (default), `adam`, `sgd` |
 | `device`; `self_play_mode` | `auto`/`cpu`/`cuda`/`cuda:N`/`mps`; `auto`/`sequential`/`batched` |
 | `model_name`; `save_all_best` | 1–100 characters; boolean (default false) |
+| `adaptation` | `off` (default) or `hypercontroller` |
+| `adaptation_lr_candidates` | 2–8 distinct values, each 1e-7–1; the configured `learning_rate` must be present |
+| `adaptation_cadence`; `adaptation_warmup`; `adaptation_min_dwell` | Integers 1–10,000; 0–10,000; 1–10,000 |
+| `adaptation_lag`; `adaptation_min_trials` | Integer 1–3; integer 1–100 |
 
 Numeric real-valued bounds require finite values. `mixed_precision` defaults to
 true and takes effect on CUDA; `cpu_threads` defaults to two. JSON CLI paths are
@@ -402,6 +410,61 @@ preview and confirm all participating jobs. Source training jobs, registered
 models and saved games are kept; external checkpoint dependencies or live workers
 block deletion. See the same management guide for staging, rollback and restart
 recovery when filesystem cleanup is interrupted.
+
+## Automatic hyperparameter updates
+
+`adaptation` (default `off`) optionally adapts the **learning rate** online inside
+one continuing job. `hypercontroller` is the only supported algorithm; it is a
+small, bounded, CPU-only variant of
+[HyperController](designs/online-hyperparameter-adaptation.md) and needs no
+population, restart or extra process. It is not the same thing as Optuna: Optuna
+searches across separate trials, while the controller adapts inside a single
+trajectory. The two are mutually exclusive and Optuna rejects an enabled
+controller. With adaptation `off` the controller fields are inert and never
+block a run; they are sanitized to bounded, JSON-safe defaults so an unsafe
+inactive value cannot fail a later write. Enabling the controller validates every
+supplied candidate. Resuming a checkpoint that predates the controller fills the
+shared defaults and derives candidates around the checkpoint's effective
+optimizer learning rate; an ordinary job whose inactive candidates miss that rate
+is regenerated when the controller is enabled.
+
+While adaptation is enabled the controller owns the effective learning rate; the
+configured `learning_rate` is the starting value and must appear in
+`adaptation_lr_candidates`. The optimizer is never rebuilt, so Adam moments and
+SGD momentum are preserved; only the parameter groups' learning rate is written,
+at iteration boundaries after an evaluation. Validation requires a fixed
+(non-Champion) evaluation opponent and at least 4 evaluation games, because the
+observation is the completed-game score against that opponent. Unfinished games
+are excluded from the observation rather than scored as losses, and no extra
+evaluation is added.
+
+The current effective rate and a bounded decision history are published in
+monitoring (`progress.adaptation`, the per-iteration history fields and
+`progress.adaptation_events`); the controller state is stored inside the full
+checkpoint and survives resume. Changing the candidate set, the history window or
+the evaluation settings resets the learned state with a visible reason instead of
+mixing incomparable observations. An explicit `learning_rate` override on resume
+is honoured by moving the controller's effective rate while keeping its learned
+state (shown as `adaptation.override_learning_rate`); an unchanged resume keeps
+the selected rate. Malformed saved controller state (including a malformed or
+missing RNG stream) resets only the controller (with a visible reason) after an
+atomic validation pass; the model, optimizer and history are never touched. The
+full design record, honest signal limits, algorithm comparison and reproducible
+benchmark instructions are in
+[online hyperparameter adaptation](designs/online-hyperparameter-adaptation.md);
+the measured controller overhead and baselines are in the
+[smoke benchmark](benchmarks/online-hyperparameter-adaptation.md).
+
+In the history, `learning_rate` is the rate the reported iteration actually
+trained with, while `effective_learning_rate` is the rate selected at that
+iteration's boundary for the next interval. The dashboard labels them “Used” and
+“Selected”. Coverage is per action-history context, so every candidate is tried in
+each context before that context's predictions are exploited; a new context is
+always explored.
+
+Adaptation is a research feature: a lower training loss is not evidence of
+stronger play, and neither is a successful adaptation run by itself. Compare
+equal-budget runs and report the measured protocol.
 
 ## Hyperparameter optimization
 

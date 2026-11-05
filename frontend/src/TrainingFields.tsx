@@ -40,6 +40,11 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   cpu_threads: ['CPU threads', 1, 64],
   search_workers: ['CPU search processes (0 disables)', 0, 32],
   seed: ['Random seed', 0, 4294967295],
+  adaptation_cadence: ['Decide every (evaluations)', 1, 10000],
+  adaptation_warmup: ['Warm-up evaluations', 0, 10000],
+  adaptation_min_dwell: ['Minimum dwell (evaluations)', 1, 10000],
+  adaptation_lag: ['Observation history window', 1, 3],
+  adaptation_min_trials: ['Minimum trials per candidate', 1, 100],
 };
 
 export const trainingParameterLabels: Record<string, string> = {
@@ -60,6 +65,8 @@ export const trainingParameterLabels: Record<string, string> = {
   study_seed: 'Study random seed',
   inference_cache_mode: 'Inference cache',
   training_symmetry_mode: 'Training symmetry augmentation',
+  adaptation: 'Automatic hyperparameter updates',
+  adaptation_lr_candidates: 'Learning rate candidates',
 };
 
 /**

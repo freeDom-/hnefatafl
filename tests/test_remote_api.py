@@ -462,6 +462,7 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
                 "inference_cache_modes": ["off", "exact"],
                 "training_symmetry_modes": ["off", "random_d4"],
                 "parallel_search": True,
+                "hyper_adaptation": True,
             }
         },
     )
@@ -594,7 +595,8 @@ def test_openvino_scheduling_is_opt_in_and_requires_operational_devices(client):
             "inference_device": "GPU",
         },
     )
-    assert rejected.status_code == 400 and "incompatible" in rejected.text
+    assert rejected.status_code == 400
+    assert "does not support the requested OpenVINO inference device" in rejected.text
     incompatible_gpu = client.post(
         "/api/training/jobs",
         json={
@@ -769,6 +771,26 @@ def test_symmetry_mode_gates_workers_and_legacy_transport_omits_it(client):
         },
     )
     assert rejected.status_code == 400, rejected.text
+
+
+def test_adaptation_requires_a_capable_pinned_worker(client):
+    legacy, _ = worker(client)
+    rejected = client.post(
+        "/api/training/jobs",
+        json={
+            "execution": "remote",
+            "preset": "smoke",
+            "device": "cpu",
+            "worker_id": legacy["id"],
+            "adaptation": "hypercontroller",
+            "adaptation_lr_candidates": "0.0003,0.001,0.003",
+            "evaluation_games": 4,
+            "evaluation_opponent": "shield_bearer",
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+    # The reason names the missing controller capability, not the device/backend.
+    assert "automatic hyperparameter updates" in rejected.text
 
 
 def test_augmenting_worker_receives_setting_and_legacy_default_stays_off(client):
@@ -1023,3 +1045,42 @@ def test_bounded_reports_keep_the_sequence_guard_and_the_lease(client):
     job = client.app.state.store.get_job(lease["id"])
     assert job["lease_sequence"] == 2
     assert job["lease_expires"] > datetime.now(timezone.utc).timestamp()
+
+
+def test_remote_progress_retains_bounded_adaptation_events(client):
+    remote, headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "hyper_adaptation": True,
+            }
+        },
+    )
+    queued = queue(client, adaptation="hypercontroller", evaluation_games=4)
+    assert queued["config"]["adaptation"] == "hypercontroller"
+    lease = claim(client, headers)
+    events = [
+        {
+            "iteration": index,
+            "observation": 0.5,
+            "previous_learning_rate": 0.001,
+            "selected_learning_rate": 0.003 if index % 2 else 0.001,
+            "changed": bool(index % 2),
+            "skipped": None,
+        }
+        for index in range(50)
+    ]
+    assert report(client, headers, lease, sequence=0, adaptation_events=events).status_code == 200
+    job = client.get(f"/api/training/jobs/{lease['id']}").json()
+    retained = job["progress"]["adaptation_events"]
+    assert len(retained) == 50
+    assert retained[-1]["selected_learning_rate"] == 0.003
+    # A later partial report without events keeps the retained tail rather than
+    # dropping it, and the merge is what makes that possible.
+    assert report(client, headers, lease, sequence=1, policy_loss=0.5).status_code == 200
+    job = client.get(f"/api/training/jobs/{lease['id']}").json()
+    assert len(job["progress"]["adaptation_events"]) == 50

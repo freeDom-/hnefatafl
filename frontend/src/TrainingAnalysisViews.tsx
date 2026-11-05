@@ -21,6 +21,7 @@ import {
   type Values,
   type HistoryPoint,
 } from './trainingDashboardData';
+import { formatLearningRate } from './trainingLiveProgress';
 
 export function TrainingKpi({
   label,
@@ -265,9 +266,13 @@ export function TrainingLearningView({
   config?: Values;
   range: number;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const last = history.at(-1);
   const metrics = latestMetrics(progress);
+  const adaptation = object(progress.adaptation) ?? {};
+  const effectiveRate = finite(adaptation.effective_learning_rate)
+    ? adaptation.effective_learning_rate
+    : last?.learning_rate;
   const replay = useMemo(
     () => [
       { key: 'replay_positions', name: 'Replay buffer positions', color: 'var(--chart-value)' },
@@ -277,6 +282,12 @@ export function TrainingLearningView({
   return (
     <>
       <dl className="training-kpis learning-kpis">
+        {finite(effectiveRate) && (
+          <TrainingKpi
+            label="Effective learning rate"
+            value={formatLearningRate(effectiveRate, locale)}
+          />
+        )}
         <TrainingKpi
           label="Replay buffer positions"
           value={last?.replay_positions ?? metrics.replay_positions}
@@ -302,7 +313,9 @@ export function TrainingLearningView({
                 trainingNumberFields[key]?.[0] ??
                 (key === 'optimizer' ? 'Optimizer' : key.replaceAll('_', ' '))
               }
-              value={config![key]}
+              value={
+                key === 'learning_rate' ? formatLearningRate(config![key], locale) : config![key]
+              }
             />
           ))}
       </dl>
@@ -318,9 +331,81 @@ export function TrainingLearningView({
       <p className="subtle">
         {t('Missing metrics were not recorded; they are never interpreted as zero.')}
       </p>
+      <AdaptationHistory progress={progress} />
     </>
   );
 }
+
+const SKIP_LABELS: Record<string, string> = {
+  warmup: 'Warm-up',
+  cadence: 'Waiting for cadence',
+  dwell: 'Minimum dwell',
+  fallback: 'Fallback',
+};
+
+function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {
+  if (event.skipped === 'missing_observation') return <>{t('No observation')}</>;
+  if (typeof event.skipped === 'string' && SKIP_LABELS[event.skipped])
+    return <>{t(SKIP_LABELS[event.skipped])}</>;
+  return <>{event.changed === true ? t('Changed') : t('Kept')}</>;
+}
+
+/**
+ * Bounded controller decision log. Older jobs have no events and render nothing,
+ * so a legacy checkpoint never shows an invented history.
+ */
+function AdaptationHistory({ progress }: { progress: Values }) {
+  const { t, locale } = useI18n();
+  const raw = progress.adaptation_events;
+  const events = Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : [];
+  if (!events.length) return null;
+  const rate = (value: unknown) => formatLearningRate(value, locale) ?? '—';
+  const observation = (value: unknown) =>
+    value === null || value === undefined
+      ? t('Unavailable')
+      : finite(value)
+        ? new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value)
+        : '—';
+  return (
+    <TrainingDataDisclosure title="Automatic hyperparameter updates">
+      {() => (
+        <div className="table-scroll bounded-table">
+          <table aria-label={t('Automatic hyperparameter updates')}>
+            <thead>
+              <tr>
+                {[
+                  'Iteration',
+                  'Used learning rate',
+                  'Selected learning rate',
+                  'Observation',
+                  'Decision',
+                ].map((label) => (
+                  <th key={label} scope="col">
+                    {t(label)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((event, index) => (
+                <tr key={index}>
+                  <th scope="row">{finite(event.iteration) ? String(event.iteration) : '—'}</th>
+                  <td>{rate(event.previous_learning_rate)}</td>
+                  <td>{rate(event.selected_learning_rate)}</td>
+                  <td>{observation(event.observation)}</td>
+                  <td>
+                    <AdaptationDecision event={event} t={t} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </TrainingDataDisclosure>
+  );
+}
+
 export function TrainingEvaluationView({
   progress,
   history,

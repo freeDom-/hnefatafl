@@ -38,6 +38,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Shield maiden strategy, strength and runtime evidence](SHIELD_MAIDEN.md)
 - [CPU/CUDA/MPS setup, concurrent MCTS, batch sizes, metric units and benchmark CLI](PERFORMANCE.md)
 - [Training optimization integration and independent PR validation](designs/training-optimizations.md)
+- [Optional online hyperparameter adaptation: algorithm comparison, signal and limits](designs/online-hyperparameter-adaptation.md)
 
 ## Training checkpoints, job storage, model management and migration
 

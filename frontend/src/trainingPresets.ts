@@ -4,6 +4,17 @@ import type { DeviceInfo } from './types';
 export type TrainingPreset = 'recommended' | 'smoke' | 'beginner' | 'balanced';
 export type TrainingConfig = Record<string, string | number | boolean>;
 
+/** Shared controller defaults, mirroring the backend's ``adaptation_defaults()``. */
+export const adaptationDefaults: TrainingConfig = {
+  adaptation: 'off',
+  adaptation_lr_candidates: '0.0003,0.001,0.003',
+  adaptation_cadence: 1,
+  adaptation_warmup: 2,
+  adaptation_min_dwell: 1,
+  adaptation_lag: 1,
+  adaptation_min_trials: 1,
+};
+
 const base: TrainingConfig = {
   ruleset: 'tablut',
   preset: 'recommended',
@@ -56,6 +67,7 @@ const base: TrainingConfig = {
   dirichlet_alpha: 0.3,
   dirichlet_fraction: 0.25,
   save_all_best: false,
+  ...adaptationDefaults,
 };
 /** Explicit schema for importable parameters. Anything else is metadata, not input. */
 export const trainingChoices: Record<string, string[]> = {
@@ -70,6 +82,7 @@ export const trainingChoices: Record<string, string[]> = {
   evaluation_mode: ['auto', 'sequential', 'batched'],
   evaluation_inference_backend: ['pytorch', 'training'],
   evaluation_opponent: ['shield_bearer', 'shield_maiden', 'jarl', 'champion'],
+  adaptation: ['off', 'hypercontroller'],
 };
 
 export function isTrainingParameter(key: string): boolean {
@@ -93,6 +106,120 @@ export function validTrainingInput(key: string, value: unknown): boolean {
     (key !== 'model_name' || (String(value).trim().length > 0 && String(value).length <= 100)) &&
     (key !== 'inference_device' || /^(auto|cpu|cuda|mps|GPU(?:\.\d+)?)$/.test(String(value)))
   );
+}
+
+/** A controller configuration problem and the form input the user must fix. */
+export interface AdaptationConfigError {
+  field: string;
+  message: string;
+}
+
+// Candidate bounds mirror hnefatafl/hyper_adaptation.py: 2..8 distinct rates in
+// [1e-7, 1], and candidates ** (lag + 1) learned contexts at most.
+const MIN_ADAPTATION_CANDIDATES = 2;
+const MAX_ADAPTATION_CANDIDATES = 8;
+const MAX_ADAPTATION_CONTEXTS = 512;
+// Mirror the backend's transport bound so an oversized paste is rejected before
+// it is split on every render instead of only at the server boundary.
+const MAX_ADAPTATION_CANDIDATES_TEXT = 512;
+const ADAPTATION_LR_MIN = 1e-7;
+const ADAPTATION_LR_MAX = 1;
+// Decimal/scientific notation only, so trailing garbage, hex, Infinity and NaN
+// are rejected instead of being silently dropped. Digit-separating underscores
+// are accepted like Python's float(), never adjacent to '.', 'e' or the sign.
+const ADAPTATION_CANDIDATE_SYNTAX =
+  /^[+-]?(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?$/;
+
+/**
+ * Valid, deduplicated candidate rates exactly as the backend parses them, or
+ * null when the text is not a usable list. Used to decide whether an inactive
+ * candidate list already covers a checkpoint's effective learning rate.
+ */
+export function candidateRates(value: unknown): number[] | null {
+  const text = String(value ?? '');
+  if (text.length > MAX_ADAPTATION_CANDIDATES_TEXT) return null;
+  const candidates: number[] = [];
+  for (const entry of text.split(',')) {
+    const token = entry.trim();
+    if (token === '') continue;
+    if (!ADAPTATION_CANDIDATE_SYNTAX.test(token)) return null;
+    const number = Number(token.replace(/_/g, ''));
+    if (!Number.isFinite(number) || number < ADAPTATION_LR_MIN || number > ADAPTATION_LR_MAX)
+      return null;
+    if (!candidates.includes(number)) candidates.push(number);
+  }
+  if (
+    candidates.length < MIN_ADAPTATION_CANDIDATES ||
+    candidates.length > MAX_ADAPTATION_CANDIDATES
+  )
+    return null;
+  return candidates;
+}
+
+/**
+ * Cross-field constraints the controller needs. Per-field validation cannot see
+ * these, and the server is the security boundary; this gives the workshop an
+ * immediate explanation for a configuration that cannot run. Every candidate is
+ * validated (never filtered away) against the backend's contract.
+ */
+export function adaptationConfigError(config: TrainingConfig): AdaptationConfigError | null {
+  if (config.adaptation !== 'hypercontroller') return null;
+  if (config.evaluation_opponent === 'champion')
+    return {
+      field: 'evaluation_opponent',
+      message: 'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.',
+    };
+  if (Number(config.evaluation_games) < 4)
+    return {
+      field: 'evaluation_games',
+      message: 'Automatic hyperparameter updates need at least 4 evaluation games.',
+    };
+
+  const rawCandidates = String(config.adaptation_lr_candidates ?? '');
+  if (rawCandidates.length > MAX_ADAPTATION_CANDIDATES_TEXT)
+    return {
+      field: 'adaptation_lr_candidates',
+      message: 'Learning rate candidates must be at most 512 characters.',
+    };
+  const candidates: number[] = [];
+  for (const entry of rawCandidates.split(',')) {
+    const token = entry.trim();
+    // The backend skips empty entries, including whitespace-only ones.
+    if (token === '') continue;
+    if (!ADAPTATION_CANDIDATE_SYNTAX.test(token))
+      return {
+        field: 'adaptation_lr_candidates',
+        message: 'Learning rate candidates must be decimal numbers separated by commas.',
+      };
+    const value = Number(token.replace(/_/g, ''));
+    if (!Number.isFinite(value) || value < ADAPTATION_LR_MIN || value > ADAPTATION_LR_MAX)
+      return {
+        field: 'adaptation_lr_candidates',
+        message: 'Learning rate candidates must be between 1e-7 and 1.',
+      };
+    if (!candidates.includes(value)) candidates.push(value);
+  }
+  if (
+    candidates.length < MIN_ADAPTATION_CANDIDATES ||
+    candidates.length > MAX_ADAPTATION_CANDIDATES
+  )
+    return {
+      field: 'adaptation_lr_candidates',
+      message: 'Learning rate candidates must contain between 2 and 8 distinct values.',
+    };
+  const lag = Number(config.adaptation_lag ?? 1);
+  if (candidates.length ** (lag + 1) > MAX_ADAPTATION_CONTEXTS)
+    return {
+      field: 'adaptation_lr_candidates',
+      message:
+        'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
+    };
+  if (!candidates.includes(Number(config.learning_rate)))
+    return {
+      field: 'learning_rate',
+      message: 'The learning rate must be one of the adaptation candidates.',
+    };
+  return null;
 }
 
 const plans: Record<string, TrainingConfig> = {
@@ -188,7 +315,38 @@ export function trainingConfig(ruleset: string, preset: TrainingPreset): Trainin
     ruleset,
     preset,
     evaluation_time_limit: options.mcts_time_limit ?? base.mcts_time_limit,
+    // Bounded candidate generation around the plan's starting rate, so enabling
+    // adaptation on any preset is valid without hand-editing the list.
+    adaptation_lr_candidates: boundedCandidates(
+      Number(options.learning_rate ?? base.learning_rate),
+    ),
   };
+}
+
+/**
+ * Up to three distinct candidates around a starting rate, kept inside the valid
+ * range. The exact starting rate is always present; clamping near the minimum or
+ * maximum can collapse its neighbours, so the list is deduplicated and always
+ * holds at least the backend's minimum of two distinct values.
+ */
+export function boundedCandidates(learningRate: number): string {
+  const base = Math.min(1, Math.max(1e-7, learningRate));
+  const values: number[] = [];
+  const add = (value: number) => {
+    const bounded = Math.min(1, Math.max(1e-7, value));
+    if (!values.includes(bounded)) values.push(bounded);
+  };
+  add(base);
+  add(Number((base / 3).toPrecision(4)));
+  add(Number((base * 3).toPrecision(4)));
+  if (values.length < 2) {
+    // Defensive: only reachable if rounding collapses both neighbours.
+    add(base >= 0.5 ? base / 3 : base * 3);
+  }
+  return values
+    .sort((left, right) => left - right)
+    .map((value) => String(value))
+    .join(',');
 }
 
 export function changeTrainingPlan(
@@ -213,6 +371,12 @@ export function changeTrainingPlan(
     inference_cache_mode: previous.inference_cache_mode ?? 'off',
     inference_cache_capacity: previous.inference_cache_capacity ?? 4096,
     training_symmetry_mode: previous.training_symmetry_mode ?? 'random_d4',
+    adaptation: previous.adaptation ?? 'off',
+    adaptation_cadence: previous.adaptation_cadence ?? 1,
+    adaptation_warmup: previous.adaptation_warmup ?? 2,
+    adaptation_min_dwell: previous.adaptation_min_dwell ?? 1,
+    adaptation_lag: previous.adaptation_lag ?? 1,
+    adaptation_min_trials: previous.adaptation_min_trials ?? 1,
   };
 }
 

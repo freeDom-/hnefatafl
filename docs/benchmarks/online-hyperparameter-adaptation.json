@@ -1,0 +1,218 @@
+{
+  "kind": "smoke",
+  "note": "Tiny CPU budget; the evaluation score is the controller feedback signal, not a held-out strength evaluation. Not a strength experiment.",
+  "held_out_strength_evaluation": "not executed",
+  "environment": {
+    "python": "3.12.15",
+    "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43"
+  },
+  "parameters": {
+    "seeds": 3,
+    "iterations": 4,
+    "evaluation_games_per_iteration": 4,
+    "starting_learning_rate": 0.001
+  },
+  "runs": [
+    {
+      "mode": "fixed",
+      "seed": 0,
+      "status": "completed",
+      "wall_seconds": 3.5278977020007005,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.25,
+      "evaluation_seconds": 0.6244001880004362,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ]
+    },
+    {
+      "mode": "scheduler",
+      "seed": 0,
+      "status": "completed",
+      "wall_seconds": 1.117453258999376,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.25,
+      "evaluation_seconds": 0.4473240639999858,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.0005,
+        0.0005
+      ]
+    },
+    {
+      "mode": "hypercontroller",
+      "seed": 0,
+      "status": "completed",
+      "wall_seconds": 1.2432878170002368,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.25,
+      "evaluation_seconds": 0.5596836570002779,
+      "adaptation_seconds": 0.0004291000022931257,
+      "learning_rate_trajectory": [
+        0.001,
+        0.0003,
+        0.003,
+        0.001
+      ],
+      "adaptation_changes": 4
+    },
+    {
+      "mode": "fixed",
+      "seed": 1,
+      "status": "completed",
+      "wall_seconds": 1.1142500080004538,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.25,
+      "evaluation_seconds": 0.5437231039995822,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ]
+    },
+    {
+      "mode": "scheduler",
+      "seed": 1,
+      "status": "completed",
+      "wall_seconds": 1.2774717089996557,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.25,
+      "evaluation_seconds": 0.5290193040000304,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.0005,
+        0.0005
+      ]
+    },
+    {
+      "mode": "hypercontroller",
+      "seed": 1,
+      "status": "completed",
+      "wall_seconds": 1.3922041100013303,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.25,
+      "evaluation_seconds": 0.7466955050022079,
+      "adaptation_seconds": 0.00030759999935980886,
+      "learning_rate_trajectory": [
+        0.001,
+        0.003,
+        0.001,
+        0.001
+      ],
+      "adaptation_changes": 3
+    },
+    {
+      "mode": "fixed",
+      "seed": 2,
+      "status": "completed",
+      "wall_seconds": 1.2702505090001068,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.0,
+      "evaluation_seconds": 0.5814635029964847,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ]
+    },
+    {
+      "mode": "scheduler",
+      "seed": 2,
+      "status": "completed",
+      "wall_seconds": 1.0143293069995707,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.0,
+      "evaluation_seconds": 0.43396940299680864,
+      "adaptation_seconds": 0.0,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.0005,
+        0.0005
+      ]
+    },
+    {
+      "mode": "hypercontroller",
+      "seed": 2,
+      "status": "completed",
+      "wall_seconds": 0.9783448070011218,
+      "updates": 16,
+      "evaluated_iterations": 4,
+      "cumulative_evaluation_games": 16,
+      "final_evaluation_games": 4,
+      "final_evaluation_score": 0.0,
+      "evaluation_seconds": 0.4198587030005001,
+      "adaptation_seconds": 0.00023999999939405825,
+      "learning_rate_trajectory": [
+        0.001,
+        0.001,
+        0.0003,
+        0.003
+      ],
+      "adaptation_changes": 3
+    }
+  ],
+  "failures": [],
+  "summary": {
+    "fixed": {
+      "runs": 3,
+      "median_wall_seconds": 1.2702505090001068,
+      "median_updates": 16,
+      "median_cumulative_evaluation_games": 16,
+      "median_evaluation_seconds": 0.5814635029964847,
+      "median_adaptation_seconds": 0.0
+    },
+    "scheduler": {
+      "runs": 3,
+      "median_wall_seconds": 1.117453258999376,
+      "median_updates": 16,
+      "median_cumulative_evaluation_games": 16,
+      "median_evaluation_seconds": 0.4473240639999858,
+      "median_adaptation_seconds": 0.0
+    },
+    "hypercontroller": {
+      "runs": 3,
+      "median_wall_seconds": 1.2432878170002368,
+      "median_updates": 16,
+      "median_cumulative_evaluation_games": 16,
+      "median_evaluation_seconds": 0.5596836570002779,
+      "median_adaptation_seconds": 0.00030759999935980886
+    }
+  }
+}

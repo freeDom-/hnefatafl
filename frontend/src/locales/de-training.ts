@@ -434,8 +434,8 @@ const translations: Record<string, string> = {
     'Stellungen aus dem Trainingspuffer pro Gewichtsaktualisierung. Größere Stapel ergeben glattere Gradienten und eine bessere Geräteauslastung, brauchen aber mehr Speicher; kleinere Stapel führen zu mehr Aktualisierungsschritten über dieselben Daten. Die Optimierungsschritte pro Iteration sind die Zahl der Epochen multipliziert mit der Zahl der Stapel im Trainingspuffer, aufgerundet, sodass auch der letzte, nur teilweise gefüllte Stapel trainiert wird.',
   'Gradient-training passes over the whole replay buffer per iteration. More epochs extract more from the collected positions but take longer and can overfit. Total passes are the iterations multiplied by this value.':
     'Durchläufe des Gradiententrainings über den gesamten Trainingspuffer pro Iteration. Mehr Epochen holen mehr aus den gesammelten Stellungen, dauern aber länger und können überanpassen. Die Gesamtzahl der Durchläufe ist die Zahl der Iterationen multipliziert mit diesem Wert.',
-  'Step size the optimizer applies to the network weights. Higher values learn faster but can become unstable or prevent convergence; lower values are steadier but need more training. Reduce it if losses fluctuate strongly. On resume, changing it overrides the restored value while the accumulated optimizer state is kept.':
-    'Schrittweite, mit der der Optimierer die Netzgewichte anpasst. Höhere Werte lernen schneller, können aber instabil werden oder die Konvergenz verhindern; niedrigere Werte sind stabiler, brauchen aber mehr Training. Verringere den Wert, wenn die Verluste stark schwanken. Beim Fortsetzen überschreibt eine Änderung den wiederhergestellten Wert, während der akkumulierte Optimiererzustand erhalten bleibt.',
+  'Step size the optimizer applies to the network weights. Higher values learn faster but can become unstable or prevent convergence; lower values are steadier but need more training. Reduce it if losses fluctuate strongly. On resume, changing it overrides the restored value while the accumulated optimizer state is kept. When automatic hyperparameter updates are enabled, this is the controller’s starting rate and must be one of the candidates; overriding it on resume moves the controller’s effective rate while its learned state is kept.':
+    'Schrittweite, mit der der Optimierer die Netzgewichte anpasst. Höhere Werte lernen schneller, können aber instabil werden oder die Konvergenz verhindern; niedrigere Werte sind stabiler, brauchen aber mehr Training. Verringere den Wert, wenn die Verluste stark schwanken. Beim Fortsetzen überschreibt eine Änderung den wiederhergestellten Wert, während der akkumulierte Optimiererzustand erhalten bleibt. Sind automatische Hyperparameter-Aktualisierungen aktiv, ist dies die Startrate des Controllers und muss einer der Kandidaten sein; eine Änderung beim Fortsetzen verschiebt die effektive Rate des Controllers, während sein gelernter Zustand erhalten bleibt.',
   'Algorithm that updates the network weights. AdamW is Adam with decoupled weight decay and is the default; Adam adapts a step size per parameter; SGD uses the momentum setting and often needs a higher learning rate. The optimizer is part of the checkpoint identity, so a resumed run cannot change it.':
     'Algorithmus, der die Netzgewichte aktualisiert. AdamW ist Adam mit entkoppeltem Gewichtsverfall und der Standard; Adam passt die Schrittweite je Parameter an; SGD nutzt die Momentum-Einstellung und braucht oft eine höhere Lernrate. Der Optimierer gehört zur Kontrollpunkt-Identität, daher kann ein fortgesetzter Lauf ihn nicht ändern.',
   'Regularization the optimizer applies to the weights. Higher values shrink weights more strongly and reduce overfitting at the cost of slower fitting; 0 disables it. AdamW applies it decoupled from the gradient update, Adam and SGD apply it through the optimizer itself.':
@@ -497,5 +497,62 @@ const translations: Record<string, string> = {
   'Optional study settings (JSON)': 'Optionale Studien-Einstellungen (JSON)',
   'Optional opponents, held-out verification, sampler/pruner startup and failure budget. Leave empty for the default single-opponent objective.':
     'Optionale Gegner, zurückgehaltene Überprüfung, Sampler-/Pruner-Startphase und Fehlerbudget. Leer lassen für das standardmäßige Einzelgegner-Ziel.',
+  'Automatic hyperparameter updates': 'Automatische Hyperparameter-Aktualisierungen',
+  'Learning rate candidates': 'Lernraten-Kandidaten',
+  Off: 'Aus',
+  HyperController: 'HyperController',
+  'Decide every (evaluations)': 'Entscheidung alle (Evaluationen)',
+  'Warm-up evaluations': 'Aufwärm-Evaluationen',
+  'Minimum dwell (evaluations)': 'Minimale Verweildauer (Evaluationen)',
+  'Observation history window': 'Beobachtungsfenster',
+  'Minimum trials per candidate': 'Mindestversuche pro Kandidat',
+  'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and a fixed (non-Champion) evaluation opponent with at least four games is required.':
+    'Ob der Auftrag die Lernrate während des Trainings online anpasst. Aus lässt die konfigurierte Rate fest. HyperController passt sie innerhalb desselben Laufs anhand der Auswertungsergebnisse an; das ist nicht Optuna, das über getrennte Versuche statt über eine fortlaufende Bahn sucht. Solange es aktiv ist, besitzt der Controller die effektive Rate, die konfigurierte Lernrate ist der Startwert und muss einer der Kandidaten sein, und ein fester (nicht Champion-)Auswertungsgegner mit mindestens vier Partien ist erforderlich.',
+  'Comma-separated learning rates the controller may choose between. Each must be between 1e-7 and 1 and all must be distinct, with 2–8 values. The configured learning rate must appear in the list. A small set keeps each decision cheap and the saved controller state bounded.':
+    'Kommagetrennte Lernraten, zwischen denen der Controller wählen darf. Jede muss zwischen 1e-7 und 1 liegen und alle müssen verschieden sein, mit 2–8 Werten. Die konfigurierte Lernrate muss in der Liste vorkommen. Eine kleine Menge hält jede Entscheidung günstig und den gespeicherten Controller-Zustand begrenzt.',
+  'Number of completed evaluations between controller decisions. 1 decides after every evaluation; higher values judge a longer interval before the rate can change.':
+    'Anzahl abgeschlossener Auswertungen zwischen Controller-Entscheidungen. 1 entscheidet nach jeder Auswertung; höhere Werte beurteilen ein längeres Intervall, bevor sich die Rate ändern kann.',
+  'Completed evaluations observed before the controller may change the learning rate. The configured starting rate is used during warm-up so the first decision is not made from too little evidence.':
+    'Abgeschlossene Auswertungen, die beobachtet werden, bevor der Controller die Lernrate ändern darf. Während der Aufwärmphase wird die konfigurierte Startrate verwendet, damit die erste Entscheidung nicht aus zu wenig Evidenz getroffen wird.',
+  'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy.':
+    'Mindestanzahl an Auswertungen, die eine neu gewählte Lernrate beibehalten wird, bevor sie sich erneut ändern darf. Verhindert schnelles Oszillieren, wenn die Auswertungsergebnisse verrauscht sind.',
+  'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.':
+    'Anzahl der jüngsten Beobachtungen, die der Controller zur Vorhersage des nächsten Ergebnisses nutzt (1–3). Ein größeres Fenster stützt sich auf mehr Vorgeschichte, vergrößert aber den gelernten Zustand; 1 entspricht der Referenzkonfiguration.',
+  'Number of times every candidate must be observed in a given action-history context before the controller may exploit its predictions there. Coverage is per context, so a new context is always explored and a promising candidate cannot hide an unobserved alternative; the value must be at least 1.':
+    'Anzahl, wie oft jeder Kandidat in einem gegebenen Aktionsverlauf-Kontext beobachtet werden muss, bevor der Controller dort seine Vorhersagen ausnutzen darf. Die Abdeckung ist pro Kontext, daher wird ein neuer Kontext immer erkundet und ein vielversprechender Kandidat kann keine unbeobachtete Alternative verbergen; der Wert muss mindestens 1 sein.',
+  'Effective learning rate': 'Effektive Lernrate',
+  'Used learning rate': 'Verwendete Lernrate',
+  'Selected learning rate': 'Gewählte Lernrate',
+  Observation: 'Beobachtung',
+  Decision: 'Entscheidung',
+  Changed: 'Geändert',
+  Kept: 'Beibehalten',
+  'Warm-up': 'Aufwärmphase',
+  'Waiting for cadence': 'Warte auf Takt',
+  'Minimum dwell': 'Minimale Verweildauer',
+  'No observation': 'Keine Beobachtung',
+  Fallback: 'Rückfall',
+  'Unavailable while tuning: the study varies the learning rate across trials.':
+    'Während der Optimierung nicht verfügbar: Die Studie variiert die Lernrate über die Versuche hinweg.',
+  'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.':
+    'Automatische Hyperparameter-Aktualisierungen benötigen einen festen Auswertungsgegner, nicht Champion.',
+  'Automatic hyperparameter updates need at least 4 evaluation games.':
+    'Automatische Hyperparameter-Aktualisierungen benötigen mindestens 4 Auswertungspartien.',
+  'The learning rate must be one of the adaptation candidates.':
+    'Die Lernrate muss einer der Anpassungskandidaten sein.',
+  'Learning rate candidates must be decimal numbers separated by commas.':
+    'Die Lernraten-Kandidaten müssen durch Kommas getrennte Dezimalzahlen sein.',
+  'Learning rate candidates must be between 1e-7 and 1.':
+    'Die Lernraten-Kandidaten müssen zwischen 1e-7 und 1 liegen.',
+  'Learning rate candidates must contain between 2 and 8 distinct values.':
+    'Die Lernraten-Kandidaten müssen zwischen 2 und 8 verschiedene Werte enthalten.',
+  'Learning rate candidates must be at most 512 characters.':
+    'Die Lernraten-Kandidaten dürfen höchstens 512 Zeichen lang sein.',
+  'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.':
+    'Lernraten-Kandidaten und das Beobachtungsverlaufsfenster erzeugen zu viele Controller-Kontexte; weniger Kandidaten oder ein kleineres Fenster verwenden.',
+  'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.':
+    'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen. Wähle einen neueren Worker oder deaktiviere sie.',
+  'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.':
+    'Eine Änderung der Lernrate beim Fortsetzen verschiebt die effektive Rate des Controllers; sein gelernter Zustand bleibt erhalten.',
 };
 export default translations;

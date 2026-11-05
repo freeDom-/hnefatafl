@@ -239,6 +239,51 @@ it('sends only changed, resume-editable settings and never checkpoint identity',
   for (const key of RESUME_IMMUTABLE_FIELDS) expect(overrides).not.toHaveProperty(key);
 });
 
+it('keeps inactive controller settings out of resume overrides', () => {
+  const saved: TrainingConfig = {
+    ...trainingConfig('brandubh', 'smoke'),
+    adaptation: 'off',
+    adaptation_lr_candidates: '0.0003,0.001,0.003',
+    adaptation_cadence: 1,
+  };
+  // A display-only regenerated list must not become an override while off.
+  expect(
+    resumeOverrides(
+      { ...saved, adaptation_lr_candidates: '0.0002333,0.0007,0.0021', adaptation_cadence: 3 },
+      saved,
+    ),
+  ).toEqual({});
+  // Disabling an active controller still reaches the server; the inert
+  // subordinate settings are dropped.
+  expect(
+    resumeOverrides(
+      {
+        ...saved,
+        adaptation: 'off',
+        adaptation_lr_candidates: '0.0002333,0.0007,0.0021',
+        adaptation_cadence: 3,
+      },
+      { ...saved, adaptation: 'hypercontroller' },
+    ),
+  ).toEqual({ adaptation: 'off' });
+  // Enabling it sends every changed controller setting.
+  expect(
+    resumeOverrides(
+      {
+        ...saved,
+        adaptation: 'hypercontroller',
+        adaptation_lr_candidates: '0.0002333,0.0007,0.0021',
+        adaptation_cadence: 3,
+      },
+      saved,
+    ),
+  ).toEqual({
+    adaptation: 'hypercontroller',
+    adaptation_lr_candidates: '0.0002333,0.0007,0.0021',
+    adaptation_cadence: 3,
+  });
+});
+
 it('never reads the tuning search space for ordinary training', () => {
   const malformed = { ...study, space: '{ not json' };
   for (const ruleset of RULESETS) {
