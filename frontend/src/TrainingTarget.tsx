@@ -1,10 +1,25 @@
 import { useId } from 'react';
 import { useI18n } from './i18n';
 import { FieldLabel } from './FieldTooltip';
+import type { TrainingConfig } from './trainingPresets';
 import type { Job, TrainingWorker } from './types';
 
-export function workerEligible(worker: TrainingWorker) {
-  return worker.status !== 'revoked' && worker.compatibility?.eligible === true;
+/**
+ * Why a version-compatible worker cannot run the requested configuration. The
+ * backend enforces the same rule; this keeps the form honest before submission.
+ */
+export function workerCapabilityError(worker: TrainingWorker, config: TrainingConfig): string {
+  if (config.adaptation === 'hypercontroller' && worker.capabilities?.hyper_adaptation !== true)
+    return 'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.';
+  return '';
+}
+
+export function workerEligible(worker: TrainingWorker, config?: TrainingConfig) {
+  return (
+    worker.status !== 'revoked' &&
+    worker.compatibility?.eligible === true &&
+    (!config || !workerCapabilityError(worker, config))
+  );
 }
 
 export function jobTarget(job: Job) {
@@ -28,11 +43,14 @@ export default function TrainingTarget({
   value,
   onChange,
   workers,
+  config,
   disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   workers: TrainingWorker[];
+  /** The requested configuration, so capability gaps disable the worker. */
+  config?: TrainingConfig;
   disabled?: boolean;
 }) {
   const { t } = useI18n();
@@ -41,7 +59,9 @@ export default function TrainingTarget({
   const unavailable =
     value.startsWith('worker:') && !available.some((worker) => `worker:${worker.id}` === value);
   const selected = available.find((worker) => `worker:${worker.id}` === value);
-  const showWarning = selected && (!workerEligible(selected) || selected.version_override_enabled);
+  const capabilityError = selected && config ? workerCapabilityError(selected, config) : '';
+  const showWarning =
+    selected && (!workerEligible(selected, config) || selected.version_override_enabled);
   const id = useId();
   return (
     <div className="training-field">
@@ -56,13 +76,22 @@ export default function TrainingTarget({
       >
         <option value="local">{t('This server')}</option>
         <option value="remote">{t('Any remote worker')}</option>
-        {available.map((worker) => (
-          <option key={worker.id} value={`worker:${worker.id}`} disabled={!workerEligible(worker)}>
-            {worker.name} · {t(worker.status)} · {worker.active_jobs}/{worker.capacity}
-            {' · '}
-            {t(worker.compatibility?.reason ?? 'Missing or unknown application version')}
-          </option>
-        ))}
+        {available.map((worker) => {
+          const workerError = config ? workerCapabilityError(worker, config) : '';
+          return (
+            <option
+              key={worker.id}
+              value={`worker:${worker.id}`}
+              disabled={!workerEligible(worker, config)}
+            >
+              {worker.name} · {t(worker.status)} · {worker.active_jobs}/{worker.capacity}
+              {' · '}
+              {workerError
+                ? t(workerError)
+                : t(worker.compatibility?.reason ?? 'Missing or unknown application version')}
+            </option>
+          );
+        })}
         {unavailable && (
           <option value={value} disabled>
             {t('Unavailable worker')}
@@ -71,7 +100,9 @@ export default function TrainingTarget({
       </select>
       {selected && showWarning && (
         <small role="status" id={warningId}>
-          {t(selected.compatibility?.reason ?? 'Missing or unknown application version')}
+          {capabilityError
+            ? t(capabilityError)
+            : t(selected.compatibility?.reason ?? 'Missing or unknown application version')}
           {selected.version_override_enabled && ` · ${t('Unsupported version combination')}`}
         </small>
       )}

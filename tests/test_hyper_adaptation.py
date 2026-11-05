@@ -131,6 +131,58 @@ def test_adaptation_requires_the_configured_rate_to_be_a_candidate(tmp_path):
         normalize_config(adapted_config(tmp_path, learning_rate=0.002))
 
 
+def test_adaptation_off_ignores_inactive_controller_settings(tmp_path):
+    # Enable, enter invalid candidates, then disable: the inactive controller
+    # settings must not block the run and must not rewrite unrelated settings.
+    config = normalize_config(
+        smoke_config(
+            tmp_path,
+            adaptation="off",
+            adaptation_lr_candidates="0.001,garbage",
+            adaptation_cadence=0,
+            learning_rate=0.0007,
+        )
+    )
+    assert config["adaptation"] == "off"
+    assert config["learning_rate"] == 0.0007
+    assert config["adaptation_lr_candidates"] == "0.001,garbage"
+    assert config["adaptation_cadence"] == 0
+
+
+def test_disabling_adaptation_after_an_invalid_edit_still_trains(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    result = train(
+        smoke_config(
+            tmp_path,
+            iterations=1,
+            adaptation="off",
+            adaptation_lr_candidates="0.001,garbage",
+        )
+    )
+    assert result["status"] == "completed"
+    _, payload = load_checkpoint(result["checkpoint"])
+    assert "adaptation_state" not in payload["extra"]
+
+
+def test_partial_resume_rejects_invalid_candidates_before_loading(tmp_path):
+    # Independently invalid controller input is still rejected before a
+    # checkpoint is read, even though the cross-field checks are deferred.
+    with pytest.raises(ValueError, match="must contain numbers"):
+        train(
+            {
+                "preset": "smoke",
+                "ruleset": "brandubh",
+                "device": "cpu",
+                "seed": 0,
+                "output_dir": str(tmp_path / "out"),
+                "resume": str(tmp_path / "missing.pt"),
+                "adaptation": "hypercontroller",
+                "adaptation_lr_candidates": "0.001,garbage",
+            }
+        )
+
+
 def test_adaptation_state_size_limit_is_derived_and_enforced(tmp_path):
     # 8 candidates and lag 3 produce 8**4 = 4096 contexts, above the 512 limit.
     with pytest.raises(ValueError, match="too many controller contexts"):
@@ -468,17 +520,76 @@ def test_enabling_adaptation_on_an_old_checkpoint_starts_fresh(tmp_path):
     assert state["observations"] == 2
 
 
+def test_partial_resume_inherits_evaluation_settings_before_adaptation(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    # The checkpoint's evaluation settings allow a controller, but the partial
+    # resume does not repeat them; they must be inherited before validation.
+    plain = train(
+        smoke_config(
+            tmp_path / "plain",
+            iterations=2,
+            evaluation_games=4,
+            evaluation_frequency=1,
+        )
+    )
+    resumed = train(
+        {
+            "preset": "smoke",
+            "ruleset": "brandubh",
+            "device": "cpu",
+            "seed": 0,
+            "output_dir": str(tmp_path / "resumed"),
+            "iterations": 3,
+            "resume": plain["checkpoint"],
+            "adaptation": "hypercontroller",
+            "adaptation_lr_candidates": "0.0003,0.001,0.003",
+        }
+    )
+    assert resumed["status"] == "completed"
+    assert resumed["adaptation"]["algorithm"] == "hypercontroller"
+    state = load_checkpoint(resumed["checkpoint"])[1]["extra"]["adaptation_state"]
+    # Only the resumed iteration is a fresh controller observation.
+    assert state["observations"] == 1
+
+
+def test_partial_resume_with_invalid_effective_settings_is_rejected(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    # The checkpoint itself has only two evaluation games, so enabling adaptation
+    # is invalid once the effective configuration is known.
+    plain = train(smoke_config(tmp_path / "plain", iterations=1, evaluation_games=2))
+    with pytest.raises(ValueError, match="at least 4"):
+        train(
+            {
+                "preset": "smoke",
+                "ruleset": "brandubh",
+                "device": "cpu",
+                "seed": 0,
+                "output_dir": str(tmp_path / "resumed"),
+                "iterations": 2,
+                "resume": plain["checkpoint"],
+                "adaptation": "hypercontroller",
+                "adaptation_lr_candidates": "0.0003,0.001,0.003",
+            }
+        )
+
+
 # ── Remote-worker compatibility ──────────────────────────────────────────────
 
 
 def test_remote_worker_without_capability_is_not_offered_adapted_jobs(tmp_path):
-    from hnefatafl.remote_training import worker_compatible
+    from hnefatafl.remote_training import worker_compatible, worker_incompatibility
 
     config = normalize_config(adapted_config(tmp_path))
     capable = {"hyper_adaptation": True, "training_symmetry_modes": ["off", "random_d4"]}
     assert not worker_compatible(config, {})
     assert not worker_compatible(config, {"hyper_adaptation": False})
     assert worker_compatible(config, capable)
+    # The reason names the missing controller capability instead of blaming the
+    # inference backend or device.
+    assert worker_incompatibility(config, {}) == "automatic hyperparameter updates"
+    assert worker_incompatibility(config, capable) is None
     # An admin version override cannot bypass the capability gate.
     assert not worker_compatible(
         config, {**capable, "hyper_adaptation": False, "version_override": True}

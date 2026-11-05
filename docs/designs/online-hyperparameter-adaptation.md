@@ -104,6 +104,10 @@ informative. The configured `learning_rate` must be one of the candidates, so
 every observed interval is attributable. Adaptation is rejected inside Optuna
 tuning, where the study itself varies the learning rate.
 
+With adaptation `off` the controller settings are inert: they are not validated
+and never block a run, so a user can disable the controller after an invalid edit
+and still start training. Enabling it validates every supplied candidate.
+
 ### Known signal limitations
 
 * The fixed opponent can saturate near 1.0 (especially Shield bearer), after which
@@ -156,6 +160,12 @@ transport.
   `adaptation.override_learning_rate`. An unchanged resume (the request carries the
   saved value) keeps the selected rate exactly.
 * Old checkpoints without `adaptation_state` load unchanged with adaptation off.
+* A checkpoint that predates the controller has no adaptation inputs. The resume
+  form fills the shared defaults and derives candidates around the checkpoint's
+  **effective optimizer learning rate** (not the global default), keeping any
+  explicitly saved values untouched. A partial CLI/Python resume that enables
+  adaptation is validated against the fully resolved checkpoint configuration, so
+  inherited evaluation settings are honoured before the cross-field rules run.
 
 ## State validation and recovery
 
@@ -186,9 +196,11 @@ deserialized.
 The controller executes inside the training process, so it works identically on a
 remote worker. Workers advertise a `hyper_adaptation` capability; a job with
 adaptation enabled is never offered to a worker that lacks it, and an
-administrator version override cannot bypass that gate. A transport copy sent to
-a legacy worker omits the adaptation keys, so the old binary cannot silently
-ignore an enabled controller.
+administrator version override cannot bypass that gate. The rejection names the
+missing capability (for example, automatic hyperparameter updates) instead of
+blaming the inference backend or device. A transport copy sent to a legacy worker
+omits the adaptation keys, so the old binary cannot silently ignore an enabled
+controller.
 
 ## Differences between the paper, the reference code and this implementation
 

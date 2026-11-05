@@ -153,7 +153,7 @@ export default function TrainingCreationPanel({
   const unavailableTarget =
     isRemote &&
     target.startsWith('worker:') &&
-    (!selectedWorker || !workerEligible(selectedWorker));
+    (!selectedWorker || !workerEligible(selectedWorker, config));
   const targetDevice = isRemote ? selectedWorker?.capabilities : device;
   const form = useRef<HTMLFormElement>(null);
   const alert = useRef<HTMLDivElement>(null);
@@ -291,6 +291,7 @@ export default function TrainingCreationPanel({
             <TrainingTarget
               value={kind === 'tune' ? 'local' : target}
               workers={workers}
+              config={config}
               disabled={kind === 'tune'}
               onChange={(value) => {
                 setTarget(value);
@@ -453,7 +454,7 @@ export default function TrainingCreationPanel({
                 disabled={kind === 'tune'}
                 onChange={(e) => update('adaptation', e.target.value)}
               >
-                <option value="off">Off</option>
+                <option value="off">{t('Off')}</option>
                 <option value="hypercontroller">HyperController</option>
               </select>
               {kind === 'tune' && (
@@ -472,7 +473,7 @@ export default function TrainingCreationPanel({
               }
               invalid={rejected.has('training_symmetry_mode')}
               errorId={alertId}
-            />{' '}
+            />
           </div>
         </fieldset>
         <fieldset className="creation-group">

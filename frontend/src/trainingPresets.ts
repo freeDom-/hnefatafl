@@ -4,6 +4,17 @@ import type { DeviceInfo } from './types';
 export type TrainingPreset = 'recommended' | 'smoke' | 'beginner' | 'balanced';
 export type TrainingConfig = Record<string, string | number | boolean>;
 
+/** Shared controller defaults, mirroring the backend's ``adaptation_defaults()``. */
+export const adaptationDefaults: TrainingConfig = {
+  adaptation: 'off',
+  adaptation_lr_candidates: '0.0003,0.001,0.003',
+  adaptation_cadence: 1,
+  adaptation_warmup: 2,
+  adaptation_min_dwell: 1,
+  adaptation_lag: 1,
+  adaptation_min_trials: 1,
+};
+
 const base: TrainingConfig = {
   ruleset: 'tablut',
   preset: 'recommended',
@@ -56,13 +67,7 @@ const base: TrainingConfig = {
   dirichlet_alpha: 0.3,
   dirichlet_fraction: 0.25,
   save_all_best: false,
-  adaptation: 'off',
-  adaptation_lr_candidates: '0.0003,0.001,0.003',
-  adaptation_cadence: 1,
-  adaptation_warmup: 2,
-  adaptation_min_dwell: 1,
-  adaptation_lag: 1,
-  adaptation_min_trials: 1,
+  ...adaptationDefaults,
 };
 /** Explicit schema for importable parameters. Anything else is metadata, not input. */
 export const trainingChoices: Record<string, string[]> = {
@@ -283,10 +288,28 @@ export function trainingConfig(ruleset: string, preset: TrainingPreset): Trainin
   };
 }
 
-/** Three distinct candidates around a starting rate, kept inside the valid range. */
-function boundedCandidates(learningRate: number): string {
-  return [learningRate / 3, learningRate, learningRate * 3]
-    .map((value) => Math.min(1, Math.max(1e-7, Number(value.toPrecision(4)))))
+/**
+ * Up to three distinct candidates around a starting rate, kept inside the valid
+ * range. The exact starting rate is always present; clamping near the minimum or
+ * maximum can collapse its neighbours, so the list is deduplicated and always
+ * holds at least the backend's minimum of two distinct values.
+ */
+export function boundedCandidates(learningRate: number): string {
+  const base = Math.min(1, Math.max(1e-7, learningRate));
+  const values: number[] = [];
+  const add = (value: number) => {
+    const bounded = Math.min(1, Math.max(1e-7, value));
+    if (!values.includes(bounded)) values.push(bounded);
+  };
+  add(base);
+  add(Number((base / 3).toPrecision(4)));
+  add(Number((base * 3).toPrecision(4)));
+  if (values.length < 2) {
+    // Defensive: only reachable if rounding collapses both neighbours.
+    add(base >= 0.5 ? base / 3 : base * 3);
+  }
+  return values
+    .sort((left, right) => left - right)
     .map((value) => String(value))
     .join(',');
 }

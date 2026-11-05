@@ -16,7 +16,7 @@ import {
 } from './TrainingFields';
 import { FieldLabel, ReadOnlyFieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
-import { adaptationConfigError } from './trainingPresets';
+import { adaptationConfigError, adaptationDefaults, boundedCandidates } from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
@@ -81,6 +81,8 @@ export default function TrainingResumeDialog({
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
+  /** Set when the checkpoint predates adaptation and its candidates were derived. */
+  const generatedCandidates = useRef(false);
   const [optimizedConfig, setOptimizedConfig] = useState<TrainingConfig>({});
   const update = (key: string, value: string | number | boolean) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
@@ -126,6 +128,21 @@ export default function TrainingResumeDialog({
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
+        // Legacy checkpoints predate the controller. Fill its settings for
+        // display, deriving the candidates from the checkpoint's effective
+        // optimizer rate rather than the global default. A checkpoint that
+        // already saved adaptation settings keeps them untouched.
+        const hadCandidates = saved.adaptation_lr_candidates !== undefined;
+        const effectiveLearningRate = Number(saved.learning_rate ?? 0.001);
+        for (const [key, value] of Object.entries(adaptationDefaults)) {
+          if (key !== 'adaptation_lr_candidates') saved[key] ??= value;
+        }
+        saved.adaptation_lr_candidates ??= boundedCandidates(effectiveLearningRate);
+        // A legacy checkpoint has no saved candidates. Keep the generated list
+        // for display and change detection, but remember to carry it explicitly
+        // when the controller is enabled: the backend's fixed default would not
+        // contain the checkpoint's effective rate.
+        generatedCandidates.current = !hadCandidates;
         // Reviewing tuning results must never apply them silently: overlay only
         // the compatible, editable winning fields and keep checkpoint identity.
         savedConfig.current = { ...saved };
@@ -234,17 +251,26 @@ export default function TrainingResumeDialog({
       (String(config.model_name).length >= 1 && String(config.model_name).length <= 100)) &&
     (!executionTarget.startsWith('worker:') ||
       workers.some(
-        (worker) => `worker:${worker.id}` === executionTarget && workerEligible(worker),
+        (worker) => `worker:${worker.id}` === executionTarget && workerEligible(worker, config),
       ));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!checkpoint || !valid) return;
     setBusy(true);
     try {
-      const next = await api<Job>(
-        `/training/jobs/${job.id}/resume`,
-        resumePayload(config, savedConfig.current, target, executionTarget, jobTarget(job)),
+      const payload = resumePayload(
+        config,
+        savedConfig.current,
+        target,
+        executionTarget,
+        jobTarget(job),
       );
+      if (generatedCandidates.current && config.adaptation === 'hypercontroller') {
+        // The checkpoint had no candidate list; send the derived one so the
+        // backend validates it against the inherited effective rate.
+        payload.adaptation_lr_candidates = config.adaptation_lr_candidates;
+      }
+      const next = await api<Job>(`/training/jobs/${job.id}/resume`, payload);
       onStarted(next, checkpoint.completed_iteration, target);
     } catch (error) {
       notify.error(errorMessage(error));
@@ -382,6 +408,7 @@ export default function TrainingResumeDialog({
                   <TrainingTarget
                     value={executionTarget}
                     workers={workers}
+                    config={config}
                     onChange={setExecutionTarget}
                     disabled={busy}
                   />
@@ -488,7 +515,7 @@ export default function TrainingResumeDialog({
                         disabled={busy}
                         onChange={(event) => update('adaptation', event.target.value)}
                       >
-                        <option value="off">Off</option>
+                        <option value="off">{t('Off')}</option>
                         <option value="hypercontroller">HyperController</option>
                       </select>
                     </div>

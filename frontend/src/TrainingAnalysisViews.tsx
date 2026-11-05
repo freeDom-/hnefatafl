@@ -21,6 +21,7 @@ import {
   type Values,
   type HistoryPoint,
 } from './trainingDashboardData';
+import { formatLearningRate } from './trainingLiveProgress';
 
 export function TrainingKpi({
   label,
@@ -265,7 +266,7 @@ export function TrainingLearningView({
   config?: Values;
   range: number;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const last = history.at(-1);
   const metrics = latestMetrics(progress);
   const adaptation = object(progress.adaptation) ?? {};
@@ -282,7 +283,10 @@ export function TrainingLearningView({
     <>
       <dl className="training-kpis learning-kpis">
         {finite(effectiveRate) && (
-          <TrainingKpi label="Effective learning rate" value={effectiveRate} />
+          <TrainingKpi
+            label="Effective learning rate"
+            value={formatLearningRate(effectiveRate, locale)}
+          />
         )}
         <TrainingKpi
           label="Replay buffer positions"
@@ -309,7 +313,9 @@ export function TrainingLearningView({
                 trainingNumberFields[key]?.[0] ??
                 (key === 'optimizer' ? 'Optimizer' : key.replaceAll('_', ' '))
               }
-              value={config![key]}
+              value={
+                key === 'learning_rate' ? formatLearningRate(config![key], locale) : config![key]
+              }
             />
           ))}
       </dl>
@@ -353,10 +359,7 @@ function AdaptationHistory({ progress }: { progress: Values }) {
   const raw = progress.adaptation_events;
   const events = Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : [];
   if (!events.length) return null;
-  const rate = (value: unknown) =>
-    finite(value)
-      ? new Intl.NumberFormat(locale, { maximumSignificantDigits: 4 }).format(value)
-      : '—';
+  const rate = (value: unknown) => formatLearningRate(value, locale) ?? '—';
   const observation = (value: unknown) =>
     value === null || value === undefined
       ? t('Unavailable')

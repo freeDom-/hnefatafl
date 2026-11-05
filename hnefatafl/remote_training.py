@@ -161,45 +161,56 @@ def validate_inference_capabilities(capabilities: dict) -> None:
             fail("Invalid worker OpenVINO runtime metadata.")
 
 
-def worker_compatible(config: dict, capabilities: dict) -> bool:
+def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
+    """The first requested capability the worker does not advertise, if any.
+
+    A worker that cannot run the controller must never be offered an adapted job,
+    including through an administrator version override, so the reason names the
+    missing capability instead of blaming the inference backend or device.
+    """
     if (
         config.get("adaptation", "off") != "off"
         and capabilities.get("hyper_adaptation") is not True
     ):
         # A worker that cannot run the controller must never be offered a job
         # that has it enabled, including through an administrator override.
-        return False
+        return "automatic hyperparameter updates"
     if config.get("search_workers", 0) and capabilities.get("parallel_search") is not True:
-        return False
+        return "parallel search processes"
     if config.get("training_symmetry_mode", "off") not in capabilities.get(
         "training_symmetry_modes", ["off"]
     ):
-        return False
+        return "training symmetry augmentation"
     if capabilities.get("evaluation_batching") is not True and (
         config.get("evaluation_mode", "auto") == "batched"
         or config.get("evaluation_inference_backend", "pytorch") != "pytorch"
         or config.get("evaluation_concurrency", 16) != 16
         or config.get("evaluation_batch_size", 32) != 32
     ):
-        return False
+        return "batched evaluation"
     if config.get("inference_cache_mode", "off") not in capabilities.get(
         "inference_cache_modes", ["off"]
     ):
-        return False
+        return "the requested inference cache mode"
     device = config.get("device", "auto")
     if device not in ("auto", "cpu") and capabilities.get(f"{device}_available") is not True:
-        return False
+        return f"the {device} training device"
     if config.get("inference_backend", "pytorch") == "openvino":
         if device == "auto" and (
             capabilities.get("default_device", "cpu") != "cpu"
             or capabilities.get("cuda_available") is True
             or capabilities.get("mps_available") is True
         ):
-            return False
+            return "OpenVINO inference with an automatic CPU-default device"
         from .inference_backends import supports_openvino
 
-        return supports_openvino(capabilities, config.get("inference_device", "auto"))
-    return True
+        if not supports_openvino(capabilities, config.get("inference_device", "auto")):
+            return "the requested OpenVINO inference device"
+    return None
+
+
+def worker_compatible(config: dict, capabilities: dict) -> bool:
+    return worker_incompatibility(config, capabilities) is None
 
 
 def timestamp() -> float:
@@ -522,9 +533,11 @@ class RemoteTraining:
                         f"server {compatibility['server_version']}).",
                         409,
                     )
-                if not worker_compatible(config, worker.get("capabilities", {})):
+                incompatibility = worker_incompatibility(config, worker.get("capabilities", {}))
+                if incompatibility:
                     fail(
-                        "Selected worker is incompatible with the training device or neural inference backend. A compatible worker is required."
+                        "Selected worker cannot run this job because it does not "
+                        f"support {incompatibility}. Choose a compatible worker."
                     )
             directory = self.directory(identifier)
             directory.mkdir()

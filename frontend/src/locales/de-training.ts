@@ -542,6 +542,8 @@ const translations: Record<string, string> = {
     'Die Lernraten-Kandidaten müssen zwischen 2 und 8 verschiedene Werte enthalten.',
   'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.':
     'Lernraten-Kandidaten und das Beobachtungsverlaufsfenster erzeugen zu viele Controller-Kontexte; weniger Kandidaten oder ein kleineres Fenster verwenden.',
+  'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.':
+    'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen. Wähle einen neueren Worker oder deaktiviere sie.',
   'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.':
     'Eine Änderung der Lernrate beim Fortsetzen verschiebt die effektive Rate des Controllers; sein gelernter Zustand bleibt erhalten.',
 };

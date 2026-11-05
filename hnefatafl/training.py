@@ -152,7 +152,7 @@ PRESETS: dict[str, dict] = {
 }
 
 
-def normalize_config(configuration: dict) -> dict:
+def normalize_config(configuration: dict, *, resolved: bool = True) -> dict:
     unknown = set(configuration) - set(DEFAULTS) - {"registry_dir", "resume"}
     if unknown:
         raise ValueError(f"Unknown training parameters: {', '.join(sorted(unknown))}")
@@ -240,7 +240,7 @@ def normalize_config(configuration: dict) -> dict:
     if config["inference_cache_mode"] not in ("off", "exact"):
         raise ValueError("inference_cache_mode must be off or exact")
     validate_mode(config["training_symmetry_mode"])
-    config.update(normalize_adaptation(config))
+    config.update(normalize_adaptation(config, resolved=resolved))
     normalize_inference(config)
     return config
 
@@ -757,8 +757,11 @@ def train(
     # checkpoint, building the model and moving it to the device can take a long
     # time, and a job that is already running must never look like a dead worker.
     # The explicit inputs are validated first so an invalid configuration still
-    # fails before anything is written.
-    provisional = normalize_config(configuration)
+    # fails before anything is written. A resume's effective evaluation and
+    # learning-rate settings are only known after its checkpoint is loaded, so
+    # the configuration-dependent adaptation checks are deferred until then.
+    resuming = bool(configuration.get("resume"))
+    provisional = normalize_config(configuration, resolved=not resuming)
     output = Path(provisional["output_dir"]).resolve()
     if provisional.get("resume") and (output / "last.pt" == Path(provisional["resume"]).resolve()):
         raise ValueError("Resume output_dir must preserve the source checkpoint path")

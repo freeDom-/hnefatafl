@@ -1,10 +1,15 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Training from './Training';
 import TrainingResumeDialog, { type ResumeCheckpoint } from './TrainingResumeDialog';
 import { TrainingLearningView } from './TrainingAnalysisViews';
 import { setLanguage, translate } from './i18n';
-import { adaptationConfigError, trainingConfig, type TrainingConfig } from './trainingPresets';
+import {
+  adaptationConfigError,
+  boundedCandidates,
+  trainingConfig,
+  type TrainingConfig,
+} from './trainingPresets';
 import type { Job, Ruleset } from './types';
 
 /**
@@ -268,6 +273,28 @@ it('shows the effective rate and the used/selected decision history', async () =
   expect(screen.getByText('No observation')).toBeInTheDocument();
 });
 
+it('keeps closely spaced learning rates distinguishable in the UI', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.00012341 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.5,
+        previous_learning_rate: 0.00012341,
+        selected_learning_rate: 0.00012342,
+        changed: true,
+        skipped: null,
+      },
+    ],
+  });
+  expect(screen.getByText('Effective learning rate')).toBeInTheDocument();
+  expect(screen.getAllByText('1.2341E-4').length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table');
+  expect(within(table).getByText('1.2341E-4')).toBeInTheDocument();
+  expect(within(table).getByText('1.2342E-4')).toBeInTheDocument();
+});
+
 it('renders no decision history for a legacy job without events', () => {
   renderLearning({ adaptation: { effective_learning_rate: 0.001 } });
   expect(screen.queryByText('Automatic hyperparameter updates')).toBeNull();
@@ -340,6 +367,108 @@ it('explains that a resume learning-rate change moves the controller rate', asyn
   expect(screen.getByRole('button', { name: 'Continue training' })).toBeEnabled();
 });
 
+it('fills legacy checkpoint adaptation settings from the effective rate', async () => {
+  const legacy: TrainingConfig = {
+    ...trainingConfig('brandubh', 'recommended'),
+    learning_rate: 0.002,
+    evaluation_opponent: 'shield_bearer',
+    evaluation_games: 4,
+  };
+  for (const key of [
+    'adaptation',
+    'adaptation_lr_candidates',
+    'adaptation_cadence',
+    'adaptation_warmup',
+    'adaptation_min_dwell',
+    'adaptation_lag',
+    'adaptation_min_trials',
+  ])
+    delete legacy[key];
+  const info: ResumeCheckpoint = {
+    job_id: 'source',
+    checkpoint: 'source:last.pt',
+    completed_iteration: 5,
+    ruleset: 'brandubh',
+    channels: 32,
+    blocks: 2,
+    optimizer: 'adamw',
+    learning_rate: 0.002,
+    weight_decay: 0.0001,
+    momentum: 0.9,
+    model_name: 'Freydis',
+    can_resume: true,
+    config: legacy,
+  };
+  const next = { id: 'next', status: 'running', config: {} };
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' ? next : info),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const job: Job = { id: 'source', kind: 'train', status: 'completed', config: {} };
+  const onStarted = vi.fn();
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={onStarted} />);
+  const select = await screen.findByRole('combobox', { name: 'Automatic hyperparameter updates' });
+  expect(select).toHaveValue('off');
+  fireEvent.change(select, { target: { value: 'hypercontroller' } });
+  // Candidates are derived from the checkpoint's effective optimizer rate, and
+  // the remaining controller defaults are populated for the form.
+  expect(screen.getByLabelText('Learning rate candidates')).toHaveValue('0.0006667,0.002,0.006');
+  expect(screen.getByLabelText('Decide every (evaluations)')).toHaveValue(1);
+  expect(screen.getByLabelText('Warm-up evaluations')).toHaveValue(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  const sent = fetcher.mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(String(sent[1]?.body))).toMatchObject({
+    adaptation: 'hypercontroller',
+    adaptation_lr_candidates: '0.0006667,0.002,0.006',
+  });
+});
+
+it('preserves saved controller settings on resume', async () => {
+  const info: ResumeCheckpoint = {
+    job_id: 'source',
+    checkpoint: 'source:last.pt',
+    completed_iteration: 5,
+    ruleset: 'brandubh',
+    channels: 32,
+    blocks: 2,
+    optimizer: 'adamw',
+    learning_rate: 0.001,
+    weight_decay: 0.0001,
+    momentum: 0.9,
+    model_name: 'Freydis',
+    can_resume: true,
+    config: {
+      ...trainingConfig('brandubh', 'recommended'),
+      adaptation: 'hypercontroller',
+      adaptation_lr_candidates: '0.0004,0.001,0.004',
+      adaptation_cadence: 3,
+      learning_rate: 0.001,
+      evaluation_opponent: 'shield_bearer',
+      evaluation_games: 4,
+    },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(info)),
+  );
+  const job: Job = { id: 'source', kind: 'train', status: 'completed', config: {} };
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  expect(
+    await screen.findByRole('combobox', { name: 'Automatic hyperparameter updates' }),
+  ).toHaveValue('hypercontroller');
+  expect(screen.getByLabelText('Learning rate candidates')).toHaveValue('0.0004,0.001,0.004');
+  expect(screen.getByLabelText('Decide every (evaluations)')).toHaveValue(3);
+});
+
+it('generates distinct candidates at the supported rate boundaries', () => {
+  expect(boundedCandidates(1)).toBe('0.3333,1');
+  expect(boundedCandidates(1e-7)).toBe('1e-7,3e-7');
+  // The exact starting rate is always a candidate, even when rounding would
+  // otherwise move it.
+  expect(boundedCandidates(0.00123456).split(',')).toContain('0.00123456');
+});
+
 it('translates the new controller labels and tooltips into German', () => {
   for (const source of [
     'Effective learning rate',
@@ -359,6 +488,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Learning rate candidates must be between 1e-7 and 1.',
     'Learning rate candidates must contain between 2 and 8 distinct values.',
     'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
+    'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.',
   ]) {
     expect(translate(source, {}, 'de'), `untranslated ${source}`).not.toBe(source);
   }

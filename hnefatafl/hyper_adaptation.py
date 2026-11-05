@@ -170,12 +170,20 @@ def parse_candidates(value: Any) -> list[float]:
     return candidates
 
 
-def normalize_adaptation(full_config: dict) -> dict:
+def normalize_adaptation(full_config: dict, *, resolved: bool = True) -> dict:
     """Validate the adaptation inputs and return their canonical scalar values.
 
     ``adaptation_lr_candidates`` stays a scalar string in the normalized config
     so the value transports like every other training parameter; the controller
     parses it once when it is constructed.
+
+    When ``resolved`` is false, the cross-field checks that depend on settings
+    inherited from a resumed checkpoint (the evaluation opponent, the evaluation
+    game count and the configured learning rate) are deferred until the effective
+    configuration is known. The controller fields themselves are still validated
+    whenever adaptation is enabled, so independently invalid input is rejected
+    before any checkpoint is loaded. With adaptation off the controller settings
+    are inert and never block a run.
     """
     values = {
         **adaptation_defaults(),
@@ -184,6 +192,11 @@ def normalize_adaptation(full_config: dict) -> dict:
     algorithm = values["adaptation"]
     if algorithm not in ALGORITHMS:
         raise ValueError("adaptation must be off or hypercontroller")
+    if algorithm == "off":
+        # Inactive controller settings are inert. They are kept as supplied and
+        # never validated, so disabling adaptation cannot fail a run or rewrite
+        # an unrelated setting such as the ordinary learning rate.
+        return dict(values)
     candidates = parse_candidates(values["adaptation_lr_candidates"])
     for key, low, high in (
         ("adaptation_cadence", 1, 10000),
@@ -201,7 +214,7 @@ def normalize_adaptation(full_config: dict) -> dict:
             "adaptation_lr_candidates and adaptation_lag produce too many controller "
             f"contexts (limit {MAX_CONTEXTS}); use fewer candidates or a smaller lag"
         )
-    if algorithm != "off":
+    if resolved:
         if full_config.get("evaluation_opponent", "shield_bearer") == "champion":
             raise ValueError(
                 "adaptation requires a fixed evaluation opponent; Champion moves and "

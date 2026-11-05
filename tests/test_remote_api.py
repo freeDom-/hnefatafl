@@ -532,7 +532,8 @@ def test_openvino_scheduling_is_opt_in_and_requires_operational_devices(client):
             "inference_device": "GPU",
         },
     )
-    assert rejected.status_code == 400 and "incompatible" in rejected.text
+    assert rejected.status_code == 400
+    assert "does not support the requested OpenVINO inference device" in rejected.text
     incompatible_gpu = client.post(
         "/api/training/jobs",
         json={
@@ -707,6 +708,26 @@ def test_symmetry_mode_gates_workers_and_legacy_transport_omits_it(client):
         },
     )
     assert rejected.status_code == 400, rejected.text
+
+
+def test_adaptation_requires_a_capable_pinned_worker(client):
+    legacy, _ = worker(client)
+    rejected = client.post(
+        "/api/training/jobs",
+        json={
+            "execution": "remote",
+            "preset": "smoke",
+            "device": "cpu",
+            "worker_id": legacy["id"],
+            "adaptation": "hypercontroller",
+            "adaptation_lr_candidates": "0.0003,0.001,0.003",
+            "evaluation_games": 4,
+            "evaluation_opponent": "shield_bearer",
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+    # The reason names the missing controller capability, not the device/backend.
+    assert "automatic hyperparameter updates" in rejected.text
 
 
 def test_augmenting_worker_receives_setting_and_legacy_default_stays_off(client):
