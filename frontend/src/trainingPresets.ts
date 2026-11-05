@@ -128,6 +128,30 @@ const ADAPTATION_CANDIDATE_SYNTAX =
   /^[+-]?(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?$/;
 
 /**
+ * Valid, deduplicated candidate rates exactly as the backend parses them, or
+ * null when the text is not a usable list. Used to decide whether an inactive
+ * candidate list already covers a checkpoint's effective learning rate.
+ */
+export function candidateRates(value: unknown): number[] | null {
+  const candidates: number[] = [];
+  for (const entry of String(value ?? '').split(',')) {
+    const token = entry.trim();
+    if (token === '') continue;
+    if (!ADAPTATION_CANDIDATE_SYNTAX.test(token)) return null;
+    const number = Number(token.replace(/_/g, ''));
+    if (!Number.isFinite(number) || number < ADAPTATION_LR_MIN || number > ADAPTATION_LR_MAX)
+      return null;
+    if (!candidates.includes(number)) candidates.push(number);
+  }
+  if (
+    candidates.length < MIN_ADAPTATION_CANDIDATES ||
+    candidates.length > MAX_ADAPTATION_CANDIDATES
+  )
+    return null;
+  return candidates;
+}
+
+/**
  * Cross-field constraints the controller needs. Per-field validation cannot see
  * these, and the server is the security boundary; this gives the workshop an
  * immediate explanation for a configuration that cannot run. Every candidate is

@@ -2760,7 +2760,10 @@ def create_app(
                 return remote_training.enqueue(identifier, config, worker_id)
             directory.mkdir()
             config_file = directory / "config.json"
-            config_file.write_text(json.dumps(config, indent=2))
+            # normalize_config already bounds every field, so a finite-only dump
+            # can never fail here; it stays explicit so an unsafe value can never
+            # be written as non-standard JSON for a later reader.
+            config_file.write_text(json.dumps(config, indent=2, allow_nan=False))
             command = [sys.executable, "-m", "hnefatafl.cli", kind, "--config", str(config_file)]
             logfile = directory / "worker.log"
             with logfile.open("wb") as output:

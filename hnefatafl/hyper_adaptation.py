@@ -52,6 +52,10 @@ COMPATIBLE_STATE_VERSIONS = (1, 2)
 MIN_CANDIDATES = 2
 MAX_CANDIDATES = 8
 MAX_LAG = 3
+#: Longest inactive candidate transport accepted before falling back to the default.
+#: A valid list of at most eight floats is far shorter; the cap prevents an
+#: arbitrarily large inactive string from being parsed or persisted.
+MAX_INACTIVE_CANDIDATES_TEXT = 512
 #: ``candidates ** (lag + 1)`` contexts is the hard upper bound on learned
 #: predictors; the derived limit below keeps every accepted configuration well
 #: inside the checkpoint size budget. Lazy allocation means a run only ever
@@ -133,8 +137,14 @@ def adaptation_defaults() -> dict[str, Any]:
 
 
 def format_candidates(values: list[float]) -> str:
-    """Canonical comma-separated form, stable across a save/load round-trip."""
-    return ",".join(f"{value:.10g}" for value in values)
+    """Canonical comma-separated form that round-trips every finite float exactly.
+
+    ``repr`` is the shortest decimal string that parses back to the identical
+    double, so two distinct accepted candidates never collapse. Fixed-precision
+    formatting (for example ``.10g``) could merge values and change the candidate
+    set during normalization, breaking the configured-rate membership check.
+    """
+    return ",".join(repr(value) for value in values)
 
 
 def parse_candidates(value: Any) -> list[float]:
@@ -170,6 +180,43 @@ def parse_candidates(value: Any) -> list[float]:
     return candidates
 
 
+def sanitize_inactive_adaptation(values: dict) -> dict:
+    """Bound controller settings that are inert while adaptation is off.
+
+    Adaptation-off jobs must never be blocked by irrelevant controller input, but
+    the persisted configuration still has to be finite, JSON-serializable and
+    small. Invalid, oversized or non-scalar inactive values are replaced with the
+    shared defaults instead of being retained or rejected. ``learning_rate`` and
+    every other unrelated setting are never touched.
+    """
+    defaults = adaptation_defaults()
+    sanitized: dict[str, Any] = {"adaptation": "off"}
+    raw_candidates = values.get("adaptation_lr_candidates")
+    if isinstance(raw_candidates, str) and len(raw_candidates) <= MAX_INACTIVE_CANDIDATES_TEXT:
+        try:
+            candidates = parse_candidates(raw_candidates)
+        except ValueError:
+            candidates = []
+        sanitized["adaptation_lr_candidates"] = (
+            format_candidates(candidates) if candidates else defaults["adaptation_lr_candidates"]
+        )
+    else:
+        sanitized["adaptation_lr_candidates"] = defaults["adaptation_lr_candidates"]
+    for key, low, high in (
+        ("adaptation_cadence", 1, 10000),
+        ("adaptation_warmup", 0, 10000),
+        ("adaptation_min_dwell", 1, 10000),
+        ("adaptation_lag", 1, MAX_LAG),
+        ("adaptation_min_trials", 1, 100),
+    ):
+        value = values.get(key)
+        if type(value) is int and low <= value <= high:
+            sanitized[key] = value
+        else:
+            sanitized[key] = defaults[key]
+    return sanitized
+
+
 def normalize_adaptation(full_config: dict, *, resolved: bool = True) -> dict:
     """Validate the adaptation inputs and return their canonical scalar values.
 
@@ -183,20 +230,27 @@ def normalize_adaptation(full_config: dict, *, resolved: bool = True) -> dict:
     configuration is known. The controller fields themselves are still validated
     whenever adaptation is enabled, so independently invalid input is rejected
     before any checkpoint is loaded. With adaptation off the controller settings
-    are inert and never block a run.
+    are inert and never block a run; they are still bounded and made JSON-safe so
+    an unsafe inactive value cannot fail a later write.
     """
     values = {
         **adaptation_defaults(),
         **{key: full_config[key] for key in ADAPTATION_FIELDS if key in full_config},
     }
     algorithm = values["adaptation"]
+    if not isinstance(algorithm, str):
+        # An unsupported structure cannot mean "enabled". Treat it as the
+        # inactive default instead of failing an otherwise ordinary job.
+        values["adaptation"] = "off"
+        algorithm = "off"
     if algorithm not in ALGORITHMS:
         raise ValueError("adaptation must be off or hypercontroller")
     if algorithm == "off":
-        # Inactive controller settings are inert. They are kept as supplied and
-        # never validated, so disabling adaptation cannot fail a run or rewrite
-        # an unrelated setting such as the ordinary learning rate.
-        return dict(values)
+        # Inactive controller settings are inert: they never block a run or
+        # rewrite an unrelated setting such as the ordinary learning rate. They
+        # are still sanitized so persisted configuration stays finite, bounded
+        # and JSON-serializable.
+        return sanitize_inactive_adaptation(values)
     candidates = parse_candidates(values["adaptation_lr_candidates"])
     for key, low, high in (
         ("adaptation_cadence", 1, 10000),

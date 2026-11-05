@@ -104,9 +104,12 @@ informative. The configured `learning_rate` must be one of the candidates, so
 every observed interval is attributable. Adaptation is rejected inside Optuna
 tuning, where the study itself varies the learning rate.
 
-With adaptation `off` the controller settings are inert: they are not validated
-and never block a run, so a user can disable the controller after an invalid edit
-and still start training. Enabling it validates every supplied candidate.
+With adaptation `off` the controller settings are inert: they never block a run,
+so a user can disable the controller after an invalid edit and still start
+training. They are still bounded and sanitized to finite, JSON-serializable
+defaults, so an unsafe inactive value (non-finite number, oversized or
+non-scalar structure) cannot fail a later checkpoint, export or remote
+transport. Enabling it validates every supplied candidate strictly.
 
 ### Known signal limitations
 
@@ -163,9 +166,12 @@ transport.
 * A checkpoint that predates the controller has no adaptation inputs. The resume
   form fills the shared defaults and derives candidates around the checkpoint's
   **effective optimizer learning rate** (not the global default), keeping any
-  explicitly saved values untouched. A partial CLI/Python resume that enables
-  adaptation is validated against the fully resolved checkpoint configuration, so
-  inherited evaluation settings are honoured before the cross-field rules run.
+  explicitly saved values untouched. An ordinary job whose inactive candidate
+  list does not contain that rate is regenerated when the controller is enabled,
+  so enabling it on resume cannot fail on a stale inactive default. A partial
+  CLI/Python resume that enables adaptation is validated against the fully
+  resolved checkpoint configuration, so inherited evaluation settings are
+  honoured before the cross-field rules run.
 
 ## State validation and recovery
 

@@ -16,7 +16,12 @@ import {
 } from './TrainingFields';
 import { FieldLabel, ReadOnlyFieldLabel } from './FieldTooltip';
 import type { TrainingConfig } from './trainingPresets';
-import { adaptationConfigError, adaptationDefaults, boundedCandidates } from './trainingPresets';
+import {
+  adaptationConfigError,
+  adaptationDefaults,
+  boundedCandidates,
+  candidateRates,
+} from './trainingPresets';
 import EvaluationSettings, { evaluationDefaults } from './EvaluationSettings';
 import ConfigImportButton from './ConfigImportButton';
 import TrainingDeviceField from './TrainingDeviceField';
@@ -81,8 +86,6 @@ export default function TrainingResumeDialog({
   const [checkpoint, setCheckpoint] = useState<ResumeCheckpoint | null>(null);
   const [config, setConfig] = useState<TrainingConfig>({});
   const savedConfig = useRef<TrainingConfig>({});
-  /** Set when the checkpoint predates adaptation and its candidates were derived. */
-  const generatedCandidates = useRef(false);
   const [optimizedConfig, setOptimizedConfig] = useState<TrainingConfig>({});
   const update = (key: string, value: string | number | boolean) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
@@ -128,24 +131,28 @@ export default function TrainingResumeDialog({
         for (const [key, value] of Object.entries(evaluationDefaults)) {
           saved[key] ??= key === 'evaluation_time_limit' ? (saved.mcts_time_limit ?? value) : value;
         }
-        // Legacy checkpoints predate the controller. Fill its settings for
-        // display, deriving the candidates from the checkpoint's effective
-        // optimizer rate rather than the global default. A checkpoint that
-        // already saved adaptation settings keeps them untouched.
-        const hadCandidates = saved.adaptation_lr_candidates !== undefined;
+        // Fill the controller settings for display. Change detection and imports
+        // stay anchored to the checkpoint's real values, so the display candidate
+        // list is set only after the saved snapshot is captured.
         const effectiveLearningRate = Number(saved.learning_rate ?? 0.001);
         for (const [key, value] of Object.entries(adaptationDefaults)) {
           if (key !== 'adaptation_lr_candidates') saved[key] ??= value;
         }
-        saved.adaptation_lr_candidates ??= boundedCandidates(effectiveLearningRate);
-        // A legacy checkpoint has no saved candidates. Keep the generated list
-        // for display and change detection, but remember to carry it explicitly
-        // when the controller is enabled: the backend's fixed default would not
-        // contain the checkpoint's effective rate.
-        generatedCandidates.current = !hadCandidates;
         // Reviewing tuning results must never apply them silently: overlay only
         // the compatible, editable winning fields and keep checkpoint identity.
         savedConfig.current = { ...saved };
+        // The candidate list shown must contain the effective optimizer rate. An
+        // already adapted checkpoint keeps its validated list; an ordinary job
+        // whose inactive list misses the rate is regenerated when the controller
+        // is enabled, and the difference is sent as an explicit override.
+        const alreadyAdapted = saved.adaptation === 'hypercontroller';
+        const inactiveRates = candidateRates(saved.adaptation_lr_candidates);
+        if (
+          saved.adaptation_lr_candidates === undefined ||
+          (!alreadyAdapted && (!inactiveRates || !inactiveRates.includes(effectiveLearningRate)))
+        ) {
+          saved.adaptation_lr_candidates = boundedCandidates(effectiveLearningRate);
+        }
         const optimized = prefill ? resumeOverrides({ ...saved, ...prefill }, saved) : {};
         setOptimizedConfig(optimized);
         const priorTarget = Number(saved.iterations);
@@ -258,19 +265,10 @@ export default function TrainingResumeDialog({
     if (!checkpoint || !valid) return;
     setBusy(true);
     try {
-      const payload = resumePayload(
-        config,
-        savedConfig.current,
-        target,
-        executionTarget,
-        jobTarget(job),
+      const next = await api<Job>(
+        `/training/jobs/${job.id}/resume`,
+        resumePayload(config, savedConfig.current, target, executionTarget, jobTarget(job)),
       );
-      if (generatedCandidates.current && config.adaptation === 'hypercontroller') {
-        // The checkpoint had no candidate list; send the derived one so the
-        // backend validates it against the inherited effective rate.
-        payload.adaptation_lr_candidates = config.adaptation_lr_candidates;
-      }
-      const next = await api<Job>(`/training/jobs/${job.id}/resume`, payload);
       onStarted(next, checkpoint.completed_iteration, target);
     } catch (error) {
       notify.error(errorMessage(error));

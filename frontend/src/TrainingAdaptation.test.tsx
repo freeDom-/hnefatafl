@@ -295,6 +295,27 @@ it('keeps closely spaced learning rates distinguishable in the UI', async () => 
   expect(within(table).getByText('1.2342E-4')).toBeInTheDocument();
 });
 
+it('distinguishes the closest supported candidates in the decision history', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.00012345678912 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.5,
+        previous_learning_rate: 0.00012345678912,
+        selected_learning_rate: 0.00012345678913,
+        changed: true,
+        skipped: null,
+      },
+    ],
+  });
+  expect(screen.getAllByText('1.2345678912E-4').length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table');
+  expect(within(table).getByText('1.2345678912E-4')).toBeInTheDocument();
+  expect(within(table).getByText('1.2345678913E-4')).toBeInTheDocument();
+});
+
 it('renders no decision history for a legacy job without events', () => {
   renderLearning({ adaptation: { effective_learning_rate: 0.001 } });
   expect(screen.queryByText('Automatic hyperparameter updates')).toBeNull();
@@ -459,6 +480,124 @@ it('preserves saved controller settings on resume', async () => {
   ).toHaveValue('hypercontroller');
   expect(screen.getByLabelText('Learning rate candidates')).toHaveValue('0.0004,0.001,0.004');
   expect(screen.getByLabelText('Decide every (evaluations)')).toHaveValue(3);
+});
+
+/** Render the resume dialog for a checkpoint with the given controller settings. */
+function resumeHarness(controller: Partial<TrainingConfig>, learningRate: number) {
+  const info: ResumeCheckpoint = {
+    job_id: 'source',
+    checkpoint: 'source:last.pt',
+    completed_iteration: 5,
+    ruleset: 'brandubh',
+    channels: 32,
+    blocks: 2,
+    optimizer: 'adamw',
+    learning_rate: learningRate,
+    weight_decay: 0.0001,
+    momentum: 0.9,
+    model_name: 'Freydis',
+    can_resume: true,
+    config: {
+      ...trainingConfig('brandubh', 'recommended'),
+      learning_rate: learningRate,
+      evaluation_opponent: 'shield_bearer',
+      evaluation_games: 4,
+      ...controller,
+    },
+  };
+  const next = { id: 'next', status: 'running', config: {} };
+  const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+    json(init?.method === 'POST' ? next : info),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const job: Job = { id: 'source', kind: 'train', status: 'completed', config: {} };
+  const onStarted = vi.fn();
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={onStarted} />);
+  return { fetcher, onStarted };
+}
+
+async function enableController() {
+  const select = await screen.findByRole('combobox', { name: 'Automatic hyperparameter updates' });
+  fireEvent.change(select, { target: { value: 'hypercontroller' } });
+  return select;
+}
+
+async function submittedBody(fetcher: ReturnType<typeof vi.fn>) {
+  const sent = fetcher.mock.calls.find(([, init]) => init?.method === 'POST')!;
+  return JSON.parse(String(sent[1]?.body)) as Record<string, unknown>;
+}
+
+it('regenerates inactive default candidates that miss the effective rate', async () => {
+  // Tablut's recommended rate is 0.0007, but the backend's inactive default is
+  // 0.0003,0.001,0.003, which does not contain it.
+  const { fetcher, onStarted } = resumeHarness(
+    { adaptation: 'off', adaptation_lr_candidates: '0.0003,0.001,0.003' },
+    0.0007,
+  );
+  await enableController();
+  expect(screen.getByLabelText('Learning rate candidates')).toHaveValue('0.0002333,0.0007,0.0021');
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  expect(await submittedBody(fetcher)).toMatchObject({
+    adaptation: 'hypercontroller',
+    adaptation_lr_candidates: '0.0002333,0.0007,0.0021',
+  });
+});
+
+it.each([
+  [0.0007, '0.0002333,0.0007,0.0021'],
+  [0.0005, '0.0001667,0.0005,0.0015'],
+  [1e-7, '1e-7,3e-7'],
+  [1, '0.3333,1'],
+])('derives candidates around the effective rate %s', async (learningRate, expected) => {
+  resumeHarness(
+    { adaptation: 'off', adaptation_lr_candidates: '0.0003,0.001,0.003' },
+    learningRate,
+  );
+  await enableController();
+  expect(screen.getByLabelText('Learning rate candidates')).toHaveValue(expected);
+});
+
+it('preserves inactive candidates that already cover the effective rate', async () => {
+  const { fetcher, onStarted } = resumeHarness(
+    { adaptation: 'off', adaptation_lr_candidates: '0.0005,0.0007,0.002' },
+    0.0007,
+  );
+  await enableController();
+  expect(screen.getByLabelText('Learning rate candidates')).toHaveValue('0.0005,0.0007,0.002');
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  const body = await submittedBody(fetcher);
+  expect(body.adaptation).toBe('hypercontroller');
+  // The saved list already covers the rate, so it is inherited, not re-sent.
+  expect(body.adaptation_lr_candidates).toBeUndefined();
+});
+
+it('does not regenerate candidates for an already adapted checkpoint', async () => {
+  const { fetcher, onStarted } = resumeHarness(
+    { adaptation: 'hypercontroller', adaptation_lr_candidates: '0.0005,0.0007,0.002' },
+    0.0007,
+  );
+  expect(await screen.findByLabelText('Learning rate candidates')).toHaveValue(
+    '0.0005,0.0007,0.002',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  expect((await submittedBody(fetcher)).adaptation_lr_candidates).toBeUndefined();
+});
+
+it('sends no candidate override when the controller is switched back off', async () => {
+  const { fetcher, onStarted } = resumeHarness(
+    { adaptation: 'off', adaptation_lr_candidates: '0.0003,0.001,0.003' },
+    0.0007,
+  );
+  const select = await enableController();
+  fireEvent.change(select, { target: { value: 'off' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Continue training' }));
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  const body = await submittedBody(fetcher);
+  expect(body.adaptation).toBeUndefined();
+  expect(body.adaptation_lr_candidates).toBeUndefined();
 });
 
 it('generates distinct candidates at the supported rate boundaries', () => {

@@ -374,21 +374,22 @@ function metric(value: unknown): string | undefined {
 }
 
 /**
- * Distinguishable, localized learning-rate text. Six significant digits keep
- * closely spaced candidates (e.g. 0.00012341 and 0.00012342) apart instead of
- * collapsing them, while scientific notation keeps very small rates readable.
- * No trailing zeros are invented, and the locale controls the separators.
+ * Distinguishable, localized learning-rate text. Seventeen significant digits
+ * uniquely identify any IEEE-754 double, so even the closest supported candidate
+ * rates stay apart instead of collapsing. Scientific notation keeps very small
+ * rates readable, and no trailing zeros are invented. Callers that need a compact
+ * label can add the full value as accessible text or a title attribute.
  */
 export function formatLearningRate(value: unknown, locale: string): string | undefined {
   if (!finite(value)) return undefined;
   if (Math.abs(value) < 1e-3) {
     return new Intl.NumberFormat(locale, {
       notation: 'scientific',
-      maximumSignificantDigits: 6,
+      maximumSignificantDigits: 17,
     }).format(value);
   }
   return new Intl.NumberFormat(locale, {
-    maximumSignificantDigits: 6,
+    maximumSignificantDigits: 17,
     useGrouping: false,
   }).format(value);
 }

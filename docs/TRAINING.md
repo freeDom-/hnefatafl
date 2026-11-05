@@ -421,9 +421,12 @@ population, restart or extra process. It is not the same thing as Optuna: Optuna
 searches across separate trials, while the controller adapts inside a single
 trajectory. The two are mutually exclusive and Optuna rejects an enabled
 controller. With adaptation `off` the controller fields are inert and never
-block a run; enabling it validates every supplied candidate. Resuming a
-checkpoint that predates the controller fills the shared defaults and derives
-candidates around the checkpoint's effective optimizer learning rate.
+block a run; they are sanitized to bounded, JSON-safe defaults so an unsafe
+inactive value cannot fail a later write. Enabling the controller validates every
+supplied candidate. Resuming a checkpoint that predates the controller fills the
+shared defaults and derives candidates around the checkpoint's effective
+optimizer learning rate; an ordinary job whose inactive candidates miss that rate
+is regenerated when the controller is enabled.
 
 While adaptation is enabled the controller owns the effective learning rate; the
 configured `learning_rate` is the starting value and must appear in

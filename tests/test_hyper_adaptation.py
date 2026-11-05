@@ -19,9 +19,11 @@ from hnefatafl.hyper_adaptation import (
     MAX_CONTEXTS,
     MAX_EVENTS,
     HyperController,
+    format_candidates,
     observation_from_evaluation,
     parse_candidates,
     resolve_controller,
+    sanitize_inactive_adaptation,
 )
 from hnefatafl.models import load_checkpoint
 from hnefatafl.training import _set_optimizer_learning_rate, normalize_config, train, tune
@@ -134,6 +136,7 @@ def test_adaptation_requires_the_configured_rate_to_be_a_candidate(tmp_path):
 def test_adaptation_off_ignores_inactive_controller_settings(tmp_path):
     # Enable, enter invalid candidates, then disable: the inactive controller
     # settings must not block the run and must not rewrite unrelated settings.
+    # Unsafe inactive values are replaced with bounded defaults, not persisted.
     config = normalize_config(
         smoke_config(
             tmp_path,
@@ -145,8 +148,8 @@ def test_adaptation_off_ignores_inactive_controller_settings(tmp_path):
     )
     assert config["adaptation"] == "off"
     assert config["learning_rate"] == 0.0007
-    assert config["adaptation_lr_candidates"] == "0.001,garbage"
-    assert config["adaptation_cadence"] == 0
+    assert config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+    assert config["adaptation_cadence"] == 1
 
 
 def test_disabling_adaptation_after_an_invalid_edit_still_trains(tmp_path):
@@ -210,6 +213,113 @@ def test_tune_rejects_adaptation(tmp_path):
 def test_candidate_parsing_is_sorted_unique_and_bounded():
     assert parse_candidates("0.003, 0.0003,0.001,0.001") == [0.0003, 0.001, 0.003]
     assert parse_candidates(["0.001", 0.0003]) == [0.0003, 0.001]
+
+
+def test_candidate_serialization_round_trips_exactly():
+    # Values that fixed-precision formatting collapsed must stay distinct.
+    close = [0.00012345678912, 0.00012345678913, 0.001]
+    text = format_candidates(close)
+    assert parse_candidates(text) == close
+    assert len(parse_candidates(text)) == 3
+    # Boundaries, scientific notation and irrational-looking rates stay exact.
+    for values in (
+        [1e-7, 1.0],
+        [1e-7, 3e-7, 1.0],
+        [0.3333333333333333, 0.6666666666666666, 1.0],
+    ):
+        assert parse_candidates(format_candidates(values)) == values
+    # Duplicate detection happens before formatting and survives it.
+    deduplicated = parse_candidates("0.001,1e-3,0.002")
+    assert deduplicated == [0.001, 0.002]
+    assert parse_candidates(format_candidates(deduplicated)) == deduplicated
+
+
+def test_normalization_preserves_candidate_identity_and_membership(tmp_path):
+    config = adapted_config(
+        tmp_path,
+        adaptation_lr_candidates="0.00012345678912,0.00012345678913,0.001",
+        learning_rate=0.00012345678913,
+    )
+    normalized = normalize_config(config)
+    candidates = parse_candidates(normalized["adaptation_lr_candidates"])
+    assert candidates == [0.00012345678912, 0.00012345678913, 0.001]
+    assert normalized["learning_rate"] in candidates
+    # Serialization is idempotent, so configuration, checkpoint and controller
+    # all see the identical candidate set.
+    again = normalize_config(normalized)
+    assert again["adaptation_lr_candidates"] == normalized["adaptation_lr_candidates"]
+    controller = resolve_controller(
+        again, saved_state=None, evaluation_identity="shield_bearer:x", seed=1, resume=False
+    )
+    assert controller is not None and controller.candidates == candidates
+
+
+def test_inactive_adaptation_values_are_sanitized(tmp_path):
+    base = smoke_config(tmp_path)
+    unsafe = (
+        "0.001,garbage",
+        float("inf"),
+        float("nan"),
+        ["0.001", "0.002"],
+        {"candidates": 1},
+        True,
+        None,
+        "0.001," * 100000,
+    )
+    for value in unsafe:
+        config = normalize_config({**base, "adaptation": "off", "adaptation_lr_candidates": value})
+        assert config["adaptation"] == "off"
+        assert config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+        # Unrelated settings are never touched by sanitizing inactive fields.
+        assert config["learning_rate"] == 0.001
+        json.dumps(config, allow_nan=False)
+    for value in (0, 10001, "abc", None, float("inf"), True):
+        config = normalize_config({**base, "adaptation": "off", "adaptation_cadence": value})
+        assert config["adaptation_cadence"] == 1
+    # A valid inactive list is preserved exactly rather than reset.
+    preserved = normalize_config(
+        {
+            **base,
+            "adaptation": "off",
+            "adaptation_lr_candidates": "0.00012345678912,0.00012345678913,0.001",
+        }
+    )
+    assert preserved["adaptation_lr_candidates"] == "0.00012345678912,0.00012345678913,0.001"
+
+
+def test_sanitize_inactive_adaptation_bounds_every_field():
+    sanitized = sanitize_inactive_adaptation(
+        {
+            "adaptation": "off",
+            "adaptation_lr_candidates": float("inf"),
+            "adaptation_cadence": 10**9,
+            "adaptation_warmup": -5,
+            "adaptation_min_dwell": 0,
+            "adaptation_lag": 99,
+            "adaptation_min_trials": None,
+        }
+    )
+    assert sanitized == {
+        "adaptation": "off",
+        "adaptation_lr_candidates": "0.0003,0.001,0.003",
+        "adaptation_cadence": 1,
+        "adaptation_warmup": 2,
+        "adaptation_min_dwell": 1,
+        "adaptation_lag": 1,
+        "adaptation_min_trials": 1,
+    }
+
+
+def test_reenabling_after_inactive_sanitization_validates_strictly(tmp_path):
+    config = normalize_config(
+        {**smoke_config(tmp_path), "adaptation": "off", "adaptation_lr_candidates": "0.001,garbage"}
+    )
+    assert config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+    # The sanitized defaults can be enabled, and an unsupported mode structure is
+    # treated as inactive rather than silently enabling the controller.
+    enabled = normalize_config({**config, "adaptation": "hypercontroller", "evaluation_games": 4})
+    assert enabled["adaptation"] == "hypercontroller"
+    assert normalize_config({**config, "adaptation": None})["adaptation"] == "off"
 
 
 # ── Observation signal ───────────────────────────────────────────────────────
@@ -466,6 +576,41 @@ def test_resume_continues_the_controller_and_preserves_effective_rate(tmp_path):
     assert state["evaluation_identity"] == first_state["evaluation_identity"]
 
 
+def test_close_candidates_survive_checkpoint_and_resume_without_drift(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(0)
+    candidates = "0.00012345678912,0.00012345678913,0.001"
+    first = train(
+        adapted_config(
+            tmp_path / "first",
+            iterations=2,
+            adaptation_lr_candidates=candidates,
+            learning_rate=0.00012345678913,
+        )
+    )
+    _, first_payload = load_checkpoint(first["checkpoint"])
+    saved = first_payload["metadata"]["training_config"]
+    exact = [0.00012345678912, 0.00012345678913, 0.001]
+    assert parse_candidates(saved["adaptation_lr_candidates"]) == exact
+    assert saved["learning_rate"] in exact
+    state = first_payload["extra"]["adaptation_state"]
+    assert state["candidates"] == exact
+    resumed = train(
+        resumed_adapted_config(
+            tmp_path / "resumed",
+            iterations=4,
+            resume=first["checkpoint"],
+            adaptation_lr_candidates=candidates,
+        )
+    )
+    resumed_state = load_checkpoint(resumed["checkpoint"])[1]["extra"]["adaptation_state"]
+    # No candidate drift: the controller resumed its learned state rather than
+    # resetting as if the candidate set had changed.
+    assert resumed_state["candidates"] == exact
+    assert resumed_state["reset_reason"] is None
+    assert resumed_state["observations"] == state["observations"] + 2
+
+
 def test_controller_is_deterministic_across_split_and_resume(tmp_path):
     torch.set_num_threads(1)
     torch.manual_seed(0)
@@ -647,6 +792,50 @@ def test_api_accepts_and_queues_a_valid_adaptation_job(client):
     )
     assert response.status_code == 201, response.text
     assert response.json()["config"]["adaptation"] == "hypercontroller"
+
+
+def test_api_sanitizes_inactive_adaptation_values(client, monkeypatch):
+    # A JSON body with 1e309 decodes to inf; adaptation off must still accept it
+    # and persist a finite, bounded configuration instead of failing later.
+    raw = (
+        '{"execution":"remote","preset":"smoke","device":"cpu",'
+        '"adaptation":"off","adaptation_lr_candidates":1e309,"adaptation_cadence":0}'
+    )
+    response = client.post(
+        "/api/training/jobs", content=raw, headers={"Content-Type": "application/json"}
+    )
+    assert response.status_code == 201, response.text
+    remote_config = response.json()["config"]
+    assert remote_config["adaptation"] == "off"
+    assert remote_config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+    assert remote_config["adaptation_cadence"] == 1
+    json.dumps(remote_config, allow_nan=False)
+
+    class CompletedProcess:
+        pid = 0
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(
+        "hnefatafl.server.subprocess.Popen", lambda *args, **kwargs: CompletedProcess()
+    )
+    local = client.post(
+        "/api/training/jobs",
+        json={
+            "preset": "smoke",
+            "device": "cpu",
+            "adaptation": "off",
+            "adaptation_lr_candidates": ["0.001", "0.002"],
+            "adaptation_warmup": None,
+        },
+    )
+    assert local.status_code == 201, local.text
+    local_config = local.json()["config"]
+    assert local_config["adaptation_lr_candidates"] == "0.0003,0.001,0.003"
+    assert local_config["adaptation_warmup"] == 2
+    json.dumps(local_config, allow_nan=False)
 
 
 # ── Per-context exploration and delayed-feedback attribution ─────────────────

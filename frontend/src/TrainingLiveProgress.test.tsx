@@ -263,6 +263,16 @@ it('keeps closely spaced learning rates distinguishable', () => {
   expect(formatLearningRate(0.00012341, 'en')).toBe('1.2341E-4');
   expect(formatLearningRate(0.00012342, 'en')).toBe('1.2342E-4');
   expect(formatLearningRate(0.00012341, 'en')).not.toBe(formatLearningRate(0.00012342, 'en'));
+  // Seventeen significant digits keep even the closest supported candidates apart.
+  expect(formatLearningRate(0.00012345678912, 'en')).toBe('1.2345678912E-4');
+  expect(formatLearningRate(0.00012345678913, 'en')).toBe('1.2345678913E-4');
+  expect(formatLearningRate(0.00012345678912, 'en')).not.toBe(
+    formatLearningRate(0.00012345678913, 'en'),
+  );
+  // The supported range ends stay recognizable in both locales.
+  expect(formatLearningRate(1e-7, 'en')).toBe('1E-7');
+  expect(formatLearningRate(1, 'en')).toBe('1');
+  expect(formatLearningRate(0.00012345678912, 'de')).toBe('1,2345678912E-4');
   // Common rates stay plain and localized; unknown values stay absent.
   expect(formatLearningRate(0.003, 'en')).toBe('0.003');
   expect(formatLearningRate(0.003, 'de')).toBe('0,003');
@@ -270,6 +280,9 @@ it('keeps closely spaced learning rates distinguishable', () => {
   expect(phaseSummary('optimization', { effective_learning_rate: 0.00012341 }, 'en')).toEqual({
     rows: [{ label: 'Effective learning rate', value: '1.2341E-4' }],
   });
+  expect(phaseSummary('optimization', { effective_learning_rate: 0.00012345678912 }, 'en')).toEqual(
+    { rows: [{ label: 'Effective learning rate', value: '1.2345678912E-4' }] },
+  );
 });
 
 it('keeps the header elapsed time in its own ticking element', async () => {
