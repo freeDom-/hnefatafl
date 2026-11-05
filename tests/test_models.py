@@ -1,6 +1,7 @@
 """Networks perform real forward/backward passes; imports accept tensor-only files."""
 
 from pathlib import Path
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 
@@ -724,3 +725,197 @@ def test_registry_duplicates_is_read_only_and_groups_identical_weights(tmp_path)
     # The scan holds the registry lock and never rewrites the index or files.
     assert registry.index_path.read_bytes() == before_index
     assert sorted(path.name for path in registry.root.glob("*.pt")) == before_files
+
+
+def _tablut_checkpoint(tmp_path, name="Tablut"):
+    torch.manual_seed(777)
+    return save_checkpoint(
+        tmp_path / f"{name}.pt",
+        PolicyValueNet("tablut", channels=8, blocks=0),
+        {"name": name},
+    )
+
+
+def _append_duplicate_entry(registry, duplicate_id, name="Duplicate"):
+    """Append a second catalog entry that owns a byte-identical copy."""
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    original = stored[0]
+    source = registry.root / f"{original['id']}.pt"
+    target = registry.root / f"{duplicate_id}.pt"
+    target.write_bytes(source.read_bytes())
+    stored.append({**original, "id": duplicate_id, "name": name})
+    registry.index_path.write_text(json.dumps(stored), encoding="utf-8")
+    return target
+
+
+def _entry_without_path(registry, model_id):
+    entry = next(item for item in registry.list() if item["id"] == model_id)
+    entry.pop("path")
+    return entry
+
+
+def test_registry_replaced_with_incompatible_ruleset_preserves_identity(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    fingerprint = registry.get(first["id"])["weights_sha256"]
+    owned = Path(first["path"])
+    tablut = _tablut_checkpoint(tmp_path)
+    owned.write_bytes(tablut.read_bytes())
+    tablut_bytes = owned.read_bytes()
+    # Importing the original bytes must fail: the owned copy no longer matches.
+    with pytest.raises(ValueError, match="different weights"):
+        registry.import_model(source, "First")
+    # The replacement is a genuinely different ruleset and registers separately.
+    replacement = registry.import_model(tablut, "Tablut")
+    assert replacement["id"] != first["id"]
+    assert replacement["ruleset"] == "tablut"
+    assert replacement["reused"] is False
+    # The original entry keeps its recorded identity and its (replaced) file.
+    assert registry.get(first["id"])["weights_sha256"] == fingerprint
+    assert owned.read_bytes() == tablut_bytes
+    assert len(registry.list()) == 2
+
+
+def test_registry_replaced_with_different_weights_preserves_identity(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    fingerprint = registry.get(first["id"])["weights_sha256"]
+    owned = Path(first["path"])
+    replacement = _different_weight_checkpoint(tmp_path, "Replacement", 42)
+    owned.write_bytes(replacement.read_bytes())
+    replacement_bytes = owned.read_bytes()
+    with pytest.raises(ValueError, match="different weights"):
+        registry.import_model(source, "First")
+    imported = registry.import_model(replacement, "Replacement")
+    assert imported["id"] != first["id"]
+    assert imported["reused"] is False
+    assert registry.get(first["id"])["weights_sha256"] == fingerprint
+    assert owned.read_bytes() == replacement_bytes
+    assert len(registry.list()) == 2
+
+
+def test_registry_metadata_only_change_refreshes_hash_without_new_entry(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    fingerprint = registry.get(first["id"])["weights_sha256"]
+    owned = Path(first["path"])
+    variant = _same_weight_checkpoint(tmp_path, "First copy", "2022-01-01T00:00:00Z", 3)
+    # Same weights, different bytes (metadata-only): a legitimate byte change.
+    owned.write_bytes(variant.read_bytes())
+    reused = registry.import_model(source, "First")
+    assert reused["id"] == first["id"]
+    assert reused["reused"] is True
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    assert stored[0]["weights_sha256"] == fingerprint
+    assert stored[0]["checkpoint_sha256"] == hashlib.sha256(owned.read_bytes()).hexdigest()
+    assert len(registry.list()) == 1
+
+
+@pytest.mark.parametrize("damaged_first", [True, False])
+def test_registry_prefers_healthy_duplicate_regardless_of_order(tmp_path, damaged_first):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    duplicate_id = "d" * 24
+    duplicate_path = _append_duplicate_entry(registry, duplicate_id, "Duplicate")
+    healthy_id = first["id"] if damaged_first else duplicate_id
+    damaged_path = duplicate_path if damaged_first else Path(first["path"])
+    healthy_path = duplicate_path if damaged_first else Path(first["path"])
+    damaged_path.write_bytes(b"corrupted")
+    before_healthy = healthy_path.read_bytes()
+    variant = _same_weight_checkpoint(tmp_path, "Variant", "2021-06-01T00:00:00Z", 2)
+    result = registry.import_model(variant, "Variant")
+    # The healthy duplicate is reused; the damaged one is left untouched.
+    assert result["id"] == healthy_id
+    assert result["reused"] is True
+    assert damaged_path.read_bytes() == b"corrupted"
+    assert healthy_path.read_bytes() == before_healthy
+    assert len(registry.list()) == 2
+
+
+def test_registry_reuses_first_healthy_duplicate_in_registry_order(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    _append_duplicate_entry(registry, "e" * 24, "Second")
+    _append_duplicate_entry(registry, "f" * 24, "Third")
+    variant = _same_weight_checkpoint(tmp_path, "Variant", "2021-06-01T00:00:00Z", 2)
+    result = registry.import_model(variant, "Variant")
+    assert result["id"] == first["id"]
+    assert result["reused"] is True
+    assert len(registry.list()) == 3
+
+
+def test_import_transaction_reuses_healthy_duplicate_without_repair(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    duplicate_id = "d" * 24
+    duplicate_path = _append_duplicate_entry(registry, duplicate_id, "Duplicate")
+    Path(first["path"]).write_bytes(b"corrupted")
+    before_duplicate = duplicate_path.read_bytes()
+    variant = _same_weight_checkpoint(tmp_path, "Variant", "2021-06-01T00:00:00Z", 2)
+    # Archive-style transaction: a healthy duplicate avoids a prohibited repair.
+    with registry.import_transaction():
+        result = registry.import_model(variant, "Variant")
+    assert result["id"] == duplicate_id
+    assert Path(first["path"]).read_bytes() == b"corrupted"
+    assert duplicate_path.read_bytes() == before_duplicate
+    assert len(registry.list()) == 2
+
+
+def test_inspect_entry_rejects_oversized_file_before_hashing(tmp_path, monkeypatch):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    Path(first["path"]).write_bytes(b"x" * 32)
+    entry = _entry_without_path(registry, first["id"])
+    calls: list[str] = []
+    original = hashlib.file_digest
+
+    def tracking(handle, name):
+        calls.append(name)
+        return original(handle, name)
+
+    monkeypatch.setattr("hnefatafl.models.hashlib.file_digest", tracking)
+    monkeypatch.setattr("hnefatafl.models.MAX_CHECKPOINT_BYTES", 8)
+    state, fingerprint, changed = registry._inspect_entry(entry)
+    assert state == "unreadable"
+    assert fingerprint is None and changed is False
+    assert calls == []
+
+
+def test_inspect_entry_filesystem_edge_states(tmp_path, monkeypatch):
+    registry = ModelRegistry(tmp_path / "registry")
+    source = _same_weight_checkpoint(tmp_path, "First", "2020-01-01T00:00:00Z", 1)
+    first = registry.register(source, "First")
+    entry = _entry_without_path(registry, first["id"])
+    owned = Path(first["path"])
+    original = owned.read_bytes()
+    # A normal valid checkpoint is healthy and unchanged.
+    state, fingerprint, changed = registry._inspect_entry(entry)
+    assert state == "ok"
+    assert fingerprint == entry["weights_sha256"]
+    assert changed is False
+    # Truncated.
+    owned.write_bytes(original[:32])
+    assert registry._inspect_entry(entry)[0] == "unreadable"
+    # Missing.
+    owned.unlink()
+    assert registry._inspect_entry(entry)[0] == "missing"
+    # Dangling symlink.
+    owned.symlink_to(tmp_path / "gone.pt")
+    assert registry._inspect_entry(entry)[0] == "missing"
+    owned.unlink()
+    owned.write_bytes(original)
+    # A file that becomes unavailable after the existence check.
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+
+    def unavailable(_self):
+        raise OSError("unavailable")
+
+    monkeypatch.setattr(Path, "stat", unavailable)
+    assert registry._inspect_entry(entry)[0] == "unreadable"

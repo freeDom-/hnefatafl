@@ -669,6 +669,30 @@ def test_archive_import_refuses_to_repair_a_damaged_registered_copy(
         assert target.read_bytes() == original_bytes[:64]
 
 
+def test_archive_import_reuses_a_healthy_duplicate_over_a_damaged_entry(client, trained_archive):
+    content, original, _ = trained_archive
+    registry = ModelRegistry(client.app.state.data_dir / "models")
+    source_registry = ModelRegistry(Path(original["config"]["registry_dir"]))
+    for entry in source_registry.list():
+        registry.import_model(entry["path"], "Locally named")
+    target = Path(registry.get(original["model_id"])["path"])
+    # Add a healthy duplicate of the same weights, then damage the original copy.
+    duplicate_id = "a1" * 12
+    duplicate_path = registry.root / f"{duplicate_id}.pt"
+    duplicate_path.write_bytes(target.read_bytes())
+    stored = json.loads(registry.index_path.read_text(encoding="utf-8"))
+    entry = next(item for item in stored if item["id"] == original["model_id"])
+    stored.append({**entry, "id": duplicate_id, "name": "Healthy duplicate"})
+    registry.index_path.write_text(json.dumps(stored), encoding="utf-8")
+    target.write_bytes(b"corrupted")
+    response = upload(client, content)
+    # The healthy duplicate is reused instead of attempting a prohibited repair.
+    assert response.status_code == 201, response.text
+    assert registry.get(duplicate_id)["id"] == duplicate_id
+    assert target.read_bytes() == b"corrupted"
+    assert duplicate_path.is_file()
+
+
 def test_archive_import_never_overwrites_a_valid_copy_with_different_weights(
     client, trained_archive, tmp_path
 ):
