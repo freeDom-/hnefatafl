@@ -21,7 +21,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from starlette.exceptions import HTTPException
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .storage import Store
@@ -109,6 +109,16 @@ JOB_FIELDS = {
 
 class ArchiveError(ValueError):
     """A useful, client-safe archive validation error."""
+
+
+class JobArchiveResponse(FileResponse):
+    """Remove the temporary archive even when a download disconnects/fails."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
 
 
 class JobUploadLimit:

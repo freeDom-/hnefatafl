@@ -396,7 +396,7 @@ existing request thread pool. Normal training and persistence do not change.
 The server processes one archive operation at a time to bound competing CPU/I/O.
 A second export receives a retry message; imports wait for the archive slot.
 Snapshot files and partial archives are cleaned up on failure, and completed
-downloads remove the temporary output. Decompression and validation also run
+downloads remove the temporary output even after a disconnect. Decompression and validation also run
 outside lifecycle locks; publication remains transactional under the existing locks.
 The existing loading indicators stay active until the request finishes.
 See the [archive benchmarks](benchmarks/job-archives.md) for measured tradeoffs

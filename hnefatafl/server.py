@@ -23,7 +23,6 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
@@ -2152,7 +2151,7 @@ def create_app(
 
     @app.get("/api/training/jobs/{job_id}/export")
     def export_training_job(job_id: str):
-        from .job_archives import export_snapshot, snapshot_job, TERMINAL
+        from .job_archives import export_snapshot, snapshot_job, JobArchiveResponse, TERMINAL
 
         if not archive_lock.acquire(blocking=False):
             fail("Another job archive transfer is in progress. Retry when it finishes.", 409)
@@ -2196,11 +2195,10 @@ def create_app(
                 # Sync FastAPI routes already run in its thread pool. Compression
                 # holds no lifecycle/catalog lock and only one export runs at a time.
                 export_snapshot(snapshot, archive, package_version)
-            return FileResponse(
+            return JobArchiveResponse(
                 archive,
                 filename=f"hnefatafl-job-{job_id}.tar.gz",
                 media_type="application/gzip",
-                background=BackgroundTask(archive.unlink, missing_ok=True),
             )
         except (ValueError, TypeError, KeyError, RuntimeError) as exc:
             archive.unlink(missing_ok=True)

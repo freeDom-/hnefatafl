@@ -36,15 +36,16 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export job', exact: true }).click();
   const download = await downloading;
-  const zip = await readFile((await download.path())!);
-  expect(zip.length).toBeGreaterThan(0);
+  expect(download.suggestedFilename()).toBe(`hnefatafl-job-${source.id}.tar.gz`);
+  const archive = await readFile((await download.path())!);
+  expect(archive.subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
   const importing = page.waitForResponse((response) =>
     response.url().endsWith('/api/training/jobs/import'),
   );
   await page.getByLabel('Import job', { exact: true }).setInputFiles({
     name: download.suggestedFilename(),
-    mimeType: 'application/zip',
-    buffer: zip,
+    mimeType: 'application/gzip',
+    buffer: archive,
   });
   const importedResponse = await importing;
   expect(importedResponse.ok()).toBe(true);

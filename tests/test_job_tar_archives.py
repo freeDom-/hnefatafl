@@ -1,6 +1,7 @@
 """Schema-3 integrity, scalable histories, hostile TARs and unlocked snapshots."""
 
 import concurrent.futures
+import asyncio
 import errno
 import gzip
 import hashlib
@@ -11,6 +12,7 @@ import tarfile
 import threading
 
 import pytest
+from starlette.requests import ClientDisconnect
 from auth_support import AuthenticatedClient as TestClient
 from test_job_archives import export, job_record, upload
 
@@ -406,6 +408,24 @@ def test_export_failure_removes_output_and_releases_slot(client, monkeypatch, tm
     monkeypatch.setattr(job_archives, "write_tar", original)
     assert export(client, job)
     assert not output.exists()
+
+
+def test_interrupted_download_removes_temporary_archive(tmp_path):
+    archive = tmp_path / "interrupted.tar.gz"
+    archive.write_bytes(b"archive contents")
+    response = job_archives.JobArchiveResponse(archive, filename="job.tar.gz")
+
+    async def disconnected(message):
+        if message["type"] == "http.response.body":
+            raise OSError("Download connection closed")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    scope = {"type": "http", "method": "GET", "headers": [], "asgi": {"spec_version": "2.4"}}
+    with pytest.raises((OSError, ClientDisconnect)):
+        asyncio.run(response(scope, receive, disconnected))
+    assert not archive.exists()
 
 
 def test_import_decompression_does_not_hold_lifecycle_lock(client, monkeypatch):
