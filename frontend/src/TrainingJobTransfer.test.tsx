@@ -162,3 +162,23 @@ it('downloads a TAR.GZ job and clears the loading state', async () => {
   expect(screen.getByRole('button', { name: 'Export job' })).toBeEnabled();
   expect(error).not.toHaveBeenCalled();
 });
+
+it('shows a busy archive retry error and restores the import control', async () => {
+  const error = vi.fn();
+  const detail = 'Another job archive transfer is in progress. Retry when it finishes.';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) =>
+      json(path.endsWith('/import') ? { detail } : [], !path.endsWith('/import')),
+    ),
+  );
+  render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('Import job'), {
+    target: { files: [new File(['gzip'], 'job.tar.gz')] },
+  });
+  await waitFor(() => expect(error).toHaveBeenCalledWith(detail));
+  expect(screen.getByLabelText('Import job')).toBeEnabled();
+  expect(
+    screen.queryByText('Job imported. Review its history or resume from its full checkpoint.'),
+  ).toBeNull();
+});

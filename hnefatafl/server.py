@@ -14,13 +14,13 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -345,7 +345,8 @@ def create_app(
     )
     from .job_archives import JobUploadLimit
 
-    app.add_middleware(JobUploadLimit)
+    archive_lock = threading.Lock()
+    app.add_middleware(JobUploadLimit, archive_lock=archive_lock)
     root = Path(data_dir or os.environ.get("HNEFATAFL_DATA_DIR", "data")).resolve()
     root.mkdir(parents=True, exist_ok=True)
     (root / "jobs").mkdir(exist_ok=True)
@@ -375,7 +376,6 @@ def create_app(
     online = attach_online(app, auth, settings=online_settings, clock=online_clock)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
-    archive_lock = threading.Lock()
     # Catalog changes and new references must be atomic with respect to each
     # other in the documented single API-worker deployment.
     catalog_lock = threading.RLock()
@@ -2044,6 +2044,12 @@ def create_app(
             # Reconciliation can persist a terminal transition. Never save a
             # projected navigator snapshot over the full retained history.
             job = store.get_job(identifier) or job
+        if (
+            summary
+            and job["status"] in {"completed", "cancelled", "failed"}
+            and isinstance(job.get("_import_reports"), dict)
+        ):
+            job = {**job, **job["_import_reports"]}
         directory = job_path(identifier)
         from .training_monitoring import overlay_heartbeat, read_heartbeat
 
@@ -2136,6 +2142,7 @@ def create_app(
             from .training_monitoring import job_summary
 
             return job_summary(job)
+        job.pop("_import_reports", None)
         return job
 
     training_fields = TRAINING_FIELDS
@@ -2150,20 +2157,23 @@ def create_app(
             ]
 
     @app.get("/api/training/jobs/{job_id}/export")
-    def export_training_job(job_id: str):
+    def export_training_job(job_id: str, request: Request):
+        admission = request.state.archive_admission
+        with admission.worker():
+            return build_job_export(job_id, admission)
+
+    def build_job_export(job_id, admission):
         from .job_archives import export_snapshot, snapshot_job, JobArchiveResponse, TERMINAL
 
-        if not archive_lock.acquire(blocking=False):
-            fail("Another job archive transfer is in progress. Retry when it finishes.", 409)
-        try:
-            descriptor, filename = tempfile.mkstemp(suffix=".tar.gz", prefix="hnefatafl-job-")
-            os.close(descriptor)
-        except BaseException:
-            archive_lock.release()
-            raise
+        descriptor, filename = tempfile.mkstemp(suffix=".tar.gz", prefix="hnefatafl-job-")
+        os.close(descriptor)
         archive = Path(filename)
+        admission.output = archive
         try:
-            with tempfile.TemporaryDirectory(prefix=".job-snapshot-", dir=root) as temporary:
+            with (
+                tempfile.TemporaryDirectory(prefix=".job-snapshot-", dir=root) as temporary,
+                ExitStack() as pins,
+            ):
                 with job_lock, catalog_lock:
                     # Export reads retained state without reconciling or modifying the row.
                     directory = job_path(job_id)
@@ -2191,7 +2201,9 @@ def create_app(
                                     "Stop every job contributing to this study before exporting it.",
                                     409,
                                 )
-                    snapshot = snapshot_job(job, directory, registry(), Path(temporary))
+                    snapshot = pins.enter_context(
+                        snapshot_job(job, directory, registry(), Path(temporary))
+                    )
                 # Sync FastAPI routes already run in its thread pool. Compression
                 # holds no lifecycle/catalog lock and only one export runs at a time.
                 export_snapshot(snapshot, archive, package_version)
@@ -2209,11 +2221,13 @@ def create_app(
         except BaseException:
             archive.unlink(missing_ok=True)
             raise
-        finally:
-            archive_lock.release()
 
     @app.post("/api/training/jobs/import", status_code=201)
-    def import_training_job(file: UploadFile = File(...)):
+    def import_training_job(request: Request, file: UploadFile = File(...)):
+        with request.state.archive_admission.worker():
+            return restore_training_job(file, request.state.archive_admission)
+
+    def restore_training_job(file, admission):
         import zipfile
         import sqlite3
         import zlib
@@ -2234,18 +2248,21 @@ def create_app(
                 @contextmanager
                 def publication_context():
                     with job_lock, catalog_lock:
+                        admission.ensure_open()
                         yield
 
-                with archive_lock:
-                    return import_job(
-                        archive,
-                        root,
-                        store,
-                        resume_info=lambda job, directory: resume_checkpoint(
-                            job["id"], job=job, directory=directory
-                        )[0],
-                        publication_context=publication_context,
-                    )
+                imported_id = import_job(
+                    archive,
+                    root,
+                    store,
+                    resume_info=lambda job, directory: resume_checkpoint(
+                        job["id"], job=job, directory=directory
+                    )[0],
+                    publication_context=publication_context,
+                )["id"]
+                with job_lock:
+                    return read_job_locked(imported_id, reconcile=False)
+
         except (
             ValueError,
             TypeError,

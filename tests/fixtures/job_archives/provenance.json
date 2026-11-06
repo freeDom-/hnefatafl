@@ -1,0 +1,74 @@
+{
+  "schema1-train.zip.gz": {
+    "schema": 1,
+    "app_version": "0.35.0",
+    "commit": "efbbdbb99f6ba886ddd4dd22f9ff310c4ce80c6b",
+    "writer_sha256": "453e4ce5287fa8b9a9866c7404b59bd4d1606c5597bd467893d269a9ae4c0776",
+    "zip_sha256": "2bb399eb9b0171c7f12f977bd4a6ae07dff4cd4a9b2c8da22fb323740d7a870b",
+    "zip_bytes": 217181,
+    "fixture_bytes": 40491
+  },
+  "schema1-study.zip.gz": {
+    "schema": 1,
+    "app_version": "0.35.0",
+    "commit": "efbbdbb99f6ba886ddd4dd22f9ff310c4ce80c6b",
+    "writer_sha256": "453e4ce5287fa8b9a9866c7404b59bd4d1606c5597bd467893d269a9ae4c0776",
+    "zip_sha256": "8e2ebff4e0c041613576b69e19a08c2a38d763cec6f1e2c5be107c4590ddd4f4",
+    "zip_bytes": 285240,
+    "fixture_bytes": 44145
+  },
+  "schema1-missing_optional.zip.gz": {
+    "schema": 1,
+    "app_version": "0.35.0",
+    "commit": "efbbdbb99f6ba886ddd4dd22f9ff310c4ce80c6b",
+    "writer_sha256": "453e4ce5287fa8b9a9866c7404b59bd4d1606c5597bd467893d269a9ae4c0776",
+    "zip_sha256": "eb529879c21a7768762a247c51cde59323559be43a007c2e7c99f413b3c8f6eb",
+    "zip_bytes": 1422,
+    "fixture_bytes": 640
+  },
+  "schema1-frozen_study.zip.gz": {
+    "schema": 1,
+    "app_version": "0.35.0",
+    "commit": "efbbdbb99f6ba886ddd4dd22f9ff310c4ce80c6b",
+    "writer_sha256": "453e4ce5287fa8b9a9866c7404b59bd4d1606c5597bd467893d269a9ae4c0776",
+    "zip_sha256": "3547ba35d3d0c06477e339031ce119e3b2f402f43b2dbe82e6396ddf33451b76",
+    "zip_bytes": 295484,
+    "fixture_bytes": 46657
+  },
+  "schema2-train.zip.gz": {
+    "schema": 2,
+    "app_version": "0.36.0",
+    "commit": "0407d88c08d2f8441f5763d084f209fc9d822656",
+    "writer_sha256": "301b0c52c847f1360abc0c25554d193c87387101f9c74d97583c9c601f1bc9c1",
+    "zip_sha256": "9c9fea7024e5013937e179a36dc6a5011227dee93a33339bc81d80ec74ea762a",
+    "zip_bytes": 221359,
+    "fixture_bytes": 41267
+  },
+  "schema2-study.zip.gz": {
+    "schema": 2,
+    "app_version": "0.36.0",
+    "commit": "0407d88c08d2f8441f5763d084f209fc9d822656",
+    "writer_sha256": "301b0c52c847f1360abc0c25554d193c87387101f9c74d97583c9c601f1bc9c1",
+    "zip_sha256": "63477f7b5c7874b528949bbd95ae159918bca2bc3bfa2c33e3707cd507857e13",
+    "zip_bytes": 324324,
+    "fixture_bytes": 63637
+  },
+  "schema2-missing_optional.zip.gz": {
+    "schema": 2,
+    "app_version": "0.36.0",
+    "commit": "0407d88c08d2f8441f5763d084f209fc9d822656",
+    "writer_sha256": "301b0c52c847f1360abc0c25554d193c87387101f9c74d97583c9c601f1bc9c1",
+    "zip_sha256": "dcf91e811dcc17bfb0a1eebb99f6662f553aa4569ebec1a695c8308bf2f723e4",
+    "zip_bytes": 1422,
+    "fixture_bytes": 639
+  },
+  "schema2-frozen_study.zip.gz": {
+    "schema": 2,
+    "app_version": "0.36.0",
+    "commit": "0407d88c08d2f8441f5763d084f209fc9d822656",
+    "writer_sha256": "301b0c52c847f1360abc0c25554d193c87387101f9c74d97583c9c601f1bc9c1",
+    "zip_sha256": "531a285307fe800829b7a0c52bf32c3d7e3acd59c951ca1183c557701b683211",
+    "zip_bytes": 340118,
+    "fixture_bytes": 67843
+  }
+}

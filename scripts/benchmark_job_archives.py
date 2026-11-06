@@ -17,6 +17,8 @@ import platform
 import resource
 import shutil
 import statistics
+import tempfile
+import threading
 import subprocess
 import sys
 import time
@@ -33,19 +35,95 @@ from hnefatafl.training import train
 def baseline(path):
     spec = importlib.util.spec_from_file_location("hnefatafl._archive_baseline", path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-def measured(action):
+class TemporaryDisk:
+    """Sample new temporary inodes; hard links to source files allocate no copy.
+
+    Reports allocated file blocks (excluding directory entries), sampled every
+    10 ms. Final export archives count as temporary download outputs; published
+    import directories do not. Both sides receive the same observation overhead.
+    """
+
+    def __init__(self, root):
+        self.root = root
+        self.initial = set()
+        for path in root.rglob("*"):
+            if path.is_file():
+                stat = path.stat()
+                self.initial.add((stat.st_dev, stat.st_ino))
+        self.peak = 0
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.sample_loop, daemon=True)
+
+    def sample(self):
+        seen = set()
+        total = 0
+        for path in self.root.rglob("*"):
+            temporary = (
+                path.suffix == ".archive"
+                or path.name.endswith(("-journal", "-wal", "-shm"))
+                or any(
+                    part.startswith(
+                        (
+                            "job-export-",
+                            "job-snapshot-",
+                            ".job-import-",
+                            ".job-snapshot-",
+                            "hnefatafl-upload-",
+                        )
+                    )
+                    for part in path.parts
+                )
+            )
+            if not temporary:
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            identity = (stat.st_dev, stat.st_ino)
+            if path.is_file() and identity not in self.initial and identity not in seen:
+                total += stat.st_blocks * 512
+                seen.add(identity)
+        self.peak = max(self.peak, total)
+
+    def sample_loop(self):
+        while not self.stop.wait(0.01):
+            self.sample()
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop.set()
+        self.thread.join()
+        self.sample()
+
+
+def measured(action, disk_root=None):
+    meter = TemporaryDisk(disk_root) if disk_root is not None else None
+    if meter:
+        meter.__enter__()
     cpu = time.process_time()
     started = time.perf_counter()
-    value = action()
-    return value, {
-        "seconds": time.perf_counter() - started,
-        "cpu_seconds": time.process_time() - cpu,
-        "peak_rss_bytes": peak_rss(),
-    }
+    try:
+        value = action()
+        metrics = {
+            "seconds": time.perf_counter() - started,
+            "cpu_seconds": time.process_time() - cpu,
+            "peak_rss_bytes": peak_rss(),
+        }
+    finally:
+        if meter:
+            meter.__exit__()
+    if meter:
+        metrics["peak_temporary_disk_bytes"] = meter.peak
+    return value, metrics
 
 
 def peak_rss():
@@ -71,6 +149,11 @@ def wait_gate(root, name):
 def worker(args):
     root = args.root.resolve()
     source = root / "source"
+    disk_root = root if args.measure_disk else None
+    if disk_root:
+        temporary = root / "temporary"
+        temporary.mkdir(exist_ok=True)
+        tempfile.tempdir = str(temporary)
     module = job_archives if args.kind == "tar" else baseline(args.baseline)
     if args.kind == "zip-relaxed":
         # Only for a size/time comparison when the shipped baseline refuses 1,000
@@ -131,7 +214,8 @@ def worker(args):
                     ModelRegistry(source / "models"),
                     archive,
                     "0.36.0",
-                )
+                ),
+                disk_root=disk_root,
             )
             metrics["archive_bytes"] = archive.stat().st_size
         else:
@@ -145,7 +229,8 @@ def worker(args):
                     destination,
                     store,
                     resume_info=lambda job, directory: {"can_resume": False},
-                )
+                ),
+                disk_root=disk_root,
             )
         metrics["status"] = "ok"
     except (ValueError, OSError) as exc:
@@ -163,6 +248,8 @@ def invocation(args, **values):
         "--baseline",
         str(args.baseline),
     ]
+    if args.measure_disk:
+        command.append("--measure-disk")
     for name, value in values.items():
         command.extend(["--" + name.replace("_", "-"), str(value)])
     return command
@@ -195,6 +282,8 @@ def main(args):
         }
     )
     point = template["history"][0]
+    if args.large_history:
+        point = {**point, "diagnostic_timings": [1 / (i + 3) for i in range(1024)]}
     result = {
         "python": platform.python_version(),
         "platform": platform.platform(),
@@ -204,7 +293,7 @@ def main(args):
         "archives": [],
         "concurrent_training": [],
     }
-    for count in (1, 100, 1000):
+    for count in args.iteration_counts:
         report = {
             **template,
             "iteration": count,
@@ -223,7 +312,12 @@ def main(args):
         (source / "job.json").write_text(json.dumps(job))
         for name in ("progress.json", "result.json"):
             (directory / name).write_text(json.dumps(report, indent=2))
-        for kind, level in (("zip", 0), ("zip-relaxed", 0), ("tar", 1), ("tar", 3), ("tar", 6)):
+        cases = (
+            (("pr", 1), ("tar", 1))
+            if args.baseline_format == "tar"
+            else (("zip", 0), ("zip-relaxed", 0), ("tar", 1), ("tar", 3), ("tar", 6))
+        )
+        for kind, level in cases:
             samples = []
             for repetition in range(args.repetitions):
                 name = f"{kind}-{level}-{count}-{repetition}.archive"
@@ -242,10 +336,11 @@ def main(args):
             )
     for repetition in range(args.training_repetitions):
         # Alternate the order of control and export scenarios to reduce drift.
+        comparison = "pr" if args.baseline_format == "tar" else "zip-relaxed"
         kinds = (
-            ("control", "tar", "zip-relaxed")
+            ("control", "tar", comparison)
             if repetition % 2 == 0
-            else ("zip-relaxed", "tar", "control")
+            else (comparison, "tar", "control")
         )
         for kind in kinds:
             name = f"training-{repetition}-{kind}"
@@ -315,10 +410,14 @@ if __name__ == "__main__":
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--training-repetitions", type=int, default=3)
     parser.add_argument("--worker", action="store_true")
-    parser.add_argument("--kind", default="tar", choices=["tar", "zip", "zip-relaxed"])
+    parser.add_argument("--kind", default="tar", choices=["tar", "zip", "zip-relaxed", "pr"])
     parser.add_argument("--level", type=int, default=1)
     parser.add_argument("--operation", default="export", choices=["export", "import", "training"])
     parser.add_argument("--archive", default="job.archive")
     parser.add_argument("--gate", default="")
+    parser.add_argument("--baseline-format", choices=["zip", "tar"], default="zip")
+    parser.add_argument("--iteration-counts", nargs="+", type=int, default=[1, 100, 1000])
+    parser.add_argument("--large-history", action="store_true")
+    parser.add_argument("--measure-disk", action="store_true")
     arguments = parser.parse_args()
     worker(arguments) if arguments.worker else main(arguments)

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 import torch
 from auth_support import AuthenticatedClient as TestClient
+from legacy_archive_support import historical_export
 
 from hnefatafl import job_archives
 from hnefatafl.ai import choose_move
@@ -58,7 +59,7 @@ def export(client, job):
 
 
 def legacy_archive(content, version=2):
-    """Independent schema-1/2 ZIP fixture from the exported logical documents."""
+    """Conversion for mutation tests only; compatibility uses historical_export."""
     if zipfile.is_zipfile(io.BytesIO(content)):
         return content
     with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
@@ -164,7 +165,14 @@ def trained_tar_archive(tmp_path_factory):
 def trained_archive(request, trained_tar_archive):
     content, job, result = trained_tar_archive
     if request.param != "tar":
-        content = legacy_archive(content, int(request.param[-1]))
+        directory = Path(job["config"]["output_dir"])
+        content = historical_export(
+            job,
+            directory,
+            ModelRegistry(directory.parent.parent / "models"),
+            directory.parent.parent / f"schema-{request.param[-1]}.zip",
+            int(request.param[-1]),
+        )
     return content, job, result
 
 
@@ -526,7 +534,16 @@ def test_concurrent_imports_allocate_distinct_records(client):
     job, _ = job_record(client)
     content = export(client, job)
     with concurrent.futures.ThreadPoolExecutor(2) as pool:
-        results = list(pool.map(lambda _: upload(client, content), range(2)))
+
+        def retry(_):
+            deadline = time.monotonic() + 10
+            while True:
+                result = upload(client, content)
+                if result.status_code != 409 or time.monotonic() > deadline:
+                    return result
+                time.sleep(0.01)
+
+        results = list(pool.map(retry, range(2)))
     assert all(result.status_code == 201 for result in results)
     assert len({result.json()["id"] for result in results}) == 2
     assert len(client.app.state.store.jobs()) == 3

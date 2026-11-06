@@ -17,7 +17,7 @@ import re
 import shutil
 import sys
 import tempfile
-from typing import Any, Iterator
+from typing import Any, Iterator, Callable, List
 import zipfile
 
 import torch
@@ -654,6 +654,22 @@ class ModelRegistry:
         with self._locked():
             entries = self._read_index()
         return [{**entry, "path": str(self.root / f"{entry['id']}.pt")} for entry in entries]
+
+    def pin_entries(self, identifiers: set[str], pin: Callable[[Path], Path]) -> List[dict]:
+        """Read the index once and pin only selected immutable model files.
+
+        Called outside API lifecycle locks. The registry lock prevents deletion
+        between selecting an entry and pinning its inode; the callback must not
+        load/serialize tensors or copy their contents while holding this lock.
+        """
+        if not identifiers:
+            return []
+        with self._locked():
+            return [
+                {**entry, "path": str(pin(self.root / f"{entry['id']}.pt"))}
+                for entry in self._read_index()
+                if entry["id"] in identifiers
+            ]
 
     def get(self, model_id: str) -> dict[str, Any]:
         if not isinstance(model_id, str) or not _MODEL_ID.fullmatch(model_id):

@@ -80,7 +80,8 @@ def test_complete_history_roundtrip(client, tmp_path, iterations):
         restored = upload(destination, response.content)
         assert restored.status_code == 201, restored.text
         record = restored.json()
-        assert record["progress"] == report and record["result"] == report
+        assert {key: record["progress"][key] for key in report} == report
+        assert {key: record["result"][key] for key in report} == report
         assert record["metrics"] == report["metrics"]
         assert record["config"]["ruleset"] == "brandubh"
         restored_dir = destination.app.state.data_dir / "jobs" / record["id"]
@@ -130,7 +131,8 @@ def test_thousand_iteration_documents_exceed_old_limit_without_losing_data(clien
         response = upload(target, content)
         assert response.status_code == 201, response.text
         record = response.json()
-        assert record["progress"] == report and record["result"] == report
+        assert {key: record["progress"][key] for key in report} == report
+        assert {key: record["result"][key] for key in report} == report
         path = target.app.state.data_dir / "jobs" / record["id"] / "progress.json"
         assert json.loads(path.read_text())["history"] == history
 
@@ -142,7 +144,8 @@ def test_distinct_database_and_disk_histories_are_preserved(client):
     restored = upload(client, export(client, job))
     assert restored.status_code == 201, restored.text
     record = restored.json()
-    assert record["progress"] == job["progress"]
+    assert record["progress"]["history"] == disk["history"]
+    assert client.app.state.store.get_job(record["id"])["progress"] == job["progress"]
     path = client.app.state.data_dir / "jobs" / record["id"] / "progress.json"
     assert json.loads(path.read_text())["history"] == disk["history"]
 
@@ -155,7 +158,7 @@ def test_equal_numbers_with_different_json_representations_remain_distinct(clien
     response = upload(client, export(client, job))
     assert response.status_code == 201, response.text
     restored = response.json()
-    value = restored["progress"]["history"][0]["value"]
+    value = client.app.state.store.get_job(restored["id"])["progress"]["history"][0]["value"]
     assert type(value) is type(original)
     if isinstance(original, float):
         assert value.hex() == original.hex()

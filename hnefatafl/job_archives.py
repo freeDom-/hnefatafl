@@ -12,8 +12,9 @@ import shutil
 import stat
 import tarfile
 import tempfile
-from contextlib import nullcontext
-from dataclasses import dataclass
+import threading
+from contextlib import nullcontext, contextmanager, ExitStack
+from dataclasses import dataclass, field as dataclass_field
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -121,18 +122,74 @@ class JobArchiveResponse(FileResponse):
             Path(self.path).unlink(missing_ok=True)
 
 
-class JobUploadLimit:
-    """Bound multipart input before parsing/spooling, including chunked uploads."""
+ARCHIVE_BUSY = "Another job archive transfer is in progress. Retry when it finishes."
 
-    def __init__(self, app: ASGIApp):
+
+class ArchiveAdmission:
+    """One request owns capacity through body parsing, processing and response.
+
+    If ASGI cancellation abandons a running sync worker, that worker retains the
+    slot until its finally block runs. A late worker cannot start on a closed lease.
+    """
+
+    def __init__(self, lock):
+        self.lock = lock
+        self.guard = threading.Lock()
+        self.running = False
+        self.closed = False
+        self.released = False
+        self.output: Path | None = None
+
+    @contextmanager
+    def worker(self):
+        with self.guard:
+            if self.closed:
+                raise HTTPException(409, "Archive request ended. Retry the transfer.")
+            self.running = True
+        try:
+            yield self
+        finally:
+            with self.guard:
+                self.running = False
+                self._release()
+
+    def ensure_open(self):
+        with self.guard:
+            if self.closed:
+                raise HTTPException(
+                    409, "Archive request ended before publication. Retry the import."
+                )
+
+    def request_finished(self):
+        with self.guard:
+            self.closed = True
+            self._release()
+
+    def _release(self):
+        if self.closed and not self.running and not self.released:
+            self.released = True
+            try:
+                if self.output is not None:
+                    self.output.unlink(missing_ok=True)
+            finally:
+                self.lock.release()
+
+
+class JobUploadLimit:
+    """Admit archives before parsing/spooling; bound even chunked multipart input."""
+
+    def __init__(self, app: ASGIApp, archive_lock):
         self.app = app
+        self.archive_lock = archive_lock
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] != "http"
-            or scope.get("method") != "POST"
-            or scope.get("path") != "/api/training/jobs/import"
-        ):
+        importing = (
+            scope.get("method") == "POST" and scope.get("path") == "/api/training/jobs/import"
+        )
+        exporting = scope.get("method") == "GET" and re.fullmatch(
+            r"/api/training/jobs/[^/]+/export", scope.get("path", "")
+        )
+        if scope["type"] != "http" or not (importing or exporting):
             await self.app(scope, receive, send)
             return
         maximum = MAX_ARCHIVE_BYTES + 1024 * 1024  # Multipart envelope allowance.
@@ -141,7 +198,7 @@ class JobUploadLimit:
             length = int(headers.get(b"content-length", b"0"))
         except ValueError:
             length = maximum + 1
-        if not 0 <= length <= maximum:
+        if importing and not 0 <= length <= maximum:
             await JSONResponse(
                 {"detail": "Job archive upload exceeds the size limit."}, status_code=413
             )(scope, receive, send)
@@ -156,7 +213,17 @@ class JobUploadLimit:
                 raise HTTPException(413, "Job archive upload exceeds the size limit.")
             return message
 
-        await self.app(scope, bounded_receive, send)
+        if not self.archive_lock.acquire(blocking=False):
+            await JSONResponse(
+                {"detail": ARCHIVE_BUSY}, status_code=409, headers={"Retry-After": "1"}
+            )(scope, receive, send)
+            return
+        admission = ArchiveAdmission(self.archive_lock)
+        scope.setdefault("state", {})["archive_admission"] = admission
+        try:
+            await self.app(scope, bounded_receive if importing else receive, send)
+        finally:
+            admission.request_finished()
 
 
 def sha256(path: Path) -> str:
@@ -353,24 +420,11 @@ class ExportSnapshot:
     source: Path
     references: dict[str, str]
     study_inventory: dict | None
-    models: list[dict]
+    registry: Any
+    pending: list = dataclass_field(default_factory=list)
+    handles: ExitStack = dataclass_field(default_factory=ExitStack)
 
-
-def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSnapshot:
-    """Pin inactive immutable files under lifecycle locks; do expensive work later.
-
-    Job/registry publication uses atomic replacement. Hard links keep the old
-    inode alive across deletion/replacement without copying tensor buffers. A
-    cross-filesystem temporary directory falls back to copying, still without
-    parsing, tensor loading or compression under the locks.
-    """
-    validate_job(job)
-    if directory.is_symlink() or directory.resolve() != directory or directory.parent.is_symlink():
-        raise ArchiveError("The saved training directory is not a safe local job directory.")
-    refs: dict[str, str] = {}
-    inventory = None
-
-    def pin(source: Path, destination: Path):
+    def pin(self, source: Path, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.link(source, destination)
@@ -379,7 +433,45 @@ def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSn
 
             if exc.errno != errno.EXDEV:
                 raise
-            shutil.copyfile(source, destination)
+            # Opening pins the inode across deletion. Copy only AFTER releasing
+            # lifecycle/catalog/registry locks, including on cross-device stores.
+            handle = self.handles.enter_context(source.open("rb"))
+            self.pending.append((handle, destination))
+
+    def materialize(self) -> None:
+        pending, self.pending = self.pending, []
+        for handle, destination in pending:
+            with handle, destination.open("xb") as output:
+                shutil.copyfileobj(handle, output, 1024 * 1024)
+
+    def pin_model(self, source: Path) -> Path:
+        destination = self.source / "models" / source.name
+        if source.is_file() and not source.is_symlink():
+            self.pin(source, destination)
+        return destination
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.handles.close()
+
+
+def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSnapshot:
+    """Pin inactive immutable files under lifecycle locks; do expensive work later.
+
+    Job/registry publication uses atomic replacement. Hard links keep the old
+    inode alive across deletion/replacement without copying tensor buffers. A
+    cross-filesystem fallback pins open descriptors and defers copying. Model
+    references are discovered from these artifacts outside the global locks.
+    """
+    validate_job(job)
+    if directory.is_symlink() or directory.resolve() != directory or directory.parent.is_symlink():
+        raise ArchiveError("The saved training directory is not a safe local job directory.")
+    refs: dict[str, str] = {}
+    inventory = None
+
+    snapshot = ExportSnapshot(job, directory, target, refs, inventory, registry)
 
     def collect():
         nonlocal refs, inventory
@@ -403,28 +495,26 @@ def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSn
                 continue
             if source.stat().st_size > MAX_FILE_BYTES:
                 raise ArchiveError("Job artifact exceeds the file size limit.")
-            pin(source, target / name)
+            snapshot.pin(source, target / name)
         if job["kind"] == "tune":
-            from .job_studies import copy_study
+            from .job_studies import backup_study
 
-            copy_study(directory, job["config"], target / "study.sqlite3", references=refs)
+            backup_study(directory, job["config"], target / "study.sqlite3")
 
     target.mkdir(parents=True, exist_ok=True)
-    if job["kind"] == "tune":
-        from .training_identity import study_lease
+    try:
+        if job["kind"] == "tune":
+            from .training_identity import study_lease
 
-        with study_lease({**job["config"], "output_dir": str(directory)}):
+            with study_lease({**job["config"], "output_dir": str(directory)}):
+                collect()
+        else:
             collect()
-    else:
-        collect()
-    entries = registry.list()
-    for entry in entries:
-        source = Path(entry["path"])
-        destination = target / "models" / f"{entry['id']}.pt"
-        if source.is_file() and not source.is_symlink():
-            pin(source, destination)
-        entry["path"] = str(destination)
-    return ExportSnapshot(job, directory, target, refs, inventory, entries)
+    except BaseException:
+        snapshot.handles.close()
+        raise
+    snapshot.references, snapshot.study_inventory = refs, inventory
+    return snapshot
 
 
 def validate_json(value: Any, depth: int = 0) -> None:
@@ -570,10 +660,13 @@ def export_job(job: dict, directory: Path, registry, output: Path, app_version: 
 def export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -> None:
     """Sanitize/serialize/compress a pinned snapshot without lifecycle/catalog locks."""
     try:
+        snapshot.materialize()
         _export_snapshot(snapshot, output, app_version)
     except BaseException:
         output.unlink(missing_ok=True)
         raise
+    finally:
+        snapshot.handles.close()
 
 
 def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -> None:
@@ -664,6 +757,15 @@ def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -
                 include(target, name)
         if job["kind"] == "tune":
             shutil.copyfile(snapshot.source / "study.sqlite3", staging / "study.sqlite3")
+            from .job_studies import migrate_study
+
+            migrate_study(
+                staging / "study.sqlite3",
+                snapshot.source,
+                source_root=directory,
+                study_name=job["config"].get("study_name", "hnefatafl"),
+                references=artifact_refs,
+            )
             documents.write("study-artifacts.json", study_inventory)
             # config.json must carry the portable source dependency too.
             documents.write("config.json", record["config"])
@@ -709,7 +811,11 @@ def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -
 
             frozen_pins = frozen_study_dependencies(job["config"], staging / "study.sqlite3")
         models = []
-        available = {entry["id"]: entry for entry in snapshot.models}
+        # Discovery above includes reports/checkpoints, uploaded best models and
+        # frozen dependencies. Only this complete set touches registry files.
+        entries = snapshot.registry.pin_entries(references, snapshot.pin_model)
+        snapshot.materialize()
+        available = {entry["id"]: entry for entry in entries}
         for identifier in sorted(references):
             entry = available.get(identifier)
             if not entry:
@@ -1284,6 +1390,7 @@ def import_job(
                     ):
                         ids[missing] = None
                     record = rewrite(record, ids, destination)
+                    report_summaries = {}
                     for name in manifest["files"]:
                         if name == "job.json" or name.startswith("models/"):
                             continue
@@ -1298,6 +1405,13 @@ def import_job(
                                 data["status"] = record["status"]
                                 if record.get("model_id"):
                                     data["model"] = registry.get(record["model_id"])
+                                if record["kind"] == "tune":
+                                    data["storage"] = "sqlite:///" + str(
+                                        destination / "study.sqlite3"
+                                    )
+                                from .training_monitoring import imported_report_summary
+
+                                report_summaries[name[:-5]] = imported_report_summary(data)
                                 if not modern:
                                     record[name[:-5]] = data
                             write_json(path, data, maximum=json_limit)
@@ -1312,9 +1426,7 @@ def import_job(
                         for section in ("progress", "result"):
                             if section in record:
                                 record[section]["storage"] = storage
-                                write_json(
-                                    staging / f"{section}.json", record[section], maximum=json_limit
-                                )
+                    record["_import_reports"] = report_summaries
                     record.pop("checkpoint", None)
                     info = resume_info(record, staging)
                     record["resumable"] = info["can_resume"]

@@ -406,7 +406,12 @@ verification; verification status cannot erase the winner.
 Schema-3 TAR.GZ archives separate small metadata from shared bounded JSON chunks;
 serialization/compression and import validation run outside lifecycle/catalog locks.
 Inactive files are pinned for consistent snapshots without changing training
-persistence. Schemas 1/2 ZIP imports retain their guards.
+persistence. Only referenced models are pinned after unlocked reference discovery;
+cross-filesystem file copies also run outside locks. Archive admission precedes
+multipart parsing and returns 409 when busy, retaining capacity through cleanup
+and streaming. Imported file reports supply bounded cached navigator summaries
+while distinct database histories survive re-export. Schemas 1/2 ZIP imports
+retain their guards and are checked against complete historical applications.
 The format-2 study layout still consolidates contributing sibling UUID jobs and a portable
 source checkpoint into a fresh owning job on import. All paths, checksums, tensor
 payloads and SQLite schema are validated before publication; format-1 import and

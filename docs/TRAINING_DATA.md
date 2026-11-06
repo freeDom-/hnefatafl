@@ -390,17 +390,34 @@ training precision survive; sanitization and reference rebasing can change a
 checkpoint's serialized metadata/bytes. Treat archives as private training data and
 review custom diagnostic log text before sharing.
 
-Inactive files are pinned on the data filesystem under lifecycle/catalog locks;
-serialization and compression run after those locks are released, in FastAPI's
-existing request thread pool. Normal training and persistence do not change.
-The server processes one archive operation at a time to bound competing CPU/I/O.
-A second export receives a retry message; imports wait for the archive slot.
-Snapshot files and partial archives are cleaned up on failure, and completed
-downloads remove the temporary output even after a disconnect. Decompression and validation also run
-outside lifecycle locks; publication remains transactional under the existing locks.
+Inactive job files and a consistent SQLite study backup are pinned under
+lifecycle/catalog locks. Model references are then discovered from metadata,
+reports and checkpoints outside those locks; only the required registered models
+are pinned under the registry lock. Cross-filesystem pins retain open file handles
+and copy their contents after releasing the locks. Serialization, study migration
+and compression use FastAPI's existing request thread pool. Normal training and
+persistence do not change.
+The server admits one archive operation at a time, before parsing an import's
+multipart body. Competing imports and exports receive HTTP 409 with a retry
+message and `Retry-After` header, without staging another upload or waiting in a
+request-worker queue. Existing upload and multipart size limits still apply.
+Capacity remains reserved through response streaming and until an abandoned
+worker finishes cleaning up. Snapshot files, upload spools and partial archives
+are cleaned up on failure or cancellation; downloads remove their temporary
+output even after a disconnect. Decompression and validation also run outside
+lifecycle locks; publication remains transactional under the existing locks.
 The existing loading indicators stay active until the request finishes.
 See the [archive benchmarks](benchmarks/job-archives.md) for measured tradeoffs
-and the limits of CPU-only concurrency evidence.
+and the [review benchmarks](benchmarks/job-archive-review.md) for catalog,
+concurrency and large-history comparisons against the initial schema-3 PR.
+
+Schema-3 imports preserve distinct database and file reports. Full job views and
+the import response read the retained files; navigator summaries use a bounded
+projection cached once at import, without reopening large histories on refresh.
+The cache contains counters and small metric maps, never another full history.
+The original database reports remain available for lossless re-export. Genuine
+[historical ZIP fixtures](../tests/fixtures/job_archives/README.md) exercise both
+legacy schemas and full checkpoint resumption.
 
 Import validates inventory, checksums, bounded JSON and tensor-only checkpoint
 compatibility in staging, then registers models, publishes a fresh job directory

@@ -362,7 +362,14 @@ def compact_progress(progress: dict) -> dict:
 
 
 def job_summary(job: dict) -> dict:
-    result = {key: value for key, value in job.items() if key not in {"progress", "result", "logs"}}
+    reports = job.get("_import_reports")
+    if job.get("status") in {"completed", "cancelled", "failed"} and isinstance(reports, dict):
+        job = {**job, **reports}
+    result = {
+        key: value
+        for key, value in job.items()
+        if key not in {"progress", "result", "logs", "_import_reports"}
+    }
     if isinstance(job.get("progress"), dict):
         result["progress"] = compact_progress(job["progress"])
     saved = job.get("result")
@@ -370,11 +377,84 @@ def job_summary(job: dict) -> dict:
         # Older completed jobs can retain their counters only in result.json.
         # Preserve the result-then-progress precedence used by the navigator.
         progress = result.setdefault("progress", {})
-        for key in ("self_play_games", "games_generated"):
+        for key in (
+            "iteration",
+            "active_iteration",
+            "total_iterations",
+            "self_play_games",
+            "games_generated",
+        ):
             if key not in progress and key in saved:
                 progress[key] = saved[key]
     registered = saved.get("model") if isinstance(saved, dict) else None
     if isinstance(registered, dict) and registered.get("id"):
         result["model_id"] = registered["id"]
     result["summary"] = True
+    return result
+
+
+def imported_report_summary(report: dict) -> dict:
+    """Cache navigator fields once at import; full reports remain separate artifacts.
+
+    Only scalar counters and small scalar maps belong here. In particular, an
+    unfamiliar list/diagnostic must never copy another full history into SQLite.
+    """
+    keys = (
+        *_HEARTBEAT_KEYS,
+        "trial",
+        "completed_trials",
+        "total_trials",
+        "best_trial",
+        "best_score",
+        "metrics",
+        "model",
+        "performance",
+        "trial_progress",
+    )
+
+    budget = 32 * 1024
+
+    def small(value, depth=0):
+        nonlocal budget
+        if isinstance(value, dict):
+            if depth >= 3 or len(value) > 128:
+                return {}
+            result = {}
+            for key, item in value.items():
+                if (
+                    key in {"history", "self_play", "games"}
+                    or len(key) > 200
+                    or isinstance(item, (list, tuple))
+                ):
+                    continue
+                projected = small(item, depth + 1)
+                if projected is not None:
+                    result[key] = projected
+            return result
+        if (
+            type(value) not in (int, float, bool, type(None), str)
+            or isinstance(value, str)
+            and len(value) > 2000
+        ):
+            return None
+        size = len(json.dumps(value, ensure_ascii=False).encode()) + 205
+        if size > budget:
+            return None
+        budget -= size
+        return value
+
+    result = {}
+    # Identity/counters take precedence over optional metrics within the budget.
+    for key in dict.fromkeys(("iteration", "self_play_games", "games_generated", "model", *keys)):
+        if key in report and not isinstance(report[key], (list, tuple)):
+            value = (
+                {"id": report[key].get("id")}
+                if key == "model" and isinstance(report[key], dict)
+                else report[key]
+            )
+            projected = small(value)
+            if projected is not None:
+                result[key] = projected
+    while len(json.dumps(result, ensure_ascii=False).encode()) > 32 * 1024:
+        result.pop(next(reversed(result)))
     return result
