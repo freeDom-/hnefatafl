@@ -9,9 +9,10 @@ historical evidence against the pre-migration ZIP writer. The
 [raw review measurements](job-archive-review.json) retain every sample, environment
 information and measured source hashes.
 
-Measured on 6 November 2026 with Python 3.12.14, CPU-only PyTorch, three available
-CPUs and three samples per case. Cases run in fresh processes, alternating order
-for catalog/admission and concurrent-training comparisons. Archive import/export
+Measured on 6 November 2026 with Python 3.12.14, CPU-only PyTorch, three reported
+CPUs with a two-CPU cgroup quota, and three samples per case. Cases run in fresh
+processes, alternating order for catalog/admission and concurrent-training
+comparisons. Archive import/export
 timings measure the Python archive functions, excluding HTTP transport and the
 full-detail response serialization. API regression tests separately validate the
 import response, full endpoint and repeated lightweight navigator polls.

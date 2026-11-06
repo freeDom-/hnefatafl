@@ -452,6 +452,50 @@ def golden_archive(version, scenario):
     return content
 
 
+@pytest.mark.parametrize("filename", ["progress.json", "result.json"])
+def test_study_rebasing_preserves_distinct_file_reports(client, filename):
+    import hashlib
+    from test_job_tar_archives import members, document, tar_bytes
+
+    original = upload(client, golden_archive(2, "study")).json()
+    files = members(export(client, original))
+    manifest = json.loads(files["manifest.json"])
+    section = filename[:-5]
+    before = document(files, f"metadata/{section}.json")
+    report = {
+        **document(files, filename),
+        "best_score": 0.875,
+        "history": [{"iteration": 1000, "evidence": "newer archived file"}],
+    }
+    data = json.dumps(report).encode()
+    name = f"data/{hashlib.sha256(data).hexdigest()}.json-part"
+    files[name] = data
+    manifest["files"][name] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    manifest["documents"][filename] = {"size": len(data), "chunks": [name]}
+    files["manifest.json"] = json.dumps(manifest).encode()
+    response = upload(client, tar_bytes(files))
+    assert response.status_code == 201, response.text
+    restored = response.json()
+    detail = client.get(f"/api/training/jobs/{restored['id']}").json()
+    raw = client.app.state.store.get_job(restored["id"])
+    assert raw[section].get("history") == before.get("history")
+    assert raw[section]["best_score"] == before["best_score"]
+    for visible in (restored, detail):
+        assert visible[section]["history"] == report["history"]
+        assert visible[section]["best_score"] == report["best_score"]
+        assert visible[section]["storage"] == restored["config"]["storage"]
+    summary = next(
+        job
+        for job in client.get("/api/training/jobs?summary=true").json()
+        if job["id"] == restored["id"]
+    )
+    assert raw["_import_reports"][section]["best_score"] == report["best_score"]
+    assert summary["progress"]["best_score"] == (
+        report["best_score"] if section == "progress" else detail["progress"]["best_score"]
+    )
+    assert "history" not in summary["progress"]
+
+
 def test_frozen_study_snapshot_survives_deleted_source_and_pins_only_dependencies(
     client, tmp_path, monkeypatch
 ):
