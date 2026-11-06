@@ -506,8 +506,8 @@ const translations: Record<string, string> = {
   'Minimum dwell (evaluations)': 'Minimale Verweildauer (Evaluationen)',
   'Observation history window': 'Beobachtungsfenster',
   'Minimum trials per candidate': 'Mindestversuche pro Kandidat',
-  'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and a fixed (non-Champion) evaluation opponent with at least four games is required.':
-    'Ob der Auftrag die Lernrate während des Trainings online anpasst. Aus lässt die konfigurierte Rate fest. HyperController passt sie innerhalb desselben Laufs anhand der Auswertungsergebnisse an; das ist nicht Optuna, das über getrennte Versuche statt über eine fortlaufende Bahn sucht. Solange es aktiv ist, besitzt der Controller die effektive Rate, die konfigurierte Lernrate ist der Startwert und muss einer der Kandidaten sein, und ein fester (nicht Champion-)Auswertungsgegner mit mindestens vier Partien ist erforderlich.',
+  'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and at least four evaluation games are required. Champion is supported: when a candidate is promoted the controller keeps its current effective rate, discards the learning it derived from the previous Champion and starts a new warm-up, so scores from before and after a promotion are never mixed.':
+    'Ob der Auftrag die Lernrate während des Trainings online anpasst. Aus lässt die konfigurierte Rate fest. HyperController passt sie innerhalb desselben Laufs anhand der Auswertungsergebnisse an; das ist nicht Optuna, das über getrennte Versuche statt über eine fortlaufende Bahn sucht. Solange es aktiv ist, besitzt der Controller die effektive Rate, die konfigurierte Lernrate ist der Startwert und muss einer der Kandidaten sein, und mindestens vier Auswertungspartien sind erforderlich. Champion wird unterstützt: Wird ein Kandidat befördert, behält der Controller seine aktuelle effektive Rate, verwirft das aus dem vorherigen Champion Gelernte und startet eine neue Aufwärmphase, sodass Ergebnisse vor und nach einer Beförderung nie vermischt werden.',
   'Comma-separated learning rates the controller may choose between. Each must be between 1e-7 and 1 and all must be distinct, with 2–8 values. The configured learning rate must appear in the list. A small set keeps each decision cheap and the saved controller state bounded.':
     'Kommagetrennte Lernraten, zwischen denen der Controller wählen darf. Jede muss zwischen 1e-7 und 1 liegen und alle müssen verschieden sein, mit 2–8 Werten. Die konfigurierte Lernrate muss in der Liste vorkommen. Eine kleine Menge hält jede Entscheidung günstig und den gespeicherten Controller-Zustand begrenzt.',
   'Number of completed evaluations between controller decisions. 1 decides after every evaluation; higher values judge a longer interval before the rate can change.':
@@ -532,10 +532,12 @@ const translations: Record<string, string> = {
   'Minimum dwell': 'Minimale Verweildauer',
   'No observation': 'Keine Beobachtung',
   Fallback: 'Rückfall',
+  'Champion promoted · warm-up restarted': 'Champion befördert · Aufwärmphase neu gestartet',
+  'Promotion resets': 'Beförderungs-Resets',
+  'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.':
+    'Jede Champion-Beförderung behält die aktuelle Lernrate bei, startet aber die Aufwärmphase des Controllers neu; Ergebnisse von vor der Beförderung werden nicht wiederverwendet.',
   'Unavailable while tuning: the study varies the learning rate across trials.':
     'Während der Optimierung nicht verfügbar: Die Studie variiert die Lernrate über die Versuche hinweg.',
-  'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.':
-    'Automatische Hyperparameter-Aktualisierungen benötigen einen festen Auswertungsgegner, nicht Champion.',
   'Automatic hyperparameter updates need at least 4 evaluation games.':
     'Automatische Hyperparameter-Aktualisierungen benötigen mindestens 4 Auswertungspartien.',
   'The learning rate must be one of the adaptation candidates.':

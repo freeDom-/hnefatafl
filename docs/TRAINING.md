@@ -432,11 +432,31 @@ While adaptation is enabled the controller owns the effective learning rate; the
 configured `learning_rate` is the starting value and must appear in
 `adaptation_lr_candidates`. The optimizer is never rebuilt, so Adam moments and
 SGD momentum are preserved; only the parameter groups' learning rate is written,
-at iteration boundaries after an evaluation. Validation requires a fixed
-(non-Champion) evaluation opponent and at least 4 evaluation games, because the
-observation is the completed-game score against that opponent. Unfinished games
-are excluded from the observation rather than scored as losses, and no extra
-evaluation is added.
+at iteration boundaries after an evaluation. Validation requires at least 4
+evaluation games, because the observation is the completed-game score. Unfinished
+games are excluded from the observation rather than scored as losses, and no
+extra evaluation is added.
+
+The evaluation opponent may be fixed or `champion`. With a fixed opponent the
+controller's observations are comparable for the whole run. With Champion, a
+promotion replaces the incumbent and changes what a score means, so the
+controller treats each promotion as a regime boundary. When
+`EvaluationSelection.accept()` reports a promotion, the promoting observation is
+still attributed to the outgoing Champion, but it never changes the rate. The
+controller then keeps its current effective rate, discards the learned
+predictors, reward/action history and counters that describe the previous
+Champion, and restarts `adaptation_warmup` against the new Champion. The
+optimizer, its moments, the model weights and the replay buffer are untouched, so
+the new regime begins from the same effective rate that trained the promoting
+interval. The transition is recorded once per promotion (a replayed signal is
+idempotent), and failed attempts, draws and missing observations never reset the
+controller. Monitoring exposes `adaptation.promotion_resets` and
+`adaptation.last_promotion` (iteration, beaten incumbent iteration, identity and
+preserved rate); the decision log marks the boundary with a `promotion_reset`
+event and shows the preserved rate as both the used and the selected rate. This
+is distinguishable from the `reset_reason` values reported for a changed
+configuration (`candidates_changed`, `lag_changed`, `evaluation_changed`) or an
+invalid saved state (`unreadable_state`, `rng_absent`, `unsupported_state`).
 
 The current effective rate and a bounded decision history are published in
 monitoring (`progress.adaptation`, the per-iteration history fields and

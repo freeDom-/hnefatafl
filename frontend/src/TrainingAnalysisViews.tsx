@@ -297,6 +297,9 @@ export function TrainingLearningView({
           label="Replay buffer positions"
           value={last?.replay_positions ?? metrics.replay_positions}
         />
+        {finite(adaptation.promotion_resets) && adaptation.promotion_resets > 0 && (
+          <TrainingKpi label="Promotion resets" value={adaptation.promotion_resets} />
+        )}
         <TrainingKpi
           label="Optimizer updates"
           value={last?.optimizer_updates ?? last?.updates ?? metrics.updates}
@@ -346,6 +349,7 @@ const SKIP_LABELS: Record<string, string> = {
   cadence: 'Waiting for cadence',
   dwell: 'Minimum dwell',
   fallback: 'Fallback',
+  promotion_reset: 'Champion promoted · warm-up restarted',
 };
 
 function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {

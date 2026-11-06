@@ -164,11 +164,6 @@ export function candidateRates(value: unknown): number[] | null {
  */
 export function adaptationConfigError(config: TrainingConfig): AdaptationConfigError | null {
   if (config.adaptation !== 'hypercontroller') return null;
-  if (config.evaluation_opponent === 'champion')
-    return {
-      field: 'evaluation_opponent',
-      message: 'Automatic hyperparameter updates need a fixed evaluation opponent, not Champion.',
-    };
   if (Number(config.evaluation_games) < 4)
     return {
       field: 'evaluation_games',
