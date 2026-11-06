@@ -44,7 +44,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
-| [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
+| [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
 
@@ -403,7 +403,11 @@ opponents may have different hidden architectures and use independent inference
 models/queues. Optimization results are durable before optional cancellable
 verification; verification status cannot erase the winner.
 
-Format-2 study archives consolidate contributing sibling UUID jobs and a portable
+Schema-3 TAR.GZ archives separate small metadata from shared bounded JSON chunks;
+serialization/compression and import validation run outside lifecycle/catalog locks.
+Inactive files are pinned for consistent snapshots without changing training
+persistence. Schemas 1/2 ZIP imports retain their guards.
+The format-2 study layout still consolidates contributing sibling UUID jobs and a portable
 source checkpoint into a fresh owning job on import. All paths, checksums, tensor
 payloads and SQLite schema are validated before publication; format-1 import and
 historical rankings remain supported. Lifecycle/catalog lock ordering prevents

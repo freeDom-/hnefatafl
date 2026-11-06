@@ -523,7 +523,7 @@ export default function Training({
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
       link.href = url;
-      link.download = `hnefatafl-job-${job.id}.zip`;
+      link.download = `hnefatafl-job-${job.id}.tar.gz`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
@@ -993,7 +993,7 @@ export default function Training({
             {importingJob ? t('Importing job…') : t('Import job')}
             <input
               type="file"
-              accept=".zip,application/zip"
+              accept=".tar.gz,application/gzip,.zip,application/zip"
               aria-label={t('Import job')}
               disabled={importingJob}
               onChange={(event) => {

@@ -39,7 +39,7 @@ it('uploads a job with a loading state, refreshes models and selects its history
   render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={changed} />);
   await screen.findByText('Your next opponent starts here.');
   fireEvent.change(screen.getByLabelText('Import job'), {
-    target: { files: [new File(['zip'], 'job.zip')] },
+    target: { files: [new File(['gzip'], 'job.tar.gz')] },
   });
   expect(screen.getByText('Importing job…')).toBeInTheDocument();
   expect(screen.getByLabelText('Import job')).toBeDisabled();
@@ -106,7 +106,7 @@ it('localizes transfer actions and disables resume for an inference-only importe
   render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
   expect(screen.getByLabelText('Auftrag importieren')).toHaveAttribute(
     'accept',
-    '.zip,application/zip',
+    '.tar.gz,application/gzip,.zip,application/zip',
   );
   fireEvent.click(await screen.findByRole('button', { name: new RegExp('Migrated raven') }));
   expect(screen.getByRole('button', { name: 'Auftrag exportieren' })).toBeInTheDocument();
@@ -134,4 +134,31 @@ it('reports export validation errors', async () => {
   await waitFor(() =>
     expect(error).toHaveBeenCalledWith('Stop this training job before exporting its data.'),
   );
+});
+
+it('downloads a TAR.GZ job and clears the loading state', async () => {
+  const error = vi.fn();
+  const createURL = vi.fn(() => 'blob:job-export');
+  vi.stubGlobal('URL', { createObjectURL: createURL, revokeObjectURL: vi.fn() });
+  let downloaded = '';
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    downloaded = this.download;
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) =>
+      path.endsWith('/export')
+        ? Promise.resolve({ ok: true, blob: async () => new Blob(['gzip']) } as Response)
+        : json(path.split('?')[0] === '/api/training/jobs' ? [job] : []),
+    ),
+  );
+  render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp('Migrated raven') }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export job' }));
+  await waitFor(() => expect(downloaded).toBe('hnefatafl-job-imported-job.tar.gz'));
+  expect(createURL).toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Export job' })).toBeEnabled();
+  expect(error).not.toHaveBeenCalled();
 });

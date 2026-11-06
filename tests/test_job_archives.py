@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import stat
+import tarfile
 import time
 import zipfile
 from contextlib import contextmanager
@@ -56,6 +57,36 @@ def export(client, job):
     return response.content
 
 
+def legacy_archive(content, version=2):
+    """Independent schema-1/2 ZIP fixture from the exported logical documents."""
+    if zipfile.is_zipfile(io.BytesIO(content)):
+        return content
+    with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+        files = {item.name: archive.extractfile(item).read() for item in archive}
+    manifest = json.loads(files["manifest.json"])
+    documents = manifest.pop("documents")
+    fields = manifest.pop("job_fields")
+    for name, details in documents.items():
+        files[name] = b"".join(files[chunk] for chunk in details["chunks"])
+    record = json.loads(files["job.json"])
+    for field, name in fields.items():
+        record[field] = json.loads(files.pop(name))
+    files["job.json"] = json.dumps(record).encode()
+    files = {name: value for name, value in files.items() if not name.startswith("data/")}
+    manifest["format_version"] = version
+    manifest["files"] = {
+        name: {"size": len(value), "sha256": hashlib.sha256(value).hexdigest()}
+        for name, value in files.items()
+        if name != "manifest.json"
+    }
+    files["manifest.json"] = json.dumps(manifest).encode()
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        for name, value in files.items():
+            archive.writestr(name, value)
+    return output.getvalue()
+
+
 def register_model(registry, path, *, ruleset="brandubh", seed=1, name="Model"):
     """Create and register a deterministic model for import-integrity tests."""
     torch.manual_seed(seed)
@@ -90,7 +121,7 @@ def single_model_archive(tmp_path, *, ruleset="brandubh", seed=1, name="Archived
 
 
 @pytest.fixture(scope="module")
-def trained_archive(tmp_path_factory):
+def trained_tar_archive(tmp_path_factory):
     root = tmp_path_factory.mktemp("job-source")
     with TestClient(create_app(root)) as source:
         job, directory = job_record(source)
@@ -129,6 +160,14 @@ def trained_archive(tmp_path_factory):
         return export(source, job), job, result
 
 
+@pytest.fixture(scope="module", params=["tar", "zip1", "zip2"])
+def trained_archive(request, trained_tar_archive):
+    content, job, result = trained_tar_archive
+    if request.param != "tar":
+        content = legacy_archive(content, int(request.param[-1]))
+    return content, job, result
+
+
 def test_export_inactive_metadata_optional_files_and_no_mutation(client):
     software = {
         "worker": {"package_version": "0.25.0", "git_revision": None},
@@ -141,7 +180,7 @@ def test_export_inactive_metadata_optional_files_and_no_mutation(client):
     before = client.app.state.store.get_job(job["id"])
     (directory / "credentials.json").write_text('{"token":"must-not-leak"}')
     data = export(client, job)
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(data))) as archive:
         assert set(archive.namelist()) == {
             "manifest.json",
             "job.json",
@@ -298,7 +337,7 @@ def test_export_import_preserves_training_symmetry_mode(client, tmp_path):
 
 def test_archive_contains_checkpoints_history_models_and_sanitized_logs(trained_archive):
     content, original, _ = trained_archive
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as archive:
         names = set(archive.namelist())
         assert {"last.pt", "best.pt", "inference.pt", "worker.log", "result.json"} <= names
         assert any(name.startswith("best/") for name in names)
@@ -312,7 +351,7 @@ def test_archive_contains_checkpoints_history_models_and_sanitized_logs(trained_
 
 
 def mutate(content, change):
-    with zipfile.ZipFile(io.BytesIO(content)) as source:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as source:
         files = {name: source.read(name) for name in source.namelist()}
     change(files)
     manifest = json.loads(files["manifest.json"])
@@ -375,7 +414,7 @@ def test_invalid_archive_rejected_without_artifacts(client, case):
 
     content = mutate(content, change)
     if case == "checksum":
-        with zipfile.ZipFile(io.BytesIO(content)) as src:
+        with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as src:
             out = io.BytesIO()
             with zipfile.ZipFile(out, "w") as dst:
                 for name in src.namelist():
@@ -557,7 +596,7 @@ def test_owned_optimization_study_roundtrip_and_resume(client, tmp_path):
         for entry in registry.list():
             registry.delete(entry["id"])
         content = export(source, job)
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as archive:
             database_bytes = archive.read("study.sqlite3")
             assert b"must-not-export-study-secret" not in database_bytes
             assert str(root).encode() not in database_bytes
@@ -614,7 +653,7 @@ def test_owned_optimization_study_roundtrip_and_resume(client, tmp_path):
     assert len(optuna.load_study(study_name=config["study_name"], storage=storage).trials) == 2
     # A resumed job exports every contributor to the shared study.
     content = export(client, state)
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as archive:
         assert "trial-0/objective.pt" in archive.namelist()
         assert "trial-1/last.pt" in archive.namelist()
     migrated = upload(client, content)
@@ -1140,7 +1179,7 @@ def test_multijob_checkpoint_study_with_frozen_dependency_roundtrips_and_continu
         second_job.update(config=second_config, result=second_result, progress=second_result)
         source.app.state.store.save_job(second_job)
         content = export(source, second_job)
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as archive:
             assert "dependencies/source/last.pt" in archive.namelist()
             inventory = json.loads(archive.read("study-artifacts.json"))
             assert inventory["owning_job"] == first_job["id"]
@@ -1209,7 +1248,10 @@ def test_multijob_checkpoint_study_with_frozen_dependency_roundtrips_and_continu
 def test_format_one_archives_remain_importable(client, trained_archive):
     content, _, _ = trained_archive
     output = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(content)) as source, zipfile.ZipFile(output, "w") as target:
+    with (
+        zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as source,
+        zipfile.ZipFile(output, "w") as target,
+    ):
         for name in source.namelist():
             data = source.read(name)
             if name == "manifest.json":

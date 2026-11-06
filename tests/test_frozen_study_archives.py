@@ -14,7 +14,7 @@ from auth_support import AuthenticatedClient as TestClient
 from hnefatafl.models import ModelRegistry, PolicyValueNet, load_checkpoint, save_checkpoint
 from hnefatafl.server import create_app
 from hnefatafl.training import tune
-from test_job_archives import export, job_record, upload
+from test_job_archives import export, job_record, legacy_archive, upload
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def destination(tmp_path):
 
 
 def change_archive(content, change):
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as archive:
         files = {name: archive.read(name) for name in archive.namelist()}
     manifest = json.loads(files.pop("manifest.json"))
     change(files, manifest)
@@ -112,7 +112,7 @@ def test_valid_pinned_frozen_model_import_and_deduplication(source, destination,
     assert imported["config"]["opponents"][0]["model_id"] == existing["id"]
     # Re-export verifies the rebased study's pins and contains the required model.
     migrated = export(destination, imported)
-    with zipfile.ZipFile(io.BytesIO(migrated)) as archive:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(migrated))) as archive:
         assert f"models/{existing['id']}.pt" in archive.namelist()
 
 
@@ -191,7 +191,7 @@ def test_import_rejects_damaged_existing_id_without_overwriting_it(source, desti
     content = export(client, job)
     registry = ModelRegistry(destination.app.state.data_dir / "models")
     portable = destination.app.state.data_dir / "opponent.pt"
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+    with zipfile.ZipFile(io.BytesIO(legacy_archive(content))) as archive:
         portable.write_bytes(archive.read(f"models/{model['id']}.pt"))
     existing = registry.import_model(portable)
     path = Path(existing["path"])

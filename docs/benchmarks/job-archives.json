@@ -1,0 +1,1113 @@
+{
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "cpu_count": 3,
+  "repetitions": 3,
+  "fixture": "real 1-iteration CPU smoke checkpoints; repeated synthetic metric histories",
+  "archives": [
+    {
+      "iterations": 1,
+      "kind": "zip",
+      "gzip_level": 0,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.05599590800011356,
+            "cpu_seconds": 0.05596193500000002,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 226401,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.10192446800010657,
+            "cpu_seconds": 0.09961690700000014,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.06489376900003663,
+            "cpu_seconds": 0.06482020699999991,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 226401,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09285149399988768,
+            "cpu_seconds": 0.0901934000000002,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.047740331000113656,
+            "cpu_seconds": 0.047734312,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 226401,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09769165600005181,
+            "cpu_seconds": 0.09536645900000007,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1,
+      "kind": "zip-relaxed",
+      "gzip_level": 0,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.06145428900003935,
+            "cpu_seconds": 0.06134564899999995,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 226401,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.0982064800000444,
+            "cpu_seconds": 0.09570221300000004,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.04935879799995746,
+            "cpu_seconds": 0.04935687,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 226401,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09673397399978967,
+            "cpu_seconds": 0.093581213,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.09129054499999256,
+            "cpu_seconds": 0.08762113999999999,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 226401,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09920194399978755,
+            "cpu_seconds": 0.09719216399999997,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1,
+      "kind": "tar",
+      "gzip_level": 1,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.05024728200010031,
+            "cpu_seconds": 0.050219415000000156,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 44882,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.11057963799999015,
+            "cpu_seconds": 0.1077137640000001,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.053261837000036394,
+            "cpu_seconds": 0.053265655999999995,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 44882,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.15965644400012025,
+            "cpu_seconds": 0.15711895399999998,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.05547114299997702,
+            "cpu_seconds": 0.055475350000000034,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 44882,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09794641000007687,
+            "cpu_seconds": 0.095458979,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1,
+      "kind": "tar",
+      "gzip_level": 3,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.055175836999978856,
+            "cpu_seconds": 0.05517934800000002,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 42674,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.1021578730001238,
+            "cpu_seconds": 0.09906243299999984,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.05190443000014966,
+            "cpu_seconds": 0.051908313999999844,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 42674,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.0943094750000455,
+            "cpu_seconds": 0.09227477200000012,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.05493599099986568,
+            "cpu_seconds": 0.05493973200000002,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 42674,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.10450330000003305,
+            "cpu_seconds": 0.10196560300000002,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1,
+      "kind": "tar",
+      "gzip_level": 6,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.0511930120001125,
+            "cpu_seconds": 0.05116678799999996,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 40792,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09382705000007263,
+            "cpu_seconds": 0.0922545480000001,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.05082092299994656,
+            "cpu_seconds": 0.05079393100000007,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 40792,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.08928781800000252,
+            "cpu_seconds": 0.0879428550000001,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.051334184000097594,
+            "cpu_seconds": 0.0513376029999999,
+            "peak_rss_bytes": 280977408,
+            "archive_bytes": 40792,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.09332145100006528,
+            "cpu_seconds": 0.09170720200000004,
+            "peak_rss_bytes": 280977408,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 100,
+      "kind": "zip",
+      "gzip_level": 0,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.24050338600000032,
+            "cpu_seconds": 0.240466426,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 2390525,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.3259673259999545,
+            "cpu_seconds": 0.32304285899999985,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.22556181400000241,
+            "cpu_seconds": 0.22541038800000002,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 2390525,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.303169404000073,
+            "cpu_seconds": 0.30017498900000006,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.21468246800009183,
+            "cpu_seconds": 0.2146854039999999,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 2390525,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.3064751619999697,
+            "cpu_seconds": 0.3040365060000001,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 100,
+      "kind": "zip-relaxed",
+      "gzip_level": 0,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.2106455159998859,
+            "cpu_seconds": 0.21064284899999985,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 2390525,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.3184562270000697,
+            "cpu_seconds": 0.31234341199999993,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.2147907869998562,
+            "cpu_seconds": 0.21479353499999987,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 2390525,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.3385081999999784,
+            "cpu_seconds": 0.3358915859999998,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.2315144279998549,
+            "cpu_seconds": 0.23116045900000004,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 2390525,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.31191238199994586,
+            "cpu_seconds": 0.3085450539999999,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 100,
+      "kind": "tar",
+      "gzip_level": 1,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.2489522239998223,
+            "cpu_seconds": 0.2489547780000001,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 55877,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.34956900099996346,
+            "cpu_seconds": 0.3467122170000001,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.2628103690001353,
+            "cpu_seconds": 0.26281270199999995,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 55877,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.3895254849999219,
+            "cpu_seconds": 0.37857941900000003,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.2354430399998364,
+            "cpu_seconds": 0.23543268500000014,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 55877,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.38588848199992754,
+            "cpu_seconds": 0.3816814719999999,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 100,
+      "kind": "tar",
+      "gzip_level": 3,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.2374024109999482,
+            "cpu_seconds": 0.23740429400000007,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 51845,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.39182636200007437,
+            "cpu_seconds": 0.38921184399999986,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.2639489959999537,
+            "cpu_seconds": 0.26394680300000006,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 51845,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.35450768100008645,
+            "cpu_seconds": 0.3516367840000001,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.23651596900003824,
+            "cpu_seconds": 0.23629830500000004,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 51845,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.36488866500008044,
+            "cpu_seconds": 0.36098647299999986,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 100,
+      "kind": "tar",
+      "gzip_level": 6,
+      "samples": [
+        {
+          "export": {
+            "seconds": 0.2561283760001061,
+            "cpu_seconds": 0.25613058700000013,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 44177,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.3426084139998693,
+            "cpu_seconds": 0.3402763019999999,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.24756909699999596,
+            "cpu_seconds": 0.24756275500000013,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 44177,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.33491895499992097,
+            "cpu_seconds": 0.3324607759999998,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 0.23687713300000723,
+            "cpu_seconds": 0.23687929200000002,
+            "peak_rss_bytes": 283598848,
+            "archive_bytes": 44177,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 0.39512188499998047,
+            "cpu_seconds": 0.390544515,
+            "peak_rss_bytes": 283598848,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1000,
+      "kind": "zip",
+      "gzip_level": 0,
+      "samples": [
+        {
+          "export": {
+            "seconds": 2.093390012999862,
+            "cpu_seconds": 2.09240072,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.648340142000052,
+            "cpu_seconds": 2.6339084230000003,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 1.9853914709999572,
+            "cpu_seconds": 1.9835990639999999,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.6271542050001244,
+            "cpu_seconds": 2.617067509,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.163459686999886,
+            "cpu_seconds": 2.16253866,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.579004649000126,
+            "cpu_seconds": 2.5704530529999996,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1000,
+      "kind": "zip-relaxed",
+      "gzip_level": 0,
+      "samples": [
+        {
+          "export": {
+            "seconds": 1.9310352119998697,
+            "cpu_seconds": 1.9281043580000001,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.53272453999989,
+            "cpu_seconds": 2.524745259,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 1.9010240719999274,
+            "cpu_seconds": 1.899452061,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.6633175569998,
+            "cpu_seconds": 2.652196399,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 1.8694288589999815,
+            "cpu_seconds": 1.8679053950000002,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.5661067579999326,
+            "cpu_seconds": 2.5553530789999996,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1000,
+      "kind": "tar",
+      "gzip_level": 1,
+      "samples": [
+        {
+          "export": {
+            "seconds": 2.090572442000166,
+            "cpu_seconds": 2.085571776,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 150471,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.76172485699999,
+            "cpu_seconds": 2.750514634,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.0798903989998507,
+            "cpu_seconds": 2.074705506,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 150471,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.932690907999813,
+            "cpu_seconds": 2.9200640680000003,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.0180102500000885,
+            "cpu_seconds": 2.0168919139999995,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 150471,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.782208483999966,
+            "cpu_seconds": 2.771374259,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1000,
+      "kind": "tar",
+      "gzip_level": 3,
+      "samples": [
+        {
+          "export": {
+            "seconds": 2.0869476200000463,
+            "cpu_seconds": 2.082887321,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 124541,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.8203354790000503,
+            "cpu_seconds": 2.806542398,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.076803793999943,
+            "cpu_seconds": 2.0725750869999997,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 124541,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.931039184999918,
+            "cpu_seconds": 2.9225156820000002,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 1.9832100609999088,
+            "cpu_seconds": 1.9821170629999998,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 124541,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.741326408000077,
+            "cpu_seconds": 2.732508157,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "iterations": 1000,
+      "kind": "tar",
+      "gzip_level": 6,
+      "samples": [
+        {
+          "export": {
+            "seconds": 1.9902271910000309,
+            "cpu_seconds": 1.9888562399999998,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 67462,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.913061735999918,
+            "cpu_seconds": 2.902944409,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.095721942999944,
+            "cpu_seconds": 2.0911601589999997,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 67462,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.8351453739999215,
+            "cpu_seconds": 2.8252679890000003,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.019775308999897,
+            "cpu_seconds": 2.018651584,
+            "peak_rss_bytes": 310292480,
+            "archive_bytes": 67462,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.7778675760000624,
+            "cpu_seconds": 2.768788143,
+            "peak_rss_bytes": 310292480,
+            "status": "ok"
+          }
+        }
+      ]
+    }
+  ],
+  "concurrent_training": [
+    {
+      "kind": "control",
+      "repetition": 0,
+      "training": {
+        "seconds": 2.0919526870000027,
+        "iterations_per_second": 19.12089133208965,
+        "self_play_games_per_hour": 68835.20879552273,
+        "iteration_compute_seconds": 0.03787469229999942,
+        "iterations": 40
+      }
+    },
+    {
+      "kind": "tar",
+      "repetition": 0,
+      "training": {
+        "seconds": 2.184746174000111,
+        "iterations_per_second": 18.308763038940548,
+        "self_play_games_per_hour": 65911.54694018596,
+        "iteration_compute_seconds": 0.03918457432500304,
+        "iterations": 40
+      },
+      "export": {
+        "seconds": 2.2314226129999497,
+        "cpu_seconds": 2.227936682,
+        "peak_rss_bytes": 310292480,
+        "archive_bytes": 150471,
+        "status": "ok"
+      }
+    },
+    {
+      "kind": "zip-relaxed",
+      "repetition": 0,
+      "training": {
+        "seconds": 2.1139892650001,
+        "iterations_per_second": 18.92157195982644,
+        "self_play_games_per_hour": 68117.65905537519,
+        "iteration_compute_seconds": 0.037780441049972066,
+        "iterations": 40
+      },
+      "export": {
+        "seconds": 1.9468633700000737,
+        "cpu_seconds": 1.946490619,
+        "peak_rss_bytes": 310292480,
+        "archive_bytes": 22068136,
+        "status": "ok"
+      }
+    },
+    {
+      "kind": "zip-relaxed",
+      "repetition": 1,
+      "training": {
+        "seconds": 2.194107479999957,
+        "iterations_per_second": 18.230647479493932,
+        "self_play_games_per_hour": 65630.33092617815,
+        "iteration_compute_seconds": 0.04003280139998537,
+        "iterations": 40
+      },
+      "export": {
+        "seconds": 1.8871788359999755,
+        "cpu_seconds": 1.8549647710000001,
+        "peak_rss_bytes": 310292480,
+        "archive_bytes": 22068136,
+        "status": "ok"
+      }
+    },
+    {
+      "kind": "tar",
+      "repetition": 1,
+      "training": {
+        "seconds": 2.1504771379998147,
+        "iterations_per_second": 18.600523248159007,
+        "self_play_games_per_hour": 66961.88369337242,
+        "iteration_compute_seconds": 0.038661876375022074,
+        "iterations": 40
+      },
+      "export": {
+        "seconds": 2.181974278000098,
+        "cpu_seconds": 2.1806603840000003,
+        "peak_rss_bytes": 310292480,
+        "archive_bytes": 150471,
+        "status": "ok"
+      }
+    },
+    {
+      "kind": "control",
+      "repetition": 1,
+      "training": {
+        "seconds": 2.2203583130001334,
+        "iterations_per_second": 18.015110338633708,
+        "self_play_games_per_hour": 64854.397219081344,
+        "iteration_compute_seconds": 0.04054781699999808,
+        "iterations": 40
+      }
+    },
+    {
+      "kind": "control",
+      "repetition": 2,
+      "training": {
+        "seconds": 2.1042229969998516,
+        "iterations_per_second": 19.00939209248782,
+        "self_play_games_per_hour": 68433.81153295616,
+        "iteration_compute_seconds": 0.036919376625013454,
+        "iterations": 40
+      }
+    },
+    {
+      "kind": "tar",
+      "repetition": 2,
+      "training": {
+        "seconds": 2.1856063249999806,
+        "iterations_per_second": 18.30155757807864,
+        "self_play_games_per_hour": 65885.6072810831,
+        "iteration_compute_seconds": 0.039405161925014906,
+        "iterations": 40
+      },
+      "export": {
+        "seconds": 2.1906770880000295,
+        "cpu_seconds": 2.1906414979999997,
+        "peak_rss_bytes": 310292480,
+        "archive_bytes": 150471,
+        "status": "ok"
+      }
+    },
+    {
+      "kind": "zip-relaxed",
+      "repetition": 2,
+      "training": {
+        "seconds": 2.3688297380001586,
+        "iterations_per_second": 16.885975111815874,
+        "self_play_games_per_hour": 60789.510402537155,
+        "iteration_compute_seconds": 0.04275093185001424,
+        "iterations": 40
+      },
+      "export": {
+        "seconds": 2.3023741319998408,
+        "cpu_seconds": 2.2993805820000004,
+        "peak_rss_bytes": 310292480,
+        "archive_bytes": 22068136,
+        "status": "ok"
+      }
+    }
+  ],
+  "baseline_commit": "0407d88",
+  "source_hashes": {
+    "hnefatafl/job_archives.py": "880013760ba49c7717f276c8f76192a5d5cfdb7e2a27607ace3d64a7f0836adb",
+    "hnefatafl/training.py": "a96f2f007de3b86ec6f2b9292349399fd505a59dc0538fb47abdcb4111abc939",
+    "hnefatafl/models.py": "0ca8a382906afd5a5eda7e412ece5c100f2baeab3dd7e8578ebfbde3625189e9",
+    "hnefatafl/remote_training.py": "148884119b53f8cdc77166baaafde098bf66ba3658ffb81c75e3cb3ba7abb6c2",
+    "scripts/benchmark_job_archives.py": "6fc9b4029ffbefaaee27bd30ae7f70a4fc9f3a3da7dfdf9f46c77856618647e0"
+  },
+  "checkpoint_compression_probe": {
+    "fixture": "Safe checkpoint of a seeded, untrained Brandubh network, 128 channels / 8 residual blocks; no optimizer/replay",
+    "original_bytes": 9530329,
+    "levels": [
+      {
+        "level": 1,
+        "samples": [
+          {
+            "seconds": 0.32478085699995063,
+            "cpu_seconds": 0.3244511459999999,
+            "bytes": 8710881
+          },
+          {
+            "seconds": 0.3029974769999626,
+            "cpu_seconds": 0.302844385,
+            "bytes": 8710881
+          },
+          {
+            "seconds": 0.28916552199984835,
+            "cpu_seconds": 0.2890193999999999,
+            "bytes": 8710881
+          }
+        ]
+      },
+      {
+        "level": 3,
+        "samples": [
+          {
+            "seconds": 0.3464869590000035,
+            "cpu_seconds": 0.3461699949999999,
+            "bytes": 8709042
+          },
+          {
+            "seconds": 0.34559862700007216,
+            "cpu_seconds": 0.34424381599999965,
+            "bytes": 8709042
+          },
+          {
+            "seconds": 0.3440672290000748,
+            "cpu_seconds": 0.34388057399999994,
+            "bytes": 8709042
+          }
+        ]
+      },
+      {
+        "level": 6,
+        "samples": [
+          {
+            "seconds": 0.3702500689998942,
+            "cpu_seconds": 0.3699030969999999,
+            "bytes": 8676973
+          },
+          {
+            "seconds": 0.3695389020001585,
+            "cpu_seconds": 0.3693838740000004,
+            "bytes": 8676973
+          },
+          {
+            "seconds": 0.3669575989999885,
+            "cpu_seconds": 0.36680895699999994,
+            "bytes": 8676973
+          }
+        ]
+      }
+    ]
+  },
+  "memory_probe": [
+    {
+      "kind": "zip",
+      "iterations": 1000,
+      "peak_rss_source": "/proc/self/status VmHWM",
+      "samples": [
+        {
+          "export": {
+            "seconds": 2.7759615030001896,
+            "cpu_seconds": 1.9776344119999998,
+            "peak_rss_bytes": 297877504,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.766125185999954,
+            "cpu_seconds": 2.5988977450000004,
+            "peak_rss_bytes": 294567936,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 1.9087709569998879,
+            "cpu_seconds": 1.887832377,
+            "peak_rss_bytes": 297582592,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.7507369360000666,
+            "cpu_seconds": 2.511425392,
+            "peak_rss_bytes": 294653952,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.1102630200000476,
+            "cpu_seconds": 1.988714052,
+            "peak_rss_bytes": 297906176,
+            "archive_bytes": 22068136,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.779642223999872,
+            "cpu_seconds": 2.6017461710000003,
+            "peak_rss_bytes": 294649856,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "tar",
+      "iterations": 1000,
+      "peak_rss_source": "/proc/self/status VmHWM",
+      "samples": [
+        {
+          "export": {
+            "seconds": 2.3106594559999394,
+            "cpu_seconds": 2.297479366,
+            "peak_rss_bytes": 256712704,
+            "archive_bytes": 150471,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 3.0614751699999943,
+            "cpu_seconds": 3.0412438899999996,
+            "peak_rss_bytes": 300523520,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.158246896000037,
+            "cpu_seconds": 2.150124305,
+            "peak_rss_bytes": 256651264,
+            "archive_bytes": 150471,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 2.983152078999865,
+            "cpu_seconds": 2.967671397,
+            "peak_rss_bytes": 300572672,
+            "status": "ok"
+          }
+        },
+        {
+          "export": {
+            "seconds": 2.0947222490001423,
+            "cpu_seconds": 2.0869330049999997,
+            "peak_rss_bytes": 256708608,
+            "archive_bytes": 150471,
+            "status": "ok"
+          },
+          "import": {
+            "seconds": 3.039352871000119,
+            "cpu_seconds": 3.0018538129999994,
+            "peak_rss_bytes": 300552192,
+            "status": "ok"
+          }
+        }
+      ]
+    }
+  ],
+  "memory_probe_note": "VmHWM sampled per executable; timings in this supplemental run overlap the backend suite and are not used for speed comparisons. Primary RSS samples use ru_maxrss and can include a pre-exec inherited high-water mark."
+}

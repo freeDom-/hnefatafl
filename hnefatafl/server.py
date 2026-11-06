@@ -14,7 +14,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, NoReturn
@@ -376,6 +376,7 @@ def create_app(
     online = attach_online(app, auth, settings=online_settings, clock=online_clock)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
+    archive_lock = threading.Lock()
     # Catalog changes and new references must be atomic with respect to each
     # other in the documented single API-worker deployment.
     catalog_lock = threading.RLock()
@@ -2151,44 +2152,54 @@ def create_app(
 
     @app.get("/api/training/jobs/{job_id}/export")
     def export_training_job(job_id: str):
-        from .job_archives import export_job, TERMINAL
+        from .job_archives import export_snapshot, snapshot_job, TERMINAL
 
-        descriptor, filename = tempfile.mkstemp(suffix=".zip", prefix="hnefatafl-job-")
-        os.close(descriptor)
+        if not archive_lock.acquire(blocking=False):
+            fail("Another job archive transfer is in progress. Retry when it finishes.", 409)
+        try:
+            descriptor, filename = tempfile.mkstemp(suffix=".tar.gz", prefix="hnefatafl-job-")
+            os.close(descriptor)
+        except BaseException:
+            archive_lock.release()
+            raise
         archive = Path(filename)
         try:
-            with job_lock, catalog_lock:
-                # Export reads retained state without reconciling or modifying the row.
-                directory = job_path(job_id)
-                job = store.get_job(job_id)
-                if job is None:
-                    fail("Training job not found.", 404)
-                if job.get("status") not in TERMINAL or job_worker_alive(job):
-                    fail("Stop this training job before exporting its data.", 409)
-                if job.get("kind") == "tune":
-                    from .job_studies import study_database
+            with tempfile.TemporaryDirectory(prefix=".job-snapshot-", dir=root) as temporary:
+                with job_lock, catalog_lock:
+                    # Export reads retained state without reconciling or modifying the row.
+                    directory = job_path(job_id)
+                    job = store.get_job(job_id)
+                    if job is None:
+                        fail("Training job not found.", 404)
+                    if job.get("status") not in TERMINAL or job_worker_alive(job):
+                        fail("Stop this training job before exporting its data.", 409)
+                    if job.get("kind") == "tune":
+                        from .job_studies import study_database
 
-                    database = study_database(directory, job["config"])
-                    for contributor in store.jobs():
-                        if contributor.get("kind") != "tune":
-                            continue
-                        saved_storage = contributor.get("config", {}).get(
-                            "storage",
-                            "sqlite:///" + str(job_path(contributor["id"]) / "study.sqlite3"),
-                        )
-                        if (
-                            saved_storage == "sqlite:///" + str(database)
-                            and read_job(contributor["id"])["status"] not in TERMINAL
-                        ):
-                            fail(
-                                "Stop every job contributing to this study before exporting it.",
-                                409,
+                        database = study_database(directory, job["config"])
+                        for contributor in store.jobs():
+                            if contributor.get("kind") != "tune":
+                                continue
+                            saved_storage = contributor.get("config", {}).get(
+                                "storage",
+                                "sqlite:///" + str(job_path(contributor["id"]) / "study.sqlite3"),
                             )
-                export_job(job, directory, registry(), archive, package_version)
+                            if (
+                                saved_storage == "sqlite:///" + str(database)
+                                and read_job(contributor["id"])["status"] not in TERMINAL
+                            ):
+                                fail(
+                                    "Stop every job contributing to this study before exporting it.",
+                                    409,
+                                )
+                    snapshot = snapshot_job(job, directory, registry(), Path(temporary))
+                # Sync FastAPI routes already run in its thread pool. Compression
+                # holds no lifecycle/catalog lock and only one export runs at a time.
+                export_snapshot(snapshot, archive, package_version)
             return FileResponse(
                 archive,
-                filename=f"hnefatafl-job-{job_id}.zip",
-                media_type="application/zip",
+                filename=f"hnefatafl-job-{job_id}.tar.gz",
+                media_type="application/gzip",
                 background=BackgroundTask(archive.unlink, missing_ok=True),
             )
         except (ValueError, TypeError, KeyError, RuntimeError) as exc:
@@ -2200,17 +2211,20 @@ def create_app(
         except BaseException:
             archive.unlink(missing_ok=True)
             raise
+        finally:
+            archive_lock.release()
 
     @app.post("/api/training/jobs/import", status_code=201)
     def import_training_job(file: UploadFile = File(...)):
         import zipfile
         import sqlite3
         import zlib
+        import tarfile
         from .job_archives import import_job, MAX_ARCHIVE_BYTES
 
         try:
             with tempfile.TemporaryDirectory(prefix="hnefatafl-upload-") as temporary:
-                archive = Path(temporary) / "job.zip"
+                archive = Path(temporary) / "job.archive"
                 count = 0
                 with archive.open("wb") as output:
                     while chunk := file.file.read(1024 * 1024):
@@ -2218,16 +2232,22 @@ def create_app(
                         if count > MAX_ARCHIVE_BYTES:
                             fail("Job archives are limited to 512 MiB.", 413)
                         output.write(chunk)
-                with job_lock, catalog_lock:
-                    result = import_job(
+
+                @contextmanager
+                def publication_context():
+                    with job_lock, catalog_lock:
+                        yield
+
+                with archive_lock:
+                    return import_job(
                         archive,
                         root,
                         store,
                         resume_info=lambda job, directory: resume_checkpoint(
                             job["id"], job=job, directory=directory
                         )[0],
+                        publication_context=publication_context,
                     )
-                    return result
         except (
             ValueError,
             TypeError,
@@ -2235,6 +2255,7 @@ def create_app(
             RuntimeError,
             EOFError,
             zipfile.BadZipFile,
+            tarfile.TarError,
             zlib.error,
             NotImplementedError,
         ) as exc:
