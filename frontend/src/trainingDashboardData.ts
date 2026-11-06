@@ -156,11 +156,16 @@ export const jobProgress = (job: Job) => {
 };
 export const latestMetrics = (progress: Values) => object(progress.metrics) ?? progress;
 export function latestPerformance(progress: Values, history: HistoryPoint[]) {
-  return (
-    object(progress.performance) ??
-    object(latestMetrics(progress).performance) ??
-    object(history.at(-1)?.performance)
-  );
+  const current = object(progress.performance) ?? object(latestMetrics(progress).performance);
+  if (current) return current;
+  // An interrupted or sparse log can end without a performance snapshot; fall
+  // back to the most recent snapshot that actually recorded something so earlier
+  // observations stay visible. The backward scan stops at the first hit.
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const performance = object(history[index].performance);
+    if (performance && Object.keys(performance).length) return performance;
+  }
+  return undefined;
 }
 /**
  * Selectable iteration windows for the shared analysis range control. One

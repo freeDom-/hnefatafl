@@ -490,3 +490,92 @@ test('keeps the iteration timer live and reports a monitoring outage', async ({ 
   await expect(page.getByText('Vorbereitung')).toBeVisible();
   await expect(page.getByText(/Iterationsdauer \d+m \d+s/)).toBeVisible();
 });
+
+test('pins the throughput history headings while only its rows scroll', async ({ page }) => {
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: workshopFixtures() }),
+  );
+  await open(page);
+  await selectWorkshopJob(page, 'completed', 'Bjorn · Northern campaign');
+  await page.getByRole('tab', { name: 'Performance', exact: true }).click();
+  await page.getByText('Throughput history', { exact: true }).click();
+  const scroll = page.locator('.training-performance .table-scroll');
+  await expect(
+    scroll.getByRole('table', { name: 'Throughput history', exact: true }),
+  ).toBeVisible();
+  // Geometry is read directly so a row scrolled out of view still reports a box.
+  const geometry = () =>
+    scroll.evaluate((element) => {
+      const header = element.querySelector('thead th')!;
+      const row = element.querySelector('tbody tr')!;
+      return {
+        scrollTop: element.scrollTop,
+        containerTop: element.getBoundingClientRect().top,
+        headerTop: header.getBoundingClientRect().top,
+        rowTop: row.getBoundingClientRect().top,
+        headerPosition: getComputedStyle(header).position,
+        headerBackground: getComputedStyle(header).backgroundColor,
+      };
+    });
+  const before = await geometry();
+  // The heading starts at the top of the scroll area and is the pinned element.
+  expect(before.headerPosition).toBe('sticky');
+  expect(Math.abs(before.headerTop - before.containerTop)).toBeLessThan(2);
+  await scroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const after = await geometry();
+  expect(after.scrollTop).toBeGreaterThan(0);
+  // The heading stays pinned at the top of the container...
+  expect(Math.abs(after.headerTop - after.containerTop)).toBeLessThan(2);
+  // ...while the data rows move up normally.
+  expect(after.rowTop).toBeLessThan(before.rowTop - 100);
+  // The pinned background is opaque so rows never show through it.
+  expect(after.headerBackground).not.toBe('rgba(0, 0, 0, 0)');
+  expect(after.headerBackground).not.toBe('transparent');
+});
+
+test('keeps throughput history columns aligned and the sticky rule scoped', async ({ page }) => {
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: workshopFixtures() }),
+  );
+  await open(page);
+  await selectWorkshopJob(page, 'completed', 'Bjorn · Northern campaign');
+  await page.getByRole('tab', { name: 'Performance', exact: true }).click();
+  await page.getByText('Throughput history', { exact: true }).click();
+  const scroll = page.locator('.training-performance .table-scroll');
+  await expect(
+    scroll.getByRole('table', { name: 'Throughput history', exact: true }),
+  ).toBeVisible();
+  // The table is wider than its container, so horizontal scrolling applies.
+  expect(await scroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  await scroll.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  const alignment = await scroll.evaluate((element) => {
+    const header = element.querySelectorAll('thead th')[2]!;
+    const cell = element.querySelectorAll('tbody tr td')[1]!;
+    return {
+      headerLeft: header.getBoundingClientRect().left,
+      cellLeft: cell.getBoundingClientRect().left,
+    };
+  });
+  // Header and data columns share the same table, so they stay aligned.
+  expect(Math.abs(alignment.headerLeft - alignment.cellLeft)).toBeLessThan(2);
+  // The narrow-screen layout stays usable without page-level overflow.
+  await page.setViewportSize({ width: 390, height: 780 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    .toBe(true);
+  await expect(
+    scroll.getByRole('table', { name: 'Throughput history', exact: true }),
+  ).toBeVisible();
+  // The sticky rule is limited to the throughput table; learning history is not pinned.
+  await page.getByRole('tab', { name: 'Learning', exact: true }).click();
+  await page.getByText('View graph data', { exact: true }).click();
+  const learningHeader = page.locator('.training-history .table-scroll thead th').first();
+  await expect(learningHeader).toBeVisible();
+  expect(await learningHeader.evaluate((element) => getComputedStyle(element).position)).not.toBe(
+    'sticky',
+  );
+});

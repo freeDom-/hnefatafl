@@ -24,23 +24,54 @@ export interface PerformanceMetric {
   /** Percentage values are already fractions, so formatting must not scale twice. */
   percent?: boolean;
   derive?: (performance: Values) => number | undefined;
+  /** A stored value must satisfy this predicate to be displayed as-is. */
+  valid?: (value: number) => boolean;
 }
 
-/** Completed games include rules draws, matching the stored metric and personal statistics. */
-export const completedGames = (performance: Values) => {
-  if (finite(performance.completed_games)) return performance.completed_games;
+/** A recorded game count: finite, whole and non-negative. */
+const validCount = (value: unknown): value is number =>
+  finite(value) && Number.isInteger(value) && value >= 0;
+
+/**
+ * Completed games include rules draws and exclude truncated games, matching the
+ * stored metric. A recorded total is trusted only when it is a valid count;
+ * otherwise it is rebuilt from the side wins and draws.
+ */
+export const completedGames = (performance: Values): number | undefined => {
+  const completed = performance.completed_games;
+  if (validCount(completed)) return completed;
   const wins = performance.attacker_wins;
   const losses = performance.defender_wins;
   const draws = performance.drawn_games;
-  return finite(wins) && finite(losses) && finite(draws) ? wins + losses + draws : undefined;
+  if (!validCount(wins) || !validCount(losses) || !validCount(draws)) return undefined;
+  return wins + losses + draws;
 };
 
+/**
+ * Side win rate over completed games. Invalid or inconsistent counters are
+ * treated as missing rather than coerced, and the result stays within [0, 1].
+ * When every outcome counter is present it must agree with the completed total,
+ * so an ambiguous historical row never produces a plausible-looking rate.
+ */
 const sideWinRate =
   (key: 'attacker_wins' | 'defender_wins') =>
   (performance: Values): number | undefined => {
     const wins = performance[key];
+    if (!validCount(wins)) return undefined;
     const completed = completedGames(performance);
-    return finite(wins) && completed !== undefined && completed > 0 ? wins / completed : undefined;
+    if (completed === undefined || completed <= 0 || wins > completed) return undefined;
+    const attacker = performance.attacker_wins;
+    const defender = performance.defender_wins;
+    const draws = performance.drawn_games;
+    if (
+      validCount(attacker) &&
+      validCount(defender) &&
+      validCount(draws) &&
+      attacker + defender + draws !== completed
+    )
+      return undefined;
+    const rate = wins / completed;
+    return rate >= 0 && rate <= 1 ? rate : undefined;
   };
 
 export const performanceMetrics: PerformanceMetric[] = [
@@ -68,7 +99,12 @@ export const performanceMetrics: PerformanceMetric[] = [
   },
   { key: 'games_per_hour', label: 'Games / hour', unit: 'Games / hour' },
   { key: 'average_game_length', label: 'Average game length', unit: 'Moves' },
-  { key: 'attacker_wins', label: 'Attacker wins', unit: 'Games' },
+  {
+    key: 'attacker_wins',
+    label: 'Attacker wins',
+    unit: 'Games',
+    valid: (value) => validCount(value),
+  },
   {
     key: 'attacker_win_rate',
     label: 'Attacker win rate',
@@ -76,7 +112,12 @@ export const performanceMetrics: PerformanceMetric[] = [
     percent: true,
     derive: sideWinRate('attacker_wins'),
   },
-  { key: 'defender_wins', label: 'Defender wins', unit: 'Games' },
+  {
+    key: 'defender_wins',
+    label: 'Defender wins',
+    unit: 'Games',
+    valid: (value) => validCount(value),
+  },
   {
     key: 'defender_win_rate',
     label: 'Defender win rate',
@@ -88,17 +129,24 @@ export const performanceMetrics: PerformanceMetric[] = [
 
 /**
  * Flatten each history row's stored `performance` snapshot into chart columns.
- * Derived entries are only filled when the backend did not store them, and a
- * missing or invalid source leaves the key absent instead of plotting a zero.
+ * Derived entries are filled only when the stored value is missing or an
+ * implausible rate, and an invalid source leaves the key absent instead of
+ * plotting a zero or reinterpreting an ambiguous historical unit.
  */
 export function performanceChartRows(history: HistoryPoint[]): HistoryPoint[] {
   return history.map((row) => {
     const values: HistoryPoint = { ...row, ...object(row.performance) };
     for (const item of performanceMetrics) {
-      if (item.derive && !finite(values[item.key])) {
-        const derived = item.derive(values);
-        if (derived !== undefined) values[item.key] = derived;
-      }
+      if (!item.derive && !item.valid) continue;
+      const stored = values[item.key];
+      const accepted =
+        finite(stored) &&
+        (!item.valid || item.valid(stored)) &&
+        (!item.percent || (stored >= 0 && stored <= 1));
+      if (accepted) continue;
+      const derived = item.derive?.(values);
+      if (derived === undefined) delete values[item.key];
+      else values[item.key] = derived;
     }
     return values;
   });
