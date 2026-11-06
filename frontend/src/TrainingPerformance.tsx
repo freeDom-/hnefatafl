@@ -3,26 +3,116 @@ import { useI18n } from './i18n';
 import TrainingMetricChart from './TrainingMetricChart';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
 import { PhaseTimings } from './TrainingPhaseTimings';
-import { object, finite, latestPerformance, trainingHistory } from './trainingDashboardData';
-const chartMetrics = [
-  ['simulations_per_second', 'Simulations / second'],
-  ['positions_per_second', 'Positions / second'],
-  ['inference_batch_size_average', 'Inference batch size'],
-  ['evaluation_seconds', 'Opponent evaluation (seconds)'],
-  ['iteration_wall_seconds', 'Iteration wall time (seconds)'],
-  ['neural_evaluations_per_second', 'Neural evaluations / second'],
-] as const;
+import {
+  object,
+  finite,
+  latestPerformance,
+  trainingHistory,
+  type HistoryPoint,
+  type Values,
+} from './trainingDashboardData';
+
+/**
+ * Selectable Performance metrics. Each entry maps to one stored self-play
+ * field; the win rates are the only derived entries, because the pipeline
+ * records the underlying side wins and completed games instead of a rate.
+ */
+export interface PerformanceMetric {
+  key: string;
+  label: string;
+  unit: string;
+  /** Percentage values are already fractions, so formatting must not scale twice. */
+  percent?: boolean;
+  derive?: (performance: Values) => number | undefined;
+}
+
+/** Completed games include rules draws, matching the stored metric and personal statistics. */
+export const completedGames = (performance: Values) => {
+  if (finite(performance.completed_games)) return performance.completed_games;
+  const wins = performance.attacker_wins;
+  const losses = performance.defender_wins;
+  const draws = performance.drawn_games;
+  return finite(wins) && finite(losses) && finite(draws) ? wins + losses + draws : undefined;
+};
+
+const sideWinRate =
+  (key: 'attacker_wins' | 'defender_wins') =>
+  (performance: Values): number | undefined => {
+    const wins = performance[key];
+    const completed = completedGames(performance);
+    return finite(wins) && completed !== undefined && completed > 0 ? wins / completed : undefined;
+  };
+
+export const performanceMetrics: PerformanceMetric[] = [
+  { key: 'simulations_per_second', label: 'Simulations / second', unit: 'Simulations / second' },
+  { key: 'positions_per_second', label: 'Positions / second', unit: 'Positions / second' },
+  {
+    key: 'inference_batch_size_average',
+    label: 'Inference batch size',
+    unit: 'Inference batch size',
+  },
+  {
+    key: 'evaluation_seconds',
+    label: 'Opponent evaluation (seconds)',
+    unit: 'Opponent evaluation (seconds)',
+  },
+  {
+    key: 'iteration_wall_seconds',
+    label: 'Iteration wall time (seconds)',
+    unit: 'Iteration wall time (seconds)',
+  },
+  {
+    key: 'neural_evaluations_per_second',
+    label: 'Neural evaluations / second',
+    unit: 'Neural evaluations / second',
+  },
+  { key: 'games_per_hour', label: 'Games / hour', unit: 'Games / hour' },
+  { key: 'average_game_length', label: 'Average game length', unit: 'Moves' },
+  { key: 'attacker_wins', label: 'Attacker wins', unit: 'Games' },
+  {
+    key: 'attacker_win_rate',
+    label: 'Attacker win rate',
+    unit: 'Win rate',
+    percent: true,
+    derive: sideWinRate('attacker_wins'),
+  },
+  { key: 'defender_wins', label: 'Defender wins', unit: 'Games' },
+  {
+    key: 'defender_win_rate',
+    label: 'Defender win rate',
+    unit: 'Win rate',
+    percent: true,
+    derive: sideWinRate('defender_wins'),
+  },
+];
+
+/**
+ * Flatten each history row's stored `performance` snapshot into chart columns.
+ * Derived entries are only filled when the backend did not store them, and a
+ * missing or invalid source leaves the key absent instead of plotting a zero.
+ */
+export function performanceChartRows(history: HistoryPoint[]): HistoryPoint[] {
+  return history.map((row) => {
+    const values: HistoryPoint = { ...row, ...object(row.performance) };
+    for (const item of performanceMetrics) {
+      if (item.derive && !finite(values[item.key])) {
+        const derived = item.derive(values);
+        if (derived !== undefined) values[item.key] = derived;
+      }
+    }
+    return values;
+  });
+}
 export default function TrainingPerformance({ progress }: { progress: unknown }) {
   const { t, locale } = useI18n();
   const state = object(progress) ?? {};
   const history = useMemo(() => trainingHistory(state.history), [state.history]);
   const [metric, setMetric] = useState<string>('simulations_per_second');
   const performance = latestPerformance(state, history);
-  const graphRows = useMemo(
-    () => history.map((row) => ({ ...row, ...object(row.performance) })),
-    [history],
-  );
-  const label = chartMetrics.find(([key]) => key === metric)?.[1] ?? 'Simulations / second';
+  const graphRows = useMemo(() => performanceChartRows(history), [history]);
+  const selectedMetric =
+    performanceMetrics.find((item) => item.key === metric) ?? performanceMetrics[0];
+  const label = selectedMetric.label;
   const series = useMemo(
     () => [{ key: metric, name: label, color: 'var(--chart-value)' }],
     [metric, label],
@@ -74,14 +164,21 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
           value={metric}
           onChange={(event) => setMetric(event.target.value)}
         >
-          {chartMetrics.map(([key, name]) => (
-            <option key={key} value={key}>
-              {t(name)}
+          {performanceMetrics.map((item) => (
+            <option key={item.key} value={item.key}>
+              {t(item.label)}
             </option>
           ))}
         </select>
       </label>
-      <TrainingMetricChart title={label} rows={graphRows} series={series} unit={label} gaps />
+      <TrainingMetricChart
+        title={label}
+        rows={graphRows}
+        series={series}
+        unit={selectedMetric.unit}
+        percent={selectedMetric.percent}
+        gaps
+      />
       <div className="performance-groups">
         <section>
           <h5>{t('Self-play throughput')}</h5>
@@ -216,7 +313,8 @@ export default function TrainingPerformance({ progress }: { progress: unknown })
                     {keys.map((key) => (
                       <th scope="col" key={key}>
                         {t(
-                          chartMetrics.find(([id]) => id === key)?.[1] ?? key.replaceAll('_', ' '),
+                          performanceMetrics.find((item) => item.key === key)?.label ??
+                            key.replaceAll('_', ' '),
                         )}
                       </th>
                     ))}

@@ -133,10 +133,13 @@ and execution state never change.
   and every individual context stays selectable on its own. Its detailed table
   retains the complete evidence.
 - **Performance** groups throughput, MCTS, GPU/inference and phase timings.
-  Select one historical metric at a time. CPU search, inference-host and CUDA
-  activity counters stay separate from the sequential wall-time comparison,
-  because their durations may overlap. The full recorded history is available
-  in its table.
+  Select one historical metric at a time, including self-play games/hour,
+  average game length, and attacker/defender win counts and win rates. Win
+  rates use the completed-game denominator, so rules draws count. CPU search,
+  inference-host and CUDA activity counters stay separate from the sequential
+  wall-time comparison, because their durations may overlap. The full recorded
+  history is available in its table, whose column headings stay pinned while
+  its rows scroll.
 - **Details** contains lazily opened saved configuration, evaluation settings,
   raw progress, logs, checkpoints, execution metadata and transfer guidance.
   JSON/log panes are bounded and support copying. Credential-shaped diagnostic

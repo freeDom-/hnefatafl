@@ -43,6 +43,7 @@ export default memo(function TrainingMetricChart({
   series,
   unit = 'Loss',
   score = false,
+  percent = false,
   gaps = false,
   xLabel = 'Iteration',
   scatter = false,
@@ -52,6 +53,8 @@ export default memo(function TrainingMetricChart({
   series: ChartSeries[];
   unit?: string;
   score?: boolean;
+  /** Format values as percentages without the fixed 0-1 scale that `score` implies. */
+  percent?: boolean;
   gaps?: boolean;
   xLabel?: string;
   scatter?: boolean;
@@ -102,7 +105,7 @@ export default memo(function TrainingMetricChart({
           ...(typeof value === 'number' && value !== 0 && Math.abs(value) < 0.0001 && !precise
             ? { notation: 'scientific' as const }
             : {}),
-          ...(score ? { style: 'percent' as const } : {}),
+          ...(score || percent ? { style: 'percent' as const } : {}),
         }).format(value)
       : '—';
   const paths = useMemo(
