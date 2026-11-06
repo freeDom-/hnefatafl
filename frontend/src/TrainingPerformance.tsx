@@ -25,12 +25,21 @@ export interface PerformanceMetric {
   percent?: boolean;
   derive?: (performance: Values) => number | undefined;
   /** A stored value must satisfy this predicate to be displayed as-is. */
-  valid?: (value: number) => boolean;
+  valid?: (value: number, performance: Values) => boolean;
 }
 
 /** A recorded game count: finite, whole and non-negative. */
 const validCount = (value: unknown): value is number =>
   finite(value) && Number.isInteger(value) && value >= 0;
+
+/** Outcome counters that describe a completed game and must stay consistent. */
+const outcomeKeys = ['attacker_wins', 'defender_wins', 'drawn_games'] as const;
+/** Any stored counter means the row carries underlying outcome data. */
+const counterKeys = ['completed_games', ...outcomeKeys] as const;
+
+/** Missing (absent or null) stays distinct from present-but-invalid. */
+const hasValue = (performance: Values, key: string): boolean =>
+  performance[key] !== undefined && performance[key] !== null;
 
 /**
  * Completed games include rules draws and exclude truncated games, matching the
@@ -48,27 +57,56 @@ export const completedGames = (performance: Values): number | undefined => {
 };
 
 /**
+ * Validate every present outcome counter against the shared denominator: each
+ * must be a finite nonnegative integer that fits completed games, the sum of
+ * the present counters must not exceed it, and when all three are present their
+ * sum must equal it. Missing counters are never treated as zero, and a present
+ * but malformed counter makes the whole row inconsistent.
+ */
+const validateOutcomes = (performance: Values): { completed?: number; consistent: boolean } => {
+  const completed = completedGames(performance);
+  let present = 0;
+  let sum = 0;
+  let consistent = true;
+  for (const key of outcomeKeys) {
+    if (!hasValue(performance, key)) continue;
+    present += 1;
+    const value = performance[key];
+    if (!validCount(value) || (completed !== undefined && value > completed)) {
+      consistent = false;
+      continue;
+    }
+    sum += value;
+  }
+  if (completed !== undefined) {
+    if (sum > completed) consistent = false;
+    if (present === outcomeKeys.length && sum !== completed) consistent = false;
+  }
+  return { completed, consistent };
+};
+
+/** A stored count that fits its valid completed-game denominator, when one exists. */
+const validOutcomeCount = (value: number, performance: Values): boolean => {
+  if (!validCount(value)) return false;
+  const completed = completedGames(performance);
+  return completed === undefined || value <= completed;
+};
+
+/** True when the row carries any stored counter, valid or not. */
+const hasCounters = (performance: Values): boolean =>
+  counterKeys.some((key) => hasValue(performance, key));
+
+/**
  * Side win rate over completed games. Invalid or inconsistent counters are
  * treated as missing rather than coerced, and the result stays within [0, 1].
- * When every outcome counter is present it must agree with the completed total,
- * so an ambiguous historical row never produces a plausible-looking rate.
  */
 const sideWinRate =
   (key: 'attacker_wins' | 'defender_wins') =>
   (performance: Values): number | undefined => {
     const wins = performance[key];
     if (!validCount(wins)) return undefined;
-    const completed = completedGames(performance);
-    if (completed === undefined || completed <= 0 || wins > completed) return undefined;
-    const attacker = performance.attacker_wins;
-    const defender = performance.defender_wins;
-    const draws = performance.drawn_games;
-    if (
-      validCount(attacker) &&
-      validCount(defender) &&
-      validCount(draws) &&
-      attacker + defender + draws !== completed
-    )
+    const { completed, consistent } = validateOutcomes(performance);
+    if (!consistent || completed === undefined || completed <= 0 || wins > completed)
       return undefined;
     const rate = wins / completed;
     return rate >= 0 && rate <= 1 ? rate : undefined;
@@ -103,7 +141,7 @@ export const performanceMetrics: PerformanceMetric[] = [
     key: 'attacker_wins',
     label: 'Attacker wins',
     unit: 'Games',
-    valid: (value) => validCount(value),
+    valid: validOutcomeCount,
   },
   {
     key: 'attacker_win_rate',
@@ -116,7 +154,7 @@ export const performanceMetrics: PerformanceMetric[] = [
     key: 'defender_wins',
     label: 'Defender wins',
     unit: 'Games',
-    valid: (value) => validCount(value),
+    valid: validOutcomeCount,
   },
   {
     key: 'defender_win_rate',
@@ -129,24 +167,36 @@ export const performanceMetrics: PerformanceMetric[] = [
 
 /**
  * Flatten each history row's stored `performance` snapshot into chart columns.
- * Derived entries are filled only when the stored value is missing or an
- * implausible rate, and an invalid source leaves the key absent instead of
- * plotting a zero or reinterpreting an ambiguous historical unit.
+ * Count-based values are validated, and a rate prefers the canonical value
+ * derived from the underlying counters. A valid stored fraction is kept only
+ * when the row carries no counters at all, so ambiguous units are never
+ * rescaled and contradictory stored rates are never shown.
  */
 export function performanceChartRows(history: HistoryPoint[]): HistoryPoint[] {
   return history.map((row) => {
     const values: HistoryPoint = { ...row, ...object(row.performance) };
+    // Validation reads the raw counters before invalid ones are removed from the
+    // chart columns, so present-but-invalid stays distinct from missing.
+    const source: Values = { ...values };
     for (const item of performanceMetrics) {
-      if (!item.derive && !item.valid) continue;
+      if (item.valid) {
+        const stored = values[item.key];
+        if (!(finite(stored) && item.valid(stored, source))) delete values[item.key];
+        continue;
+      }
+      if (!item.derive) continue;
       const stored = values[item.key];
-      const accepted =
-        finite(stored) &&
-        (!item.valid || item.valid(stored)) &&
-        (!item.percent || (stored >= 0 && stored <= 1));
-      if (accepted) continue;
-      const derived = item.derive?.(values);
-      if (derived === undefined) delete values[item.key];
-      else values[item.key] = derived;
+      const derived = item.derive(source);
+      if (derived !== undefined) {
+        values[item.key] = derived;
+        continue;
+      }
+      // Counters were provided but could not produce a canonical rate, so an
+      // unverifiable stored fraction must not be shown. Only a row with no
+      // underlying counters keeps its valid historical fraction.
+      if (!hasCounters(source) && finite(stored) && item.percent && stored >= 0 && stored <= 1)
+        continue;
+      delete values[item.key];
     }
     return values;
   });

@@ -260,6 +260,40 @@ it('ignores empty snapshots and returns undefined when none recorded anything', 
   expect(latestPerformance({ history: rows }, rows)).toBeUndefined();
 });
 
+it('falls through an empty progress.performance to metrics.performance', () => {
+  const current = { games_per_hour: 555 };
+  expect(
+    latestPerformance({ performance: {}, metrics: { performance: current }, history }, history),
+  ).toBe(current);
+});
+
+it('falls through empty current sources to the latest usable history snapshot', () => {
+  const rows: HistoryPoint[] = [
+    { iteration: 1, performance: { games_per_hour: 100 } },
+    { iteration: 2, performance: {} },
+  ];
+  expect(
+    latestPerformance({ performance: {}, metrics: { performance: {} }, history: rows }, rows),
+  ).toEqual({ games_per_hour: 100 });
+});
+
+it('renders history metrics when both current performance sources are empty', () => {
+  render(
+    <TrainingPerformance
+      progress={{
+        performance: {},
+        metrics: { performance: {} },
+        history: [{ iteration: 1, performance: { games_per_hour: 100 } }],
+      }}
+    />,
+  );
+  expect(screen.getByLabelText('Training performance')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'games_per_hour' },
+  });
+  expect(pointTitles('Games / hour')).toEqual(['Iteration 1: 100']);
+});
+
 it('plots earlier observations when the final history entry has no performance', () => {
   render(
     <TrainingPerformance
@@ -450,6 +484,104 @@ it('does not plot an invalid win count', () => {
     target: { value: 'attacker_wins' },
   });
   expect(pointTitles('Attacker wins')).toEqual(['Iteration 2: 0']);
+});
+
+it('accepts incomplete but consistent outcome counters', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 3, defender_wins: 2, completed_games: 5 } },
+  ]);
+  expect(row.attacker_win_rate).toBe(0.6);
+  expect(row.defender_win_rate).toBe(0.4);
+});
+
+it('rejects partial counters whose known sum exceeds completed games', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 4, defender_wins: 4, completed_games: 5 } },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('rejects a negative opponent-side win count', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 3, defender_wins: -1, completed_games: 4 } },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('rejects a fractional opponent-side win count', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 3, defender_wins: 1.5, completed_games: 5 } },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('rejects a counter above the completed total even when the sum fits', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 6, completed_games: 5 } },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.attacker_wins).toBeUndefined();
+});
+
+it('keeps a valid stored rate that agrees with the counts', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: {
+        attacker_win_rate: 0.75,
+        attacker_wins: 3,
+        defender_wins: 1,
+        drawn_games: 0,
+        completed_games: 4,
+      },
+    },
+  ]);
+  expect(row.attacker_win_rate).toBe(0.75);
+});
+
+it('prefers the count-based rate when a stored rate contradicts the counts', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: {
+        attacker_win_rate: 0.9,
+        attacker_wins: 3,
+        defender_wins: 1,
+        drawn_games: 0,
+        completed_games: 4,
+      },
+    },
+  ]);
+  expect(row.attacker_win_rate).toBe(0.75);
+});
+
+it('drops a stored rate when counters exist but cannot form a valid rate', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_win_rate: 0.5, completed_games: 4 } },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+});
+
+it('handles a zero completed-game denominator', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: { attacker_wins: 0, defender_wins: 0, drawn_games: 0, completed_games: 0 },
+    },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('handles a missing completed-game denominator', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 2, defender_wins: 1 } },
+  ]);
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
 });
 
 // Finding 3: percentage axis scaling.
