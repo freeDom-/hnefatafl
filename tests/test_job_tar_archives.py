@@ -147,6 +147,23 @@ def test_distinct_database_and_disk_histories_are_preserved(client):
     assert json.loads(path.read_text())["history"] == disk["history"]
 
 
+@pytest.mark.parametrize("original,saved", [(1, 1.0), (True, 1), (-0.0, 0.0)])
+def test_equal_numbers_with_different_json_representations_remain_distinct(client, original, saved):
+    report = {"history": [{"value": original}]}
+    job, directory = job_record(client, progress=report)
+    (directory / "progress.json").write_text(json.dumps({"history": [{"value": saved}]}))
+    response = upload(client, export(client, job))
+    assert response.status_code == 201, response.text
+    restored = response.json()
+    value = restored["progress"]["history"][0]["value"]
+    assert type(value) is type(original)
+    if isinstance(original, float):
+        assert value.hex() == original.hex()
+    path = client.app.state.data_dir / "jobs" / restored["id"] / "progress.json"
+    disk = json.loads(path.read_text())["history"][0]["value"]
+    assert type(disk) is type(saved)
+
+
 def test_deterministic_archives_and_cross_filesystem_snapshot_fallback(client, monkeypatch):
     job, directory = job_record(client, progress={"history": [{"iteration": 1}]})
     (directory / "history.json").write_text('{"history":[{"iteration":1}]}')

@@ -38,45 +38,45 @@ hold lifecycle locks.
 
 Measured on 6 November 2026 with Python 3.12.14, CPU-only PyTorch, three available
 CPUs, one training CPU thread, and three samples per scenario. The
-[raw measurements](job-archives.json) retain all samples and source hashes.
-The 1,000-iteration timing fixture fits the original JSON guard; a separate
-regression test makes **each** 1,000-iteration report exceed 16 MiB and verifies
-that the new export/import retains every record.
+[raw measurements](job-archives.json) retain all samples and source hashes. JSON
+sharing uses strict representation equality: booleans/integers/floats and the sign
+of zero remain distinct. The 1,000-iteration timing fixture fits the original guard;
+a separate regression makes **each** report exceed 16 MiB and verifies a complete
+round trip.
 
 | History iterations | Stored ZIP bytes | TAR.GZ level-1 bytes | ZIP export / import seconds | TAR.GZ export / import seconds |
 | --- | ---: | ---: | ---: | ---: |
-| 1 | 226,401 | 44,882 | 0.056 / 0.098 | 0.053 / 0.111 |
-| 100 | 2,390,525 | 55,877 | 0.226 / 0.307 | 0.249 / 0.386 |
-| 1,000 | 22,068,136 | 150,471 | 2.093 / 2.627 | 2.080 / 2.782 |
+| 1 | 226,461 | 44,882 | 0.050 / 0.089 | 0.049 / 0.092 |
+| 100 | 2,392,169 | 52,778 | 0.210 / 0.299 | 0.243 / 0.343 |
+| 1,000 | 22,084,180 | 131,926 | 1.961 / 2.638 | 2.195 / 2.901 |
 
-Times are medians. The 1,000-iteration archive is 99.32% smaller. Export CPU time
-is 2.092 seconds for ZIP and 2.075 for TAR.GZ; import is about 6% slower with the
-new inventory reconstruction/validation. This history-heavy fixture compresses
-especially well and has small checkpoints; other jobs need not achieve this ratio.
+Times are medians. The 1,000-iteration archive is 99.40% smaller.
+Export CPU time is 1.955 seconds for ZIP and
+2.193 for TAR.GZ. Export takes about
+12% longer and
+import about 10% longer
+with strict JSON comparison, streaming serialization and document reconstruction.
+This history-heavy fixture compresses especially well and has small checkpoints;
+other jobs need not achieve this ratio.
 
-The original `ru_maxrss` samples include an inherited parent peak on this Linux
-runtime. A separate three-sample probe reads each executable's `/proc/self/status`
-`VmHWM` instead. Median process peaks for the 1,000-iteration fixture are:
+Linux peak RSS comes from `/proc/self/status` `VmHWM`, avoiding `ru_maxrss`'s
+inherited pre-exec parent peak on this runtime. Values include Python, PyTorch and
+loaded job/fixture objects. Median process peaks at 1,000 iterations are:
 
 | Operation | ZIP peak MiB | TAR.GZ peak MiB |
 | --- | ---: | ---: |
 | Export | 284.1 | 244.8 |
-| Import | 281.0 | 286.6 |
-
-These include Python, PyTorch, and loaded job/fixture objects. The supplemental
-probe's timings overlapped the backend test suite and are deliberately excluded
-from speed comparisons. The benchmark script now uses `VmHWM` automatically on
-Linux, so a fresh reproduction avoids the inherited-peak artifact.
+| Import | 281.1 | 286.6 |
 
 ### Compression level
 
 | gzip level | 1,000-iteration archive bytes | Export seconds |
 | --- | ---: | ---: |
-| 1 | 150,471 | 2.080 |
-| 3 | 124,541 | 2.077 |
-| 6 | 67,462 | 2.020 |
+| 1 | 131,926 | 2.195 |
+| 3 | 122,359 | 2.148 |
+| 6 | 67,869 | 2.215 |
 
-JSON processing dominates this fixture, making the level timing differences small
+JSON processing dominates this fixture, making level timing differences small
 relative to process/run variability. A separate seeded checkpoint probe covers
 the tensor-heavy tradeoff: `PolicyValueNet('brandubh', 128, 8)`, seed 17, saved with
 `save_checkpoint`, produces 9,530,329 bytes. It is an **untrained network**, not a
@@ -98,19 +98,20 @@ gzip pass; tensor ZIP payloads are not individually recompressed first.
 
 | Scenario | Mean iterations/second | Observed range | Mean self-play games/hour |
 | --- | ---: | ---: | ---: |
-| No export | 18.715 | 18.015–19.121 | 67,374 |
-| Existing ZIP export | 18.013 | 16.886–18.922 | 64,846 |
-| TAR.GZ export | 18.404 | 18.302–18.601 | 66,253 |
+| No export | 18.662 | 18.205–19.056 | 67,185 |
+| Existing ZIP export | 17.107 | 15.861–17.898 | 61,584 |
+| TAR.GZ export | 18.461 | 18.109–18.706 | 66,458 |
 
-The ZIP concurrency scenario uses the benchmark-only relaxed guard; the guard is
+The ZIP concurrency scenario uses the benchmark-only relaxed guard; that guard is
 not reached in this fixture, which produces the same inventory and archive size
-under the strict baseline. TAR.GZ averages 2.17% above concurrent ZIP and 1.66%
-below the no-export control, with overlapping observed ranges. These short runs
-show no clear additional regression relative to the existing exporter; they do
-**not** establish zero resource contention or predict GPU/large-replay throughput.
-There are no training-loop, inference, metric-persistence or remote-worker source
-changes. Serialization/compression holds no lifecycle/catalog lock. Concurrency
-regressions separately test responsive polling/deletion and pinned snapshots.
+under the strict baseline. TAR.GZ averages 7.92%
+above concurrent ZIP and 1.08% below the no-export
+control, with overlapping TAR/control ranges. These short runs show no clear
+additional regression relative to the existing exporter; they do **not** establish
+zero resource contention or predict GPU/large-replay throughput. There are no
+training-loop, inference, metric-persistence or remote-worker source changes.
+Serialization/compression holds no lifecycle/catalog lock. Concurrency regressions
+separately test responsive polling/deletion, pinned snapshots and decompression.
 
 Only inactive jobs and inactive study contributors can be exported. Physical
 members and reconstructed documents have separate absolute budgets; JSON parsing

@@ -329,6 +329,23 @@ class Documents:
         self.inventory[name] = {"size": size, "chunks": chunks}
 
 
+def same_json(left: Any, right: Any) -> bool:
+    """Match canonical JSON, including numeric types and the sign of zero."""
+    if left is right:
+        return True
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            same_json(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(same_json(a, b) for a, b in zip(left, right))
+    if isinstance(left, float):
+        return left == right and (left != 0.0 or left.hex() == right.hex())
+    return left == right
+
+
 @dataclass
 class ExportSnapshot:
     job: dict
@@ -637,7 +654,7 @@ def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -
                     references.update(model_ids(data))
                     documents.write(name, data)
                     for section in JOB_DOCUMENT_FIELDS & record.keys():
-                        if data == record[section]:
+                        if same_json(data, record[section]):
                             section_documents[section] = documents.inventory[name]
                     continue
                 else:
