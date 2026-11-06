@@ -162,10 +162,40 @@ export function latestPerformance(progress: Values, history: HistoryPoint[]) {
     object(history.at(-1)?.performance)
   );
 }
+/**
+ * Selectable iteration windows for the shared analysis range control. One
+ * window is applied to every chart in the Learning, Evaluation and Performance
+ * tabs, so the options live here instead of being repeated per view.
+ */
+export const iterationRanges = [10, 25, 50, 100, 250] as const;
+
+/**
+ * Rows whose iteration falls inside the latest `range` iterations ending at
+ * `anchor`. The explicit anchor lets sparse logs (such as automatic
+ * hyperparameter decisions) share the exact window of the training history
+ * instead of being anchored to their own last entry. A missing or non-finite
+ * anchor cannot define a window, so the rows are returned unchanged.
+ */
+export const withinIterationWindow = <T extends { iteration: number }>(
+  rows: T[],
+  range: number,
+  anchor: number | undefined,
+) => {
+  if (!range || anchor === undefined || !Number.isFinite(anchor)) return rows;
+  const windowStart = anchor - range + 1;
+  return rows.filter((row) => row.iteration >= windowStart && row.iteration <= anchor);
+};
+
+/**
+ * Latest `range` iterations of a chronological history. The window is anchored
+ * to the last recorded iteration number rather than the array length, so a
+ * resumed job with a nonzero start keeps its true span and sparse or gapped
+ * histories are never back-filled with missing iterations. `rows` is already
+ * sorted by iteration; filtering preserves that order.
+ */
 export const recentHistory = (rows: HistoryPoint[], range: number) => {
   if (!range || !rows.length) return rows;
-  const first = rows.at(-1)!.iteration - range + 1;
-  return rows.filter((row) => row.iteration >= first);
+  return withinIterationWindow(rows, range, rows.at(-1)!.iteration);
 };
 /** Diagnostic views must never expose a future credential added to a public payload. */
 export function safeDiagnostics(value: unknown): unknown {

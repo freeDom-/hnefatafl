@@ -17,7 +17,9 @@ import {
   latestMetrics,
   latestPerformance,
   object,
+  recentHistory,
   safeDiagnostics,
+  withinIterationWindow,
   type Values,
   type HistoryPoint,
 } from './trainingDashboardData';
@@ -279,6 +281,9 @@ export function TrainingLearningView({
     ],
     [],
   );
+  // The dashboard hands the view the full history and the selected window, so
+  // every metric and the adaptation log share the same iteration boundaries.
+  const windowedHistory = useMemo(() => recentHistory(history, range), [history, range]);
   return (
     <>
       <dl className="training-kpis learning-kpis">
@@ -319,11 +324,11 @@ export function TrainingLearningView({
             />
           ))}
       </dl>
-      <TrainingHistoryChart history={history} view="learning" range={range} />
-      {history.some((row) => finite(row.replay_positions)) && (
+      <TrainingHistoryChart history={windowedHistory} view="learning" range={0} />
+      {windowedHistory.some((row) => finite(row.replay_positions)) && (
         <TrainingMetricChart
           title="Replay buffer positions"
-          rows={history}
+          rows={windowedHistory}
           series={replay}
           unit="Positions"
         />
@@ -331,7 +336,7 @@ export function TrainingLearningView({
       <p className="subtle">
         {t('Missing metrics were not recorded; they are never interpreted as zero.')}
       </p>
-      <AdaptationHistory progress={progress} />
+      <AdaptationHistory progress={progress} history={history} range={range} />
     </>
   );
 }
@@ -352,13 +357,38 @@ function AdaptationDecision({ event, t }: { event: Values; t: (source: string) =
 
 /**
  * Bounded controller decision log. Older jobs have no events and render nothing,
- * so a legacy checkpoint never shows an invented history.
+ * so a legacy checkpoint never shows an invented history. The log follows the
+ * selected iteration window, anchored to the latest recorded training iteration
+ * so sparse decisions are never mistaken for the end of the run.
  */
-function AdaptationHistory({ progress }: { progress: Values }) {
+function AdaptationHistory({
+  progress,
+  history,
+  range,
+}: {
+  progress: Values;
+  history: HistoryPoint[];
+  range: number;
+}) {
   const { t, locale } = useI18n();
   const raw = progress.adaptation_events;
-  const events = Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : [];
-  if (!events.length) return null;
+  const events = useMemo(
+    () => (Array.isArray(raw) ? raw.filter((event): event is Values => !!object(event)) : []),
+    [raw],
+  );
+  // Only well-formed events can join a numeric window; malformed historical
+  // records are still shown under All iterations with a missing iteration.
+  const recorded = useMemo(
+    () =>
+      events.filter((event): event is Values & { iteration: number } => finite(event.iteration)),
+    [events],
+  );
+  const anchor = history.at(-1)?.iteration ?? recorded.at(-1)?.iteration;
+  const windowed = useMemo(
+    () => (range ? withinIterationWindow(recorded, range, anchor) : events),
+    [range, recorded, events, anchor],
+  );
+  if (!windowed.length) return null;
   const rate = (value: unknown) => formatLearningRate(value, locale) ?? '—';
   const observation = (value: unknown) =>
     value === null || value === undefined
@@ -387,7 +417,7 @@ function AdaptationHistory({ progress }: { progress: Values }) {
               </tr>
             </thead>
             <tbody>
-              {events.map((event, index) => (
+              {windowed.map((event, index) => (
                 <tr key={index}>
                   <th scope="row">{finite(event.iteration) ? String(event.iteration) : '—'}</th>
                   <td>{rate(event.previous_learning_rate)}</td>
