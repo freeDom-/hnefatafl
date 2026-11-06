@@ -38,7 +38,7 @@ jobs:
       - name: Verify tagged source and successful CI
         run: |
           python3 - <<'PY'
-          import json, os, posixpath, re, subprocess, tomllib
+          import json, os, subprocess, tomllib
           from pathlib import Path
           tag, repo = os.environ["RELEASE_TAG"], os.environ["GH_REPO"]
           if subprocess.check_output(["git", "cat-file", "-t", tag]).decode().strip() != "tag":
@@ -61,12 +61,6 @@ jobs:
               # trees; notes for those tags were later renamed to X.Y.Z.md on main.
               notes_path = Path(f"docs/releases/v{tag}.md")
           notes = notes_path.read_text()
-          evidence = f"[Verified CI for this tag](https://github.com/{repo}/actions/runs/{int(verified['id'])}).\n\n"
-          notes = notes.replace("## Validation\n\n", "## Validation\n\n" + evidence, 1)
-          def absolute_link(match):
-              path = posixpath.normpath("docs/releases/" + match.group(2))
-              return match.group(1) + f"https://github.com/{repo}/blob/{tag}/" + path + ")"
-          notes = re.sub(r"(\[[^\]]*\]\()(\.\./[^)]+)\)", absolute_link, notes)
           (Path(os.environ["RUNNER_TEMP"]) / "hnefatafl-release-notes.md").write_text(notes)
           print(f"Verified {tag} at {sha}")
           PY
@@ -76,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           archive="work/releases/hnefatafl-${RELEASE_TAG}.tar.gz"
-          gh release create "$RELEASE_TAG" "$archive" --verify-tag --title "$RELEASE_TAG" \
+          gh release create "$RELEASE_TAG" "$archive" --verify-tag --title "Hnefatafl ${RELEASE_TAG}" \
             --notes-file "$RUNNER_TEMP/hnefatafl-release-notes.md" --latest
           python3 - <<'PY'
           import hashlib, json, os, subprocess

@@ -875,3 +875,29 @@ the production build), frozen all-extras installation and lockfile/identity chec
 documentation (110 files, 830 links/anchors) and a clean committed source archive
 smoke (656 entries, synchronized `0.35.0` metadata). Full release-PR Verify and subsequent
 tagged-main Verify remain separate gates before publication.
+
+## Reliable tuning, adaptation and model reuse (`0.36.0` preparation)
+
+Release preparation starts from merged `main` at `c6baa9e`, covering every change
+since published `0.35.0`: PRs #52, #53, #54 and #55. Python/npm metadata and both
+lockfiles move together to `0.36.0` on `release/0.36.0`.
+
+Tuning gains fixed/weighted/frozen opponents, checkpoint-based trials, full-state
+candidate objectives, independent verification, comparable version-2 experiment
+identities, portable format-2 study archives and recoverable whole-study deletion.
+Optional online learning-rate adaptation is off by default, preserves optimizer
+state and exposes used/selected rates plus bounded decision history. Model
+registration reuses verified inference weights without rewriting historical IDs
+or automatically deleting duplicates. Analysis adds 100/250 iteration windows,
+consistent adaptation-log filtering and less redundant chart processing.
+
+Schema remains 13 and checkpoint tensor format remains 1. Historical studies with
+ambiguous identities require a new study for additional trials; format-1 archives
+remain importable with verifiable dependencies. Remote workers must match 0.36.0
+and advertise `hyper_adaptation` for enabled controller jobs. The small CPU
+controller benchmark establishes overhead only, not stronger play or a speedup.
+
+The publication workflow keeps its exact-main CI, annotated-tag and archive-digest
+gates, uses the checked-in notes verbatim and titles releases `Hnefatafl X.Y.Z`.
+See [0.36.0 release notes](docs/releases/0.36.0.md) for complete scope, installation,
+validation and limits. Prior release evidence remains unchanged.

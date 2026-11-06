@@ -11,9 +11,10 @@ those bodies point into the tagged trees. The publish workflow therefore still
 falls back to `vX.Y.Z.md` for tags whose trees predate the rename.
 
 Every release note opens with one H1 of the form `# X.Y.Z - Concise summary`, for
-example `# 0.22.1 - Remote worker management fixes`. The GitHub release title is the
-bare `X.Y.Z`; do not repeat the product name in the H1, and do not duplicate the
-summary in the release title.
+example `# 0.22.1 - Remote worker management fixes`. The GitHub release title is
+`Hnefatafl X.Y.Z`; keep the product name out of the notes H1. Use absolute GitHub
+links in new release notes so the same checked-in notes work in the published
+release without rewriting.
 
 Patch releases correct defects; minor releases add compatible features; breaking
 changes after 1.0 require a new major version.
@@ -38,7 +39,7 @@ For each reached milestone:
 git switch main && git pull
 git tag -a X.Y.Z -m 'Concrete milestone description'
 git push origin X.Y.Z
-gh release create X.Y.Z --verify-tag --title 'X.Y.Z' \
+gh release create X.Y.Z --verify-tag --title 'Hnefatafl X.Y.Z' \
   --notes-file docs/releases/X.Y.Z.md --prerelease
 ```
 
@@ -58,7 +59,7 @@ After committing, validating and tagging a secure deployment release:
 ```sh
 .venv/bin/python scripts/package_release.py
 gh release create X.Y.Z work/releases/hnefatafl-X.Y.Z.tar.gz \
-  --verify-tag --title 'X.Y.Z' --notes-file docs/releases/X.Y.Z.md
+  --verify-tag --title 'Hnefatafl X.Y.Z' --notes-file docs/releases/X.Y.Z.md
 ```
 
 Replace X.Y.Z consistently. Packaging refuses dirty checkouts and includes only
@@ -77,6 +78,7 @@ gh workflow run release.yml --ref main -f tag=X.Y.Z
 
 The workflow requires a matching project version and successful `Verify` CI on
 `main` for the tagged commit, packages that exact clean source, publishes a stable
-release and verifies GitHub's asset digest. It uses runner credentials, including
-when local credentials cannot upload to `uploads.github.com`. Existing releases
+release with the checked-in notes verbatim and verifies GitHub's asset digest.
+It uses runner credentials, including when local credentials cannot upload to
+`uploads.github.com`. Existing releases
 and assets are not overwritten. Check the workflow result before installation.

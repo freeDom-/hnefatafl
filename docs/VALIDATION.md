@@ -2,6 +2,14 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Reliable tuning, adaptation and model reuse (`0.36.0` preparation)
+
+The [0.36.0 release notes](releases/0.36.0.md#validation) record this release's
+checks separately from historical evidence. The release covers PRs #52–#55,
+including study identity/archive compatibility, optional adaptation, immutable
+model identity and training-analysis windows. Successful release-PR and exact
+merged-main Verify runs are required before stable publication.
+
 ## Custom single-player opponents, training help and parallel search (`0.35.0` preparation)
 
 The [0.35.0 release notes](releases/0.35.0.md#validation) identify the verified
