@@ -618,6 +618,41 @@ it('blocks resuming an incompatible controller configuration', async () => {
   expect(screen.getByRole('button', { name: 'Continue training' })).toBeDisabled();
 });
 
+it('allows resuming a Champion controller configuration', async () => {
+  const info: ResumeCheckpoint = {
+    job_id: 'source',
+    checkpoint: 'source:last.pt',
+    completed_iteration: 5,
+    ruleset: 'brandubh',
+    channels: 32,
+    blocks: 2,
+    optimizer: 'adamw',
+    learning_rate: 0.001,
+    weight_decay: 0.0001,
+    momentum: 0.9,
+    model_name: 'Freydis',
+    can_resume: true,
+    config: {
+      ...trainingConfig('brandubh', 'recommended'),
+      adaptation: 'hypercontroller',
+      adaptation_lr_candidates: '0.0003,0.001,0.003',
+      learning_rate: 0.001,
+      evaluation_opponent: 'champion',
+      evaluation_games: 4,
+    },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(info)),
+  );
+  const job: Job = { id: 'source', kind: 'train', status: 'completed', config: {} };
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  expect(await screen.findByRole('combobox', { name: 'Evaluation opponent' })).toHaveValue(
+    'champion',
+  );
+  expect(screen.getByRole('button', { name: 'Continue training' })).toBeEnabled();
+});
+
 it('explains that a resume learning-rate change moves the controller rate', async () => {
   const info: ResumeCheckpoint = {
     job_id: 'source',
