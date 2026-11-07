@@ -320,12 +320,19 @@ export function TrainingLearningView({
         {championActive && warmup !== null && regimeObservations !== null && (
           <TrainingKpi
             label="Controller warm-up"
-            value={t(
+            value={
               regimeObservations < warmup
-                ? 'Warm-up ({observations} / {warmup} evaluations)'
-                : 'Active ({observations} / {warmup} evaluations)',
-              { observations: regimeObservations, warmup },
-            )}
+                ? t('Warm-up ({observations} / {warmup} evaluations)', {
+                    observations: regimeObservations,
+                    warmup,
+                  })
+                : t('Active · Warm-up complete')
+            }
+            detail={
+              regimeObservations >= warmup
+                ? t('Regime observations: {observations}', { observations: regimeObservations })
+                : undefined
+            }
           />
         )}
         {finite(adaptation.promotion_resets) && adaptation.promotion_resets > 0 && (

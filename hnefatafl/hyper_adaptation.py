@@ -898,20 +898,22 @@ class HyperController:
     def _already_promoted(self, promotion: dict[str, Any]) -> bool:
         """Whether this promotion signal was already applied to the controller.
 
-        The new Champion identity is the robust marker when it is available: if
-        the controller is already learning against that Champion, the signal was
-        applied. The promotion iteration is the fallback for signals that predate
-        the identity field.
+        Promotion iterations strictly increase, so an event at or before the most
+        recently applied promotion is a duplicate or a stale replay and must never
+        reset the current regime again. That ordering check rejects an older
+        promotion replayed after later ones, which a last-event-only comparison
+        would miss. The identity check covers a replayed event whose iteration is
+        unavailable; it is never used to reject a valid later promotion, which has
+        a strictly greater iteration.
         """
+        iteration = promotion.get("iteration")
+        last_iteration = self.last_promotion.get("iteration") if self.last_promotion else None
+        if type(iteration) is int and type(last_iteration) is int and iteration <= last_iteration:
+            return True
         promoted_identity = promotion.get("active_champion_identity")
         if isinstance(promoted_identity, str) and promoted_identity:
             return self.active_champion_identity == promoted_identity
-        iteration = promotion.get("iteration")
-        return (
-            self.last_promotion is not None
-            and type(iteration) is int
-            and self.last_promotion.get("iteration") == iteration
-        )
+        return False
 
     def _reset_for_promotion(self, promotion: dict[str, Any], event: dict[str, Any]) -> None:
         """Restart opponent-specific state after a Champion promotion.

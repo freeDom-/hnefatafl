@@ -450,7 +450,10 @@ optimizer, its moments, the model weights and the replay buffer are untouched, s
 the new regime begins from the same effective rate that trained the promoting
 interval. A replayed promotion signal is an inert duplicate: it never re-ingests
 the score, advances a counter, moves the controller RNG or records a decision
-event, so repeated processing of the same boundary is safe. Failed attempts,
+event, so repeated processing of the same boundary is safe. Promotion iterations
+strictly increase, so an event at or before the most recently applied promotion
+is rejected as duplicate or stale even after later promotions, while a genuinely
+later promotion is still applied. Failed attempts,
 draws and missing observations never reset the controller. The controller also
 persists the active Champion regime identity derived from the Champion's
 metadata. On resume it is compared with the restored Champion; a mismatch, or a

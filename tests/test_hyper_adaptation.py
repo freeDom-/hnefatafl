@@ -1390,6 +1390,68 @@ def test_replayed_promotion_after_restore_is_inert():
     assert restored.observations == 0
 
 
+def test_stale_promotion_replay_cannot_reset_a_later_regime():
+    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=0.5)
+    # Promotion A -> B, then B -> C.
+    controller.observe(iteration=2, score=0.6, promotion=promotion(2, champion_iteration=0))
+    controller.observe(iteration=3, score=0.6)
+    controller.observe(iteration=4, score=0.7, promotion=promotion(4, champion_iteration=2))
+    controller.observe(iteration=5, score=0.5)
+    assert controller.active_champion_identity == "champion-4-promoted-head_to_head"
+    assert controller.promotion_resets == 2
+    before = controller.state_dict()
+    before_rng = controller.rng.getstate()
+    # Replaying the older A -> B event must not move the controller back to B.
+    event = controller.observe(iteration=2, score=0.9, promotion=promotion(2, champion_iteration=0))
+    assert event["skipped"] == "promotion_duplicate"
+    assert event["changed"] is False
+    assert controller.state_dict() == before
+    assert controller.rng.getstate() == before_rng
+    assert controller.active_champion_identity == "champion-4-promoted-head_to_head"
+    assert controller.effective_index == before["effective_index"]
+    assert controller.promotion_resets == 2
+    # A genuinely later promotion C -> D still works.
+    new_event = controller.observe(
+        iteration=6, score=0.8, promotion=promotion(6, champion_iteration=4)
+    )
+    assert new_event["skipped"] == "promotion_reset"
+    assert new_event["promotion_reset"] is True
+    assert controller.active_champion_identity == "champion-6-promoted-head_to_head"
+    assert controller.promotion_resets == 3
+    assert controller.observations == 0
+
+
+def test_stale_promotion_replay_after_restore_cannot_reset_a_later_regime():
+    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=0.5)
+    controller.observe(iteration=2, score=0.6, promotion=promotion(2, champion_iteration=0))
+    controller.observe(iteration=3, score=0.6)
+    controller.observe(iteration=4, score=0.7, promotion=promotion(4, champion_iteration=2))
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=state["active_champion_identity"],
+    )
+    before = restored.state_dict()
+    before_rng = restored.rng.getstate()
+    event = restored.observe(iteration=2, score=0.9, promotion=promotion(2, champion_iteration=0))
+    assert event["skipped"] == "promotion_duplicate"
+    assert restored.state_dict() == before
+    assert restored.rng.getstate() == before_rng
+    assert restored.active_champion_identity == "champion-4-promoted-head_to_head"
+    assert restored.promotion_resets == 2
+
+
 def test_from_state_resets_learned_state_when_the_active_champion_changes():
     controller = make_controller(
         warmup=0,

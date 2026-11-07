@@ -538,8 +538,8 @@ const translations: Record<string, string> = {
   'Controller warm-up': 'Controller-Aufwärmphase',
   'Warm-up ({observations} / {warmup} evaluations)':
     'Aufwärmphase ({observations} / {warmup} Auswertungen)',
-  'Active ({observations} / {warmup} evaluations)':
-    'Aktiv ({observations} / {warmup} Auswertungen)',
+  'Active · Warm-up complete': 'Aktiv · Aufwärmphase abgeschlossen',
+  'Regime observations: {observations}': 'Beobachtungen der aktuellen Ära: {observations}',
   'Rate kept at last promotion': 'Bei der letzten Beförderung beibehaltene Rate',
   'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.':
     'Jede Champion-Beförderung behält die aktuelle Lernrate bei, startet aber die Aufwärmphase des Controllers neu; Ergebnisse von vor der Beförderung werden nicht wiederverwendet.',

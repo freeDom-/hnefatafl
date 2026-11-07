@@ -130,7 +130,10 @@ promotion:
   Champion. The next evaluation is the first observation of the new regime.
 * A replayed promotion signal is an inert duplicate: it never ingests the score
   again, advances any counter, moves the controller RNG or records a decision
-  event. This makes repeated processing of the same evaluation boundary safe.
+  event. Promotion iterations strictly increase, so any event at or before the
+  most recently applied promotion is rejected as duplicate or stale, even after
+  later promotions; a genuinely later promotion is still applied. This makes
+  repeated processing of any evaluation boundary safe.
 * A failed attempt, a draw or a missing observation never resets the controller.
 
 The controller keeps the same evaluation identity across promotions (the context

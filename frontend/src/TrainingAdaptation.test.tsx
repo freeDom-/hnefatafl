@@ -113,7 +113,8 @@ it('shows the active Champion and warm-up progress for a Champion controller', (
   expect(screen.getByText('Controller warm-up')).toBeInTheDocument();
   expect(screen.getByText('Warm-up (2 / 3 evaluations)')).toBeInTheDocument();
   expect(screen.getByText(/Rate kept at last promotion/)).toBeInTheDocument();
-  // Once warm-up is satisfied the same KPI reports the active state.
+  // Once warm-up is satisfied the KPI reports a fixed active state rather than
+  // an ever-increasing numerator, with the regime count kept separately.
   cleanup();
   renderLearning(
     {
@@ -128,7 +129,43 @@ it('shows the active Champion and warm-up progress for a Champion controller', (
     [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
     0,
   );
-  expect(screen.getByText('Active (3 / 3 evaluations)')).toBeInTheDocument();
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  expect(screen.getByText('Regime observations: 3')).toBeInTheDocument();
+  expect(screen.queryByText('Warm-up (3 / 3 evaluations)')).toBeNull();
+});
+
+it('keeps the active state stable well past the warm-up threshold', () => {
+  const render = (warmup: number, regimeObservations: number) =>
+    renderLearning(
+      {
+        evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+        adaptation: {
+          algorithm: 'hypercontroller',
+          effective_learning_rate: 0.0003,
+          observations: regimeObservations,
+          regime_observations: regimeObservations,
+          warmup,
+        },
+      },
+      [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
+      0,
+    );
+  // warmup 0 is already complete at the first observation.
+  render(0, 0);
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  cleanup();
+  // warmup 1 needs exactly one observation.
+  render(1, 0);
+  expect(screen.getByText('Warm-up (0 / 1 evaluations)')).toBeInTheDocument();
+  cleanup();
+  render(1, 1);
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  cleanup();
+  // Substantially more observations than the threshold stay in the active state.
+  render(3, 128);
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  expect(screen.getByText('Regime observations: 128')).toBeInTheDocument();
+  expect(screen.queryByText('Warm-up (128 / 3 evaluations)')).toBeNull();
 });
 
 it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', () => {
@@ -990,7 +1027,8 @@ it('translates the new controller labels and tooltips into German', () => {
     'Current Champion',
     'Controller warm-up',
     'Warm-up ({observations} / {warmup} evaluations)',
-    'Active ({observations} / {warmup} evaluations)',
+    'Active · Warm-up complete',
+    'Regime observations: {observations}',
     'Rate kept at last promotion',
     'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
     'Unavailable while tuning: the study varies the learning rate across trials.',
