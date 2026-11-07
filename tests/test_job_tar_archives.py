@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import math
+from pathlib import Path
 import tarfile
 import threading
 
@@ -174,7 +175,11 @@ def test_deterministic_archives_and_cross_filesystem_snapshot_fallback(client, m
     expected = export(client, job)
     assert export(client, job) == expected
 
-    def cross_device(*args):
+    link = job_archives.os.link
+
+    def cross_device(source, target):
+        if Path(target).parent.name.startswith(".archive-pins-"):
+            return link(source, target)
         raise OSError(errno.EXDEV, "Injected cross-filesystem snapshot")
 
     monkeypatch.setattr(job_archives.os, "link", cross_device)

@@ -393,8 +393,16 @@ review custom diagnostic log text before sharing.
 Inactive job files and a consistent SQLite study backup are pinned under
 lifecycle/catalog locks. Model references are then discovered from metadata,
 reports and checkpoints outside those locks; only the required registered models
-are pinned under the registry lock. Cross-filesystem pins retain open file handles
-and copy their contents after releasing the locks. Serialization, study migration
+are pinned under the registry lock. The initial snapshot retains the atomically
+replaced catalog index without decoding it under global locks. If a referenced
+model present in that index disappears before pinning, export fails with HTTP 409
+and an actionable retry message. Optional models absent before capture remain
+historical references; frozen opponents remain mandatory and content-validated.
+Cross-filesystem snapshots stage private hard links on the source filesystem,
+outside deletable job directories, and copy after releasing the locks. This keeps
+descriptor use bounded even with more than 1,000 artifacts. A filesystem unable
+to establish those safe pins fails explicitly rather than reading mutable paths
+later. Serialization, study migration
 and compression use FastAPI's existing request thread pool. Normal training and
 persistence do not change.
 The server admits one archive operation at a time, before parsing an import's
@@ -410,14 +418,29 @@ The existing loading indicators stay active until the request finishes.
 See the [archive benchmarks](benchmarks/job-archives.md) for measured tradeoffs
 and the [review benchmarks](benchmarks/job-archive-review.md) for catalog,
 concurrency and large-history comparisons against the initial schema-3 PR.
+The [second-review measurements](benchmarks/job-archive-second-review.md) compare
+model lifecycle protection, bounded descriptors and real HTTP/browser imports
+against commit `9b58c884`.
 
 Schema-3 imports preserve distinct database and file reports. Full job views and
-the import response read the retained files; navigator summaries use a bounded
+the explicit full import response read the retained files; navigator summaries use a bounded
 projection cached once at import, without reopening large histories on refresh.
-The cache contains counters and small metric maps, never another full history.
+The cache contains counters and small report/metadata maps, never another full history.
+SQLite replaces those imported fields before decoding navigator rows in Python;
+renames and other live job metadata still come from the current row.
 The original database reports remain available for lossless re-export. Genuine
 [historical ZIP fixtures](../tests/fixtures/job_archives/README.md) exercise both
 legacy schemas and full checkpoint resumption.
+
+`POST /api/training/jobs/import` now returns HTTP 201 with a compact job object:
+`summary: true`, the new `id`, status, configuration, resume/checkpoint information,
+model association and bounded progress. The workshop immediately selects this
+job and uses its existing on-demand detail loader, showing the localized
+**Loading history…** state while loading. Pending requests are shared; a completed
+detail is retained through ordinary navigator refreshes. Complete reports remain
+available at `GET /api/training/jobs/{id}`. Clients requiring the previous complete
+import response can explicitly request `POST /api/training/jobs/import?summary=false`.
+This response optimization changes neither stored histories nor the archive format.
 
 Import validates inventory, checksums, bounded JSON and tensor-only checkpoint
 compatibility in staging, then registers models, publishes a fresh job directory

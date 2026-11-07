@@ -42,6 +42,18 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   const importing = page.waitForResponse((response) =>
     response.url().endsWith('/api/training/jobs/import'),
   );
+  let releaseHistory!: () => void;
+  const historyGate = new Promise<void>((resolve) => {
+    releaseHistory = resolve;
+  });
+  let historyRequests = 0;
+  await page.route(/\/api\/training\/jobs\/[0-9a-f]{32}$/, async (route) => {
+    if (route.request().method() === 'GET' && !route.request().url().endsWith(source.id)) {
+      historyRequests++;
+      await historyGate;
+    }
+    await route.continue();
+  });
   await page.getByLabel('Import job', { exact: true }).setInputFiles({
     name: download.suggestedFilename(),
     mimeType: 'application/gzip',
@@ -51,7 +63,18 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   expect(importedResponse.ok()).toBe(true);
   const imported = await importedResponse.json();
   expect(imported.id).not.toBe(source.id);
+  expect(imported.summary).toBe(true);
+  expect(imported.progress.history).toBeUndefined();
   expect(imported.resumable).toBe(true);
+  try {
+    await expect(page.locator('.training-analysis-panel').getByRole('status')).toHaveText(
+      'Loading history…',
+    );
+  } finally {
+    releaseHistory();
+  }
+  await expect(page.getByText('Loading history…', { exact: true })).toHaveCount(0);
+  expect(historyRequests).toBe(1);
   await expect(page.locator('.job-row.selected')).toHaveCount(1);
   await expect(page.locator('.job-detail .job-status')).toHaveText('completed');
   await expect(

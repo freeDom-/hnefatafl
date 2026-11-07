@@ -124,7 +124,7 @@ def test_snapshot_only_touches_referenced_models(client, tmp_path, monkeypatch):
     link = job_archives.os.link
 
     def tracked(source, target, *args, **kwargs):
-        if Path(source).parent == registry.root:
+        if Path(source).parent == registry.root and Path(source).suffix == ".pt":
             touched.append(Path(source).stem)
         return link(source, target, *args, **kwargs)
 
@@ -158,7 +158,11 @@ def test_cross_filesystem_copy_is_deferred_and_survives_source_deletion(
     held = False
     copies = []
 
-    def cross_device(*args, **kwargs):
+    link = job_archives.os.link
+
+    def cross_device(source, target, *args, **kwargs):
+        if Path(target).parent.name.startswith(".archive-pins-"):
+            return link(source, target, *args, **kwargs)
         raise OSError(errno.EXDEV, "cross filesystem")
 
     def copy(src, target, *args):
@@ -521,8 +525,12 @@ def test_frozen_study_snapshot_survives_deleted_source_and_pins_only_dependencie
     registry._write_index(entries)
     pinned_models = []
 
+    link = job_archives.os.link
+
     def cross_device(source, target):
-        if Path(source).parent == registry.root:
+        if Path(target).parent.name.startswith(".archive-pins-"):
+            return link(source, target)
+        if Path(source).parent == registry.root and Path(source).suffix == ".pt":
             pinned_models.append(Path(source).stem)
         raise OSError(errno.EXDEV, "cross filesystem")
 

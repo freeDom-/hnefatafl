@@ -85,9 +85,9 @@ RUNTIME_KEYS = {
 }
 SECRET_KEY = re.compile(r"token|secret|password|credential|authorization|lease|api[_-]?key", re.I)
 ABSOLUTE_PATH = re.compile(r"(?<![\w:])(?:[A-Za-z]:[\\/]|/)[^\s\"'<>]*")
-SECRET_TEXT = re.compile(
-    r"(?i)(?:bearer\s+\S+|(?:[\w-]*(?:token|secret|password|credential|api_key)[\w-]*)[\"']?\s*[:=]\s*[\"']?[^\s,\"'}]+)"
-)
+SECRET_TEXT = re.compile(r"(?i)(?:bearer\s+\S+|(?<![\w-])(?P<key>[\w-]+)[\"']?\s*[:=]\s*[\"']?)")
+SECRET_ASSIGNMENT_KEY = re.compile(r"token|secret|password|credential|api_key", re.I)
+SECRET_VALUE = re.compile(r"[^\s,\"'}]+")
 JOB_FIELDS = {
     "id",
     "kind",
@@ -232,7 +232,24 @@ def sha256(path: Path) -> str:
 
 
 def clean_text(value: str) -> str:
-    return ABSOLUTE_PATH.sub("[local path]", SECRET_TEXT.sub("[redacted]", value))
+    # Scan complete assignments first. Repeated partial key matches otherwise
+    # make long diagnostic words quadratic, even when no credential exists.
+    parts: list[str] = []
+    position = retained = 0
+    while match := SECRET_TEXT.search(value, position):
+        position = match.end()
+        key = match.group("key")
+        if key is not None:
+            if not SECRET_ASSIGNMENT_KEY.search(key):
+                continue  # Still inspect its value for nested credential assignments.
+            content = SECRET_VALUE.match(value, position)
+            if content is None:
+                continue
+            position = content.end()
+        parts.extend((value[retained : match.start()], "[redacted]"))
+        retained = position
+    parts.append(value[retained:])
+    return ABSOLUTE_PATH.sub("[local path]", "".join(parts))
 
 
 def portable(
@@ -421,10 +438,13 @@ class ExportSnapshot:
     references: dict[str, str]
     study_inventory: dict | None
     registry: Any
+    catalog: Path | None = None
     pending: list = dataclass_field(default_factory=list)
-    handles: ExitStack = dataclass_field(default_factory=ExitStack)
+    resources: ExitStack = dataclass_field(default_factory=ExitStack)
+    pin_directories: dict[Path, Path] = dataclass_field(default_factory=dict)
+    pin_count: int = 0
 
-    def pin(self, source: Path, destination: Path) -> None:
+    def pin(self, source: Path, destination: Path, *, anchor: Path | None = None) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.link(source, destination)
@@ -433,28 +453,49 @@ class ExportSnapshot:
 
             if exc.errno != errno.EXDEV:
                 raise
-            # Opening pins the inode across deletion. Copy only AFTER releasing
-            # lifecycle/catalog/registry locks, including on cross-device stores.
-            handle = self.handles.enter_context(source.open("rb"))
-            self.pending.append((handle, destination))
+            # A private hard link on the source filesystem retains the inode
+            # without one descriptor per artifact. Keep it outside UUID job trees
+            # so deleting the original job cannot remove these pins.
+            anchor = self.directory.parent if anchor is None else anchor
+            try:
+                if anchor not in self.pin_directories:
+                    self.pin_directories[anchor] = Path(
+                        self.resources.enter_context(
+                            tempfile.TemporaryDirectory(prefix=".archive-pins-", dir=anchor)
+                        )
+                    )
+                pinned = self.pin_directories[anchor] / str(self.pin_count)
+                self.pin_count += 1
+                os.link(source, pinned)
+            except OSError as error:
+                raise ArchiveError(
+                    "Cannot establish a safe archive snapshot on the source filesystem. "
+                    "Check data-directory permissions and hard-link support, then retry."
+                ) from error
+            self.pending.append((pinned, destination))
 
     def materialize(self) -> None:
         pending, self.pending = self.pending, []
-        for handle, destination in pending:
-            with handle, destination.open("xb") as output:
-                shutil.copyfileobj(handle, output, 1024 * 1024)
+        for pinned, destination in pending:
+            with pinned.open("rb") as source, destination.open("xb") as output:
+                shutil.copyfileobj(source, output, 1024 * 1024)
 
     def pin_model(self, source: Path) -> Path:
         destination = self.source / "models" / source.name
         if source.is_file() and not source.is_symlink():
-            self.pin(source, destination)
+            self.pin(source, destination, anchor=self.registry.root)
+        return destination
+
+    def pin_catalog(self, source: Path) -> Path:
+        destination = self.source / ".model-index.json"
+        self.pin(source, destination, anchor=self.registry.root)
         return destination
 
     def __enter__(self):
         return self
 
     def __exit__(self, *args):
-        self.handles.close()
+        self.resources.close()
 
 
 def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSnapshot:
@@ -462,7 +503,7 @@ def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSn
 
     Job/registry publication uses atomic replacement. Hard links keep the old
     inode alive across deletion/replacement without copying tensor buffers. A
-    cross-filesystem fallback pins open descriptors and defers copying. Model
+    cross-filesystem fallback stages source-filesystem links and defers copying. Model
     references are discovered from these artifacts outside the global locks.
     """
     validate_job(job)
@@ -510,8 +551,9 @@ def snapshot_job(job: dict, directory: Path, registry, target: Path) -> ExportSn
                 collect()
         else:
             collect()
+        snapshot.catalog = registry.pin_index(snapshot.pin_catalog)
     except BaseException:
-        snapshot.handles.close()
+        snapshot.resources.close()
         raise
     snapshot.references, snapshot.study_inventory = refs, inventory
     return snapshot
@@ -666,7 +708,7 @@ def export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) ->
         output.unlink(missing_ok=True)
         raise
     finally:
-        snapshot.handles.close()
+        snapshot.resources.close()
 
 
 def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -> None:
@@ -813,7 +855,9 @@ def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -
         models = []
         # Discovery above includes reports/checkpoints, uploaded best models and
         # frozen dependencies. Only this complete set touches registry files.
-        entries = snapshot.registry.pin_entries(references, snapshot.pin_model)
+        entries = snapshot.registry.pin_entries(
+            references, snapshot.pin_model, snapshot=snapshot.catalog
+        )
         snapshot.materialize()
         available = {entry["id"]: entry for entry in entries}
         for identifier in sorted(references):
@@ -1426,6 +1470,17 @@ def import_job(
                         for section in ("progress", "result"):
                             if section in record:
                                 record[section]["storage"] = storage
+                    from .training_monitoring import imported_report_summary
+
+                    for section in ("progress", "result"):
+                        if section not in report_summaries:
+                            report_summaries[section] = imported_report_summary(
+                                record.get(section, {})
+                            )
+                    for section in ("metrics", "provenance", "software"):
+                        report_summaries[section] = imported_report_summary(
+                            {"metrics": record.get(section, {})}
+                        ).get("metrics", {})
                     record["_import_reports"] = report_summaries
                     record.pop("checkpoint", None)
                     info = resume_info(record, staging)

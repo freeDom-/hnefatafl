@@ -393,6 +393,14 @@ def job_summary(job: dict) -> dict:
     return result
 
 
+def imported_job_summary(job: dict) -> dict:
+    """Return imported navigator metadata without reopening restored documents."""
+    result = job_summary(job)
+    if isinstance(result.get("error"), str):
+        result["error"] = result["error"][:2000]
+    return result
+
+
 def imported_report_summary(report: dict) -> dict:
     """Cache navigator fields once at import; full reports remain separate artifacts.
 

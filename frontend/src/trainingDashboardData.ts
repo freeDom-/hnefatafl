@@ -17,6 +17,7 @@ export function mergeJobSummary(previous: Job | null, next: Job): Job {
   return {
     ...previous,
     ...next,
+    summary: previous.summary === true,
     progress: {
       ...oldProgress,
       ...progress,

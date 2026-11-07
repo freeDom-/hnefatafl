@@ -58,6 +58,102 @@ it('uploads a job with a loading state, refreshes models and selects its history
   ).toBeGreaterThan(1);
 });
 
+it.each(['en', 'de'])(
+  'loads imported history once from a compact response with a visible loading state (%s)',
+  async (language) => {
+    setLanguage(language as 'en' | 'de', false);
+    const summary: Job = { ...job, summary: true };
+    const full: Job = {
+      ...job,
+      progress: {
+        iteration: 1000,
+        history: Array.from({ length: 1000 }, (_, i) => ({ iteration: i + 1, policy_loss: 1 })),
+      },
+    };
+    let finish!: (response: Response) => void;
+    let imported = false;
+    const fetcher = vi.fn((path: string) => {
+      if (path === '/api/training/jobs/import') {
+        imported = true;
+        return json(summary);
+      }
+      if (path === '/api/training/jobs/imported-job')
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      return json(path.split('?')[0] === '/api/training/jobs' && imported ? [summary] : []);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const error = vi.fn();
+    render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);
+    fireEvent.change(
+      screen.getByLabelText(language === 'de' ? 'Auftrag importieren' : 'Import job'),
+      {
+        target: { files: [new File(['gzip'], 'job.tar.gz')] },
+      },
+    );
+    const loading = language === 'de' ? 'Verlauf wird geladen…' : 'Loading history…';
+    expect(await screen.findByText(loading)).toHaveAttribute('role', 'status');
+    expect(document.querySelector('.job-row.selected')).toHaveTextContent('Migrated raven');
+    expect(
+      fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs/imported-job'),
+    ).toHaveLength(1);
+    await act(async () => finish(await json(full)));
+    await waitFor(() => expect(screen.queryByText(loading)).not.toBeInTheDocument());
+    expect(document.querySelector('.dashboard-progress strong')).toHaveTextContent('1000');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: language === 'de' ? 'Auftrag aktualisieren' : 'Refresh job',
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.filter(([path]) => path.startsWith('/api/training/jobs?')).length,
+      ).toBeGreaterThan(2),
+    );
+    expect(
+      fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs/imported-job'),
+    ).toHaveLength(1);
+    expect(error).not.toHaveBeenCalled();
+  },
+);
+
+it('retains loaded imported detail when the navigator refresh completes afterward', async () => {
+  let imported = false;
+  let finishList!: (response: Response) => void;
+  const summary = { ...job, summary: true };
+  const fetcher = vi.fn((path: string) => {
+    if (path === '/api/training/jobs/import') {
+      imported = true;
+      return json(summary);
+    }
+    if (path === '/api/training/jobs/imported-job') return json(job);
+    if (path.startsWith('/api/training/jobs?') && imported)
+      return new Promise<Response>((resolve) => {
+        finishList = resolve;
+      });
+    return json([]);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.change(screen.getByLabelText('Import job'), {
+    target: { files: [new File(['gzip'], 'job.tar.gz')] },
+  });
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs/imported-job'),
+    ).toHaveLength(1),
+  );
+  await waitFor(() => expect(screen.queryByText('Loading history…')).not.toBeInTheDocument());
+  await act(async () => finishList(await json([summary])));
+  expect(screen.getByLabelText('Import job')).toBeEnabled();
+  expect(screen.queryByText('Loading history…')).not.toBeInTheDocument();
+  expect(
+    fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs/imported-job'),
+  ).toHaveLength(1);
+});
+
 it('shows archive validation errors without reporting success', async () => {
   const error = vi.fn();
   vi.stubGlobal(

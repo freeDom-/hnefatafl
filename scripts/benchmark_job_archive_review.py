@@ -196,6 +196,82 @@ def admission_case(args):
     return result
 
 
+def descriptor_case(args):
+    import errno
+    import resource
+    from hnefatafl import job_archives
+    from hnefatafl.models import ModelRegistry
+
+    root = args.root.resolve()
+    directory = root / "jobs" / ("a" * 32)
+    (directory / "best").mkdir(parents=True)
+    for index in range(args.artifacts):
+        (directory / "best" / f"iteration-{index:06d}.pt").write_bytes(f"artifact-{index}".encode())
+    registry = ModelRegistry(root / "models")
+    target = root / "snapshot"
+    original_link, original_copy = os.link, shutil.copyfileobj
+    attempts = 0
+    protected = True
+
+    def cross_device(source, destination, *a, **kw):
+        nonlocal attempts
+        if Path(destination).is_relative_to(target):
+            attempts += 1
+            raise OSError(errno.EXDEV, "simulated cross-device target")
+        return original_link(source, destination, *a, **kw)
+
+    def copy(source, destination, *a, **kw):
+        assert not protected, "File copying ran under lifecycle locks"
+        return original_copy(source, destination, *a, **kw)
+
+    os.link, shutil.copyfileobj = cross_device, copy
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(args.fd_limit, hard), hard))
+    initial = len(os.listdir("/proc/self/fd"))
+    job = {
+        "id": "a" * 32,
+        "kind": "train",
+        "status": "completed",
+        "config": {"preset": "smoke"},
+        "created_at": "2026-01-02T03:04:05+00:00",
+    }
+    started = time.perf_counter()
+    try:
+        with job_archives.snapshot_job(job, directory, registry, target) as snapshot:
+            captured = len(os.listdir("/proc/self/fd"))
+            locked_seconds = time.perf_counter() - started
+            protected = False
+            shutil.rmtree(directory)
+            started = time.perf_counter()
+            snapshot.materialize()
+            copy_seconds = time.perf_counter() - started
+            assert len(list((target / "best").iterdir())) == args.artifacts
+            assert (
+                target / "best" / f"iteration-{args.artifacts - 1:06d}.pt"
+            ).read_bytes() == f"artifact-{args.artifacts - 1}".encode()
+        result = {
+            "status": "ok",
+            "initial_fds": initial,
+            "snapshot_fds": captured,
+            "global_lock_seconds": locked_seconds,
+            "unlocked_copy_seconds": copy_seconds,
+        }
+    except OSError as error:
+        result = {
+            "status": "error",
+            "errno": error.errno,
+            "failed_artifact": attempts,
+            "seconds_until_failure": time.perf_counter() - started,
+        }
+    finally:
+        protected = False
+        os.link, shutil.copyfileobj = original_link, original_copy
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+    assert len(os.listdir("/proc/self/fd")) == initial
+    assert not list(root.rglob(".archive-pins-*"))
+    return {"artifacts": args.artifacts, "descriptor_limit": args.fd_limit, **result}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
@@ -204,7 +280,12 @@ def main():
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--implementation", choices=["before", "after"], default="after")
-    parser.add_argument("--case", choices=["snapshot", "admission"], default="snapshot")
+    parser.add_argument(
+        "--case", choices=["snapshot", "admission", "descriptors"], default="snapshot"
+    )
+    parser.add_argument("--descriptors", action="store_true")
+    parser.add_argument("--fd-limit", type=int, default=64)
+    parser.add_argument("--artifacts", type=int, default=1200)
     parser.add_argument("--catalog", type=int, default=2)
     parser.add_argument("--cross-device", action="store_true")
     args = parser.parse_args()
@@ -212,21 +293,33 @@ def main():
         sys.path.insert(
             0, str(args.baseline_tree.resolve() if args.implementation == "before" else ROOT)
         )
-        result = snapshot_case(args) if args.case == "snapshot" else admission_case(args)
+        result = {
+            "snapshot": snapshot_case,
+            "admission": admission_case,
+            "descriptors": descriptor_case,
+        }[args.case](args)
         print(json.dumps(result))
         return
     args.root.mkdir(parents=True, exist_ok=False)
     rows = []
-    cases = [("snapshot", count, False) for count in (2, 1000, 10000)] + [
-        ("snapshot", 1000, True),
-        ("admission", 2, False),
+    cases = [("snapshot", count, False, 0, 0) for count in (2, 1000, 10000)] + [
+        ("snapshot", 1000, True, 0, 0),
+        ("admission", 2, False, 0, 0),
     ]
-    for case, catalog, cross_device in cases:
+    if args.descriptors:
+        cases += [
+            ("descriptors", 2, True, count, limit)
+            for count, limit in [(300, 512), (1200, 64), (1200, 2048)]
+        ]
+    for case, catalog, cross_device, artifacts, fd_limit in cases:
         for repetition in range(args.repetitions):
             for implementation in (
                 ("before", "after") if repetition % 2 == 0 else ("after", "before")
             ):
-                path = args.root / f"{case}-{catalog}-{cross_device}-{implementation}-{repetition}"
+                path = (
+                    args.root
+                    / f"{case}-{catalog}-{cross_device}-{artifacts}-{fd_limit}-{implementation}-{repetition}"
+                )
                 command = [
                     sys.executable,
                     __file__,
@@ -246,6 +339,8 @@ def main():
                 ]
                 if cross_device:
                     command.append("--cross-device")
+                if case == "descriptors":
+                    command.extend(["--artifacts", str(artifacts), "--fd-limit", str(fd_limit)])
                 completed = subprocess.run(command, capture_output=True, text=True, check=True)
                 entry = {
                     "case": case,

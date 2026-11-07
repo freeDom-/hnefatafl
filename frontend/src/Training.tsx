@@ -322,8 +322,13 @@ export default function Training({
                 : sortJobs(runs)[0];
               return next ? mergeJobSummary(previous, next) : null;
             });
-            const id = currentSelection.current?.id;
-            if (id && runs.find((job) => job.id === id)?.summary) void loadDetails(id);
+            const selected = currentSelection.current;
+            const next = selected && runs.find((job) => job.id === selected.id);
+            if (
+              next?.summary &&
+              (selected?.summary || activeJob(next) || (selected && activeJob(selected)))
+            )
+              void loadDetails(next.id);
           }
         })
         .catch((error: Error) => {

@@ -2164,6 +2164,7 @@ def create_app(
 
     def build_job_export(job_id, admission):
         from .job_archives import export_snapshot, snapshot_job, JobArchiveResponse, TERMINAL
+        from .models import ModelSnapshotChanged
 
         descriptor, filename = tempfile.mkstemp(suffix=".tar.gz", prefix="hnefatafl-job-")
         os.close(descriptor)
@@ -2212,6 +2213,9 @@ def create_app(
                 filename=f"hnefatafl-job-{job_id}.tar.gz",
                 media_type="application/gzip",
             )
+        except ModelSnapshotChanged as exc:
+            archive.unlink(missing_ok=True)
+            fail(str(exc), 409)
         except (ValueError, TypeError, KeyError, RuntimeError) as exc:
             archive.unlink(missing_ok=True)
             fail(f"Cannot export training job: {exc}")
@@ -2223,11 +2227,11 @@ def create_app(
             raise
 
     @app.post("/api/training/jobs/import", status_code=201)
-    def import_training_job(request: Request, file: UploadFile = File(...)):
+    def import_training_job(request: Request, file: UploadFile = File(...), summary: bool = True):
         with request.state.archive_admission.worker():
-            return restore_training_job(file, request.state.archive_admission)
+            return restore_training_job(file, request.state.archive_admission, summary=summary)
 
-    def restore_training_job(file, admission):
+    def restore_training_job(file, admission, *, summary):
         import zipfile
         import sqlite3
         import zlib
@@ -2251,7 +2255,7 @@ def create_app(
                         admission.ensure_open()
                         yield
 
-                imported_id = import_job(
+                imported = import_job(
                     archive,
                     root,
                     store,
@@ -2259,9 +2263,13 @@ def create_app(
                         job["id"], job=job, directory=directory
                     )[0],
                     publication_context=publication_context,
-                )["id"]
+                )
+                if summary:
+                    from .training_monitoring import imported_job_summary
+
+                    return imported_job_summary(imported)
                 with job_lock:
-                    return read_job_locked(imported_id, reconcile=False)
+                    return read_job_locked(imported["id"], reconcile=False)
 
         except (
             ValueError,
