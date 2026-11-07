@@ -1072,6 +1072,7 @@ def train(
             config,
             saved_state=extra.get("adaptation_state"),
             evaluation_identity=selection.identity,
+            active_champion_identity=selection.champion_identity(),
             seed=config["seed"] + 900000,
             resume=bool(config.get("resume")),
             override_learning_rate=explicit_learning_rate,
@@ -1306,6 +1307,9 @@ def train(
                         "iteration": iteration,
                         "champion_iteration": evaluation.get("champion_iteration"),
                         "opponent_identity": evaluation.get("opponent_identity"),
+                        # The regime the next observations belong to. Read after
+                        # accept() has installed the promoted Champion.
+                        "active_champion_identity": selection.champion_identity(),
                     }
                 decision = controller.observe(
                     iteration=iteration,

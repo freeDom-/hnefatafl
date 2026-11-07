@@ -217,6 +217,62 @@ it('requires the hyper-adaptation capability only for adapted jobs', () => {
   );
 });
 
+it('requires the Champion capability only for Champion-adapted jobs', () => {
+  const fixedCapable: TrainingWorker = {
+    ...compatible,
+    capabilities: { cuda_available: true, hyper_adaptation: true },
+  };
+  const championCapable: TrainingWorker = {
+    ...compatible,
+    capabilities: {
+      cuda_available: true,
+      hyper_adaptation: true,
+      hyper_adaptation_champion: true,
+    },
+  };
+  const championConfig = { adaptation: 'hypercontroller', evaluation_opponent: 'champion' };
+  // Fixed-opponent adapted jobs stay compatible with the older worker.
+  expect(
+    workerEligible(fixedCapable, { adaptation: 'hypercontroller', evaluation_opponent: 'jarl' }),
+  ).toBe(true);
+  expect(workerEligible(fixedCapable, championConfig)).toBe(false);
+  expect(workerCapabilityError(fixedCapable, championConfig)).toMatch(/Champion opponent/);
+  expect(workerEligible(championCapable, championConfig)).toBe(true);
+  expect(workerCapabilityError(championCapable, championConfig)).toBe('');
+
+  const { rerender } = render(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[fixedCapable]}
+      config={championConfig}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent(/Champion opponent/);
+  rerender(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[championCapable]}
+      config={championConfig}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeEnabled();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  // An administrator version override cannot bypass the missing capability.
+  rerender(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[{ ...fixedCapable, version_override_enabled: true }]}
+      config={championConfig}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent(/Champion opponent/);
+});
+
 it('localizes compatibility, version and override labels in German', () => {
   setLanguage('de', false);
   render(<TrainingWorkers workers={[mismatch]} onChanged={vi.fn()} />);

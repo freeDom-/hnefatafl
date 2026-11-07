@@ -341,7 +341,11 @@ training field. It runs inside the worker's training process, so a worker needs 
 extra service. Workers advertise `hyper_adaptation` in their capabilities; a job
 with adaptation enabled is only assigned to (or accepted for) a worker that
 advertises it, and an administrator version override cannot bypass that gate.
-Legacy resume transports omit the adaptation keys from the saved configuration, so
-a worker that cannot run the controller can never silently ignore it. The
-controller state travels inside the full checkpoint artifact and is restored on a
-remote resume, exactly like the other checkpoint state.
+A Champion-adapted job (`adaptation` enabled with `evaluation_opponent: champion`)
+additionally requires the `hyper_adaptation_champion` capability, so a worker
+running an older fixed-opponent-only controller is never offered one; fixed-
+opponent adapted jobs stay compatible with those workers. Legacy resume transports
+omit the adaptation keys from the saved configuration, so a worker that cannot run
+the controller can never silently ignore it. The controller state travels inside
+the full checkpoint artifact and is restored on a remote resume, exactly like the
+other checkpoint state.

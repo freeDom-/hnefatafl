@@ -47,10 +47,12 @@ ALGORITHMS = ("off", "hypercontroller")
 #: Version of the serialized controller state. Version 1 stored the same learned
 #: contexts but gated exploration on global per-candidate counts; version 2 gates
 #: exploration per (candidate, context) and records the learned/coverage counters;
-#: version 3 adds the bounded Champion-promotion reset record. Earlier versions are
-#: migrated on load; unknown versions reset only the controller state.
-STATE_VERSION = 3
-COMPATIBLE_STATE_VERSIONS = (1, 2, 3)
+#: version 3 added the bounded Champion-promotion reset record; version 4 adds the
+#: active-Champion regime identity that the learned observations belong to.
+#: Earlier versions are migrated on load; unknown versions reset only the controller
+#: state.
+STATE_VERSION = 4
+COMPATIBLE_STATE_VERSIONS = (1, 2, 3, 4)
 
 #: Bounds that keep the learned state small and the decisions cheap.
 MIN_CANDIDATES = 2
@@ -117,7 +119,15 @@ PROVENANCE_KEYS = frozenset(
     }
 )
 SKIP_REASONS = frozenset(
-    {"warmup", "cadence", "dwell", "fallback", "missing_observation", "promotion_reset"}
+    {
+        "warmup",
+        "cadence",
+        "dwell",
+        "fallback",
+        "missing_observation",
+        "promotion_reset",
+        "promotion_duplicate",
+    }
 )
 #: Longest accepted provenance string (opponent name or identity).
 MAX_PROVENANCE_TEXT = 200
@@ -611,6 +621,15 @@ def _validate_promotion(value: Any, candidates: list[float]) -> dict[str, Any] |
     }
 
 
+def _validate_champion_identity(value: Any) -> str | None:
+    """Validate the bounded identity of the Champion the learned state belongs to."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > MAX_PROVENANCE_TEXT:
+        raise ValueError("Controller active Champion identity is invalid")
+    return value
+
+
 def _validate_event(event: Any, candidates: list[float]) -> dict[str, Any]:
     """Validate one bounded decision event against the documented schema."""
     if not isinstance(event, dict):
@@ -693,6 +712,7 @@ class HyperController:
         initial_index: int,
         seed: int,
         evaluation_identity: str,
+        active_champion_identity: str | None = None,
     ) -> None:
         if not MIN_CANDIDATES <= len(candidates) <= MAX_CANDIDATES:
             raise ValueError("Invalid candidate count")
@@ -709,6 +729,10 @@ class HyperController:
         self.min_dwell = min_dwell
         self.min_trials = min_trials
         self.evaluation_identity = evaluation_identity
+        #: Identity of the Champion whose scores the current learned state was
+        #: built from. ``None`` for a fixed-opponent run. A mismatch on resume
+        #: resets the learned state while keeping the effective rate.
+        self.active_champion_identity = active_champion_identity
         self.effective_index = initial_index
         self.rng = random.Random(seed)
         self.rewards: list[float] = []
@@ -771,7 +795,12 @@ class HyperController:
             "min_trials": self.min_trials,
             "effective_index": self.effective_index,
             "effective_learning_rate": self.effective_learning_rate,
+            # ``observations`` counts only the current Champion regime; it restarts
+            # after every promotion. ``promotion_resets`` is the lifetime count.
             "observations": self.observations,
+            "regime_observations": self.observations,
+            "warmup_complete": self.observations >= self.warmup,
+            "active_champion_identity": self.active_champion_identity,
             "learned": self.learned,
             "decisions": self.decisions,
             "changes": self.changes,
@@ -807,14 +836,28 @@ class HyperController:
         Champion replaced the incumbent at this evaluation. The promoting
         observation still belongs to the outgoing regime, so it is recorded but
         never changes the learning rate; afterwards the opponent-specific state
-        is discarded, the effective rate is preserved and warm-up restarts.
+        is discarded, the effective rate is preserved and warm-up restarts. A
+        promotion signal that was already applied is an inert duplicate: it never
+        ingests the score or advances any counter.
         """
         started = time.monotonic()
         provenance = dict(provenance or {})
         if promotion is not None and self._already_promoted(promotion):
-            # Idempotent: a replayed signal for the same promotion never resets
-            # the new regime twice.
-            promotion = None
+            # An already-processed promotion boundary is a no-op. Re-ingesting the
+            # old Champion's score would contaminate the new regime's history and
+            # could advance its warm-up or trigger a rate change, so nothing is
+            # updated and no decision event is recorded.
+            return {
+                "iteration": iteration,
+                "observation": None,
+                "provenance": provenance,
+                "attributed_learning_rate": self.effective_learning_rate,
+                "previous_learning_rate": self.effective_learning_rate,
+                "selected_learning_rate": self.effective_learning_rate,
+                "changed": False,
+                "skipped": "promotion_duplicate",
+                "observations": self.observations,
+            }
         if score is None or not math.isfinite(float(score)):
             event = {
                 "iteration": iteration,
@@ -853,7 +896,16 @@ class HyperController:
         return event
 
     def _already_promoted(self, promotion: dict[str, Any]) -> bool:
-        """Whether this promotion signal was already applied to the controller."""
+        """Whether this promotion signal was already applied to the controller.
+
+        The new Champion identity is the robust marker when it is available: if
+        the controller is already learning against that Champion, the signal was
+        applied. The promotion iteration is the fallback for signals that predate
+        the identity field.
+        """
+        promoted_identity = promotion.get("active_champion_identity")
+        if isinstance(promoted_identity, str) and promoted_identity:
+            return self.active_champion_identity == promoted_identity
         iteration = promotion.get("iteration")
         return (
             self.last_promotion is not None
@@ -885,6 +937,10 @@ class HyperController:
         self.limit_hits = 0
         self.reset_reason = "opponent_promoted"
         self.promotion_resets += 1
+        promoted_identity = promotion.get("active_champion_identity")
+        self.active_champion_identity = (
+            promoted_identity if isinstance(promoted_identity, str) else None
+        )
         champion_iteration = promotion.get("champion_iteration")
         identity = promotion.get("opponent_identity")
         self.last_promotion = {
@@ -1053,6 +1109,7 @@ class HyperController:
             "min_dwell": self.min_dwell,
             "min_trials": self.min_trials,
             "evaluation_identity": self.evaluation_identity,
+            "active_champion_identity": self.active_champion_identity,
             "effective_index": self.effective_index,
             "observations": self.observations,
             "learned": self.learned,
@@ -1080,6 +1137,28 @@ class HyperController:
             "last_promotion": dict(self.last_promotion) if self.last_promotion else None,
         }
 
+    def _reset_preserving_rate(
+        self,
+        *,
+        effective_index: int,
+        reason: str,
+        promotion_resets: int,
+        last_promotion: dict[str, Any] | None,
+    ) -> "HyperController":
+        """Return this fresh controller with only the effective rate retained.
+
+        Used when the learned observations are known to be incomparable because
+        the Champion regime changed or cannot be verified. The optimizer and its
+        moments live outside the controller and are never rebuilt, so preserving
+        ``effective_index`` keeps the checkpoint's effective rate while every
+        learned predictor, history and counter is discarded.
+        """
+        self.effective_index = effective_index
+        self.reset_reason = reason
+        self.promotion_resets = promotion_resets
+        self.last_promotion = last_promotion
+        return self
+
     @classmethod
     def from_state(
         cls,
@@ -1094,13 +1173,17 @@ class HyperController:
         initial_index: int,
         seed: int,
         evaluation_identity: str,
+        active_champion_identity: str | None = None,
     ) -> "HyperController":
         """Restore a controller, resetting when the learned state is incomparable.
 
         A saved candidate set, lag or evaluation identity that no longer matches
         cannot be reused: the learned predictors describe different actions or a
-        different objective. In that case a fresh controller is returned with
-        ``reset_reason`` set so the reset is visible in monitoring.
+        different objective. The active Champion identity is checked separately:
+        observations collected against a different (or unverifiable) Champion are
+        discarded while the effective rate is preserved. In every reset case a
+        fresh controller is returned with ``reset_reason`` set so the reset is
+        visible in monitoring, and the model, optimizer and replay are untouched.
         """
         controller = cls(
             candidates=candidates,
@@ -1112,6 +1195,7 @@ class HyperController:
             initial_index=initial_index,
             seed=seed,
             evaluation_identity=evaluation_identity,
+            active_champion_identity=active_champion_identity,
         )
         if not isinstance(state, dict) or not state:
             return controller
@@ -1167,6 +1251,9 @@ class HyperController:
             last_promotion = _validate_promotion(state.get("last_promotion"), candidates)
             if bool(promotion_resets) != bool(last_promotion):
                 raise ValueError("Controller promotion counters are inconsistent")
+            saved_champion_identity = _validate_champion_identity(
+                state.get("active_champion_identity")
+            )
             if last_decision > observations or last_change > observations:
                 raise ValueError("Controller observation counters are inconsistent")
             events = _validate_events(state.get("events", []), candidates)
@@ -1174,6 +1261,25 @@ class HyperController:
         except (KeyError, TypeError, ValueError, IndexError, OverflowError):
             controller.reset_reason = "unreadable_state"
             return controller
+        if version < 4 and active_champion_identity is not None:
+            # A pre-v4 state predates the active-regime identity, so its learned
+            # history cannot be proven to belong to the restored Champion. Keep
+            # the effective rate and promotion telemetry, drop the observations.
+            return controller._reset_preserving_rate(
+                effective_index=effective_index,
+                reason="champion_identity_unknown",
+                promotion_resets=promotion_resets,
+                last_promotion=last_promotion,
+            )
+        if saved_champion_identity != active_champion_identity:
+            # The learned predictors describe a different Champion regime; mixing
+            # them would attribute old-Champion scores to the new one.
+            return controller._reset_preserving_rate(
+                effective_index=effective_index,
+                reason="champion_changed",
+                promotion_resets=promotion_resets,
+                last_promotion=last_promotion,
+            )
         controller.contexts = contexts
         controller.rewards = rewards
         controller.actions = actions
@@ -1195,10 +1301,11 @@ class HyperController:
             # Version 1 stored the same learned contexts; only the exploration
             # gate changed, so it is migrated in place rather than reset.
             controller.migrated_from = 1
-        elif version == 2:
-            # Version 2 has no promotion record; the empty defaults are exactly
-            # correct because Champion promotion state did not exist yet.
-            controller.migrated_from = 2
+        elif version in (2, 3):
+            # Version 2 had no promotion record; version 3 had no active-Champion
+            # regime identity. The defaults are correct for a fixed-opponent run,
+            # and a Champion run is reset above before reaching this point.
+            controller.migrated_from = version
         return controller
 
 
@@ -1210,15 +1317,18 @@ def resolve_controller(
     seed: int,
     resume: bool,
     override_learning_rate: float | None = None,
+    active_champion_identity: str | None = None,
 ) -> HyperController | None:
     """Build the controller for a run, or ``None`` when adaptation is off.
 
     A resume whose evaluation identity differs from the saved one resets the
     learned state inside :meth:`HyperController.from_state`, so observations from
-    a different objective are never mixed. ``override_learning_rate`` is a rate
-    the caller explicitly requested for a resume; it is honoured by moving the
-    restored controller's effective rate (keeping the learned state) so the
-    override is never silently discarded.
+    a different objective are never mixed. ``active_champion_identity`` names the
+    Champion the restored observations must belong to; a mismatch resets the
+    learned state while the effective rate is preserved.
+    ``override_learning_rate`` is a rate the caller explicitly requested for a
+    resume; it is honoured by moving the restored controller's effective rate
+    (keeping the learned state) so the override is never silently discarded.
     """
     if config.get("adaptation", "off") == "off":
         return None
@@ -1237,9 +1347,12 @@ def resolve_controller(
             initial_index=initial_index,
             seed=seed,
             evaluation_identity=evaluation_identity,
+            active_champion_identity=active_champion_identity,
         )
-        if override_learning_rate is not None and controller.reset_reason is None:
+        if override_learning_rate is not None and override_learning_rate in candidates:
             # The rate must already be a candidate: normalize_config enforces it.
+            # An explicit override is honoured even after a regime reset, so a
+            # user request is never silently discarded.
             controller.set_effective_index(candidates.index(override_learning_rate))
         return controller
     return HyperController(
@@ -1252,4 +1365,5 @@ def resolve_controller(
         initial_index=initial_index,
         seed=seed,
         evaluation_identity=evaluation_identity,
+        active_champion_identity=active_champion_identity,
     )

@@ -177,6 +177,7 @@ export interface DeviceInfo {
   inference_cache_modes?: string[];
   training_symmetry_modes?: string[];
   hyper_adaptation?: boolean;
+  hyper_adaptation_champion?: boolean;
   parallel_search?: boolean;
   evaluation_batching?: boolean;
   openvino_version?: string;

@@ -128,13 +128,24 @@ promotion:
 * The learned predictors, reward/action history, candidate counts and warm-up
   counters are discarded, and `adaptation_warmup` restarts against the new
   Champion. The next evaluation is the first observation of the new regime.
-* The transition is applied exactly once per promotion; a replayed signal for the
-  same promotion is idempotent. A failed attempt, a draw or a missing observation
-  never resets the controller.
+* A replayed promotion signal is an inert duplicate: it never ingests the score
+  again, advances any counter, moves the controller RNG or records a decision
+  event. This makes repeated processing of the same evaluation boundary safe.
+* A failed attempt, a draw or a missing observation never resets the controller.
 
 The controller keeps the same evaluation identity across promotions (the context
-hash is unchanged); the boundary is carried by the promotion signal, so a resume
-restores the post-promotion state instead of resetting it again.
+hash is unchanged). The boundary is carried by the promotion signal, and the
+controller additionally persists the **active Champion regime identity** derived
+from the Champion's persisted metadata (promotion iteration, provisional flag and
+provenance). On resume the identity is compared with the restored
+`EvaluationSelection` Champion: a match restores the learned state unchanged; a
+mismatch (or a pre-v4 state that cannot prove which Champion it belongs to)
+discards the observations while preserving the effective rate and the optimizer
+state, with `reset_reason` `champion_changed` or `champion_identity_unknown`.
+The active Champion is shown in monitoring as
+`adaptation.active_champion_identity`; the current-regime observation count is
+`adaptation.regime_observations` and `adaptation.warmup_complete` reports whether
+warm-up has been satisfied, distinct from the lifetime `promotion_resets`.
 
 With adaptation `off` the controller settings are inert: they never block a run,
 so a user can disable the controller after an invalid edit and still start
@@ -184,8 +195,13 @@ transport.
 * Resume with the same algorithm, candidates, lag and evaluation identity
   restores continuity: counters, effective rate and learned predictors.
 * A resume after a Champion promotion restores the post-promotion state: the
-  promotion counter and record, the preserved effective rate and the restarted
-  warm-up counters. The promotion is not re-applied on load.
+  promotion counter and record, the active Champion identity, the preserved
+  effective rate and the restarted warm-up counters. The promotion is not
+  re-applied on load.
+* A resume whose active Champion identity differs from the restored Champion (or
+  a pre-v4 state that carries no active-regime identity) resets the learned state
+  with `champion_changed` or `champion_identity_unknown` while preserving the
+  effective rate; the optimizer, model and replay are untouched.
 * Changed candidate set, changed lag or changed evaluation identity resets the
   learned state with a visible `reset_reason` (`candidates_changed`,
   `lag_changed`, `evaluation_changed`); counters restart because the observations
@@ -198,10 +214,11 @@ transport.
 * An explicit `learning_rate` override on resume is **honoured**, never silently
   discarded: the restored controller keeps its learned predictors and counters but
   moves its effective rate to the requested candidate and restarts its dwell timer.
-  There is no pending feedback to reconcile because the checkpoint is written after
-  each decision. The override is shown in monitoring as
-  `adaptation.override_learning_rate`. An unchanged resume (the request carries the
-  saved value) keeps the selected rate exactly.
+  If the state was reset (for example by a Champion regime mismatch) the override
+  still wins over the preserved rate. There is no pending feedback to reconcile
+  because the checkpoint is written after each decision. The override is shown in
+  monitoring as `adaptation.override_learning_rate`. An unchanged resume (the
+  request carries the saved value) keeps the selected rate exactly.
 * Old checkpoints without `adaptation_state` load unchanged with adaptation off.
 * A checkpoint that predates the controller has no adaptation inputs. The resume
   form fills the shared defaults and derives candidates around the checkpoint's
@@ -225,18 +242,21 @@ Validation covers the advertised `MAX_CONTEXTS` (512) bound, the `candidate:cont
 key structure and legal action identifiers, matrix/vector dimensions, numeric
 (not string) finite values, symmetry and positive definiteness of each ridge
 system, history lengths, non-negative integer counters, the effective index, the
-state version, the saved RNG stream, the bounded promotion record (iteration,
-optional incumbent iteration and identity, and a preserved rate drawn from the
-candidate set, consistent with the promotion counter) and the bounded
-decision-event schema (accepted fields, finite in-range numbers, candidate
-references, legal skip reasons, bounded provenance strings, no unexpected nested
-data). The RNG is
+state version, the saved RNG stream, the active Champion identity, the bounded
+promotion record (iteration, optional incumbent iteration and identity, and a
+preserved rate drawn from the candidate set, consistent with the promotion
+counter) and the bounded decision-event schema (accepted fields, finite in-range
+numbers, candidate references, legal skip reasons, bounded provenance strings, no
+unexpected nested data). The RNG is
 validated **before** adoption: a malformed stream resets the controller with
 `unreadable_state`, and a state without a saved stream resets with `rng_absent`,
 so learned predictors are never adopted under a silently different exploration
 sequence. Version 1 (the same learned contexts, the earlier global exploration
-gate, and its own saved RNG) and version 2 (per-context exploration without the
-promotion record) are migrated in place; unknown versions reset with
+gate, and its own saved RNG), version 2 (per-context exploration without the
+promotion record) and version 3 (the promotion record without the active-Champion
+identity) are migrated in place for fixed-opponent runs; a version-3 Champion run
+is conservatively reset with `champion_identity_unknown` because its history
+cannot be proven to belong to the restored Champion. Unknown versions reset with
 `unsupported_state`. Accepted telemetry is JSON-serializable. Loading goes through
 the existing tensor-only checkpoint loader; no arbitrary objects are
 deserialized.
@@ -246,11 +266,14 @@ deserialized.
 The controller executes inside the training process, so it works identically on a
 remote worker. Workers advertise a `hyper_adaptation` capability; a job with
 adaptation enabled is never offered to a worker that lacks it, and an
-administrator version override cannot bypass that gate. The rejection names the
-missing capability (for example, automatic hyperparameter updates) instead of
-blaming the inference backend or device. A transport copy sent to a legacy worker
-omits the adaptation keys, so the old binary cannot silently ignore an enabled
-controller.
+administrator version override cannot bypass that gate. A Champion-adapted job
+additionally requires the narrower `hyper_adaptation_champion` capability, so a
+worker running an older fixed-opponent-only controller is never offered one;
+fixed-opponent adapted jobs remain compatible with those workers. The rejection
+names the missing capability (for example, automatic hyperparameter updates, or
+those updates with a Champion opponent) instead of blaming the inference backend
+or device. A transport copy sent to a legacy worker omits the adaptation keys, so
+the old binary cannot silently ignore an enabled controller.
 
 ## Differences between the paper, the reference code and this implementation
 

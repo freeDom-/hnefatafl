@@ -534,6 +534,13 @@ const translations: Record<string, string> = {
   Fallback: 'Rückfall',
   'Champion promoted · warm-up restarted': 'Champion befördert · Aufwärmphase neu gestartet',
   'Promotion resets': 'Beförderungs-Resets',
+  'Current Champion': 'Aktueller Champion',
+  'Controller warm-up': 'Controller-Aufwärmphase',
+  'Warm-up ({observations} / {warmup} evaluations)':
+    'Aufwärmphase ({observations} / {warmup} Auswertungen)',
+  'Active ({observations} / {warmup} evaluations)':
+    'Aktiv ({observations} / {warmup} Auswertungen)',
+  'Rate kept at last promotion': 'Bei der letzten Beförderung beibehaltene Rate',
   'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.':
     'Jede Champion-Beförderung behält die aktuelle Lernrate bei, startet aber die Aufwärmphase des Controllers neu; Ergebnisse von vor der Beförderung werden nicht wiederverwendet.',
   'Unavailable while tuning: the study varies the learning rate across trials.':
@@ -554,6 +561,8 @@ const translations: Record<string, string> = {
     'Lernraten-Kandidaten und das Beobachtungsverlaufsfenster erzeugen zu viele Controller-Kontexte; weniger Kandidaten oder ein kleineres Fenster verwenden.',
   'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.':
     'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen. Wähle einen neueren Worker oder deaktiviere sie.',
+  'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.':
+    'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen mit einem Champion-Gegner. Wähle einen neueren Worker, einen festen Gegner oder deaktiviere sie.',
   'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.':
     'Eine Änderung der Lernrate beim Fortsetzen verschiebt die effektive Rate des Controllers; sein gelernter Zustand bleibt erhalten.',
 };

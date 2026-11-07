@@ -130,6 +130,11 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         fail("Invalid worker evaluation_batching capability.")
     if "hyper_adaptation" in capabilities and type(capabilities["hyper_adaptation"]) is not bool:
         fail("Invalid worker hyper_adaptation capability.")
+    if (
+        "hyper_adaptation_champion" in capabilities
+        and type(capabilities["hyper_adaptation_champion"]) is not bool
+    ):
+        fail("Invalid worker hyper_adaptation_champion capability.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -175,6 +180,15 @@ def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
         # A worker that cannot run the controller must never be offered a job
         # that has it enabled, including through an administrator override.
         return "automatic hyperparameter updates"
+    if (
+        config.get("adaptation", "off") != "off"
+        and config.get("evaluation_opponent", "shield_bearer") == "champion"
+        and capabilities.get("hyper_adaptation_champion") is not True
+    ):
+        # A worker that only understands the fixed-opponent controller would
+        # reject the Champion objective, so it must not be offered the job even
+        # with an administrator version override active.
+        return "automatic hyperparameter updates with a Champion opponent"
     if config.get("search_workers", 0) and capabilities.get("parallel_search") is not True:
         return "parallel search processes"
     if config.get("training_symmetry_mode", "off") not in capabilities.get(

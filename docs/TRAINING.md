@@ -448,12 +448,22 @@ predictors, reward/action history and counters that describe the previous
 Champion, and restarts `adaptation_warmup` against the new Champion. The
 optimizer, its moments, the model weights and the replay buffer are untouched, so
 the new regime begins from the same effective rate that trained the promoting
-interval. The transition is recorded once per promotion (a replayed signal is
-idempotent), and failed attempts, draws and missing observations never reset the
-controller. Monitoring exposes `adaptation.promotion_resets` and
-`adaptation.last_promotion` (iteration, beaten incumbent iteration, identity and
-preserved rate); the decision log marks the boundary with a `promotion_reset`
-event and shows the preserved rate as both the used and the selected rate. This
+interval. A replayed promotion signal is an inert duplicate: it never re-ingests
+the score, advances a counter, moves the controller RNG or records a decision
+event, so repeated processing of the same boundary is safe. Failed attempts,
+draws and missing observations never reset the controller. The controller also
+persists the active Champion regime identity derived from the Champion's
+metadata. On resume it is compared with the restored Champion; a mismatch, or a
+pre-v4 state that cannot prove which Champion its observations belong to, discards
+the observations while preserving the effective rate and the optimizer state
+(`champion_changed` or `champion_identity_unknown`). Monitoring exposes
+`adaptation.active_champion_identity`, the current-regime `adaptation.observations`
+(`regime_observations`) and `adaptation.warmup_complete`, distinct from the
+lifetime `adaptation.promotion_resets` and `adaptation.last_promotion` (iteration,
+beaten incumbent iteration, identity and preserved rate); the Learning view shows
+the active Champion, the warm-up progress and the rate kept at the last promotion,
+and the decision log marks the boundary with a `promotion_reset` event and shows
+the preserved rate as both the used and the selected rate. This
 is distinguishable from the `reset_reason` values reported for a changed
 configuration (`candidates_changed`, `lag_changed`, `evaluation_changed`) or an
 invalid saved state (`unreadable_state`, `rng_absent`, `unsupported_state`).

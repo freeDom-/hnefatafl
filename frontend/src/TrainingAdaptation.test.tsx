@@ -91,6 +91,71 @@ it('shows a Champion promotion reset with the preserved rate', async () => {
   expect(within(table).getAllByText('0.003').length).toBeGreaterThanOrEqual(2);
 });
 
+it('shows the active Champion and warm-up progress for a Champion controller', () => {
+  renderLearning(
+    {
+      evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+      adaptation: {
+        algorithm: 'hypercontroller',
+        effective_learning_rate: 0.0003,
+        observations: 2,
+        regime_observations: 2,
+        warmup: 3,
+        promotion_resets: 4,
+        last_promotion: { preserved_learning_rate: 0.0003 },
+      },
+    },
+    [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
+    0,
+  );
+  expect(screen.getByText('Current Champion')).toBeInTheDocument();
+  expect(screen.getAllByText('350').length).toBeGreaterThan(0);
+  expect(screen.getByText('Controller warm-up')).toBeInTheDocument();
+  expect(screen.getByText('Warm-up (2 / 3 evaluations)')).toBeInTheDocument();
+  expect(screen.getByText(/Rate kept at last promotion/)).toBeInTheDocument();
+  // Once warm-up is satisfied the same KPI reports the active state.
+  cleanup();
+  renderLearning(
+    {
+      evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+      adaptation: {
+        algorithm: 'hypercontroller',
+        observations: 3,
+        regime_observations: 3,
+        warmup: 3,
+      },
+    },
+    [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
+    0,
+  );
+  expect(screen.getByText('Active (3 / 3 evaluations)')).toBeInTheDocument();
+});
+
+it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', () => {
+  renderLearning({
+    adaptation: {
+      algorithm: 'hypercontroller',
+      effective_learning_rate: 0.001,
+      observations: 2,
+      warmup: 3,
+    },
+  });
+  expect(screen.queryByText('Current Champion')).toBeNull();
+  expect(screen.queryByText('Controller warm-up')).toBeNull();
+  // A Champion job without an enabled controller is not an adaptation monitor.
+  cleanup();
+  renderLearning({
+    evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+    adaptation: {},
+  });
+  expect(screen.queryByText('Current Champion')).toBeNull();
+  expect(screen.queryByText('Controller warm-up')).toBeNull();
+  cleanup();
+  renderLearning({ adaptation: { effective_learning_rate: 0.001 } });
+  expect(screen.queryByText('Current Champion')).toBeNull();
+  expect(screen.queryByText('Controller warm-up')).toBeNull();
+});
+
 it('leaves automatic hyperparameter updates off by default', async () => {
   harness();
   await screen.findByText('Your next opponent starts here.');
@@ -922,6 +987,11 @@ it('translates the new controller labels and tooltips into German', () => {
     'Fallback',
     'Champion promoted · warm-up restarted',
     'Promotion resets',
+    'Current Champion',
+    'Controller warm-up',
+    'Warm-up ({observations} / {warmup} evaluations)',
+    'Active ({observations} / {warmup} evaluations)',
+    'Rate kept at last promotion',
     'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
     'Unavailable while tuning: the study varies the learning rate across trials.',
     'Learning rate candidates must be decimal numbers separated by commas.',
@@ -930,6 +1000,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Learning rate candidates must be at most 512 characters.',
     'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
     'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.',
+    'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.',
   ]) {
     expect(translate(source, {}, 'de'), `untranslated ${source}`).not.toBe(source);
   }

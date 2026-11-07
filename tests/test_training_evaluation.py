@@ -511,3 +511,22 @@ def test_cancelled_selfplay_reports_checkpoint_iteration_not_active_iteration(tm
     assert result["status"] == "cancelled"
     assert result["iteration"] == checkpoint["extra"]["iteration"] == 0
     assert result["history"] == []
+
+
+def test_champion_identity_is_bounded_and_deterministic():
+    from hnefatafl.training_evaluation import champion_identity
+
+    assert champion_identity(None) is None
+    base = {"iteration": 5, "provisional": False, "source": "head_to_head"}
+    assert champion_identity(base) == "champion-5-promoted-head_to_head"
+    assert champion_identity(dict(base)) == champion_identity(base)
+    # A stored identity is reused as-is, but only when it is bounded.
+    assert champion_identity({**base, "identity": "stored"}) == "stored"
+    # Malformed persisted metadata is coerced to a bounded, deterministic value.
+    huge = {"iteration": "x", "provisional": True, "source": "y" * 1000}
+    identity = champion_identity(huge)
+    assert identity == "champion-0-provisional-unknown"
+    assert len(identity) <= 200
+    assert champion_identity({"identity": "z" * 1000, "iteration": 1}) == (
+        "champion-1-promoted-unknown"
+    )

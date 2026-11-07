@@ -728,6 +728,13 @@ def test_champion_evaluation_runs_without_a_promotion(tmp_path, monkeypatch):
     assert state["promotion_resets"] == 0
     assert state["last_promotion"] is None
     assert state["evaluation_identity"].startswith("champion:")
+    # The provisional incumbent is tracked explicitly, so a resume can verify
+    # the controller's observations belong to the same Champion.
+    assert state["active_champion_identity"].startswith("champion-0-provisional-")
+    assert (
+        payload["extra"]["evaluation_state"]["champion"]["identity"]
+        == state["active_champion_identity"]
+    )
 
 
 def test_champion_promotion_resets_controller_and_survives_resume(tmp_path, monkeypatch):
@@ -760,7 +767,7 @@ def test_champion_promotion_resets_controller_and_survives_resume(tmp_path, monk
     _, payload = load_checkpoint(first["checkpoint"])
     state = payload["extra"]["adaptation_state"]
     # Exactly one reset for the one promotion, and the new regime restarted.
-    assert state["version"] == 3
+    assert state["version"] == 4
     assert state["promotion_resets"] == 1
     assert state["last_promotion"]["iteration"] == 2
     assert state["last_promotion"]["champion_iteration"] == 0
@@ -952,6 +959,32 @@ def test_remote_worker_without_capability_is_not_offered_adapted_jobs(tmp_path):
     assert not worker_compatible(
         config, {**capable, "hyper_adaptation": False, "version_override": True}
     )
+
+
+def test_remote_worker_champion_capability_gates_champion_adaptation(tmp_path):
+    from hnefatafl.remote_training import worker_compatible, worker_incompatibility
+
+    fixed = normalize_config(adapted_config(tmp_path))
+    champion = normalize_config(adapted_config(tmp_path, evaluation_opponent="champion"))
+    base = {"hyper_adaptation": True, "training_symmetry_modes": ["off", "random_d4"]}
+    champion_capable = {**base, "hyper_adaptation_champion": True}
+    # Fixed-opponent adapted jobs stay compatible with older workers, including
+    # ones that never advertise the Champion capability.
+    assert worker_compatible(fixed, base)
+    assert worker_compatible(fixed, champion_capable)
+    # Champion adapted jobs require the narrower capability.
+    assert not worker_compatible(champion, base)
+    assert (
+        worker_incompatibility(champion, base)
+        == "automatic hyperparameter updates with a Champion opponent"
+    )
+    assert worker_compatible(champion, champion_capable)
+    assert worker_incompatibility(champion, champion_capable) is None
+    # A worker with no adaptation support is still rejected for both.
+    assert worker_incompatibility(champion, {}) == "automatic hyperparameter updates"
+    assert worker_incompatibility(fixed, {}) == "automatic hyperparameter updates"
+    # An administrator version override cannot bypass the missing capability.
+    assert not worker_compatible(champion, {**base, "version_override": True})
 
 
 def test_remote_field_set_matches_the_server_and_includes_adaptation():
@@ -1216,12 +1249,21 @@ def test_round_trip_preserves_coverage_learning_and_attribution():
 # ── Champion promotion boundaries ────────────────────────────────────────────
 
 
-def promotion(iteration: int, *, champion_iteration: int = 0, identity: str | None = None):
+def promotion(
+    iteration: int,
+    *,
+    champion_iteration: int = 0,
+    identity: str | None = None,
+    active_identity: str | None = None,
+):
     """The selection signal a Champion promotion hands to the controller."""
     return {
         "iteration": iteration,
         "champion_iteration": champion_iteration,
         "opponent_identity": identity or f"champion:test:incumbent-{champion_iteration}",
+        "active_champion_identity": active_identity
+        if active_identity is not None
+        else f"champion-{iteration}-promoted-head_to_head",
     }
 
 
@@ -1299,6 +1341,208 @@ def test_repeated_promotions_reset_once_per_transition_and_are_idempotent():
     assert controller.promotion_resets == 2
 
 
+def test_replayed_promotion_is_inert_and_does_not_contaminate_the_new_regime():
+    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=0.5)
+    controller.observe(iteration=2, score=0.9, promotion=promotion(2, champion_iteration=0))
+    # The fresh regime starts empty; capture every piece of its state.
+    before = controller.state_dict()
+    before_rng = controller.rng.getstate()
+    assert before["observations"] == 0
+    event = controller.observe(iteration=2, score=0.1, promotion=promotion(2, champion_iteration=0))
+    # A replayed promotion is a no-op: the old Champion's score is not ingested,
+    # no counter advances, the rate is unchanged, the RNG does not move and no
+    # decision event is recorded.
+    assert event["skipped"] == "promotion_duplicate"
+    assert event["changed"] is False
+    assert event["observation"] is None
+    assert controller.state_dict() == before
+    assert controller.rng.getstate() == before_rng
+    assert all(item.get("skipped") != "promotion_duplicate" for item in controller.events)
+    assert controller.effective_index == before["effective_index"]
+    assert controller.promotion_resets == 1
+
+
+def test_replayed_promotion_after_restore_is_inert():
+    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=0.5)
+    controller.observe(iteration=2, score=0.9, promotion=promotion(2, champion_iteration=0))
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=state["active_champion_identity"],
+    )
+    before = restored.state_dict()
+    before_rng = restored.rng.getstate()
+    event = restored.observe(iteration=2, score=0.1, promotion=promotion(2, champion_iteration=0))
+    assert event["skipped"] == "promotion_duplicate"
+    assert restored.state_dict() == before
+    assert restored.rng.getstate() == before_rng
+    assert restored.observations == 0
+
+
+def test_from_state_resets_learned_state_when_the_active_champion_changes():
+    controller = make_controller(
+        warmup=0,
+        cadence=1,
+        min_dwell=1,
+        min_trials=1,
+        active_champion_identity="champion-5-promoted-head_to_head",
+    )
+    for step in range(4):
+        controller.observe(iteration=step, score=0.5)
+    assert controller.contexts
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity="champion-9-promoted-head_to_head",
+    )
+    assert restored.reset_reason == "champion_changed"
+    assert restored.contexts == {}
+    assert restored.rewards == []
+    assert restored.actions == []
+    assert restored.observations == 0
+    assert restored.learned == 0
+    # The effective rate is preserved so the optimizer keeps the checkpoint rate.
+    assert restored.effective_index == state["effective_index"]
+    assert restored.effective_learning_rate == controller.effective_learning_rate
+    assert restored.active_champion_identity == "champion-9-promoted-head_to_head"
+
+
+def test_from_state_conservatively_resets_legacy_champion_state():
+    controller = make_controller(
+        warmup=0,
+        cadence=1,
+        min_dwell=1,
+        min_trials=1,
+        active_champion_identity="champion-5-promoted-head_to_head",
+    )
+    for step in range(4):
+        controller.observe(iteration=step, score=0.5)
+    state = controller.state_dict()
+    # A version-3 state predates the active-regime identity, so its learned
+    # history cannot be proven to belong to the restored Champion.
+    state["version"] = 3
+    state.pop("active_champion_identity")
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity="champion-5-promoted-head_to_head",
+    )
+    assert restored.reset_reason == "champion_identity_unknown"
+    assert restored.contexts == {}
+    assert restored.observations == 0
+    assert restored.effective_index == state["effective_index"]
+    assert restored.active_champion_identity == "champion-5-promoted-head_to_head"
+
+
+def test_fixed_opponent_state_still_loads_without_a_champion_identity():
+    controller = _trained_controller(lag=1, min_trials=1)
+    state = controller.state_dict()
+    assert state["active_champion_identity"] is None
+    restored = _restore(state)
+    assert restored.reset_reason is None
+    assert restored.contexts == controller.contexts
+    assert restored.observations == controller.observations
+    assert restored.active_champion_identity is None
+
+
+def test_from_state_rejects_malformed_active_champion_identity():
+    for value in ("", 5, [], "x" * 5000):
+        state = _valid_state()
+        state["active_champion_identity"] = value
+        restored = _restore(state)
+        assert restored.reset_reason == "unreadable_state", value
+        assert restored.contexts == {}
+        assert restored.active_champion_identity is None
+
+
+def test_resolve_controller_resets_only_the_controller_on_champion_mismatch(tmp_path):
+    config = normalize_config(adapted_config(tmp_path, evaluation_opponent="champion"))
+    candidates = [0.0003, 0.001, 0.003]
+    original = HyperController(
+        candidates=candidates,
+        lag=1,
+        cadence=1,
+        warmup=1,
+        min_dwell=1,
+        min_trials=1,
+        initial_index=2,
+        seed=7,
+        evaluation_identity="champion:test",
+        active_champion_identity="champion-4-promoted-head_to_head",
+    )
+    original.observe(iteration=1, score=0.5)
+    state = original.state_dict()
+    # A matching identity restores the learned state and the selected rate.
+    matching = resolve_controller(
+        config,
+        saved_state=state,
+        evaluation_identity="champion:test",
+        active_champion_identity="champion-4-promoted-head_to_head",
+        seed=7,
+        resume=True,
+    )
+    assert matching.reset_reason is None
+    assert matching.contexts == original.contexts
+    assert matching.effective_index == original.effective_index
+    # A different Champion keeps the effective rate but discards the observations;
+    # the optimizer and its moments live outside the controller and are untouched.
+    mismatched = resolve_controller(
+        config,
+        saved_state=state,
+        evaluation_identity="champion:test",
+        active_champion_identity="champion-8-promoted-head_to_head",
+        seed=7,
+        resume=True,
+    )
+    assert mismatched.reset_reason == "champion_changed"
+    assert mismatched.contexts == {}
+    assert mismatched.rewards == []
+    assert mismatched.observations == 0
+    assert mismatched.effective_index == original.effective_index
+    assert mismatched.active_champion_identity == "champion-8-promoted-head_to_head"
+    # An explicit learning-rate override still wins over the preserved rate.
+    overridden = resolve_controller(
+        config,
+        saved_state=state,
+        evaluation_identity="champion:test",
+        active_champion_identity="champion-8-promoted-head_to_head",
+        seed=7,
+        resume=True,
+        override_learning_rate=0.0003,
+    )
+    assert overridden.reset_reason == "champion_changed"
+    assert overridden.effective_learning_rate == 0.0003
+    assert overridden.override_learning_rate == 0.0003
+
+
 def test_promotion_telemetry_round_trips_through_state():
     controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
     controller.observe(iteration=1, score=0.5)
@@ -1309,8 +1553,9 @@ def test_promotion_telemetry_round_trips_through_state():
     assert summary["last_promotion"]["champion_iteration"] == 0
     assert summary["last_event"]["promotion_reset"] is True
     state = controller.state_dict()
-    assert state["version"] == 3
+    assert state["version"] == 4
     assert state["promotion_resets"] == 1
+    assert state["active_champion_identity"] == "champion-2-promoted-head_to_head"
     assert state["last_promotion"]["preserved_learning_rate"] in controller.candidates
     restored = HyperController.from_state(
         state,
@@ -1323,9 +1568,11 @@ def test_promotion_telemetry_round_trips_through_state():
         initial_index=1,
         seed=7,
         evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=state["active_champion_identity"],
     )
     assert restored.reset_reason is None
     assert restored.promotion_resets == 1
+    assert restored.active_champion_identity == state["active_champion_identity"]
     assert restored.last_promotion == controller.last_promotion
     assert restored.events[-1]["promotion_reset"] is True
 
@@ -1506,7 +1753,7 @@ def test_rejected_state_cannot_leak_into_telemetry_or_a_checkpoint():
     assert summary["contexts"] == 0
     # The fresh state serializes cleanly, so the malformed state never reaches a
     # later checkpoint.
-    assert restored.state_dict()["version"] == 3
+    assert restored.state_dict()["version"] == 4
     assert restored.state_dict()["contexts"] == {}
 
 

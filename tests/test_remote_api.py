@@ -663,6 +663,8 @@ def test_openvino_cpu_only_report_does_not_claim_gpu_job(client):
         {"openvino_devices": [{"id": "AUTO:GPU,CPU", "name": "invalid", "available": True}]},
         {"openvino_devices": [{"id": "GPU", "name": "invalid", "available": "yes"}]},
         {"openvino_version": 1},
+        {"hyper_adaptation": "yes"},
+        {"hyper_adaptation_champion": "yes"},
     ],
 )
 def test_inference_capability_extension_is_validated(client, capabilities):
@@ -671,6 +673,54 @@ def test_inference_capability_extension_is_validated(client, capabilities):
         "/api/worker/heartbeat", headers=headers, json={"capabilities": capabilities}
     )
     assert response.status_code == 400
+
+
+def test_champion_adaptation_requires_the_champion_worker_capability(client):
+    # An older worker that supports only the fixed-opponent controller.
+    _, legacy_headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=legacy_headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "hyper_adaptation": True,
+            }
+        },
+    )
+    champion = queue(
+        client,
+        adaptation="hypercontroller",
+        evaluation_games=4,
+        evaluation_opponent="champion",
+    )
+    assert champion["config"]["evaluation_opponent"] == "champion"
+    # The legacy worker must not be offered the Champion-adapted job.
+    assert claim(client, legacy_headers, "legacy-champion") is None
+    # A newer worker advertising the narrower capability can run it.
+    _, modern_headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=modern_headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "hyper_adaptation": True,
+                "hyper_adaptation_champion": True,
+            }
+        },
+    )
+    leased = claim(client, modern_headers, "modern-champion")
+    assert leased["id"] == champion["id"]
+    assert leased["config"]["adaptation"] == "hypercontroller"
+    assert leased["config"]["evaluation_opponent"] == "champion"
+    # A fixed-opponent adapted job remains compatible with the older worker.
+    fixed = queue(client, adaptation="hypercontroller", evaluation_games=4)
+    leased_fixed = claim(client, legacy_headers, "legacy-fixed")
+    assert leased_fixed["id"] == fixed["id"]
+    assert leased_fixed["config"]["adaptation"] == "hypercontroller"
 
 
 def test_openvino_auto_training_requires_cpu_default():
