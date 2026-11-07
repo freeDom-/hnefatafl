@@ -501,7 +501,18 @@ def imported_report_summary(report: dict) -> dict:
                     projected = {**projected, **identities.get(key, {})}
                 result[key] = projected
     while len(json.dumps(result, ensure_ascii=False).encode()) > 32 * 1024:
-        result.pop(next(reversed(result)))
+        # Empty nested maps consume serialized space without scalar budget.
+        # Trim optional payloads, never the identities reserved above; those
+        # already fit the budget on their own.
+        key = next(
+            key
+            for key in reversed(result)
+            if key not in identities or result[key] != identities[key]
+        )
+        if key in identities:
+            result[key] = identities[key]
+        else:
+            result.pop(key)
     retained = report.get("best_models")
     if isinstance(retained, list):
         references = []

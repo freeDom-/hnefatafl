@@ -24,6 +24,9 @@ Each table value is the median of three fresh-process samples, in alternating
 before/after order. Tests and builds did not run concurrently. The
 [raw record](job-archive-security-review.json) contains all 144 timing samples,
 15 separate traced-memory samples, 18 training samples and source hashes.
+The measured sources are from `642170a`. Subsequent test synchronization and
+the guard retaining identities when optional empty maps exceed the summary
+budget do not change the redactor or the measured fixture projections.
 
 | Streamed log | 1 MiB before / after seconds | 8 MiB before / after seconds | 64 MiB before / after seconds |
 | --- | ---: | ---: | ---: |
