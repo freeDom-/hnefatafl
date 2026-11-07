@@ -614,6 +614,129 @@ it('derives a missing completed total from a complete valid breakdown', () => {
   expect(row.defender_win_rate).toBeCloseTo(2 / 6);
 });
 
+it('rejects a negative completed-game total instead of reconstructing it', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: { attacker_wins: 3, defender_wins: 2, drawn_games: 1, completed_games: -6 },
+    },
+  ]);
+  expect(row.attacker_wins).toBeUndefined();
+  expect(row.defender_wins).toBeUndefined();
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('rejects a fractional completed-game total instead of reconstructing it', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: { attacker_wins: 3, defender_wins: 2, drawn_games: 1, completed_games: 5.5 },
+    },
+  ]);
+  expect(row.attacker_wins).toBeUndefined();
+  expect(row.defender_wins).toBeUndefined();
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('rejects NaN and infinite completed-game totals', () => {
+  const rows = performanceChartRows([
+    {
+      iteration: 1,
+      performance: {
+        attacker_wins: 3,
+        defender_wins: 2,
+        drawn_games: 1,
+        completed_games: Number.NaN,
+      },
+    },
+    {
+      iteration: 2,
+      performance: {
+        attacker_wins: 3,
+        defender_wins: 2,
+        drawn_games: 1,
+        completed_games: Number.POSITIVE_INFINITY,
+      },
+    },
+  ]);
+  for (const row of rows) {
+    expect(row.attacker_wins).toBeUndefined();
+    expect(row.defender_wins).toBeUndefined();
+    expect(row.attacker_win_rate).toBeUndefined();
+    expect(row.defender_win_rate).toBeUndefined();
+  }
+});
+
+it('treats an explicitly null completed total as missing and rebuilds it', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: { attacker_wins: 3, defender_wins: 2, drawn_games: 1, completed_games: null },
+    },
+  ]);
+  expect(row.attacker_wins).toBe(3);
+  expect(row.defender_wins).toBe(2);
+  expect(row.attacker_win_rate).toBe(0.5);
+  expect(row.defender_win_rate).toBeCloseTo(2 / 6);
+});
+
+it('keeps unrelated throughput metrics when outcome counters are invalid', () => {
+  const [row] = performanceChartRows([
+    {
+      iteration: 1,
+      performance: {
+        games_per_hour: 120,
+        average_game_length: 22,
+        attacker_wins: 3,
+        defender_wins: 2,
+        drawn_games: 1,
+        completed_games: -6,
+      },
+    },
+  ]);
+  expect(row.games_per_hour).toBe(120);
+  expect(row.average_game_length).toBe(22);
+  expect(row.attacker_wins).toBeUndefined();
+  expect(row.defender_wins).toBeUndefined();
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('plots unrelated throughput while the outcome counters are invalid', () => {
+  render(
+    <TrainingPerformance
+      progress={{
+        history: [
+          {
+            iteration: 1,
+            performance: {
+              games_per_hour: 120,
+              attacker_wins: 3,
+              defender_wins: 2,
+              drawn_games: 1,
+              completed_games: -6,
+            },
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'games_per_hour' },
+  });
+  expect(pointTitles('Games / hour')).toEqual(['Iteration 1: 120']);
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'attacker_wins' },
+  });
+  expect(pointTitles('Attacker wins')).toEqual([]);
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'defender_win_rate' },
+  });
+  expect(pointTitles('Defender win rate')).toEqual([]);
+});
+
 it('shows no count or rate point for a contradictory outcome record', () => {
   render(
     <TrainingPerformance

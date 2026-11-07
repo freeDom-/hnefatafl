@@ -41,14 +41,19 @@ const counterKeys = ['completed_games', ...outcomeKeys] as const;
 const hasValue = (performance: Values, key: string): boolean =>
   performance[key] !== undefined && performance[key] !== null;
 
+/** A present completed total that is not a valid count rejects the record. */
+const hasInvalidCompletedTotal = (performance: Values): boolean =>
+  hasValue(performance, 'completed_games') && !validCount(performance.completed_games);
+
 /**
  * Completed games include rules draws and exclude truncated games, matching the
- * stored metric. A recorded total is trusted only when it is a valid count;
- * otherwise it is rebuilt from the side wins and draws.
+ * stored metric. A genuinely missing total is rebuilt from a complete and valid
+ * outcome breakdown; an explicitly present but invalid total is never rebuilt.
  */
 export const completedGames = (performance: Values): number | undefined => {
   const completed = performance.completed_games;
   if (validCount(completed)) return completed;
+  if (hasInvalidCompletedTotal(performance)) return undefined;
   const wins = performance.attacker_wins;
   const losses = performance.defender_wins;
   const draws = performance.drawn_games;
@@ -60,14 +65,15 @@ export const completedGames = (performance: Values): number | undefined => {
  * Validate every present outcome counter against the shared denominator: each
  * must be a finite nonnegative integer that fits completed games, the sum of
  * the present counters must not exceed it, and when all three are present their
- * sum must equal it. Missing counters are never treated as zero, and a present
- * but malformed counter makes the whole row inconsistent.
+ * sum must equal it. Missing counters are never treated as zero, a present but
+ * malformed counter makes the whole row inconsistent, and so does an explicitly
+ * present but invalid completed total.
  */
 const validateOutcomes = (performance: Values): { completed?: number; consistent: boolean } => {
   const completed = completedGames(performance);
   let present = 0;
   let sum = 0;
-  let consistent = true;
+  let consistent = !hasInvalidCompletedTotal(performance);
   for (const key of outcomeKeys) {
     if (!hasValue(performance, key)) continue;
     present += 1;
