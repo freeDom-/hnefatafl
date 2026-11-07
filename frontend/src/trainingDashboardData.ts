@@ -12,7 +12,9 @@ export const activeJob = (job: Job) =>
   ['running', 'pending', 'queued', 'cancelling'].includes(job.status);
 
 /** Overlay a partial navigator projection without copying or truncating loaded arrays. */
-function mergeSummaryValue(previous: unknown, next: unknown, key?: string): unknown {
+function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?: string): unknown {
+  // Heartbeats publish all counters for the current phase, including an empty map.
+  if (live && key === 'phase_progress') return next;
   const old = object(previous);
   const update = object(next);
   if (old && update) {
@@ -28,7 +30,7 @@ function mergeSummaryValue(previous: unknown, next: unknown, key?: string): unkn
       ...Object.fromEntries(
         Object.entries(update).map(([field, value]) => [
           field,
-          mergeSummaryValue(old[field], value, field),
+          mergeSummaryValue(old[field], value, live, field),
         ]),
       ),
     };
@@ -44,7 +46,7 @@ function mergeSummaryValue(previous: unknown, next: unknown, key?: string): unkn
         const id = object(entry)?.model_id;
         const update = pending.get(id);
         pending.delete(id);
-        return update ? mergeSummaryValue(entry, update) : entry;
+        return update ? mergeSummaryValue(entry, update, live) : entry;
       });
       return [...retained, ...pending.values()];
     }
@@ -56,7 +58,7 @@ function mergeSummaryValue(previous: unknown, next: unknown, key?: string): unkn
 export function mergeJobSummary(previous: Job | null, next: Job): Job {
   if (!next.summary || previous?.id !== next.id) return next;
   return {
-    ...(mergeSummaryValue(previous, next) as Job),
+    ...(mergeSummaryValue(previous, next, activeJob(previous) || activeJob(next)) as Job),
     summary: previous.summary === true,
   };
 }

@@ -20,7 +20,6 @@
     "hnefatafl/training.py": "a96f2f007de3b86ec6f2b9292349399fd505a59dc0538fb47abdcb4111abc939"
   },
   "css_bundle_sha256_before_and_after": "e518b129044fbeb53ee38daf2783303762baec874f6770a7d96665e5ffbcf212",
-  "current_js_bundle_sha256": "c89da0c9818af95ede6486a273822a0fde0b4facf1da41958d83e21d29f4e548",
   "excluded_setup_samples": {
     "ordinary": "All initial pairs rerun after focused tests completed and the final UI bundle was built.",
     "large_history": "After 0/1 preceded the final best-model merge bundle; before 1 overlapped the build. These fixed cases were rerun."
@@ -603,5 +602,7 @@
         }
       }
     ]
-  }
+  },
+  "measurement_commit": "b889b01a0b53b2c0c514c9b8b6f8b27946980854",
+  "measured_js_bundle_sha256": "c89da0c9818af95ede6486a273822a0fde0b4facf1da41958d83e21d29f4e548"
 }

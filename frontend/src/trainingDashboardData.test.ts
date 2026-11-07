@@ -181,6 +181,35 @@ it('does not carry one tuning trial’s history into its successor', () => {
   expect(merged.progress?.history).toBe(full.progress?.history);
 });
 
+it('replaces authoritative live phase counters while retaining analysis detail', () => {
+  const full = complete('running');
+  full.progress!.phase_progress = { game: 3, ply: 20 };
+  let merged = mergeJobSummary(full, {
+    id: full.id,
+    status: 'running',
+    summary: true,
+    progress: { stage: 'optimization', phase_progress: { epoch: 1, batch: 2 } },
+  });
+  expect(merged.progress?.phase_progress).toEqual({ epoch: 1, batch: 2 });
+  merged = mergeJobSummary(merged, {
+    id: full.id,
+    status: 'running',
+    summary: true,
+    progress: { stage: 'evaluation', phase_progress: {} },
+  });
+  expect(merged.progress?.phase_progress).toEqual({});
+  expect(merged.progress?.history).toBe(full.progress?.history);
+  expect(merged.metrics?.history).toBe(full.metrics?.history);
+  const completed = { ...full, status: 'completed' };
+  const retained = mergeJobSummary(completed, {
+    id: full.id,
+    status: 'completed',
+    summary: true,
+    progress: { phase_progress: {} },
+  });
+  expect(retained.progress?.phase_progress).toEqual({ game: 3, ply: 20 });
+});
+
 it('searches ordinary, resumed, remote and imported jobs by their associated catalog names', () => {
   const models: Model[] = [
     { id: 'inference', name: 'Current raven', ruleset: 'tablut' },

@@ -20,6 +20,10 @@ compatibility restoration. It does not compare two default API requests: current
 clients omitting the query intentionally receive the complete job again.
 The [raw measurements](job-archive-final-review.json) include all reported samples,
 fixture hashes and source hashes.
+The measured implementation is `b889b01`; the final follow-up only replaces
+authoritative live phase-counter maps during frontend merging, with a focused
+transition regression. Archive/import response code is identical. The reported
+timings and heap samples were captured before that counter-only follow-up.
 
 | Workload | Full-response POST bytes | Explicit compact POST bytes | Control / current HTTP seconds | Control / current server peak RSS MiB |
 | --- | ---: | ---: | ---: | ---: |
