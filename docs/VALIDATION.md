@@ -2,6 +2,15 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Champion adaptation, outcome charts and large job transfers (`0.37.0` preparation)
+
+The [0.37.0 release notes](releases/0.37.0.md#validation) identify the verified
+merged implementation and release checks for PRs #57–#59. They distinguish archive
+schema 3 and controller-state version 4 from unchanged database schema 13 and
+checkpoint tensor format 1. Older fixture provenance and benchmark measurements
+retain their original scope. Release-PR and exact merged-main Verify remain
+mandatory gates before tagging and stable publication.
+
 ## Reliable tuning, adaptation and model reuse (`0.36.0` preparation)
 
 The [0.36.0 release notes](releases/0.36.0.md#validation) record this release's

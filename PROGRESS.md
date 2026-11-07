@@ -901,3 +901,39 @@ The publication workflow keeps its exact-main CI, annotated-tag and archive-dige
 gates, uses the checked-in notes verbatim and titles releases `Hnefatafl X.Y.Z`.
 See [0.36.0 release notes](docs/releases/0.36.0.md) for complete scope, installation,
 validation and limits. Prior release evidence remains unchanged.
+
+## Champion adaptation, outcome charts and large job transfers (`0.37.0` preparation)
+
+Release preparation starts from merged `main` at `661eb7c`, covering all changes
+since published `0.36.0`: PRs #57, #58 and #59 and their review fixes. Python/npm
+metadata and both lockfiles move together to `0.37.0` on `release/0.37.0`.
+
+HyperController accepts Champion evaluation and starts a fresh learning regime at
+each real promotion while preserving the effective rate and optimizer state.
+Version-4 controller state tracks Champion identity; duplicate/stale promotions are
+inert and incompatible old Champion observations reset conservatively on resume.
+Performance adds six self-play outcome metrics, consistent draw-aware win rates,
+usable-history fallback and sticky Throughput headings.
+
+Schema-3 TAR.GZ job archives preserve complete large histories through bounded
+shared JSON chunks and retain legacy schema-1/2 ZIP import. Snapshot/admission and
+transactional publication protections cover concurrent deletion, cross-filesystem
+pins, cancellation and cleanup. Recognized quoted credentials are redacted across
+log reads; arbitrary diagnostics still need review. Compact workshop imports use
+shared lazy detail loading while the API keeps complete responses by default.
+Compatible summaries retain loaded analysis; changed run/trial/model identities
+cannot mix histories or model presentation.
+
+Database schema remains 13 and checkpoint tensor format remains 1. Older releases
+cannot read schema-3 archives. Workers must match `0.37.0` and advertise the
+additional `hyper_adaptation_champion` capability for Champion-adapted jobs.
+Benchmark results retain their actual fixtures, baselines and tradeoffs; no general
+training speedup or stronger-model claim is made.
+
+The complete implementation at `661eb7c` passed Verify run `42406396120`: 2,818
+backend tests (9 skips), 872 frontend tests and 125 general (9 intentional skips)/8
+registration/18 online/26 personal browser checks. Release preparation runs local
+validation separately, then requires successful release-PR and exact merged-main
+Verify before an annotated tag and stable publication. See
+[0.37.0 release notes](docs/releases/0.37.0.md) for scope, compatibility, evidence
+and installation. Historical release records and fixtures remain unchanged.
