@@ -11,6 +11,21 @@ export const finite = (value: unknown): value is number =>
 export const activeJob = (job: Job) =>
   ['running', 'pending', 'queued', 'cancelling'].includes(job.status);
 
+// The server's without_live_timing() deliberately omits these between tuning trials.
+const trialLiveFields = new Set([
+  'stage',
+  'phase_started_at',
+  'phase_elapsed',
+  'iteration_started_at',
+  'iteration_elapsed',
+  'active_iteration',
+  'phase_progress',
+  'duration',
+  'updated_at',
+  'last_progress_at',
+  'last_progress_seconds',
+]);
+
 /** Overlay a partial navigator projection without copying or truncating loaded arrays. */
 function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?: string): unknown {
   // Heartbeats publish all counters for the current phase, including an empty map.
@@ -25,8 +40,14 @@ function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?
         (old.trial !== undefined && update.trial !== undefined && old.trial !== update.trial))
     )
       return next;
+    const retained =
+      live && key === 'trial_progress'
+        ? Object.fromEntries(
+            Object.entries(old).filter(([field]) => !trialLiveFields.has(field) || field in update),
+          )
+        : old;
     return {
-      ...old,
+      ...retained,
       ...Object.fromEntries(
         Object.entries(update).map(([field, value]) => [
           field,

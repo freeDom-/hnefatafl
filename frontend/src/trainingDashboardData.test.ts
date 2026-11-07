@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { filterJobs, mergeJobSummary } from './trainingDashboardData';
+import { filterJobs, jobProgress, mergeJobSummary } from './trainingDashboardData';
 import type { Job, Model } from './types';
 
 function complete(status: string): Job {
@@ -208,6 +208,51 @@ it('replaces authoritative live phase counters while retaining analysis detail',
     progress: { phase_progress: {} },
   });
   expect(retained.progress?.phase_progress).toEqual({ game: 3, ply: 20 });
+});
+
+it('clears an inactive trial’s live timers while retaining its complete analysis', () => {
+  const full = complete('running');
+  full.progress!.trial_progress = {
+    ...(full.progress!.trial_progress as Record<string, unknown>),
+    stage: 'self_play',
+    duration: 90,
+    active_iteration: 1200,
+    phase_elapsed: 4,
+    phase_progress: { game: 3, ply: 20 },
+    iteration_started_at: '2026-11-07T00:00:00Z',
+    iteration_elapsed: 10,
+  };
+  const summary: Job = {
+    id: full.id,
+    status: 'running',
+    summary: true,
+    progress: {
+      stage: 'between_trials',
+      duration: 222,
+      trial_progress: { trial: 4, iteration: 1200 },
+    },
+  };
+  const merged = mergeJobSummary(full, summary);
+  const trial = merged.progress!.trial_progress as Record<string, unknown>;
+  expect(jobProgress(merged).stage).toBe('between_trials');
+  expect(jobProgress(merged).duration).toBe(222);
+  for (const key of [
+    'stage',
+    'duration',
+    'active_iteration',
+    'phase_elapsed',
+    'phase_progress',
+    'iteration_started_at',
+    'iteration_elapsed',
+  ])
+    expect(trial).not.toHaveProperty(key);
+  expect(trial.history).toBe(full.progress?.history);
+  expect(trial.performance).toEqual({ rates: { cpu: 10, gpu: 20 } });
+  const terminal = mergeJobSummary(
+    { ...full, status: 'completed' },
+    { ...summary, status: 'completed' },
+  );
+  expect((terminal.progress!.trial_progress as Record<string, unknown>).duration).toBe(90);
 });
 
 it('searches ordinary, resumed, remote and imported jobs by their associated catalog names', () => {
