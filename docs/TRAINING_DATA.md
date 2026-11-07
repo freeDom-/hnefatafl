@@ -390,6 +390,30 @@ training precision survive; sanitization and reference rebasing can change a
 checkpoint's serialized metadata/bytes. Treat archives as private training data and
 review custom diagnostic log text before sharing.
 
+Recognized credential values in diagnostic strings and worker logs are replaced
+with `[redacted]`, retaining their assignment labels and ordinary quoting.
+This includes password/token/secret/credential/API-key assignments, JSON-style
+quoted keys, environment assignments, and Bearer/Basic authorization values.
+Single/double quoted values may contain spaces, Unicode, escaped quotes,
+backslashes or newlines; serialized JSON quote escaping is handled too. Simple
+unquoted values end at unescaped whitespace or punctuation. Structured credential
+keys are still removed from metadata, and recognized absolute paths are redacted.
+Portable `job://` references keep their path semantics and use the same credential
+filter, so a reference-looking diagnostic cannot bypass it.
+
+Log sanitization retains state across reads of at most 65,536 characters, without
+buffering complete lines, keys, paths or credential values. Unterminated quoted
+credentials and malformed/deep credential containers fail closed through the rest
+of the log; unknown authorization schemes consume the rest of their header line.
+The cleaned log must still fit the existing artifact byte limit. These are
+heuristics for recognizable scalar assignments/headers, not a general secret
+detector or a complete shell-language parser. Custom labels, unlabeled secrets,
+arbitrary encodings and fragments already leaked by older exports may not be
+recognizable. Credential-like labels can also cause extra redaction. **Archives
+containing arbitrary diagnostics must still be treated as potentially sensitive**;
+review them before sharing. The [security-review measurements](benchmarks/job-archive-security-review.md)
+cover long-log CPU time, bounded working memory and concurrent training.
+
 Inactive job files and a consistent SQLite study backup are pinned under
 lifecycle/catalog locks. Model references are then discovered from metadata,
 reports and checkpoints outside those locks; only the required registered models
@@ -453,6 +477,15 @@ detail is retained through ordinary navigator refreshes, including nested metric
 evaluation/performance data, tuning metadata and histories. New summary counters,
 status and timestamps still update the selected view. Complete reports remain
 available at `GET /api/training/jobs/{id}`.
+Run and model identities define which detail can be retained: missing run IDs are
+legacy-compatible only when both reports lack them; one-sided/different IDs replace
+run-specific reports. Known trial changes replace only the trial snapshot, keeping
+cumulative study history. Compact imported reports reserve run/trial/model IDs
+before optional diagnostics use their existing budget. Same-ID model projections
+keep omitted attributes; changed, unknown or removed models cannot inherit another
+model's name/path. A detail response from a former identity triggers at most one
+immediate retry through the existing loader. Continued identity churn leaves the
+loading state and a localized refresh error, rather than mixed history.
 This response optimization changes neither stored histories nor the archive format.
 
 Import validates inventory, checksums, bounded JSON and tensor-only checkpoint

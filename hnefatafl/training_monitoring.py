@@ -456,7 +456,37 @@ def imported_report_summary(report: dict) -> dict:
         budget -= size
         return value
 
-    result = {}
+    def identity(source):
+        projected = {}
+        for key in ("run", "trial", "model"):
+            if key not in source:
+                continue
+            value = source.get(key)
+            if key == "model" and isinstance(value, dict):
+                identifier = value.get("id")
+                saved_id = (
+                    small(identifier) if not isinstance(identifier, (dict, list, tuple)) else None
+                )
+                saved = (
+                    {"id": saved_id}
+                    if "id" in value and (identifier is None or saved_id is not None)
+                    else {}
+                )
+            elif isinstance(value, (dict, list, tuple)):
+                continue
+            else:
+                saved = small(value)
+            if value is None or saved is not None:
+                projected[key] = saved
+        return projected
+
+    # Reserve both identity scopes before optional maps can exhaust the shared
+    # budget. An omitted run ID means a different identity to the UI/backend.
+    identities = identity(report)
+    nested = report.get("trial_progress")
+    if isinstance(nested, dict):
+        identities["trial_progress"] = identity(nested)
+    result = dict(identities)
     # Identity/counters take precedence over optional metrics within the budget.
     for key in dict.fromkeys(("iteration", "self_play_games", "games_generated", "model", *keys)):
         if key in report and not isinstance(report[key], (list, tuple)):
@@ -467,6 +497,8 @@ def imported_report_summary(report: dict) -> dict:
             )
             projected = small(value)
             if projected is not None:
+                if key in {"model", "trial_progress"} and isinstance(projected, dict):
+                    projected = {**projected, **identities.get(key, {})}
                 result[key] = projected
     while len(json.dumps(result, ensure_ascii=False).encode()) > 32 * 1024:
         result.pop(next(reversed(result)))

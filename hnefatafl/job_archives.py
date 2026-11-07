@@ -26,6 +26,7 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .storage import Store
+from .archive_redaction import clean_text, clean_reference, redact_log, RedactionLimitError
 
 FORMAT = "hnefatafl-training-job"
 FORMAT_VERSION = 3
@@ -84,10 +85,6 @@ RUNTIME_KEYS = {
     "artifact_owner",
 }
 SECRET_KEY = re.compile(r"token|secret|password|credential|authorization|lease|api[_-]?key", re.I)
-ABSOLUTE_PATH = re.compile(r"(?<![\w:])(?:[A-Za-z]:[\\/]|/)[^\s\"'<>]*")
-SECRET_TEXT = re.compile(r"(?i)(?:bearer\s+\S+|(?<![\w-])(?P<key>[\w-]+)[\"']?\s*[:=]\s*[\"']?)")
-SECRET_ASSIGNMENT_KEY = re.compile(r"token|secret|password|credential|api_key", re.I)
-SECRET_VALUE = re.compile(r"[^\s,\"'}]+")
 JOB_FIELDS = {
     "id",
     "kind",
@@ -231,25 +228,11 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
-def clean_text(value: str) -> str:
-    # Scan complete assignments first. Repeated partial key matches otherwise
-    # make long diagnostic words quadratic, even when no credential exists.
-    parts: list[str] = []
-    position = retained = 0
-    while match := SECRET_TEXT.search(value, position):
-        position = match.end()
-        key = match.group("key")
-        if key is not None:
-            if not SECRET_ASSIGNMENT_KEY.search(key):
-                continue  # Still inspect its value for nested credential assignments.
-            content = SECRET_VALUE.match(value, position)
-            if content is None:
-                continue
-            position = content.end()
-        parts.extend((value[retained : match.start()], "[redacted]"))
-        retained = position
-    parts.append(value[retained:])
-    return ABSOLUTE_PATH.sub("[local path]", "".join(parts))
+def clean_log(source, destination) -> None:
+    try:
+        redact_log(source, destination, maximum=MAX_FILE_BYTES)
+    except RedactionLimitError as exc:
+        raise ArchiveError(str(exc)) from exc
 
 
 def portable(
@@ -269,12 +252,12 @@ def portable(
         return tuple(items) if isinstance(value, tuple) else items
     if isinstance(value, str):
         if references and value in references:
-            return "job://" + references[value]
+            return "job://" + clean_reference(references[value])
         if value.startswith("job://"):
             safe_name(value[6:])
-            return value
+            return "job://" + clean_reference(value[6:])
         if directory and value.startswith(str(directory) + "/"):
-            return "job://" + value[len(str(directory)) + 1 :]
+            return "job://" + clean_reference(value[len(str(directory)) + 1 :])
         return clean_text(value)
     return value
 
@@ -794,8 +777,7 @@ def _export_snapshot(snapshot: ExportSnapshot, output: Path, app_version: str) -
                     continue
                 else:
                     with source.open(errors="replace") as src, target.open("w") as dst:
-                        while chunk := src.readline(65536):
-                            dst.write(clean_text(chunk))
+                        clean_log(src, dst)
                 include(target, name)
         if job["kind"] == "tune":
             shutil.copyfile(snapshot.source / "study.sqlite3", staging / "study.sqlite3")
@@ -1336,8 +1318,7 @@ def import_job(
                     path.open(errors="replace") as src,
                     path.with_suffix(".clean").open("w") as dst,
                 ):
-                    while chunk := src.readline(65536):
-                        dst.write(clean_text(chunk))
+                    clean_log(src, dst)
                 path.with_suffix(".clean").replace(path)
         if record["kind"] == "tune":
             from .job_studies import migrate_study

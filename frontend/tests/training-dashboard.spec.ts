@@ -135,6 +135,71 @@ test('preserves the selected analysis tab and shows the new job content when swi
     'true',
   );
 });
+test('replaces run-specific graphs through the existing history loading state', async ({
+  page,
+}) => {
+  await page.clock.install();
+  let run = 'old';
+  let reads = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'identity',
+          name: 'Identity-safe job',
+          kind: 'train',
+          status: 'completed',
+          summary: true,
+          progress: { run, iteration: run === 'old' ? 10 : 2, model: { id: `model-${run}` } },
+        },
+      ],
+    }),
+  );
+  await page.route('**/api/training/jobs/identity', async (route) => {
+    const requestedRun = run;
+    reads++;
+    if (requestedRun === 'new') await gate;
+    const detail = workshopFixture('identity', requestedRun === 'old' ? 10 : 2, 'completed');
+    await route.fulfill({
+      json: {
+        ...detail,
+        name: 'Identity-safe job',
+        summary: false,
+        progress: { ...detail.progress, run: requestedRun, model: { id: `model-${requestedRun}` } },
+      },
+    });
+  });
+  await open(page);
+  await expect(page.getByText('Loading history…', { exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Learning', exact: true }).click();
+  await page.getByText('View graph data', { exact: true }).click();
+  const table = page.getByRole('table', { name: 'Training history data', exact: true });
+  await expect(table.getByRole('row')).toHaveCount(11);
+  run = 'new';
+  await page.getByRole('button', { name: 'Refresh job', exact: true }).click();
+  try {
+    await expect(page.locator('.training-analysis-panel')).toHaveAttribute('aria-busy', 'true');
+    await expect(page.locator('.training-analysis-panel').getByRole('status')).toHaveText(
+      'Loading history…',
+    );
+    await expect(table).toHaveCount(0);
+    expect(reads).toBe(2);
+  } finally {
+    release();
+  }
+  await expect(page.getByText('Loading history…', { exact: true })).toHaveCount(0);
+  await page.getByText('View graph data', { exact: true }).click();
+  await expect(table.getByRole('row')).toHaveCount(3);
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: 'Refresh job', exact: true }).click();
+    await expect(table.getByRole('row')).toHaveCount(3);
+  }
+  expect(reads).toBe(2);
+});
 test('shows one merged evaluation series in the overview and in the evaluation tab', async ({
   page,
 }) => {

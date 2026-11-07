@@ -26,12 +26,15 @@ def client(tmp_path):
 @pytest.mark.parametrize(
     "text,expected",
     [
-        ("name=password=hidden", "name=[redacted]"),
-        ("name=Bearer hidden", "name=[redacted]"),
-        ('{"access_token":"hidden","mode":"train"}', '{"[redacted]","mode":"train"}'),
-        ("--my-password='hidden' visible", "[redacted]' visible"),
-        ("password=", "password="),
-        ("password=" * 3, "[redacted]"),
+        ("name=password=hidden", "name=password=[redacted]"),
+        ("name=Bearer hidden", "name=Bearer [redacted]"),
+        (
+            '{"access_token":"hidden","mode":"train"}',
+            '{"access_token":"[redacted]","mode":"train"}',
+        ),
+        ("--my-password='hidden' visible", "--my-password='[redacted]' visible"),
+        ("password=", "password=[redacted]"),
+        ("password=" * 3, "password=[redacted]"),
     ],
 )
 def test_redaction_preserves_nested_credentials_and_nonsecret_text(text, expected):
@@ -44,8 +47,8 @@ def test_redaction_handles_long_diagnostic_words_without_backtracking():
     script = (
         "from hnefatafl.job_archives import clean_text; "
         "word='password'*100000+'='; "
-        "assert clean_text(word)==word; "
-        "assert clean_text(word+'hidden')=='[redacted]'"
+        "assert clean_text(word)==word+'[redacted]'; "
+        "assert clean_text(word+'hidden')==word+'[redacted]'"
     )
     subprocess.run([sys.executable, "-c", script], check=True, timeout=20)
 

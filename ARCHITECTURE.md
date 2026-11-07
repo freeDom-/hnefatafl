@@ -419,6 +419,12 @@ Import responses retain the full-job API default. The workshop explicitly reques
 `?summary=true` and uses the existing deduplicated detail loader and localized
 history-loading state. Navigator projections preserve loaded nested analysis and
 history while updating monitoring fields; retained model IDs remain searchable.
+Identity fields are reserved before optional imported summary metadata. Trial/run
+changes invalidate only their owned reports, and model attributes never merge
+across different IDs. The existing detail loader coalesces a bounded retry when
+a response belongs to a former identity. Archive log/diagnostic redaction uses a
+stateful bounded scanner across read boundaries, including quoted credentials;
+arbitrary diagnostic data remains potentially sensitive.
 The format-2 study layout still consolidates contributing sibling UUID jobs and a portable
 source checkpoint into a fresh owning job on import. All paths, checksums, tensor
 payloads and SQLite schema are validated before publication; format-1 import and

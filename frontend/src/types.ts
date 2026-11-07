@@ -118,7 +118,7 @@ export interface Job {
   metrics?: Record<string, unknown>;
   logs?: string[] | string;
   error?: string;
-  model_id?: string;
+  model_id?: string | null;
   checkpoint?: string;
   resumable?: boolean;
   checkpoint_path?: string;

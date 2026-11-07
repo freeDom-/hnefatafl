@@ -39,7 +39,14 @@ import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
-import { activeJob, sortJobs, jobName, jobRuleset, mergeJobSummary } from './trainingDashboardData';
+import {
+  activeJob,
+  sortJobs,
+  jobName,
+  jobRuleset,
+  mergeJobSummary,
+  jobReportIdentityChanged,
+} from './trainingDashboardData';
 import './trainingDashboard.css';
 
 interface ModelUsage {
@@ -219,7 +226,10 @@ export default function Training({
       alive = false;
     };
   }, [deleteModel, usageRevision]);
-  const loadDetails = useCallback((id: string): Promise<void> => {
+  const loadDetails = useCallback(function loadDetails(
+    id: string,
+    retryIdentity = true,
+  ): Promise<void> {
     const pending = detailRequests.current.get(id);
     if (pending && !detailControllers.current.get(id)?.signal.aborted) return pending;
     const revision = refreshRevision.current;
@@ -227,6 +237,7 @@ export default function Training({
     const controller = new AbortController();
     detailControllers.current.set(id, controller);
     requests.current.add(controller);
+    let changedIdentity = false;
     const promise = api<Job>(`/training/jobs/${id}`, undefined, undefined, controller.signal)
       .then((job) => {
         if (
@@ -237,9 +248,21 @@ export default function Training({
           return;
         const latest = summaries.current.get(id);
         const detail =
-          snapshot !== summaryRevision.current && latest ? mergeJobSummary(job, latest) : job;
+          latest &&
+          (snapshot !== summaryRevision.current ||
+            !retryIdentity ||
+            jobReportIdentityChanged(job, latest))
+            ? mergeJobSummary(job, latest)
+            : job;
+        changedIdentity = detail.summary === true;
         setMonitoringObservedAt(performance.now());
-        setSelectedJob((current) => (current?.id === id ? { ...detail, summary: false } : current));
+        setSelectedJob((current) =>
+          current?.id === id ? { ...detail, summary: changedIdentity } : current,
+        );
+        if (changedIdentity && !retryIdentity)
+          onMonitoringError.current(
+            t('The job changed while its history was loading. Refresh the job to try again.'),
+          );
       })
       .catch((error: Error) => {
         if (monitoringMounted.current && !controller.signal.aborted)
@@ -249,6 +272,14 @@ export default function Training({
         requests.current.delete(controller);
         if (detailRequests.current.get(id) === promise) detailRequests.current.delete(id);
         if (detailControllers.current.get(id) === controller) detailControllers.current.delete(id);
+        if (
+          changedIdentity &&
+          retryIdentity &&
+          monitoringMounted.current &&
+          revision === refreshRevision.current &&
+          currentSelection.current?.id === id
+        )
+          return loadDetails(id, false);
       });
     detailRequests.current.set(id, promise);
     return promise;
@@ -380,7 +411,7 @@ export default function Training({
       if (id !== selectedJob?.id) controller.abort();
     }
     if (selectedJob?.summary) void loadDetails(selectedJob.id);
-  }, [selectedJob?.id, loadDetails]);
+  }, [selectedJob?.id, selectedJob?.summary, loadDetails]);
   const polling = jobs.some(activeJob) || workers.some((worker) => worker.status !== 'revoked');
   useEffect(() => {
     if (!polling) return;

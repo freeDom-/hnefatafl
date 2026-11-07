@@ -177,3 +177,295 @@ it('ignores a stale detail after switching jobs and retains the new selection on
   expect(selected().progress?.history).toEqual(full('B').progress?.history);
   expect(selected().metrics).toEqual(full('B').metrics);
 });
+
+function execution(run: string, kind = 'train'): Job {
+  const rows = [{ iteration: 3, run }];
+  return {
+    ...full('A'),
+    kind,
+    progress: {
+      run,
+      iteration: 3,
+      history: kind === 'tune' ? [{ cumulative: true }] : rows,
+      model: { id: `model-${run}`, name: `Name ${run}`, path: `/models/${run}.pt` },
+      ...(kind === 'tune'
+        ? { trial_progress: { run, trial: 4, history: rows, metrics: { history: rows } } }
+        : {}),
+    },
+    metrics: { history: kind === 'tune' ? [{ cumulative: true }] : rows },
+    result: { history: kind === 'tune' ? [{ cumulative: true }] : rows },
+  };
+}
+
+it.each(['train', 'tune'])(
+  'loads one replacement detail for an incompatible %s identity, before or after a poll',
+  async (kind) => {
+    vi.useFakeTimers();
+    setLanguage('en', false);
+    const initial = deferred(),
+      replacement = deferred();
+    let run = 'old',
+      terminal = false,
+      reads = 0;
+    const fetcher = vi.fn((path: string) => {
+      if (path === '/api/training/jobs/A')
+        return ++reads === 1 ? initial.promise : replacement.promise;
+      if (path.startsWith('/api/training/jobs?'))
+        return Promise.resolve(
+          json([
+            {
+              id: 'A',
+              name: 'Job A',
+              kind,
+              status: terminal ? 'completed' : 'running',
+              summary: true,
+              progress: {
+                run,
+                iteration: 4,
+                model: { id: `model-${run}` },
+                ...(kind === 'tune' ? { trial_progress: { run, trial: 4, iteration: 4 } } : {}),
+              },
+            },
+          ]),
+        );
+      return Promise.resolve(json(path.endsWith('/device') ? { cpu_available: true } : []));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const error = vi.fn();
+    await act(async () => {
+      render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);
+      await settle();
+    });
+    run = 'new';
+    terminal = true;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh selected job' }));
+      await settle();
+    });
+    await act(async () => {
+      initial.resolve(json(execution('old', kind)));
+      await settle();
+    });
+    expect(reads).toBe(2);
+    expect(selected().summary).toBe(true);
+    if (kind === 'tune') {
+      expect(
+        (selected().progress!.trial_progress as Record<string, unknown>).history,
+      ).toBeUndefined();
+      expect(selected().progress!.history).toEqual([{ cumulative: true }]);
+    } else {
+      expect(selected().progress!.history).toBeUndefined();
+      expect(selected().metrics).toBeUndefined();
+      expect(selected().result).toBeUndefined();
+    }
+    await act(async () => {
+      replacement.resolve(json(execution('new', kind)));
+      await settle();
+    });
+    expect(selected().summary).toBe(false);
+    expect(selected().progress!.model).toEqual(execution('new', kind).progress!.model);
+    const report =
+      kind === 'tune'
+        ? (selected().progress!.trial_progress as Record<string, unknown>)
+        : selected().progress!;
+    expect(report.history).toEqual([{ iteration: 3, run: 'new' }]);
+    for (let i = 0; i < 3; i++)
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh selected job' }));
+        await settle();
+      });
+    expect(reads).toBe(2);
+    expect(error).not.toHaveBeenCalled();
+  },
+);
+
+it('reloads a changed completed execution after its former detail has already loaded', async () => {
+  vi.useFakeTimers();
+  setLanguage('en', false);
+  let run = 'old',
+    reads = 0;
+  const next = deferred();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => {
+      if (path === '/api/training/jobs/A')
+        return ++reads === 1 ? Promise.resolve(json(execution('old'))) : next.promise;
+      return Promise.resolve(
+        json(
+          path.startsWith('/api/training/jobs?')
+            ? [{ id: 'A', status: 'completed', summary: true, progress: { run } }]
+            : [],
+        ),
+      );
+    }),
+  );
+  await act(async () => {
+    render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+    await settle();
+  });
+  expect(selected().summary).toBe(false);
+  run = 'new';
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh selected job' }));
+    await settle();
+  });
+  expect(reads).toBe(2);
+  expect(selected().progress!.history).toBeUndefined();
+  await act(async () => {
+    next.resolve(json(execution('new')));
+    await settle();
+  });
+  expect(selected().progress!.history).toEqual([{ iteration: 3, run: 'new' }]);
+});
+
+it.each(['train', 'tune'])(
+  'rejects a stale %s detail even when the summary preceded the request',
+  async (kind) => {
+    vi.useFakeTimers();
+    setLanguage('en', false);
+    const replacement = deferred();
+    let reads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/training/jobs/A')
+          return ++reads === 1
+            ? Promise.resolve(json(execution('old', kind)))
+            : replacement.promise;
+        return Promise.resolve(
+          json(
+            path.startsWith('/api/training/jobs?')
+              ? [
+                  {
+                    id: 'A',
+                    kind,
+                    status: 'completed',
+                    summary: true,
+                    progress: {
+                      run: 'new',
+                      iteration: 4,
+                      ...(kind === 'tune' ? { trial_progress: { run: 'new', trial: 4 } } : {}),
+                    },
+                  },
+                ]
+              : [],
+          ),
+        );
+      }),
+    );
+    const error = vi.fn();
+    await act(async () => {
+      render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);
+      await settle();
+    });
+    expect(reads).toBe(2);
+    expect(selected().summary).toBe(true);
+    const progress = selected().progress!;
+    const report =
+      kind === 'tune' ? (progress.trial_progress as Record<string, unknown>) : progress;
+    expect(report.run).toBe('new');
+    expect(report.history).toBeUndefined();
+    expect(report.metrics).toBeUndefined();
+    if (kind === 'train') {
+      expect(selected().metrics).toBeUndefined();
+      expect(selected().result).toBeUndefined();
+    }
+    await act(async () => {
+      replacement.resolve(json(execution('new', kind)));
+      await settle();
+    });
+    expect(selected().summary).toBe(false);
+    expect(error).not.toHaveBeenCalled();
+    expect(reads).toBe(2);
+  },
+);
+
+it('replaces changed model metadata without redownloading the execution history', async () => {
+  vi.useFakeTimers();
+  setLanguage('en', false);
+  let model = 'old',
+    reads = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => {
+      if (path === '/api/training/jobs/A') {
+        reads++;
+        return Promise.resolve(json(execution('old')));
+      }
+      return Promise.resolve(
+        json(
+          path.startsWith('/api/training/jobs?')
+            ? [
+                {
+                  id: 'A',
+                  status: 'completed',
+                  summary: true,
+                  progress: { run: 'old', model: { id: `model-${model}` } },
+                },
+              ]
+            : [],
+        ),
+      );
+    }),
+  );
+  await act(async () => {
+    render(<Training rulesets={[]} models={[]} onError={vi.fn()} onModelsChanged={vi.fn()} />);
+    await settle();
+  });
+  model = 'new';
+  for (let i = 0; i < 3; i++)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh selected job' }));
+      await settle();
+    });
+  expect(reads).toBe(1);
+  expect(selected().progress!.model).toEqual({ id: 'model-new' });
+  expect(selected().progress!.history).toEqual([{ iteration: 3, run: 'old' }]);
+});
+
+it.each(['en', 'de'] as const)(
+  'bounds immediate stale-identity retries and reports the existing error channel (%s)',
+  async (language) => {
+    vi.useFakeTimers();
+    setLanguage(language, false);
+    const pending = deferred();
+    let run = 'old',
+      reads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        if (path === '/api/training/jobs/A')
+          return ++reads === 1 ? pending.promise : Promise.resolve(json(execution('old')));
+        return Promise.resolve(
+          json(
+            path.startsWith('/api/training/jobs?')
+              ? [{ id: 'A', status: 'completed', summary: true, progress: { run } }]
+              : [],
+          ),
+        );
+      }),
+    );
+    const error = vi.fn();
+    await act(async () => {
+      render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);
+      await settle();
+    });
+    run = 'new';
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh selected job' }));
+      await settle();
+    });
+    await act(async () => {
+      pending.resolve(json(execution('old')));
+      await settle();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(reads).toBe(2);
+    expect(selected().summary).toBe(true);
+    expect(selected().progress!.history).toBeUndefined();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0][0]).toContain(language === 'de' ? 'geändert' : 'changed');
+  },
+);

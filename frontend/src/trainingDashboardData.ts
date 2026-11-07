@@ -26,22 +26,72 @@ const trialLiveFields = new Set([
   'last_progress_seconds',
 ]);
 
-/** Overlay a partial navigator projection without copying or truncating loaded arrays. */
-function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?: string): unknown {
+// Match the backend's same_run(): null and missing both mean a legacy run;
+// one-sided missing identifiers cannot establish a shared execution identity.
+const sameRun = (previous: Values, next: Values) => (previous.run ?? null) === (next.run ?? null);
+const trialNumberChanged = (previous?: Values, next?: Values) =>
+  previous?.trial != null && next?.trial != null && previous.trial !== next.trial;
+const trialReportChanged = (previous: Values | undefined, next: Values, parentChanged: boolean) =>
+  !previous ||
+  !sameRun(previous, next) ||
+  trialNumberChanged(previous, next) ||
+  (parentChanged && previous.run == null && next.run == null);
+
+/** Compare report ownership without copying large loaded metadata maps. */
+export function jobReportIdentityChanged(previous: Job, next: Job): boolean {
+  const old = object(previous.progress),
+    update = object(next.progress);
+  if (!update) return false;
+  const tuning = (next.kind ?? previous.kind) === 'tune';
+  if (!tuning && !sameRun(old ?? {}, update)) return true;
+  const trial = object(update.trial_progress);
+  return (
+    !!trial &&
+    trialReportChanged(
+      object(old?.trial_progress),
+      trial,
+      tuning && trialNumberChanged(old, update),
+    )
+  );
+}
+interface SummaryMerge {
+  live: boolean;
+  tuning: boolean;
+  incomplete: boolean;
+  trialChanged: boolean;
+}
+
+/** Overlay partial reports without copying history or crossing identity boundaries. */
+function mergeSummaryValue(
+  previous: unknown,
+  next: unknown,
+  context: SummaryMerge,
+  key?: string,
+): unknown {
   // Heartbeats publish all counters for the current phase, including an empty map.
-  if (live && key === 'phase_progress') return next;
+  if (context.live && key === 'phase_progress') return next;
   const old = object(previous);
   const update = object(next);
+  // Tuning's outer run follows its active trial; only its child owns trial
+  // history. The study's cumulative history remains at the outer level.
+  if (
+    update &&
+    ((key === 'trial_progress' && trialReportChanged(old, update, context.trialChanged)) ||
+      (key === 'progress' && !context.tuning && !sameRun(old ?? {}, update)))
+  ) {
+    context.incomplete = true;
+    return next;
+  }
   if (old && update) {
-    // A tuning trial's detail belongs to that trial/run, not its successor.
+    // A new model ID must never acquire another model's presentation/path data.
     if (
-      key === 'trial_progress' &&
-      ((old.run !== undefined && update.run !== undefined && old.run !== update.run) ||
-        (old.trial !== undefined && update.trial !== undefined && old.trial !== update.trial))
+      ('id' in update && old.id !== update.id) ||
+      (key === 'model' &&
+        (typeof old.id !== 'string' || !old.id || typeof update.id !== 'string' || !update.id))
     )
       return next;
     const retained =
-      live && key === 'trial_progress'
+      context.live && key === 'trial_progress'
         ? Object.fromEntries(
             Object.entries(old).filter(([field]) => !trialLiveFields.has(field) || field in update),
           )
@@ -51,7 +101,7 @@ function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?
       ...Object.fromEntries(
         Object.entries(update).map(([field, value]) => [
           field,
-          mergeSummaryValue(old[field], value, live, field),
+          mergeSummaryValue(old[field], value, context, field),
         ]),
       ),
     };
@@ -67,7 +117,7 @@ function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?
         const id = object(entry)?.model_id;
         const update = pending.get(id);
         pending.delete(id);
-        return update ? mergeSummaryValue(entry, update, live) : entry;
+        return update ? mergeSummaryValue(entry, update, context) : entry;
       });
       return [...retained, ...pending.values()];
     }
@@ -78,9 +128,26 @@ function mergeSummaryValue(previous: unknown, next: unknown, live: boolean, key?
 
 export function mergeJobSummary(previous: Job | null, next: Job): Job {
   if (!next.summary || previous?.id !== next.id) return next;
+  const context = {
+    live: activeJob(previous) || activeJob(next),
+    tuning: (next.kind ?? previous.kind) === 'tune',
+    incomplete: previous.summary === true,
+    trialChanged: false,
+  };
+  const oldProgress = object(previous.progress);
+  const progress = object(next.progress);
+  context.trialChanged = context.tuning && trialNumberChanged(oldProgress, progress);
+  // A replacement execution cannot use reports/logs owned by the former run.
+  const retained =
+    !context.tuning && progress && !sameRun(oldProgress ?? {}, progress)
+      ? Object.fromEntries(
+          Object.entries(previous).filter(([key]) => !['metrics', 'result', 'logs'].includes(key)),
+        )
+      : previous;
+  const merged = mergeSummaryValue(retained, next, context) as Job;
   return {
-    ...(mergeSummaryValue(previous, next, activeJob(previous) || activeJob(next)) as Job),
-    summary: previous.summary === true,
+    ...merged,
+    summary: context.incomplete,
   };
 }
 export const jobName = (job: Job) =>
