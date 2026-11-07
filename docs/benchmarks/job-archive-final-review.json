@@ -1,0 +1,607 @@
+{
+  "measurement_date": "2026-11-07",
+  "reviewed_commit": "ab1c7e88b0ab27cffa8d4d9f03fe23fc836a0ce9",
+  "full_response_control_commit": "9b58c884210456d9d487edc1a8efd4a7f5d0df33",
+  "after_import_query": "?summary=true",
+  "node": "v24.19.0",
+  "cpu_quota": "200000 100000",
+  "source_sha256": {
+    "hnefatafl/server.py": "e0e4ba67c2d9c56831d6ce4b4b405d1da043d870e89564b5e3a36bfe489faa55",
+    "hnefatafl/training_monitoring.py": "d5c1e9eccdd15d85b7570db111648204b27ce4dd74e26c9d12e7d342d6dbe127",
+    "frontend/src/Training.tsx": "8040a171301fdb4ca21b0a8fff6ed6c4a92a1e9dc15f3bd9e5bd4611d59f081d",
+    "frontend/src/trainingDashboardData.ts": "6d1b86809e1aad520d4e2bf99027f32b7218f9cdfaf61e85b3e0484e754b8d15",
+    "scripts/benchmark_job_import_review.py": "2ad98706ab833bc5b5d02f84e1ab9487a3308a50f4d5b23a74f18941cba1ec83",
+    "scripts/benchmark_job_import_ui.mjs": "3779c60f2d3e5f9ea7edb2aac434e5bba7d119ed846f0e8dbc6b9b92d33dea01"
+  },
+  "unchanged_since_review_sha256": {
+    "hnefatafl/job_archives.py": "5d3f90dc1df9424214b7b5c8bff15f2da5da9759e38866966f07b189125eb4ce",
+    "hnefatafl/models.py": "14e25989abe9737ddb5f0ad9bfcd6a94982484aceee14513ad43ce4a311a4ef0",
+    "hnefatafl/storage.py": "92ff0192cc1f066c4177f17c0c949d597570229d9b9e913746cf2a6ae812dcb8",
+    "hnefatafl/training.py": "a96f2f007de3b86ec6f2b9292349399fd505a59dc0538fb47abdcb4111abc939"
+  },
+  "css_bundle_sha256_before_and_after": "e518b129044fbeb53ee38daf2783303762baec874f6770a7d96665e5ffbcf212",
+  "current_js_bundle_sha256": "c89da0c9818af95ede6486a273822a0fde0b4facf1da41958d83e21d29f4e548",
+  "excluded_setup_samples": {
+    "ordinary": "All initial pairs rerun after focused tests completed and the final UI bundle was built.",
+    "large_history": "After 0/1 preceded the final best-model merge bundle; before 1 overlapped the build. These fixed cases were rerun."
+  },
+  "imports": {
+    "python": "3.12.14",
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "cpu_count": 3,
+    "repetitions": 3,
+    "fixtures": {
+      "ordinary": {
+        "archive": "/workspace/hnefatafl/work/final-review-benchmark/ordinary/fixture.tar.gz",
+        "archive_bytes": 81306,
+        "source_report_bytes": 5320370,
+        "iterations": 1000,
+        "before_after_export_sha256": "427aab83265f8e370a5293fe8a0431a134bb8833c2c87c0550aaac3f15c07249"
+      },
+      "large_history": {
+        "archive": "/workspace/hnefatafl/work/final-review-benchmark/large_history/fixture.tar.gz",
+        "archive_bytes": 3813156,
+        "source_report_bytes": 36151429,
+        "iterations": 1000,
+        "before_after_export_sha256": "f7e6686eb3f66f2140db4f682091ae1c7ad7afd8f210e2999ec6ad905493c56d"
+      },
+      "large_document": {
+        "archive": "/workspace/hnefatafl/work/final-review-benchmark/large_document/fixture.tar.gz",
+        "archive_bytes": 1807746,
+        "source_report_bytes": 70888425,
+        "iterations": 1000,
+        "before_after_export_sha256": "029c16cedfd94a2ec6048f416ba67d17b576ab7f9d4d790623fa982d2c49797a"
+      }
+    },
+    "samples": [
+      {
+        "kind": "large_history",
+        "implementation": "before",
+        "repetition": 0,
+        "api": {
+          "seconds": 18.19659303899971,
+          "response_bytes": 50416144,
+          "summary": false,
+          "peak_server_rss_bytes": 781422592
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 50416176,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 50416176,
+          "import_seconds": 18.401352054,
+          "selection_seconds": 18.545320924,
+          "initial_ui_seconds": 22.387457704,
+          "initial_js_heap_bytes": 4344100,
+          "observed_peak_js_heap_bytes": 57078432,
+          "retained_js_heap_bytes": 45402480,
+          "peak_server_rss_bytes": 802754560
+        }
+      },
+      {
+        "kind": "large_history",
+        "implementation": "before",
+        "repetition": 2,
+        "api": {
+          "seconds": 19.965368894001585,
+          "response_bytes": 50416144,
+          "summary": false,
+          "peak_server_rss_bytes": 781488128
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 50416176,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 50416176,
+          "import_seconds": 18.285359803,
+          "selection_seconds": 18.430571732,
+          "initial_ui_seconds": 22.570299433,
+          "initial_js_heap_bytes": 4334828,
+          "observed_peak_js_heap_bytes": 59184684,
+          "retained_js_heap_bytes": 45396548,
+          "peak_server_rss_bytes": 802918400
+        }
+      },
+      {
+        "kind": "large_history",
+        "implementation": "after",
+        "repetition": 2,
+        "api": {
+          "seconds": 14.037467078996997,
+          "response_bytes": 5820,
+          "summary": true,
+          "peak_server_rss_bytes": 781107200
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5824,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 50416168,
+          "import_seconds": 14.27592136,
+          "selection_seconds": 14.488996015000001,
+          "initial_ui_seconds": 18.263417865,
+          "initial_js_heap_bytes": 4375548,
+          "observed_peak_js_heap_bytes": 27432924,
+          "retained_js_heap_bytes": 25676476,
+          "peak_server_rss_bytes": 803397632
+        }
+      },
+      {
+        "kind": "large_document",
+        "implementation": "before",
+        "repetition": 0,
+        "api": {
+          "seconds": 34.01890038899728,
+          "response_bytes": 138336130,
+          "summary": false,
+          "peak_server_rss_bytes": 1358639104
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 138336162,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 138336162,
+          "import_seconds": 34.057799759,
+          "selection_seconds": 34.265739586,
+          "initial_ui_seconds": 37.22418132400001,
+          "initial_js_heap_bytes": 4402916,
+          "observed_peak_js_heap_bytes": 286438440,
+          "retained_js_heap_bytes": 274784068,
+          "peak_server_rss_bytes": 1362141184
+        }
+      },
+      {
+        "kind": "large_document",
+        "implementation": "after",
+        "repetition": 0,
+        "api": {
+          "seconds": 27.266672928992193,
+          "response_bytes": 5821,
+          "summary": true,
+          "peak_server_rss_bytes": 1359110144
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5825,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 138336154,
+          "import_seconds": 27.05817303,
+          "selection_seconds": 27.556050798,
+          "initial_ui_seconds": 29.711765687,
+          "initial_js_heap_bytes": 4380004,
+          "observed_peak_js_heap_bytes": 152340276,
+          "retained_js_heap_bytes": 140361684,
+          "peak_server_rss_bytes": 1362919424
+        }
+      },
+      {
+        "kind": "large_document",
+        "implementation": "after",
+        "repetition": 1,
+        "api": {
+          "seconds": 26.743307762997574,
+          "response_bytes": 5821,
+          "summary": true,
+          "peak_server_rss_bytes": 1358659584
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5825,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 138336154,
+          "import_seconds": 26.672057807,
+          "selection_seconds": 27.153750129,
+          "initial_ui_seconds": 29.705829727,
+          "initial_js_heap_bytes": 4351408,
+          "observed_peak_js_heap_bytes": 156394708,
+          "retained_js_heap_bytes": 140346436,
+          "peak_server_rss_bytes": 1360797696
+        }
+      },
+      {
+        "kind": "large_document",
+        "implementation": "before",
+        "repetition": 1,
+        "api": {
+          "seconds": 34.368703396990895,
+          "response_bytes": 138336130,
+          "summary": false,
+          "peak_server_rss_bytes": 1358761984
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 138336162,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 138336162,
+          "import_seconds": 35.804265068,
+          "selection_seconds": 36.315368404,
+          "initial_ui_seconds": 39.506412759999996,
+          "initial_js_heap_bytes": 4308212,
+          "observed_peak_js_heap_bytes": 292803956,
+          "retained_js_heap_bytes": 274704856,
+          "peak_server_rss_bytes": 1361612800
+        }
+      },
+      {
+        "kind": "large_document",
+        "implementation": "before",
+        "repetition": 2,
+        "api": {
+          "seconds": 34.906838181006606,
+          "response_bytes": 138336130,
+          "summary": false,
+          "peak_server_rss_bytes": 1358745600
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 138336162,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 138336162,
+          "import_seconds": 33.683649212000006,
+          "selection_seconds": 34.18733222600001,
+          "initial_ui_seconds": 37.186429199,
+          "initial_js_heap_bytes": 4304596,
+          "observed_peak_js_heap_bytes": 287180380,
+          "retained_js_heap_bytes": 274709064,
+          "peak_server_rss_bytes": 1361694720
+        }
+      },
+      {
+        "kind": "large_document",
+        "implementation": "after",
+        "repetition": 2,
+        "api": {
+          "seconds": 27.10281191598915,
+          "response_bytes": 5821,
+          "summary": true,
+          "peak_server_rss_bytes": 1358770176
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5825,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 138336154,
+          "import_seconds": 25.934293362,
+          "selection_seconds": 26.039894421999996,
+          "initial_ui_seconds": 28.686105152,
+          "initial_js_heap_bytes": 4444632,
+          "observed_peak_js_heap_bytes": 156422572,
+          "retained_js_heap_bytes": 140404436,
+          "peak_server_rss_bytes": 1361084416
+        }
+      },
+      {
+        "kind": "ordinary",
+        "implementation": "before",
+        "repetition": 0,
+        "api": {
+          "seconds": 4.525216314999852,
+          "response_bytes": 7216056,
+          "summary": false,
+          "peak_server_rss_bytes": 315138048
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 7216088,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 7216088,
+          "import_seconds": 4.639657758,
+          "selection_seconds": 4.900459056,
+          "initial_ui_seconds": 5.697214557000001,
+          "initial_js_heap_bytes": 4345144,
+          "observed_peak_js_heap_bytes": 17252460,
+          "retained_js_heap_bytes": 12485544,
+          "peak_server_rss_bytes": 318173184
+        }
+      },
+      {
+        "kind": "ordinary",
+        "implementation": "after",
+        "repetition": 0,
+        "api": {
+          "seconds": 3.4014420859894017,
+          "response_bytes": 5805,
+          "summary": true,
+          "peak_server_rss_bytes": 312422400
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5809,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 7216080,
+          "import_seconds": 3.704986886,
+          "selection_seconds": 3.8597262459999997,
+          "initial_ui_seconds": 4.837212106999999,
+          "initial_js_heap_bytes": 4379224,
+          "observed_peak_js_heap_bytes": 12238844,
+          "retained_js_heap_bytes": 9224816,
+          "peak_server_rss_bytes": 318091264
+        }
+      },
+      {
+        "kind": "ordinary",
+        "implementation": "after",
+        "repetition": 1,
+        "api": {
+          "seconds": 3.4016339179943316,
+          "response_bytes": 5805,
+          "summary": true,
+          "peak_server_rss_bytes": 315338752
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5809,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 7216080,
+          "import_seconds": 3.527277062,
+          "selection_seconds": 3.8532642089999998,
+          "initial_ui_seconds": 4.620976336000001,
+          "initial_js_heap_bytes": 4446224,
+          "observed_peak_js_heap_bytes": 16301420,
+          "retained_js_heap_bytes": 9300948,
+          "peak_server_rss_bytes": 317636608
+        }
+      },
+      {
+        "kind": "ordinary",
+        "implementation": "before",
+        "repetition": 1,
+        "api": {
+          "seconds": 4.2363181469991105,
+          "response_bytes": 7216056,
+          "summary": false,
+          "peak_server_rss_bytes": 315518976
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 7216088,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 7216088,
+          "import_seconds": 4.4451494689999995,
+          "selection_seconds": 4.949427223000001,
+          "initial_ui_seconds": 5.443009158000001,
+          "initial_js_heap_bytes": 4334172,
+          "observed_peak_js_heap_bytes": 19042088,
+          "retained_js_heap_bytes": 12475488,
+          "peak_server_rss_bytes": 318083072
+        }
+      },
+      {
+        "kind": "ordinary",
+        "implementation": "before",
+        "repetition": 2,
+        "api": {
+          "seconds": 4.405826326008537,
+          "response_bytes": 7216056,
+          "summary": false,
+          "peak_server_rss_bytes": 315367424
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 7216088,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 7216088,
+          "import_seconds": 4.98555567,
+          "selection_seconds": 5.406443411000001,
+          "initial_ui_seconds": 5.9960807890000005,
+          "initial_js_heap_bytes": 4305212,
+          "observed_peak_js_heap_bytes": 20771672,
+          "retained_js_heap_bytes": 12455840,
+          "peak_server_rss_bytes": 316424192
+        }
+      },
+      {
+        "kind": "ordinary",
+        "implementation": "after",
+        "repetition": 2,
+        "api": {
+          "seconds": 3.3801324930100236,
+          "response_bytes": 5805,
+          "summary": true,
+          "peak_server_rss_bytes": 315170816
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5809,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 7216080,
+          "import_seconds": 3.823208686,
+          "selection_seconds": 3.8755150969999996,
+          "initial_ui_seconds": 4.921211165,
+          "initial_js_heap_bytes": 4455332,
+          "observed_peak_js_heap_bytes": 12397292,
+          "retained_js_heap_bytes": 9314772,
+          "peak_server_rss_bytes": 319455232
+        }
+      },
+      {
+        "kind": "large_history",
+        "implementation": "after",
+        "repetition": 0,
+        "api": {
+          "seconds": 13.986977687003673,
+          "response_bytes": 5820,
+          "summary": true,
+          "peak_server_rss_bytes": 794951680
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5824,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 50416168,
+          "import_seconds": 14.45503266,
+          "selection_seconds": 14.920262150000001,
+          "initial_ui_seconds": 18.584133956000002,
+          "initial_js_heap_bytes": 4386780,
+          "observed_peak_js_heap_bytes": 27578428,
+          "retained_js_heap_bytes": 25707332,
+          "peak_server_rss_bytes": 804405248
+        }
+      },
+      {
+        "kind": "large_history",
+        "implementation": "after",
+        "repetition": 1,
+        "api": {
+          "seconds": 14.077241503007826,
+          "response_bytes": 5820,
+          "summary": true,
+          "peak_server_rss_bytes": 781361152
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 5824,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 50416168,
+          "import_seconds": 14.254503754,
+          "selection_seconds": 14.410426532999999,
+          "initial_ui_seconds": 18.374174565,
+          "initial_js_heap_bytes": 4372780,
+          "observed_peak_js_heap_bytes": 27294080,
+          "retained_js_heap_bytes": 25673856,
+          "peak_server_rss_bytes": 804515840
+        }
+      },
+      {
+        "kind": "large_history",
+        "implementation": "before",
+        "repetition": 1,
+        "api": {
+          "seconds": 17.707797504001064,
+          "response_bytes": 50416144,
+          "summary": false,
+          "peak_server_rss_bytes": 781156352
+        },
+        "browser": {
+          "browser": "154.0.8037.57",
+          "import_response_bytes": 50416176,
+          "full_detail_requests": 1,
+          "detail_response_bytes": 50416176,
+          "import_seconds": 18.39783648,
+          "selection_seconds": 18.528435136999995,
+          "initial_ui_seconds": 22.863182827999996,
+          "initial_js_heap_bytes": 4344428,
+          "observed_peak_js_heap_bytes": 58882052,
+          "retained_js_heap_bytes": 45402484,
+          "peak_server_rss_bytes": 804921344
+        }
+      }
+    ],
+    "concurrent_training": [
+      {
+        "implementation": "control",
+        "repetition": 0,
+        "training": {
+          "seconds": 2.1227434409956913,
+          "iterations": 40,
+          "iterations_per_second": 18.84353955711089
+        },
+        "import": null
+      },
+      {
+        "implementation": "before",
+        "repetition": 0,
+        "training": {
+          "seconds": 2.213208326997119,
+          "iterations": 40,
+          "iterations_per_second": 18.073309914874574
+        },
+        "import": {
+          "seconds": 4.498278282000683,
+          "response_bytes": 7216080,
+          "summary": false
+        }
+      },
+      {
+        "implementation": "after",
+        "repetition": 0,
+        "training": {
+          "seconds": 2.2563556359964423,
+          "iterations": 40,
+          "iterations_per_second": 17.727701857750525
+        },
+        "import": {
+          "seconds": 3.507796711011906,
+          "response_bytes": 5808,
+          "summary": true
+        }
+      },
+      {
+        "implementation": "after",
+        "repetition": 1,
+        "training": {
+          "seconds": 2.1926162839954486,
+          "iterations": 40,
+          "iterations_per_second": 18.243046123469835
+        },
+        "import": {
+          "seconds": 3.5078806699893903,
+          "response_bytes": 5808,
+          "summary": true
+        }
+      },
+      {
+        "implementation": "before",
+        "repetition": 1,
+        "training": {
+          "seconds": 2.1872665580012836,
+          "iterations": 40,
+          "iterations_per_second": 18.287665878525505
+        },
+        "import": {
+          "seconds": 4.298722353007179,
+          "response_bytes": 7216080,
+          "summary": false
+        }
+      },
+      {
+        "implementation": "control",
+        "repetition": 1,
+        "training": {
+          "seconds": 2.0970490949985106,
+          "iterations": 40,
+          "iterations_per_second": 19.074422289588032
+        },
+        "import": null
+      },
+      {
+        "implementation": "control",
+        "repetition": 2,
+        "training": {
+          "seconds": 2.113079923990881,
+          "iterations": 40,
+          "iterations_per_second": 18.929714652938333
+        },
+        "import": null
+      },
+      {
+        "implementation": "before",
+        "repetition": 2,
+        "training": {
+          "seconds": 2.17651831600233,
+          "iterations": 40,
+          "iterations_per_second": 18.377975368233557
+        },
+        "import": {
+          "seconds": 4.521530220998102,
+          "response_bytes": 7216080,
+          "summary": false
+        }
+      },
+      {
+        "implementation": "after",
+        "repetition": 2,
+        "training": {
+          "seconds": 2.1447337199933827,
+          "iterations": 40,
+          "iterations_per_second": 18.650333897917832
+        },
+        "import": {
+          "seconds": 3.5688998800033005,
+          "response_bytes": 5808,
+          "summary": true
+        }
+      }
+    ]
+  }
+}

@@ -29,6 +29,11 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
       { timeout: 30000 },
     )
     .toBe('completed');
+  const saved = await (await request.get(`${api}/training/jobs/${source.id}`)).json();
+  const modelName = `Searchable model association ${info.project.name}`;
+  expect(
+    (await request.patch(`${api}/models/${saved.model_id}`, { data: { name: modelName } })).ok(),
+  ).toBe(true);
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
@@ -40,7 +45,7 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
   const archive = await readFile((await download.path())!);
   expect(archive.subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
   const importing = page.waitForResponse((response) =>
-    response.url().endsWith('/api/training/jobs/import'),
+    response.url().endsWith('/api/training/jobs/import?summary=true'),
   );
   let releaseHistory!: () => void;
   const historyGate = new Promise<void>((resolve) => {
@@ -81,6 +86,17 @@ test('exports, imports and resumes a real CPU job through the workshop', async (
     page.getByText('Job imported. Review its history or resume from its full checkpoint.'),
   ).toBeVisible();
   await expect(page.locator(`.model-card[data-model-id="${imported.model_id}"]`)).toHaveCount(1);
+  const navigation = page.locator('.job-navigation-options');
+  if ((await navigation.getAttribute('open')) === null) await navigation.locator('summary').click();
+  await page.getByLabel('Search jobs', { exact: true }).fill(modelName);
+  // Mobile renders the filtered jobs through the selector and hides the cards.
+  await expect(page.locator(`.job-row[data-job-id="${imported.id}"]`)).toHaveCount(1);
+  await page
+    .getByLabel('Search jobs', { exact: true })
+    .fill('Unrelated model without associations');
+  await expect(page.locator('.job-row')).toHaveCount(0);
+  await page.getByLabel('Search jobs', { exact: true }).fill('');
+  expect(historyRequests).toBe(1);
   await page.getByRole('button', { name: 'Resume from checkpoint', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Resume training', exact: true });
   await expect(dialog.getByRole('spinbutton', { name: 'Target total iterations' })).toHaveValue(

@@ -415,9 +415,10 @@ multipart parsing and returns 409 when busy, retaining capacity through cleanup
 and streaming. Imported file reports supply bounded cached navigator summaries
 while distinct database histories survive re-export. Schemas 1/2 ZIP imports
 retain their guards and are checked against complete historical applications.
-Import responses default to compact summaries; the selected job uses the existing
-deduplicated detail loader and localized history-loading state. Explicit
-`?summary=false` retains the full import response for older API consumers.
+Import responses retain the full-job API default. The workshop explicitly requests
+`?summary=true` and uses the existing deduplicated detail loader and localized
+history-loading state. Navigator projections preserve loaded nested analysis and
+history while updating monitoring fields; retained model IDs remain searchable.
 The format-2 study layout still consolidates contributing sibling UUID jobs and a portable
 source checkpoint into a fresh owning job on import. All paths, checksums, tensor
 payloads and SQLite schema are validated before publication; format-1 import and

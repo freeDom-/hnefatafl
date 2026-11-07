@@ -47,10 +47,8 @@ def job_record(client, *, identifier="a" * 32, status="completed", **extra):
 
 
 def upload(client, content, *, summary=False):
-    # Historical full-response assertions exercise the explicit compatibility
-    # option. UI/default-summary behavior has separate endpoint/browser coverage.
     return client.post(
-        "/api/training/jobs/import" + ("" if summary else "?summary=false"),
+        "/api/training/jobs/import" + ("?summary=true" if summary else ""),
         files={"file": ("job.zip", content, "application/zip")},
     )
 

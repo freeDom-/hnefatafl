@@ -383,9 +383,13 @@ def job_summary(job: dict) -> dict:
             "total_iterations",
             "self_play_games",
             "games_generated",
+            "best_models",
         ):
             if key not in progress and key in saved:
-                progress[key] = saved[key]
+                value = saved[key]
+                if key == "best_models":
+                    value = imported_report_summary({key: value}).get(key, [])
+                progress[key] = value
     registered = saved.get("model") if isinstance(saved, dict) else None
     if isinstance(registered, dict) and registered.get("id"):
         result["model_id"] = registered["id"]
@@ -404,8 +408,9 @@ def imported_job_summary(job: dict) -> dict:
 def imported_report_summary(report: dict) -> dict:
     """Cache navigator fields once at import; full reports remain separate artifacts.
 
-    Only scalar counters and small scalar maps belong here. In particular, an
-    unfamiliar list/diagnostic must never copy another full history into SQLite.
+    Scalar counters/maps have a 32 KiB budget. Retained model associations carry
+    only unique 24-character IDs, bounded by the archive's 2,048-member ceiling;
+    no unfamiliar list/diagnostic can copy another full history into SQLite.
     """
     keys = (
         *_HEARTBEAT_KEYS,
@@ -465,4 +470,22 @@ def imported_report_summary(report: dict) -> dict:
                 result[key] = projected
     while len(json.dumps(result, ensure_ascii=False).encode()) > 32 * 1024:
         result.pop(next(reversed(result)))
+    retained = report.get("best_models")
+    if isinstance(retained, list):
+        references = []
+        seen = set()
+        for entry in retained:
+            identifier = entry.get("model_id") if isinstance(entry, dict) else None
+            if (
+                not isinstance(identifier, str)
+                or len(identifier) != 24
+                or any(char not in "0123456789abcdef" for char in identifier)
+                or identifier in seen
+            ):
+                continue
+            seen.add(identifier)
+            references.append({"model_id": identifier})
+            if len(references) == 2048:
+                break
+        result["best_models"] = references
     return result

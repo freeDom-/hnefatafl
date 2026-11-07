@@ -10,19 +10,54 @@ export const finite = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 export const activeJob = (job: Job) =>
   ['running', 'pending', 'queued', 'cancelling'].includes(job.status);
+
+/** Overlay a partial navigator projection without copying or truncating loaded arrays. */
+function mergeSummaryValue(previous: unknown, next: unknown, key?: string): unknown {
+  const old = object(previous);
+  const update = object(next);
+  if (old && update) {
+    // A tuning trial's detail belongs to that trial/run, not its successor.
+    if (
+      key === 'trial_progress' &&
+      ((old.run !== undefined && update.run !== undefined && old.run !== update.run) ||
+        (old.trial !== undefined && update.trial !== undefined && old.trial !== update.trial))
+    )
+      return next;
+    return {
+      ...old,
+      ...Object.fromEntries(
+        Object.entries(update).map(([field, value]) => [
+          field,
+          mergeSummaryValue(old[field], value, field),
+        ]),
+      ),
+    };
+  }
+  if (Array.isArray(previous)) {
+    if (key === 'best_models' && Array.isArray(next)) {
+      const pending = new Map(
+        next
+          .filter((entry) => typeof object(entry)?.model_id === 'string')
+          .map((entry) => [object(entry)?.model_id, entry]),
+      );
+      const retained = previous.map((entry) => {
+        const id = object(entry)?.model_id;
+        const update = pending.get(id);
+        pending.delete(id);
+        return update ? mergeSummaryValue(entry, update) : entry;
+      });
+      return [...retained, ...pending.values()];
+    }
+    return previous;
+  }
+  return next;
+}
+
 export function mergeJobSummary(previous: Job | null, next: Job): Job {
   if (!next.summary || previous?.id !== next.id) return next;
-  const oldProgress = object(previous.progress) ?? {};
-  const progress = object(next.progress) ?? {};
   return {
-    ...previous,
-    ...next,
+    ...(mergeSummaryValue(previous, next) as Job),
     summary: previous.summary === true,
-    progress: {
-      ...oldProgress,
-      ...progress,
-      metrics: { ...object(oldProgress.metrics), ...object(progress.metrics) },
-    },
   };
 }
 export const jobName = (job: Job) =>

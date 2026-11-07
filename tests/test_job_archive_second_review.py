@@ -147,7 +147,7 @@ def test_model_registration_after_snapshot_does_not_change_captured_catalog(clie
     assert [entry["original_id"] for entry in manifest["models"]] == [present["id"]]
 
 
-def test_import_defaults_to_compact_summary_without_reloading_histories(client, monkeypatch):
+def test_explicit_compact_import_avoids_reloading_histories(client, monkeypatch):
     from hnefatafl import job_archives
 
     history = [{"iteration": i, "loss": 1 / (i + 1)} for i in range(1000)]
@@ -164,7 +164,9 @@ def test_import_defaults_to_compact_summary_without_reloading_histories(client, 
 
     with monkeypatch.context() as patch:
         patch.setattr(Path, "read_text", no_published_reports)
-        response = client.post("/api/training/jobs/import", files={"file": ("job.tar.gz", content)})
+        response = client.post(
+            "/api/training/jobs/import?summary=true", files={"file": ("job.tar.gz", content)}
+        )
     assert response.status_code == 201, response.text
     imported = response.json()
     assert imported["summary"] is True and imported["id"] != job["id"]
@@ -185,7 +187,7 @@ def test_legacy_import_summary_retains_resumable_history(client, version):
     from test_job_archive_review import golden_archive
 
     response = client.post(
-        "/api/training/jobs/import",
+        "/api/training/jobs/import?summary=true",
         files={"file": ("legacy.zip", golden_archive(version, "train"))},
     )
     assert response.status_code == 201, response.text
@@ -206,7 +208,8 @@ def test_large_metadata_stays_out_of_import_and_navigator_summaries(client, monk
     assert len(json.dumps(metadata)) > job_archives.MAX_JSON_BYTES
     job, _ = job_record(client, metrics=metadata)
     response = client.post(
-        "/api/training/jobs/import", files={"file": ("job.tar.gz", export(client, job))}
+        "/api/training/jobs/import?summary=true",
+        files={"file": ("job.tar.gz", export(client, job))},
     )
     assert response.status_code == 201, response.text[:1000]
     summary = response.json()

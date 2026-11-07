@@ -503,7 +503,7 @@ export default function Training({
     const body = new FormData();
     body.append('file', file);
     try {
-      const imported = await api<Job>('/training/jobs/import', body);
+      const imported = await api<Job>('/training/jobs/import?summary=true', body);
       refreshRevision.current++;
       selectJob(imported);
       showMonitoring();

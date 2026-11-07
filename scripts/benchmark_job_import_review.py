@@ -218,7 +218,9 @@ def server(args, root, implementation):
 def post_import(client, archive):
     started = time.perf_counter()
     with Path(archive).open("rb") as handle:
-        response = client.post("/api/training/jobs/import", files={"file": ("job.tar.gz", handle)})
+        response = client.post(
+            "/api/training/jobs/import?summary=true", files={"file": ("job.tar.gz", handle)}
+        )
     elapsed = time.perf_counter() - started
     assert response.status_code == 201, response.text[:1000]
     return {

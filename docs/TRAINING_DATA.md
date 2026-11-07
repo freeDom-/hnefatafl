@@ -421,25 +421,38 @@ concurrency and large-history comparisons against the initial schema-3 PR.
 The [second-review measurements](benchmarks/job-archive-second-review.md) compare
 model lifecycle protection, bounded descriptors and real HTTP/browser imports
 against commit `9b58c884`.
+The [final compatibility review](benchmarks/job-archive-final-review.md) repeats
+the large-job HTTP/browser measurements with explicit workshop summary requests.
 
 Schema-3 imports preserve distinct database and file reports. Full job views and
-the explicit full import response read the retained files; navigator summaries use a bounded
+the default full import response read the retained files; navigator summaries use a bounded
 projection cached once at import, without reopening large histories on refresh.
 The cache contains counters and small report/metadata maps, never another full history.
+Retained best-model associations contain only unique model IDs, so the existing
+model-name search works for imported and deduplicated models. Scalar/map projections
+retain their 32 KiB budget; model associations separately retain at most 2,048
+24-character IDs, matching the archive member ceiling. Deleted references do not
+match unrelated catalog models. Full reports keep complete best-model metadata.
 SQLite replaces those imported fields before decoding navigator rows in Python;
 renames and other live job metadata still come from the current row.
 The original database reports remain available for lossless re-export. Genuine
 [historical ZIP fixtures](../tests/fixtures/job_archives/README.md) exercise both
 legacy schemas and full checkpoint resumption.
 
-`POST /api/training/jobs/import` now returns HTTP 201 with a compact job object:
+`POST /api/training/jobs/import` returns HTTP 201 with the complete imported job
+by default, preserving the existing API contract. `?summary=false` explicitly
+selects the same complete response. `?summary=true` returns a compact job object:
 `summary: true`, the new `id`, status, configuration, resume/checkpoint information,
-model association and bounded progress. The workshop immediately selects this
-job and uses its existing on-demand detail loader, showing the localized
+model associations and bounded progress. Both TAR.GZ and legacy ZIP imports use
+the same response selection.
+
+The workshop explicitly requests `POST /api/training/jobs/import?summary=true`,
+immediately selects the job and uses its existing on-demand detail loader, showing the localized
 **Loading history…** state while loading. Pending requests are shared; a completed
-detail is retained through ordinary navigator refreshes. Complete reports remain
-available at `GET /api/training/jobs/{id}`. Clients requiring the previous complete
-import response can explicitly request `POST /api/training/jobs/import?summary=false`.
+detail is retained through ordinary navigator refreshes, including nested metrics,
+evaluation/performance data, tuning metadata and histories. New summary counters,
+status and timestamps still update the selected view. Complete reports remain
+available at `GET /api/training/jobs/{id}`.
 This response optimization changes neither stored histories nor the archive format.
 
 Import validates inventory, checksums, bounded JSON and tensor-only checkpoint

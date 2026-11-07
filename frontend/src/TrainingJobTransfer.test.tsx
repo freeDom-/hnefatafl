@@ -26,7 +26,7 @@ it('uploads a job with a loading state, refreshes models and selects its history
   let finish!: (response: Response) => void;
   let imported = false;
   const fetcher = vi.fn((path: string, init?: RequestInit) => {
-    if (path === '/api/training/jobs/import') {
+    if (path === '/api/training/jobs/import?summary=true') {
       expect(init?.body).toBeInstanceOf(FormData);
       return new Promise<Response>((resolve) => {
         finish = resolve;
@@ -73,7 +73,7 @@ it.each(['en', 'de'])(
     let finish!: (response: Response) => void;
     let imported = false;
     const fetcher = vi.fn((path: string) => {
-      if (path === '/api/training/jobs/import') {
+      if (path === '/api/training/jobs/import?summary=true') {
         imported = true;
         return json(summary);
       }
@@ -123,7 +123,7 @@ it('retains loaded imported detail when the navigator refresh completes afterwar
   let finishList!: (response: Response) => void;
   const summary = { ...job, summary: true };
   const fetcher = vi.fn((path: string) => {
-    if (path === '/api/training/jobs/import') {
+    if (path === '/api/training/jobs/import?summary=true') {
       imported = true;
       return json(summary);
     }
@@ -160,8 +160,10 @@ it('shows archive validation errors without reporting success', async () => {
     'fetch',
     vi.fn((path: string) =>
       json(
-        path.endsWith('/import') ? { detail: 'Job archive checksum mismatch: last.pt.' } : [],
-        !path.endsWith('/import'),
+        path.endsWith('/import?summary=true')
+          ? { detail: 'Job archive checksum mismatch: last.pt.' }
+          : [],
+        !path.endsWith('/import?summary=true'),
       ),
     ),
   );
@@ -265,7 +267,10 @@ it('shows a busy archive retry error and restores the import control', async () 
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) =>
-      json(path.endsWith('/import') ? { detail } : [], !path.endsWith('/import')),
+      json(
+        path.endsWith('/import?summary=true') ? { detail } : [],
+        !path.endsWith('/import?summary=true'),
+      ),
     ),
   );
   render(<Training rulesets={[]} models={[]} onError={error} onModelsChanged={vi.fn()} />);

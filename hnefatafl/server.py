@@ -2227,7 +2227,7 @@ def create_app(
             raise
 
     @app.post("/api/training/jobs/import", status_code=201)
-    def import_training_job(request: Request, file: UploadFile = File(...), summary: bool = True):
+    def import_training_job(request: Request, file: UploadFile = File(...), summary: bool = False):
         with request.state.archive_admission.worker():
             return restore_training_job(file, request.state.archive_admission, summary=summary)
 
