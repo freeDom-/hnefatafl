@@ -584,6 +584,105 @@ it('handles a missing completed-game denominator', () => {
   expect(row.defender_win_rate).toBeUndefined();
 });
 
+it('rejects contradictory count graphs alongside their win rates', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 4, defender_wins: 4, completed_games: 5 } },
+  ]);
+  expect(row.attacker_wins).toBeUndefined();
+  expect(row.defender_wins).toBeUndefined();
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('rejects counts that exceed completed games on both graphs', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 6, defender_wins: 0, completed_games: 5 } },
+  ]);
+  expect(row.attacker_wins).toBeUndefined();
+  expect(row.defender_wins).toBeUndefined();
+  expect(row.attacker_win_rate).toBeUndefined();
+  expect(row.defender_win_rate).toBeUndefined();
+});
+
+it('derives a missing completed total from a complete valid breakdown', () => {
+  const [row] = performanceChartRows([
+    { iteration: 1, performance: { attacker_wins: 3, defender_wins: 2, drawn_games: 1 } },
+  ]);
+  expect(row.attacker_wins).toBe(3);
+  expect(row.defender_wins).toBe(2);
+  expect(row.attacker_win_rate).toBe(0.5);
+  expect(row.defender_win_rate).toBeCloseTo(2 / 6);
+});
+
+it('shows no count or rate point for a contradictory outcome record', () => {
+  render(
+    <TrainingPerformance
+      progress={{
+        history: [
+          { iteration: 1, performance: { attacker_wins: 4, defender_wins: 4, completed_games: 5 } },
+          { iteration: 2, performance: { attacker_wins: 3, defender_wins: 2, completed_games: 5 } },
+        ],
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'attacker_wins' },
+  });
+  expect(pointTitles('Attacker wins')).toEqual(['Iteration 2: 3']);
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'attacker_win_rate' },
+  });
+  expect(pointTitles('Attacker win rate')).toEqual(['Iteration 2: 60%']);
+});
+
+// Nonnegative throughput and game-length metrics.
+
+it('keeps valid zero and positive finite throughput and game-length values', () => {
+  const rows = performanceChartRows([
+    { iteration: 1, performance: { games_per_hour: 0, average_game_length: 0 } },
+    { iteration: 2, performance: { games_per_hour: 120.5, average_game_length: 22.25 } },
+  ]);
+  expect(rows[0].games_per_hour).toBe(0);
+  expect(rows[0].average_game_length).toBe(0);
+  expect(rows[1].games_per_hour).toBe(120.5);
+  expect(rows[1].average_game_length).toBe(22.25);
+});
+
+it('drops negative and non-finite throughput and game-length values', () => {
+  const rows = performanceChartRows([
+    { iteration: 1, performance: { games_per_hour: -1, average_game_length: -2 } },
+    {
+      iteration: 2,
+      performance: { games_per_hour: Number.NaN, average_game_length: Number.POSITIVE_INFINITY },
+    },
+    { iteration: 3, performance: { games_per_hour: 100 } },
+  ]);
+  expect(rows[0].games_per_hour).toBeUndefined();
+  expect(rows[0].average_game_length).toBeUndefined();
+  expect(rows[1].games_per_hour).toBeUndefined();
+  expect(rows[1].average_game_length).toBeUndefined();
+  expect(rows[2].games_per_hour).toBe(100);
+  expect(rows[2].average_game_length).toBeUndefined();
+});
+
+it('does not plot invalid throughput or game-length observations', () => {
+  render(
+    <TrainingPerformance
+      progress={{
+        history: [
+          { iteration: 1, performance: { games_per_hour: -50 } },
+          { iteration: 2, performance: { games_per_hour: 0 } },
+          { iteration: 3, performance: { games_per_hour: 120 } },
+        ],
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Performance metric'), {
+    target: { value: 'games_per_hour' },
+  });
+  expect(pointTitles('Games / hour')).toEqual(['Iteration 2: 0', 'Iteration 3: 120']);
+});
+
 // Finding 3: percentage axis scaling.
 
 it('keeps the percentage axis within 0-100% and zooms in on small rates', () => {

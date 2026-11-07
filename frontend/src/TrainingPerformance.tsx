@@ -85,12 +85,16 @@ const validateOutcomes = (performance: Values): { completed?: number; consistent
   return { completed, consistent };
 };
 
-/** A stored count that fits its valid completed-game denominator, when one exists. */
-const validOutcomeCount = (value: number, performance: Values): boolean => {
-  if (!validCount(value)) return false;
-  const completed = completedGames(performance);
-  return completed === undefined || value <= completed;
-};
+/** A measured metric: finite and never negative. */
+const validNonnegative = (value: number): boolean => finite(value) && value >= 0;
+
+/**
+ * A stored count that participates in a fully consistent outcome breakdown.
+ * Reuses `validateOutcomes` so a count is rejected whenever its row is
+ * contradictory, exactly like the matching win-rate derivation.
+ */
+const validOutcomeCount = (value: number, performance: Values): boolean =>
+  validCount(value) && validateOutcomes(performance).consistent;
 
 /** True when the row carries any stored counter, valid or not. */
 const hasCounters = (performance: Values): boolean =>
@@ -135,8 +139,18 @@ export const performanceMetrics: PerformanceMetric[] = [
     label: 'Neural evaluations / second',
     unit: 'Neural evaluations / second',
   },
-  { key: 'games_per_hour', label: 'Games / hour', unit: 'Games / hour' },
-  { key: 'average_game_length', label: 'Average game length', unit: 'Moves' },
+  {
+    key: 'games_per_hour',
+    label: 'Games / hour',
+    unit: 'Games / hour',
+    valid: validNonnegative,
+  },
+  {
+    key: 'average_game_length',
+    label: 'Average game length',
+    unit: 'Moves',
+    valid: validNonnegative,
+  },
   {
     key: 'attacker_wins',
     label: 'Attacker wins',
