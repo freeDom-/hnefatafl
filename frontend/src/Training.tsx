@@ -39,7 +39,14 @@ import PageHeading from './PageHeading';
 import TrainingJobNavigator from './TrainingJobNavigator';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { availableJobTabs, defaultJobTab, resolveJobTab, type JobTab } from './jobTabs';
-import { activeJob, sortJobs, jobName, jobRuleset, mergeJobSummary } from './trainingDashboardData';
+import {
+  activeJob,
+  sortJobs,
+  jobName,
+  jobRuleset,
+  mergeJobSummary,
+  jobReportIdentityChanged,
+} from './trainingDashboardData';
 import './trainingDashboard.css';
 
 interface ModelUsage {
@@ -219,7 +226,10 @@ export default function Training({
       alive = false;
     };
   }, [deleteModel, usageRevision]);
-  const loadDetails = useCallback((id: string): Promise<void> => {
+  const loadDetails = useCallback(function loadDetails(
+    id: string,
+    retryIdentity = true,
+  ): Promise<void> {
     const pending = detailRequests.current.get(id);
     if (pending && !detailControllers.current.get(id)?.signal.aborted) return pending;
     const revision = refreshRevision.current;
@@ -227,6 +237,7 @@ export default function Training({
     const controller = new AbortController();
     detailControllers.current.set(id, controller);
     requests.current.add(controller);
+    let changedIdentity = false;
     const promise = api<Job>(`/training/jobs/${id}`, undefined, undefined, controller.signal)
       .then((job) => {
         if (
@@ -237,9 +248,21 @@ export default function Training({
           return;
         const latest = summaries.current.get(id);
         const detail =
-          snapshot !== summaryRevision.current && latest ? mergeJobSummary(job, latest) : job;
+          latest &&
+          (snapshot !== summaryRevision.current ||
+            !retryIdentity ||
+            jobReportIdentityChanged(job, latest))
+            ? mergeJobSummary(job, latest)
+            : job;
+        changedIdentity = detail.summary === true;
         setMonitoringObservedAt(performance.now());
-        setSelectedJob((current) => (current?.id === id ? { ...detail, summary: false } : current));
+        setSelectedJob((current) =>
+          current?.id === id ? { ...detail, summary: changedIdentity } : current,
+        );
+        if (changedIdentity && !retryIdentity)
+          onMonitoringError.current(
+            t('The job changed while its history was loading. Refresh the job to try again.'),
+          );
       })
       .catch((error: Error) => {
         if (monitoringMounted.current && !controller.signal.aborted)
@@ -249,6 +272,14 @@ export default function Training({
         requests.current.delete(controller);
         if (detailRequests.current.get(id) === promise) detailRequests.current.delete(id);
         if (detailControllers.current.get(id) === controller) detailControllers.current.delete(id);
+        if (
+          changedIdentity &&
+          retryIdentity &&
+          monitoringMounted.current &&
+          revision === refreshRevision.current &&
+          currentSelection.current?.id === id
+        )
+          return loadDetails(id, false);
       });
     detailRequests.current.set(id, promise);
     return promise;
@@ -322,8 +353,13 @@ export default function Training({
                 : sortJobs(runs)[0];
               return next ? mergeJobSummary(previous, next) : null;
             });
-            const id = currentSelection.current?.id;
-            if (id && runs.find((job) => job.id === id)?.summary) void loadDetails(id);
+            const selected = currentSelection.current;
+            const next = selected && runs.find((job) => job.id === selected.id);
+            if (
+              next?.summary &&
+              (selected?.summary || activeJob(next) || (selected && activeJob(selected)))
+            )
+              void loadDetails(next.id);
           }
         })
         .catch((error: Error) => {
@@ -375,7 +411,7 @@ export default function Training({
       if (id !== selectedJob?.id) controller.abort();
     }
     if (selectedJob?.summary) void loadDetails(selectedJob.id);
-  }, [selectedJob?.id, loadDetails]);
+  }, [selectedJob?.id, selectedJob?.summary, loadDetails]);
   const polling = jobs.some(activeJob) || workers.some((worker) => worker.status !== 'revoked');
   useEffect(() => {
     if (!polling) return;
@@ -498,7 +534,7 @@ export default function Training({
     const body = new FormData();
     body.append('file', file);
     try {
-      const imported = await api<Job>('/training/jobs/import', body);
+      const imported = await api<Job>('/training/jobs/import?summary=true', body);
       refreshRevision.current++;
       selectJob(imported);
       showMonitoring();
@@ -523,7 +559,7 @@ export default function Training({
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
       link.href = url;
-      link.download = `hnefatafl-job-${job.id}.zip`;
+      link.download = `hnefatafl-job-${job.id}.tar.gz`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
@@ -993,7 +1029,7 @@ export default function Training({
             {importingJob ? t('Importing job…') : t('Import job')}
             <input
               type="file"
-              accept=".zip,application/zip"
+              accept=".tar.gz,application/gzip,.zip,application/zip"
               aria-label={t('Import job')}
               disabled={importingJob}
               onChange={(event) => {

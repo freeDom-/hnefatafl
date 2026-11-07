@@ -352,21 +352,141 @@ existing ID, name, rune and references are repaired in place.
 ## Moving data between installations
 
 In **AI Workshop → At the forge**, select an inactive job and choose **Export job**.
-Transfer the ZIP to another computer, open its workshop and choose **Import job**.
+Transfer the `.tar.gz` to another computer, open its workshop and choose **Import job**.
+The file picker also accepts previously exported `.zip` jobs; format is validated
+from the contents, independently of the filename.
 The imported job opens with its configuration, learning graphs, evaluation and
 performance history. Ordinary training inference models join the normal collection for
 games and tournaments; tuning trials retain study-local artifacts without creating
 permanent playable models. Existing jobs and models are kept; repeated imports create
 new job IDs and deduplicate model content, preserving existing catalog names.
 
-The versioned archive contains `manifest.json`, a sanitized SQLite job-record
-snapshot in `job.json`, and available configuration, progress, results, worker logs,
-full/best/inference checkpoints and retained `best/` snapshots. `models/` contains
-associated registered inference copies. The manifest records the format and source
-application versions, original job ID, file sizes and SHA-256 checksums. Unknown
-adjacent files are excluded. Runtime ownership, worker credentials, leases and
-server paths are stripped; logs redact recognized credential assignments and paths.
-Treat archives as private training data and review custom diagnostic log text before sharing.
+New exports use **schema 3**, a deterministic USTAR archive compressed once with
+gzip level 1. Its layout separates bounded metadata from growing histories:
+
+- `manifest.json` identifies the archive/application versions, original job,
+  model associations, logical JSON documents and their ordered chunk references.
+  Every physical member has a byte count and SHA-256 checksum.
+- `job.json` holds the small sanitized job identity/status/timestamps/provenance.
+  The manifest's `job_fields` maps configuration, progress, results, metrics and
+  logs to logical documents named `metadata/<field>.json`.
+- `data/<sha256>.json-part` stores at most 1 MiB of canonical UTF-8 JSON. A logical
+  document's chunks concatenate into the complete JSON text; a boundary may split
+  a UTF-8 character. Equal documents/chunks share one physical copy, including
+  repeated database and file reports. No history is sampled, truncated or rounded.
+- Checkpoints, `best/` snapshots, associated inference copies in `models/`, worker
+  logs and owned tuning databases keep their established artifact names. JSON
+  artifacts such as `config.json`, `progress.json` and `result.json` are logical
+  documents reconstructed under their ordinary filenames during import.
+
+The 16 MiB metadata guard now applies to the manifest and small job record.
+Individual reconstructed JSON documents can use the existing 128 MiB artifact
+budget. This allows thousands of iterations within the documented resource limits.
+Database reports and file reports remain distinct when their contents differ.
+Only known job-owned artifact types are transferred. Runtime ownership, worker
+credentials, leases and server paths are stripped; recognized credential assignments
+and paths in logs are redacted. Tensor values, optimizer/replay/RNG state and
+training precision survive; sanitization and reference rebasing can change a
+checkpoint's serialized metadata/bytes. Treat archives as private training data and
+review custom diagnostic log text before sharing.
+
+Recognized credential values in diagnostic strings and worker logs are replaced
+with `[redacted]`, retaining their assignment labels and ordinary quoting.
+This includes password/token/secret/credential/API-key assignments, JSON-style
+quoted keys, environment assignments, and Bearer/Basic authorization values.
+Single/double quoted values may contain spaces, Unicode, escaped quotes,
+backslashes or newlines; serialized JSON quote escaping is handled too. Simple
+unquoted values end at unescaped whitespace or punctuation. Structured credential
+keys are still removed from metadata, and recognized absolute paths are redacted.
+Portable `job://` references keep their path semantics and use the same credential
+filter, so a reference-looking diagnostic cannot bypass it.
+
+Log sanitization retains state across reads of at most 65,536 characters, without
+buffering complete lines, keys, paths or credential values. Unterminated quoted
+credentials and malformed/deep credential containers fail closed through the rest
+of the log; unknown authorization schemes consume the rest of their header line.
+The cleaned log must still fit the existing artifact byte limit. These are
+heuristics for recognizable scalar assignments/headers, not a general secret
+detector or a complete shell-language parser. Custom labels, unlabeled secrets,
+arbitrary encodings and fragments already leaked by older exports may not be
+recognizable. Credential-like labels can also cause extra redaction. **Archives
+containing arbitrary diagnostics must still be treated as potentially sensitive**;
+review them before sharing. The [security-review measurements](benchmarks/job-archive-security-review.md)
+cover long-log CPU time, bounded working memory and concurrent training.
+
+Inactive job files and a consistent SQLite study backup are pinned under
+lifecycle/catalog locks. Model references are then discovered from metadata,
+reports and checkpoints outside those locks; only the required registered models
+are pinned under the registry lock. The initial snapshot retains the atomically
+replaced catalog index without decoding it under global locks. If a referenced
+model present in that index disappears before pinning, export fails with HTTP 409
+and an actionable retry message. Optional models absent before capture remain
+historical references; frozen opponents remain mandatory and content-validated.
+Cross-filesystem snapshots stage private hard links on the source filesystem,
+outside deletable job directories, and copy after releasing the locks. This keeps
+descriptor use bounded even with more than 1,000 artifacts. A filesystem unable
+to establish those safe pins fails explicitly rather than reading mutable paths
+later. Serialization, study migration
+and compression use FastAPI's existing request thread pool. Normal training and
+persistence do not change.
+The server admits one archive operation at a time, before parsing an import's
+multipart body. Competing imports and exports receive HTTP 409 with a retry
+message and `Retry-After` header, without staging another upload or waiting in a
+request-worker queue. Existing upload and multipart size limits still apply.
+Capacity remains reserved through response streaming and until an abandoned
+worker finishes cleaning up. Snapshot files, upload spools and partial archives
+are cleaned up on failure or cancellation; downloads remove their temporary
+output even after a disconnect. Decompression and validation also run outside
+lifecycle locks; publication remains transactional under the existing locks.
+The existing loading indicators stay active until the request finishes.
+See the [archive benchmarks](benchmarks/job-archives.md) for measured tradeoffs
+and the [review benchmarks](benchmarks/job-archive-review.md) for catalog,
+concurrency and large-history comparisons against the initial schema-3 PR.
+The [second-review measurements](benchmarks/job-archive-second-review.md) compare
+model lifecycle protection, bounded descriptors and real HTTP/browser imports
+against commit `9b58c884`.
+The [final compatibility review](benchmarks/job-archive-final-review.md) repeats
+the large-job HTTP/browser measurements with explicit workshop summary requests.
+
+Schema-3 imports preserve distinct database and file reports. Full job views and
+the default full import response read the retained files; navigator summaries use a bounded
+projection cached once at import, without reopening large histories on refresh.
+The cache contains counters and small report/metadata maps, never another full history.
+Retained best-model associations contain only unique model IDs, so the existing
+model-name search works for imported and deduplicated models. Scalar/map projections
+retain their 32 KiB budget; model associations separately retain at most 2,048
+24-character IDs, matching the archive member ceiling. Deleted references do not
+match unrelated catalog models. Full reports keep complete best-model metadata.
+SQLite replaces those imported fields before decoding navigator rows in Python;
+renames and other live job metadata still come from the current row.
+The original database reports remain available for lossless re-export. Genuine
+[historical ZIP fixtures](../tests/fixtures/job_archives/README.md) exercise both
+legacy schemas and full checkpoint resumption.
+
+`POST /api/training/jobs/import` returns HTTP 201 with the complete imported job
+by default, preserving the existing API contract. `?summary=false` explicitly
+selects the same complete response. `?summary=true` returns a compact job object:
+`summary: true`, the new `id`, status, configuration, resume/checkpoint information,
+model associations and bounded progress. Both TAR.GZ and legacy ZIP imports use
+the same response selection.
+
+The workshop explicitly requests `POST /api/training/jobs/import?summary=true`,
+immediately selects the job and uses its existing on-demand detail loader, showing the localized
+**Loading history…** state while loading. Pending requests are shared; a completed
+detail is retained through ordinary navigator refreshes, including nested metrics,
+evaluation/performance data, tuning metadata and histories. New summary counters,
+status and timestamps still update the selected view. Complete reports remain
+available at `GET /api/training/jobs/{id}`.
+Run and model identities define which detail can be retained: missing run IDs are
+legacy-compatible only when both reports lack them; one-sided/different IDs replace
+run-specific reports. Known trial changes replace only the trial snapshot, keeping
+cumulative study history. Compact imported reports reserve run/trial/model IDs
+before optional diagnostics use their existing budget. Same-ID model projections
+keep omitted attributes; changed, unknown or removed models cannot inherit another
+model's name/path. A detail response from a former identity triggers at most one
+immediate retry through the existing loader. Continued identity churn leaves the
+loading state and a localized refresh error, rather than mixed history.
+This response optimization changes neither stored histories nor the archive format.
 
 Import validates inventory, checksums, bounded JSON and tensor-only checkpoint
 compatibility in staging, then registers models, publishes a fresh job directory
@@ -391,7 +511,7 @@ by a successful migration.
 
 ### Optimization studies and archive limits
 
-Format **2** tuning archives consolidate a single persistent `study.sqlite3`
+Schema **3** retains the format-2 tuning layout: archives consolidate a single persistent `study.sqlite3`
 and globally numbered `trial-N/` folders from **every contributing job** in the
 same owned job store. `study-artifacts.json` records the original database owner,
 contributing jobs and each trial's selected/full/final checkpoint references.
@@ -423,9 +543,9 @@ Ambiguous legacy studies can be imported for inspection/export, but cannot acqui
 compatibility from the new requested configuration. Legacy frozen-opponent archives
 need reliable saved content pins to pass dependency validation; absent pins must
 not be inferred from whichever model is currently registered. Formats 1 and 2
-remain supported with that evidence.
+remain importable with that evidence.
 
-For example, export the most recent inactive resumed study job, import its ZIP,
+For example, export the most recent inactive resumed study job, import its TAR.GZ,
 select **Resume study** to add comparable trials, or **Continue winning trial**
 to create ordinary training from its full objective checkpoint. The original jobs
 are untouched; the imported job owns the consolidated artifacts and later resumed
@@ -437,22 +557,35 @@ keeps its source dependency explicitly for repeated comparable branching.
 
 Only inactive jobs can be transferred. Remote jobs include artifacts already
 uploaded to the server, not unuploaded worker-private files; their original worker
-need not exist on the destination. Limits are 512 MiB per ZIP, 1 GiB extracted,
-2,048 files, 128 MiB per artifact, 16 MiB per JSON document and a 200:1 decompression
-ratio. Exports use stored ZIP entries so repetitive tensor buffers stay within that
-ratio. Unsafe paths, symlinks, duplicate/conflicting entries and unknown artifact
-types are rejected. Missing optional files are allowed; unsafe/incompatible files
-that are present are rejected rather than silently discarded.
+need not exist on the destination. Limits are 512 MiB uploaded/compressed,
+1 GiB of physical extracted files **and** 1 GiB of reconstructed logical data,
+2,048 physical members, 128 MiB per artifact/logical JSON document, and 16 MiB
+per manifest or small job record. JSON nesting, field/list counts and string sizes
+also remain bounded. Deduplicated references count in full toward the logical
+size budget, so repeated chunks cannot bypass it. TAR parsing bounds the entire
+decompressed stream, including headers and trailing padding. A compression-ratio
+limit would reject legitimate repetitive histories/tensors; TAR.GZ therefore uses
+these absolute byte/count bounds. Legacy ZIP imports retain their 16 MiB per-JSON
+and 200:1 per-entry ratio guards.
 
-Format **2** (with backward import support for format **1**) is independent of application version, but the destination must support
-its checkpoint architecture, training settings and (for tuning) Optuna schema 12.
-Future unsupported formats/configurations are rejected; do not bypass safe loading
-or rename an arbitrary ZIP to import it. No database-schema migration is needed.
+Imports manually copy regular members into isolated staging; they never call
+`extractall`. Unsafe paths, symlinks, hard links, devices, directories, sparse and
+extended TAR headers, encrypted ZIPs, duplicate/conflicting members, invalid JSON,
+checksum failures and unknown artifact types are rejected. Missing optional files
+are allowed; unsafe/incompatible files that are present are rejected explicitly.
+The writer uses only ordinary USTAR files, so extended TAR headers are unnecessary.
+
+Schema **3** is independent of application version, but older applications cannot
+read it. This importer also accepts legacy ZIP schemas **1** and **2**. The
+destination must support the checkpoint architecture, training settings and
+(for tuning) Optuna schema 12. Future unsupported schemas/configurations are
+rejected; renaming an arbitrary file does not make it an archive. No database
+schema or remote-worker protocol migration is needed.
 
 | Goal | Supported approach | What it preserves |
 | --- | --- | --- |
 | Play an existing model elsewhere | Export/import a compact model through UI or CLI | Weights and embedded provenance; no job or optimizer/replay state |
-| Move a web training job to another installation | Export/import its job ZIP in the workshop | Registered job, available history/checkpoints/models, full-state resumption when available |
+| Move a web training job to another installation | Export/import its job TAR.GZ in the workshop (legacy ZIP imports supported) | Registered job, available history/checkpoints/models, full-state resumption when available |
 | Continue training headlessly elsewhere | Copy a validated full `last.pt`; resume with a matching JSON config in a new CLI directory | Learning state; no automatic web-job registration |
 | Relocate an entire installation | Consistently back up/restore the whole data root with compatible code | All SQLite records, identities and owned model/job files |
 
@@ -503,7 +636,7 @@ writers and pause the timeout gate before maintenance; inspect it before resumin
 ## Troubleshooting retained data
 
 - **Directory exists, job missing:** the SQLite jobs registry was not moved, or the
-  run was CLI-only. Use a job ZIP exported from the original installation, model import or CLI resume; folders are not scanned automatically.
+  run was CLI-only. Use a job archive exported from the original installation, model import or CLI resume; folders are not scanned automatically.
 - **Model plays but Resume is unavailable:** an inference export has no full state,
   the source job was deleted, its `last.pt` is missing/unsafe, or the job is active.
 - **Resume starts later than a selected model:** model-card Resume uses the source
@@ -534,7 +667,7 @@ Counters publish during self-play and persist in normal, cancelled and failed
 full checkpoints. A resumed execution starts a new job counter from zero; it
 does not add the source job's local contribution again. Model-selection snapshots
 capture counters alongside their weights. Best-model exports keep that snapshot's
-count rather than the final job total. Job ZIP migration and inference exports
+count rather than the final job total. Job archive migration and inference exports
 preserve recorded metadata; an old full checkpoint's actual cumulative counter is
 also retained when exported as an inference model. Remote progress and validated
 artifacts carry the same optional fields. Tensor format and database schema remain

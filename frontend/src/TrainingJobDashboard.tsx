@@ -243,8 +243,10 @@ export default function TrainingJobDashboard({
         aria-labelledby={`${id}-tab-${tab}`}
         tabIndex={0}
         className="training-analysis-panel"
+        aria-busy={job.summary || undefined}
       >
-        {!['Overview', 'Details', 'Tuning results'].includes(tab) && (
+        {job.summary && <p role="status">{t('Loading history…')}</p>}
+        {!job.summary && !['Overview', 'Details', 'Tuning results'].includes(tab) && (
           <label className="training-range">
             {t('Iteration range')}
             <select
@@ -261,10 +263,10 @@ export default function TrainingJobDashboard({
             </select>
           </label>
         )}
-        {tab === 'Overview' && (
+        {!job.summary && tab === 'Overview' && (
           <TrainingJobOverview job={job} progress={progress} history={history} />
         )}
-        {tab === 'Learning' && (
+        {!job.summary && tab === 'Learning' && (
           <TrainingLearningView
             progress={progress}
             history={history}
@@ -272,13 +274,13 @@ export default function TrainingJobDashboard({
             range={range}
           />
         )}
-        {tab === 'Evaluation' && (
+        {!job.summary && tab === 'Evaluation' && (
           <TrainingEvaluationView progress={progress} history={rangedHistory} range={0} />
         )}
-        {tab === 'Performance' && (
+        {!job.summary && tab === 'Performance' && (
           <TrainingPerformance progress={{ ...progress, history: rangedHistory }} />
         )}
-        {tab === 'Tuning results' && (
+        {!job.summary && tab === 'Tuning results' && (
           <TrainingTuningView
             job={job}
             progress={progress}
@@ -290,7 +292,7 @@ export default function TrainingJobDashboard({
             onDownloadBestConfig={onDownloadBestConfig}
           />
         )}
-        {tab === 'Details' && <TrainingJobDetails job={job} progress={progress} />}
+        {!job.summary && tab === 'Details' && <TrainingJobDetails job={job} progress={progress} />}
       </section>
     </article>
   );

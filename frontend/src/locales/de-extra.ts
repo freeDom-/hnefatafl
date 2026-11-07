@@ -15,6 +15,8 @@ const translations: Record<string, string> = {
   'Game options': 'Spieloptionen',
   'Read-only history': 'Schreibgeschützter Verlauf',
   'Loading history…': 'Verlauf wird geladen…',
+  'The job changed while its history was loading. Refresh the job to try again.':
+    'Der Auftrag hat sich beim Laden des Verlaufs geändert. Aktualisiere den Auftrag, um es erneut zu versuchen.',
   'Loading running games…': 'Laufende Partien werden geladen…',
   'Some running games could not be loaded.':
     'Einige laufende Partien konnten nicht geladen werden.',

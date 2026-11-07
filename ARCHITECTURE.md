@@ -44,7 +44,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
-| [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded, sanitized job ZIP migration, staged publication and contained Optuna study rebasing |
+| [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
 
@@ -403,7 +403,29 @@ opponents may have different hidden architectures and use independent inference
 models/queues. Optimization results are durable before optional cancellable
 verification; verification status cannot erase the winner.
 
-Format-2 study archives consolidate contributing sibling UUID jobs and a portable
+Schema-3 TAR.GZ archives separate small metadata from shared bounded JSON chunks;
+serialization/compression and import validation run outside lifecycle/catalog locks.
+Inactive files are pinned for consistent snapshots without changing training
+persistence. Only referenced models are pinned after unlocked reference discovery;
+an immutable catalog-index pin distinguishes earlier deletions from races, which
+fail with an actionable retry instead of omitting models. Cross-filesystem source
+hard links survive job deletion without retaining one descriptor per artifact;
+file copies also run outside locks. Archive admission precedes
+multipart parsing and returns 409 when busy, retaining capacity through cleanup
+and streaming. Imported file reports supply bounded cached navigator summaries
+while distinct database histories survive re-export. Schemas 1/2 ZIP imports
+retain their guards and are checked against complete historical applications.
+Import responses retain the full-job API default. The workshop explicitly requests
+`?summary=true` and uses the existing deduplicated detail loader and localized
+history-loading state. Navigator projections preserve loaded nested analysis and
+history while updating monitoring fields; retained model IDs remain searchable.
+Identity fields are reserved before optional imported summary metadata. Trial/run
+changes invalidate only their owned reports, and model attributes never merge
+across different IDs. The existing detail loader coalesces a bounded retry when
+a response belongs to a former identity. Archive log/diagnostic redaction uses a
+stateful bounded scanner across read boundaries, including quoted credentials;
+arbitrary diagnostic data remains potentially sensitive.
+The format-2 study layout still consolidates contributing sibling UUID jobs and a portable
 source checkpoint into a fresh owning job on import. All paths, checksums, tensor
 payloads and SQLite schema are validated before publication; format-1 import and
 historical rankings remain supported. Lifecycle/catalog lock ordering prevents

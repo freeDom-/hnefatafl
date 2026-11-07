@@ -307,7 +307,7 @@ for new claims while existing leases remain valid. There is no global bypass.
 - At claim time, `job.software` freezes `worker` and `server` objects containing
   `package_version`/`git_revision`, plus `version_override_active`. Later heartbeats,
   server updates or claim retries do not rewrite this evidence. It appears in
-  job Details and portable job ZIPs. Legacy jobs have no invented software identity;
+  job Details and portable job archives. Legacy jobs have no invented software identity;
   checkpoint tensor format and model metadata are unchanged.
 
 ### Troubleshooting incompatible workers

@@ -979,15 +979,20 @@ def artifact_name_for_study(name: str) -> bool:
     return artifact_name(name, tuning=True)
 
 
-def copy_study(
-    directory: Path, config: dict, target: Path, *, references: dict | None = None
-) -> None:
+def backup_study(directory: Path, config: dict, target: Path) -> None:
+    """Only the consistent SQLite backup belongs to the snapshot's study lease."""
     source = study_database(directory, config)
     with (
         closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as src,
         closing(sqlite3.connect(target)) as dst,
     ):
         src.backup(dst)
+
+
+def copy_study(
+    directory: Path, config: dict, target: Path, *, references: dict | None = None
+) -> None:
+    backup_study(directory, config, target)
     migrate_study(
         target,
         target.parent,

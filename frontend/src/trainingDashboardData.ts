@@ -10,18 +10,144 @@ export const finite = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 export const activeJob = (job: Job) =>
   ['running', 'pending', 'queued', 'cancelling'].includes(job.status);
+
+// The server's without_live_timing() deliberately omits these between tuning trials.
+const trialLiveFields = new Set([
+  'stage',
+  'phase_started_at',
+  'phase_elapsed',
+  'iteration_started_at',
+  'iteration_elapsed',
+  'active_iteration',
+  'phase_progress',
+  'duration',
+  'updated_at',
+  'last_progress_at',
+  'last_progress_seconds',
+]);
+
+// Match the backend's same_run(): null and missing both mean a legacy run;
+// one-sided missing identifiers cannot establish a shared execution identity.
+const sameRun = (previous: Values, next: Values) => (previous.run ?? null) === (next.run ?? null);
+const trialNumberChanged = (previous?: Values, next?: Values) =>
+  previous?.trial != null && next?.trial != null && previous.trial !== next.trial;
+const trialReportChanged = (previous: Values | undefined, next: Values, parentChanged: boolean) =>
+  !previous ||
+  !sameRun(previous, next) ||
+  trialNumberChanged(previous, next) ||
+  (parentChanged && previous.run == null && next.run == null);
+
+/** Compare report ownership without copying large loaded metadata maps. */
+export function jobReportIdentityChanged(previous: Job, next: Job): boolean {
+  const old = object(previous.progress),
+    update = object(next.progress);
+  if (!update) return false;
+  const tuning = (next.kind ?? previous.kind) === 'tune';
+  if (!tuning && !sameRun(old ?? {}, update)) return true;
+  const trial = object(update.trial_progress);
+  return (
+    !!trial &&
+    trialReportChanged(
+      object(old?.trial_progress),
+      trial,
+      tuning && trialNumberChanged(old, update),
+    )
+  );
+}
+interface SummaryMerge {
+  live: boolean;
+  tuning: boolean;
+  incomplete: boolean;
+  trialChanged: boolean;
+}
+
+/** Overlay partial reports without copying history or crossing identity boundaries. */
+function mergeSummaryValue(
+  previous: unknown,
+  next: unknown,
+  context: SummaryMerge,
+  key?: string,
+): unknown {
+  // Heartbeats publish all counters for the current phase, including an empty map.
+  if (context.live && key === 'phase_progress') return next;
+  const old = object(previous);
+  const update = object(next);
+  // Tuning's outer run follows its active trial; only its child owns trial
+  // history. The study's cumulative history remains at the outer level.
+  if (
+    update &&
+    ((key === 'trial_progress' && trialReportChanged(old, update, context.trialChanged)) ||
+      (key === 'progress' && !context.tuning && !sameRun(old ?? {}, update)))
+  ) {
+    context.incomplete = true;
+    return next;
+  }
+  if (old && update) {
+    // A new model ID must never acquire another model's presentation/path data.
+    if (
+      ('id' in update && old.id !== update.id) ||
+      (key === 'model' &&
+        (typeof old.id !== 'string' || !old.id || typeof update.id !== 'string' || !update.id))
+    )
+      return next;
+    const retained =
+      context.live && key === 'trial_progress'
+        ? Object.fromEntries(
+            Object.entries(old).filter(([field]) => !trialLiveFields.has(field) || field in update),
+          )
+        : old;
+    return {
+      ...retained,
+      ...Object.fromEntries(
+        Object.entries(update).map(([field, value]) => [
+          field,
+          mergeSummaryValue(old[field], value, context, field),
+        ]),
+      ),
+    };
+  }
+  if (Array.isArray(previous)) {
+    if (key === 'best_models' && Array.isArray(next)) {
+      const pending = new Map(
+        next
+          .filter((entry) => typeof object(entry)?.model_id === 'string')
+          .map((entry) => [object(entry)?.model_id, entry]),
+      );
+      const retained = previous.map((entry) => {
+        const id = object(entry)?.model_id;
+        const update = pending.get(id);
+        pending.delete(id);
+        return update ? mergeSummaryValue(entry, update, context) : entry;
+      });
+      return [...retained, ...pending.values()];
+    }
+    return previous;
+  }
+  return next;
+}
+
 export function mergeJobSummary(previous: Job | null, next: Job): Job {
   if (!next.summary || previous?.id !== next.id) return next;
-  const oldProgress = object(previous.progress) ?? {};
-  const progress = object(next.progress) ?? {};
+  const context = {
+    live: activeJob(previous) || activeJob(next),
+    tuning: (next.kind ?? previous.kind) === 'tune',
+    incomplete: previous.summary === true,
+    trialChanged: false,
+  };
+  const oldProgress = object(previous.progress);
+  const progress = object(next.progress);
+  context.trialChanged = context.tuning && trialNumberChanged(oldProgress, progress);
+  // A replacement execution cannot use reports/logs owned by the former run.
+  const retained =
+    !context.tuning && progress && !sameRun(oldProgress ?? {}, progress)
+      ? Object.fromEntries(
+          Object.entries(previous).filter(([key]) => !['metrics', 'result', 'logs'].includes(key)),
+        )
+      : previous;
+  const merged = mergeSummaryValue(retained, next, context) as Job;
   return {
-    ...previous,
-    ...next,
-    progress: {
-      ...oldProgress,
-      ...progress,
-      metrics: { ...object(oldProgress.metrics), ...object(progress.metrics) },
-    },
+    ...merged,
+    summary: context.incomplete,
   };
 }
 export const jobName = (job: Job) =>

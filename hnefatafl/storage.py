@@ -510,6 +510,16 @@ class Store:
             if summary
             else "data"
         )
+        if summary:
+            # New imports retain their full original documents but cache every
+            # large report/metadata projection. Replace those fields in SQLite
+            # before Python decoding; later renames still come from the live row.
+            column = (
+                "CASE WHEN json_type(data, '$._import_reports.metrics')='object' THEN "
+                "json_patch(json_remove(data, '$.progress', '$.result', '$.metrics', "
+                "'$.provenance', '$.software', '$.logs', '$._import_reports'), "
+                "json_extract(data, '$._import_reports')) ELSE " + column + " END"
+            )
         where = (
             f"WHERE json_extract(data, '$.status') IN ({','.join('?' for _ in statuses)})"
             if statuses is not None

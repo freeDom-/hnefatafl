@@ -17,7 +17,7 @@ import re
 import shutil
 import sys
 import tempfile
-from typing import Any, Iterator
+from typing import Any, Iterator, Callable, List
 import zipfile
 
 import torch
@@ -449,6 +449,10 @@ def _registry_lock(path: Path) -> Iterator[None]:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
+class ModelSnapshotChanged(ValueError):
+    """A catalog change prevents exporting the established job snapshot."""
+
+
 class ModelRegistry:
     """Content-addressed local models with atomic metadata and safe imports."""
 
@@ -488,11 +492,17 @@ class ModelRegistry:
             finally:
                 self._in_transaction = False
 
-    def _read_index(self) -> list[dict[str, Any]]:
-        if not self.index_path.exists():
+    def _read_index(self, path: Path | None = None) -> list[dict[str, Any]]:
+        captured = path is not None
+        path = self.index_path if path is None else path
+        if not path.exists():
+            if captured:
+                raise ModelSnapshotChanged(
+                    "Captured model catalog is unavailable. Retry the export."
+                )
             return []
         try:
-            entries = json.loads(self.index_path.read_text(encoding="utf-8"))
+            entries = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise ValueError("Model registry index is unreadable") from error
         if not isinstance(entries, list) or any(
@@ -654,6 +664,70 @@ class ModelRegistry:
         with self._locked():
             entries = self._read_index()
         return [{**entry, "path": str(self.root / f"{entry['id']}.pt")} for entry in entries]
+
+    def pin_index(self, pin: Callable[[Path], Path]) -> Path | None:
+        """Pin the atomically replaced index without decoding the whole catalog."""
+        with self._locked():
+            return pin(self.index_path) if self.index_path.exists() else None
+
+    def pin_entries(
+        self,
+        identifiers: set[str],
+        pin: Callable[[Path], Path],
+        *,
+        snapshot: Path | None | bool = False,
+    ) -> List[dict]:
+        """Read the index once and pin only selected immutable model files.
+
+        Called outside API lifecycle locks. The registry lock prevents deletion
+        between selecting an entry and pinning its inode; the callback must not
+        load/serialize tensors or copy their contents while holding this lock.
+        """
+        # Decode captured metadata outside lifecycle locks. None denotes a catalog
+        # that was empty at capture; False preserves the standalone caller API.
+        if not identifiers:
+            return []
+        captured = self._read_index(snapshot) if isinstance(snapshot, Path) else []
+        expected = (
+            {entry["id"]: entry for entry in captured if entry["id"] in identifiers}
+            if snapshot is not False
+            else None
+        )
+        selected = set(expected) if expected is not None else identifiers
+        if not selected:
+            return []
+        with self._locked():
+            unchanged = False
+            if expected is not None and isinstance(snapshot, Path):
+                try:
+                    captured_stat, current_stat = snapshot.stat(), self.index_path.stat()
+                    unchanged = captured_stat.st_ino != 0 and os.path.samestat(
+                        captured_stat, current_stat
+                    )
+                except OSError:
+                    pass
+            # Publication always replaces the index inode. Reuse captured metadata
+            # when it is still current; decode again only after a catalog change
+            # or when a cross-device copy cannot retain that inode identity.
+            current = (
+                expected
+                if unchanged and expected is not None
+                else {entry["id"]: entry for entry in self._read_index() if entry["id"] in selected}
+            )
+            if expected is not None:
+                if selected - current.keys() or any(
+                    entry.get("weights_sha256") is not None
+                    and entry["weights_sha256"] != current[identifier].get("weights_sha256")
+                    for identifier, entry in expected.items()
+                ):
+                    raise ModelSnapshotChanged(
+                        "A referenced model was deleted or changed during export. "
+                        "Retry the export to use the current model catalog."
+                    )
+            return [
+                {**entry, "path": str(pin(self.root / f"{entry['id']}.pt"))}
+                for entry in (expected if expected is not None else current).values()
+            ]
 
     def get(self, model_id: str) -> dict[str, Any]:
         if not isinstance(model_id, str) or not _MODEL_ID.fullmatch(model_id):

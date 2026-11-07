@@ -362,7 +362,14 @@ def compact_progress(progress: dict) -> dict:
 
 
 def job_summary(job: dict) -> dict:
-    result = {key: value for key, value in job.items() if key not in {"progress", "result", "logs"}}
+    reports = job.get("_import_reports")
+    if job.get("status") in {"completed", "cancelled", "failed"} and isinstance(reports, dict):
+        job = {**job, **reports}
+    result = {
+        key: value
+        for key, value in job.items()
+        if key not in {"progress", "result", "logs", "_import_reports"}
+    }
     if isinstance(job.get("progress"), dict):
         result["progress"] = compact_progress(job["progress"])
     saved = job.get("result")
@@ -370,11 +377,158 @@ def job_summary(job: dict) -> dict:
         # Older completed jobs can retain their counters only in result.json.
         # Preserve the result-then-progress precedence used by the navigator.
         progress = result.setdefault("progress", {})
-        for key in ("self_play_games", "games_generated"):
+        for key in (
+            "iteration",
+            "active_iteration",
+            "total_iterations",
+            "self_play_games",
+            "games_generated",
+            "best_models",
+        ):
             if key not in progress and key in saved:
-                progress[key] = saved[key]
+                value = saved[key]
+                if key == "best_models":
+                    value = imported_report_summary({key: value}).get(key, [])
+                progress[key] = value
     registered = saved.get("model") if isinstance(saved, dict) else None
     if isinstance(registered, dict) and registered.get("id"):
         result["model_id"] = registered["id"]
     result["summary"] = True
+    return result
+
+
+def imported_job_summary(job: dict) -> dict:
+    """Return imported navigator metadata without reopening restored documents."""
+    result = job_summary(job)
+    if isinstance(result.get("error"), str):
+        result["error"] = result["error"][:2000]
+    return result
+
+
+def imported_report_summary(report: dict) -> dict:
+    """Cache navigator fields once at import; full reports remain separate artifacts.
+
+    Scalar counters/maps have a 32 KiB budget. Retained model associations carry
+    only unique 24-character IDs, bounded by the archive's 2,048-member ceiling;
+    no unfamiliar list/diagnostic can copy another full history into SQLite.
+    """
+    keys = (
+        *_HEARTBEAT_KEYS,
+        "trial",
+        "completed_trials",
+        "total_trials",
+        "best_trial",
+        "best_score",
+        "metrics",
+        "model",
+        "performance",
+        "trial_progress",
+    )
+
+    budget = 32 * 1024
+
+    def small(value, depth=0):
+        nonlocal budget
+        if isinstance(value, dict):
+            if depth >= 3 or len(value) > 128:
+                return {}
+            result = {}
+            for key, item in value.items():
+                if (
+                    key in {"history", "self_play", "games"}
+                    or len(key) > 200
+                    or isinstance(item, (list, tuple))
+                ):
+                    continue
+                projected = small(item, depth + 1)
+                if projected is not None:
+                    result[key] = projected
+            return result
+        if (
+            type(value) not in (int, float, bool, type(None), str)
+            or isinstance(value, str)
+            and len(value) > 2000
+        ):
+            return None
+        size = len(json.dumps(value, ensure_ascii=False).encode()) + 205
+        if size > budget:
+            return None
+        budget -= size
+        return value
+
+    def identity(source):
+        projected = {}
+        for key in ("run", "trial", "model"):
+            if key not in source:
+                continue
+            value = source.get(key)
+            if key == "model" and isinstance(value, dict):
+                identifier = value.get("id")
+                saved_id = (
+                    small(identifier) if not isinstance(identifier, (dict, list, tuple)) else None
+                )
+                saved = (
+                    {"id": saved_id}
+                    if "id" in value and (identifier is None or saved_id is not None)
+                    else {}
+                )
+            elif isinstance(value, (dict, list, tuple)):
+                continue
+            else:
+                saved = small(value)
+            if value is None or saved is not None:
+                projected[key] = saved
+        return projected
+
+    # Reserve both identity scopes before optional maps can exhaust the shared
+    # budget. An omitted run ID means a different identity to the UI/backend.
+    identities = identity(report)
+    nested = report.get("trial_progress")
+    if isinstance(nested, dict):
+        identities["trial_progress"] = identity(nested)
+    result = dict(identities)
+    # Identity/counters take precedence over optional metrics within the budget.
+    for key in dict.fromkeys(("iteration", "self_play_games", "games_generated", "model", *keys)):
+        if key in report and not isinstance(report[key], (list, tuple)):
+            value = (
+                {"id": report[key].get("id")}
+                if key == "model" and isinstance(report[key], dict)
+                else report[key]
+            )
+            projected = small(value)
+            if projected is not None:
+                if key in {"model", "trial_progress"} and isinstance(projected, dict):
+                    projected = {**projected, **identities.get(key, {})}
+                result[key] = projected
+    while len(json.dumps(result, ensure_ascii=False).encode()) > 32 * 1024:
+        # Empty nested maps consume serialized space without scalar budget.
+        # Trim optional payloads, never the identities reserved above; those
+        # already fit the budget on their own.
+        key = next(
+            key
+            for key in reversed(result)
+            if key not in identities or result[key] != identities[key]
+        )
+        if key in identities:
+            result[key] = identities[key]
+        else:
+            result.pop(key)
+    retained = report.get("best_models")
+    if isinstance(retained, list):
+        references = []
+        seen = set()
+        for entry in retained:
+            identifier = entry.get("model_id") if isinstance(entry, dict) else None
+            if (
+                not isinstance(identifier, str)
+                or len(identifier) != 24
+                or any(char not in "0123456789abcdef" for char in identifier)
+                or identifier in seen
+            ):
+                continue
+            seen.add(identifier)
+            references.append({"model_id": identifier})
+            if len(references) == 2048:
+                break
+        result["best_models"] = references
     return result
