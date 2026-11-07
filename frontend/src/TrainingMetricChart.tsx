@@ -37,12 +37,37 @@ function markerIndices(rows: HistoryPoint[], key: string, gaps: boolean, all: bo
     return !connectedBefore || !connectedAfter;
   });
 }
+/**
+ * Upper bound of the y axis. Evaluation scores keep a fixed 0-1 scale. A
+ * percentage series never exceeds 100% but still zooms in on small rates, and
+ * falls back to a full scale when every observation is zero so the axis stays
+ * readable. Other metrics keep their data-driven padding.
+ */
+export function chartMaximum(
+  rows: HistoryPoint[],
+  series: ChartSeries[],
+  score: boolean,
+  percent: boolean,
+): number {
+  if (score) return 1;
+  const dataMax = rows.reduce(
+    (max, row) =>
+      series.reduce(
+        (max, item) => (finite(row[item.key]) ? Math.max(max, row[item.key] as number) : max),
+        max,
+      ),
+    0,
+  );
+  if (percent) return dataMax > 0 ? Math.min(1, dataMax * 1.08) : 1;
+  return Math.max(dataMax, 0.001) * 1.08;
+}
 export default memo(function TrainingMetricChart({
   title,
   rows,
   series,
   unit = 'Loss',
   score = false,
+  percent = false,
   gaps = false,
   xLabel = 'Iteration',
   scatter = false,
@@ -52,6 +77,8 @@ export default memo(function TrainingMetricChart({
   series: ChartSeries[];
   unit?: string;
   score?: boolean;
+  /** Format values as percentages without the fixed 0-1 scale that `score` implies. */
+  percent?: boolean;
   gaps?: boolean;
   xLabel?: string;
   scatter?: boolean;
@@ -77,19 +104,8 @@ export default memo(function TrainingMetricChart({
   const lastIteration = rows.at(-1)?.iteration ?? minIteration;
   const maxIteration = lastIteration > minIteration ? lastIteration : minIteration + 1;
   const maximum = useMemo(
-    () =>
-      score
-        ? 1
-        : rows.reduce(
-            (max, row) =>
-              series.reduce(
-                (max, item) =>
-                  finite(row[item.key]) ? Math.max(max, row[item.key] as number) : max,
-                max,
-              ),
-            0.001,
-          ) * 1.08,
-    [rows, series, score],
+    () => chartMaximum(rows, series, score, percent),
+    [rows, series, score, percent],
   );
   const hasData = rows.some((row) => series.some((item) => finite(row[item.key])));
   const x = (value: number) =>
@@ -102,7 +118,7 @@ export default memo(function TrainingMetricChart({
           ...(typeof value === 'number' && value !== 0 && Math.abs(value) < 0.0001 && !precise
             ? { notation: 'scientific' as const }
             : {}),
-          ...(score ? { style: 'percent' as const } : {}),
+          ...(score || percent ? { style: 'percent' as const } : {}),
         }).format(value)
       : '—';
   const paths = useMemo(

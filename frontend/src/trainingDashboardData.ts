@@ -155,12 +155,24 @@ export const jobProgress = (job: Job) => {
   return trial ? { ...saved, ...trial } : saved;
 };
 export const latestMetrics = (progress: Values) => object(progress.metrics) ?? progress;
+/** A snapshot with no recorded fields is not usable and must not mask later sources. */
+const usablePerformance = (value: unknown): Values | undefined => {
+  const performance = object(value);
+  return performance && Object.keys(performance).length ? performance : undefined;
+};
 export function latestPerformance(progress: Values, history: HistoryPoint[]) {
-  return (
-    object(progress.performance) ??
-    object(latestMetrics(progress).performance) ??
-    object(history.at(-1)?.performance)
-  );
+  const current =
+    usablePerformance(progress.performance) ??
+    usablePerformance(latestMetrics(progress).performance);
+  if (current) return current;
+  // An interrupted or sparse log can end without a performance snapshot; fall
+  // back to the most recent snapshot that actually recorded something so earlier
+  // observations stay visible. The backward scan stops at the first hit.
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const performance = usablePerformance(history[index].performance);
+    if (performance) return performance;
+  }
+  return undefined;
 }
 /**
  * Selectable iteration windows for the shared analysis range control. One

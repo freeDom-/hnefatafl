@@ -600,6 +600,13 @@
 .training-workshop .training-job-dashboard .bounded-table {
   max-height: 460px;
 }
+/* Keep the Throughput history headings pinned while only its rows scroll. */
+.training-workshop .training-performance .table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
 .training-workshop .training-details > details {
   border-bottom: 1px solid var(--line);
 }

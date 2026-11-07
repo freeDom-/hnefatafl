@@ -349,6 +349,8 @@ const translations: Record<string, string> = {
   'Simulations / second': 'Simulationen / Sekunde',
   'Neural evaluations / second': 'Netzauswertungen / Sekunde',
   'Average game length': 'Mittlere Spiellänge',
+  'Attacker win rate': 'Siegquote als Angreifer',
+  'Defender win rate': 'Siegquote als Verteidiger',
   'Completed games (including draws)': 'Abgeschlossene Spiele (einschließlich Remis)',
   'Drawn games': 'Remis',
   'Truncated games': 'Abgebrochene Spiele',
