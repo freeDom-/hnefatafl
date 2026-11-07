@@ -99,6 +99,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.37.0](releases/0.37.0.md) | Champion-aware adaptation, self-play outcome charts and reliable large job transfers |
 | [0.36.0](releases/0.36.0.md) | Reliable tuning, online learning-rate adaptation, model reuse and longer analysis windows |
 | [0.35.0](releases/0.35.0.md) | Custom single-player opponents, training parameter help, parallel CPU search and leaner evaluation progress |
 | [0.34.0](releases/0.34.0.md) | Live training monitoring, fixed-role tournaments, batched evaluation and faster engine/search paths |
