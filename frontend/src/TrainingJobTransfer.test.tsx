@@ -95,9 +95,11 @@ it.each(['en', 'de'])(
     const loading = language === 'de' ? 'Verlauf wird geladen…' : 'Loading history…';
     expect(await screen.findByText(loading)).toHaveAttribute('role', 'status');
     expect(document.querySelector('.job-row.selected')).toHaveTextContent('Migrated raven');
-    expect(
-      fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs/imported-job'),
-    ).toHaveLength(1);
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.filter(([path]) => path === '/api/training/jobs/imported-job'),
+      ).toHaveLength(1),
+    );
     await act(async () => finish(await json(full)));
     await waitFor(() => expect(screen.queryByText(loading)).not.toBeInTheDocument());
     expect(document.querySelector('.dashboard-progress strong')).toHaveTextContent('1000');
