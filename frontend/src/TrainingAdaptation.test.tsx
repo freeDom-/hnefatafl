@@ -63,6 +63,136 @@ beforeEach(() => {
   });
 });
 
+it('shows a Champion promotion reset with the preserved rate', async () => {
+  renderLearning(
+    {
+      adaptation: { effective_learning_rate: 0.003, promotion_resets: 2 },
+      adaptation_events: [
+        {
+          iteration: 8,
+          observation: 0.9,
+          previous_learning_rate: 0.003,
+          selected_learning_rate: 0.003,
+          preserved_learning_rate: 0.003,
+          changed: false,
+          skipped: 'promotion_reset',
+          promotion_reset: true,
+        },
+      ],
+    },
+    [{ iteration: 8, learning_rate: 0.003, effective_learning_rate: 0.003 }],
+    0,
+  );
+  expect(screen.getByText('Promotion resets')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(within(table).getByText('Champion promoted · warm-up restarted')).toBeInTheDocument();
+  // The preserved rate is shown as both the used and the selected rate.
+  expect(within(table).getAllByText('0.003').length).toBeGreaterThanOrEqual(2);
+});
+
+it('shows the active Champion and warm-up progress for a Champion controller', () => {
+  renderLearning(
+    {
+      evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+      adaptation: {
+        algorithm: 'hypercontroller',
+        effective_learning_rate: 0.0003,
+        observations: 2,
+        regime_observations: 2,
+        warmup: 3,
+        promotion_resets: 4,
+        last_promotion: { preserved_learning_rate: 0.0003 },
+      },
+    },
+    [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
+    0,
+  );
+  expect(screen.getByText('Current Champion')).toBeInTheDocument();
+  expect(screen.getAllByText('350').length).toBeGreaterThan(0);
+  expect(screen.getByText('Controller warm-up')).toBeInTheDocument();
+  expect(screen.getByText('Warm-up (2 / 3 evaluations)')).toBeInTheDocument();
+  expect(screen.getByText(/Rate kept at last promotion/)).toBeInTheDocument();
+  // Once warm-up is satisfied the KPI reports a fixed active state rather than
+  // an ever-increasing numerator, with the regime count kept separately.
+  cleanup();
+  renderLearning(
+    {
+      evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+      adaptation: {
+        algorithm: 'hypercontroller',
+        observations: 3,
+        regime_observations: 3,
+        warmup: 3,
+      },
+    },
+    [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
+    0,
+  );
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  expect(screen.getByText('Regime observations: 3')).toBeInTheDocument();
+  expect(screen.queryByText('Warm-up (3 / 3 evaluations)')).toBeNull();
+});
+
+it('keeps the active state stable well past the warm-up threshold', () => {
+  const render = (warmup: number, regimeObservations: number) =>
+    renderLearning(
+      {
+        evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+        adaptation: {
+          algorithm: 'hypercontroller',
+          effective_learning_rate: 0.0003,
+          observations: regimeObservations,
+          regime_observations: regimeObservations,
+          warmup,
+        },
+      },
+      [{ iteration: 350, learning_rate: 0.0003, effective_learning_rate: 0.0003 }],
+      0,
+    );
+  // warmup 0 is already complete at the first observation.
+  render(0, 0);
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  cleanup();
+  // warmup 1 needs exactly one observation.
+  render(1, 0);
+  expect(screen.getByText('Warm-up (0 / 1 evaluations)')).toBeInTheDocument();
+  cleanup();
+  render(1, 1);
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  cleanup();
+  // Substantially more observations than the threshold stay in the active state.
+  render(3, 128);
+  expect(screen.getByText('Active · Warm-up complete')).toBeInTheDocument();
+  expect(screen.getByText('Regime observations: 128')).toBeInTheDocument();
+  expect(screen.queryByText('Warm-up (128 / 3 evaluations)')).toBeNull();
+});
+
+it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', () => {
+  renderLearning({
+    adaptation: {
+      algorithm: 'hypercontroller',
+      effective_learning_rate: 0.001,
+      observations: 2,
+      warmup: 3,
+    },
+  });
+  expect(screen.queryByText('Current Champion')).toBeNull();
+  expect(screen.queryByText('Controller warm-up')).toBeNull();
+  // A Champion job without an enabled controller is not an adaptation monitor.
+  cleanup();
+  renderLearning({
+    evaluation_selection: { opponent: 'champion', champion_iteration: 350 },
+    adaptation: {},
+  });
+  expect(screen.queryByText('Current Champion')).toBeNull();
+  expect(screen.queryByText('Controller warm-up')).toBeNull();
+  cleanup();
+  renderLearning({ adaptation: { effective_learning_rate: 0.001 } });
+  expect(screen.queryByText('Current Champion')).toBeNull();
+  expect(screen.queryByText('Controller warm-up')).toBeNull();
+});
+
 it('leaves automatic hyperparameter updates off by default', async () => {
   harness();
   await screen.findByText('Your next opponent starts here.');
@@ -112,7 +242,7 @@ it('disables and omits the controller while tuning', async () => {
   expect((posts[0].training as Record<string, unknown>).adaptation).toBe('off');
 });
 
-it('explains an incompatible controller configuration before submitting', async () => {
+it('submits the controller with a Champion evaluation opponent', async () => {
   const { posts } = harness();
   await screen.findByText('Your next opponent starts here.');
   fireEvent.change(screen.getByRole('combobox', { name: 'Automatic hyperparameter updates' }), {
@@ -121,9 +251,26 @@ it('explains an incompatible controller configuration before submitting', async 
   fireEvent.change(screen.getByRole('combobox', { name: 'Evaluation opponent' }), {
     target: { value: 'champion' },
   });
+  fireEvent.change(screen.getByLabelText('Evaluation games (even)'), { target: { value: '6' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toMatchObject({
+    adaptation: 'hypercontroller',
+    evaluation_opponent: 'champion',
+    evaluation_games: 6,
+  });
+});
+
+it('explains an uninformative controller evaluation budget before submitting', async () => {
+  const { posts } = harness();
+  await screen.findByText('Your next opponent starts here.');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Automatic hyperparameter updates' }), {
+    target: { value: 'hypercontroller' },
+  });
+  fireEvent.change(screen.getByLabelText('Evaluation games (even)'), { target: { value: '2' } });
   fireEvent.click(screen.getByRole('button', { name: 'Start training' }));
   const alert = await screen.findByRole('alert');
-  expect(alert).toHaveTextContent('fixed evaluation opponent');
+  expect(alert).toHaveTextContent('at least 4 evaluation games');
   expect(posts).toHaveLength(0);
 });
 
@@ -168,13 +315,15 @@ it('blocks an oversized learning-rate candidate list before submitting', async (
 it('reports the cross-field controller constraints directly', () => {
   const base = trainingConfig('brandubh', 'recommended');
   expect(adaptationConfigError(base)).toBeNull();
+  // Champion is a supported objective: each promotion restarts the controller's
+  // opponent-specific state while the effective rate is preserved.
   expect(
     adaptationConfigError({
       ...base,
       adaptation: 'hypercontroller',
       evaluation_opponent: 'champion',
-    })?.message,
-  ).toMatch(/fixed evaluation opponent/);
+    }),
+  ).toBeNull();
   expect(
     adaptationConfigError({ ...base, adaptation: 'hypercontroller', evaluation_games: 2 })?.message,
   ).toMatch(/at least 4 evaluation games/);
@@ -558,6 +707,39 @@ it('blocks resuming an incompatible controller configuration', async () => {
       adaptation_lr_candidates: '0.0003,0.001,0.003',
       learning_rate: 0.001,
       evaluation_opponent: 'champion',
+      evaluation_games: 2,
+    },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => json(info)),
+  );
+  const job: Job = { id: 'source', kind: 'train', status: 'completed', config: {} };
+  render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
+  expect(await screen.findByText(/at least 4 evaluation games/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Continue training' })).toBeDisabled();
+});
+
+it('allows resuming a Champion controller configuration', async () => {
+  const info: ResumeCheckpoint = {
+    job_id: 'source',
+    checkpoint: 'source:last.pt',
+    completed_iteration: 5,
+    ruleset: 'brandubh',
+    channels: 32,
+    blocks: 2,
+    optimizer: 'adamw',
+    learning_rate: 0.001,
+    weight_decay: 0.0001,
+    momentum: 0.9,
+    model_name: 'Freydis',
+    can_resume: true,
+    config: {
+      ...trainingConfig('brandubh', 'recommended'),
+      adaptation: 'hypercontroller',
+      adaptation_lr_candidates: '0.0003,0.001,0.003',
+      learning_rate: 0.001,
+      evaluation_opponent: 'champion',
       evaluation_games: 4,
     },
   };
@@ -567,8 +749,10 @@ it('blocks resuming an incompatible controller configuration', async () => {
   );
   const job: Job = { id: 'source', kind: 'train', status: 'completed', config: {} };
   render(<TrainingResumeDialog job={job} onClose={vi.fn()} onStarted={vi.fn()} />);
-  expect(await screen.findByText(/fixed evaluation opponent/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Continue training' })).toBeDisabled();
+  expect(await screen.findByRole('combobox', { name: 'Evaluation opponent' })).toHaveValue(
+    'champion',
+  );
+  expect(screen.getByRole('button', { name: 'Continue training' })).toBeEnabled();
 });
 
 it('explains that a resume learning-rate change moves the controller rate', async () => {
@@ -838,6 +1022,15 @@ it('translates the new controller labels and tooltips into German', () => {
     'Minimum dwell',
     'No observation',
     'Fallback',
+    'Champion promoted · warm-up restarted',
+    'Promotion resets',
+    'Current Champion',
+    'Controller warm-up',
+    'Warm-up ({observations} / {warmup} evaluations)',
+    'Active · Warm-up complete',
+    'Regime observations: {observations}',
+    'Rate kept at last promotion',
+    'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
     'Unavailable while tuning: the study varies the learning rate across trials.',
     'Learning rate candidates must be decimal numbers separated by commas.',
     'Learning rate candidates must be between 1e-7 and 1.',
@@ -845,6 +1038,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Learning rate candidates must be at most 512 characters.',
     'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
     'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.',
+    'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.',
   ]) {
     expect(translate(source, {}, 'de'), `untranslated ${source}`).not.toBe(source);
   }

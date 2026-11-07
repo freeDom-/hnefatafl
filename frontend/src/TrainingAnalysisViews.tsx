@@ -272,9 +272,26 @@ export function TrainingLearningView({
   const last = history.at(-1);
   const metrics = latestMetrics(progress);
   const adaptation = object(progress.adaptation) ?? {};
+  const selection = object(progress.evaluation_selection) ?? {};
   const effectiveRate = finite(adaptation.effective_learning_rate)
     ? adaptation.effective_learning_rate
     : last?.learning_rate;
+  // Champion-specific context is only shown for an enabled controller on a
+  // Champion job, so fixed-opponent and legacy jobs keep their existing KPIs.
+  const adaptationActive = adaptation.algorithm === 'hypercontroller';
+  const championActive =
+    adaptationActive &&
+    (selection.opponent === 'champion' || typeof adaptation.active_champion_identity === 'string');
+  const championIteration = finite(selection.champion_iteration)
+    ? selection.champion_iteration
+    : null;
+  const warmup = finite(adaptation.warmup) ? Number(adaptation.warmup) : null;
+  const regimeObservations = finite(adaptation.regime_observations)
+    ? Number(adaptation.regime_observations)
+    : finite(adaptation.observations)
+      ? Number(adaptation.observations)
+      : null;
+  const lastPromotion = object(adaptation.last_promotion);
   const replay = useMemo(
     () => [
       { key: 'replay_positions', name: 'Replay buffer positions', color: 'var(--chart-value)' },
@@ -297,6 +314,41 @@ export function TrainingLearningView({
           label="Replay buffer positions"
           value={last?.replay_positions ?? metrics.replay_positions}
         />
+        {championActive && championIteration !== null && (
+          <TrainingKpi label="Current Champion" value={championIteration} />
+        )}
+        {championActive && warmup !== null && regimeObservations !== null && (
+          <TrainingKpi
+            label="Controller warm-up"
+            value={
+              regimeObservations < warmup
+                ? t('Warm-up ({observations} / {warmup} evaluations)', {
+                    observations: regimeObservations,
+                    warmup,
+                  })
+                : t('Active · Warm-up complete')
+            }
+            detail={
+              regimeObservations >= warmup
+                ? t('Regime observations: {observations}', { observations: regimeObservations })
+                : undefined
+            }
+          />
+        )}
+        {finite(adaptation.promotion_resets) && adaptation.promotion_resets > 0 && (
+          <TrainingKpi
+            label="Promotion resets"
+            value={adaptation.promotion_resets}
+            detail={
+              lastPromotion && finite(lastPromotion.preserved_learning_rate)
+                ? `${t('Rate kept at last promotion')}: ${formatLearningRate(
+                    lastPromotion.preserved_learning_rate,
+                    locale,
+                  )}`
+                : undefined
+            }
+          />
+        )}
         <TrainingKpi
           label="Optimizer updates"
           value={last?.optimizer_updates ?? last?.updates ?? metrics.updates}
@@ -346,6 +398,7 @@ const SKIP_LABELS: Record<string, string> = {
   cadence: 'Waiting for cadence',
   dwell: 'Minimum dwell',
   fallback: 'Fallback',
+  promotion_reset: 'Champion promoted · warm-up restarted',
 };
 
 function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {

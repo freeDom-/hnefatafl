@@ -774,6 +774,10 @@ def run_worker(
         # Advertised so a server never offers an adaptation-enabled job to a
         # worker whose training binary cannot run the controller.
         "hyper_adaptation": True,
+        # A worker that predates Champion support rejects that evaluation
+        # opponent with the controller, so it advertises the narrower capability
+        # separately and is never offered a Champion-adapted job.
+        "hyper_adaptation_champion": True,
     }
     results: list[dict] = []
     with (

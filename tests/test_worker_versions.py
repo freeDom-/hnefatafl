@@ -351,4 +351,11 @@ def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch):
         should_stop=FastStop(),
         emit=lambda _: None,
     )
-    assert reports == [{"protocol_version": 1, **BUILD, "hyper_adaptation": True}]
+    assert reports == [
+        {
+            "protocol_version": 1,
+            **BUILD,
+            "hyper_adaptation": True,
+            "hyper_adaptation_champion": True,
+        }
+    ]

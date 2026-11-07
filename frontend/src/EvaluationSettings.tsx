@@ -189,6 +189,13 @@ export default function EvaluationSettings({
             )}
           </p>
         )}
+      {config.adaptation === 'hypercontroller' && values.evaluation_opponent === 'champion' && (
+        <p className="subtle">
+          {t(
+            'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
+          )}
+        </p>
+      )}
     </fieldset>
   );
 }

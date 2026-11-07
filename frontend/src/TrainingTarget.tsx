@@ -11,6 +11,12 @@ import type { Job, TrainingWorker } from './types';
 export function workerCapabilityError(worker: TrainingWorker, config: TrainingConfig): string {
   if (config.adaptation === 'hypercontroller' && worker.capabilities?.hyper_adaptation !== true)
     return 'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.';
+  if (
+    config.adaptation === 'hypercontroller' &&
+    config.evaluation_opponent === 'champion' &&
+    worker.capabilities?.hyper_adaptation_champion !== true
+  )
+    return 'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.';
   return '';
 }
 

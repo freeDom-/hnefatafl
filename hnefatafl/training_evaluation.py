@@ -101,6 +101,31 @@ def frozen_model(model: PolicyValueNet, saved: dict) -> PolicyValueNet:
     return frozen
 
 
+def champion_identity(champion: dict | None) -> str | None:
+    """A stable, bounded identity for one Champion regime.
+
+    The identity is derived from persisted metadata (the promotion iteration, the
+    provisional flag and the provenance), so it is deterministic across a resume
+    and needs no model hashing. The controller stores it to verify that restored
+    observations belong to the same Champion; a promotion produces a new value.
+    Untrusted persisted metadata is coerced to a bounded value so a malformed
+    checkpoint cannot produce an oversized identity.
+    """
+    if not champion:
+        return None
+    identity = champion.get("identity")
+    if isinstance(identity, str) and 0 < len(identity) <= 200:
+        return identity
+    iteration = champion.get("iteration", 0)
+    if type(iteration) is not int or iteration < 0:
+        iteration = 0
+    state = "provisional" if champion.get("provisional") else "promoted"
+    source = champion.get("source", "unknown")
+    if not isinstance(source, str) or not source or len(source) > 64:
+        source = "unknown"
+    return f"champion-{iteration}-{state}-{source}"
+
+
 def _summary(games: list[dict]) -> dict:
     wins = sum(game["winner"] == game["candidate_side"] for game in games)
     draws = sum(game["winner"] == "draw" for game in games)
@@ -376,7 +401,7 @@ class EvaluationSelection:
         if self.data["champion"] is None:
             old = self.data["benchmarks"].get(self.previous_identity, {})
             saved = old.get("snapshot") or legacy or snapshot(model, metadata)
-            self.data["champion"] = {
+            champion = {
                 "snapshot": deepcopy(saved),
                 "iteration": saved["metadata"].get("version", 0),
                 "provisional": True,
@@ -385,6 +410,8 @@ class EvaluationSelection:
                 # reported objective always describe the same model state.
                 "score": float(old.get("score", -1.0)),
             }
+            champion["identity"] = champion_identity(champion)
+            self.data["champion"] = champion
 
     def accept(self, model: PolicyValueNet, metadata: dict, evaluation: dict, config: dict) -> bool:
         iteration = metadata["version"]
@@ -404,13 +431,15 @@ class EvaluationSelection:
             evaluation.update(promotion_decision(evaluation, config))
             if evaluation["promoted"]:
                 improved = True
-                self.data["champion"] = {
+                champion = {
                     "snapshot": snapshot(model, metadata),
                     "iteration": iteration,
                     "provisional": False,
                     "source": "head_to_head",
                     "score": float(evaluation["score"]),
                 }
+                champion["identity"] = champion_identity(champion)
+                self.data["champion"] = champion
                 self.data["promotions"].append(deepcopy(evaluation))
         else:
             incumbent = self.data["benchmarks"].get(self.identity)
@@ -431,6 +460,12 @@ class EvaluationSelection:
                 }
         self.data["last_evaluation"] = deepcopy(evaluation)
         return improved
+
+    def champion_identity(self) -> str | None:
+        """Identity of the active Champion, or ``None`` for a fixed opponent."""
+        if self.context["opponent"] != "champion":
+            return None
+        return champion_identity(self.data.get("champion"))
 
     def selected_snapshot(self) -> dict | None:
         if self.context["opponent"] == "champion":
@@ -478,6 +513,7 @@ class EvaluationSelection:
             "context": self.context,
             "champion_iteration": champion["iteration"] if champion else None,
             "champion_provisional": champion["provisional"] if champion else None,
+            "champion_identity": champion_identity(champion),
             "benchmarks": [
                 {key: value for key, value in entry.items() if key != "snapshot"}
                 | {"opponent_identity": identity}

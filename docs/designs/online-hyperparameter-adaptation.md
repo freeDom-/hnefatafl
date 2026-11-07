@@ -76,9 +76,11 @@ and a small explicit candidate set, so no continuous space is discretized.
 ## Honest feedback signal
 
 Lower training loss is not a strength signal, so the controller never reads
-losses. It observes the **completed-game score against one fixed, versioned
+losses. It observes the **completed-game score against the selected evaluation
 opponent**, balanced across attacker and defender roles by the existing
-evaluation protocol:
+evaluation protocol. The opponent is normally a fixed, versioned benchmark; it may
+also be the evolving Champion, in which case each promotion starts a new regime as
+described below.
 
 ```
 score = (wins + 0.5 * draws) / completed_games
@@ -98,11 +100,55 @@ score = (wins + 0.5 * draws) / completed_games
   decisions. Delayed credit is inherent and handled by attributing to the
   completed interval.
 
-Configuration validation enforces the honest regime: adaptation requires a
-**fixed, non-Champion opponent** and at least **4 evaluation games** so a score is
-informative. The configured `learning_rate` must be one of the candidates, so
-every observed interval is attributable. Adaptation is rejected inside Optuna
-tuning, where the study itself varies the learning rate.
+Configuration validation enforces the honest regime: adaptation requires at least
+**4 evaluation games** so a score is informative, and the configured
+`learning_rate` must be one of the candidates, so every observed interval is
+attributable. The evaluation opponent may be a fixed benchmark **or the evolving
+Champion**. Adaptation is rejected inside Optuna tuning, where the study itself
+varies the learning rate.
+
+### Champion evaluation and promotion boundaries
+
+A fixed opponent keeps the controller's observations comparable for the whole
+run. Champion does not: a promotion replaces the incumbent, so a score observed
+before the promotion is not comparable with one observed after it. Treating them
+as one series would make the controller react to the promotion itself rather than
+to training progress.
+
+The controller therefore consumes the explicit promotion signal produced by
+`EvaluationSelection.accept()` (`evaluation["promoted"]`, `champion_iteration` and
+the incumbent-suffixed `opponent_identity`), never a score threshold. On a
+promotion:
+
+* The promoting observation is still ingested and attributed to the outgoing
+  Champion, but the decision is suppressed so the rate does not change at the
+  boundary.
+* The currently effective rate is preserved. The optimizer is not rebuilt, and
+  its moments, the model weights and the replay buffer are untouched.
+* The learned predictors, reward/action history, candidate counts and warm-up
+  counters are discarded, and `adaptation_warmup` restarts against the new
+  Champion. The next evaluation is the first observation of the new regime.
+* A replayed promotion signal is an inert duplicate: it never ingests the score
+  again, advances any counter, moves the controller RNG or records a decision
+  event. Promotion iterations strictly increase, so any event at or before the
+  most recently applied promotion is rejected as duplicate or stale, even after
+  later promotions; a genuinely later promotion is still applied. This makes
+  repeated processing of any evaluation boundary safe.
+* A failed attempt, a draw or a missing observation never resets the controller.
+
+The controller keeps the same evaluation identity across promotions (the context
+hash is unchanged). The boundary is carried by the promotion signal, and the
+controller additionally persists the **active Champion regime identity** derived
+from the Champion's persisted metadata (promotion iteration, provisional flag and
+provenance). On resume the identity is compared with the restored
+`EvaluationSelection` Champion: a match restores the learned state unchanged; a
+mismatch (or a pre-v4 state that cannot prove which Champion it belongs to)
+discards the observations while preserving the effective rate and the optimizer
+state, with `reset_reason` `champion_changed` or `champion_identity_unknown`.
+The active Champion is shown in monitoring as
+`adaptation.active_champion_identity`; the current-regime observation count is
+`adaptation.regime_observations` and `adaptation.warmup_complete` reports whether
+warm-up has been satisfied, distinct from the lifetime `promotion_resets`.
 
 With adaptation `off` the controller settings are inert: they never block a run,
 so a user can disable the controller after an invalid edit and still start
@@ -116,6 +162,11 @@ transport. Enabling it validates every supplied candidate strictly.
 * The fixed opponent can saturate near 1.0 (especially Shield bearer), after which
   the controller cannot distinguish candidates. This is a real limitation, not a
   bug: the score is an honest, comparable proxy, not a strength proof.
+* With Champion, every promotion starts a new regime. The controller deliberately
+  does not carry any learned state across the boundary, so it needs at least
+  `adaptation_warmup` evaluations after each promotion before it may decide
+  again. Frequent promotions therefore slow adaptation; that is the intended
+  trade for never mixing incomparable scores.
 * Evaluation scores from a small game count are noisy. `adaptation_min_dwell`
   and `adaptation_min_trials` bound how fast the controller reacts; a run that
   needs finer decisions should raise `evaluation_games`.
@@ -146,6 +197,14 @@ transport.
 
 * Resume with the same algorithm, candidates, lag and evaluation identity
   restores continuity: counters, effective rate and learned predictors.
+* A resume after a Champion promotion restores the post-promotion state: the
+  promotion counter and record, the active Champion identity, the preserved
+  effective rate and the restarted warm-up counters. The promotion is not
+  re-applied on load.
+* A resume whose active Champion identity differs from the restored Champion (or
+  a pre-v4 state that carries no active-regime identity) resets the learned state
+  with `champion_changed` or `champion_identity_unknown` while preserving the
+  effective rate; the optimizer, model and replay are untouched.
 * Changed candidate set, changed lag or changed evaluation identity resets the
   learned state with a visible `reset_reason` (`candidates_changed`,
   `lag_changed`, `evaluation_changed`); counters restart because the observations
@@ -158,10 +217,11 @@ transport.
 * An explicit `learning_rate` override on resume is **honoured**, never silently
   discarded: the restored controller keeps its learned predictors and counters but
   moves its effective rate to the requested candidate and restarts its dwell timer.
-  There is no pending feedback to reconcile because the checkpoint is written after
-  each decision. The override is shown in monitoring as
-  `adaptation.override_learning_rate`. An unchanged resume (the request carries the
-  saved value) keeps the selected rate exactly.
+  If the state was reset (for example by a Champion regime mismatch) the override
+  still wins over the preserved rate. There is no pending feedback to reconcile
+  because the checkpoint is written after each decision. The override is shown in
+  monitoring as `adaptation.override_learning_rate`. An unchanged resume (the
+  request carries the saved value) keeps the selected rate exactly.
 * Old checkpoints without `adaptation_state` load unchanged with adaptation off.
 * A checkpoint that predates the controller has no adaptation inputs. The resume
   form fills the shared defaults and derives candidates around the checkpoint's
@@ -185,14 +245,21 @@ Validation covers the advertised `MAX_CONTEXTS` (512) bound, the `candidate:cont
 key structure and legal action identifiers, matrix/vector dimensions, numeric
 (not string) finite values, symmetry and positive definiteness of each ridge
 system, history lengths, non-negative integer counters, the effective index, the
-state version, the saved RNG stream, and the bounded decision-event schema
-(accepted fields, finite in-range numbers, candidate references, legal skip
-reasons, bounded provenance strings, no unexpected nested data). The RNG is
+state version, the saved RNG stream, the active Champion identity, the bounded
+promotion record (iteration, optional incumbent iteration and identity, and a
+preserved rate drawn from the candidate set, consistent with the promotion
+counter) and the bounded decision-event schema (accepted fields, finite in-range
+numbers, candidate references, legal skip reasons, bounded provenance strings, no
+unexpected nested data). The RNG is
 validated **before** adoption: a malformed stream resets the controller with
 `unreadable_state`, and a state without a saved stream resets with `rng_absent`,
 so learned predictors are never adopted under a silently different exploration
 sequence. Version 1 (the same learned contexts, the earlier global exploration
-gate, and its own saved RNG) is migrated in place; unknown versions reset with
+gate, and its own saved RNG), version 2 (per-context exploration without the
+promotion record) and version 3 (the promotion record without the active-Champion
+identity) are migrated in place for fixed-opponent runs; a version-3 Champion run
+is conservatively reset with `champion_identity_unknown` because its history
+cannot be proven to belong to the restored Champion. Unknown versions reset with
 `unsupported_state`. Accepted telemetry is JSON-serializable. Loading goes through
 the existing tensor-only checkpoint loader; no arbitrary objects are
 deserialized.
@@ -202,11 +269,14 @@ deserialized.
 The controller executes inside the training process, so it works identically on a
 remote worker. Workers advertise a `hyper_adaptation` capability; a job with
 adaptation enabled is never offered to a worker that lacks it, and an
-administrator version override cannot bypass that gate. The rejection names the
-missing capability (for example, automatic hyperparameter updates) instead of
-blaming the inference backend or device. A transport copy sent to a legacy worker
-omits the adaptation keys, so the old binary cannot silently ignore an enabled
-controller.
+administrator version override cannot bypass that gate. A Champion-adapted job
+additionally requires the narrower `hyper_adaptation_champion` capability, so a
+worker running an older fixed-opponent-only controller is never offered one;
+fixed-opponent adapted jobs remain compatible with those workers. The rejection
+names the missing capability (for example, automatic hyperparameter updates, or
+those updates with a Champion opponent) instead of blaming the inference backend
+or device. A transport copy sent to a legacy worker omits the adaptation keys, so
+the old binary cannot silently ignore an enabled controller.
 
 ## Differences between the paper, the reference code and this implementation
 
