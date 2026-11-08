@@ -11,7 +11,7 @@ test('account menu, private profile, verification, password and device preferenc
   const username = `Profile${info.project.name}`;
   const email = `${username.toLowerCase()}@example.test`;
   const password = 'profile-browser-test-password';
-  const changedPassword = 'updated-profile-browser-password';
+  const changedPassword = 'e\u0301😀🔑'.repeat(64);
   const origin = 'http://127.0.0.1:4175';
   const registered = await request.post('/api/auth/register', {
     headers: { Origin: origin },
@@ -209,8 +209,8 @@ test('native typing and paste retain Unicode profile and password boundaries', a
 }, info) => {
   test.setTimeout(180000);
   const username = `UnicodeInput${info.project.name}`;
-  const password = '😀😁😂😃'.repeat(64);
-  const replacement = 'e\u0301😀🔑'.repeat(64);
+  const password = 'e\u0301😀🔑'.repeat(64);
+  const replacement = '😀😁😂😃'.repeat(64);
   await page.goto('/register');
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   async function paste(field: Locator, value: string) {
@@ -267,13 +267,13 @@ test('native typing and paste retain Unicode profile and password boundaries', a
   await paste(page.locator('input[name="current_password"]'), password);
   for (const field of ['new_password', 'confirm_password'])
     await paste(page.locator(`input[name="${field}"]`), replacement);
-  await page.getByRole('button', { name: 'Passwort ändern', exact: true }).click();
-  await expect(
-    page.getByText('Passwort geändert. Andere Sitzungen wurden abgemeldet.'),
-  ).toBeVisible();
+  // The existing account/profile scenario changes to a boundary-length Unicode
+  // password and checks old/new login plus session revocation. Keep this case
+  // focused on native typing/paste rather than charging that shared IP budget
+  // for a duplicate password-change operation.
   await logoutFromAccount(page);
   await page.locator('input[name="identity"]').fill(username);
-  await paste(page.locator('input[name="password"]'), replacement);
+  await paste(page.locator('input[name="password"]'), password);
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
   await expect(page.locator('.profile-page')).toBeVisible();
 });
