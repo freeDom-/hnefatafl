@@ -121,9 +121,18 @@
   z-index: 1;
   width: max-content;
   min-width: 11rem;
-  max-width: calc(100vw - 2 * var(--gutter-x));
+  max-width: min(24rem, calc(100vw - 2 * var(--gap-card)));
   padding: var(--gap-inline);
   box-shadow: 0 5px 16px #0003;
+}
+.account-menu-identity {
+  display: none;
+  margin: 0;
+  padding: var(--pad-control);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-label);
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .account-dropdown .button {
   display: flex;
@@ -191,6 +200,9 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  .account-menu-identity {
+    display: block;
   }
   .header-controls .button {
     padding: 8px;

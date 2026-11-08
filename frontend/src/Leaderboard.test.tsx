@@ -146,13 +146,13 @@ it('renders only returned public details as text and keeps the compact dashboard
     ...board().entries[0],
     country_code: 'DE',
     city: '<img src=x onerror=alert(1)>',
-    age_range: { min: 35, max: 36 },
+    age_range: { min: 26, max: 36 },
   };
   serve = () => respond({ ...board(), entries: [entry] });
   const view = render(<Leaderboard />);
   expect(await screen.findByText('Germany')).toBeVisible();
   expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeVisible();
-  expect(screen.getByText('35–36')).toBeVisible();
+  expect(screen.getByText('26–36')).toBeVisible();
   expect(document.querySelector('table img')).toBeNull();
   view.unmount();
   render(<Leaderboard compact />);

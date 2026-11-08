@@ -5,14 +5,22 @@
 The header keeps the existing English/German language selector immediately beside
 the username menu. **My Profile** opens `/profile`; **Log out** uses the existing
 session logout. The menu supports click/touch, outside dismissal, Escape, arrows,
-Home/End and normal Tab navigation. Long names are truncated in the header and
-remain available to assistive technology. Anonymous authentication pages retain
-their language selector and existing navigation.
+Home/End, Space/Enter activation and Tab navigation. Long names are truncated in
+the desktop header and remain available to assistive technology. In a compact
+header the trigger hides the username; opening the same dropdown shows the full
+name as non-interactive, wrapping identity text above its two actions. Desktop
+does not repeat this label. Anonymous authentication pages retain their language
+selector and existing navigation.
 
 ## Personal details and sharing
 
 All details are optional. Display names allow 80 Unicode characters, cities 100;
-both are trimmed and normalized to NFC, and control characters are rejected.
+both are trimmed and normalized to NFC. C0/C1 control characters, Unicode
+`Bidi_Control` characters and deprecated directional formatting controls are
+rejected before trimming, including embedding, override and isolate sequences.
+Ordinary Arabic/Hebrew/Persian text, combining marks, variation selectors and emoji
+joiners remain supported. Frontend/backend tests share the same multilingual and
+unsafe-control corpus. Error messages are localized and do not echo rejected text.
 Countries use the API's ISO 3166-1 alpha-2 catalog, with browser-localized labels.
 Birth years are integers from 1900 through the current UTC year. Empty text and
 explicit null clear optional values. Login usernames, account IDs, roles,
@@ -26,11 +34,26 @@ The compact Dashboard leaderboard keeps its four columns; the full leaderboard
 adds country, city and age range. Ranking, filters, tie-breaking and pagination
 are unchanged.
 
-Birth years are never returned in leaderboard entries. Explicitly shared age is
-an inclusive range from `max(0, current UTC year − birth year − 1)` to
-`max(0, current UTC year − birth year)`, because the birthday is unknown. The same
-projection applies to leaderboard entries and the caller's `me` standing. Private
-country/city/age keys are absent, including immediately after sharing is disabled.
+Birth years are available only in the authenticated owner's private profile, never
+in leaderboard entries. Explicitly shared age uses fixed ten-year birth cohorts
+(1900–1909, 1910–1919, and so on), expressed as a broad age bracket in the current
+UTC year. The unknown birthday adds one year of uncertainty across the whole
+cohort: in 2026, every account born in 1990–1999 publishes **26–36**. Every member
+has the same public output, including at age-bracket boundaries. Repeated annual
+observations keep the same ten possible birth years rather than identifying a
+birth year when a player moves into a different age group.
+
+An incomplete youngest cohort is not published at all: before 2029, an account
+born in 2020–2029 has no public age field, even with age sharing enabled. Otherwise
+its first year could produce a uniquely identifying range. Every published
+bracket corresponds to ten valid birth years, including the oldest cohort at the
+1900 validation cutoff. Tests check all valid years, decade boundaries and annual
+observations. Sharing age discloses a coarse age/birth cohort; it is not anonymity.
+
+The public `age_range` object retains numeric inclusive `min`/`max` fields. The
+same projection applies to entries and the caller's `me` standing. A missing birth
+year produces no age field, even with consent enabled. Private country/city/age
+keys are absent, including immediately after sharing is disabled.
 Responses retain the existing `Cache-Control: no-store`; no leaderboard cache or
 per-row profile query is introduced. Historical results continue to use account IDs.
 
@@ -42,6 +65,18 @@ links to `/profile#email-verification`, whose section receives focus. Existing
 single-use, expiring tokens, generic acknowledgments, durable SMTP delivery and
 rate limits are reused without exposing links or tokens in the profile API.
 Mail configuration remains necessary; no email-delivery success is assumed.
+
+Verification lives in the existing Auth context. Successful private profile reads
+and saves merge their verification observation into that context without another
+`/auth/me` request. Profile and authentication reads share request-order revisions:
+an earlier read cannot replace a later successful observation. Failed reads do not
+advance that revision or discard a known account; expired/revoked authentication
+(401/403) still clears the session. Generation/account guards and aborts prevent
+late responses crossing logout, account switches or page unmounting. Successful
+email confirmation emits the existing `permissions-changed` event. Invalidations
+while an auth refresh is active coalesce into one follow-up read. Existing focus
+and periodic auth refresh continue to observe confirmation in another session;
+no new polling timer or verification store is introduced.
 
 Password changes require the current password, a matching confirmation and the
 existing 12–256 character/four-distinct-character policy. They use the existing
@@ -78,6 +113,11 @@ preserves existing accounts, roles, hashes, verification, sessions and ownership
 New accounts no longer infer a display name from the username. Restarting is
 idempotent. The clock migration's original schema-13 threshold stays unchanged,
 so this profile upgrade cannot enable a paused timeout gate.
+
+The review hardening (age brackets, verification ordering, mobile identity and
+Unicode validation) adds no schema migration, route or permission. Schema 14 and
+existing backup/restore checks remain unchanged. Deploy updated backend and client
+together for matching validation rules; the server enforces privacy independently.
 
 Take a stopped-writer backup using the normal [deployment procedure](DEPLOYMENT.md#data-and-configuration).
 Older code refuses schema 14. Automatic restore requires matching account columns

@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, field_validator
 
 from .auth import password_hash, verify
+from .account_policy import BIDI_CONTROLS, MIN_BIRTH_YEAR
 from .security_context import session_identity
 
 # ISO 3166-1 alpha-2 (including territories); labels are localized by the browser.
@@ -42,9 +43,12 @@ class ProfileUpdate(BaseModel):
     def text(cls, value, info):
         if value is None:
             return None
-        value = unicodedata.normalize("NFC", value).strip()
+        value = unicodedata.normalize("NFC", value)
         maximum = 80 if info.field_name == "display_name" else 100
-        if len(value) > maximum or any(unicodedata.category(char) == "Cc" for char in value):
+        if any(unicodedata.category(char) == "Cc" or char in BIDI_CONTROLS for char in value):
+            raise ValueError("Invalid profile text")
+        value = value.strip()
+        if len(value) > maximum:
             raise ValueError("Invalid profile text")
         return value or None
 
@@ -61,7 +65,7 @@ class ProfileUpdate(BaseModel):
     @field_validator("birth_year")
     @classmethod
     def year(cls, value):
-        if value is not None and not 1900 <= value <= datetime.now(timezone.utc).year:
+        if value is not None and not MIN_BIRTH_YEAR <= value <= datetime.now(timezone.utc).year:
             raise ValueError("Invalid birth year")
         return value
 

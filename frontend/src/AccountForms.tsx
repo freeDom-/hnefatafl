@@ -147,6 +147,7 @@ export default function AccountForms({
         captured = null;
         setComplete(true);
         if (view === 'reset') onReset();
+        if (view === 'verify') window.dispatchEvent(new Event('permissions-changed'));
       }
     } catch (failure) {
       setError((failure as Error).message);

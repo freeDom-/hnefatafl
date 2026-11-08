@@ -76,72 +76,74 @@ export default function AccountMenu({
         </span>
       </button>
       {open && (
-        <div
-          id={id}
-          role="menu"
-          aria-label={t('Account')}
-          className="account-dropdown panel"
-          onKeyDown={(event) => {
-            if (event.key === 'Tab' && event.shiftKey) {
-              event.preventDefault();
-              setOpen(false);
-              trigger.current?.focus();
-              return;
-            }
-            const index = items.current.indexOf(document.activeElement as HTMLButtonElement);
-            const next =
-              event.key === 'Home'
-                ? 0
-                : event.key === 'End'
-                  ? items.current.length - 1
-                  : event.key === 'ArrowDown'
-                    ? (index + 1) % items.current.length
-                    : event.key === 'ArrowUp'
-                      ? (index + items.current.length - 1) % items.current.length
-                      : null;
-            if (next !== null) {
-              event.preventDefault();
-              items.current[next]?.focus();
-            }
-          }}
-        >
-          <a
-            ref={(node) => {
-              items.current[0] = node;
-            }}
-            role="menuitem"
-            tabIndex={-1}
-            className="button secondary"
-            href="/profile"
+        <div className="account-dropdown panel">
+          <p className="account-menu-identity">{username}</p>
+          <div
+            id={id}
+            role="menu"
+            aria-label={t('Account')}
             onKeyDown={(event) => {
-              if (event.key === ' ') {
+              if (event.key === 'Tab' && event.shiftKey) {
                 event.preventDefault();
-                event.currentTarget.click();
+                setOpen(false);
+                trigger.current?.focus();
+                return;
+              }
+              const index = items.current.indexOf(document.activeElement as HTMLButtonElement);
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? items.current.length - 1
+                    : event.key === 'ArrowDown'
+                      ? (index + 1) % items.current.length
+                      : event.key === 'ArrowUp'
+                        ? (index + items.current.length - 1) % items.current.length
+                        : null;
+              if (next !== null) {
+                event.preventDefault();
+                items.current[next]?.focus();
               }
             }}
-            onClick={(event) => {
-              setOpen(false);
-              surfaceLink(event);
-            }}
           >
-            {t('My Profile')}
-          </a>
-          <div role="separator" />
-          <button
-            ref={(node) => {
-              items.current[1] = node;
-            }}
-            role="menuitem"
-            tabIndex={-1}
-            type="button"
-            className="button secondary"
-            onClick={() => {
-              setOpen(false);
-              void logout?.();
-            }}
-          >
-            {t('Log out')}
-          </button>
+            <a
+              ref={(node) => {
+                items.current[0] = node;
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              className="button secondary"
+              href="/profile"
+              onKeyDown={(event) => {
+                if (event.key === ' ') {
+                  event.preventDefault();
+                  event.currentTarget.click();
+                }
+              }}
+              onClick={(event) => {
+                setOpen(false);
+                surfaceLink(event);
+              }}
+            >
+              {t('My Profile')}
+            </a>
+            <div role="separator" />
+            <button
+              ref={(node) => {
+                items.current[1] = node;
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                setOpen(false);
+                void logout?.();
+              }}
+            >
+              {t('Log out')}
+            </button>
+          </div>
         </div>
       )}
     </div>

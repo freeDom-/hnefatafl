@@ -3,6 +3,15 @@
 import re
 import unicodedata
 
+MIN_BIRTH_YEAR = 1900
+# Unicode Bidi_Control plus the deprecated directional formatting controls.
+# Joiners, variation selectors and ordinary combining marks remain permitted.
+BIDI_CONTROLS = frozenset(
+    "\u061c\u200e\u200f"
+    + "".join(map(chr, range(0x202A, 0x202F)))
+    + "".join(map(chr, range(0x2066, 0x2070)))
+)
+
 RESERVED_NAMES = frozenset(
     {
         "admin",

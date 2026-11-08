@@ -59,7 +59,10 @@ test('profile sharing controls filter real leaderboard responses for another pla
     entry = await publicEntry();
     expect(entry.name).toBe('Þór 東京');
     expect(entry.city).toBe('Łódź');
-    expect(entry.age_range.max - entry.age_range.min).toBe(1);
+    expect(entry.age_range.max - entry.age_range.min).toBeGreaterThanOrEqual(9);
+    const calendarAge = new Date().getUTCFullYear() - 1990;
+    expect(entry.age_range.min).toBeLessThanOrEqual(calendarAge - 1);
+    expect(entry.age_range.max).toBeGreaterThanOrEqual(calendarAge);
     expect(entry).not.toHaveProperty('birth_year');
     await viewerPage.goto('/leaderboard');
     await viewerPage.getByRole('combobox', { name: 'Ruleset' }).selectOption('tablut');

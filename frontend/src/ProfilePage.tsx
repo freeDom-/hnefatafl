@@ -4,6 +4,7 @@ import { useAuth } from './Auth';
 import { AppearancePreferences } from './Appearance';
 import { useI18n } from './i18n';
 import { countryName } from './profileCountry';
+import { profileText } from './profileText';
 import './profile.css';
 
 export type Profile = {
@@ -28,7 +29,7 @@ const visibility = [
 ] as const;
 
 export default function ProfilePage() {
-  const { account } = useAuth();
+  const { account, observeVerification } = useAuth();
   const { t, locale } = useI18n();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -53,19 +54,19 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!account) return;
     const request = new AbortController();
+    const acceptVerification = observeVerification();
     setLoadError('');
     void api<Profile>('/profile', undefined, undefined, request.signal)
       .then((data) => {
         if (request.signal.aborted) return;
+        acceptVerification(data.email_verified);
         setProfile(data);
-        if (data.email_verified !== account.email_verified)
-          window.dispatchEvent(new Event('permissions-changed'));
       })
       .catch((error) => {
         if (!request.signal.aborted) setLoadError(errorMessage(error));
       });
     return () => request.abort();
-  }, [account?.id, attempt]);
+  }, [account?.id, attempt, observeVerification]);
   useEffect(() => {
     const focusSection = () => {
       if (location.hash === '#email-verification') {
@@ -99,16 +100,13 @@ export default function ProfilePage() {
     if (!profile || busy.current.has('profile')) return;
     setProfileError('');
     setSaved(false);
-    const display_name = profile.display_name?.normalize('NFC').trim() || null;
-    const city = profile.city?.normalize('NFC').trim() || null;
-    if (
-      [...(display_name ?? '')].length > 80 ||
-      [...(city ?? '')].length > 100 ||
-      /[\u0000-\u001f\u007f-\u009f]/u.test((display_name ?? '') + (city ?? ''))
-    ) {
-      setProfileError(
-        'Use up to 80 characters for your display name and 100 for your city, without control characters.',
-      );
+    let display_name: string | null;
+    let city: string | null;
+    try {
+      display_name = profileText(profile.display_name, 80);
+      city = profileText(profile.city, 100);
+    } catch (error) {
+      setProfileError(errorMessage(error));
       return;
     }
     if (
@@ -122,6 +120,7 @@ export default function ProfilePage() {
     }
     busy.current.add('profile');
     setSaving(true);
+    const acceptVerification = observeVerification();
     try {
       const updated = await api<Profile>(
         '/profile',
@@ -135,6 +134,7 @@ export default function ProfilePage() {
         'PATCH',
         controller.current?.signal,
       );
+      acceptVerification(updated.email_verified);
       setProfile(updated);
       setSaved(true);
     } catch (error) {
@@ -298,7 +298,7 @@ export default function ProfilePage() {
                   <legend>{t('Leaderboard visibility')}</legend>
                   <p id="profile-privacy-help" className="form-help">
                     {t(
-                      'Only checked information is visible to other players. Your username is used unless you share a display name. Shared names also appear in game views. Your birth year stays private; sharing age shows a range because the birthday is unknown.',
+                      'Only checked information is visible to other players. Your username is used unless you share a display name. Shared names also appear in game views. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.',
                     )}
                   </p>
                   {visibility.map(([key, label]) => (

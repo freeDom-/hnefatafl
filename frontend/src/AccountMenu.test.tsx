@@ -119,3 +119,15 @@ it('keeps a long username accessible and never shows an authenticated menu for a
   expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   expect(screen.queryByRole('button')).not.toBeInTheDocument();
 });
+
+it('includes non-interactive identity outside the menu actions without altering keyboard focus', async () => {
+  header();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Account menu for Odin' }));
+  const identity = document.querySelector('.account-menu-identity')!;
+  expect(identity).toHaveTextContent('Odin');
+  expect(identity.closest('[role="menu"]')).toBeNull();
+  expect(identity).not.toHaveAttribute('tabindex');
+  expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+  expect(screen.getByRole('menuitem', { name: 'My Profile' })).toHaveFocus();
+});

@@ -96,11 +96,15 @@ name suggestions. Seats show the underlying model/agent rune; repeated models ar
 distinguished by seat number and settings. Older seat-rune reservations remain
 stored but are not a second current participant identity.
 
-The shared header groups language and appearance at the top right on every page,
-including play. Narrow screens use a horizontally scrollable navigation row.
-Page titles and subtitles are visually hidden while remaining available to screen
-readers and programmatic focus. Section headings, dialog titles, statistics labels,
-form help and operational messages remain visible.
+The shared header groups the language selector and username menu at the top right
+on every page, including play. **My Profile** opens account management and the
+existing appearance controls. On narrow screens the trigger uses the account icon;
+opening it shows the full username above the Profile and Logout actions. The
+language selector stays directly beside it, and navigation uses its existing
+horizontally scrollable row. Shared page labels remain available to screen readers
+and programmatic focus; the profile also has a visible **My Profile** heading.
+Section headings, dialog titles, statistics labels, form help and operational
+messages remain visible.
 
 Shared typography, buttons, panels, dialogs, tabs, form grids and accessibility
 utilities live in [ui.css](../frontend/src/ui.css); [siteHeader.css](../frontend/src/siteHeader.css)

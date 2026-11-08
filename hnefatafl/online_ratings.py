@@ -12,10 +12,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from . import rating
+from .account_policy import MIN_BIRTH_YEAR
 from .engine import RULESETS
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _POOLS = tuple(sorted(RULESETS))
+
+
+def public_age_range(birth_year: int, year: int) -> dict[str, int] | None:
+    """Fixed ten-year birth cohorts remain ambiguous across annual observations.
+
+    Omit incomplete youngest cohorts: publishing a special range in their first
+    year would still identify that one valid birth year. Pad for the unknown
+    birthday across the whole cohort, not only for boundary-crossing members.
+    """
+    start = MIN_BIRTH_YEAR + (birth_year - MIN_BIRTH_YEAR) // 10 * 10
+    end = start + 9
+    if end > year:
+        return None
+    return {"min": max(0, year - end - 1), "max": year - start}
 
 
 def _micros(moment: datetime) -> int:
@@ -218,8 +233,9 @@ class Ratings:
             if row[field]:
                 entry[field] = row[field]
         if row["public_birth_year"] is not None:
-            maximum = max(0, year - row["public_birth_year"])
-            entry["age_range"] = {"min": max(0, maximum - 1), "max": maximum}
+            bracket = public_age_range(row["public_birth_year"], year)
+            if bracket is not None:
+                entry["age_range"] = bracket
         return entry
 
     _PROFILE_COLUMNS = """

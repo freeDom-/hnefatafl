@@ -16,7 +16,10 @@ const identity = vi.hoisted(() => ({
   email: 'odin@example.test',
   email_verified: undefined as boolean | undefined,
 }));
-vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
+vi.mock('./Auth', () => {
+  const observeVerification = () => () => {};
+  return { useAuth: () => ({ account: identity, observeVerification }) };
+});
 const initial: Profile = {
   username: 'Odin',
   email: 'odin@example.test',
@@ -273,3 +276,27 @@ it('localizes the profile and country names and preserves theme preferences thro
   await page();
   expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
 });
+
+it.each(['en', 'de'] as const)(
+  'rejects spoofing controls with a safe localized form error in %s',
+  async (language) => {
+    await page();
+    act(() => setLanguage(language));
+    const unsafe = 'unsafe-identity-' + String.fromCodePoint(0x202e) + 'spoof';
+    fireEvent.change(
+      screen.getByRole('textbox', { name: language === 'de' ? 'Anzeigename' : 'Display name' }),
+      { target: { value: unsafe } },
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: language === 'de' ? 'Profil speichern' : 'Save Profile' }),
+    );
+    const error = screen.getByRole('alert');
+    expect(error).toHaveTextContent(
+      language === 'de' ? 'Text-Richtungszeichen' : 'text direction controls',
+    );
+    expect(error).not.toHaveTextContent('unsafe-identity');
+    expect(apiMock.mock.calls.filter(([path, body]) => path === '/profile' && body)).toHaveLength(
+      0,
+    );
+  },
+);

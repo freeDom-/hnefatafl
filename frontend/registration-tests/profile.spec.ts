@@ -83,7 +83,7 @@ test('account menu, private profile, verification, password and device preferenc
       const messages = await (await request.get(mailbox)).json();
       const link = messages.at(-1).link as string;
       const token = new URLSearchParams(new URL(link).hash.slice(1)).get('token');
-      const result = await page.request.post('/api/auth/verify-email', {
+      const result = await request.post('/api/auth/verify-email', {
         headers: { Origin: origin },
         data: { token },
       });
@@ -91,7 +91,8 @@ test('account menu, private profile, verification, password and device preferenc
       return verified;
     })
     .toBe(true);
-  await page.reload();
+  // Confirmation from another session is observed by the existing focus refresh.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByText('Verified', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send Verification Email' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
@@ -137,7 +138,7 @@ test('header and profile fit narrow and wide screens in every theme and language
   request,
 }, info) => {
   test.setTimeout(180000);
-  const username = `LongUsernameForResponsiveProfile${info.project.name}`;
+  const username = `LongUsernameForResponsiveProfile${info.project.name}`.padEnd(64, 'W');
   const password = 'responsive-profile-password';
   const result = await request.post('/api/auth/register', {
     headers: { Origin: 'http://127.0.0.1:4175' },
@@ -149,7 +150,7 @@ test('header and profile fit narrow and wide screens in every theme and language
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.locator('.profile-page')).toBeVisible();
-  for (const width of [320, 390, 768, 1440, 1920]) {
+  for (const width of [320, 375, 390, 760, 768, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     for (const language of ['en', 'de']) {
       await page.locator('.language-select select').selectOption(language);
@@ -159,6 +160,20 @@ test('header and profile fit narrow and wide screens in every theme and language
         await expect(page.locator('.language-select select')).toBeVisible();
         await page.locator('.account-trigger').click();
         await expect(page.getByRole('menuitem').first()).toBeVisible();
+        await expect(page.getByRole('menuitem')).toHaveCount(2);
+        const identity = page.locator('.account-menu-identity');
+        if (width <= 760) {
+          await expect(identity).toBeVisible();
+          await expect(identity).toHaveText(username);
+          const nameBounds = await identity.boundingBox();
+          expect(nameBounds!.width).toBeGreaterThan(1);
+          expect(nameBounds!.x).toBeGreaterThanOrEqual(0);
+          expect(nameBounds!.x + nameBounds!.width).toBeLessThanOrEqual(width);
+        } else await expect(identity).toBeHidden();
+        await page.keyboard.press('ArrowDown');
+        await expect(page.getByRole('menuitem').last()).toBeFocused();
+        await page.keyboard.press('Home');
+        await expect(page.getByRole('menuitem').first()).toBeFocused();
         const bounds = await page.locator('.account-dropdown').boundingBox();
         expect(bounds!.x).toBeGreaterThanOrEqual(0);
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);

@@ -207,7 +207,9 @@ def test_leaderboard_filters_each_field_and_immediately_withdraws_sharing(app, f
             assert public["name"] == FIELDS["display_name"]
         elif flag == "show_age":
             year = datetime.now(timezone.utc).year
-            assert public["age_range"] == {"min": year - 1991, "max": year - 1990}
+            assert public["age_range"]["min"] <= year - 1991
+            assert public["age_range"]["max"] >= year - 1990
+            assert public["age_range"]["max"] - public["age_range"]["min"] >= 9
         else:
             assert public[public_field] == FIELDS[public_field]
         assert set(public) - set(hidden) <= {public_field}

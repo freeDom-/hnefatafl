@@ -28,6 +28,7 @@ function mount(fetcher: ReturnType<typeof vi.fn>) {
 }
 
 it('does not consume a fragment token on GET or StrictMode mount and removes it promptly', async () => {
+  const dispatched = vi.spyOn(window, 'dispatchEvent');
   history.replaceState(null, '', '/verify-email#token=' + token);
   const fetcher = vi.fn((path: string) =>
     response(
@@ -39,12 +40,19 @@ it('does not consume a fragment token on GET or StrictMode mount and removes it 
   mount(fetcher);
   expect(location.hash).toBe('');
   expect(fetcher.mock.calls.every(([path]) => path === '/api/auth/registration')).toBe(true);
+  expect(
+    dispatched.mock.calls.filter(([event]) => event.type === 'permissions-changed'),
+  ).toHaveLength(0);
   expect(screen.getByRole('heading', { name: 'Confirm your email' })).toHaveFocus();
   fireEvent.click(screen.getByRole('button', { name: 'Verify email' }));
   expect(await screen.findByRole('status')).toHaveTextContent('Email verified. You can log in.');
   const sent = fetcher.mock.calls.find(([path]) => path === '/api/auth/verify-email');
   expect(sent).toBeTruthy();
   expect(JSON.stringify(localStorage)).not.toContain(token);
+  expect(
+    dispatched.mock.calls.filter(([event]) => event.type === 'permissions-changed'),
+  ).toHaveLength(1);
+  dispatched.mockRestore();
 });
 
 it('focuses the identity field and has no redundant Log in heading', async () => {
