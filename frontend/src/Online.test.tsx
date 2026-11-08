@@ -43,6 +43,14 @@ function room(game: OnlineGame = fixture.active as OnlineGame) {
   history.replaceState(null, '', `/online/games/${game.id}`);
   return render(<Online />);
 }
+
+it('shows the existing safe fallback for an unavailable account while keeping its seat assigned', async () => {
+  const game = structuredClone(fixture.active) as OnlineGame;
+  game.participants.defenders = { account_id: 'missing-account', name: '' };
+  room(game);
+  await screen.findByRole('grid');
+  expect(screen.getByRole('heading', { name: 'Unassigned', exact: true })).toBeVisible();
+});
 function lobby() {
   history.replaceState(null, '', '/online');
   return render(<Online />);

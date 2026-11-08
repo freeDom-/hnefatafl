@@ -85,6 +85,7 @@ it('loads once, starts with private empty fields and has appearance settings wit
   expect(apiMock.mock.calls.filter(([path]) => path === '/profile')).toHaveLength(1);
 });
 it('saves optional Unicode fields and independent visibility then restores the saved values on reload', async () => {
+  const dispatch = vi.spyOn(window, 'dispatchEvent');
   const view = await page();
   fireEvent.change(screen.getByRole('textbox', { name: 'Display name' }), {
     target: { value: '  Þór 東京  ' },
@@ -99,6 +100,7 @@ it('saves optional Unicode fields and independent visibility then restores the s
   fireEvent.click(screen.getByRole('checkbox', { name: 'Share country' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
   await screen.findByText('Profile saved.');
+  expect(dispatch.mock.calls.filter(([event]) => event.type === 'profile-changed')).toHaveLength(1);
   expect(apiMock).toHaveBeenCalledWith(
     '/profile',
     {

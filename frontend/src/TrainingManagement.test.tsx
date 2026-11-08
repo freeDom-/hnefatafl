@@ -64,6 +64,20 @@ function openDelete() {
 }
 
 describe('workshop model provenance and deletion', () => {
+  it('attributes the current human identity in model usage without changing historical AI labels', async () => {
+    const game = unfinished('linked-game');
+    const projected = {
+      ...game,
+      players: { ...game.players, attackers: { name: 'Freya', username: 'Archer' } },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => json(path.endsWith('/usage') ? usage([projected]) : [])),
+    );
+    show();
+    const dialog = openDelete();
+    await dialog.findByText('Freya (@Archer) vs Raven');
+  });
   it('shows the training seed rather than the evaluation seed, and labels missing provenance', async () => {
     vi.stubGlobal(
       'fetch',

@@ -10,4 +10,5 @@ it('avoids duplicate labels and accepts older responses and unassigned seats', (
   expect(accountName({ name: 'Odin', username: 'Odin' })).toBe('Odin');
   expect(accountName({ name: 'Legacy name' })).toBe('Legacy name');
   expect(accountName(null)).toBeUndefined();
+  expect(accountName({ name: '' })).toBeUndefined();
 });

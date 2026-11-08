@@ -14,6 +14,7 @@ import Tournaments from './Tournaments';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
+import { accountAttribution } from './accountIdentity';
 
 import Online from './Online';
 import Modal from './Modal';
@@ -185,6 +186,81 @@ export default function App() {
       controller.abort();
     };
   }, [path, refreshOptions]);
+  useEffect(() => {
+    const match = /^\/games\/((?!online-)[A-Za-z0-9_-]{1,100})$/.exec(path.split('?')[0]);
+    if (!match) return;
+    const controller = new AbortController();
+    let running = false;
+    let revision = 0;
+    // Refresh identity on existing wake signals, without polling or replacing a
+    // newer board/move response with a background read of an older position.
+    const refresh = async () => {
+      revision++;
+      if (running) return;
+      running = true;
+      let lastRead: number;
+      do {
+        const expected = revision;
+        lastRead = expected;
+        try {
+          const fresh = await api<Game>(
+            `/games/${match[1]}`,
+            undefined,
+            undefined,
+            AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+          );
+          if (controller.signal.aborted || expected !== revision) continue;
+          setGame((current) => {
+            if (
+              controller.signal.aborted ||
+              expected !== revision ||
+              !current ||
+              current.id !== fresh.id ||
+              current.version > fresh.version
+            )
+              return current;
+            const players = { ...current.players };
+            let changed = false;
+            for (const side of ['attackers', 'defenders'] as Side[]) {
+              const saved = current.players[side];
+              const next = fresh.players[side];
+              if (
+                saved.kind === 'human' &&
+                next.kind === 'human' &&
+                saved.account_id &&
+                saved.account_id === next.account_id &&
+                (saved.name !== next.name || saved.username !== next.username)
+              ) {
+                players[side] = { ...saved, name: next.name, username: next.username };
+                changed = true;
+              }
+            }
+            return changed ? { ...current, players } : current;
+          });
+        } catch {
+          /* Keep the game usable offline; navigation or the next wake retries. */
+        }
+      } while (!controller.signal.aborted && lastRead !== revision);
+      running = false;
+    };
+    const wake = () => {
+      if (currentGame.current?.id === match[1]) void refresh();
+    };
+    const visible = () => {
+      if (document.visibilityState === 'visible') wake();
+    };
+    window.addEventListener('focus', wake);
+    window.addEventListener('online', wake);
+    window.addEventListener('profile-changed', wake);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      controller.abort();
+      window.removeEventListener('focus', wake);
+      window.removeEventListener('online', wake);
+      window.removeEventListener('profile-changed', wake);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [path, account?.id]);
   useEffect(() => {
     if (game) localStorage.setItem('hnefatafl-game', game.id);
   }, [game?.id]);
@@ -370,12 +446,20 @@ export default function App() {
         ) : (
           sideGlyph(side)
         ),
-        name: participantName(game.players[side], t(titles[side])),
-        detail: `${t(titles[side])} · ${
-          game.players[side]?.kind === 'ai'
-            ? t(String(game.players[side].config.algorithm ?? 'Computer'))
-            : t('Human')
-        }`,
+        name:
+          game.players[side]?.kind === 'human'
+            ? game.players[side].name || t('Unassigned')
+            : participantName(game.players[side], t(titles[side])),
+        detail: [
+          accountAttribution(game.players[side]),
+          `${t(titles[side])} · ${
+            game.players[side]?.kind === 'ai'
+              ? t(String(game.players[side].config.algorithm ?? 'Computer'))
+              : t('Human')
+          }`,
+        ]
+          .filter(Boolean)
+          .join(' · '),
         toMove: game.turn === side && outcome === null,
       }))}
       captured={game.captured ?? { attackers: 0, defenders: 0 }}

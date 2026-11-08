@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 
-from .account_policy import attributed_name
+from .account_policy import account_player_sql, attributed_name, game_accounts, game_players
 from .online_core import OnlineError, instant, micros, stamp
 
 
@@ -74,22 +74,24 @@ class PersonalHistory:
 
     @staticmethod
     def _account_base():
-        return """SELECT id,created_at AS order_at,created_at,
+        attacker_name, attacker_username = account_player_sql("attackers")
+        defender_name, defender_username = account_player_sql("defenders")
+        return f"""SELECT games.id,games.created_at AS order_at,games.created_at,
             json_extract(data,'$.ruleset') AS ruleset,
             json_extract(data,'$.mode') AS mode,
             json_extract(data,'$.human_side') AS human_side,
             json_extract(data,'$.recorded_result.winner') AS winner,
             coalesce(json_extract(data,'$.recorded_result.plies'),json_array_length(data,'$.moves')) AS plies,
             json_extract(data,'$.ended_at') AS ended_at,
-            substr(json_extract(data,'$.players.attackers.name'),1,80) AS attacker_name,
-            substr(json_extract(data,'$.players.defenders.name'),1,80) AS defender_name,
+            {attacker_name} AS attacker_name,{defender_name} AS defender_name,
+            {attacker_username} AS attacker_username,{defender_username} AS defender_username,
             json_extract(data,'$.players.attackers.kind') AS attacker_kind,
             json_extract(data,'$.players.defenders.kind') AS defender_kind,
             json_extract(data,'$.players.attackers.account_id') AS attacker_account_id,
             json_extract(data,'$.players.defenders.account_id') AS defender_account_id,
             json_extract(data,'$.players.attackers') AS attacker_player,
             json_extract(data,'$.players.defenders') AS defender_player
-            FROM games WHERE owner_account_id=?
+            FROM games LEFT JOIN accounts a ON a.id=games.owner_account_id WHERE owner_account_id=?
               AND coalesce(json_extract(data,'$.mode'),'') <> 'ai-ai'"""
 
     @staticmethod
@@ -242,8 +244,14 @@ class PersonalHistory:
             "winner": row["winner"],
             "plies": row["plies"],
             "players": {
-                "attackers": {"name": row["attacker_name"], "kind": row["attacker_kind"]},
-                "defenders": {"name": row["defender_name"], "kind": row["defender_kind"]},
+                side: {
+                    "name": row[prefix + "_name"] or "",
+                    "kind": row[prefix + "_kind"],
+                    **(
+                        {"username": row[prefix + "_username"]} if row[prefix + "_username"] else {}
+                    ),
+                }
+                for side, prefix in (("attackers", "attacker"), ("defenders", "defender"))
             },
         }
 
@@ -306,10 +314,11 @@ class PersonalHistory:
             ).fetchone()
             if row is None:
                 raise OnlineError(404, "Account game not found.")
-            return self._single_replay(json.loads(row[0]))
+            return self._single_replay(c, json.loads(row[0]))
 
-    def _single_replay(self, game):
+    def _single_replay(self, c, game):
         replay = self.account_replay(game)
+        players = game_players(game, game_accounts(c, [game["id"]]))
         # Canonical replay validates the board, never reconstructs result metadata.
         result = game.get("recorded_result") or {}
         winner = result.get("winner")
@@ -324,8 +333,12 @@ class PersonalHistory:
             "winner": winner,
             "plies": result.get("plies", len(game["moves"])),
             "players": {
-                side: {"name": str(p["name"])[:80], "kind": p["kind"]}
-                for side, p in game["players"].items()
+                side: {
+                    "name": str(p["name"])[:80],
+                    "kind": p["kind"],
+                    **({"username": p["username"]} if p.get("username") else {}),
+                }
+                for side, p in players.items()
             },
         }
         return {
@@ -406,8 +419,8 @@ class PersonalHistory:
                 json_extract(r.payload,'$.winner') AS winner,
                 json_extract(r.payload,'$.termination_reason') AS reason,
                 r.abandoned_account_id,r.revision,
-                substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS attacker_name,
-                substr(CASE WHEN d.show_display_name=1 THEN coalesce(nullif(d.display_name,''),d.username) ELSE d.username END,1,80) AS defender_name,
+                public_account_name(a.username,a.display_name,a.show_display_name) AS attacker_name,
+                public_account_name(d.username,d.display_name,d.show_display_name) AS defender_name,
                 a.username AS attacker_username,d.username AS defender_username,
                 CASE WHEN g.status='completed' AND r.competitive_eligible=1 THEN
                   CASE WHEN json_extract(r.payload,'$.winner')='draw' THEN 'draw'

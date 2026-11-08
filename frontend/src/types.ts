@@ -27,6 +27,7 @@ export interface PlayerConfig {
   config: Config;
   player_id?: string;
   account_id?: string;
+  username?: string;
   profile_name?: string;
   model_name?: string;
 }
@@ -196,6 +197,7 @@ export interface StatRow {
   rune?: string;
   seed_count?: number;
   name?: string;
+  username?: string;
   id?: string;
   ruleset?: string;
   side?: string;

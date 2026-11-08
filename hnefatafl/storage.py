@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from .identities import rune_for_ordinal
+from .account_policy import public_account_name
 from .security_context import owner_scope, principal
 from .account_migrations import migrate_accounts
 from .profile_migrations import migrate_profiles
@@ -145,6 +146,9 @@ class Store:
     def connection(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path, timeout=15)
         connection.row_factory = sqlite3.Row
+        connection.create_function(
+            "public_account_name", 3, public_account_name, deterministic=True
+        )
         connection.execute("PRAGMA busy_timeout=15000")
         try:
             yield connection

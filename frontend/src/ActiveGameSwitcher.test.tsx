@@ -121,6 +121,24 @@ function renderList(open = vi.fn()) {
   );
 }
 
+it('uses current account attribution for single-player games and refreshes it after profile changes', async () => {
+  const players = {
+    attackers: { name: 'Thor', username: 'Archer', kind: 'human', account_id: 'me' },
+    defenders: { name: 'Historical AI', kind: 'ai' },
+  };
+  singles = [singleGame('s1', { players })];
+  renderList();
+  await screen.findByText('Thor (@Archer) · Historical AI');
+  singles = [
+    singleGame('s1', {
+      players: { ...players, attackers: { ...players.attackers, name: 'Freya' } },
+    }),
+  ];
+  fireEvent(window, new Event('profile-changed'));
+  await screen.findByText('Freya (@Archer) · Historical AI');
+  expect(screen.queryByText(/Thor/)).toBeNull();
+});
+
 it.each(['mobile', 'desktop'])(
   'highlights own turns in the %s My games list independently of the open game',
   async (mode) => {

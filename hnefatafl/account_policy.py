@@ -1,5 +1,6 @@
-"""Shared account normalization; passwords are deliberately never normalized."""
+"""Account validation and public identity projections; passwords are never normalized."""
 
+import json
 import re
 import unicodedata
 
@@ -67,3 +68,88 @@ def attributed_name(name: str | None, username: str | None) -> str | None:
     if name and username and name != username:
         return f"{name} (@{username})"
     return name
+
+
+def public_account_name(username, display_name, show_display_name):
+    """SQLite adapter for the same public naming policy used by API projections."""
+    if username is None:
+        return None
+    return public_name(
+        {"username": username, "display_name": display_name, "show_display_name": show_display_name}
+    )
+
+
+def public_identity(account) -> dict:
+    """Only public attribution; never resurrect a missing account's saved profile."""
+    if account is None or account["username"] is None:
+        return {"name": ""}
+    return {"name": public_name(account), "username": account["username"]}
+
+
+def resolve_accounts(connection, account_ids) -> dict[str, dict]:
+    """Batch authoritative seat IDs; callers remain responsible for record access."""
+    identifiers = list(dict.fromkeys(identifier for identifier in account_ids if identifier))
+    if not identifiers:
+        return {}
+    return {
+        row["id"]: public_identity(row)
+        for row in connection.execute(
+            "SELECT id,username,display_name,show_display_name FROM accounts "
+            "WHERE id IN (SELECT value FROM json_each(?))",
+            (json.dumps(identifiers),),
+        )
+    }
+
+
+def game_accounts(connection, game_ids) -> dict[str, dict]:
+    """Resolve owners of already-authorized games once, independently of saved JSON."""
+    identifiers = list(dict.fromkeys(game_ids))
+    if not identifiers:
+        return {}
+    return {
+        row["id"]: {"owner_account_id": row["owner_account_id"], **public_identity(row)}
+        for row in connection.execute(
+            "SELECT g.id,g.owner_account_id,a.username,a.display_name,a.show_display_name "
+            "FROM games g LEFT JOIN accounts a ON a.id=g.owner_account_id "
+            "WHERE g.id IN (SELECT value FROM json_each(?))",
+            (json.dumps(identifiers),),
+        )
+    }
+
+
+def game_players(game, owners) -> dict[str, dict]:
+    """Project verified human seats without modifying persisted gameplay or AI snapshots."""
+    owner = owners.get(game["id"], {})
+    players = {}
+    for side, recorded in game["players"].items():
+        player = dict(recorded)
+        if player.get("kind") == "human":
+            player.pop("username", None)
+            identifier = player.get("account_id")
+            if (
+                isinstance(identifier, str)
+                and identifier
+                and identifier == owner.get("owner_account_id")
+            ):
+                player.update(
+                    {key: value for key, value in owner.items() if key != "owner_account_id"}
+                )
+        players[side] = player
+    return players
+
+
+def account_player_sql(side: str) -> tuple[str, str]:
+    """Summary-only SQL equivalent of game_players; aliases games and a are the owner join."""
+    if side not in ("attackers", "defenders"):
+        raise ValueError("Unknown player side")
+    path = f"$.players.{side}"
+    linked = (
+        f"json_extract(games.data,'{path}.kind')='human' "
+        f"AND json_extract(games.data,'{path}.account_id')=games.owner_account_id"
+    )
+    name = (
+        f"CASE WHEN {linked} THEN public_account_name(a.username,a.display_name,a.show_display_name) "
+        f"ELSE substr(json_extract(games.data,'{path}.name'),1,80) END"
+    )
+    username = f"CASE WHEN {linked} THEN a.username END"
+    return name, username

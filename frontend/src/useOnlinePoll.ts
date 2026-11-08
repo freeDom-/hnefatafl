@@ -128,6 +128,7 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
     };
     document.addEventListener('visibilitychange', visible);
     window.addEventListener('focus', wake);
+    window.addEventListener('profile-changed', wake);
     window.addEventListener('online', wake);
     window.addEventListener('offline', offline);
     void run();
@@ -140,6 +141,7 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
       waiters = [];
       document.removeEventListener('visibilitychange', visible);
       window.removeEventListener('focus', wake);
+      window.removeEventListener('profile-changed', wake);
       window.removeEventListener('online', wake);
       window.removeEventListener('offline', offline);
       if (controls.current === active) controls.current = null;

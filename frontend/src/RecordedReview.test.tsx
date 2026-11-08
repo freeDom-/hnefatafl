@@ -86,7 +86,7 @@ it('keeps authorized single-player analytics available on the review', async () 
       winner: 'draw',
       plies: 1,
       players: {
-        attackers: { name: 'Odin', kind: 'human' },
+        attackers: { name: 'Odin', kind: 'human', username: 'Archer' },
         defenders: { name: 'Jarl', kind: 'ai' },
       },
     },
@@ -123,6 +123,7 @@ it('keeps authorized single-player analytics available on the review', async () 
     <RecordedReview id="account-1" category="account-single-player" accountId="odin" personal />,
   );
   await screen.findByRole('grid');
+  expect(screen.getByText(/\(@Archer\)/)).toBeVisible();
   expect(screen.getByRole('heading', { name: 'The saga so far' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Winning chances' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Analytics' })).toBeVisible();

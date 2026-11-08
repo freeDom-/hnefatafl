@@ -923,7 +923,7 @@ function GameRoom({
       rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
         side,
         symbol: sideGlyph(side),
-        name: game.participants[side]?.name ?? t('Unassigned'),
+        name: game.participants[side]?.name || t('Unassigned'),
         detail: [
           accountAttribution(game.participants[side]),
           `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}${

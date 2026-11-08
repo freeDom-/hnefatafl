@@ -88,7 +88,7 @@ unified top-five list (provisional players carry a badge) for the selected
 ruleset. The ruleset selector sits in the section's top-right corner; it defaults
 to **Copenhagen** and persists the last valid choice in browser storage, restored
 after reload and navigation and ignored when storage is unavailable. It requires a
-session and exposes only display names, ratings and rated-game counts.
+session and exposes public account attribution, ratings and rated-game counts.
 
 On the Dashboard grid **Online games** follows the compact performance strip,
 then **Leaderboard** and the final **Recorded games** row. The redundant visible
@@ -124,7 +124,7 @@ account single-player games. An administrator's Dashboard never becomes an
 all-account collection.
 
 Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/result
-filters and pagination. Normal users see only participating online records and have
+filters and pagination. Normal users see their own single-player and participating online records and have
 no account-single-player or player-name filter. Administrators with trusted current
 `all_data` permission can inspect online and account-single-player records across
 accounts. Their player-name search accepts literal substrings of public display
@@ -132,6 +132,11 @@ names, canonical usernames and the displayed **Display Name (@username)** label,
 including its `@username` attribution. Full labels up to 148 Unicode code points
 can be typed or pasted without truncation. Search uses the same public formatter
 as the result labels; counts, cursor pages and the other filters share that query.
+Account-linked human seats use the account's current public name for old and
+active games alike. A profile edit or withdrawal of display-name sharing changes
+both the returned labels and search matches on the next read, without rewriting
+games or changing statistics. Unlinked historical humans and AI participants
+retain their saved names. See [game identity and compatibility](PROFILE.md#names-in-games-and-history).
 Only server records are visible here. The Local players section is removed;
 new account setup uses the current account and four preset opponents. Local-player
 CRUD is removed; historical data is retained for read/play compatibility.

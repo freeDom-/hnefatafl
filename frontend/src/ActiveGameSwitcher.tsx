@@ -81,7 +81,7 @@ export default function ActiveGameSwitcher({
         list &&
         game.players?.[game.turn]?.kind === 'human' &&
         (!game.players[game.turn].account_id || game.players[game.turn].account_id === accountId),
-      names: [game.players?.attackers?.name, game.players?.defenders?.name]
+      names: [accountName(game.players?.attackers), accountName(game.players?.defenders)]
         .filter(Boolean)
         .join(' · '),
     });

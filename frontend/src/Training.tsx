@@ -22,6 +22,7 @@ import TrainingTuneDialog from './TrainingTuneDialog';
 import { readImportedConfig, ConfigImportError } from './trainingConfigImport';
 import { opponentName } from './EvaluationSettings';
 import Rune from './Rune';
+import { accountName } from './accountIdentity';
 import ModelRenameDialog from './ModelRenameDialog';
 import JobRenameDialog from './JobRenameDialog';
 import ModelTrainingSummary from './ModelTrainingSummary';
@@ -56,7 +57,10 @@ interface ModelUsage {
     version: number;
     ruleset: string;
     created_at: string;
-    players: { attackers: { name: string }; defenders: { name: string } };
+    players: {
+      attackers: { name: string; username?: string };
+      defenders: { name: string; username?: string };
+    };
     total_moves: number;
   }[];
   running_tournaments: { id: string; name: string; status: string }[];
@@ -1522,7 +1526,8 @@ export default function Training({
                     {modelUsage.unfinished_games.map((game) => (
                       <li key={game.id}>
                         <strong>
-                          {game.players.attackers.name} {t('vs')} {game.players.defenders.name}
+                          {accountName(game.players.attackers) || t('Unassigned')} {t('vs')}{' '}
+                          {accountName(game.players.defenders) || t('Unassigned')}
                         </strong>
                         <span>
                           {rulesets.find((rule) => rule.id === game.ruleset)?.name ?? game.ruleset}{' '}

@@ -34,16 +34,17 @@ verification status, ownership and training records are unaffected.
 Each of display name, country, city and age has its own sharing checkbox, off by
 default. The leaderboard uses the username unless display-name sharing is enabled
 and the name is nonempty. Display names remain editable and non-unique. A shared
-name never replaces canonical attribution: leaderboards and current online views
+name never replaces canonical attribution: leaderboards, games and recorded reviews
 show **Display Name (@username)**, or the username in the existing player-detail
 line. Identical display names remain distinguishable, including a display name
 matching an administrator's username; no role is inferred from a label. When the
 display name equals the username, the UI omits duplicate attribution.
 
-Leaderboard entries (including `me`) and online participant objects include only
-one additional public field, `username`, alongside their existing `name` and
-stable account ID. Older responses without that field still render. Current
-online history/personal summaries retain their existing string fields and append
+Leaderboard entries (including `me`), online participants and account-linked human
+game/replay players include the public `username` alongside their current `name`.
+Single-player history summaries include the same optional attribution. Older
+responses without that field still render. Hall and online personal summaries
+retain their existing string fields and append
 the canonical username when needed. History's administrator player filter also
 matches that username, the visible `@username` attribution, and a copied complete
 **Display Name (@username)** label, with the same literal substring matching and
@@ -54,10 +55,41 @@ punctuation). The input uses that same code-point bound instead of UTF-16
 `maxlength`, so a complete Unicode label can be pasted intact. Current private
 display names do not enter the search projection.
 These read projections do not modify ratings, ownership, permissions or records.
-Existing saved game snapshots are retained, including names already saved there.
 The compact Dashboard leaderboard keeps its four columns; the full leaderboard
 adds country, city and age range. Ranking, filters, tie-breaking and pagination
 are unchanged.
+
+## Names in games and history
+
+New account-backed human seats persist the immutable `accounts.id` and canonical
+username, never a mutable display-name snapshot. At read time, games, lists,
+statistics, replays and history resolve the current name and sharing setting.
+Changing **Thor** to **Freya** updates existing and active games on their next
+read; disabling sharing or clearing the name restores the canonical username.
+Old saved display names on a verified account link are neither presented nor
+searched. Account identity and authorization never depend on the displayed text.
+
+A single-player link is trusted only when its human `account_id` equals the
+persisted game owner. Online seats use their authoritative account IDs. Legacy
+human seats without a verified link keep their saved names; matching a username
+or display name never establishes a link. AI, model and tournament provenance
+remain historical snapshots. A linked account that is unavailable displays the
+existing localized **Unassigned** fallback rather than resurrecting a saved
+private display name.
+
+Profile saves update account columns only: they never rewrite game JSON, moves,
+analysis, results, seeds, timestamps or versions. Existing linked game blobs stay
+byte-for-byte unchanged. No migration is required beyond the existing schema 14;
+backup/restore rules are unchanged. List projections batch account resolution,
+while paginated history joins accounts without loading full game histories.
+
+Navigation reloads the current identity. Existing dashboard, lobby, leaderboard
+and replay read cycles also wake on a successful profile save. A mounted
+single-player game refreshes identity on focus, visibility or reconnect without
+adding continuous polling; a background identity read cannot replace newer game
+state. Another browser session's profile changes appear on the next normal read
+or focus refresh. A disconnected client retains its last successful view until
+it can read again.
 
 Birth years are available only in the authenticated owner's private profile, never
 in leaderboard entries. Explicitly shared age uses fixed ten-year birth cohorts
