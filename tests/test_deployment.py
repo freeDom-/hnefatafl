@@ -235,9 +235,19 @@ def test_restore_preserves_live_verification_and_limits_but_revokes_tokens_and_m
     backup = deployment.snapshot()
     with deployment.store.connection() as c:
         c.execute("UPDATE accounts SET email_verified_at=12345 WHERE id=?", (identifier,))
+        c.execute(
+            "UPDATE accounts SET date_of_birth='1990-03-15',city='Still private',profile_private_fields='[\"city\"]' WHERE id=?",
+            (identifier,),
+        )
         c.execute("INSERT INTO account_limits VALUES('hashes',12345,99)")
     deployment.restore(backup)
     with deployment.store.connection() as c:
+        assert tuple(
+            c.execute(
+                "SELECT date_of_birth,city,profile_private_fields FROM accounts WHERE id=?",
+                (identifier,),
+            ).fetchone()
+        ) == ("1990-03-15", "Still private", '["city"]')
         assert (
             c.execute(
                 "SELECT email_verified_at FROM accounts WHERE id=?", (identifier,)
@@ -249,6 +259,25 @@ def test_restore_preserves_live_verification_and_limits_but_revokes_tokens_and_m
         )
         assert c.execute("SELECT COUNT(*) FROM account_tokens").fetchone()[0] == 0
         assert c.execute("SELECT COUNT(*) FROM account_mail").fetchone()[0] == 0
+
+
+def test_schema14_profile_backup_requires_manual_upgrade_after_schema15_transition(deployment):
+    from hnefatafl.storage import Store
+
+    with deployment.store.connection() as c:
+        c.execute("ALTER TABLE accounts DROP COLUMN profile_private_fields")
+        c.execute("ALTER TABLE accounts DROP COLUMN date_of_birth")
+        c.execute("UPDATE accounts SET city='Legacy private',show_city=0")
+        c.execute("PRAGMA user_version=14")
+    backup = deployment.snapshot()
+    Store(deployment.store.path)
+    with pytest.raises(ValueError, match="Account schema changed"):
+        deployment.restore(backup)
+    with deployment.store.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert tuple(
+            c.execute("SELECT city,profile_private_fields,date_of_birth FROM accounts").fetchone()
+        ) == ("Legacy private", '["city"]', None)
 
 
 def test_cross_account_schema_restore_refuses_to_replace_live_security(deployment):
@@ -352,7 +381,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
     with pytest.raises(ValueError, match="Online schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
 
 
@@ -386,7 +415,7 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
 
 
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])

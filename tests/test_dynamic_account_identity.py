@@ -24,7 +24,18 @@ def stored_game(app, identifier):
 
 def assert_identity(player, name, username="Archer"):
     assert player["name"] == name and player.get("username") == username
-    assert not {"email", "birth_year", "role", "password_hash", "display_name"} & player.keys()
+    assert (
+        not {
+            "email",
+            "birth_year",
+            "date_of_birth",
+            "profile_private_fields",
+            "role",
+            "password_hash",
+            "display_name",
+        }
+        & player.keys()
+    )
 
 
 @pytest.mark.parametrize("side", ["attackers", "defenders"])

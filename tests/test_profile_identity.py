@@ -25,9 +25,7 @@ def waiting_history(world, player, count=1):
 
 
 def share_name(client, name, enabled=True):
-    response = client.patch(
-        "/api/profile", json={"display_name": name, "show_display_name": enabled}
-    )
+    response = client.patch("/api/profile", json={"display_name": name if enabled else None})
     assert response.status_code == 200
 
 
@@ -127,7 +125,7 @@ def test_search_accepts_maximum_unicode_attributed_label_and_bounds_longer_queri
     account = app.state.auth.create_account(username, "long@example.test", "long-history-password")
     with app.state.store.connection() as c:
         c.execute(
-            "UPDATE accounts SET display_name=?,show_display_name=1,email_verified_at=1 WHERE id=?",
+            "UPDATE accounts SET display_name=?,email_verified_at=1 WHERE id=?",
             (name, account["id"]),
         )
     _, token, _ = app.state.auth.login(username, "long-history-password", "fixture")
@@ -211,13 +209,13 @@ def test_colliding_shared_names_keep_public_usernames_and_stable_authority(world
     for player in ("Archer", "Keeper"):
         response = clients[player].patch("/api/profile", json={"display_name": name})
         assert response.status_code == 200
-        assert not response.json()["show_display_name"]
+        assert response.json()["legacy_private_fields"] == []
 
     for shared in (False, True, False):
         for player in ("Archer", "Keeper"):
             assert (
                 clients[player]
-                .patch("/api/profile", json={"show_display_name": shared})
+                .patch("/api/profile", json={"display_name": name if shared else None})
                 .status_code
                 == 200
             )
@@ -275,10 +273,7 @@ def test_equal_display_and_username_needs_no_duplicate_attribution(world):
     _, clients, _, _, _ = world
     game = online(world)
     assert (
-        clients["Archer"]
-        .patch("/api/profile", json={"display_name": "Archer", "show_display_name": True})
-        .status_code
-        == 200
+        clients["Archer"].patch("/api/profile", json={"display_name": "Archer"}).status_code == 200
     )
     history = clients["Keeper"].get("/api/history/games").json()["games"][0]
     assert history["id"] == game["id"] and history["attackers"] == "Archer"

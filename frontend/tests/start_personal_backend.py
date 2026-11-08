@@ -98,9 +98,7 @@ ids["tablut"] = active(ruleset="tablut")["id"]
 def concede_mover(game):
     side = game["position"]["turn"]
     account_id = game["participants"][side]["account_id"]
-    credential = next(
-        c for name, c in credentials.items() if accounts[name]["id"] == account_id
-    )
+    credential = next(c for name, c in credentials.items() if accounts[name]["id"] == account_id)
     return core.mutate(credential, game["id"], game["version"], "concede")["game"]
 
 
@@ -133,7 +131,9 @@ with TestClient(seed, base_url="http://127.0.0.1:8009") as client:
             ids["account"] = game["id"]
         if i == 1:
             ids["unfinished_account"] = game["id"]
-    assert historical_response(client, json={"ruleset": "tablut", "mode": "human-human"}).status_code in (200, 201)
+    assert historical_response(
+        client, json={"ruleset": "tablut", "mode": "human-human"}
+    ).status_code in (200, 201)
 
     session = client.post(
         "/api/auth/login",
@@ -158,6 +158,17 @@ class Control(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        if self.path == "/legacy-profile":
+            # Migration itself is covered by backend tests; seed its private
+            # result for the one disposable account used by the browser flow.
+            with app.state.store.connection() as c:
+                c.execute("""UPDATE accounts SET display_name='Legacy secret',
+                    country_code='DE',city='Hidden city',birth_year=1990,date_of_birth=NULL,
+                    profile_private_fields='["display_name","country_code","city"]'
+                    WHERE username='PersonalObserver'""")
+            self.send_response(204)
+            self.end_headers()
+            return
         if self.path != "/reset-login-attempts":
             self.send_error(404)
             return

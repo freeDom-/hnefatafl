@@ -30,7 +30,7 @@ export type LeaderboardEntry = {
   username?: string;
   country_code?: string;
   city?: string;
-  age_range?: { min: number; max: number };
+  age?: number;
   rating: number;
   rated_games: number;
   wins: number;

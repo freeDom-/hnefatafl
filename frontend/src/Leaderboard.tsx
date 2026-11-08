@@ -63,7 +63,7 @@ function Entries({
               <>
                 <th scope="col">{t('Country')}</th>
                 <th scope="col">{t('City')}</th>
-                <th scope="col">{t('Age range')}</th>
+                <th scope="col">{t('Age')}</th>
               </>
             )}
           </tr>
@@ -85,7 +85,7 @@ function Entries({
                 <>
                   <td>{entry.country_code ? countryName(entry.country_code, locale) : '—'}</td>
                   <td>{entry.city ?? '—'}</td>
-                  <td>{entry.age_range ? `${entry.age_range.min}–${entry.age_range.max}` : '—'}</td>
+                  <td>{entry.age ?? '—'}</td>
                 </>
               )}
             </tr>

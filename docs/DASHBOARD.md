@@ -133,7 +133,7 @@ including its `@username` attribution. Full labels up to 148 Unicode code points
 can be typed or pasted without truncation. Search uses the same public formatter
 as the result labels; counts, cursor pages and the other filters share that query.
 Account-linked human seats use the account's current public name for old and
-active games alike. A profile edit or withdrawal of display-name sharing changes
+active games alike. Editing or clearing a display name changes
 both the returned labels and search matches on the next read, without rewriting
 games or changing statistics. Unlinked historical humans and AI participants
 retain their saved names. See [game identity and compatibility](PROFILE.md#names-in-games-and-history).
@@ -196,3 +196,8 @@ one grid gap. The shared header shows the
 signed-in navigation; only it checks the session. Protected destinations retain
 their auth guard. See
 [the Phase 5 refinement evidence](validation/dashboard-consolidation.md).
+
+The full leaderboard adds country, city and integer **Age**; the compact Dashboard
+keeps its four columns. Populated optional fields are public after any required
+one-time legacy confirmation. Birth dates remain private and age uses completed
+years on the UTC date; see [profile publication and migration](PROFILE.md).

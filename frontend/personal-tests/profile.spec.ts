@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { openProfile } from '../tests/play-helpers';
 
-test('profile sharing controls filter real leaderboard responses for another player', async ({
+test('populated profile details publish automatically and clearing individual fields withdraws them', async ({
   page,
   browser,
   request,
@@ -29,74 +29,87 @@ test('profile sharing controls filter real leaderboard responses for another pla
     expect(response.ok()).toBe(true);
     expect(response.headers()['cache-control']).toBe('no-store');
     const board = await response.json();
-    return board.entries.find(
+    const entry = board.entries.find(
       (entry: { account_id: string }) => entry.account_id === session.account.id,
     );
+    for (const field of [
+      'date_of_birth',
+      'birth_year',
+      'legacy_birth_year',
+      'age_range',
+      'profile_private_fields',
+      'legacy_private_fields',
+      'email',
+      'password_hash',
+    ])
+      expect(entry).not.toHaveProperty(field);
+    return entry;
+  }
+  async function save(expected: Record<string, unknown>) {
+    const request = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).pathname === '/api/profile' && request.method() === 'PATCH',
+    );
+    await page.getByRole('button', { name: 'Save Profile' }).click();
+    expect((await request).postDataJSON()).toEqual(expected);
+    await expect(page.getByText('Profile saved.')).toBeVisible();
   }
   try {
+    await expect(page.locator('.profile-page').getByRole('checkbox')).toHaveCount(0);
+    await expect(page.getByText('Leaderboard visibility', { exact: true })).toHaveCount(0);
     await page.getByRole('textbox', { name: 'Display name' }).fill('Þór 東京');
     await page.getByRole('textbox', { name: 'City', exact: true }).fill('Łódź');
     await page.getByRole('combobox', { name: 'Country', exact: true }).selectOption('DE');
-    await page.getByRole('spinbutton', { name: 'Year of birth' }).fill('1990');
-    await page.getByRole('button', { name: 'Save Profile' }).click();
-    await expect(page.getByText('Profile saved.')).toBeVisible();
+    await page.getByLabel('Date of birth', { exact: true }).fill('1990-03-15');
+    await save({
+      display_name: 'Þór 東京',
+      city: 'Łódź',
+      country_code: 'DE',
+      date_of_birth: '1990-03-15',
+    });
     let entry = await publicEntry();
-    expect(entry.name).toBe('PersonalArcher');
-    for (const key of ['country_code', 'city', 'age_range', 'birth_year', 'email', 'password_hash'])
-      expect(entry).not.toHaveProperty(key);
-    await page.getByRole('checkbox', { name: 'Share country', exact: true }).check();
-    await page.getByRole('button', { name: 'Save Profile' }).click();
-    await expect(page.getByText('Profile saved.')).toBeVisible();
-    entry = await publicEntry();
-    expect(entry.country_code).toBe('DE');
-    expect(entry).not.toHaveProperty('city');
-    expect(entry).not.toHaveProperty('age_range');
-    expect(entry.name).toBe('PersonalArcher');
-    for (const name of ['Share display name', 'Share city', 'Share age range'])
-      await page.getByRole('checkbox', { name, exact: true }).check();
-    await page.getByRole('button', { name: 'Save Profile' }).click();
-    await expect(page.getByText('Profile saved.')).toBeVisible();
-    entry = await publicEntry();
+    const today = new Date();
+    const age =
+      today.getUTCFullYear() -
+      1990 -
+      (today.getUTCMonth() < 2 || (today.getUTCMonth() === 2 && today.getUTCDate() < 15) ? 1 : 0);
     expect(entry.name).toBe('Þór 東京');
+    expect(entry.country_code).toBe('DE');
     expect(entry.city).toBe('Łódź');
-    expect(entry.age_range.max - entry.age_range.min).toBeGreaterThanOrEqual(9);
-    const calendarAge = new Date().getUTCFullYear() - 1990;
-    expect(entry.age_range.min).toBeLessThanOrEqual(calendarAge - 1);
-    expect(entry.age_range.max).toBeGreaterThanOrEqual(calendarAge);
-    expect(entry).not.toHaveProperty('birth_year');
+    expect(entry.age).toBe(age);
+    expect(Number.isInteger(entry.age)).toBe(true);
     await viewerPage.goto('/leaderboard');
     await viewerPage.getByRole('combobox', { name: 'Ruleset' }).selectOption('tablut');
-    const row = viewerPage.getByRole('row').filter({ hasText: 'Þór 東京' });
+    const row = viewerPage.getByRole('row').filter({ hasText: '(@PersonalArcher)' });
     await expect(row).toContainText('Germany');
     await expect(row).toContainText('Łódź');
-    await expect(row).toContainText(`${entry.age_range.min}–${entry.age_range.max}`);
-    for (const checkbox of await page.getByRole('checkbox').all()) await checkbox.uncheck();
-    await page.getByRole('button', { name: 'Save Profile' }).click();
-    await expect(page.getByText('Profile saved.')).toBeVisible();
+    await expect(row.locator('td').last()).toHaveText(String(age));
+    await expect(viewerPage.getByRole('columnheader', { name: 'Age', exact: true })).toBeVisible();
+    await page.getByRole('textbox', { name: 'City', exact: true }).fill('');
+    await save({ city: null });
+    entry = await publicEntry();
+    expect(entry).not.toHaveProperty('city');
+    expect(entry.country_code).toBe('DE');
+    expect(entry.age).toBe(age);
+    await page.getByRole('textbox', { name: 'Display name' }).fill('');
+    await page.getByRole('combobox', { name: 'Country', exact: true }).selectOption('');
+    await page.getByLabel('Date of birth', { exact: true }).fill('');
+    await save({ display_name: null, country_code: null, date_of_birth: null });
     entry = await publicEntry();
     expect(entry.name).toBe('PersonalArcher');
-    for (const key of ['country_code', 'city', 'age_range', 'birth_year'])
-      expect(entry).not.toHaveProperty(key);
+    for (const field of ['country_code', 'city', 'age']) expect(entry).not.toHaveProperty(field);
     await viewerPage.reload();
+    await expect(viewerPage.locator('tbody')).not.toContainText('(@PersonalArcher)');
     await expect(
-      viewerPage.getByRole('row').filter({ hasText: 'PersonalArcher' }),
-    ).not.toContainText('Germany');
+      viewerPage.getByRole('row').filter({ hasText: 'PersonalArcher' }).locator('td').last(),
+    ).toHaveText('—');
   } finally {
-    const fields = [
-      'display_name',
-      'country_code',
-      'city',
-      'birth_year',
-      'show_display_name',
-      'show_country',
-      'show_city',
-      'show_age',
-    ];
+    const fields = ['display_name', 'country_code', 'city', 'date_of_birth'];
     expect(
       (
         await page.request.patch('/api/profile', {
           headers: { Origin: 'http://127.0.0.1:8009', 'X-CSRF-Token': session.csrf_token },
-          data: Object.fromEntries(fields.map((key) => [key, original[key]])),
+          data: Object.fromEntries(fields.map((field) => [field, original[field]])),
         })
       ).ok(),
     ).toBe(true);
@@ -137,7 +150,7 @@ test('shared names retain canonical attribution in standings, games and history 
     username: string;
     api: APIRequestContext;
     csrf: string;
-    original: { display_name: string | null; show_display_name: boolean };
+    original: { display_name: string | null };
   }[] = [];
   for (const actor of actors) {
     const response = await actor.api.post('/api/auth/login', {
@@ -158,7 +171,7 @@ test('shared names retain canonical attribution in standings, games and history 
       (
         await actor.api.patch('/api/profile', {
           headers: { Origin: 'http://127.0.0.1:8009', 'X-CSRF-Token': actor.csrf },
-          data: { display_name, show_display_name: enabled },
+          data: { display_name: enabled ? display_name : null },
         })
       ).ok(),
     ).toBe(true);
@@ -172,7 +185,7 @@ test('shared names retain canonical attribution in standings, games and history 
           (entry: { username: string }) => entry.username === actor.username,
         );
         expect(entry.name).toBe(display);
-        for (const key of ['email', 'password_hash', 'birth_year', 'role'])
+        for (const key of ['email', 'password_hash', 'birth_year', 'date_of_birth', 'role'])
           expect(entry).not.toHaveProperty(key);
       }
       await page.goto('/leaderboard');
@@ -280,8 +293,7 @@ test('shared names retain canonical attribution in standings, games and history 
     await expect(page.locator('tbody')).not.toContainText('(@PersonalArcher)');
     await expect(page.locator('tbody')).toContainText('(@PersonalKeeper)');
   } finally {
-    for (const actor of sessions)
-      await share(actor, actor.original.display_name, actor.original.show_display_name);
+    for (const actor of sessions) await share(actor, actor.original.display_name);
     await keeper.close();
     await admin.close();
   }

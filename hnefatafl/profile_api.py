@@ -1,14 +1,14 @@
 """Owned profile updates and password changes using existing session/mail authority."""
 
 import hmac
+import json
 import unicodedata
-from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
 
 from .auth import password_hash, verify
-from .account_policy import BIDI_CONTROLS, MIN_BIRTH_YEAR
+from .account_policy import BIDI_CONTROLS, birth_date, unpublished_fields
 from .security_context import session_identity
 
 # ISO 3166-1 alpha-2 (including territories); labels are localized by the browser.
@@ -32,11 +32,7 @@ class ProfileUpdate(BaseModel):
     display_name: StrictStr | None = None
     country_code: StrictStr | None = None
     city: StrictStr | None = None
-    birth_year: StrictInt | None = None
-    show_display_name: StrictBool = False
-    show_country: StrictBool = False
-    show_city: StrictBool = False
-    show_age: StrictBool = False
+    date_of_birth: StrictStr | None = None
 
     @field_validator("display_name", "city")
     @classmethod
@@ -62,12 +58,10 @@ class ProfileUpdate(BaseModel):
             raise ValueError("Invalid country code")
         return value
 
-    @field_validator("birth_year")
+    @field_validator("date_of_birth")
     @classmethod
-    def year(cls, value):
-        if value is not None and not MIN_BIRTH_YEAR <= value <= datetime.now(timezone.utc).year:
-            raise ValueError("Invalid birth year")
-        return value
+    def date(cls, value):
+        return birth_date(value)
 
 
 class ProfileResponse(BaseModel):
@@ -75,11 +69,9 @@ class ProfileResponse(BaseModel):
     display_name: str | None
     country_code: str | None
     city: str | None
-    birth_year: int | None
-    show_display_name: bool
-    show_country: bool
-    show_city: bool
-    show_age: bool
+    date_of_birth: str | None
+    legacy_birth_year: int | None
+    legacy_private_fields: list[str]
     username: str
     email: str
     email_verified: bool
@@ -107,7 +99,11 @@ class PasswordResult(BaseModel):
 def projection(account) -> dict:
     fields = ProfileUpdate.model_fields
     return {
-        **{key: bool(account[key]) if key.startswith("show_") else account[key] for key in fields},
+        **{key: account[key] for key in fields},
+        "legacy_birth_year": account["birth_year"],
+        "legacy_private_fields": sorted(
+            field for field in unpublished_fields(account) if account[field]
+        ),
         "username": account["username"],
         "email": account["email"],
         "email_verified": account["email_verified_at"] is not None,
@@ -131,6 +127,14 @@ def attach_profiles(app, auth, registration):
             c.execute("BEGIN IMMEDIATE")
             account = auth.current_account(c)
             if changes:
+                # Explicitly submitting a field is publication/reconfirmation,
+                # including the same saved value. Omitted legacy values stay private.
+                pending = unpublished_fields(account) - changes.keys()
+                changes["profile_private_fields"] = json.dumps(sorted(pending))
+                if "date_of_birth" in changes:
+                    # The user's full-date edit/clear supersedes the historical
+                    # year. Migration alone never discards that private value.
+                    changes["birth_year"] = None
                 c.execute(
                     f"UPDATE accounts SET {','.join(key + '=?' for key in changes)} WHERE id=?",
                     (*changes.values(), account["id"]),

@@ -40,7 +40,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
 | [benchmark.py](hnefatafl/benchmark.py), [alpha_beta_benchmark.py](hnefatafl/alpha_beta_benchmark.py), [cli.py](hnefatafl/cli.py) | Same-device performance comparisons, alpha-beta optimization ablations and headless command dispatch |
 | [storage.py](hnefatafl/storage.py), [identities.py](hnefatafl/identities.py) | Transactional SQLite records, compare-and-swap moves, normalized identities and runes |
-| [profile_api.py](hnefatafl/profile_api.py), [profile_migrations.py](hnefatafl/profile_migrations.py) | Owned optional account profiles, explicit public-sharing controls, authenticated password changes and additive schema-14 account fields |
+| [profile_api.py](hnefatafl/profile_api.py), [profile_migrations.py](hnefatafl/profile_migrations.py) | Owned optional profiles, automatic publication with legacy privacy protection, private birth dates and additive schema-15 fields |
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
@@ -309,7 +309,7 @@ copy and entry, retaining historical labels and original training outputs. Catal
 reference creation and deletion are serialized in the supported single API process.
 
 `account_policy.py` resolves public human identities from `accounts.id`, applying
-current display-name sharing and canonical username attribution. New account game
+automatic publication with legacy-private exceptions and canonical username attribution. New account game
 JSON stores the username and account ID, not the mutable profile name. Full-game
 lists batch the trusted owner/account join once per request; history summaries
 use SQL joins and the same pure naming policy without decoding whole game blobs.
@@ -317,8 +317,8 @@ Only human IDs matching the persisted single-player owner are trusted; online
 seats use their database account IDs. No identity is inferred from a saved name.
 Linked legacy snapshots resolve dynamically; unlinked humans and AI/model/
 tournament snapshots stay historical. Missing linked accounts never resurrect
-saved private names. Profile edits write no game rows and need no new migration
-(schema 14), so versions, optimistic move guards and statistical identity stay
+saved private names. Profile edits write no game rows. The schema-15 transition changes account data only,
+so versions, optimistic move guards and statistical identity stay
 unchanged. See [profile compatibility](docs/PROFILE.md#names-in-games-and-history).
 
 Appearance is browser-local state, separate from game configuration. A typed catalog
@@ -671,3 +671,15 @@ queries are removed; preset-only account setup replaces local-player selection/A
 [dashboard guide](docs/DASHBOARD.md), [Phase 5 contract](docs/designs/personal-dashboard-phase5.md),
 [refinement evidence](docs/validation/dashboard-consolidation.md) and
 [Rated games](docs/RATINGS.md).
+
+Profile schema 15 retains schema-14 columns and adds an ISO `date_of_birth` plus
+a one-time `profile_private_fields` exception list. Migration derives exceptions
+from populated legacy fields whose old flags withheld publication. New rows have
+no exceptions; public projections do not consult the old flags. Field-only PATCH
+requests remove only their explicitly supplied exceptions, including same-value
+confirmation, while keeping unrelated private values withheld. The UI exposes no
+visibility fieldset: only affected legacy inputs offer temporary confirmation
+actions. Full dates stay private; `account_policy.py` supplies completed-years age
+on one UTC date per leaderboard response (February 29 advances March 1 in common
+years). The compact table, ranking calculations, game records and permission
+inventory are unchanged. See [account profile](docs/PROFILE.md).

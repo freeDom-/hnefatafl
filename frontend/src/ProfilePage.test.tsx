@@ -28,11 +28,9 @@ const initial: Profile = {
   display_name: null,
   country_code: null,
   city: null,
-  birth_year: null,
-  show_display_name: false,
-  show_country: false,
-  show_city: false,
-  show_age: false,
+  date_of_birth: null,
+  legacy_birth_year: null,
+  legacy_private_fields: [],
   country_codes: ['DE', 'JP', 'SE'],
 };
 const apiMock = vi.mocked(api);
@@ -46,7 +44,15 @@ beforeEach(() => {
   apiMock.mockReset();
   apiMock.mockImplementation(async (path, body) => {
     if (path === '/profile') {
-      stored = { ...stored, ...(body as Partial<Profile>) };
+      stored = {
+        ...stored,
+        ...(body as Partial<Profile>),
+        legacy_private_fields: stored.legacy_private_fields.filter(
+          (field) => !(body && field in (body as object)),
+        ),
+        legacy_birth_year:
+          body && 'date_of_birth' in (body as object) ? null : stored.legacy_birth_year,
+      };
       return stored;
     }
     return {
@@ -73,18 +79,20 @@ async function page() {
   await screen.findByRole('textbox', { name: /^(Display name|Anzeigename)$/ });
   return view;
 }
-it('loads once, starts with private empty fields and has appearance settings without another language selector', async () => {
+it('loads once, starts with empty fields and has appearance settings without another language selector', async () => {
   await page();
   expect(screen.getByRole('textbox', { name: 'Display name' })).toHaveValue('');
   expect(screen.getByRole('combobox', { name: 'Country' })).toHaveValue('');
-  expect(screen.getAllByRole('checkbox')).toHaveLength(4);
-  screen.getAllByRole('checkbox').forEach((checkbox) => expect(checkbox).not.toBeChecked());
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(screen.queryByText('Leaderboard visibility')).toBeNull();
+  expect(document.getElementById('profile-privacy-help')).toBeNull();
+  expect(screen.getByLabelText('Date of birth')).toHaveAttribute('type', 'date');
   expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
   expect(screen.queryByRole('combobox', { name: 'Language' })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Dresden' } });
   expect(apiMock.mock.calls.filter(([path]) => path === '/profile')).toHaveLength(1);
 });
-it('saves optional Unicode fields and independent visibility then restores the saved values on reload', async () => {
+it('saves populated Unicode fields then restores the saved values on reload', async () => {
   const dispatch = vi.spyOn(window, 'dispatchEvent');
   const view = await page();
   fireEvent.change(screen.getByRole('textbox', { name: 'Display name' }), {
@@ -94,10 +102,9 @@ it('saves optional Unicode fields and independent visibility then restores the s
     target: { value: '  Łódź  ' },
   });
   fireEvent.change(screen.getByRole('combobox', { name: 'Country' }), { target: { value: 'DE' } });
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year of birth' }), {
-    target: { value: '1990' },
+  fireEvent.change(screen.getByLabelText('Date of birth'), {
+    target: { value: '1990-03-15' },
   });
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Share country' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
   await screen.findByText('Profile saved.');
   expect(dispatch.mock.calls.filter(([event]) => event.type === 'profile-changed')).toHaveLength(1);
@@ -107,11 +114,7 @@ it('saves optional Unicode fields and independent visibility then restores the s
       display_name: 'Þór 東京',
       city: 'Łódź',
       country_code: 'DE',
-      birth_year: 1990,
-      show_display_name: false,
-      show_country: true,
-      show_city: false,
-      show_age: false,
+      date_of_birth: '1990-03-15',
     },
     'PATCH',
     expect.any(AbortSignal),
@@ -119,14 +122,88 @@ it('saves optional Unicode fields and independent visibility then restores the s
   view.unmount();
   await page();
   expect(screen.getByRole('textbox', { name: 'Display name' })).toHaveValue('Þór 東京');
-  expect(screen.getByRole('checkbox', { name: 'Share country' })).toBeChecked();
-  expect(screen.getByRole('checkbox', { name: 'Share city' })).not.toBeChecked();
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year of birth' }), {
+  expect(screen.getByRole('combobox', { name: 'Country' })).toHaveValue('DE');
+  expect(screen.getByLabelText('Date of birth')).toHaveValue('1990-03-15');
+  fireEvent.change(screen.getByLabelText('Date of birth'), {
     target: { value: '' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
-  await waitFor(() => expect(stored.birth_year).toBeNull());
+  await waitFor(() => expect(stored.date_of_birth).toBeNull());
 });
+it('submits only edited fields and leaves other legacy-private values and the old year untouched', async () => {
+  stored = {
+    ...stored,
+    display_name: 'Saved name',
+    country_code: 'DE',
+    city: 'Private city',
+    legacy_birth_year: 1990,
+    legacy_private_fields: ['display_name', 'country_code', 'city'],
+  };
+  await page();
+  fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Kyōto' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
+  await screen.findByText('Profile saved.');
+  expect(apiMock).toHaveBeenLastCalledWith(
+    '/profile',
+    { city: 'Kyōto' },
+    'PATCH',
+    expect.any(AbortSignal),
+  );
+  expect(stored.legacy_private_fields).toEqual(['display_name', 'country_code']);
+  expect(stored.legacy_birth_year).toBe(1990);
+  expect(screen.getByRole('button', { name: 'Publish saved display name on save' })).toBeVisible();
+  expect(screen.queryByRole('checkbox')).toBeNull();
+});
+it('reconfirms one unchanged legacy value through a transient keyboard-accessible action', async () => {
+  stored = {
+    ...stored,
+    display_name: 'Saved name',
+    country_code: 'DE',
+    legacy_private_fields: ['display_name', 'country_code'],
+  };
+  const user = userEvent.setup();
+  await page();
+  const action = screen.getByRole('button', { name: 'Publish saved display name on save' });
+  action.focus();
+  await user.keyboard('{Enter}');
+  expect(action).toHaveFocus();
+  expect(action).toHaveAttribute('aria-disabled', 'true');
+  await user.click(screen.getByRole('button', { name: 'Save Profile' }));
+  await screen.findByText('Profile saved.');
+  expect(apiMock).toHaveBeenLastCalledWith(
+    '/profile',
+    { display_name: 'Saved name' },
+    'PATCH',
+    expect.any(AbortSignal),
+  );
+  expect(stored.legacy_private_fields).toEqual(['country_code']);
+  expect(screen.queryByRole('button', { name: 'Publish saved display name on save' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Publish saved country on save' })).toBeVisible();
+});
+it('does not submit unchanged legacy-private fields when Save is pressed without edits', async () => {
+  stored = { ...stored, display_name: 'Private name', legacy_private_fields: ['display_name'] };
+  await page();
+  fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
+  expect(screen.getByText('Profile saved.')).toBeVisible();
+  expect(apiMock).toHaveBeenCalledTimes(1);
+  expect(stored.legacy_private_fields).toEqual(['display_name']);
+});
+it.each(['en', 'de'] as const)(
+  'validates future dates and localizes feedback in %s',
+  async (language) => {
+    await page();
+    act(() => setLanguage(language, false));
+    const input = screen.getByLabelText(language === 'de' ? 'Geburtsdatum' : 'Date of birth');
+    expect(input).toHaveAttribute('min', '1900-01-01');
+    expect(input).toHaveAttribute('max', new Date().toISOString().slice(0, 10));
+    fireEvent.change(input, { target: { value: '2999-01-01' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      language === 'de' ? 'Gib ein gültiges Datum' : 'Enter a valid date',
+    );
+    expect(apiMock).toHaveBeenCalledTimes(1);
+  },
+);
 it('keeps changes on save failure and prevents duplicate submissions while saving', async () => {
   await page();
   let reject!: (error: Error) => void;
@@ -274,7 +351,8 @@ it('localizes the profile and country names and preserves theme preferences thro
   act(() => setLanguage('de'));
   expect(screen.getByRole('heading', { name: 'Mein Profil' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'Deutschland' })).toBeInTheDocument();
-  expect(screen.getByRole('checkbox', { name: 'Land teilen' })).toBeVisible();
+  expect(screen.getByLabelText('Geburtsdatum')).toBeVisible();
+  expect(screen.queryByRole('checkbox')).toBeNull();
   view.unmount();
   await page();
   expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');

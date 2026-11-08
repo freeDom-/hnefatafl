@@ -10,7 +10,10 @@ def test_online_participants_resolve_shared_names_without_changing_account_ids(r
         c.execute("UPDATE accounts SET display_name='Private Þór' WHERE id=?", (account_id,))
     for shared in (False, True, False):
         with rig.store.connection() as c:
-            c.execute("UPDATE accounts SET show_display_name=? WHERE id=?", (shared, account_id))
+            c.execute(
+                "UPDATE accounts SET profile_private_fields=? WHERE id=?",
+                ("[]" if shared else '["display_name"]', account_id),
+            )
         current = rig.core.read(rig.credentials["Keeper"], game["id"])
         assert current["participants"]["attackers"] == {
             "account_id": account_id,

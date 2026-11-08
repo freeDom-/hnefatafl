@@ -16,12 +16,12 @@ test('profile edits update existing games, reviews and mounted identities withou
   const headers = { Origin: 'http://127.0.0.1:8009', 'X-CSRF-Token': session.csrf_token };
   const original = await (await page.request.get('/api/profile')).json();
   let identifier: string | undefined;
-  const share = async (display_name: string, show_display_name = true) => {
+  const share = async (display_name: string, populated = true) => {
     expect(
       (
         await page.request.patch('/api/profile', {
           headers,
-          data: { display_name, show_display_name },
+          data: { display_name: populated ? display_name : null },
         })
       ).ok(),
     ).toBe(true);
@@ -102,7 +102,6 @@ test('profile edits update existing games, reviews and mounted identities withou
           headers,
           data: {
             display_name: original.display_name,
-            show_display_name: original.show_display_name,
           },
         })
       ).ok(),

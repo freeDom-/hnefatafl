@@ -146,18 +146,36 @@ it('renders only returned public details as text and keeps the compact dashboard
     ...board().entries[0],
     country_code: 'DE',
     city: '<img src=x onerror=alert(1)>',
-    age_range: { min: 26, max: 36 },
+    age: 36,
   };
   serve = () => respond({ ...board(), entries: [entry] });
   const view = render(<Leaderboard />);
   expect(await screen.findByText('Germany')).toBeVisible();
   expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeVisible();
-  expect(screen.getByText('26–36')).toBeVisible();
+  expect(screen.getByText('36')).toBeVisible();
   expect(document.querySelector('table img')).toBeNull();
   view.unmount();
   render(<Leaderboard compact />);
   await screen.findByText(/Archer/);
   expect(screen.queryByRole('columnheader', { name: 'Country' })).not.toBeInTheDocument();
+});
+
+it.each([
+  ['en', 'Age'],
+  ['de', 'Alter'],
+] as const)('renders age zero and missing age distinctly in %s', async (language, heading) => {
+  setLanguage(language, false);
+  serve = () =>
+    respond({
+      ...board(),
+      entries: [{ ...board().entries[0], age: 0 }, board().entries[1]],
+    });
+  render(<Leaderboard />);
+  await screen.findByText('Keeper');
+  expect(screen.getByRole('columnheader', { name: heading })).toBeVisible();
+  const rows = document.querySelectorAll('tbody tr');
+  expect(rows[0].lastElementChild).toHaveTextContent(/^0$/);
+  expect(rows[1].lastElementChild).toHaveTextContent(/^—$/);
 });
 
 it.each([false, true])(
