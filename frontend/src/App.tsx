@@ -20,6 +20,7 @@ import Modal from './Modal';
 import PersonalDashboard from './PersonalDashboard';
 import StatisticsPage from './StatisticsPage';
 import Leaderboard from './Leaderboard';
+import ProfilePage from './ProfilePage';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { useAuth } from './Auth';
 import { canonicalLocation, navigate } from './navigation';
@@ -43,6 +44,7 @@ type Tab =
   | 'play'
   | 'archive'
   | 'leaderboard'
+  | 'profile'
   | 'training'
   | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -54,19 +56,21 @@ export default function App() {
   const [path, setPath] = useState(canonicalLocation);
   const tab: Tab = path.startsWith('/online/games/')
     ? 'online'
-    : path.split('?')[0] === '/statistics'
-      ? 'statistics'
-      : path.startsWith('/games/') || path.split('?')[0] === '/play'
-        ? 'play'
-        : path.split('?')[0] === '/archive'
-          ? 'archive'
-          : path.split('?')[0] === '/leaderboard'
-            ? 'leaderboard'
-            : path.startsWith('/training') && permissions.includes('training')
-              ? 'training'
-              : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                ? 'tournaments'
-                : 'dashboard';
+    : path.split('?')[0] === '/profile'
+      ? 'profile'
+      : path.split('?')[0] === '/statistics'
+        ? 'statistics'
+        : path.startsWith('/games/') || path.split('?')[0] === '/play'
+          ? 'play'
+          : path.split('?')[0] === '/archive'
+            ? 'archive'
+            : path.split('?')[0] === '/leaderboard'
+              ? 'leaderboard'
+              : path.startsWith('/training') && permissions.includes('training')
+                ? 'training'
+                : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                  ? 'tournaments'
+                  : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
@@ -570,6 +574,7 @@ export default function App() {
           ))}
         {tab === 'online' && <Online />}
         {tab === 'leaderboard' && <Leaderboard />}
+        {tab === 'profile' && <ProfilePage />}
         {tab === 'archive' && <Archive />}
         {tab === 'tournaments' && permissions.includes('tournaments') && (
           <Tournaments

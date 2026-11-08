@@ -718,5 +718,29 @@
     "permission": "worker",
     "persistent_state": true,
     "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/profile",
+    "authentication": "session",
+    "permission": "profile",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "PATCH",
+    "route": "/api/profile",
+    "authentication": "session",
+    "permission": "profile",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/profile/password",
+    "authentication": "session",
+    "permission": "profile",
+    "persistent_state": true,
+    "user_specific": true
   }
 ]

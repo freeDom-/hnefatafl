@@ -6,6 +6,7 @@ import { useOnlinePoll } from './useOnlinePoll';
 import PageHeading from './PageHeading';
 import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineTypes';
 import './leaderboard.css';
+import { countryName } from './profileCountry';
 
 const rulesets = ['brandubh', 'tablut', 'copenhagen'] as const;
 const ruleNames: Record<string, string> = {
@@ -39,12 +40,14 @@ function Entries({
   entries,
   ownId,
   caption,
+  details = false,
 }: {
   entries: LeaderboardEntry[];
   ownId: string | undefined;
   caption: string;
+  details?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <div className="leaderboard-table">
       <table className="leaderboard">
@@ -55,6 +58,13 @@ function Entries({
             <th scope="col">{t('Player')}</th>
             <th scope="col">{t('Rating')}</th>
             <th scope="col">{t('Rated games')}</th>
+            {details && (
+              <>
+                <th scope="col">{t('Country')}</th>
+                <th scope="col">{t('City')}</th>
+                <th scope="col">{t('Age range')}</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -70,6 +80,13 @@ function Entries({
               </td>
               <td>{Math.round(entry.rating)}</td>
               <td>{entry.rated_games}</td>
+              {details && (
+                <>
+                  <td>{entry.country_code ? countryName(entry.country_code, locale) : '—'}</td>
+                  <td>{entry.city ?? '—'}</td>
+                  <td>{entry.age_range ? `${entry.age_range.min}–${entry.age_range.max}` : '—'}</td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
@@ -144,7 +161,7 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
       {data && total === 0 && <p>{t('No rated games in this pool yet.')}</p>}
       {data && total > 0 && (
         <>
-          <Entries entries={entries} ownId={account?.id} caption="Leaderboard" />
+          <Entries entries={entries} ownId={account?.id} caption="Leaderboard" details={!compact} />
           {!compact && (
             <nav className="leaderboard-pages" aria-label={t('Leaderboard pages')}>
               <button

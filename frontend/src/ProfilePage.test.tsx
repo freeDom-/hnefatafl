@@ -1,0 +1,247 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import ProfilePage, { type Profile } from './ProfilePage';
+import { api } from './api';
+import { AppearanceProvider } from './Appearance';
+import { APPEARANCE_KEY } from './appearanceConfig';
+import { I18nProvider, setLanguage } from './i18n';
+
+vi.mock('./api', async (original) => ({
+  ...(await original<typeof import('./api')>()),
+  api: vi.fn(),
+}));
+const identity = vi.hoisted(() => ({
+  id: 'fixture',
+  username: 'Odin',
+  email: 'odin@example.test',
+  email_verified: undefined as boolean | undefined,
+}));
+vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
+const initial: Profile = {
+  username: 'Odin',
+  email: 'odin@example.test',
+  email_verified: false,
+  display_name: null,
+  country_code: null,
+  city: null,
+  birth_year: null,
+  show_display_name: false,
+  show_country: false,
+  show_city: false,
+  show_age: false,
+  country_codes: ['DE', 'JP', 'SE'],
+};
+const apiMock = vi.mocked(api);
+let stored: Profile;
+beforeEach(() => {
+  identity.email_verified = undefined;
+  stored = { ...initial };
+  localStorage.clear();
+  history.replaceState(null, '', '/profile');
+  setLanguage('en', false);
+  apiMock.mockReset();
+  apiMock.mockImplementation(async (path, body) => {
+    if (path === '/profile') {
+      stored = { ...stored, ...(body as Partial<Profile>) };
+      return stored;
+    }
+    return {
+      message:
+        path === '/profile/password'
+          ? 'Password changed. Other sessions have been signed out.'
+          : 'If the address is eligible, an email will arrive. Only the newest link works.',
+    };
+  });
+});
+afterEach(() => {
+  cleanup();
+  setLanguage('en', false);
+  vi.restoreAllMocks();
+});
+async function page() {
+  const view = render(
+    <I18nProvider>
+      <AppearanceProvider>
+        <ProfilePage />
+      </AppearanceProvider>
+    </I18nProvider>,
+  );
+  await screen.findByRole('textbox', { name: /^(Display name|Anzeigename)$/ });
+  return view;
+}
+it('loads once, starts with private empty fields and has appearance settings without another language selector', async () => {
+  await page();
+  expect(screen.getByRole('textbox', { name: 'Display name' })).toHaveValue('');
+  expect(screen.getByRole('combobox', { name: 'Country' })).toHaveValue('');
+  expect(screen.getAllByRole('checkbox')).toHaveLength(4);
+  screen.getAllByRole('checkbox').forEach((checkbox) => expect(checkbox).not.toBeChecked());
+  expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
+  expect(screen.queryByRole('combobox', { name: 'Language' })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Dresden' } });
+  expect(apiMock.mock.calls.filter(([path]) => path === '/profile')).toHaveLength(1);
+});
+it('saves optional Unicode fields and independent visibility then restores the saved values on reload', async () => {
+  const view = await page();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Display name' }), {
+    target: { value: '  Þór 東京  ' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'City' }), {
+    target: { value: '  Łódź  ' },
+  });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Country' }), { target: { value: 'DE' } });
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year of birth' }), {
+    target: { value: '1990' },
+  });
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Share country' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
+  await screen.findByText('Profile saved.');
+  expect(apiMock).toHaveBeenCalledWith(
+    '/profile',
+    {
+      display_name: 'Þór 東京',
+      city: 'Łódź',
+      country_code: 'DE',
+      birth_year: 1990,
+      show_display_name: false,
+      show_country: true,
+      show_city: false,
+      show_age: false,
+    },
+    'PATCH',
+    expect.any(AbortSignal),
+  );
+  view.unmount();
+  await page();
+  expect(screen.getByRole('textbox', { name: 'Display name' })).toHaveValue('Þór 東京');
+  expect(screen.getByRole('checkbox', { name: 'Share country' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Share city' })).not.toBeChecked();
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year of birth' }), {
+    target: { value: '' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
+  await waitFor(() => expect(stored.birth_year).toBeNull());
+});
+it('keeps changes on save failure and prevents duplicate submissions while saving', async () => {
+  await page();
+  let reject!: (error: Error) => void;
+  apiMock.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Kyōto' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Profile' }));
+  const saving = screen.getByRole('button', { name: 'Saving…' });
+  expect(saving).toBeDisabled();
+  fireEvent.submit(saving.closest('form')!);
+  expect(apiMock.mock.calls.filter(([, body]) => body)).toHaveLength(1);
+  await act(async () => reject(new Error('Try again later.')));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Try again later.');
+  expect(screen.getByRole('textbox', { name: 'City' })).toHaveValue('Kyōto');
+  expect(screen.getByRole('button', { name: 'Save Profile' })).toBeEnabled();
+});
+it('validates password confirmation and policy before sending, then clears sensitive inputs after success', async () => {
+  await page();
+  const current = screen.getByLabelText('Current password');
+  const next = screen.getByLabelText('New password');
+  const confirm = screen.getByLabelText('Confirm new password');
+  fireEvent.change(current, { target: { value: 'current-password' } });
+  fireEvent.change(next, { target: { value: 'new-password-123' } });
+  fireEvent.change(confirm, { target: { value: 'mismatch' } });
+  const button = screen.getByRole('button', { name: 'Change Password' });
+  fireEvent.submit(button.closest('form')!);
+  expect(screen.getByRole('alert')).toHaveTextContent('Passwords do not match.');
+  expect(apiMock).toHaveBeenCalledTimes(1);
+  fireEvent.change(next, { target: { value: 'aaaaaaaaaaaa' } });
+  fireEvent.change(confirm, { target: { value: 'aaaaaaaaaaaa' } });
+  fireEvent.submit(button.closest('form')!);
+  expect(screen.getByRole('alert')).toHaveTextContent('Use 12–256 characters');
+  expect(apiMock).toHaveBeenCalledTimes(1);
+  fireEvent.change(next, { target: { value: 'new-password-123' } });
+  fireEvent.change(confirm, { target: { value: 'new-password-123' } });
+  fireEvent.click(button);
+  await screen.findByText('Password changed. Other sessions have been signed out.');
+  expect(current).toHaveValue('');
+  expect(next).toHaveValue('');
+  expect(confirm).toHaveValue('');
+  expect(apiMock).toHaveBeenCalledWith(
+    '/profile/password',
+    {
+      current_password: 'current-password',
+      new_password: 'new-password-123',
+      confirm_password: 'new-password-123',
+    },
+    undefined,
+    expect.any(AbortSignal),
+  );
+});
+it('shows backend password failures without losing form values', async () => {
+  await page();
+  apiMock.mockRejectedValueOnce(new Error('Current password is incorrect.'));
+  fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'wrong' } });
+  for (const label of ['New password', 'Confirm new password'])
+    fireEvent.change(screen.getByLabelText(label), { target: { value: 'replacement-password' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Change Password' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Current password is incorrect.');
+  expect(screen.getByLabelText('Current password')).toHaveValue('wrong');
+});
+it('targets the verification section and reuses resend with the authenticated email', async () => {
+  history.replaceState(null, '', '/profile#email-verification');
+  await page();
+  expect(document.getElementById('email-verification')).toHaveFocus();
+  expect(screen.getByText('Not verified')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Send Verification Email' }));
+  await screen.findByText(
+    'If the address is eligible, an email will arrive. Only the newest link works.',
+  );
+  expect(apiMock).toHaveBeenCalledWith(
+    '/auth/verification/resend',
+    { email: initial.email },
+    undefined,
+    expect.any(AbortSignal),
+  );
+});
+it('omits verification actions for verified accounts', async () => {
+  stored.email_verified = true;
+  await page();
+  expect(screen.getByText('Verified')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Send Verification Email' })).not.toBeInTheDocument();
+});
+
+it('updates verification status when the shared account state refreshes after confirmation', async () => {
+  identity.email_verified = false;
+  const view = await page();
+  expect(screen.getByText('Not verified')).toBeVisible();
+  identity.email_verified = true;
+  view.rerender(
+    <I18nProvider>
+      <AppearanceProvider>
+        <ProfilePage />
+      </AppearanceProvider>
+    </I18nProvider>,
+  );
+  expect(screen.getByText('Verified')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Send Verification Email' })).not.toBeInTheDocument();
+});
+it('allows retry after loading errors while retaining access to account security and appearance', async () => {
+  apiMock.mockRejectedValueOnce(new Error('Network unavailable.'));
+  render(<ProfilePage />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Network unavailable.');
+  expect(screen.getByRole('button', { name: 'Change Password' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('textbox', { name: 'Display name' })).toHaveValue('');
+});
+it('localizes the profile and country names and preserves theme preferences through remounts', async () => {
+  const view = await page();
+  fireEvent.click(screen.getByRole('radio', { name: 'Wood' }));
+  expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+  expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!).mode).toBe('wood');
+  act(() => setLanguage('de'));
+  expect(screen.getByRole('heading', { name: 'Mein Profil' })).toBeVisible();
+  expect(screen.getByRole('option', { name: 'Deutschland' })).toBeInTheDocument();
+  expect(screen.getByRole('checkbox', { name: 'Land teilen' })).toBeVisible();
+  view.unmount();
+  await page();
+  expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+});

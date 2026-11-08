@@ -410,11 +410,11 @@
   margin: -2px 0 24px;
   max-width: 530px;
 }
-.modal .appearance-section {
+.appearance-section {
   margin: var(--gap-card) 0 0;
   padding: 0;
 }
-.modal .appearance-section legend {
+.appearance-section legend {
   margin-bottom: 12px;
   color: var(--text);
   font-size: 0.75rem;

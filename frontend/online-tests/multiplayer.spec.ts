@@ -1,4 +1,4 @@
-import { gameTab, openMyGames } from '../tests/play-helpers';
+import { logoutFromAccount, gameTab, openMyGames } from '../tests/play-helpers';
 import { test, expect, type Page, type Browser, type BrowserContext } from '@playwright/test';
 const password = 'online-browser-fixture-password';
 async function login(page: Page, username: string) {
@@ -267,7 +267,7 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   await page.getByRole('button', { name: 'Replay to move 1', exact: true }).click();
   await expect(page.getByRole('gridcell', { name: 'b7, attacker', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Return to live board' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await logoutFromAccount(page);
   await expect(page.getByRole('grid')).toHaveCount(0);
 });
 

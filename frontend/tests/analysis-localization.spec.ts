@@ -1,5 +1,6 @@
 import {
   openGameNavigation,
+  openProfile,
   returnToGame,
   openGameOptions,
   gameTab,
@@ -114,11 +115,9 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await expect(page.getByRole('region', { name: 'Agentenbewertungen', exact: true })).toBeVisible();
   await expect(page.getByRole('gridcell', { name: /König/ })).toHaveCount(1);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Darstellungseinstellungen', exact: true }).click();
+  await openProfile(page);
   await page.getByRole('radio', { name: 'Holz', exact: true }).check();
-  await page
-    .getByRole('button', { name: 'Darstellungseinstellungen schließen', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Übersicht', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
   await returnToGame(page, gamePath);
   await page.reload();

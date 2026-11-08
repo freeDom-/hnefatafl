@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
+import { openProfile } from './play-helpers';
 import { fixtureModel } from './historical-fixture';
 import type { Tournament } from '../src/tournamentTypes';
 
@@ -631,12 +632,13 @@ test('a fixed-role comparison keeps one model attacking and one defending', asyn
   expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
 });
 
-/** Apply one colour mode and interface scale through the shared appearance dialog. */
+/** Apply one colour mode and interface scale through the shared profile appearance controls. */
 async function setAppearance(page: Page, mode: string, density: string) {
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  const previous = page.url();
+  await openProfile(page);
   await page.getByRole('radio', { name: mode, exact: true }).check();
   await page.getByRole('radio', { name: density, exact: true }).check();
-  await page.getByRole('button', { name: 'Close appearance settings' }).click();
+  await page.goto(previous);
 }
 
 const fitsViewport = (page: Page) =>

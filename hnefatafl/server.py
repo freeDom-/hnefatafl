@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from .account_policy import public_name
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .identities import agent_identity, effective_ai_config
 from .training_identity import OPERATIONAL_TRAINING_FIELDS
@@ -371,6 +372,9 @@ def create_app(
     if account_clock is not None:
         account_options["clock"] = account_clock
     registration = attach_accounts(app, auth, **account_options)
+    from .profile_api import attach_profiles
+
+    attach_profiles(app, auth, registration)
     from .online_api import attach_online
 
     online = attach_online(app, auth, settings=online_settings, clock=online_clock)
@@ -801,7 +805,7 @@ def create_app(
         for side in SIDES:
             if side not in ai_sides:
                 players[side] = {
-                    "name": str(account.get("display_name") or account["username"])[:80],
+                    "name": public_name(account),
                     "account_id": account["id"],
                     "kind": "human",
                     "config": {},
@@ -1228,11 +1232,11 @@ def create_app(
                 players = {}
                 for side in SIDES:
                     record = c.execute(
-                        "SELECT username,display_name FROM accounts WHERE id=?",
+                        "SELECT username,display_name,show_display_name FROM accounts WHERE id=?",
                         (row[side + "_id"],),
                     ).fetchone()
                     players[side] = {
-                        "name": str(record["display_name"] or record["username"])[:80],
+                        "name": public_name(record),
                         "kind": "human",
                         "config": {},
                     }

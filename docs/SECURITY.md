@@ -31,7 +31,8 @@ for initial/create operations; never place passwords in argv or shell history.
 Initial provisioning records a transactional one-time database marker. Repeating
 it leaves existing accounts/passwords intact. Explicit local account management
 remains available to the OS operator. The last active administrator cannot be
-disabled or demoted. Public account management is intentionally absent.
+disabled or demoted. Role/status administration remains local; authenticated
+self-service profile and password changes are described in [Account profile](PROFILE.md).
 
 ## Sessions, CSRF and revocation
 
@@ -52,7 +53,9 @@ protected database is the shared persistent session authority.
 Sessions expire after 12 hours, with no sliding renewal. Set
 `HNEFATAFL_SESSION_SECONDS` to 60–604800 seconds to change this. Login creates a new
 session and invalidates the browser's previous session; logout deletes its session.
-Accounts and effective permissions are reloaded for every request. Local password,
+Authenticated profile password changes retain the current session, revoke other
+sessions and invalidate pending reset links. Accounts and effective permissions
+are reloaded for every request. Local password,
 role or status changes revoke all browser sessions. Disabled/unknown-role accounts
 cannot log in or use retained sessions. Concurrent requests already authorized may
 finish; revocation applies to subsequent requests. Authentication works across

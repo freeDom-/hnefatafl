@@ -1,4 +1,4 @@
-import { openGameNavigation, returnToGame } from './play-helpers';
+import { openGameNavigation, openProfile, returnToGame } from './play-helpers';
 import { expect, test } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
 
@@ -16,24 +16,26 @@ test('interface scale changes spacing and text, persists and composes with respo
       font: parseFloat(getComputedStyle(node.querySelector('h2')!).fontSize),
     }));
   const initial = await measure();
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await openProfile(page);
   await page.getByRole('radio', { name: 'Compact', exact: true }).check();
   await expect(root).toHaveAttribute('data-density', 'compact');
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   const compact = await measure();
   expect(compact.padding).toBeLessThan(initial.padding);
   expect(compact.font).toBeLessThan(initial.font);
-  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await page.reload();
   await expect(root).toHaveAttribute('data-density', 'compact');
   expect(await measure()).toEqual(compact);
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await openProfile(page);
   await expect(page.getByRole('radio', { name: 'Compact', exact: true })).toBeChecked();
   await page.getByRole('radio', { name: 'Large', exact: true }).check();
   await expect(root).toHaveAttribute('data-density', 'large');
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   const large = await measure();
   expect(large.padding).toBeGreaterThan(initial.padding);
   expect(large.font).toBeGreaterThan(initial.font);
-  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -62,17 +64,17 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   const originalColor = await empty.evaluate((cell) => getComputedStyle(cell).backgroundColor);
 
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await openProfile(page);
   await page.getByRole('radio', { name: 'Light', exact: true }).check();
   await page.getByRole('radio', { name: 'Viking figures' }).check();
   await page.getByRole('radio', { name: 'Golden oak' }).check();
   const previewKing = await page
-    .getByRole('dialog', { name: 'Appearance settings', exact: true })
+    .getByRole('region', { name: 'Appearance', exact: true })
     .locator('.token-preview .token-viking.king')
     .boundingBox();
   expect(previewKing!.width).toBeLessThan(50);
   expect(previewKing!.height).toBeLessThan(55);
-  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await returnToGame(page, `/games/${game.id}`);
   await expect(root).toHaveAttribute('data-color-mode', 'light');
   await expect(board.locator('svg[data-token-art="viking"]')).toHaveCount(25);
@@ -83,11 +85,11 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await expect(board.locator('svg[data-token-art="viking"]')).toHaveCount(25);
 
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await openProfile(page);
   await page.getByRole('radio', { name: 'Dark', exact: true }).check();
   await page.getByRole('radio', { name: 'Carved wood' }).check();
   await page.getByRole('radio', { name: 'Fjord slate' }).check();
-  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await returnToGame(page, `/games/${game.id}`);
   await expect(board.locator('.token-wood')).toHaveCount(25);
   expect(await empty.evaluate((cell) => getComputedStyle(cell).backgroundColor)).not.toBe(oakColor);
@@ -102,9 +104,9 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
     .toBe(true);
 
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await openProfile(page);
   await page.getByRole('radio', { name: 'Wood', exact: true }).check();
-  await page.getByRole('button', { name: 'Back to the table' }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await returnToGame(page, `/games/${game.id}`);
   await expect(root).toHaveAttribute('data-color-mode', 'wood');
   await expect(root).toHaveCSS('color-scheme', 'dark');
@@ -118,9 +120,9 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await expect(page.getByLabel('Attackers to move')).toBeVisible();
 
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Appearance settings' }).click();
+  await openProfile(page);
   await page.getByRole('radio', { name: 'Follow device' }).check();
-  await page.getByRole('button', { name: 'Close appearance settings' }).click();
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await returnToGame(page, `/games/${game.id}`);
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(root).toHaveAttribute('data-color-mode', 'light');

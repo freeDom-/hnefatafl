@@ -44,3 +44,10 @@ def email(value: str) -> str:
 def validate_password(value: str) -> None:
     if len(value) < 12 or len(value) > 256 or len(set(value)) < 4:
         raise ValueError("Use 12–256 characters with at least four distinct characters.")
+
+
+def public_name(account) -> str:
+    """Account IDs stay stable; an editable name requires explicit sharing."""
+    return str(
+        (account["display_name"] if account["show_display_name"] else None) or account["username"]
+    )[:80]

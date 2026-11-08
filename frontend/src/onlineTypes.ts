@@ -27,6 +27,9 @@ export type RatingApplication = {
 export type LeaderboardEntry = {
   account_id: string;
   name: string;
+  country_code?: string;
+  city?: string;
+  age_range?: { min: number; max: number };
   rating: number;
   rated_games: number;
   wins: number;

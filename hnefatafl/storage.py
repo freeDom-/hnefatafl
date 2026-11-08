@@ -15,6 +15,7 @@ from typing import Iterable, Iterator
 from .identities import rune_for_ordinal
 from .security_context import owner_scope, principal
 from .account_migrations import migrate_accounts
+from .profile_migrations import migrate_profiles
 from .online_migrations import SCHEMA_VERSION, migrate_online
 
 
@@ -129,6 +130,7 @@ class Store:
                 )
             migrate_accounts(connection)
             migrate_online(connection)
+            migrate_profiles(connection)
             connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         # Reserve historical humans, including tombstones, in a stable order.
         # Saved game JSON and model/checkpoint bytes are never rewritten.

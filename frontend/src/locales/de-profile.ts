@@ -1,0 +1,48 @@
+const profile: Record<string, string> = {
+  'Profile request too large.': 'Die Profilanfrage ist zu groß.',
+  Account: 'Konto',
+  'Account menu for {username}': 'Kontomenü für {username}',
+  'My Profile': 'Mein Profil',
+  'Manage your account and preferences.': 'Verwalte dein Konto und deine Einstellungen.',
+  'Personal Information': 'Persönliche Angaben',
+  'All fields are optional. Your login username stays {username}.':
+    'Alle Angaben sind freiwillig. Dein Anmeldename bleibt {username}.',
+  'Loading your profile…': 'Dein Profil wird geladen…',
+  'Display name': 'Anzeigename',
+  Country: 'Land',
+  City: 'Stadt',
+  'Year of birth': 'Geburtsjahr',
+  'Not specified': 'Nicht angegeben',
+  'Leaderboard visibility': 'Sichtbarkeit in der Rangliste',
+  'Only checked information is visible to other players. Your username is used unless you share a display name. Shared names also appear in game views. Your birth year stays private; sharing age shows a range because the birthday is unknown.':
+    'Nur ausgewählte Angaben sind für andere Spieler sichtbar. Ohne geteilten Anzeigenamen wird dein Benutzername verwendet. Geteilte Namen erscheinen auch in Spielansichten. Dein Geburtsjahr bleibt privat; beim Teilen des Alters wird eine Spanne angezeigt, da der Geburtstag unbekannt ist.',
+  'Share display name': 'Anzeigenamen teilen',
+  'Share country': 'Land teilen',
+  'Share city': 'Stadt teilen',
+  'Share age range': 'Altersspanne teilen',
+  'Save Profile': 'Profil speichern',
+  'Profile saved.': 'Profil gespeichert.',
+  'Account Security': 'Kontosicherheit',
+  'Email verification': 'E-Mail-Bestätigung',
+  Verified: 'Bestätigt',
+  'Not verified': 'Nicht bestätigt',
+  'Send Verification Email': 'Bestätigungs-E-Mail senden',
+  'Sending…': 'Wird gesendet…',
+  'Change Password': 'Passwort ändern',
+  'Current password': 'Aktuelles Passwort',
+  'New password': 'Neues Passwort',
+  'Confirm new password': 'Neues Passwort bestätigen',
+  'Changing…': 'Wird geändert…',
+  'Current password is incorrect.': 'Das aktuelle Passwort ist falsch.',
+  'Password changed. Other sessions have been signed out.':
+    'Passwort geändert. Andere Sitzungen wurden abgemeldet.',
+  'Account changed. Please try again.': 'Das Konto wurde geändert. Bitte erneut versuchen.',
+  'Invalid profile request. Check the fields and try again.':
+    'Ungültige Profilanfrage. Prüfe die Felder und versuche es erneut.',
+  'Use up to 80 characters for your display name and 100 for your city, without control characters.':
+    'Verwende höchstens 80 Zeichen für den Anzeigenamen und 100 für die Stadt, ohne Steuerzeichen.',
+  'Enter a year from 1900 to {year}.': 'Gib ein Jahr zwischen 1900 und {year} ein.',
+  'Verify your email in your profile.': 'Bestätige deine E-Mail-Adresse in deinem Profil.',
+  'Age range': 'Altersspanne',
+};
+export default profile;

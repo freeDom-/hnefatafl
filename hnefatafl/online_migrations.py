@@ -1,9 +1,9 @@
-"""Schema 13: durable online records, ratings and configurable game clocks."""
+"""Online migrations and schema-14 restore compatibility (private account profiles)."""
 
 import sqlite3
 import time
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -234,7 +234,7 @@ def migrate_online(c: sqlite3.Connection) -> None:
             BEGIN SELECT RAISE(ABORT,'Invalid online clock balances'); END""")
     # Resume only the untouched legacy default. Explicit administrator and
     # restore pauses have a later audit version and remain paused.
-    if c.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+    if c.execute("PRAGMA user_version").fetchone()[0] < 13:
         gate = c.execute("SELECT enabled,version FROM online_timeout_gate WHERE id=1").fetchone()
         if tuple(gate) == (0, 0):
             c.execute("UPDATE online_timeout_gate SET enabled=1,version=1 WHERE id=1")

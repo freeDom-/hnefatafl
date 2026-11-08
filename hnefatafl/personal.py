@@ -405,8 +405,8 @@ class PersonalHistory:
                 json_extract(r.payload,'$.winner') AS winner,
                 json_extract(r.payload,'$.termination_reason') AS reason,
                 r.abandoned_account_id,r.revision,
-                substr(coalesce(a.display_name,a.username),1,80) AS attacker_name,
-                substr(coalesce(d.display_name,d.username),1,80) AS defender_name,
+                substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS attacker_name,
+                substr(CASE WHEN d.show_display_name=1 THEN coalesce(nullif(d.display_name,''),d.username) ELSE d.username END,1,80) AS defender_name,
                 CASE WHEN g.status='completed' AND r.competitive_eligible=1 THEN
                   CASE WHEN json_extract(r.payload,'$.winner')='draw' THEN 'draw'
                     WHEN CASE WHEN g.attackers_id=? THEN 'attackers' ELSE 'defenders' END=json_extract(r.payload,'$.winner') THEN 'win'

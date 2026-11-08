@@ -17,6 +17,7 @@ import time
 from uuid import UUID, uuid4
 
 from . import lifecycle, rating
+from .account_policy import public_name
 from .engine import RULESETS, Move, State, apply_move, new_game
 from .online_ratings import Ratings
 from .online_settings import OnlineSettings
@@ -607,7 +608,8 @@ class OnlineCore:
             identifier = row[side + "_id"]
             account = (
                 c.execute(
-                    "SELECT username,display_name FROM accounts WHERE id=?", (identifier,)
+                    "SELECT username,display_name,show_display_name FROM accounts WHERE id=?",
+                    (identifier,),
                 ).fetchone()
                 if identifier
                 else None
@@ -615,7 +617,7 @@ class OnlineCore:
             participants[side] = (
                 {
                     "account_id": identifier,
-                    "name": str(account["display_name"] or account["username"])[:80],
+                    "name": public_name(account),
                 }
                 if account
                 else None

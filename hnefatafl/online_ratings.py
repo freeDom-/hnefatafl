@@ -201,8 +201,8 @@ class Ratings:
         self._apply_one(c, pool, event, now)
 
     @staticmethod
-    def _entry(row, rank: int) -> dict:
-        return {
+    def _entry(row, rank: int, year: int) -> dict:
+        entry = {
             "account_id": row["account_id"],
             "name": str(row["name"])[:80],
             "rating": row["rating"],
@@ -213,6 +213,19 @@ class Ratings:
             "rank": rank,
             "provisional": row["rated_games"] < rating.PROVISIONAL_GAMES,
         }
+        # Only the conditional SQL projections below can enter a public response.
+        for field in ("country_code", "city"):
+            if row[field]:
+                entry[field] = row[field]
+        if row["public_birth_year"] is not None:
+            maximum = max(0, year - row["public_birth_year"])
+            entry["age_range"] = {"min": max(0, maximum - 1), "max": maximum}
+        return entry
+
+    _PROFILE_COLUMNS = """
+        CASE WHEN a.show_country=1 THEN a.country_code END AS country_code,
+        CASE WHEN a.show_city=1 THEN a.city END AS city,
+        CASE WHEN a.show_age=1 THEN a.birth_year END AS public_birth_year"""
 
     # Ranking and presentation both round Elo to the nearest integer, so the
     # displayed value and the order can never disagree. Equal displayed Elo is
@@ -225,10 +238,11 @@ class Ratings:
     )
 
     @staticmethod
-    def _standing(c, pool: str, account_id: str):
+    def _standing(c, pool: str, account_id: str, year: int | None = None):
         row = c.execute(
-            """SELECT pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
-                      coalesce(a.display_name,a.username) AS name
+            f"""SELECT pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
+                      CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END AS name,
+                      {Ratings._PROFILE_COLUMNS}
                FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id
                WHERE pr.account_id=? AND pr.pool=?""",
             (account_id, pool),
@@ -247,12 +261,14 @@ class Ratings:
                 account_id,
             ),
         ).fetchone()[0]
-        return Ratings._entry(row, rank)
+        return Ratings._entry(row, rank, year or datetime.now(timezone.utc).year)
 
     @classmethod
     def leaderboard(cls, c, account_id: str, pool: str, limit: int, offset: int) -> dict:
-        columns = """pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
-                     coalesce(a.display_name,a.username) AS name"""
+        year = datetime.now(timezone.utc).year
+        columns = f"""pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
+                     CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END AS name,
+                     {cls._PROFILE_COLUMNS}"""
         total = c.execute(
             "SELECT COUNT(*) FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id "
             "WHERE pr.pool=? AND a.active=1",
@@ -271,9 +287,11 @@ class Ratings:
                 "k_factor": rating.K_FACTOR,
                 "provisional_games": rating.PROVISIONAL_GAMES,
             },
-            "entries": [cls._entry(row, offset + index + 1) for index, row in enumerate(rows)],
+            "entries": [
+                cls._entry(row, offset + index + 1, year) for index, row in enumerate(rows)
+            ],
             "total": total,
             "limit": limit,
             "offset": offset,
-            "me": cls._standing(c, pool, account_id),
+            "me": cls._standing(c, pool, account_id, year),
         }

@@ -47,7 +47,7 @@ test('register, explicitly verify, then log in with no session from registration
   await page.getByLabel('Username or email').fill(name);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Account menu for/ })).toBeVisible();
   expect((await (await page.request.get('/api/auth/me')).json()).account.email_verified).toBe(true);
   const token = new URLSearchParams(new URL(link).hash.slice(1)).get('token')!;
   expect(requested.every((url) => !url.includes(token))).toBe(true);
@@ -104,7 +104,7 @@ test('password recovery rejects old sessions and requires login with the new pas
   await page.getByLabel('Username or email').fill(name);
   await page.getByLabel('Password', { exact: true }).fill(replacement);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Account menu for/ })).toBeVisible();
 });
 
 test('German registration and resend replace older verification links', async ({

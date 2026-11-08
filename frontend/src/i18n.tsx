@@ -13,6 +13,7 @@ import dashboard from './locales/de-dashboard';
 import online from './locales/de-online';
 import accounts from './locales/de-accounts';
 import personal from './locales/de-personal';
+import profile from './locales/de-profile';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
@@ -33,6 +34,7 @@ const dictionary = {
   ...online,
   ...personal,
   ...statistics,
+  ...profile,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();

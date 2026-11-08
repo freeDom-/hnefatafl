@@ -29,7 +29,7 @@ class RecordedHistory:
             (json_extract(data,'$.recorded_result.winner') IS NOT NULL) AS eligible,
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attackers,
             substr(json_extract(data,'$.players.defenders.name'),1,80) AS defenders,
-            substr(coalesce(a.display_name,a.username),1,80) AS owner,
+            substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS owner,
             NULL AS attacker_rating,
             NULL AS defender_rating,
             NULL AS winner_delta
@@ -38,8 +38,8 @@ class RecordedHistory:
             g.created_at,g.updated_at AS recorded_at,g.ruleset,g.status,
             json_extract(r.payload,'$.winner') AS winner,
             coalesce(r.competitive_eligible,0) AS eligible,
-            substr(coalesce(a.display_name,a.username),1,80) AS attackers,
-            substr(coalesce(d.display_name,d.username),1,80) AS defenders,
+            substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS attackers,
+            substr(CASE WHEN d.show_display_name=1 THEN coalesce(nullif(d.display_name,''),d.username) ELSE d.username END,1,80) AS defenders,
             NULL AS owner,
             (SELECT s.rating FROM online_game_start_ratings s
               WHERE s.game_id=g.id AND s.account_id=g.attackers_id) AS attacker_rating,
