@@ -14,8 +14,13 @@ selector and existing navigation.
 
 ## Personal details and sharing
 
-All details are optional. Display names allow 80 Unicode characters, cities 100;
-both are trimmed and normalized to NFC. C0/C1 control characters, Unicode
+All details are optional. Display names allow 80 Unicode code points, cities 100,
+counted after NFC normalization and trimming. Native HTML length constraints count
+UTF-16 code units, so these fields deliberately use the shared code-point validator
+on submission instead of `maxlength`. Typing and pasting retain the full input;
+oversized values produce localized errors rather than silent truncation. Emoji
+joiners and combining marks count as code points, not as whole visible symbols.
+C0/C1 control characters, Unicode
 `Bidi_Control` characters and deprecated directional formatting controls are
 rejected before trimming, including embedding, override and isolate sequences.
 Ordinary Arabic/Hebrew/Persian text, combining marks, variation selectors and emoji
@@ -28,7 +33,20 @@ verification status, ownership and training records are unaffected.
 
 Each of display name, country, city and age has its own sharing checkbox, off by
 default. The leaderboard uses the username unless display-name sharing is enabled
-and the name is nonempty. Shared names also appear in current game/history views.
+and the name is nonempty. Display names remain editable and non-unique. A shared
+name never replaces canonical attribution: leaderboards and current online views
+show **Display Name (@username)**, or the username in the existing player-detail
+line. Identical display names remain distinguishable, including a display name
+matching an administrator's username; no role is inferred from a label. When the
+display name equals the username, the UI omits duplicate attribution.
+
+Leaderboard entries (including `me`) and online participant objects include only
+one additional public field, `username`, alongside their existing `name` and
+stable account ID. Older responses without that field still render. Current
+online history/personal summaries retain their existing string fields and append
+the canonical username when needed. History's administrator player filter also
+matches that username, with the same literal matching and authorization rules.
+These read projections do not modify ratings, ownership, permissions or records.
 Existing saved game snapshots are retained, including names already saved there.
 The compact Dashboard leaderboard keeps its four columns; the full leaderboard
 adds country, city and age range. Ranking, filters, tie-breaking and pagination
@@ -80,7 +98,13 @@ no new polling timer or verification store is introduced.
 
 Password changes require the current password, a matching confirmation and the
 existing 12–256 character/four-distinct-character policy. They use the existing
-scrypt implementation. Successful changes retain the submitting session, revoke
+scrypt implementation. Password length and distinctness count Unicode code points;
+passwords are never normalized or truncated. Profile changes, registration and
+password reset share the frontend policy validator. Login/current-password inputs
+retain the existing nonempty, at-most-256-code-point bounds without imposing a
+new-password policy on existing credentials. Native password `minlength` and
+`maxlength` are omitted so non-BMP characters have the same limits as on the server.
+Successful changes retain the submitting session, revoke
 all other sessions and invalidate pending password-reset tokens/mail in the same
 transaction. Other profile values and verification state are untouched. The
 existing reset/login hash recheck still prevents an old-password login race.
@@ -114,10 +138,11 @@ New accounts no longer infer a display name from the username. Restarting is
 idempotent. The clock migration's original schema-13 threshold stays unchanged,
 so this profile upgrade cannot enable a paused timeout gate.
 
-The review hardening (age brackets, verification ordering, mobile identity and
-Unicode validation) adds no schema migration, route or permission. Schema 14 and
-existing backup/restore checks remain unchanged. Deploy updated backend and client
-together for matching validation rules; the server enforces privacy independently.
+The review hardening (age brackets, verification ordering, account attribution,
+mobile identity and Unicode input/validation) adds no schema migration, route or
+permission. Schema 14 and existing backup/restore checks remain unchanged. Deploy
+updated backend and client together for matching validation rules and canonical
+identity presentation; the server enforces profile privacy independently.
 
 Take a stopped-writer backup using the normal [deployment procedure](DEPLOYMENT.md#data-and-configuration).
 Older code refuses schema 14. Automatic restore requires matching account columns

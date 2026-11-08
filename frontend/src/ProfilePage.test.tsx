@@ -5,6 +5,7 @@ import { api } from './api';
 import { AppearanceProvider } from './Appearance';
 import { APPEARANCE_KEY } from './appearanceConfig';
 import { I18nProvider, setLanguage } from './i18n';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('./api', async (original) => ({
   ...(await original<typeof import('./api')>()),
@@ -298,5 +299,102 @@ it.each(['en', 'de'] as const)(
     expect(apiMock.mock.calls.filter(([path, body]) => path === '/profile' && body)).toHaveLength(
       0,
     );
+  },
+);
+
+it.each(['en', 'de'] as const)(
+  'accepts pasted non-BMP boundaries and reports oversize text in %s without truncation',
+  async (language) => {
+    await page();
+    act(() => setLanguage(language));
+    const user = userEvent.setup();
+    const name = screen.getByRole('textbox', { name: /^(Display name|Anzeigename)$/ });
+    const city = screen.getByRole('textbox', { name: /^(City|Stadt)$/ });
+    const fullName = '😀'.repeat(80);
+    const fullCity = '👩\u200d🚀'.repeat(33) + 'x';
+    await user.click(name);
+    await user.paste(fullName);
+    await user.click(city);
+    await user.paste(fullCity);
+    expect(name).toHaveValue(fullName);
+    expect(city).toHaveValue(fullCity);
+    const save = screen.getByRole('button', { name: /^(Save Profile|Profil speichern)$/ });
+    await user.click(save);
+    await waitFor(() => expect(stored.display_name).toBe(fullName));
+    expect(stored.city).toBe(fullCity);
+    const writes = apiMock.mock.calls.filter(([, body]) => body).length;
+    await user.click(name);
+    await user.type(name, 'x');
+    await user.click(save);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      language === 'de' ? '80 Zeichen' : '80 characters',
+    );
+    expect(name).toHaveValue(fullName + 'x');
+    expect(apiMock.mock.calls.filter(([, body]) => body)).toHaveLength(writes);
+  },
+);
+
+it('accepts keyboard-entered combining sequences and counts their NFC result', async () => {
+  await page();
+  const user = userEvent.setup();
+  const name = screen.getByRole('textbox', { name: 'Display name' });
+  const raw = 'e\u0301'.repeat(80);
+  await user.type(name, raw);
+  expect(name).toHaveValue(raw);
+  await user.click(screen.getByRole('button', { name: 'Save Profile' }));
+  await waitFor(() => expect(stored.display_name).toBe('é'.repeat(80)));
+  expect(name).toHaveValue('é'.repeat(80));
+});
+
+it('pastes and submits 256-code-point passwords without truncation or normalization', async () => {
+  await page();
+  const user = userEvent.setup();
+  const password = 'e\u0301😀🔑'.repeat(64);
+  for (const label of ['Current password', 'New password', 'Confirm new password']) {
+    await user.click(screen.getByLabelText(label));
+    await user.paste(password);
+    expect(screen.getByLabelText(label)).toHaveValue(password);
+  }
+  await user.click(screen.getByRole('button', { name: 'Change Password' }));
+  await screen.findByText('Password changed. Other sessions have been signed out.');
+  expect(apiMock).toHaveBeenCalledWith(
+    '/profile/password',
+    {
+      current_password: password,
+      new_password: password,
+      confirm_password: password,
+    },
+    undefined,
+    expect.any(AbortSignal),
+  );
+});
+
+it.each(['en', 'de'] as const)(
+  'validates short and oversized Unicode passwords in %s',
+  async (language) => {
+    await page();
+    act(() => setLanguage(language));
+    const field = (name: string) =>
+      document.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+    fireEvent.change(field('current_password'), { target: { value: 'current-password' } });
+    const button = screen.getByRole('button', { name: /^(Change Password|Passwort ändern)$/ });
+    for (const password of ['😀😁😂😃😁😂', '😀😁😂😃'.repeat(64) + 'x']) {
+      for (const name of ['new_password', 'confirm_password'])
+        fireEvent.change(field(name), { target: { value: password } });
+      fireEvent.click(button);
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        language === 'de' ? '12–256 Zeichen' : '12–256 characters',
+      );
+      expect(apiMock.mock.calls.filter(([path]) => path === '/profile/password')).toHaveLength(0);
+      expect(field('new_password')).toHaveValue(password);
+    }
+    fireEvent.change(field('current_password'), { target: { value: '😀'.repeat(257) } });
+    for (const name of ['new_password', 'confirm_password'])
+      fireEvent.change(field(name), { target: { value: 'replacement-password' } });
+    fireEvent.click(button);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      language === 'de' ? 'höchstens 256 Zeichen' : 'at most 256 characters',
+    );
+    expect(apiMock.mock.calls.filter(([path]) => path === '/profile/password')).toHaveLength(0);
   },
 );

@@ -20,3 +20,21 @@ it('retains code-point length limits after NFC normalization and trimming', () =
   expect(profileText('京'.repeat(100), 100)).toHaveLength(100);
   expect(() => profileText('京'.repeat(101), 100)).toThrow('100');
 });
+
+it.each([
+  ['京', 80],
+  ['😀', 80],
+  ['e\u0301', 80],
+  ['👩\u200d🚀', 80],
+  ['京', 100],
+  ['😀', 100],
+  ['e\u0301', 100],
+  ['👩\u200d🚀', 100],
+] as const)('uses normalized code points for %s at the exact %i boundary', (unit, limit) => {
+  const points = [...unit.normalize('NFC')].length;
+  const raw = unit.repeat(Math.floor(limit / points)) + 'x'.repeat(limit % points);
+  const normalized = raw.normalize('NFC');
+  expect([...normalized]).toHaveLength(limit);
+  expect(profileText('  ' + raw + '  ', limit)).toBe(normalized);
+  expect(() => profileText(raw + 'x', limit)).toThrow('80 characters');
+});

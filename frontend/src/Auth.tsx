@@ -12,6 +12,7 @@ import { api, ApiError, setCSRF } from './api';
 import AccountForms from './AccountForms';
 import { safeDestination } from './navigation';
 import { useI18n } from './i18n';
+import { validatePasswordLength } from './passwordPolicy';
 
 export type Account = {
   id: string;
@@ -165,6 +166,7 @@ export default function Auth({ children }: { children: ReactNode }) {
     setBusy(true);
     setError('');
     try {
+      validatePasswordLength(String(values.get('password') ?? ''));
       const session = await api<Session>('/auth/login', {
         identity: values.get('identity'),
         password: values.get('password'),

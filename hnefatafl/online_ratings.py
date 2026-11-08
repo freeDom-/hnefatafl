@@ -220,6 +220,7 @@ class Ratings:
         entry = {
             "account_id": row["account_id"],
             "name": str(row["name"])[:80],
+            "username": row["username"],
             "rating": row["rating"],
             "rated_games": row["rated_games"],
             "wins": row["wins"],
@@ -256,7 +257,7 @@ class Ratings:
     @staticmethod
     def _standing(c, pool: str, account_id: str, year: int | None = None):
         row = c.execute(
-            f"""SELECT pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
+            f"""SELECT pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,a.username,
                       CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END AS name,
                       {Ratings._PROFILE_COLUMNS}
                FROM player_ratings pr JOIN accounts a ON a.id=pr.account_id
@@ -282,7 +283,7 @@ class Ratings:
     @classmethod
     def leaderboard(cls, c, account_id: str, pool: str, limit: int, offset: int) -> dict:
         year = datetime.now(timezone.utc).year
-        columns = f"""pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,
+        columns = f"""pr.account_id,pr.rating,pr.rated_games,pr.wins,pr.losses,pr.draws,a.username,
                      CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END AS name,
                      {cls._PROFILE_COLUMNS}"""
         total = c.execute(

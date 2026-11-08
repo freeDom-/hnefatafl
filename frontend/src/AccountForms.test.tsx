@@ -1,8 +1,9 @@
 import { StrictMode } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import AccountForms from './AccountForms';
 import { I18nProvider, setLanguage } from './i18n';
+import userEvent from '@testing-library/user-event';
 
 const token = 'a'.repeat(43);
 const response = (value: unknown, status = 200) =>
@@ -176,3 +177,54 @@ it('does not submit mismatched passwords and renders errors as text', async () =
     expect(fetcher.mock.calls.every(([path]) => path === '/api/auth/registration')).toBe(true),
   );
 });
+
+it.each(['register', 'reset'] as const)(
+  'uses code-point password policy and unmodified paste in %s',
+  async (view) => {
+    history.replaceState(
+      null,
+      '',
+      view === 'reset' ? '/reset-password#token=' + token : '/register',
+    );
+    const fetcher = vi.fn((path: string, _options?: RequestInit) =>
+      response(path === '/api/auth/registration' ? { enabled: true } : { message: 'Success' }),
+    );
+    mount(fetcher);
+    if (view === 'register') {
+      fireEvent.change(await screen.findByLabelText('Username'), { target: { value: 'Unicode' } });
+      fireEvent.change(screen.getByLabelText('Email address'), {
+        target: { value: 'unicode@example.test' },
+      });
+    }
+    const password = screen.getByLabelText('Password', { exact: true });
+    const confirm = screen.getByLabelText('Confirm password');
+    const form = password.closest('form')!;
+    for (const language of ['en', 'de'] as const) {
+      act(() => setLanguage(language));
+      for (const value of ['😀😁😂😃😁😂', '😀😁😂😃'.repeat(64) + 'x']) {
+        for (const field of [password, confirm]) fireEvent.change(field, { target: { value } });
+        fireEvent.submit(form);
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          language === 'de' ? '12–256 Zeichen' : '12–256 characters',
+        );
+        expect(fetcher.mock.calls.every(([path]) => path === '/api/auth/registration')).toBe(true);
+      }
+    }
+    const user = userEvent.setup();
+    const value = 'e\u0301😀🔑'.repeat(64);
+    for (const field of [password, confirm]) {
+      await user.clear(field);
+      await user.click(field);
+      await user.paste(value);
+      expect(field).toHaveValue(value);
+    }
+    fireEvent.submit(form);
+    await screen.findByText('Success');
+    const call = fetcher.mock.calls.find(
+      ([path]) =>
+        path === (view === 'reset' ? '/api/auth/password-reset/confirm' : '/api/auth/register'),
+    );
+    expect(call).toBeTruthy();
+    expect(JSON.parse(String(call![1]!.body)).password).toBe(value);
+  },
+);

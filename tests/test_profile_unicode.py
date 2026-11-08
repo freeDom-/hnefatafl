@@ -8,7 +8,11 @@ from pydantic import ValidationError
 import pytest
 
 from hnefatafl.profile_api import ProfileUpdate
+from hnefatafl.account_policy import validate_password
+from hnefatafl.profile_api import PasswordChange
+from hnefatafl.auth import verify
 from test_profile import app as app, template as template, login
+from test_profile import PASSWORD
 
 CORPUS = json.loads((Path(__file__).parent / "fixtures/profile_text.json").read_text())
 
@@ -36,3 +40,61 @@ def test_profile_api_safely_rejects_unsafe_text_without_committing_other_fields(
         assert response.status_code == 422
         assert "unsafe-identity" not in response.text and "spoof" not in response.text
         assert app.state.auth.account(account["id"]) == before
+
+
+@pytest.mark.parametrize("field,limit", [("display_name", 80), ("city", 100)])
+@pytest.mark.parametrize("unit", ["京", "😀", "e\u0301", "👩\u200d🚀"])
+def test_profile_api_counts_normalized_code_points_without_truncating(app, field, limit, unit):
+    import unicodedata
+
+    normalized_unit = unicodedata.normalize("NFC", unit)
+    count = limit // len(normalized_unit)
+    raw = unit * count + "x" * (limit % len(normalized_unit))
+    expected = unicodedata.normalize("NFC", raw)
+    assert len(expected) == limit
+    with TestClient(app) as client:
+        login(client)
+        response = client.patch("/api/profile", json={field: raw})
+        assert response.status_code == 200
+        assert response.json()[field] == expected
+        rejected = client.patch("/api/profile", json={field: raw + "x"})
+        assert rejected.status_code == 422
+        assert client.get("/api/profile").json()[field] == expected
+
+
+@pytest.mark.parametrize("password", ["😀😁😂😃" * 64, "e\u0301😀🔑" * 64])
+def test_unicode_password_boundaries_and_authentication_preserve_original_text(app, password):
+    import unicodedata
+
+    assert len(password) == 256
+    validate_password(password)
+    with pytest.raises(ValueError):
+        validate_password(password + "x")
+    with pytest.raises(ValueError):
+        validate_password("😀😁😂😃😁😂")
+    PasswordChange(current_password=password, new_password=password, confirm_password=password)
+    with pytest.raises(ValidationError):
+        PasswordChange(
+            current_password=password + "x", new_password=password, confirm_password=password
+        )
+    with TestClient(app) as client:
+        account = login(client)
+        result = client.post(
+            "/api/profile/password",
+            json={
+                "current_password": PASSWORD,
+                "new_password": password,
+                "confirm_password": password,
+            },
+        )
+        assert result.status_code == 200
+        encoded = app.state.auth.account(account["id"])["password_hash"]
+        assert verify(password, encoded)
+        if unicodedata.normalize("NFC", password) != password:
+            assert not verify(unicodedata.normalize("NFC", password), encoded)
+        assert (
+            client.post(
+                "/api/auth/login", json={"identity": "Raven", "password": password}
+            ).status_code
+            == 200
+        )

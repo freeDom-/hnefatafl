@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { LanguageSelect, useI18n } from './i18n';
 import PageHeading from './PageHeading';
+import { validatePassword } from './passwordPolicy';
 
 type View = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 type Configuration = { enabled: boolean; email_available: boolean };
@@ -122,6 +123,7 @@ export default function AccountForms({
       const password = String(values.get('password') ?? '');
       if ((view === 'register' || view === 'reset') && password !== values.get('confirm'))
         throw new Error('Passwords do not match.');
+      if (view === 'register' || view === 'reset') validatePassword(password);
       const [path, body] =
         view === 'register'
           ? [
@@ -166,25 +168,11 @@ export default function AccountForms({
     <>
       <label>
         {t('Password')}
-        <input
-          name="password"
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={12}
-          maxLength={256}
-        />
+        <input name="password" type="password" autoComplete="new-password" required />
       </label>
       <label>
         {t('Confirm password')}
-        <input
-          name="confirm"
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={12}
-          maxLength={256}
-        />
+        <input name="confirm" type="password" autoComplete="new-password" required />
       </label>
       <p>{t('Use 12–256 characters with at least four distinct characters.')}</p>
     </>
@@ -213,13 +201,7 @@ export default function AccountForms({
             </label>
             <label>
               {t('Password')}
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                maxLength={256}
-              />
+              <input name="password" type="password" autoComplete="current-password" required />
             </label>
             {loginError && (
               <p className="form-error" role="alert">

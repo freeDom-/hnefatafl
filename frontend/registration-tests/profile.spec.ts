@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { openProfile, logoutFromAccount } from '../tests/play-helpers';
 
 test.use({ screenshot: 'only-on-failure' });
@@ -201,4 +201,79 @@ test('header and profile fit narrow and wide screens in every theme and language
     }
     await page.screenshot({ path: info.outputPath(`profile-${width}.png`), fullPage: true });
   }
+});
+
+test('native typing and paste retain Unicode profile and password boundaries', async ({
+  page,
+  context,
+}, info) => {
+  test.setTimeout(180000);
+  const username = `UnicodeInput${info.project.name}`;
+  const password = '😀😁😂😃'.repeat(64);
+  const replacement = 'e\u0301😀🔑'.repeat(64);
+  await page.goto('/register');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  async function paste(field: Locator, value: string) {
+    await field.fill('');
+    await field.focus();
+    await page.evaluate((text) => navigator.clipboard.writeText(text), value);
+    await page.keyboard.press('Control+V');
+    await expect(field).toHaveValue(value);
+  }
+  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Email address').fill(`${username.toLowerCase()}@example.test`);
+  for (const label of ['Password', 'Confirm password'])
+    await paste(page.getByLabel(label, { exact: true }), '😀😁😂😃😁😂');
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Use 12–256 characters');
+  for (const label of ['Password', 'Confirm password'])
+    await paste(page.getByLabel(label, { exact: true }), password);
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Verify your email', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to log in' }).click();
+  await page.getByLabel('Username or email').fill(username);
+  await paste(page.getByLabel('Password', { exact: true }), password);
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  await openProfile(page);
+  const name = page.locator('input[name="display_name"]');
+  const city = page.locator('input[name="city"]');
+  const rawName = 'e\u0301😀'.repeat(40);
+  const normalized = rawName.normalize('NFC');
+  await name.pressSequentially(rawName);
+  await expect(name).toHaveValue(rawName);
+  await paste(city, '🏰'.repeat(100));
+  await page.getByRole('button', { name: 'Save Profile' }).click();
+  await expect(page.getByText('Profile saved.', { exact: true })).toBeVisible();
+  await expect(name).toHaveValue(normalized);
+  await expect(city).toHaveValue('🏰'.repeat(100));
+  const saved = await (await page.request.get('/api/profile')).json();
+  expect(saved.display_name).toBe(normalized);
+  expect(saved.city).toBe('🏰'.repeat(100));
+  await name.focus();
+  await page.keyboard.insertText('😀');
+  const oversized = normalized + '😀';
+  for (const language of ['en', 'de']) {
+    await page.locator('.language-select select').selectOption(language);
+    await page.getByRole('button', { name: /^(Save Profile|Profil speichern)$/ }).click();
+    await expect(page.getByRole('alert')).toContainText(
+      language === 'de' ? '80 Zeichen' : '80 characters',
+    );
+    await expect(name).toHaveValue(oversized);
+    expect((await (await page.request.get('/api/profile')).json()).display_name).toBe(normalized);
+  }
+  await name.fill(normalized);
+  await page.getByRole('button', { name: 'Profil speichern' }).click();
+  await expect(page.getByText('Profil gespeichert.', { exact: true })).toBeVisible();
+  await paste(page.locator('input[name="current_password"]'), password);
+  for (const field of ['new_password', 'confirm_password'])
+    await paste(page.locator(`input[name="${field}"]`), replacement);
+  await page.getByRole('button', { name: 'Passwort ändern', exact: true }).click();
+  await expect(
+    page.getByText('Passwort geändert. Andere Sitzungen wurden abgemeldet.'),
+  ).toBeVisible();
+  await logoutFromAccount(page);
+  await page.locator('input[name="identity"]').fill(username);
+  await paste(page.locator('input[name="password"]'), replacement);
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+  await expect(page.locator('.profile-page')).toBeVisible();
 });

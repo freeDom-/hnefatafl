@@ -60,3 +60,10 @@ def public_name(account) -> str:
     return str(
         (account["display_name"] if account["show_display_name"] else None) or account["username"]
     )[:80]
+
+
+def attributed_name(name: str | None, username: str | None) -> str | None:
+    """Label a non-unique shared name with its public canonical account identity."""
+    if name and username and name != username:
+        return f"{name} (@{username})"
+    return name

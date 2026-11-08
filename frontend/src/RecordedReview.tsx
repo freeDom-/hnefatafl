@@ -5,6 +5,7 @@ import ReplayControls from './ReplayControls';
 import { useReplayPlayback } from './useReplayPlayback';
 import { useOnlinePoll } from './useOnlinePoll';
 import { useI18n } from './i18n';
+import { accountAttribution } from './accountIdentity';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import type { AIProfile, Game, GameMove, Model, PlayerConfig, Side } from './types';
@@ -44,7 +45,7 @@ const statusNames: Record<string, string> = {
   in_progress: 'In progress',
 };
 
-type ReviewParticipant = { name: string; kind: 'human' | 'ai' };
+type ReviewParticipant = { name: string; kind: 'human' | 'ai'; username?: string };
 type ReviewGame = {
   id: string;
   category: 'online' | 'account-single-player';
@@ -93,10 +94,12 @@ function normalize(data: OnlineReplay | AccountReviewData): {
         players: {
           attackers: {
             name: participants.attackers?.name ?? '',
+            username: participants.attackers?.username,
             kind: 'human',
           },
           defenders: {
             name: participants.defenders?.name ?? '',
+            username: participants.defenders?.username,
             kind: 'human',
           },
         },
@@ -313,7 +316,12 @@ export default function RecordedReview({
         side,
         symbol: sideGlyph(side),
         name: game.players[side].name || t('Unassigned'),
-        detail: `${t(titles[side])} · ${t(game.players[side].kind === 'ai' ? 'Computer' : 'Human')}`,
+        detail: [
+          accountAttribution(normalized.game.players[side]),
+          `${t(titles[side])} · ${t(game.players[side].kind === 'ai' ? 'Computer' : 'Human')}`,
+        ]
+          .filter(Boolean)
+          .join(' · '),
         toMove: position.turn === side && !position.winner,
       }))}
       captured={game.captured}

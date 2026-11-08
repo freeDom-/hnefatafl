@@ -1,4 +1,6 @@
 const profile: Record<string, string> = {
+  'Use at most 256 characters for your password.':
+    'Verwende höchstens 256 Zeichen für dein Passwort.',
   'Names and cities must not contain control characters or text direction controls.':
     'Namen und Städte dürfen keine Steuerzeichen oder unsichtbaren Text-Richtungszeichen enthalten.',
   'Profile request too large.': 'Die Profilanfrage ist zu groß.',
@@ -16,8 +18,8 @@ const profile: Record<string, string> = {
   'Year of birth': 'Geburtsjahr',
   'Not specified': 'Nicht angegeben',
   'Leaderboard visibility': 'Sichtbarkeit in der Rangliste',
-  'Only checked information is visible to other players. Your username is used unless you share a display name. Shared names also appear in game views. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.':
-    'Nur ausgewählte Angaben sind für andere Spieler sichtbar. Ohne geteilten Anzeigenamen wird dein Benutzername verwendet. Geteilte Namen erscheinen auch in Spielansichten. Dein Geburtsjahr bleibt privat; beim Teilen des Alters wird eine grobe Spanne von ungefähr zehn Jahren angezeigt, die den unbekannten Geburtstag berücksichtigt. Das Alter sehr junger Spieler kann zum Schutz ihres Geburtsjahrs verborgen bleiben.',
+  'Only checked information is visible to other players. Your public username always identifies your account; a shared display name appears alongside it in leaderboards and online games. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.':
+    'Nur ausgewählte Angaben sind für andere Spieler sichtbar. Dein öffentlicher Benutzername kennzeichnet immer dein Konto; ein geteilter Anzeigename erscheint daneben in Ranglisten und Online-Spielen. Dein Geburtsjahr bleibt privat; beim Teilen des Alters wird eine grobe Spanne von ungefähr zehn Jahren angezeigt, die den unbekannten Geburtstag berücksichtigt. Das Alter sehr junger Spieler kann zum Schutz ihres Geburtsjahrs verborgen bleiben.',
   'Share display name': 'Anzeigenamen teilen',
   'Share country': 'Land teilen',
   'Share city': 'Stadt teilen',

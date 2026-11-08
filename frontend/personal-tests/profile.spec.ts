@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { openProfile } from '../tests/play-helpers';
 
 test('profile sharing controls filter real leaderboard responses for another player', async ({
@@ -101,5 +101,136 @@ test('profile sharing controls filter real leaderboard responses for another pla
       ).ok(),
     ).toBe(true);
     await viewer.close();
+  }
+});
+
+test('shared names retain canonical attribution in standings, games and history at narrow widths', async ({
+  page,
+  browser,
+  request,
+}, info) => {
+  test.setTimeout(180000);
+  expect((await request.post('http://127.0.0.1:8010/reset-login-attempts')).status()).toBe(204);
+  const keeper = await browser.newContext({ baseURL: 'http://127.0.0.1:8009' });
+  const actors = [
+    { username: 'PersonalArcher', api: page.request },
+    { username: 'PersonalKeeper', api: keeper.request },
+  ];
+  const sessions: {
+    username: string;
+    api: APIRequestContext;
+    csrf: string;
+    original: { display_name: string | null; show_display_name: boolean };
+  }[] = [];
+  for (const actor of actors) {
+    const response = await actor.api.post('/api/auth/login', {
+      headers: { Origin: 'http://127.0.0.1:8009' },
+      data: { identity: actor.username, password: 'personal-browser-fixture-password' },
+    });
+    expect(response.ok()).toBe(true);
+    const session = await response.json();
+    const original = await (await actor.api.get('/api/profile')).json();
+    sessions.push({ ...actor, csrf: session.csrf_token, original });
+  }
+  async function share(
+    actor: (typeof sessions)[number],
+    display_name: string | null,
+    enabled = true,
+  ) {
+    expect(
+      (
+        await actor.api.patch('/api/profile', {
+          headers: { Origin: 'http://127.0.0.1:8009', 'X-CSRF-Token': actor.csrf },
+          data: { display_name, show_display_name: enabled },
+        })
+      ).ok(),
+    ).toBe(true);
+  }
+  try {
+    for (const display of ['PersonalOdin', '😀'.repeat(80)]) {
+      for (const actor of sessions) await share(actor, display);
+      const standings = await (await page.request.get('/api/leaderboard?ruleset=tablut')).json();
+      for (const actor of sessions) {
+        const entry = standings.entries.find(
+          (entry: { username: string }) => entry.username === actor.username,
+        );
+        expect(entry.name).toBe(display);
+        for (const key of ['email', 'password_hash', 'birth_year', 'role'])
+          expect(entry).not.toHaveProperty(key);
+      }
+      await page.goto('/leaderboard');
+      await page.getByRole('combobox', { name: /^(Ruleset|Regelwerk)$/ }).selectOption('tablut');
+      for (const width of [320, 375, 760, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const language of ['en', 'de']) {
+          await page.locator('.language-select select').selectOption(language);
+          for (const actor of sessions) {
+            const cell = page
+              .locator('tbody tr')
+              .filter({ hasText: `(@${actor.username})` })
+              .locator('td')
+              .nth(1);
+            await expect(cell).toContainText(`${display} (@${actor.username})`);
+            await expect(cell).toBeVisible();
+            const bounds = await cell.boundingBox();
+            expect(bounds!.x).toBeGreaterThanOrEqual(0);
+            expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+          }
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth),
+          ).toBeLessThanOrEqual(width);
+        }
+      }
+      await page.locator('.language-select select').selectOption('en');
+      const listing = await (
+        await page.request.get('/api/online/games?section=mine&limit=50')
+      ).json();
+      const game = listing.games.find((game: { status: string }) => game.status === 'active');
+      expect(game).toBeTruthy();
+      await page.setViewportSize({
+        width: info.project.name === 'mobile' ? 375 : 1440,
+        height: 900,
+      });
+      await page.goto(`/online/games/${game.id}`);
+      await expect(page.getByRole('grid')).toBeVisible();
+      for (const actor of sessions) {
+        const detail = page.locator('.army p').filter({ hasText: `(@${actor.username})` });
+        await expect(detail).toBeVisible();
+        // Canonical attribution is first in the existing compact detail line,
+        // so a long display name cannot push it behind the name's ellipsis.
+        const visible = await detail.evaluate((node, token) => {
+          const text = node.firstChild!;
+          const start = text.textContent!.indexOf(token);
+          const range = document.createRange();
+          range.setStart(text, start);
+          range.setEnd(text, start + token.length);
+          const content = range.getBoundingClientRect();
+          const bounds = node.getBoundingClientRect();
+          return content.left >= bounds.left - 1 && content.right <= bounds.right + 1;
+        }, `(@${actor.username})`);
+        expect(visible).toBe(true);
+      }
+      await page.goto('/archive');
+      for (const actor of sessions)
+        await expect(
+          page
+            .locator('.recorded-games td')
+            .filter({ hasText: `${display} (@${actor.username})` })
+            .first(),
+        ).toBeVisible();
+    }
+    await share(sessions[0], 'PersonalOdin', false);
+    const board = await (await page.request.get('/api/leaderboard?ruleset=tablut')).json();
+    expect(
+      board.entries.find((entry: { username: string }) => entry.username === 'PersonalArcher').name,
+    ).toBe('PersonalArcher');
+    await page.goto('/leaderboard');
+    await expect(page.locator('tbody')).toContainText('PersonalArcher');
+    await expect(page.locator('tbody')).not.toContainText('(@PersonalArcher)');
+    await expect(page.locator('tbody')).toContainText('(@PersonalKeeper)');
+  } finally {
+    for (const actor of sessions)
+      await share(actor, actor.original.display_name, actor.original.show_display_name);
+    await keeper.close();
   }
 });

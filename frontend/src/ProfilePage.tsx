@@ -5,6 +5,7 @@ import { AppearancePreferences } from './Appearance';
 import { useI18n } from './i18n';
 import { countryName } from './profileCountry';
 import { profileText } from './profileText';
+import { validatePassword, validatePasswordLength } from './passwordPolicy';
 import './profile.css';
 
 export type Profile = {
@@ -156,12 +157,11 @@ export default function ProfilePage() {
       setPasswordError('Passwords do not match.');
       return;
     }
-    if (
-      [...newPassword].length < 12 ||
-      [...newPassword].length > 256 ||
-      new Set(newPassword).size < 4
-    ) {
-      setPasswordError('Use 12–256 characters with at least four distinct characters.');
+    try {
+      validatePasswordLength(String(values.get('current_password') ?? ''));
+      validatePassword(newPassword);
+    } catch (error) {
+      setPasswordError(errorMessage(error));
       return;
     }
     busy.current.add('password');
@@ -249,7 +249,6 @@ export default function ProfilePage() {
                   <input
                     name="display_name"
                     value={profile.display_name ?? ''}
-                    maxLength={80}
                     autoComplete="nickname"
                     onChange={(event) => edit({ display_name: event.target.value })}
                   />
@@ -273,7 +272,6 @@ export default function ProfilePage() {
                   <input
                     name="city"
                     value={profile.city ?? ''}
-                    maxLength={100}
                     autoComplete="address-level2"
                     onChange={(event) => edit({ city: event.target.value })}
                   />
@@ -298,7 +296,7 @@ export default function ProfilePage() {
                   <legend>{t('Leaderboard visibility')}</legend>
                   <p id="profile-privacy-help" className="form-help">
                     {t(
-                      'Only checked information is visible to other players. Your username is used unless you share a display name. Shared names also appear in game views. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.',
+                      'Only checked information is visible to other players. Your public username always identifies your account; a shared display name appears alongside it in leaderboards and online games. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.',
                     )}
                   </p>
                   {visibility.map(([key, label]) => (
@@ -366,7 +364,6 @@ export default function ProfilePage() {
                   type="password"
                   autoComplete="current-password"
                   required
-                  maxLength={256}
                 />
               </label>
               <label>
@@ -376,8 +373,6 @@ export default function ProfilePage() {
                   type="password"
                   autoComplete="new-password"
                   required
-                  minLength={12}
-                  maxLength={256}
                   aria-describedby="profile-password-policy"
                 />
               </label>
@@ -391,7 +386,6 @@ export default function ProfilePage() {
                   type="password"
                   autoComplete="new-password"
                   required
-                  maxLength={256}
                 />
               </label>
             </fieldset>

@@ -618,6 +618,7 @@ class OnlineCore:
                 {
                     "account_id": identifier,
                     "name": public_name(account),
+                    "username": account["username"],
                 }
                 if account
                 else None

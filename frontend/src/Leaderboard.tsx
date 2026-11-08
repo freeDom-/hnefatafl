@@ -7,6 +7,7 @@ import PageHeading from './PageHeading';
 import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineTypes';
 import './leaderboard.css';
 import { countryName } from './profileCountry';
+import { accountName } from './accountIdentity';
 
 const rulesets = ['brandubh', 'tablut', 'copenhagen'] as const;
 const ruleNames: Record<string, string> = {
@@ -72,7 +73,7 @@ function Entries({
             <tr key={entry.account_id} className={entry.account_id === ownId ? 'you' : undefined}>
               <td>{entry.rank}</td>
               <td>
-                {entry.name}
+                {accountName(entry)}
                 {entry.account_id === ownId ? ` · ${t('You')}` : ''}
                 {entry.provisional ? (
                   <span className="badge leaderboard-provisional">{t('Provisional')}</span>

@@ -15,5 +15,6 @@ def test_online_participants_resolve_shared_names_without_changing_account_ids(r
         assert current["participants"]["attackers"] == {
             "account_id": account_id,
             "name": "Private Þór" if shared else "Archer",
+            "username": "Archer",
         }
         assert current["version"] == game["version"]

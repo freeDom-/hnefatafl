@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 
+from .account_policy import attributed_name
 from .online_core import OnlineError, instant, micros, stamp
 
 
@@ -407,6 +408,7 @@ class PersonalHistory:
                 r.abandoned_account_id,r.revision,
                 substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS attacker_name,
                 substr(CASE WHEN d.show_display_name=1 THEN coalesce(nullif(d.display_name,''),d.username) ELSE d.username END,1,80) AS defender_name,
+                a.username AS attacker_username,d.username AS defender_username,
                 CASE WHEN g.status='completed' AND r.competitive_eligible=1 THEN
                   CASE WHEN json_extract(r.payload,'$.winner')='draw' THEN 'draw'
                     WHEN CASE WHEN g.attackers_id=? THEN 'attackers' ELSE 'defenders' END=json_extract(r.payload,'$.winner') THEN 'win'
@@ -498,8 +500,12 @@ class PersonalHistory:
                         "created_at": stamp(instant(row["created_at"])),
                         "updated_at": stamp(instant(row["updated_at"])),
                         "players": {
-                            "attackers": row["attacker_name"],
-                            "defenders": row["defender_name"],
+                            "attackers": attributed_name(
+                                row["attacker_name"], row["attacker_username"]
+                            ),
+                            "defenders": attributed_name(
+                                row["defender_name"], row["defender_username"]
+                            ),
                         },
                         "outcome": row["outcome"],
                         "abandoned": bool(
