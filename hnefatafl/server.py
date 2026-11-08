@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .account_policy import public_name
+from .account_policy import game_accounts, game_players, public_identity, resolve_accounts
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .identities import agent_identity, effective_ai_config
 from .training_identity import OPERATIONAL_TRAINING_FIELDS
@@ -524,7 +524,22 @@ def create_app(
             "evaluations": [with_agent_rune(entry) for entry in analysis["evaluations"]],
         }
 
-    def response(game: dict) -> dict:
+    def resolved_players(games: list[dict]) -> dict[str, dict]:
+        identifiers = [
+            game["id"]
+            for game in games
+            if any(
+                player.get("kind") == "human" and player.get("account_id")
+                for player in game["players"].values()
+            )
+        ]
+        owners = {}
+        if identifiers:
+            with store.connection() as c:
+                owners = game_accounts(c, identifiers)
+        return {game["id"]: game_players(game, owners) for game in games}
+
+    def response(game: dict, players: dict | None = None) -> dict:
         state = state_of(game)
         start = new_game(game["ruleset"])
         result = {key: value for key, value in game.items() if key not in ("state", "creation")}
@@ -533,7 +548,8 @@ def create_app(
         profiles = {profile["id"]: profile["name"] for profile in ai_profiles()}
         retired_names = {model["id"]: model["name"] for model in store.historical_models()}
         result["players"] = {}
-        for side, recorded_player in game["players"].items():
+        players = players if players is not None else resolved_players([game])[game["id"]]
+        for side, recorded_player in players.items():
             player = dict(recorded_player)
             if player["kind"] == "ai":
                 player["config"] = effective_ai_config(
@@ -805,7 +821,7 @@ def create_app(
         for side in SIDES:
             if side not in ai_sides:
                 players[side] = {
-                    "name": public_name(account),
+                    "name": account["username"],
                     "account_id": account["id"],
                     "kind": "human",
                     "config": {},
@@ -876,13 +892,15 @@ def create_app(
     def games(ruleset: str | None = None, mode: str | None = None, kind: str | None = None):
         if kind not in (None, "human", "ai"):
             fail("Kind must be human or ai.")
-        return [
-            response(g)
+        selected = [
+            g
             for g in store.list_games()
             if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(player["kind"] == kind for player in g["players"].values()))
         ]
+        players = resolved_players(selected)
+        return [response(g, players[g["id"]]) for g in selected]
 
     @app.get("/api/games/{game_id}")
     def get_game(game_id: str):
@@ -1230,13 +1248,12 @@ def create_app(
                 if game.status.value != "completed" or game.result is None:
                     fail("Analysis is available only for completed online games.", 403)
                 players = {}
+                accounts = resolve_accounts(c, (row[side + "_id"] for side in SIDES))
                 for side in SIDES:
-                    record = c.execute(
-                        "SELECT username,display_name,show_display_name FROM accounts WHERE id=?",
-                        (row[side + "_id"],),
-                    ).fetchone()
+                    identifier = row[side + "_id"]
                     players[side] = {
-                        "name": public_name(record),
+                        **accounts.get(identifier, public_identity(None)),
+                        "account_id": identifier,
                         "kind": "human",
                         "config": {},
                     }
@@ -1484,6 +1501,7 @@ def create_app(
             )
         ]
         completed = [g for g in selected if recorded_outcome(g)["winner"]]
+        players = resolved_players(selected)
         by_ruleset: dict[str, dict] = {}
         by_player: dict[str, dict] = {}
         from .ai import ai_profiles
@@ -1532,7 +1550,7 @@ def create_app(
             else:
                 summary["wins"] += 1
                 summary[f"{outcome['winner']}_wins"] += 1
-            for side, player in game["players"].items():
+            for side, player in players[game["id"]].items():
                 if kind and player["kind"] != kind:
                     continue
                 config = (
@@ -1583,6 +1601,7 @@ def create_app(
                     {
                         "id": identifier,
                         "name": player["name"],
+                        **({"username": player["username"]} if player.get("username") else {}),
                         "rune": agent_rune({**player, "config": config or {}}),
                         "kind": player["kind"],
                         "profile_id": profile_id,
@@ -1652,7 +1671,7 @@ def create_app(
                 by_ruleset.values(), key=lambda row: RULESETS[row["ruleset"]].size
             ),
             "by_player": list(by_player.values()),
-            "recent_games": [response(g) for g in selected[:10]],
+            "recent_games": [response(g, players[g["id"]]) for g in selected[:10]],
         }
 
     def tournament_or_404(identifier: str) -> dict:
@@ -1897,6 +1916,7 @@ def create_app(
         with job_lock, catalog_lock:
             model_info(model_id)
             games = unfinished_model_games(model_id)
+            players = resolved_players(games)
             return {
                 "model_id": model_id,
                 "usage_token": model_usage_token(model_id, games),
@@ -1908,8 +1928,16 @@ def create_app(
                         "created_at": game["created_at"],
                         "total_moves": len(game["moves"]),
                         "players": {
-                            side: {"name": player["name"], "rune": agent_rune(player)}
-                            for side, player in game["players"].items()
+                            side: {
+                                "name": player["name"],
+                                "rune": agent_rune(player),
+                                **(
+                                    {"username": player["username"]}
+                                    if player.get("username")
+                                    else {}
+                                ),
+                            }
+                            for side, player in players[game["id"]].items()
                         },
                     }
                     for game in games

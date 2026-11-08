@@ -12,6 +12,23 @@ const deferred = <T,>() => {
   });
   return { promise, resolve };
 };
+it('invalidates the existing read cycle on profile changes without another timer or listener after unmount', async () => {
+  const load = vi.fn().mockResolvedValue('Thor');
+  const { result, unmount } = renderHook(() => useOnlinePoll('identities', load));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(result.current.data).toBe('Thor');
+  load.mockResolvedValue('Freya');
+  await act(async () => {
+    window.dispatchEvent(new Event('profile-changed'));
+  });
+  expect(result.current.data).toBe('Freya');
+  expect(load).toHaveBeenCalledTimes(2);
+  unmount();
+  window.dispatchEvent(new Event('profile-changed'));
+  expect(load).toHaveBeenCalledTimes(2);
+});
 it('coalesces focus refreshes without overlapping reads and ignores late data after a mutation', async () => {
   vi.useFakeTimers();
   const first = deferred<number>();

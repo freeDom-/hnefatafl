@@ -297,8 +297,8 @@ CUDA support does not establish that CUDA was tested on this development host.
 
 AI record identity is a deterministic digest of normalized effective parameters,
 including algorithm, relevant budgets, sampling settings and model identity,
-while excluding seed-only differences. New sessions
-store resolved parameters and display-name snapshots. Legacy explicit-algorithm
+while excluding seed-only differences. New AI participants
+store resolved parameters and name snapshots. Legacy explicit-algorithm
 sessions retain the defaults their original engine used; profile defaults are not
 retroactively applied. Variant statistics expose configuration metadata for inspection.
 
@@ -307,6 +307,19 @@ Local-player creation/deletion paths are removed; saved IDs, names and runes sta
 readable. New human seats use account IDs and one stable account rune. Deleting an available model removes its registry
 copy and entry, retaining historical labels and original training outputs. Catalog
 reference creation and deletion are serialized in the supported single API process.
+
+`account_policy.py` resolves public human identities from `accounts.id`, applying
+current display-name sharing and canonical username attribution. New account game
+JSON stores the username and account ID, not the mutable profile name. Full-game
+lists batch the trusted owner/account join once per request; history summaries
+use SQL joins and the same pure naming policy without decoding whole game blobs.
+Only human IDs matching the persisted single-player owner are trusted; online
+seats use their database account IDs. No identity is inferred from a saved name.
+Linked legacy snapshots resolve dynamically; unlinked humans and AI/model/
+tournament snapshots stay historical. Missing linked accounts never resurrect
+saved private names. Profile edits write no game rows and need no new migration
+(schema 14), so versions, optimistic move guards and statistical identity stay
+unchanged. See [profile compatibility](docs/PROFILE.md#names-in-games-and-history).
 
 Appearance is browser-local state, separate from game configuration. A typed catalog
 defines color modes, board palettes and token sets; shared token rendering is used
@@ -618,8 +631,8 @@ remain. `RecordedGames` supplies compact rows (named winner, locale-aware date/t
 Timezone) to Dashboard and `Archive` (Hall). `RecordedReview` restores the full
 single-player presentation (saga move list, board replay, general game information,
 Analytics/Winning chances) using category-specific validated read adapters and
-viewer-local state. Online review shows the analysis panels as unavailable; account
-single-player review may use the existing authorized analysis. Selected review is
+viewer-local state. Online review permits authorized completed-game analysis; account
+single-player review uses the existing authorized analysis. Selected review is
 independent of Hall filters/page and survives direct load/refresh.
 Dashboard reads only account-scoped records.
 Account-keyed poll state, cancellation and session epochs
@@ -629,8 +642,8 @@ viewer's own standing; see [Rated games](docs/RATINGS.md).
 
 `personal_api.py` retains five own-account GET adapters under `/api/personal`, including
 administrators. Two additional read-only `/api/history` routes use `history.py`:
-normal-user lists/review are participant online only; trusted current `all_data`
-sessions can filter/review all server-recorded online/account records. Dashboard
+normal-user lists/review cover own account games and participating online games;
+trusted current `all_data` sessions can filter/review all server-recorded online/account records. Dashboard
 history always applies own-account scope, visibility and eligible completion before
 limit three. Summary/count/category totals use set-based SQL and bounded cursors in
 one read transaction, without engine calls or schema changes. Detail rechecks role
@@ -639,8 +652,8 @@ mutation, analysis or export authority. Global authenticated online lobby/specta
 reads and all-role active-online assistance denial retain their permissions.
 
 Account totals read persisted `recorded_result` only: current writers include it,
-seeks preserve it and missing/null results are unfinished. No legacy account records
-or result reconstruction are supported. Personal statistics attribute wins/losses
+seeks preserve it and missing/null results are unfinished. Retained legacy records
+remain readable; results are never reconstructed from board state. Personal statistics attribute wins/losses
 to the account-bound human seat and exclude `ai-ai` and unattributed legacy records
 from personal outcomes, reporting coverage instead. Online statistics use the
 account's seat and only current eligible completed revisions, withdrawing voids and

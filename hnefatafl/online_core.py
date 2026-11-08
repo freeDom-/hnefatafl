@@ -17,7 +17,7 @@ import time
 from uuid import UUID, uuid4
 
 from . import lifecycle, rating
-from .account_policy import public_name
+from .account_policy import public_identity, resolve_accounts
 from .engine import RULESETS, Move, State, apply_move, new_game
 from .online_ratings import Ratings
 from .online_settings import OnlineSettings
@@ -601,26 +601,21 @@ class OnlineCore:
             "action_accepted": transition_name == action,
         }
 
-    def _projection(self, c, row, game) -> dict:
+    def _projection(self, c, row, game, accounts=None) -> dict:
         match = c.execute("SELECT * FROM online_matches WHERE id=?", (row["match_id"],)).fetchone()
+        if accounts is None:
+            accounts = resolve_accounts(
+                c, (row[side + "_id"] for side in ("attackers", "defenders"))
+            )
         participants = {}
         for side in ("attackers", "defenders"):
             identifier = row[side + "_id"]
-            account = (
-                c.execute(
-                    "SELECT username,display_name,show_display_name FROM accounts WHERE id=?",
-                    (identifier,),
-                ).fetchone()
-                if identifier
-                else None
-            )
             participants[side] = (
                 {
                     "account_id": identifier,
-                    "name": public_name(account),
-                    "username": account["username"],
+                    **accounts.get(identifier, public_identity(None)),
                 }
-                if account
+                if identifier
                 else None
             )
         rated = bool(match["rated"])
@@ -860,8 +855,12 @@ class OnlineCore:
                 f"SELECT id FROM online_games {condition} {order} LIMIT ? OFFSET ?",
                 (*params, limit, offset),
             ).fetchall()
+            loaded = [self._load(c, row[0]) for row in rows]
+            accounts = resolve_accounts(
+                c, (row[side + "_id"] for row, _ in loaded for side in ("attackers", "defenders"))
+            )
             return {
-                "games": [self._projection(c, *self._load(c, row[0])) for row in rows],
+                "games": [self._projection(c, row, game, accounts) for row, game in loaded],
                 "limit": limit,
                 "offset": offset,
                 "section": section or ("mine" if mine else "all"),

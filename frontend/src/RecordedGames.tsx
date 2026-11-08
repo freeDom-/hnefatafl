@@ -71,7 +71,7 @@ const dateTimeFormat = (locale: string) =>
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
 export const participantLabel = (name: string | null, t: (key: string) => string) =>
-  name ?? t('Unassigned');
+  name || t('Unassigned');
 /** Start Elo is shown only when a reliable snapshot exists; never backfilled. */
 export const ratedParticipantLabel = (
   name: string | null,

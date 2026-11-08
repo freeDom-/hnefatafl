@@ -254,11 +254,19 @@ winner from a client countdown or only from `position.winner`: concessions/timeo
 do not invent an engine winner. Use lifecycle and effective `result`.
 
 Game/result/participant projections contain explicit safe fields only: stable IDs,
-display name, side, rules/version, board, accepted moves, times, lifecycle, per-game
+current public name and canonical username, side, rules/version, board, accepted moves, times, lifecycle, per-game
 version and effective result. Private emails, roles/status, security/login data,
 credentials, administrative notes, advisor configuration, hints, probabilities and
 search diagnostics are excluded, including replay states. Gate audit is private
 administrator operations data and is never bundled into game projections.
+
+Online participant IDs resolve through the shared account naming policy on every
+read, including completed games, replays, personal summaries, Hall search and
+completed-game analysis. Display names require current sharing consent and retain
+canonical attribution. A profile edit never changes seats, versions, results or
+ratings. Listings batch account resolution; browser views reuse their existing
+refresh cycles and focus handling. Unavailable accounts receive no saved private
+name fallback. See [profile identity](PROFILE.md#names-in-games-and-history).
 
 Online IDs cannot enter local game/AI/analysis/analytics/seek/undo/restart/export
 adapters, including for administrators. Separate tables also exclude them from

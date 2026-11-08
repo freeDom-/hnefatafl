@@ -3,6 +3,9 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 const origin = 'http://127.0.0.1:4175';
 const headers = { Origin: origin };
 const password = 'browser-registration-test-password';
+test.beforeEach(async ({ request }) => {
+  expect((await request.post('http://127.0.0.1:8004/reset-account-limits')).status()).toBe(204);
+});
 async function mail(request: APIRequestContext, email: string, purpose: string, count = 1) {
   const endpoint = `http://127.0.0.1:8004/?email=${encodeURIComponent(email)}&purpose=${purpose}`;
   await expect

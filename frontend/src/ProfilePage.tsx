@@ -138,6 +138,7 @@ export default function ProfilePage() {
       acceptVerification(updated.email_verified);
       setProfile(updated);
       setSaved(true);
+      window.dispatchEvent(new Event('profile-changed'));
     } catch (error) {
       if (!controller.current?.signal.aborted) setProfileError(errorMessage(error));
     } finally {
@@ -296,7 +297,7 @@ export default function ProfilePage() {
                   <legend>{t('Leaderboard visibility')}</legend>
                   <p id="profile-privacy-help" className="form-help">
                     {t(
-                      'Only checked information is visible to other players. Your public username always identifies your account; a shared display name appears alongside it in leaderboards and online games. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.',
+                      'Only checked information is visible to other players. Your public username always identifies your account; a shared display name appears alongside it in leaderboards, games and history. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.',
                     )}
                   </p>
                   {visibility.map(([key, label]) => (

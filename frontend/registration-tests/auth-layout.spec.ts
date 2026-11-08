@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 
+test.beforeEach(async ({ request }) => {
+  expect((await request.post('http://127.0.0.1:8004/reset-account-limits')).status()).toBe(204);
+});
+
 test('auth headings remain accessible and focusable without reserving visual space', async ({
   page,
 }) => {

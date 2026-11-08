@@ -2,6 +2,9 @@ import { test, expect, type Locator } from '@playwright/test';
 import { openProfile, logoutFromAccount } from '../tests/play-helpers';
 
 test.use({ screenshot: 'only-on-failure' });
+test.beforeEach(async ({ request }) => {
+  expect((await request.post('http://127.0.0.1:8004/reset-account-limits')).status()).toBe(204);
+});
 
 test('account menu, private profile, verification, password and device preferences work together', async ({
   page,

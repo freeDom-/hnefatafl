@@ -129,8 +129,8 @@ function normalize(data: OnlineReplay | AccountReviewData): {
       reason: null,
       version: (data as AccountReviewData).version,
       players: {
-        attackers: { name: account.players.attackers.name, kind: account.players.attackers.kind },
-        defenders: { name: account.players.defenders.name, kind: account.players.defenders.kind },
+        attackers: { ...account.players.attackers },
+        defenders: { ...account.players.defenders },
       },
     },
     moves: (data as AccountReviewData).moves.map((move, index) => ({

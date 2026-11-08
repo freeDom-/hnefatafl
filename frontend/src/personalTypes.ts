@@ -11,7 +11,7 @@ export type AccountSummary = {
   status: 'in_progress' | 'completed';
   winner: Side | 'draw' | null;
   plies: number;
-  players: Record<Side, { name: string; kind: 'human' | 'ai' }>;
+  players: Record<Side, { name: string; kind: 'human' | 'ai'; username?: string }>;
 };
 export type Paging = { limit: number; matching: number; next_cursor: string | null };
 export type PersonalStatisticMetrics = {

@@ -6,6 +6,6 @@ export function accountAttribution(account: PublicAccount | null | undefined): s
 }
 
 export function accountName(account: PublicAccount | null | undefined): string | undefined {
-  if (!account) return undefined;
+  if (!account?.name) return undefined;
   return [account.name, accountAttribution(account)].filter(Boolean).join(' ');
 }

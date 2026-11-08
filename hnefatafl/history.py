@@ -2,7 +2,7 @@
 
 import json
 
-from .account_policy import attributed_name
+from .account_policy import account_player_sql, attributed_name
 from .online_core import OnlineError, instant, stamp
 from .personal import context_key, page
 from .security_context import allowed
@@ -20,6 +20,8 @@ class RecordedHistory:
         # fractional digits or whole seconds. Parse seconds without the fraction;
         # julianday/strftime on fractional dates round to milliseconds.
         at = "coalesce(json_extract(data,'$.ended_at'),games.created_at)"
+        attacker_name, attacker_username = account_player_sql("attackers")
+        defender_name, defender_username = account_player_sql("defenders")
         account = f"""SELECT games.id,'account-single-player' AS category,
             CAST(strftime('%s',substr({at},1,19)) AS INTEGER)*1000000 +
             CASE WHEN substr({at},20,1)='.' THEN CAST(substr({at},21,6) AS INTEGER) ELSE 0 END AS order_at,
@@ -28,20 +30,19 @@ class RecordedHistory:
             CASE WHEN json_extract(data,'$.recorded_result.winner') IS NULL THEN 'in_progress' ELSE 'completed' END AS status,
             json_extract(data,'$.recorded_result.winner') AS winner,
             (json_extract(data,'$.recorded_result.winner') IS NOT NULL) AS eligible,
-            substr(json_extract(data,'$.players.attackers.name'),1,80) AS attackers,
-            substr(json_extract(data,'$.players.defenders.name'),1,80) AS defenders,
-            substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS owner,
-            NULL AS attacker_username,NULL AS defender_username,a.username AS owner_username,
+            {attacker_name} AS attackers,{defender_name} AS defenders,
+            public_account_name(a.username,a.display_name,a.show_display_name) AS owner,
+            {attacker_username} AS attacker_username,{defender_username} AS defender_username,a.username AS owner_username,
             NULL AS attacker_rating,
             NULL AS defender_rating,
             NULL AS winner_delta
-            FROM games JOIN accounts a ON a.id=games.owner_account_id"""
+            FROM games LEFT JOIN accounts a ON a.id=games.owner_account_id"""
         online = """SELECT g.id,'online' AS category,g.updated_at AS order_at,
             g.created_at,g.updated_at AS recorded_at,g.ruleset,g.status,
             json_extract(r.payload,'$.winner') AS winner,
             coalesce(r.competitive_eligible,0) AS eligible,
-            substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS attackers,
-            substr(CASE WHEN d.show_display_name=1 THEN coalesce(nullif(d.display_name,''),d.username) ELSE d.username END,1,80) AS defenders,
+            public_account_name(a.username,a.display_name,a.show_display_name) AS attackers,
+            public_account_name(d.username,d.display_name,d.show_display_name) AS defenders,
             NULL AS owner,
             a.username AS attacker_username,d.username AS defender_username,NULL AS owner_username,
             (SELECT s.rating FROM online_game_start_ratings s
@@ -191,4 +192,4 @@ class RecordedHistory:
                 ).fetchone()
             if row is None:
                 raise OnlineError(404, "Recorded game not found.")
-            return self.personal._single_replay(json.loads(row[0]))
+            return self.personal._single_replay(c, json.loads(row[0]))
