@@ -208,11 +208,11 @@
     "user_specific": true
   },
   {
-    "method": "GET",
-    "route": "/api/history/{category}/{game_id}/replay",
+    "method": "POST",
+    "route": "/api/history/online/{game_id}/analysis",
     "authentication": "session",
     "permission": "play",
-    "persistent_state": false,
+    "persistent_state": true,
     "user_specific": true
   },
   {
@@ -232,11 +232,11 @@
     "user_specific": true
   },
   {
-    "method": "POST",
-    "route": "/api/history/online/{game_id}/analysis",
+    "method": "GET",
+    "route": "/api/history/{category}/{game_id}/replay",
     "authentication": "session",
     "permission": "play",
-    "persistent_state": true,
+    "persistent_state": false,
     "user_specific": true
   },
   {
@@ -453,6 +453,30 @@
     "authentication": "session",
     "permission": "play",
     "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/profile",
+    "authentication": "session",
+    "permission": "profile",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "PATCH",
+    "route": "/api/profile",
+    "authentication": "session",
+    "permission": "profile",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/profile/password",
+    "authentication": "session",
+    "permission": "profile",
+    "persistent_state": true,
     "user_specific": true
   },
   {
@@ -718,29 +742,5 @@
     "permission": "worker",
     "persistent_state": true,
     "user_specific": false
-  },
-  {
-    "method": "GET",
-    "route": "/api/profile",
-    "authentication": "session",
-    "permission": "profile",
-    "persistent_state": false,
-    "user_specific": true
-  },
-  {
-    "method": "PATCH",
-    "route": "/api/profile",
-    "authentication": "session",
-    "permission": "profile",
-    "persistent_state": true,
-    "user_specific": true
-  },
-  {
-    "method": "POST",
-    "route": "/api/profile/password",
-    "authentication": "session",
-    "permission": "profile",
-    "persistent_state": true,
-    "user_specific": true
   }
 ]
