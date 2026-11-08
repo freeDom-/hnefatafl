@@ -64,6 +64,10 @@ it('opens and closes by click, outside pointer, focus leaving and Escape without
   await user.keyboard('{Enter}');
   await user.tab();
   expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  await user.click(trigger);
+  await user.tab({ shift: true });
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
   expect(logout).not.toHaveBeenCalled();
 });
 it('supports arrows, Home and End and invokes only the existing logout callback on activation', async () => {
@@ -90,6 +94,18 @@ it('navigates to the authenticated profile without logging out', async () => {
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Account menu for Odin' }));
   await user.click(screen.getByRole('menuitem', { name: 'My Profile' }));
+  expect(location.pathname).toBe('/profile');
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  expect(logout).not.toHaveBeenCalled();
+});
+
+it('activates My Profile with Space as well as Enter', async () => {
+  const logout = header();
+  const user = userEvent.setup();
+  screen.getByRole('button', { name: 'Account menu for Odin' }).focus();
+  await user.keyboard('{Enter}');
+  expect(screen.getByRole('menuitem', { name: 'My Profile' })).toHaveFocus();
+  await user.keyboard(' ');
   expect(location.pathname).toBe('/profile');
   expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   expect(logout).not.toHaveBeenCalled();

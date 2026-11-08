@@ -82,6 +82,12 @@ export default function AccountMenu({
           aria-label={t('Account')}
           className="account-dropdown panel"
           onKeyDown={(event) => {
+            if (event.key === 'Tab' && event.shiftKey) {
+              event.preventDefault();
+              setOpen(false);
+              trigger.current?.focus();
+              return;
+            }
             const index = items.current.indexOf(document.activeElement as HTMLButtonElement);
             const next =
               event.key === 'Home'
@@ -107,6 +113,12 @@ export default function AccountMenu({
             tabIndex={-1}
             className="button secondary"
             href="/profile"
+            onKeyDown={(event) => {
+              if (event.key === ' ') {
+                event.preventDefault();
+                event.currentTarget.click();
+              }
+            }}
             onClick={(event) => {
               setOpen(false);
               surfaceLink(event);
