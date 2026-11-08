@@ -49,7 +49,7 @@ it('shows the existing safe fallback for an unavailable account while keeping it
   game.participants.defenders = { account_id: 'missing-account', name: '' };
   room(game);
   await screen.findByRole('grid');
-  expect(screen.getByRole('heading', { name: 'Unassigned', exact: true })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Unassigned' })).toBeVisible();
 });
 function lobby() {
   history.replaceState(null, '', '/online');
