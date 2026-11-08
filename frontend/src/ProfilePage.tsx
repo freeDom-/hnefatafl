@@ -46,9 +46,13 @@ export default function ProfilePage() {
   const busy = useRef(new Set<string>());
   const year = new Date().getUTCFullYear();
   useEffect(() => {
-    if (!account) return;
     const request = new AbortController();
     controller.current = request;
+    return () => request.abort();
+  }, [account?.id]);
+  useEffect(() => {
+    if (!account) return;
+    const request = new AbortController();
     setLoadError('');
     void api<Profile>('/profile', undefined, undefined, request.signal)
       .then((data) => {

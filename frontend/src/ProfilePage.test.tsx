@@ -232,6 +232,34 @@ it('allows retry after loading errors while retaining access to account security
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByRole('textbox', { name: 'Display name' })).toHaveValue('');
 });
+
+it('does not interrupt a password change when retrying optional profile data', async () => {
+  apiMock.mockRejectedValueOnce(new Error('Network unavailable.'));
+  render(<ProfilePage />);
+  await screen.findByRole('alert');
+  let complete!: (result: { message: string }) => void;
+  apiMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  fireEvent.change(screen.getByLabelText('Current password'), {
+    target: { value: 'current-password' },
+  });
+  for (const label of ['New password', 'Confirm new password'])
+    fireEvent.change(screen.getByLabelText(label), { target: { value: 'replacement-password' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Change Password' }));
+  const signal = apiMock.mock.calls.find(([path]) => path === '/profile/password')![3]!;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await screen.findByRole('textbox', { name: 'Display name' });
+  expect(signal.aborted).toBe(false);
+  await act(async () =>
+    complete({ message: 'Password changed. Other sessions have been signed out.' }),
+  );
+  expect(screen.getByText('Password changed. Other sessions have been signed out.')).toBeVisible();
+  expect(screen.getByLabelText('Current password')).toHaveValue('');
+});
 it('localizes the profile and country names and preserves theme preferences through remounts', async () => {
   const view = await page();
   fireEvent.click(screen.getByRole('radio', { name: 'Wood' }));
