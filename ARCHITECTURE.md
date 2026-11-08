@@ -642,8 +642,8 @@ viewer's own standing; see [Rated games](docs/RATINGS.md).
 
 `personal_api.py` retains five own-account GET adapters under `/api/personal`, including
 administrators. Two additional read-only `/api/history` routes use `history.py`:
-normal-user lists/review cover own account games and participating online games; trusted current `all_data`
-sessions can filter/review all server-recorded online/account records. Dashboard
+normal-user lists/review cover own account games and participating online games;
+trusted current `all_data` sessions can filter/review all server-recorded online/account records. Dashboard
 history always applies own-account scope, visibility and eligible completion before
 limit three. Summary/count/category totals use set-based SQL and bounded cursors in
 one read transaction, without engine calls or schema changes. Detail rechecks role
@@ -652,8 +652,8 @@ mutation, analysis or export authority. Global authenticated online lobby/specta
 reads and all-role active-online assistance denial retain their permissions.
 
 Account totals read persisted `recorded_result` only: current writers include it,
-seeks preserve it and missing/null results are unfinished. No legacy account records
-or result reconstruction are supported. Personal statistics attribute wins/losses
+seeks preserve it and missing/null results are unfinished. Retained legacy records
+remain readable; results are never reconstructed from board state. Personal statistics attribute wins/losses
 to the account-bound human seat and exclude `ai-ai` and unattributed legacy records
 from personal outcomes, reporting coverage instead. Online statistics use the
 account's seat and only current eligible completed revisions, withdrawing voids and
