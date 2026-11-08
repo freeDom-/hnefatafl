@@ -108,14 +108,17 @@ class RecordedHistory:
                     values.append(value)
             if player:
                 # Literal substring matching; SQL LIKE wildcard input is not a capability.
+                # Search the same public label returned below, without duplicating
+                # its formatting or performing any additional database queries.
+                c.create_function("attributed_name", 2, attributed_name, deterministic=True)
                 conditions.append(
                     "("
                     + " OR ".join(
                         f"instr(lower(coalesce({field},'')),lower(?))>0"
                         for field in (
-                            "attackers",
-                            "defenders",
-                            "owner",
+                            "attributed_name(attackers,attacker_username)",
+                            "attributed_name(defenders,defender_username)",
+                            "attributed_name(owner,owner_username)",
                             "attacker_username",
                             "defender_username",
                             "owner_username",

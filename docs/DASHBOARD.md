@@ -127,7 +127,12 @@ Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/r
 filters and pagination. Normal users see only participating online records and have
 no account-single-player or player-name filter. Administrators with trusted current
 `all_data` permission can inspect online and account-single-player records across
-accounts. Only server records are visible here. The Local players section is removed;
+accounts. Their player-name search accepts literal substrings of public display
+names, canonical usernames and the displayed **Display Name (@username)** label,
+including its `@username` attribution. Full labels up to 148 Unicode code points
+can be typed or pasted without truncation. Search uses the same public formatter
+as the result labels; counts, cursor pages and the other filters share that query.
+Only server records are visible here. The Local players section is removed;
 new account setup uses the current account and four preset opponents. Local-player
 CRUD is removed; historical data is retained for read/play compatibility.
 

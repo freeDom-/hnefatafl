@@ -112,6 +112,23 @@ test('shared names retain canonical attribution in standings, games and history 
   test.setTimeout(180000);
   expect((await request.post('http://127.0.0.1:8010/reset-login-attempts')).status()).toBe(204);
   const keeper = await browser.newContext({ baseURL: 'http://127.0.0.1:8009' });
+  const mobile = info.project.name === 'mobile';
+  const admin = await browser.newContext({
+    baseURL: 'http://127.0.0.1:8009',
+    viewport: { width: mobile ? 375 : 1440, height: 900 },
+    isMobile: mobile,
+    hasTouch: mobile,
+  });
+  expect(
+    (
+      await admin.request.post('/api/auth/login', {
+        headers: { Origin: 'http://127.0.0.1:8009' },
+        data: { identity: 'PersonalOdin', password: 'personal-browser-fixture-password' },
+      })
+    ).ok(),
+  ).toBe(true);
+  await admin.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const adminPage = await admin.newPage();
   const actors = [
     { username: 'PersonalArcher', api: page.request },
     { username: 'PersonalKeeper', api: keeper.request },
@@ -211,6 +228,7 @@ test('shared names retain canonical attribution in standings, games and history 
         expect(visible).toBe(true);
       }
       await page.goto('/archive');
+      await expect(page.getByRole('textbox', { name: 'Player name' })).toHaveCount(0);
       for (const actor of sessions)
         await expect(
           page
@@ -218,6 +236,39 @@ test('shared names retain canonical attribution in standings, games and history 
             .filter({ hasText: `${display} (@${actor.username})` })
             .first(),
         ).toBeVisible();
+      await adminPage.goto('/archive');
+      for (const language of ['en', 'de']) {
+        await adminPage.locator('.language-select select').selectOption(language);
+        const search = adminPage.getByRole('textbox', {
+          name: language === 'de' ? 'Spielername' : 'Player name',
+        });
+        const label = `${display} (@PersonalArcher)`;
+        for (const query of [display, 'PersonalArcher', '@PersonalArcher', label]) {
+          const response = adminPage.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return (
+              url.pathname === '/api/history/games' && url.searchParams.get('player') === query
+            );
+          });
+          if (query === label) {
+            // Exercise actual paste beyond the former 80-UTF-16-unit limit.
+            await search.fill('');
+            await adminPage.bringToFront();
+            await search.focus();
+            await adminPage.evaluate((text) => navigator.clipboard.writeText(text), label);
+            await adminPage.keyboard.press('Control+V');
+          } else await search.fill(query);
+          const result = await response;
+          expect(result.ok()).toBe(true);
+          const records = await result.json();
+          expect(records.matching).toBeGreaterThan(0);
+          await expect(search).toHaveValue(query);
+          await expect(adminPage.locator('.recorded-games tbody tr')).toHaveCount(
+            records.games.length,
+          );
+          await expect(adminPage.locator('.recorded-games')).toContainText(label);
+        }
+      }
     }
     await share(sessions[0], 'PersonalOdin', false);
     const board = await (await page.request.get('/api/leaderboard?ruleset=tablut')).json();
@@ -232,5 +283,6 @@ test('shared names retain canonical attribution in standings, games and history 
     for (const actor of sessions)
       await share(actor, actor.original.display_name, actor.original.show_display_name);
     await keeper.close();
+    await admin.close();
   }
 });

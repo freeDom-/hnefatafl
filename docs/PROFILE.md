@@ -45,7 +45,14 @@ one additional public field, `username`, alongside their existing `name` and
 stable account ID. Older responses without that field still render. Current
 online history/personal summaries retain their existing string fields and append
 the canonical username when needed. History's administrator player filter also
-matches that username, with the same literal matching and authorization rules.
+matches that username, the visible `@username` attribution, and a copied complete
+**Display Name (@username)** label, with the same literal substring matching and
+authorization rules. The search and response projection reuse the same formatter;
+no extra per-record database reads are added. The player query allows 148 Unicode
+code points (80 for the display name, 64 for the username and four for attribution
+punctuation). The input uses that same code-point bound instead of UTF-16
+`maxlength`, so a complete Unicode label can be pasted intact. Current private
+display names do not enter the search projection.
 These read projections do not modify ratings, ownership, permissions or records.
 Existing saved game snapshots are retained, including names already saved there.
 The compact Dashboard leaderboard keeps its four columns; the full leaderboard

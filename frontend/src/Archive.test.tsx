@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Archive from './Archive';
 import fixture from './onlineFixture.testdata.json';
+import userEvent from '@testing-library/user-event';
+import { I18nProvider, setLanguage } from './i18n';
 const identity = vi.hoisted(() => ({ id: 'archer', permissions: ['play'] }));
 vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
 const row = {
@@ -34,6 +36,7 @@ const respond = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status === 200, status, json: async () => body } as Response);
 const fetcher = vi.fn<(url: string, opts?: RequestInit) => Promise<Response>>();
 beforeEach(() => {
+  setLanguage('en', false);
   identity.id = 'archer';
   identity.permissions = ['play'];
   history.replaceState(null, '', '/archive');
@@ -44,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setLanguage('en', false);
 });
 it('uses shared dense rows, server filters/pages and has no Local players or account filters for normal users', async () => {
   render(<Archive />);
@@ -123,3 +127,59 @@ it('clears old history and aborts a delayed read on account changes', async () =
   expect(oldSignal.aborted).toBe(true);
   expect(screen.queryByRole('link', { name: 'Open review: Archer vs Keeper' })).toBeNull();
 });
+
+it.each(['Shared name', 'Archer', '@Archer', 'Shared name (@Archer)'])(
+  'submits the literal administrator identity search %s and resets its cursor',
+  async (query) => {
+    identity.permissions = ['play', 'all_data'];
+    history.replaceState(null, '', '/archive?ruleset=brandubh&cursor=old-page');
+    render(<Archive />);
+    const input = await screen.findByRole('textbox', { name: 'Player name' });
+    fireEvent.change(input, { target: { value: query } });
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(([url]) => {
+          const params = new URL(url, 'http://test').searchParams;
+          return (
+            params.get('player') === query &&
+            params.get('ruleset') === 'brandubh' &&
+            !params.has('cursor')
+          );
+        }),
+      ).toBe(true),
+    );
+    expect(input).toHaveValue(query);
+  },
+);
+
+it.each(['en', 'de'] as const)(
+  'accepts a full 148-code-point pasted identity in %s',
+  async (language) => {
+    identity.permissions = ['play', 'all_data'];
+    render(
+      <I18nProvider>
+        <Archive />
+      </I18nProvider>,
+    );
+    act(() => setLanguage(language, false));
+    const input = await screen.findByRole('textbox', {
+      name: language === 'de' ? 'Spielername' : 'Player name',
+    });
+    const label = '😀'.repeat(80) + ' (@' + 'W'.repeat(64) + ')';
+    expect([...label]).toHaveLength(148);
+    const user = userEvent.setup();
+    await user.click(input);
+    await user.paste(label);
+    expect(input).toHaveValue(label);
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(
+          ([url]) => new URL(url, 'http://test').searchParams.get('player') === label,
+        ),
+      ).toBe(true),
+    );
+    await user.keyboard('x');
+    expect(input).toHaveValue(label);
+    expect(new URLSearchParams(location.search).get('player')).toBe(label);
+  },
+);
