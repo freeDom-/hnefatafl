@@ -1,5 +1,5 @@
 import type { Account } from './Auth';
-import { AppearanceSettings } from './Appearance';
+import AccountMenu from './AccountMenu';
 import { Crown } from './Board';
 import { LanguageSelect, useI18n } from './i18n';
 import { navigate } from './navigation';
@@ -57,14 +57,8 @@ export default function SiteHeader({
           ))}
       </nav>
       <div className="header-controls">
-        <span className="account-name" title={account.username}>
-          {account.username}
-        </span>
-        <button className="button small secondary" type="button" onClick={() => void logout?.()}>
-          {t('Log out')}
-        </button>
         <LanguageSelect />
-        <AppearanceSettings />
+        <AccountMenu key={current} username={account.username} logout={logout} />
       </div>
     </header>
   );

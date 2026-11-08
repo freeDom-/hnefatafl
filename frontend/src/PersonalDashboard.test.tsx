@@ -149,6 +149,10 @@ it('shows the verification warning before creation actions and disables only onl
   const warning = screen.getByText(
     'Verify your email address before creating or joining online games.',
   );
+  expect(screen.getByRole('link', { name: 'Verify your email in your profile.' })).toHaveAttribute(
+    'href',
+    '/profile#email-verification',
+  );
   expect(
     warning.compareDocumentPosition(screen.getByRole('button', { name: 'New online game' })) &
       Node.DOCUMENT_POSITION_FOLLOWING,

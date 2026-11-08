@@ -53,7 +53,10 @@ function DashboardHome({
       <PageHeading title={t('Dashboard')} />
       {identity?.email_verified === false && (
         <p role="alert" className="dashboard-verification-warning">
-          {t('Verify your email address before creating or joining online games.')}
+          {t('Verify your email address before creating or joining online games.')}{' '}
+          <a href="/profile#email-verification" onClick={surfaceLink}>
+            {t('Verify your email in your profile.')}
+          </a>
         </p>
       )}
       <GameCreationActions

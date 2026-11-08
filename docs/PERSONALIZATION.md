@@ -96,11 +96,15 @@ name suggestions. Seats show the underlying model/agent rune; repeated models ar
 distinguished by seat number and settings. Older seat-rune reservations remain
 stored but are not a second current participant identity.
 
-The shared header groups language and appearance at the top right on every page,
-including play. Narrow screens use a horizontally scrollable navigation row.
-Page titles and subtitles are visually hidden while remaining available to screen
-readers and programmatic focus. Section headings, dialog titles, statistics labels,
-form help and operational messages remain visible.
+The shared header groups the language selector and username menu at the top right
+on every page, including play. **My Profile** opens account management and the
+existing appearance controls. On narrow screens the trigger uses the account icon;
+opening it shows the full username above the Profile and Logout actions. The
+language selector stays directly beside it, and navigation uses its existing
+horizontally scrollable row. Shared page labels remain available to screen readers
+and programmatic focus; the profile also has a visible **My Profile** heading.
+Section headings, dialog titles, statistics labels, form help and operational
+messages remain visible.
 
 Shared typography, buttons, panels, dialogs, tabs, form grids and accessibility
 utilities live in [ui.css](../frontend/src/ui.css); [siteHeader.css](../frontend/src/siteHeader.css)
@@ -126,7 +130,7 @@ expected-score interpretation, draw handling and model-reference protection.
 
 ## Language
 
-Use the header language selector to switch between English and German without
+Use the header language selector beside the username menu to switch between English and German without
 leaving the current game. The browser stores the choice under `hnefatafl-language`;
 a fresh visit follows German browser language or otherwise English. Rules, controls,
 accessible labels, number/date formatting and workshop/tournament text follow the
@@ -137,7 +141,7 @@ Copenhagen 11×11, in new games, records and training.
 
 ## Color, tokens and boards
 
-Open **Appearance** in the application header. The four settings are independent:
+Open the username menu → **My Profile** → **Appearance**. The four settings are independent:
 
 | Setting | Choices |
 | --- | --- |
@@ -174,10 +178,10 @@ of the token and board themes, so it works with every available set.
 See the [wood desktop view](screenshots/wood-theme-desktop.png) and
 [wood mobile view](screenshots/wood-theme-mobile.png).
 
-Preferences are stored in this browser under `hnefatafl-appearance`, not in player
-profiles or the database. Follow-device mode responds to operating-system color
+Preferences are stored in this browser under `hnefatafl-appearance`, independently
+of account profile details in the database. Follow-device mode responds to operating-system color
 changes. Invalid saved values fall back to supported defaults. If browser storage is
-unavailable, settings still work for the visit and the dialog reports the limitation.
+unavailable, settings still work for the visit and the controls report the limitation.
 Fresh browsers use **Follow device + Carved wood + Old walnut + Default scale**. Valid saved choices
 remain in effect; missing or invalid fields fall back to these defaults. Choose
 those four settings to return to the defaults.

@@ -38,6 +38,11 @@ table.leaderboard td:first-child {
 table.leaderboard tr.you {
   font-weight: 600;
 }
+table.leaderboard td:nth-child(2) {
+  min-width: 12ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .leaderboard-pages {
   display: flex;
   gap: var(--gap-stack);

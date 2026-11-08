@@ -196,9 +196,8 @@ function ModeIcon({ mode }: { mode: ColorMode }) {
 
 export function AppearanceSettings() {
   const { t } = useI18n();
-  const { appearance, resolvedMode, updateAppearance, canPersist } = useAppearance();
+  const { resolvedMode } = useAppearance();
   const [open, setOpen] = useState(false);
-  const groupId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (open) dialog.current?.showModal();
@@ -240,136 +239,150 @@ export function AppearanceSettings() {
             ×
           </button>
         </div>
-        <p className="appearance-intro">
-          {t(
-            'Choose the light, the pieces and the battlefield. Your games stay just as you left them.',
-          )}
-        </p>
-        <fieldset className="appearance-section">
-          <legend>{t('Color mode')}</legend>
-          <div className="appearance-modes">
-            {COLOR_MODES.map((mode) => (
-              <label
-                className={`appearance-mode ${appearance.mode === mode.id ? 'chosen' : ''}`}
-                key={mode.id}
-              >
-                <input
-                  type="radio"
-                  name={`${groupId}-color-mode`}
-                  value={mode.id}
-                  checked={appearance.mode === mode.id}
-                  onChange={() => updateAppearance({ mode: mode.id })}
-                  aria-label={t(mode.name)}
-                />
-                <ModeIcon mode={mode.id} />
-                <strong>{t(mode.name)}</strong>
-                <small>{t(mode.description)}</small>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset className="appearance-section">
-          <legend>{t('Token theme')}</legend>
-          <div className="appearance-choices">
-            {TOKEN_THEMES.map((theme) => (
-              <label
-                className={`appearance-choice ${appearance.tokens === theme.id ? 'chosen' : ''}`}
-                key={theme.id}
-              >
-                <input
-                  type="radio"
-                  name={`${groupId}-token-theme`}
-                  value={theme.id}
-                  checked={appearance.tokens === theme.id}
-                  onChange={() => updateAppearance({ tokens: theme.id })}
-                  aria-label={t(theme.name)}
-                />
-                <span className="token-preview">
-                  {['A', 'D', 'K'].map((piece) => (
-                    <Token key={piece} piece={piece} theme={theme.id} />
-                  ))}
-                </span>
-                <strong>{t(theme.name)}</strong>
-                <small>{t(theme.description)}</small>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset className="appearance-section">
-          <legend>{t('Board theme')}</legend>
-          <div className="appearance-choices">
-            {BOARD_THEMES.map((theme) => (
-              <label
-                className={`appearance-choice ${appearance.board === theme.id ? 'chosen' : ''}`}
-                key={theme.id}
-              >
-                <input
-                  type="radio"
-                  name={`${groupId}-board-theme`}
-                  value={theme.id}
-                  checked={appearance.board === theme.id}
-                  onChange={() => updateAppearance({ board: theme.id })}
-                  aria-label={t(theme.name)}
-                />
-                <span
-                  className="board-preview"
-                  style={
-                    {
-                      '--preview-light': theme.palette.light,
-                      '--preview-dark': theme.palette.dark,
-                      '--preview-rim': theme.palette.frame,
-                    } as CSSProperties
-                  }
-                >
-                  {Array.from({ length: 9 }, (_, index) => (
-                    <span key={index}>
-                      {index === 1 ? (
-                        <Token piece="A" theme={appearance.tokens} />
-                      ) : index === 7 ? (
-                        <Token piece="K" theme={appearance.tokens} />
-                      ) : null}
-                    </span>
-                  ))}
-                </span>
-                <strong>{t(theme.name)}</strong>
-                <small>{t(theme.description)}</small>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset className="appearance-section">
-          <legend>{t('Interface scale')}</legend>
-          <div className="appearance-choices">
-            {DENSITIES.map((density) => (
-              <label
-                className={`appearance-choice ${appearance.density === density.id ? 'chosen' : ''}`}
-                key={density.id}
-              >
-                <input
-                  type="radio"
-                  name={`${groupId}-density`}
-                  value={density.id}
-                  checked={appearance.density === density.id}
-                  onChange={() => updateAppearance({ density: density.id })}
-                  aria-label={t(density.name)}
-                />
-                <strong>{t(density.name)}</strong>
-                <small>{t(density.description)}</small>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <AppearancePreferences />
         <div className="appearance-footer">
-          <p role="status">
-            {canPersist
-              ? t('Your choices are saved on this device.')
-              : t('Your browser could not save these choices. They will apply for this visit.')}
-          </p>
           <button className="button primary" type="button" onClick={() => setOpen(false)}>
             {t('Back to the table')}
           </button>
         </div>
       </dialog>
+    </>
+  );
+}
+
+/** The same controls and browser persistence, also available directly in the profile. */
+export function AppearancePreferences() {
+  const { t } = useI18n();
+  const { appearance, updateAppearance, canPersist } = useAppearance();
+  const groupId = useId();
+  return (
+    <>
+      <p className="appearance-intro">
+        {t(
+          'Choose the light, the pieces and the battlefield. Your games stay just as you left them.',
+        )}
+      </p>
+      <fieldset className="appearance-section">
+        <legend>{t('Color mode')}</legend>
+        <div className="appearance-modes">
+          {COLOR_MODES.map((mode) => (
+            <label
+              className={`appearance-mode ${appearance.mode === mode.id ? 'chosen' : ''}`}
+              key={mode.id}
+            >
+              <input
+                type="radio"
+                name={`${groupId}-color-mode`}
+                value={mode.id}
+                checked={appearance.mode === mode.id}
+                onChange={() => updateAppearance({ mode: mode.id })}
+                aria-label={t(mode.name)}
+              />
+              <ModeIcon mode={mode.id} />
+              <strong>{t(mode.name)}</strong>
+              <small>{t(mode.description)}</small>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="appearance-section">
+        <legend>{t('Token theme')}</legend>
+        <div className="appearance-choices">
+          {TOKEN_THEMES.map((theme) => (
+            <label
+              className={`appearance-choice ${appearance.tokens === theme.id ? 'chosen' : ''}`}
+              key={theme.id}
+            >
+              <input
+                type="radio"
+                name={`${groupId}-token-theme`}
+                value={theme.id}
+                checked={appearance.tokens === theme.id}
+                onChange={() => updateAppearance({ tokens: theme.id })}
+                aria-label={t(theme.name)}
+              />
+              <span className="token-preview">
+                {['A', 'D', 'K'].map((piece) => (
+                  <Token key={piece} piece={piece} theme={theme.id} />
+                ))}
+              </span>
+              <strong>{t(theme.name)}</strong>
+              <small>{t(theme.description)}</small>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="appearance-section">
+        <legend>{t('Board theme')}</legend>
+        <div className="appearance-choices">
+          {BOARD_THEMES.map((theme) => (
+            <label
+              className={`appearance-choice ${appearance.board === theme.id ? 'chosen' : ''}`}
+              key={theme.id}
+            >
+              <input
+                type="radio"
+                name={`${groupId}-board-theme`}
+                value={theme.id}
+                checked={appearance.board === theme.id}
+                onChange={() => updateAppearance({ board: theme.id })}
+                aria-label={t(theme.name)}
+              />
+              <span
+                className="board-preview"
+                style={
+                  {
+                    '--preview-light': theme.palette.light,
+                    '--preview-dark': theme.palette.dark,
+                    '--preview-rim': theme.palette.frame,
+                  } as CSSProperties
+                }
+              >
+                {Array.from({ length: 9 }, (_, index) => (
+                  <span key={index}>
+                    {index === 1 ? (
+                      <Token piece="A" theme={appearance.tokens} />
+                    ) : index === 7 ? (
+                      <Token piece="K" theme={appearance.tokens} />
+                    ) : null}
+                  </span>
+                ))}
+              </span>
+              <strong>{t(theme.name)}</strong>
+              <small>{t(theme.description)}</small>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="appearance-section">
+        <legend>{t('Interface scale')}</legend>
+        <div className="appearance-choices">
+          {DENSITIES.map((density) => (
+            <label
+              className={`appearance-choice ${appearance.density === density.id ? 'chosen' : ''}`}
+              key={density.id}
+            >
+              <input
+                type="radio"
+                name={`${groupId}-density`}
+                value={density.id}
+                checked={appearance.density === density.id}
+                onChange={() => updateAppearance({ density: density.id })}
+                aria-label={t(density.name)}
+              />
+              <strong>{t(density.name)}</strong>
+              <small>{t(density.description)}</small>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="appearance-footer">
+        <p role="status">
+          {canPersist
+            ? t('Your choices are saved on this device.')
+            : t('Your browser could not save these choices. They will apply for this visit.')}
+        </p>
+      </div>
     </>
   );
 }

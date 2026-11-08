@@ -19,6 +19,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('keeps canonical attribution for shared names in online history review', async () => {
+  const replay = structuredClone(fixture.replay);
+  const participants = replay.game.participants as Record<
+    string,
+    { name: string; username?: string }
+  >;
+  participants.attackers = { ...participants.attackers, name: 'Odin', username: 'Archer' };
+  participants.defenders = { ...participants.defenders, name: 'Odin', username: 'Keeper' };
+  fetcher.mockImplementation(() => respond(replay));
+  render(<RecordedReview id={replay.game.id} category="online" accountId="archer" />);
+  await screen.findByRole('grid');
+  expect(screen.getByText(/\(@Archer\)/)).toBeVisible();
+  expect(screen.getByText(/\(@Keeper\)/)).toBeVisible();
+});
+
 it('restores the full read-only online review with completed-game analytics', async () => {
   fetcher.mockImplementation(() => respond(fixture.replay));
   render(<RecordedReview id={fixture.replay.game.id} category="online" accountId="archer" />);

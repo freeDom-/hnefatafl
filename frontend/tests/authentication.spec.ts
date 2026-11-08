@@ -46,14 +46,15 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Account menu for BrowserUser' })).toBeVisible();
   const status = await page.evaluate(async () => (await fetch('/api/training/jobs')).status);
   expect(status).toBe(403);
   await page.goto('/training');
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu for BrowserUser' }).click();
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();
   expect(await page.evaluate(async () => (await fetch('/api/games')).status)).toBe(401);
 });

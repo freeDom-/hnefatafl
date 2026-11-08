@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -7,10 +8,11 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { api, setCSRF } from './api';
+import { api, ApiError, setCSRF } from './api';
 import AccountForms from './AccountForms';
 import { safeDestination } from './navigation';
 import { useI18n } from './i18n';
+import { validatePasswordLength } from './passwordPolicy';
 
 export type Account = {
   id: string;
@@ -21,22 +23,58 @@ export type Account = {
   email_verified?: boolean;
 };
 type Session = { account: Account; csrf_token: string };
-type Authentication = { account: Account | null; logout: () => Promise<void> };
-const Context = createContext<Authentication>({ account: null, logout: async () => {} });
+type Authentication = {
+  account: Account | null;
+  logout: () => Promise<void>;
+  observeVerification: () => (verified: boolean) => void;
+};
+const Context = createContext<Authentication>({
+  account: null,
+  logout: async () => {},
+  observeVerification: () => () => {},
+});
 export const useAuth = () => useContext(Context);
 
 export default function Auth({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const generation = useRef(0);
-  const acceptedAccountId = useRef<string | null>(null);
+  const acceptedAccount = useRef<Account | null>(null);
+  const readSequence = useRef(0);
+  const verificationRevision = useRef(0);
   const signingOut = useRef(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  function accept(session: Session) {
+  // Both existing /auth/me reads and private profile reads use the same order.
+  // Only successful observations advance the applied revision; a failed newer
+  // request must not discard an earlier successful one. Generation/owner guards
+  // also prevent a response from crossing logout or an account switch.
+  const observeVerification = useCallback(() => {
+    const revision = ++readSequence.current;
+    const expected = generation.current;
+    const owner = acceptedAccount.current?.id;
+    return (verified: boolean) => {
+      const current = acceptedAccount.current;
+      if (
+        !current ||
+        current.id !== owner ||
+        expected !== generation.current ||
+        signingOut.current ||
+        revision < verificationRevision.current
+      )
+        return;
+      verificationRevision.current = revision;
+      if (current.email_verified !== verified) {
+        const updated = { ...current, email_verified: verified };
+        acceptedAccount.current = updated;
+        setAccount(updated);
+      }
+    };
+  }, []);
+  function accept(session: Session, revision: number) {
     let changed =
-      acceptedAccountId.current !== null && acceptedAccountId.current !== session.account.id;
+      acceptedAccount.current !== null && acceptedAccount.current.id !== session.account.id;
     try {
       if (localStorage.getItem('hnefatafl-account-cache') !== session.account.id) {
         changed = true;
@@ -55,13 +93,20 @@ export default function Auth({ children }: { children: ReactNode }) {
         /* Private mode. */
       }
     }
-    acceptedAccountId.current = session.account.id;
+    const current = acceptedAccount.current;
+    const updated =
+      current?.id === session.account.id && revision < verificationRevision.current
+        ? { ...session.account, email_verified: current.email_verified }
+        : session.account;
+    if (current?.id !== session.account.id || revision >= verificationRevision.current)
+      verificationRevision.current = revision;
+    acceptedAccount.current = updated;
     setCSRF(session.csrf_token);
-    setAccount(session.account);
+    setAccount(updated);
   }
   function clear(clearPreferences = true) {
     generation.current++;
-    acceptedAccountId.current = null;
+    acceptedAccount.current = null;
     if (clearPreferences) {
       try {
         sessionStorage.removeItem('hnefatafl-online-intent');
@@ -88,10 +133,11 @@ export default function Auth({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     const expected = generation.current;
+    const revision = ++readSequence.current;
     const controller = new AbortController();
     api<Session>('/auth/me', undefined, undefined, controller.signal)
       .then((session) => {
-        if (alive && expected === generation.current) accept(session);
+        if (alive && expected === generation.current) accept(session, revision);
       })
       .catch(() => {})
       .finally(() => {
@@ -116,15 +162,17 @@ export default function Auth({ children }: { children: ReactNode }) {
     const form = event.currentTarget;
     const values = new FormData(form);
     const expected = ++generation.current;
+    const revision = ++readSequence.current;
     setBusy(true);
     setError('');
     try {
+      validatePasswordLength(String(values.get('password') ?? ''));
       const session = await api<Session>('/auth/login', {
         identity: values.get('identity'),
         password: values.get('password'),
       });
       if (expected !== generation.current) return;
-      accept(session);
+      accept(session, revision);
       form.reset();
       if (location.pathname === '/login') {
         history.replaceState(
@@ -161,20 +209,38 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (!account) return;
     let alive = true;
     let controller: AbortController | null = null;
-    const refresh = () => {
-      if (controller || signingOut.current) return;
+    let invalidated = false;
+    const refresh = (event?: Event) => {
+      if (signingOut.current) return;
+      if (controller) {
+        if (event?.type === 'permissions-changed') invalidated = true;
+        return;
+      }
       const expected = generation.current;
+      const revision = ++readSequence.current;
       const attempt = new AbortController();
       controller = attempt;
       void api<Session>('/auth/me', undefined, undefined, attempt.signal)
         .then((session) => {
-          if (alive && expected === generation.current && !signingOut.current) accept(session);
+          if (alive && expected === generation.current && !signingOut.current)
+            accept(session, revision);
         })
-        .catch(() => {
-          if (alive && expected === generation.current && !attempt.signal.aborted) clear();
+        .catch((failure) => {
+          if (
+            alive &&
+            expected === generation.current &&
+            !attempt.signal.aborted &&
+            failure instanceof ApiError &&
+            [401, 403].includes(failure.status)
+          )
+            clear();
         })
         .finally(() => {
           if (controller === attempt) controller = null;
+          if (alive && expected === generation.current && invalidated && !signingOut.current) {
+            invalidated = false;
+            refresh();
+          }
         });
     };
     const timer = window.setInterval(refresh, 60000);
@@ -210,7 +276,7 @@ export default function Auth({ children }: { children: ReactNode }) {
   return (
     <Context.Provider
       key={account.id + ':' + account.permissions.join(',')}
-      value={{ account, logout }}
+      value={{ account, logout, observeVerification }}
     >
       {required && !account.permissions.includes(required) ? (
         <main>

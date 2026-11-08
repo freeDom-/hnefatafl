@@ -160,8 +160,8 @@ class Registration:
                 if c.execute("SELECT 1 FROM accounts WHERE email=?", (address,)).fetchone():
                     return {"message": ACKNOWLEDGMENT}
                 c.execute(
-                    "INSERT INTO accounts(id,username,email,password_hash,role,active,created_at,display_name) VALUES(?,?,?,?,'USER',1,?,?)",
-                    (identifier, name, address, encoded, now, name),
+                    "INSERT INTO accounts(id,username,email,password_hash,role,active,created_at) VALUES(?,?,?,?,'USER',1,?)",
+                    (identifier, name, address, encoded, now),
                 )
                 account = dict(
                     c.execute("SELECT * FROM accounts WHERE id=?", (identifier,)).fetchone()

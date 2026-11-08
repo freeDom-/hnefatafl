@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { api } from './api';
 import { useI18n } from './i18n';
+import { accountName } from './accountIdentity';
 import { useOnlinePoll } from './useOnlinePoll';
 import type { Game } from './types';
 import type { OnlineListing } from './onlineTypes';
@@ -94,7 +95,7 @@ export default function ActiveGameSwitcher({
       leg: game.match.mode === 'single' ? null : game.match.leg,
       yourTurn:
         game.status === 'active' && game.participants[game.position.turn]?.account_id === accountId,
-      names: [game.participants.attackers?.name, game.participants.defenders?.name]
+      names: [accountName(game.participants.attackers), accountName(game.participants.defenders)]
         .filter(Boolean)
         .join(' · '),
       waiting: game.status === 'waiting',

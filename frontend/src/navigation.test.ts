@@ -15,6 +15,7 @@ it('retains filters, selected record, game deep links and fragment through safe 
   expect(safeDestination('/statistics?mode=multiplayer&ruleset=tablut')).toBe(
     '/statistics?mode=multiplayer&ruleset=tablut',
   );
+  expect(safeDestination('/profile#email-verification')).toBe('/profile#email-verification');
   const next = '/archive?ruleset=tablut&review=online&selected=online-123#review';
   expect(safeDestination(next)).toBe(next);
   expect(safeDestination('/games/owned-id?cursor=3')).toBe('/games/owned-id?cursor=3');

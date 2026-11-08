@@ -87,6 +87,37 @@ afterEach(() => {
   setLanguage('en', false);
 });
 
+it.each(['room', 'lobby'])(
+  'attributes identical shared names to their accounts in the %s',
+  async (view) => {
+    const game = structuredClone(fixture.active) as OnlineGame;
+    game.participants.attackers = {
+      ...game.participants.attackers!,
+      name: 'Odin',
+      username: 'Archer',
+    };
+    game.participants.defenders = {
+      ...game.participants.defenders!,
+      name: 'Odin',
+      username: 'Keeper',
+    };
+    if (view === 'room') {
+      room(game);
+      await screen.findByRole('grid');
+      expect(screen.getByText(/\(@Archer\)/)).toBeVisible();
+      expect(screen.getByText(/\(@Keeper\)/)).toBeVisible();
+      expect(document.querySelectorAll('.army h3')).toHaveLength(2);
+      for (const name of document.querySelectorAll('.army h3'))
+        expect(name).toHaveTextContent('Odin');
+    } else {
+      current = game;
+      lobby();
+      await screen.findByText(/Attackers: Odin \(@Archer\)/);
+      expect(screen.getByText(/Defenders: Odin \(@Keeper\)/)).toBeVisible();
+    }
+  },
+);
+
 it.each(
   ['attackers', 'defenders', 'random'].flatMap((side) =>
     ['single', 'simultaneous', 'sequential'].map((mode) => [side, mode]),

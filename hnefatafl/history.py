@@ -2,6 +2,7 @@
 
 import json
 
+from .account_policy import attributed_name
 from .online_core import OnlineError, instant, stamp
 from .personal import context_key, page
 from .security_context import allowed
@@ -29,7 +30,8 @@ class RecordedHistory:
             (json_extract(data,'$.recorded_result.winner') IS NOT NULL) AS eligible,
             substr(json_extract(data,'$.players.attackers.name'),1,80) AS attackers,
             substr(json_extract(data,'$.players.defenders.name'),1,80) AS defenders,
-            substr(coalesce(a.display_name,a.username),1,80) AS owner,
+            substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS owner,
+            NULL AS attacker_username,NULL AS defender_username,a.username AS owner_username,
             NULL AS attacker_rating,
             NULL AS defender_rating,
             NULL AS winner_delta
@@ -38,9 +40,10 @@ class RecordedHistory:
             g.created_at,g.updated_at AS recorded_at,g.ruleset,g.status,
             json_extract(r.payload,'$.winner') AS winner,
             coalesce(r.competitive_eligible,0) AS eligible,
-            substr(coalesce(a.display_name,a.username),1,80) AS attackers,
-            substr(coalesce(d.display_name,d.username),1,80) AS defenders,
+            substr(CASE WHEN a.show_display_name=1 THEN coalesce(nullif(a.display_name,''),a.username) ELSE a.username END,1,80) AS attackers,
+            substr(CASE WHEN d.show_display_name=1 THEN coalesce(nullif(d.display_name,''),d.username) ELSE d.username END,1,80) AS defenders,
             NULL AS owner,
+            a.username AS attacker_username,d.username AS defender_username,NULL AS owner_username,
             (SELECT s.rating FROM online_game_start_ratings s
               WHERE s.game_id=g.id AND s.account_id=g.attackers_id) AS attacker_rating,
             (SELECT s.rating FROM online_game_start_ratings s
@@ -105,10 +108,25 @@ class RecordedHistory:
                     values.append(value)
             if player:
                 # Literal substring matching; SQL LIKE wildcard input is not a capability.
+                # Search the same public label returned below, without duplicating
+                # its formatting or performing any additional database queries.
+                c.create_function("attributed_name", 2, attributed_name, deterministic=True)
                 conditions.append(
-                    "(instr(lower(coalesce(attackers,'')),lower(?))>0 OR instr(lower(coalesce(defenders,'')),lower(?))>0 OR instr(lower(coalesce(owner,'')),lower(?))>0)"
+                    "("
+                    + " OR ".join(
+                        f"instr(lower(coalesce({field},'')),lower(?))>0"
+                        for field in (
+                            "attributed_name(attackers,attacker_username)",
+                            "attributed_name(defenders,defender_username)",
+                            "attributed_name(owner,owner_username)",
+                            "attacker_username",
+                            "defender_username",
+                            "owner_username",
+                        )
+                    )
+                    + ")"
                 )
-                values.extend((player,) * 3)
+                values.extend((player,) * 6)
             if dashboard:
                 conditions.append("status='completed' AND eligible=1")
                 limit, cursor = 3, None
@@ -141,6 +159,12 @@ class RecordedHistory:
             for row in rows:
                 game = dict(row)
                 game.pop("order_at")
+                for field, username_field in (
+                    ("attackers", "attacker_username"),
+                    ("defenders", "defender_username"),
+                    ("owner", "owner_username"),
+                ):
+                    game[field] = attributed_name(game[field], game.pop(username_field))
                 game["eligible"] = bool(game["eligible"])
                 if game["category"] == "online":
                     for key in ("created_at", "recorded_at"):

@@ -79,3 +79,16 @@ export async function openMyGames(page: Page) {
   }
   await gameTab(page, 'games');
 }
+
+/** Open the shared account profile without duplicating menu behavior in tests. */
+export async function openProfile(page: Page) {
+  await page.getByRole('button', { name: /^(Account menu for |Kontomenü für )/ }).click();
+  await page.getByRole('menuitem', { name: /^(My Profile|Mein Profil)$/ }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByRole('heading', { name: /^(My Profile|Mein Profil)$/ })).toBeVisible();
+}
+
+export async function logoutFromAccount(page: Page) {
+  await page.getByRole('button', { name: /^(Account menu for |Kontomenü für )/ }).click();
+  await page.getByRole('menuitem', { name: /^(Log out|Abmelden)$/ }).click();
+}

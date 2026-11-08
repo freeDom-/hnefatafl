@@ -47,7 +47,8 @@ def attach_personal(app, online, *, replay):
         cursor: str | None = Query(default=None, min_length=1, max_length=512),
         category: Literal["online", "account-single-player"] | None = None,
         ruleset: Rule | None = None,
-        player: str | None = Query(default=None, min_length=1, max_length=80),
+        # 80 display-name + 64 username code points + " (@" and ")".
+        player: str | None = Query(default=None, min_length=1, max_length=148),
         status: Literal["waiting", "active", "in_progress", "completed", "cancelled", "voided"]
         | None = None,
         winner: Literal["attackers", "defenders", "draw"] | None = None,

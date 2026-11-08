@@ -1,0 +1,75 @@
+{
+  "valid": [
+    {
+      "input": null,
+      "normalized": null
+    },
+    {
+      "input": "",
+      "normalized": null
+    },
+    {
+      "input": "   ",
+      "normalized": null
+    },
+    {
+      "input": "  Jose\u0301 \u6771\u4eac  ",
+      "normalized": "Jos\u00e9 \u6771\u4eac"
+    },
+    {
+      "input": "\u0141\u00f3d\u017a",
+      "normalized": "\u0141\u00f3d\u017a"
+    },
+    {
+      "input": "\u0644\u064a\u0644\u0649",
+      "normalized": "\u0644\u064a\u0644\u0649"
+    },
+    {
+      "input": "\u05d9\u05e8\u05d5\u05e9\u05dc\u05d9\u05dd",
+      "normalized": "\u05d9\u05e8\u05d5\u05e9\u05dc\u05d9\u05dd"
+    },
+    {
+      "input": "\u06a9\u06cc\u0627\u0646\u200c\u067e\u0648\u0631",
+      "normalized": "\u06a9\u06cc\u0627\u0646\u200c\u067e\u0648\u0631"
+    },
+    {
+      "input": "\u0915\u093f\u0930\u0923",
+      "normalized": "\u0915\u093f\u0930\u0923"
+    },
+    {
+      "input": "\ud83d\udc69\ud83c\udffd\u200d\ud83d\udcbb",
+      "normalized": "\ud83d\udc69\ud83c\udffd\u200d\ud83d\udcbb"
+    },
+    {
+      "input": "\ud83c\udff3\ufe0f\u200d\ud83c\udf08",
+      "normalized": "\ud83c\udff3\ufe0f\u200d\ud83c\udf08"
+    }
+  ],
+  "rejected_code_points": [
+    0,
+    9,
+    10,
+    13,
+    31,
+    127,
+    133,
+    1564,
+    8206,
+    8207,
+    8234,
+    8235,
+    8236,
+    8237,
+    8238,
+    8294,
+    8295,
+    8296,
+    8297,
+    8298,
+    8299,
+    8300,
+    8301,
+    8302,
+    8303
+  ]
+}

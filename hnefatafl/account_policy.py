@@ -3,6 +3,15 @@
 import re
 import unicodedata
 
+MIN_BIRTH_YEAR = 1900
+# Unicode Bidi_Control plus the deprecated directional formatting controls.
+# Joiners, variation selectors and ordinary combining marks remain permitted.
+BIDI_CONTROLS = frozenset(
+    "\u061c\u200e\u200f"
+    + "".join(map(chr, range(0x202A, 0x202F)))
+    + "".join(map(chr, range(0x2066, 0x2070)))
+)
+
 RESERVED_NAMES = frozenset(
     {
         "admin",
@@ -44,3 +53,17 @@ def email(value: str) -> str:
 def validate_password(value: str) -> None:
     if len(value) < 12 or len(value) > 256 or len(set(value)) < 4:
         raise ValueError("Use 12–256 characters with at least four distinct characters.")
+
+
+def public_name(account) -> str:
+    """Account IDs stay stable; an editable name requires explicit sharing."""
+    return str(
+        (account["display_name"] if account["show_display_name"] else None) or account["username"]
+    )[:80]
+
+
+def attributed_name(name: str | None, username: str | None) -> str | None:
+    """Label a non-unique shared name with its public canonical account identity."""
+    if name and username and name != username:
+        return f"{name} (@{username})"
+    return name

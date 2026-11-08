@@ -1,5 +1,10 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { gameTab, openGameOptions, openGameNavigation } from '../tests/play-helpers';
+import {
+  logoutFromAccount,
+  gameTab,
+  openGameOptions,
+  openGameNavigation,
+} from '../tests/play-helpers';
 const password = 'personal-browser-fixture-password';
 test.beforeEach(async ({ request }) => {
   expect((await request.post('http://127.0.0.1:8010/reset-login-attempts')).status()).toBe(204);
@@ -11,7 +16,7 @@ async function credentials(page: Page, name: string) {
   await expect
     .poll(
       async () =>
-        (await page.getByRole('button', { name: 'Log out', exact: true }).isVisible()) ||
+        (await page.getByRole('button', { name: /Account menu for/ }).isVisible()) ||
         (await page.getByRole('grid').isVisible()),
     )
     .toBe(true);
@@ -170,7 +175,7 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
       await expect(page.getByLabel('Game type')).toHaveCount(0);
     }
     await openGameNavigation(page);
-    await page.getByRole('button', { name: 'Log out', exact: true }).click();
+    await logoutFromAccount(page);
   }
 });
 
@@ -271,7 +276,7 @@ test('late real history/statistics responses cannot populate a new account after
   );
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await arrived;
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await logoutFromAccount(page);
   await credentials(page, 'PersonalObserver');
   await expect(page.getByText('No completed games yet.')).toBeVisible();
   release();

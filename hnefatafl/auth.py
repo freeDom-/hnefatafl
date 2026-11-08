@@ -174,8 +174,8 @@ class Auth:
             ):
                 raise ValueError("Administrator already provisioned; use the local reset command")
             c.execute(
-                "INSERT INTO accounts(id,username,email,password_hash,role,active,created_at,display_name) VALUES(?,?,?,?,?,1,?,?)",
-                (identifier, username, email, encoded, role, time.time(), username),
+                "INSERT INTO accounts(id,username,email,password_hash,role,active,created_at) VALUES(?,?,?,?,?,1,?)",
+                (identifier, username, email, encoded, role, time.time()),
             )
             if bootstrap:
                 c.execute(
@@ -189,6 +189,19 @@ class Auth:
         if row is None:
             raise ValueError("Account not found")
         return dict(row)
+
+    def current_account(self, c) -> dict:
+        """Reload trusted session authority inside a caller-owned transaction."""
+        row = c.execute(
+            "SELECT a.* FROM accounts a JOIN sessions s ON s.account_id=a.id "
+            "WHERE s.token_hash=? AND s.expires>?",
+            (session_identity.get(), time.time()),
+        ).fetchone()
+        account = dict(row) if row else None
+        if not allowed(account, "profile"):
+            raise HTTPException(401, "Authentication required")
+        assert account is not None
+        return account
 
     def login(self, identity: str, password: str, address: str) -> tuple[dict, str, str]:
         moment = time.time()
@@ -309,6 +322,9 @@ grant("public", "GET", "/api/health", "/api/auth/registration")
 grant("public", "POST", "/api/auth/login", *ACCOUNT_ACTIONS)
 grant("profile", "GET", "/api/auth/me")
 grant("profile", "POST", "/api/auth/logout")
+grant("profile", "GET", "/api/profile")
+grant("profile", "PATCH", "/api/profile")
+grant("profile", "POST", "/api/profile/password")
 grant(
     "play",
     "GET",
@@ -460,9 +476,18 @@ class SecurityBoundary:
         route_path = getattr(route, "path", "")
         permission = POLICY.get((method, route_path), "deny")
         online_mutation = method not in SAFE and route_path.startswith("/api/online/")
-        if (method == "POST" and route_path.startswith("/api/auth/")) or online_mutation:
+        profile_mutation = method not in SAFE and route_path.startswith("/api/profile")
+        if (
+            (method == "POST" and route_path.startswith("/api/auth/"))
+            or profile_mutation
+            or online_mutation
+        ):
             size_error = (
-                "Online request too large" if online_mutation else "Login request too large"
+                "Online request too large"
+                if online_mutation
+                else "Profile request too large."
+                if profile_mutation
+                else "Login request too large"
             )
             try:
                 length = int(request.headers.get("content-length", "0"))
@@ -607,7 +632,7 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
-        if request.url.path.startswith(("/api/auth/", "/api/online/")):
+        if request.url.path.startswith(("/api/auth/", "/api/online/", "/api/profile")):
             # Pydantic's default errors include raw inputs, potentially passwords.
             return JSONResponse(
                 {
@@ -615,6 +640,8 @@ def attach_auth(app, store):
                     if request.url.path == "/api/auth/login"
                     else "Invalid online request."
                     if request.url.path.startswith("/api/online/")
+                    else "Invalid profile request. Check the fields and try again."
+                    if request.url.path.startswith("/api/profile")
                     else "Invalid account request."
                 },
                 422,

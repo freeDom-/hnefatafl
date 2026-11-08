@@ -96,8 +96,11 @@ export default function Archive() {
               {t('Player name')}
               <input
                 value={params.get('player') ?? ''}
-                maxLength={80}
-                onChange={(e) => update('player', e.target.value)}
+                onChange={(e) => {
+                  // Match the API's 80 + 64 + 4 code-point label bound;
+                  // native maxLength counts UTF-16 units and truncates emoji.
+                  if ([...e.target.value].length <= 148) update('player', e.target.value);
+                }}
               />
             </label>
           </>

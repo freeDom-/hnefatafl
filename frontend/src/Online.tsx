@@ -3,6 +3,7 @@ import { api, ApiError } from './api';
 import { useAuth } from './Auth';
 import Board, { coordinate } from './Board';
 import { useI18n } from './i18n';
+import { accountAttribution, accountName } from './accountIdentity';
 import type { Ruleset, Side } from './types';
 import type {
   Availability,
@@ -223,9 +224,9 @@ function GameSummary({
         {t(modeNames[game.match.mode])} · {t('Game {leg}', { leg: game.match.leg })}
       </p>
       <p>
-        {t('Attackers')}: {game.participants.attackers?.name ?? t('Unassigned')}
+        {t('Attackers')}: {accountName(game.participants.attackers) ?? t('Unassigned')}
         {' · '}
-        {t('Defenders')}: {game.participants.defenders?.name ?? t('Unassigned')}
+        {t('Defenders')}: {accountName(game.participants.defenders) ?? t('Unassigned')}
       </p>
       <p>
         {game.status === 'active' && game.deadline ? (
@@ -633,8 +634,8 @@ function RatingChanges({ game }: { game: OnlineGame }) {
   if (!applications?.length) return null;
   const nameFor = (accountId: string) =>
     game.participants.attackers?.account_id === accountId
-      ? game.participants.attackers?.name
-      : game.participants.defenders?.name;
+      ? accountName(game.participants.attackers)
+      : accountName(game.participants.defenders);
   return (
     <div className="online-rating" role="status">
       <h3>{t('Rating changes')}</h3>
@@ -923,11 +924,16 @@ function GameRoom({
         side,
         symbol: sideGlyph(side),
         name: game.participants[side]?.name ?? t('Unassigned'),
-        detail: `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}${
-          compact && game.time_control === 'total' && game.remaining_seconds
-            ? ` · ${formatRemaining(playerRemaining(game, side, now))}`
-            : ''
-        }`,
+        detail: [
+          accountAttribution(game.participants[side]),
+          `${t(sideNames[side])}${ownSide === side ? ` · ${t('You')}` : ''}${
+            compact && game.time_control === 'total' && game.remaining_seconds
+              ? ` · ${formatRemaining(playerRemaining(game, side, now))}`
+              : ''
+          }`,
+        ]
+          .filter(Boolean)
+          .join(' · '),
         toMove: game.status === 'active' && game.position.turn === side,
       }))}
       captured={captured}

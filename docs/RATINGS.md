@@ -102,7 +102,10 @@ never a partially rebuilt pool.
 
 `GET /api/leaderboard?ruleset=…&limit=…&offset=…` requires authentication and
 returns one unified standings list plus the effective policy. Display names use
-`display_name` with the username as a fallback; no private account data is
+an explicitly shared `display_name` with the username as a fallback. Entries and
+the `me` standing also include the public canonical `username`; clients render
+**Display Name (@username)** when the two differ. Shared names are non-unique and
+do not identify account roles. No private account data is
 exposed.
 
 - One list contains both provisional and nonprovisional players. Provisional

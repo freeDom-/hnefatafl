@@ -27,6 +27,10 @@ export type RatingApplication = {
 export type LeaderboardEntry = {
   account_id: string;
   name: string;
+  username?: string;
+  country_code?: string;
+  city?: string;
+  age_range?: { min: number; max: number };
   rating: number;
   rated_games: number;
   wins: number;
@@ -76,7 +80,7 @@ export type OnlineGame = {
   started_at: string | null;
   deadline: string | null;
   completed_at: string | null;
-  participants: Record<Side, { account_id: string; name: string } | null>;
+  participants: Record<Side, { account_id: string; name: string; username?: string } | null>;
   position: OnlinePosition;
   terminal_king_square: number | null;
   captured: { attackers: number; defenders: number };

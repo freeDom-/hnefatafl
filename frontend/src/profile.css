@@ -1,0 +1,51 @@
+.profile-page {
+  max-width: 1100px;
+  margin: var(--gap-stack) auto;
+  padding: var(--pad-page);
+  overflow-wrap: anywhere;
+}
+.profile-page > .page-intro {
+  display: block;
+  padding: var(--gap-stack) 0;
+  margin-bottom: var(--gap-card);
+}
+.profile-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-card);
+}
+.profile-section {
+  min-width: 0;
+  padding: var(--pad-panel);
+}
+.profile-section > h2 {
+  margin-top: 0;
+}
+.profile-section fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.profile-section .checkbox-label {
+  min-height: 44px;
+}
+.profile-section .button {
+  align-self: flex-start;
+  white-space: normal;
+}
+.profile-appearance {
+  grid-column: 1 / -1;
+}
+.profile-appearance .appearance-section {
+  margin-top: var(--gap-card);
+}
+.profile-section #email-verification {
+  scroll-margin-top: var(--gap-card);
+  margin-bottom: var(--gap-card);
+}
+@media (max-width: 760px) {
+  .profile-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

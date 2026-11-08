@@ -140,3 +140,44 @@ it('translates the leaderboard in German', async () => {
   expect(screen.getByRole('heading', { name: 'Rangliste' })).toBeVisible();
   expect(screen.getByText('Vorläufig')).toBeVisible();
 });
+
+it('renders only returned public details as text and keeps the compact dashboard table small', async () => {
+  const entry = {
+    ...board().entries[0],
+    country_code: 'DE',
+    city: '<img src=x onerror=alert(1)>',
+    age_range: { min: 26, max: 36 },
+  };
+  serve = () => respond({ ...board(), entries: [entry] });
+  const view = render(<Leaderboard />);
+  expect(await screen.findByText('Germany')).toBeVisible();
+  expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeVisible();
+  expect(screen.getByText('26–36')).toBeVisible();
+  expect(document.querySelector('table img')).toBeNull();
+  view.unmount();
+  render(<Leaderboard compact />);
+  await screen.findByText(/Archer/);
+  expect(screen.queryByRole('columnheader', { name: 'Country' })).not.toBeInTheDocument();
+});
+
+it.each([false, true])(
+  'identifies shared names by canonical username (compact=%s)',
+  async (compact) => {
+    serve = () =>
+      respond({
+        ...board(),
+        entries: [
+          { ...entry('archer', 'Odin', 1516, 12, 1), username: 'Archer' },
+          { ...entry('keeper', 'Odin', 1500, 3, 2), username: 'Keeper' },
+          { ...entry('admin', 'Odin', 1490, 2, 3), username: 'Odin' },
+          { ...entry('unicode', '😀'.repeat(80), 1480, 1, 4), username: 'Unicode' },
+        ],
+      });
+    render(<Leaderboard compact={compact} />);
+    expect(await screen.findByRole('cell', { name: 'Odin (@Archer) · You' })).toBeVisible();
+    expect(screen.getByRole('cell', { name: 'Odin (@Keeper)' })).toBeVisible();
+    expect(screen.getByRole('cell', { name: 'Odin' })).toBeVisible();
+    expect(screen.queryByText('Odin (@Odin)')).not.toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '😀'.repeat(80) + ' (@Unicode)' })).toBeVisible();
+  },
+);

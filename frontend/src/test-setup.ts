@@ -11,19 +11,23 @@ configure({ asyncUtilTimeout: 5000 });
 
 // Existing component regressions render an authenticated administrator. Auth.test
 // explicitly unmocks this hook to exercise real session restoration and login.
-vi.mock('./Auth', async (original) => ({
-  ...(await original<typeof import('./Auth')>()),
-  useAuth: () => ({
-    account: {
-      id: 'fixture',
-      username: 'Odin',
-      email: 'odin@example.test',
-      role: 'ADMIN',
-      permissions: ['play', 'profile', 'training', 'tournaments', 'models', 'all_data'],
-    },
-    logout: async () => {},
-  }),
-}));
+vi.mock('./Auth', async (original) => {
+  const observeVerification = () => () => {};
+  return {
+    ...(await original<typeof import('./Auth')>()),
+    useAuth: () => ({
+      account: {
+        id: 'fixture',
+        username: 'Odin',
+        email: 'odin@example.test',
+        role: 'ADMIN',
+        permissions: ['play', 'profile', 'training', 'tournaments', 'models', 'all_data'],
+      },
+      logout: async () => {},
+      observeVerification,
+    }),
+  };
+});
 
 afterEach(() => {
   clearNotifications();
