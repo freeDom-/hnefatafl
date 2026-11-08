@@ -43,6 +43,18 @@ class MailboxHandler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def do_POST(self):
+        if self.path != "/reset-account-limits":
+            self.send_error(404)
+            return
+        # Cases share a server but each gets the real per-case security budgets.
+        # This loopback fixture is guarded by isolated development storage above.
+        with app.state.store.connection() as c:
+            c.execute("DELETE FROM account_limits")
+            c.execute("DELETE FROM login_attempts")
+        self.send_response(204)
+        self.end_headers()
+
     def do_GET(self):
         query = parse_qs(urlsplit(self.path).query)
         with mailbox.lock:
