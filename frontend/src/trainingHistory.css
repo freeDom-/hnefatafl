@@ -3,6 +3,7 @@
   --chart-value: #3987a6;
   --chart-evaluation: #508b51;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--gap-stack);
   margin-block: var(--gap-card);
 }

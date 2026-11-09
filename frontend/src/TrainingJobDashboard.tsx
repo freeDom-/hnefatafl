@@ -77,11 +77,14 @@ export default function TrainingJobDashboard({
   const { t, locale } = useI18n();
   const id = useId();
   const [range, setRange] = useState(0);
+  const [evaluationRangeMode, setEvaluationRangeMode] = useState<'shared' | 'fit-series'>('shared');
+  const fitEvaluationSeries = tab === 'Evaluation' && evaluationRangeMode === 'fit-series';
   const availableTabs = availableJobTabs(job);
   // The active tab is owned by the parent so it survives switching jobs. The
   // per-job iteration range stays local and resets for a new job or revision.
   useEffect(() => {
     setRange(0);
+    setEvaluationRangeMode('shared');
   }, [job.id, revision]);
   const progress = jobProgress(job);
   const games = jobGameCounts(job);
@@ -251,10 +254,18 @@ export default function TrainingJobDashboard({
             {t('Iteration range')}
             <select
               aria-label={t('Iteration range')}
-              value={range}
-              onChange={(event) => setRange(Number(event.target.value))}
+              value={fitEvaluationSeries ? 'fit-series' : range}
+              onChange={(event) => {
+                if (event.target.value === 'fit-series') {
+                  setEvaluationRangeMode('fit-series');
+                } else {
+                  setEvaluationRangeMode('shared');
+                  setRange(Number(event.target.value));
+                }
+              }}
             >
               <option value={0}>{t('All iterations')}</option>
+              {tab === 'Evaluation' && <option value="fit-series">{t('Fit series')}</option>}
               {iterationRanges.map((value) => (
                 <option key={value} value={value}>
                   {t('Recent {count} iterations', { count: value })}
@@ -275,7 +286,12 @@ export default function TrainingJobDashboard({
           />
         )}
         {!job.summary && tab === 'Evaluation' && (
-          <TrainingEvaluationView progress={progress} history={rangedHistory} range={0} />
+          <TrainingEvaluationView
+            progress={progress}
+            history={fitEvaluationSeries ? history : rangedHistory}
+            range={0}
+            fitSeries={fitEvaluationSeries}
+          />
         )}
         {!job.summary && tab === 'Performance' && (
           <TrainingPerformance progress={{ ...progress, history: rangedHistory }} />

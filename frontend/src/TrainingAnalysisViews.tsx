@@ -493,10 +493,12 @@ export function TrainingEvaluationView({
   progress,
   history,
   range,
+  fitSeries = false,
 }: {
   progress: Values;
   history: HistoryPoint[];
   range: number;
+  fitSeries?: boolean;
 }) {
   const { t } = useI18n();
   const selection = object(progress.evaluation_selection);
@@ -530,7 +532,13 @@ export function TrainingEvaluationView({
           'A high score from a small sample does not establish absolute superiority. Confirm strength with larger, held-out tournaments.',
         )}
       </p>
-      <TrainingHistoryChart history={history} view="evaluation" range={range} selectable />
+      <TrainingHistoryChart
+        history={history}
+        view="evaluation"
+        range={range}
+        fitSeries={fitSeries}
+        selectable
+      />
     </>
   );
 }

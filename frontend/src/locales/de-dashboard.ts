@@ -134,6 +134,7 @@ const translations: Record<string, string> = {
   Details: 'Details',
   'Iteration range': 'Iterationsbereich',
   'All iterations': 'Alle Iterationen',
+  'Fit series': 'Datenreihe einpassen',
   'Recent {count} iterations': 'Letzte {count} Iterationen',
   'Recorded training progress': 'Erfasster Trainingsfortschritt',
   'Last completed iteration': 'Letzte abgeschlossene Iteration',

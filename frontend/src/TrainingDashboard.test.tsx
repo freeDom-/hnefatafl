@@ -372,11 +372,19 @@ it('offers and applies the 100 and 250 iteration windows across the analysis tab
     [...screen.getByLabelText('Iteration range').querySelectorAll('option')].map((option) =>
       option.getAttribute('value'),
     );
-  // Every shared analysis view offers the same ordered options and defaults to All.
+  // Numeric windows stay shared; only Evaluation also offers Fit series.
   for (const view of ['Learning', 'Evaluation', 'Performance']) {
     fireEvent.click(screen.getByRole('tab', { name: view }));
     expect(screen.getByLabelText('Iteration range')).toHaveValue('0');
-    expect(rangeOptions()).toEqual(['0', '10', '25', '50', '100', '250']);
+    expect(rangeOptions()).toEqual([
+      '0',
+      ...(view === 'Evaluation' ? ['fit-series'] : []),
+      '10',
+      '25',
+      '50',
+      '100',
+      '250',
+    ]);
   }
   // Learning: the 250 window keeps the latest 250 iterations.
   fireEvent.click(screen.getByRole('tab', { name: 'Learning' }));
@@ -461,10 +469,12 @@ it('resets per-job analysis state when switching jobs while preserving the tab',
   fireEvent.click(screen.getByRole('tab', { name: 'Evaluation' }));
   fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value: 'all' } });
   expect(screen.getByLabelText('Evaluation series')).toHaveValue('all');
+  fireEvent.change(screen.getByLabelText('Iteration range'), { target: { value: 'fit-series' } });
   fireEvent.click(screen.getByRole('button', { name: /Eir · Tablut strategist/ }));
   await screen.findByRole('heading', { name: 'Eir · Tablut strategist' });
   expect(screen.getByRole('tab', { name: 'Evaluation' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByLabelText('Evaluation series')).toHaveValue('latest');
+  expect(screen.getByLabelText('Iteration range')).toHaveValue('0');
 });
 it('keeps the latest job and preserved tab when rapid switches resolve out of order', async () => {
   const pending = new Map<string, (response: Response) => void>();

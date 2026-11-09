@@ -131,7 +131,16 @@ and execution state never change.
   records. A series selector defaults to the latest comparison context.
   **All evaluation series** draws the same single merged curve as the overview,
   and every individual context stays selectable on its own. Its detailed table
-  retains the complete evidence.
+  retains the complete evidence. **Fit series** in **Iteration range** fits the
+  chart to the selected context's first and last valid evaluation, using the
+  complete history even after choosing a recent-iteration window. Switching
+  contexts or receiving new evaluations updates the fitted span automatically.
+  **Latest series** fits the latest recorded context, and **All evaluation
+  series** fits the full merged evaluation span. Actual iteration numbers,
+  gaps, the 0–100% score scale and the complete history table are preserved.
+  Fit mode is available only in Evaluation; Learning and Performance keep the
+  shared numeric window. Choosing a numeric range exits fit mode. Job switches
+  reset both range and series selections.
 - **Performance** groups throughput, MCTS, GPU/inference and phase timings.
   Select one historical metric at a time, including self-play games/hour,
   average game length, and attacker/defender win counts and win rates. Win

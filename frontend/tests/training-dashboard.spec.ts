@@ -232,6 +232,77 @@ test('shows one merged evaluation series in the overview and in the evaluation t
   await expect(page.locator('.evaluation-series')).toHaveCount(1);
 });
 
+test('fits evaluation series through selection and polling in English and German', async ({
+  page,
+}, info) => {
+  const frozen = new Date('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(frozen);
+  const withUnevaluatedTail = (count: number) => {
+    const job = workshopFixture('running', count);
+    return {
+      ...job,
+      progress: {
+        ...job.progress,
+        iteration: 2500,
+        total_iterations: 3000,
+        history: [...(job.progress!.history as Record<string, unknown>[]), { iteration: 2500 }],
+      },
+    };
+  };
+  let job = withUnevaluatedTail(60);
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: [job] }));
+  await open(page);
+  await page.getByRole('tab', { name: 'Evaluation', exact: true }).click();
+  const range = page.getByLabel('Iteration range', { exact: true });
+  const series = page.getByLabel('Evaluation series', { exact: true });
+  const chart = page.getByRole('img', { name: 'Evaluation by iteration', exact: true });
+  const ticks = chart.locator('text[y="206"]');
+  await expect(ticks).toHaveText(['1', '1251', '2500']);
+  await range.selectOption('fit-series');
+  await expect(ticks).toHaveText(['55', '58', '60']);
+  const tooltip = page.locator('.chart-tooltip');
+  await chart.focus();
+  await page.keyboard.press('Home');
+  await expect(tooltip).toContainText('Iteration 55');
+  await page.keyboard.press('End');
+  await expect(tooltip).toContainText('Iteration 60');
+  const bounds = (await chart.boundingBox())!;
+  await chart.hover({ position: { x: bounds.width - 20, y: 100 } });
+  await expect(tooltip).toContainText('Iteration 60');
+  await series.selectOption((await series.locator('option').nth(2).getAttribute('value'))!);
+  await expect(ticks).toHaveText(['5', '13', '20']);
+  await series.selectOption('all');
+  await expect(ticks).toHaveText(['5', '33', '60']);
+  await page.getByText('View graph data', { exact: true }).click();
+  await expect(
+    page.getByRole('table', { name: 'Training history data' }).getByRole('row'),
+  ).toHaveCount(62);
+  await series.selectOption('latest');
+  job = withUnevaluatedTail(65);
+  await page.clock.runFor(3000);
+  await expect(range).toHaveValue('fit-series');
+  await expect(series).toHaveValue('latest');
+  await expect(ticks).toHaveText(['55', '60', '65']);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    .toBe(true);
+  await page.screenshot({ path: info.outputPath('fit-series.png'), fullPage: true });
+  for (const tab of ['Learning', 'Performance']) {
+    await page.getByRole('tab', { name: tab, exact: true }).click();
+    await expect(range).toHaveValue('0');
+    await expect(range.locator('option[value="fit-series"]')).toHaveCount(0);
+  }
+  await page.getByRole('tab', { name: 'Evaluation', exact: true }).click();
+  await expect(range).toHaveValue('fit-series');
+  await page.getByLabel('Language', { exact: true }).selectOption('de');
+  const germanRange = page.getByLabel('Iterationsbereich', { exact: true });
+  await expect(germanRange.locator('option[value="fit-series"]')).toHaveText(
+    'Datenreihe einpassen',
+  );
+  await expect(germanRange).toHaveValue('fit-series');
+});
+
 test('workshop visual fixtures fit desktop, laptop, tablet and mobile in every analysis view', async ({
   page,
 }, info) => {
