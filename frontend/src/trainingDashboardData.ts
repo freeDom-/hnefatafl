@@ -261,6 +261,24 @@ export function evaluationGroups(rows: HistoryPoint[]) {
   }
   return [...groups].map(([identity, points]) => ({ identity, points }));
 }
+/** Most recent valid observation, without changing group order or series labels. */
+export function latestEvaluationGroup(groups: ReturnType<typeof evaluationGroups>) {
+  let latest: (typeof groups)[number] | undefined;
+  let latestIteration = -Infinity;
+  for (const group of groups) {
+    for (const point of group.points) {
+      if (
+        finite(point.iteration) &&
+        finite(point.evaluation_score) &&
+        point.iteration > latestIteration
+      ) {
+        latest = group;
+        latestIteration = point.iteration;
+      }
+    }
+  }
+  return latest;
+}
 /** The job's own snapshot; a nested tuning trial never replaces its fields. */
 export const jobLevelProgress = (job: Job): Values =>
   object(job.progress) ?? object(job.metrics) ?? {};
