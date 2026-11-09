@@ -2,6 +2,15 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Account profiles and current identities (`0.38.0` preparation)
+
+The [0.38.0 release notes](releases/0.38.0.md#validation) identify the merged
+implementation and release evidence for PRs #61–#63. They cover schema 13→15,
+legacy privacy exceptions, full-date privacy with public completed age, current
+account identities without game rewrites, and paired frontend/backend deployment.
+Existing historical evidence retains its original scope. Successful release-PR
+and exact merged-main Verify remain required before tagging and stable publication.
+
 ## Champion adaptation, outcome charts and large job transfers (`0.37.0` preparation)
 
 The [0.37.0 release notes](releases/0.37.0.md#validation) identify the verified
