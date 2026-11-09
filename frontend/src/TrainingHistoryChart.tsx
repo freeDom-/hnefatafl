@@ -6,6 +6,7 @@ import {
   trainingHistory,
   evaluationGroups,
   evaluationIdentity,
+  latestEvaluationGroup,
   finite,
   recentHistory,
   type HistoryPoint,
@@ -49,6 +50,7 @@ export default function TrainingHistoryChart({
     [history, range, fitSeries],
   );
   const groups = useMemo(() => evaluationGroups(rows), [rows]);
+  const latestGroup = useMemo(() => latestEvaluationGroup(groups), [groups]);
   // Every observation in one series: the merged chart keeps each iteration's own
   // score, so changed opponents or incumbents stay visible without splitting the graph.
   const mergedGroup = useMemo(
@@ -80,18 +82,19 @@ export default function TrainingHistoryChart({
   const displayedGroups = useMemo(() => {
     if (view === 'learning') return [];
     const selection = groups.filter((group) => group.identity === selectedSeries);
-    // Overview and All keep one merged chart; Latest resolves through the same
-    // grouping as the selector, even when training continues after evaluation.
+    const latest = latestGroup ? [latestGroup] : [];
+    // Overview and All keep one merged chart. Latest follows observation recency,
+    // even when an earlier context returns later.
     const displayed: DisplayedSeries[] = compact
       ? groups.length > 1
         ? [mergedGroup]
-        : groups.slice(-1)
+        : latest
       : selectable && selectedSeries === 'all'
         ? [mergedGroup]
         : selectable
           ? selection.length
             ? selection
-            : groups.slice(-1)
+            : latest
           : groups;
     return (displayed.length ? displayed : [{ identity: 'empty', points: [] }]).map((group) => {
       const first = group.points[0];
@@ -121,7 +124,17 @@ export default function TrainingHistoryChart({
             ),
       };
     });
-  }, [rows, groups, mergedGroup, selectedSeries, compact, selectable, fitSeries, view]);
+  }, [
+    rows,
+    groups,
+    latestGroup,
+    mergedGroup,
+    selectedSeries,
+    compact,
+    selectable,
+    fitSeries,
+    view,
+  ]);
   if (!rows.length)
     return (
       <p className="training-chart-empty subtle">

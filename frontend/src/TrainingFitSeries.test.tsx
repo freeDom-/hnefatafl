@@ -6,7 +6,13 @@ import TrainingJobDashboard from './TrainingJobDashboard';
 import { setLanguage } from './i18n';
 import type { JobTab } from './jobTabs';
 import type { Job } from './types';
-import { evaluationIdentity, iterationRanges, type HistoryPoint } from './trainingDashboardData';
+import {
+  evaluationGroups,
+  evaluationIdentity,
+  iterationRanges,
+  latestEvaluationGroup,
+  type HistoryPoint,
+} from './trainingDashboardData';
 
 beforeEach(() => setLanguage('en', false));
 afterEach(() => {
@@ -89,6 +95,71 @@ const chooseRange = (value: string) =>
   fireEvent.change(screen.getByLabelText('Iteration range'), { target: { value } });
 const chooseSeries = (value: string) =>
   fireEvent.change(screen.getByLabelText('Evaluation series'), { target: { value } });
+
+it.each([
+  { iterations: [100, 200, 300], identities: ['A', 'B', 'A'], latest: 'A' },
+  { iterations: [100, 200, 300, 400], identities: ['A', 'B', 'C', 'B'], latest: 'B' },
+  { iterations: [100, 200, 300], identities: ['A', 'A', 'A'], latest: 'A' },
+  { iterations: [100, 150, 175, 200], identities: ['A', 'A', 'A', 'B'], latest: 'B' },
+  { iterations: [1000, 1250, 1900], identities: ['A', 'B', 'A'], latest: 'A' },
+  { iterations: [1900, 1500, 1000], identities: ['A', 'B', 'A'], latest: 'A' },
+])(
+  'resolves $identities by recorded iterations $iterations without reordering groups',
+  ({ iterations, identities, latest }) => {
+    // Legacy/imported groups can have unsorted points; their maximum iteration
+    // determines recency, not their last array entry or number of observations.
+    const groups = evaluationGroups(
+      iterations.map((iteration, index) => ({
+        iteration,
+        opponent_identity: identities[index],
+        evaluation_score: 0.5,
+      })),
+    );
+    const original = structuredClone(groups);
+    expect(latestEvaluationGroup(groups)?.points[0].opponent_identity).toBe(latest);
+    expect(groups).toEqual(original);
+  },
+);
+
+it('finds no latest group when observations have invalid iterations or scores', () => {
+  expect(latestEvaluationGroup([])).toBeUndefined();
+  expect(
+    latestEvaluationGroup(
+      evaluationGroups([
+        { iteration: NaN, evaluation_score: 0.5 },
+        { iteration: Infinity, evaluation_score: 0.5 },
+        { iteration: 1500, evaluation_score: NaN },
+        { iteration: 2000, evaluation_score: Infinity },
+        { iteration: 2500 },
+      ]),
+    ),
+  ).toBeUndefined();
+});
+
+it.each([false, true])(
+  'defaults the Evaluation tab to a returning latest context with fit=%s',
+  (fitSeries) => {
+    render(
+      <Dashboard
+        job={jobWithHistory([
+          { iteration: 900 },
+          observation(1000, 0),
+          observation(1500, 500),
+          observation(1900, 0),
+          { iteration: 2500 },
+        ])}
+      />,
+    );
+    if (fitSeries) chooseRange('fit-series');
+    expect(screen.getByLabelText('Evaluation series')).toHaveValue('latest');
+    expect(document.querySelector('.series-context')).toHaveTextContent('Series 1');
+    expect(scoreMarkers().map((marker) => marker.querySelector('title')?.textContent)).toEqual([
+      'Iteration 1000: 50%',
+      'Iteration 1900: 50%',
+    ]);
+    expect(xTicks()).toEqual(fitSeries ? [1000, 1450, 1900] : [900, 1700, 2500]);
+  },
+);
 
 it('fits the latest recorded series at 1201–1350 rather than the full 1–2500 history', async () => {
   const history = longHistory();
@@ -259,18 +330,53 @@ it('keeps fit mode and series selection as monitoring updates extend the selecte
   const view = render(<Dashboard />);
   chooseRange('fit-series');
   chooseSeries(evaluationIdentity(observation(501, 500)));
-  view.rerender(<Dashboard job={jobWithHistory([...longHistory(), observation(1400, 500)])} />);
+  const reactivated = [...longHistory(), observation(1400, 500)];
+  view.rerender(<Dashboard job={jobWithHistory(reactivated)} />);
   expect(screen.getByLabelText('Iteration range')).toHaveValue('fit-series');
   expect(screen.getByLabelText('Evaluation series')).toHaveValue(
     evaluationIdentity(observation(501, 500)),
   );
   expect(xTicks()).toEqual([501, 951, 1400]);
   chooseSeries('latest');
-  expect(xTicks()).toEqual([1201, 1276, 1350]);
-  view.rerender(<Dashboard job={jobWithHistory([...longHistory(), observation(1450)])} />);
+  expect(xTicks()).toEqual([501, 951, 1400]);
+  view.rerender(<Dashboard job={jobWithHistory([...reactivated, observation(1450)])} />);
   expect(xTicks()).toEqual([1201, 1326, 1450]);
   expect(screen.getByLabelText('Iteration range')).toHaveValue('fit-series');
 });
+
+it.each([false, true])(
+  'updates Latest on reactivation while preserving explicit and All selections with fit=%s',
+  (fitSeries) => {
+    const view = render(<Dashboard />);
+    if (fitSeries) chooseRange('fit-series');
+    let history = [...longHistory(), observation(1400, 500)];
+    view.rerender(<Dashboard job={jobWithHistory(history)} />);
+    expect(screen.getByLabelText('Evaluation series')).toHaveValue('latest');
+    expect(document.querySelector('.series-context')).toHaveTextContent('Series 2');
+    expect(xTicks()).toEqual(fitSeries ? [501, 951, 1400] : [1, 1251, 2500]);
+
+    const explicit = evaluationIdentity(observation(10, 0));
+    chooseSeries(explicit);
+    history = [...history, observation(1450)];
+    view.rerender(<Dashboard job={jobWithHistory(history)} />);
+    expect(screen.getByLabelText('Evaluation series')).toHaveValue(explicit);
+    expect(document.querySelector('.series-context')).toHaveTextContent('Series 1');
+    expect(xTicks()).toEqual(fitSeries ? [10, 255, 500] : [1, 1251, 2500]);
+
+    chooseSeries('all');
+    history = [...history, observation(1600, 500)];
+    view.rerender(<Dashboard job={jobWithHistory(history)} />);
+    expect(screen.getByLabelText('Evaluation series')).toHaveValue('all');
+    expect(document.querySelector('.series-context')).toHaveTextContent(
+      'Merged evaluation series · 3 series',
+    );
+    expect(xTicks()).toEqual(fitSeries ? [10, 805, 1600] : [1, 1251, 2500]);
+    expect(scoreMarkers()).toHaveLength(10);
+    chooseSeries('latest');
+    expect(document.querySelector('.series-context')).toHaveTextContent('Series 2');
+    expect(xTicks()).toEqual(fitSeries ? [501, 1051, 1600] : [1, 1251, 2500]);
+  },
+);
 
 it('keeps numeric windows in Learning and Performance and restores fit on returning to Evaluation', () => {
   render(<Dashboard />);

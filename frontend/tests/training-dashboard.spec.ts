@@ -284,6 +284,35 @@ test('fits evaluation series through selection and polling in English and German
   await expect(range).toHaveValue('fit-series');
   await expect(series).toHaveValue('latest');
   await expect(ticks).toHaveText(['55', '60', '65']);
+  // Jarl was introduced before Champion, but its returning observation is now
+  // the latest. Polling must refit it without reselecting Latest series.
+  const returning = job.progress.history[24];
+  job = {
+    ...job,
+    progress: {
+      ...job.progress,
+      history: [
+        ...job.progress.history,
+        {
+          ...returning,
+          iteration: 1400,
+          evaluation: { ...(returning.evaluation as Record<string, unknown>), iteration: 1400 },
+        },
+      ],
+    },
+  };
+  await page.clock.runFor(3000);
+  await expect(series).toHaveValue('latest');
+  await expect(page.locator('.series-context')).toHaveText(/^Jarl · Series 2/);
+  await expect(ticks).toHaveText(['25', '713', '1400']);
+  await expect(
+    page.getByRole('table', { name: 'Training history data' }).getByRole('row'),
+  ).toHaveCount(68);
+  await range.selectOption('0');
+  await expect(ticks).toHaveText(['1', '1251', '2500']);
+  await expect(page.locator('.series-context')).toHaveText(/^Jarl · Series 2/);
+  await range.selectOption('fit-series');
+  await expect(ticks).toHaveText(['25', '713', '1400']);
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);
