@@ -5,6 +5,7 @@ import { AppearancePreferences } from './Appearance';
 import { useI18n } from './i18n';
 import { countryName } from './profileCountry';
 import { profileText } from './profileText';
+import { profileDate } from './profileDate';
 import { validatePassword, validatePasswordLength } from './passwordPolicy';
 import './profile.css';
 
@@ -15,24 +16,24 @@ export type Profile = {
   display_name: string | null;
   country_code: string | null;
   city: string | null;
-  birth_year: number | null;
-  show_display_name: boolean;
-  show_country: boolean;
-  show_city: boolean;
-  show_age: boolean;
+  date_of_birth: string | null;
+  legacy_birth_year: number | null;
+  legacy_private_fields: ('display_name' | 'country_code' | 'city')[];
   country_codes: string[];
 };
-const visibility = [
-  ['show_display_name', 'Share display name'],
-  ['show_country', 'Share country'],
-  ['show_city', 'Share city'],
-  ['show_age', 'Share age range'],
-] as const;
+type Editable = Pick<Profile, 'display_name' | 'country_code' | 'city' | 'date_of_birth'>;
+const legacyLabels = {
+  display_name: 'Publish saved display name on save',
+  country_code: 'Publish saved country on save',
+  city: 'Publish saved city on save',
+};
+const fieldLabels = { display_name: 'Display name', country_code: 'Country', city: 'City' };
 
 export default function ProfilePage() {
   const { account, observeVerification } = useAuth();
   const { t, locale } = useI18n();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [dirty, setDirty] = useState(new Set<keyof Editable>());
   const [loadError, setLoadError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -46,7 +47,7 @@ export default function ProfilePage() {
   const [emailNotice, setEmailNotice] = useState('');
   const controller = useRef<AbortController | null>(null);
   const busy = useRef(new Set<string>());
-  const year = new Date().getUTCFullYear();
+  const today = new Date().toISOString().slice(0, 10);
   useEffect(() => {
     const request = new AbortController();
     controller.current = request;
@@ -62,6 +63,7 @@ export default function ProfilePage() {
         if (request.signal.aborted) return;
         acceptVerification(data.email_verified);
         setProfile(data);
+        setDirty(new Set());
       })
       .catch((error) => {
         if (!request.signal.aborted) setLoadError(errorMessage(error));
@@ -92,51 +94,62 @@ export default function ProfilePage() {
     [profile?.country_codes, locale],
   );
   if (!account) return null;
-  function edit(patch: Partial<Profile>) {
+  function edit(patch: Partial<Editable>) {
     setSaved(false);
+    setDirty((current) => new Set([...current, ...(Object.keys(patch) as (keyof Editable)[])]));
     setProfile((current) => (current ? { ...current, ...patch } : current));
+  }
+  function legacyConfirmation(field: Profile['legacy_private_fields'][number]) {
+    if (!profile?.legacy_private_fields.includes(field) || !profile[field]?.trim()) return null;
+    const included = dirty.has(field);
+    return (
+      <button
+        className="button secondary"
+        type="button"
+        aria-disabled={included}
+        onClick={() => {
+          if (!included) edit({ [field]: profile[field] });
+        }}
+      >
+        <span aria-live="polite">
+          {t(included ? '{field} will be public when saved.' : legacyLabels[field], {
+            field: t(fieldLabels[field]),
+          })}
+        </span>
+      </button>
+    );
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!profile || busy.current.has('profile')) return;
     setProfileError('');
     setSaved(false);
-    let display_name: string | null;
-    let city: string | null;
+    const changes: Partial<Editable> = {};
     try {
-      display_name = profileText(profile.display_name, 80);
-      city = profileText(profile.city, 100);
+      for (const field of dirty) {
+        changes[field] =
+          field === 'display_name' || field === 'city'
+            ? profileText(profile[field], field === 'display_name' ? 80 : 100)
+            : field === 'date_of_birth'
+              ? profileDate(profile[field])
+              : profile[field];
+      }
     } catch (error) {
       setProfileError(errorMessage(error));
       return;
     }
-    if (
-      profile.birth_year !== null &&
-      (!Number.isInteger(profile.birth_year) ||
-        profile.birth_year < 1900 ||
-        profile.birth_year > year)
-    ) {
-      setProfileError('Enter a year from 1900 to {year}.');
+    if (!dirty.size) {
+      setSaved(true);
       return;
     }
     busy.current.add('profile');
     setSaving(true);
     const acceptVerification = observeVerification();
     try {
-      const updated = await api<Profile>(
-        '/profile',
-        {
-          display_name,
-          city,
-          country_code: profile.country_code,
-          birth_year: profile.birth_year,
-          ...Object.fromEntries(visibility.map(([key]) => [key, profile[key]])),
-        },
-        'PATCH',
-        controller.current?.signal,
-      );
+      const updated = await api<Profile>('/profile', changes, 'PATCH', controller.current?.signal);
       acceptVerification(updated.email_verified);
       setProfile(updated);
+      setDirty(new Set());
       setSaved(true);
       window.dispatchEvent(new Event('profile-changed'));
     } catch (error) {
@@ -254,6 +267,7 @@ export default function ProfilePage() {
                     onChange={(event) => edit({ display_name: event.target.value })}
                   />
                 </label>
+                {legacyConfirmation('display_name')}
                 <label>
                   {t('Country')}
                   <select
@@ -268,6 +282,7 @@ export default function ProfilePage() {
                     ))}
                   </select>
                 </label>
+                {legacyConfirmation('country_code')}
                 <label>
                   {t('City')}
                   <input
@@ -277,44 +292,31 @@ export default function ProfilePage() {
                     onChange={(event) => edit({ city: event.target.value })}
                   />
                 </label>
+                {legacyConfirmation('city')}
                 <label>
-                  {t('Year of birth')}
+                  {t('Date of birth')}
                   <input
-                    name="birth_year"
-                    type="number"
-                    min={1900}
-                    max={year}
-                    step={1}
-                    value={profile.birth_year ?? ''}
-                    onChange={(event) =>
-                      edit({
-                        birth_year: event.target.value === '' ? null : Number(event.target.value),
-                      })
-                    }
+                    name="date_of_birth"
+                    type="date"
+                    autoComplete="bday"
+                    min="1900-01-01"
+                    max={today}
+                    value={profile.date_of_birth ?? ''}
+                    onChange={(event) => edit({ date_of_birth: event.target.value || null })}
                   />
                 </label>
-                <fieldset className="form-section" aria-describedby="profile-privacy-help">
-                  <legend>{t('Leaderboard visibility')}</legend>
-                  <p id="profile-privacy-help" className="form-help">
+                {profile.legacy_birth_year != null && !profile.date_of_birth && (
+                  <p className="form-help">
                     {t(
-                      'Only checked information is visible to other players. Your public username always identifies your account; a shared display name appears alongside it in leaderboards, games and history. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.',
+                      'Previously saved birth year: {year}. Enter a full date to publish your age.',
+                      { year: profile.legacy_birth_year },
                     )}
                   </p>
-                  {visibility.map(([key, label]) => (
-                    <label className="checkbox-label" key={key}>
-                      <input
-                        type="checkbox"
-                        checked={profile[key]}
-                        onChange={(event) => edit({ [key]: event.target.checked })}
-                      />
-                      {t(label)}
-                    </label>
-                  ))}
-                </fieldset>
+                )}
               </fieldset>
               {profileError && (
                 <p className="form-error" role="alert">
-                  {t(profileError, { year })}
+                  {t(profileError)}
                 </p>
               )}
               {saved && <p role="status">{t('Profile saved.')}</p>}

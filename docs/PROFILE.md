@@ -27,18 +27,25 @@ Ordinary Arabic/Hebrew/Persian text, combining marks, variation selectors and em
 joiners remain supported. Frontend/backend tests share the same multilingual and
 unsafe-control corpus. Error messages are localized and do not echo rejected text.
 Countries use the API's ISO 3166-1 alpha-2 catalog, with browser-localized labels.
-Birth years are integers from 1900 through the current UTC year. Empty text and
+Birth dates are optional strict ISO calendar dates (`YYYY-MM-DD`), from
+1900-01-01 through the current UTC date. Invalid dates, incomplete dates, times
+and future dates are rejected. Empty text and
 explicit null clear optional values. Login usernames, account IDs, roles,
 verification status, ownership and training records are unaffected.
 
-Each of display name, country, city and age has its own sharing checkbox, off by
-default. The leaderboard uses the username unless display-name sharing is enabled
-and the name is nonempty. Display names remain editable and non-unique. A shared
-name never replaces canonical attribution: leaderboards, games and recorded reviews
-show **Display Name (@username)**, or the username in the existing player-detail
-line. Identical display names remain distinguishable, including a display name
-matching an administrator's username; no role is inferred from a label. When the
-display name equals the username, the UI omits duplicate attribution.
+A populated optional field is public; clearing it withdraws its public value.
+There are no sharing checkboxes or permanent visibility section. A display name
+is shown with **(@username)** attribution, country and city appear in the detailed
+leaderboard, and a complete date of birth produces only an integer age. The full
+birth date stays private. Display names remain editable and non-unique; no role is
+inferred from a name. Equal display name/username values omit duplicate attribution.
+
+Previously private values are a transition exception: they remain unpublished
+until that specific field is edited or explicitly reconfirmed. Only such fields
+show a temporary **Publish saved … on save** action beside their existing input.
+It queues that one field for the normal Save Profile submission. Unrelated edits
+and Save without edits do not publish other saved private values. These actions
+disappear after confirmation or clearing; they are not permanent sharing controls.
 
 Leaderboard entries (including `me`), online participants and account-linked human
 game/replay players include the public `username` alongside their current `name`.
@@ -56,16 +63,17 @@ punctuation). The input uses that same code-point bound instead of UTF-16
 display names do not enter the search projection.
 These read projections do not modify ratings, ownership, permissions or records.
 The compact Dashboard leaderboard keeps its four columns; the full leaderboard
-adds country, city and age range. Ranking, filters, tie-breaking and pagination
+adds country, city and age. Ranking, filters, tie-breaking and pagination
 are unchanged.
 
 ## Names in games and history
 
 New account-backed human seats persist the immutable `accounts.id` and canonical
 username, never a mutable display-name snapshot. At read time, games, lists,
-statistics, replays and history resolve the current name and sharing setting.
+statistics, replays and history resolve the current eligible public name.
 Changing **Thor** to **Freya** updates existing and active games on their next
-read; disabling sharing or clearing the name restores the canonical username.
+read; clearing the name restores the canonical username. Unconfirmed legacy-private
+names continue to use the canonical username until explicitly updated.
 Old saved display names on a verified account link are neither presented nor
 searched. Account identity and authorization never depend on the displayed text.
 
@@ -79,8 +87,8 @@ private display name.
 
 Profile saves update account columns only: they never rewrite game JSON, moves,
 analysis, results, seeds, timestamps or versions. Existing linked game blobs stay
-byte-for-byte unchanged. No migration is required beyond the existing schema 14;
-backup/restore rules are unchanged. List projections batch account resolution,
+byte-for-byte unchanged. The schema-15 transition changes account metadata only;
+matching-schema backup/restore retains current live profile and publication state. List projections batch account resolution,
 while paginated history joins accounts without loading full game histories.
 
 Navigation reloads the current identity. Existing dashboard, lobby, leaderboard
@@ -91,28 +99,27 @@ state. Another browser session's profile changes appear on the next normal read
 or focus refresh. A disconnected client retains its last successful view until
 it can read again.
 
-Birth years are available only in the authenticated owner's private profile, never
-in leaderboard entries. Explicitly shared age uses fixed ten-year birth cohorts
-(1900–1909, 1910–1919, and so on), expressed as a broad age bracket in the current
-UTC year. The unknown birthday adds one year of uncertainty across the whole
-cohort: in 2026, every account born in 1990–1999 publishes **26–36**. Every member
-has the same public output, including at age-bracket boundaries. Repeated annual
-observations keep the same ten possible birth years rather than identifying a
-birth year when a player moves into a different age group.
+## Exact age and private birth dates
 
-An incomplete youngest cohort is not published at all: before 2029, an account
-born in 2020–2029 has no public age field, even with age sharing enabled. Otherwise
-its first year could produce a uniquely identifying range. Every published
-bracket corresponds to ten valid birth years, including the oldest cohort at the
-1900 validation cutoff. Tests check all valid years, decade boundaries and annual
-observations. Sharing age discloses a coarse age/birth cohort; it is not anonymity.
+The detailed leaderboard returns `age` as an integer number of completed years,
+calculated on the server using the current UTC date. The birthday must have
+occurred this year before the age advances. February 29 birthdays advance on
+**March 1** in non-leap years and on February 29 in leap years. A person born today
+has age `0`; a missing, invalid or cleared full date produces no age field.
 
-The public `age_range` object retains numeric inclusive `min`/`max` fields. The
-same projection applies to entries and the caller's `me` standing. A missing birth
-year produces no age field, even with consent enabled. Private country/city/age
-keys are absent, including immediately after sharing is disabled.
-Responses retain the existing `Cache-Control: no-store`; no leaderboard cache or
-per-row profile query is introduced. Historical results continue to use account IDs.
+The same UTC date is sampled once for entries and the caller's `me` standing, so
+crossing midnight during a response cannot produce inconsistent ages. Neither
+birth dates nor birth years enter public leaderboard, game or history responses.
+The old range response is replaced by `age`; clients should deploy together with
+the updated backend. The compact Dashboard leaderboard retains its four columns.
+
+A historical birth year alone cannot establish an exact age. It remains private,
+available to the owner as read-only `legacy_birth_year`, until a full-date edit or
+explicit date clear supersedes it. A temporary input hint identifies the saved
+year without inventing a birthday. Entering the full date publishes age under the
+new policy; clearing it withdraws age immediately on the next fresh request.
+Responses retain `Cache-Control: no-store`; no per-player account lookup or
+leaderboard cache is introduced. Ratings and historical ownership use account IDs.
 
 ## Account security
 
@@ -158,8 +165,8 @@ budget. Invalid current passwords return a form error without ending the session
 
 | Method/path | Behavior |
 | --- | --- |
-| `GET /api/profile` | Own optional fields, visibility flags, username, email, verification status and country catalog |
-| `PATCH /api/profile` | Atomic partial update of optional details/visibility only; omitted fields stay unchanged |
+| `GET /api/profile` | Own optional fields, read-only legacy transition metadata, username, email, verification status and country catalog |
+| `PATCH /api/profile` | Atomic update of explicitly supplied `display_name`, `country_code`, `city`, `date_of_birth`; omitted fields stay unchanged |
 | `POST /api/profile/password` | `current_password`, `new_password`, `confirm_password`; safe acknowledgment only |
 
 These routes use the existing `profile` permission for both ordinary users and
@@ -170,24 +177,28 @@ and are limited to 8192 bytes. Validation responses suppress raw inputs. Session
 activation and permissions are reloaded inside the update transaction; password
 replacement additionally compares the previously verified hash under the lock.
 
-Schema **14** adds nullable country/city/birth year and four false-by-default
-visibility flags to `accounts`, reusing its existing nullable display name. It
-preserves existing accounts, roles, hashes, verification, sessions and ownership.
-New accounts no longer infer a display name from the username. Restarting is
-idempotent. The clock migration's original schema-13 threshold stays unchanged,
-so this profile upgrade cannot enable a paused timeout gate.
+Schema **15** adds nullable `date_of_birth` and an internal `profile_private_fields`
+JSON list to `accounts`. Its one-time, idempotent migration records populated
+schema-14 fields whose old consent flag was false. Previously public display
+names/countries/cities stay public; hidden values stay hidden. Existing data,
+legacy birth years, flags, roles, password hashes, verification and sessions are
+retained. New accounts have an empty exception list. Runtime public projections
+use this migration list, not the obsolete sharing flags.
 
-The review hardening (age brackets, verification ordering, account attribution,
-mobile identity and Unicode input/validation) adds no schema migration, route or
-permission. Schema 14 and existing backup/restore checks remain unchanged. Deploy
-updated backend and client together for matching validation rules and canonical
-identity presentation; the server enforces profile privacy independently.
+The client tracks edited fields and submits only those fields. An explicit PATCH
+removes only its supplied fields from the exception list, including confirmation
+of the same saved value. The client cannot assign transition metadata or old
+`show_*` flags; these and `birth_year` writes are rejected. A full-date edit/clear
+also clears the superseded legacy year. The original schema-13 clock threshold
+is unchanged, so this migration cannot resume a paused timeout gate.
 
-Take a stopped-writer backup using the normal [deployment procedure](DEPLOYMENT.md#data-and-configuration).
-Older code refuses schema 14. Automatic restore requires matching account columns
-and overall schema; it preserves current profiles/privacy settings with the live
-account state. An older snapshot requires manual reconciliation, not an automatic
-schema downgrade. No production migration or deployment is performed by tests.
+Deploy backend and frontend together. Take a stopped-writer backup using the
+[deployment procedure](DEPLOYMENT.md#data-and-configuration). Automatic restore
+requires matching schema 15/account columns and retains live account data,
+including the private birth date and legacy publication exceptions. Schema-14
+snapshots require explicit manual reconciliation or migration of a disposable
+copy; cross-schema automatic restore and running older code on schema 15 are
+refused. No production migration or deployment is performed by tests.
 
 ## Device preferences and implementation boundaries
 

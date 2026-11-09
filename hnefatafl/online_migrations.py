@@ -1,9 +1,9 @@
-"""Online migrations and schema-14 restore compatibility (private account profiles)."""
+"""Online migrations and schema-15 restore compatibility (automatic profile publication)."""
 
 import sqlite3
 import time
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 ONLINE_TABLES = (
     "online_matches",
     "online_games",

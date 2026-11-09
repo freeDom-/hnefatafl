@@ -1,7 +1,7 @@
 """Real session/CSRF, private projections and additive account compatibility."""
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
 
@@ -22,7 +22,7 @@ FIELDS = {
     "display_name": "Valkyrie",
     "country_code": "DE",
     "city": "Dresden",
-    "birth_year": 1990,
+    "date_of_birth": "1990-03-15",
 }
 FLAGS = ("show_display_name", "show_country", "show_city", "show_age")
 
@@ -74,7 +74,8 @@ def test_owned_profile_defaults_empty_updates_and_roles(app):
             assert result.status_code == 200
             profile = result.json()
             assert all(profile[field] is None for field in FIELDS)
-            assert all(profile[flag] is False for flag in FLAGS)
+            assert not set(FLAGS) & profile.keys()
+            assert profile["legacy_private_fields"] == [] and profile["legacy_birth_year"] is None
             assert profile["username"] == name and profile["email"] == account["email"]
             assert len(profile["country_codes"]) == len(set(COUNTRY_CODES)) == 249
             assert not profile["email_verified"]
@@ -83,15 +84,14 @@ def test_owned_profile_defaults_empty_updates_and_roles(app):
                 "display_name": "  Þór 東京  ",
                 "country_code": " de ",
                 "city": "  Łódź  ",
-                "birth_year": 1990,
-                "show_city": True,
+                "date_of_birth": "1990-03-15",
             }
             saved = client.patch("/api/profile", json=values)
             assert saved.status_code == 200
             assert saved.json()["display_name"] == "Þór 東京" and saved.json()["city"] == "Łódź"
             assert saved.json()["country_code"] == "DE"
             assert client.patch("/api/profile", json={"city": ""}).json()["city"] is None
-            assert client.get("/api/profile").json()["show_city"] is True
+            assert client.get("/api/profile").json()["legacy_private_fields"] == []
             assert client.patch("/api/profile", json={}).status_code == 200
             cleared = client.patch("/api/profile", json={field: None for field in FIELDS}).json()
             assert all(cleared[field] is None for field in FIELDS)
@@ -116,12 +116,28 @@ def test_owned_profile_defaults_empty_updates_and_roles(app):
         {"city": "bad\ncity"},
         {"country_code": "UK"},
         {"country_code": "ZZ"},
-        {"birth_year": 1899},
-        {"birth_year": datetime.now(timezone.utc).year + 1},
+        {"date_of_birth": "1899-12-31"},
+        {"date_of_birth": (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()},
+        {"date_of_birth": "1900-02-29"},
+        {"date_of_birth": "2001-02-29"},
+        {"date_of_birth": "2000-02-30"},
+        {"date_of_birth": "1990"},
+        {"date_of_birth": "1990-1-01"},
+        {"date_of_birth": 1990},
+        {"date_of_birth": True},
+        {"date_of_birth": "1990-03-15T00:00:00Z"},
+        {"birth_year": 1990},
         {"birth_year": "1990"},
         {"birth_year": True},
         {"show_country": "true"},
         {"show_city": None},
+        {"show_display_name": True},
+        {"show_country": False},
+        {"show_city": True},
+        {"show_age": True},
+        {"profile_private_fields": "[]"},
+        {"legacy_private_fields": []},
+        {"legacy_birth_year": 1990},
         {"role": "ADMIN"},
         {"active": False},
         {"email_verified_at": 1},
@@ -167,9 +183,17 @@ def test_profile_requires_csrf_and_rechecks_revoked_session_under_lock(app, monk
 
 
 @pytest.mark.parametrize(
-    "flag,public_field", list(zip(FLAGS, ("name", "country_code", "city", "age_range")))
+    "field,public_field",
+    [
+        ("display_name", "name"),
+        ("country_code", "country_code"),
+        ("city", "city"),
+        ("date_of_birth", "age"),
+    ],
 )
-def test_leaderboard_filters_each_field_and_immediately_withdraws_sharing(app, flag, public_field):
+def test_leaderboard_publishes_each_populated_field_and_withdraws_on_clear(
+    app, field, public_field
+):
     with TestClient(app) as client:
         account = login(client)
         with app.state.store.connection() as c:
@@ -177,54 +201,49 @@ def test_leaderboard_filters_each_field_and_immediately_withdraws_sharing(app, f
                 "INSERT INTO player_ratings VALUES(?, 'tablut', 1200, 1, 1, 0, 0, 1, 0)",
                 (account["id"],),
             )
-        assert client.patch("/api/profile", json=FIELDS).status_code == 200
 
         def standing():
             response = client.get("/api/leaderboard?ruleset=tablut")
-            assert response.status_code == 200
-            assert response.headers["cache-control"] == "no-store"
+            assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
             data = response.json()
             assert data["entries"][0] == data["me"]
             return data["entries"][0]
 
-        hidden = standing()
-        assert hidden["name"] == "Raven"
+        empty = standing()
+        assert empty["name"] == "Raven"
         assert (
             not {
                 "country_code",
                 "city",
+                "age",
                 "age_range",
+                "date_of_birth",
                 "birth_year",
                 "email",
                 "password_hash",
                 "email_verified_at",
             }
-            & hidden.keys()
+            & empty.keys()
         )
-        assert client.patch("/api/profile", json={flag: True}).status_code == 200
+        assert client.patch("/api/profile", json={field: FIELDS[field]}).status_code == 200
         public = standing()
-        if flag == "show_display_name":
-            assert public["name"] == FIELDS["display_name"]
-        elif flag == "show_age":
-            year = datetime.now(timezone.utc).year
-            assert public["age_range"]["min"] <= year - 1991
-            assert public["age_range"]["max"] >= year - 1990
-            assert public["age_range"]["max"] - public["age_range"]["min"] >= 9
+        if field == "date_of_birth":
+            today = datetime.now(timezone.utc).date()
+            assert public["age"] == today.year - 1990 - ((today.month, today.day) < (3, 15))
+            assert type(public["age"]) is int
         else:
-            assert public[public_field] == FIELDS[public_field]
-        assert set(public) - set(hidden) <= {public_field}
-        assert public["rank"] == hidden["rank"] and public["rating"] == hidden["rating"]
-        assert client.patch("/api/profile", json={flag: False}).status_code == 200
-        assert standing() == hidden
+            assert public[public_field] == FIELDS[field]
+        assert set(public) - set(empty) <= {public_field}
+        assert public["rank"] == empty["rank"] and public["rating"] == empty["rating"]
+        assert client.patch("/api/profile", json={field: None}).status_code == 200
+        assert standing() == empty
 
 
 def test_password_change_keeps_current_session_revokes_others_and_reset_links(app):
     with TestClient(app) as client, TestClient(app) as other:
         account = login(client)
         login(other)
-        assert (
-            client.patch("/api/profile", json={**FIELDS, "show_country": True}).status_code == 200
-        )
+        assert client.patch("/api/profile", json=FIELDS).status_code == 200
         before = app.state.auth.account(account["id"])
         service = app.state.registration
         service.request_mail("reset", account["email"])
@@ -385,7 +404,14 @@ def test_schema13_upgrade_preserves_accounts_sessions_and_optional_legacy_names(
             "UPDATE accounts SET display_name='Legacy name',email_verified_at=123 WHERE id=?",
             (account["id"],),
         )
-        for field in ("country_code", "city", "birth_year", *FLAGS):
+        for field in (
+            "country_code",
+            "city",
+            "birth_year",
+            *FLAGS,
+            "date_of_birth",
+            "profile_private_fields",
+        ):
             c.execute(f"ALTER TABLE accounts DROP COLUMN {field}")
         c.execute("PRAGMA user_version=13")
         c.execute("UPDATE online_timeout_gate SET enabled=0,version=0")
@@ -394,8 +420,12 @@ def test_schema13_upgrade_preserves_accounts_sessions_and_optional_legacy_names(
     Store(store.path)  # Idempotent restart.
     with store.connection() as c:
         after = dict(c.execute("SELECT * FROM accounts WHERE id=?", (account["id"],)).fetchone())
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 14
-        assert all(after[field] is None for field in ("country_code", "city", "birth_year"))
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert all(
+            after[field] is None
+            for field in ("country_code", "city", "birth_year", "date_of_birth")
+        )
+        assert json.loads(after["profile_private_fields"]) == ["display_name"]
         assert all(after[flag] == 0 for flag in FLAGS)
         assert all(after[field] == value for field, value in before.items())
         assert c.execute("SELECT enabled FROM online_timeout_gate").fetchone()[0] == 0

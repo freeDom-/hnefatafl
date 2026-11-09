@@ -113,6 +113,15 @@ Schema 9 adds unknown/unverified legacy email state, version/address-bound token
 digests, leased mail intents and limiter state. IDs, ownership and existing sessions
 survive forward migration; safe rollback has an explicit account-schema boundary.
 
+Schema 15 adds private full birth dates and one-time publication exceptions for
+legacy-private profile values. Populated fields submitted under the new policy
+are public, with only integer age derived from a private full date. Existing
+hidden values do not publish during migration or unrelated PATCHes. Requests
+cannot assign legacy flags, transition metadata or privileged fields. Old birth
+years stay private without manufacturing an age. See [profile policy](PROFILE.md).
+Matching-schema restore retains current live publication exceptions and birth
+dates; older-schema restore is refused before replacing live authority.
+
 Schema 11 adds independent [online match/game/result/gate records](ONLINE.md) and
 the [versioned rating pool](RATINGS.md).
 Create/join require active, verified accounts, including administrators; an admitted

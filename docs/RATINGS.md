@@ -122,6 +122,14 @@ exposed.
   `/leaderboard` view, which adds ruleset selection and pagination. The separate
   "your standing" paragraph was removed; the signed-in player's row is marked in
   place when it is on the page.
+- The detailed view adds eligible populated country/city and integer **Age**;
+  compact rows retain four columns. A complete private ISO birth date supplies
+  completed years on the current UTC date, with February 29 advancing March 1
+  in non-leap years. Entries and `me` share one date sample. Missing/cleared or
+  year-only data produces no age field; birth dates/years are never returned.
+- New or explicitly edited populated fields publish automatically. Unreconfirmed
+  legacy-private values remain hidden after the schema-15 migration; clearing
+  a field withdraws it on the next read. See [profile transition](PROFILE.md).
 - Loading, stale/error and empty states are explicit.
 
 ## Reconciliation and recovery
@@ -161,7 +169,7 @@ and explicit operator reconciliation. See
 Before enabling Rated play in production:
 
 1. Complete the existing [online admission and timeout prerequisites](ONLINE.md).
-2. Confirm schema 13 migration (including rating events and start-rating snapshots)
+2. Confirm schema 15 migration (including preserved rating/start-rating snapshots and legacy profile privacy)
    and a compatible backup/restore on a copy.
 3. Decide and document a moderation/anti-farming response using the existing
    private void audit and rebuild procedures.

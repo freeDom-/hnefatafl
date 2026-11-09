@@ -54,19 +54,18 @@ test('account menu, private profile, verification, password and device preferenc
   await page.getByRole('heading', { name: 'My Profile', exact: true }).click();
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveValue('');
-  for (const checkbox of await page.getByRole('checkbox').all())
-    await expect(checkbox).not.toBeChecked();
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByText('Leaderboard visibility', { exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Display name' }).fill('  Þór 東京  ');
   await page.getByRole('textbox', { name: 'City', exact: true }).fill('Łódź');
   await page.getByRole('combobox', { name: 'Country', exact: true }).selectOption('DE');
-  await page.getByRole('spinbutton', { name: 'Year of birth' }).fill('1990');
-  await page.getByRole('checkbox', { name: 'Share country', exact: true }).check();
+  await page.getByLabel('Date of birth', { exact: true }).fill('1990-03-15');
   await page.getByRole('button', { name: 'Save Profile' }).click();
   await expect(page.getByText('Profile saved.')).toBeVisible();
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveValue('Þór 東京');
-  await expect(page.getByRole('checkbox', { name: 'Share country', exact: true })).toBeChecked();
-  await expect(page.getByRole('checkbox', { name: 'Share city', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('combobox', { name: 'Country', exact: true })).toHaveValue('DE');
+  await expect(page.getByLabel('Date of birth', { exact: true })).toHaveValue('1990-03-15');
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await page.getByRole('link', { name: 'Verify your email in your profile.' }).click();
   await expect(page).toHaveURL(/\/profile#email-verification$/);

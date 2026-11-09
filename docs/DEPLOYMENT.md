@@ -342,7 +342,7 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
-With matching overall schema 14, recovery retains current live authoritative online
+With matching overall schema 15, recovery retains current live authoritative online
 matches, games, moves/results, audit, rating history and start-rating snapshots, then pauses the timeout
 gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed
 online schema/column set refuses automatic root replacement, even when account
@@ -440,3 +440,12 @@ private release download, failed-update recovery and an isolated backup restore.
 Live Proxmox provisioning, target systemd, private credentials and GPU execution
 require target-host validation; unit mocks and local browser tests do not establish
 them. Read [current validation](VALIDATION.md) for this checkout's recorded checks.
+
+Profile schema 15 is additive and idempotent. It preserves schema-14 consent as
+internal publication exceptions and retains old private birth years without
+inventing a full birthday. New/edited populated fields publish automatically;
+deploy the updated backend and client together. A stopped-writer backup must
+precede upgrade. Automatic restore requires matching account columns/schema 15
+and keeps current live dates and publication state. Older schema-14 snapshots
+need manual reconciliation or migration of a disposable copy before use; the
+automatic restore path safely refuses the mismatch. See [profile migration](PROFILE.md#api-and-persistence).

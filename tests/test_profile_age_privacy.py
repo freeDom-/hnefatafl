@@ -1,80 +1,93 @@
-"""Age brackets must not encode one birth year, including at decade boundaries."""
+"""Exact completed years use private full dates and one UTC date per response."""
 
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
-from hnefatafl.account_policy import MIN_BIRTH_YEAR
-from hnefatafl.online_ratings import public_age_range
+from hnefatafl import account_policy
+from hnefatafl.account_policy import birth_date, public_profile_fields
 from test_profile import app as app, template as template, login
 
 
+def details(value, today):
+    return public_profile_fields(
+        {
+            "date_of_birth": value,
+            "profile_private_fields": "[]",
+            "country_code": None,
+            "city": None,
+        },
+        today,
+    )
+
+
 @pytest.mark.parametrize(
-    "birth_year,year,expected",
+    "born,today,expected",
     [
-        (1989, 2026, (36, 46)),
-        (1990, 2026, (26, 36)),
-        (1991, 2026, (26, 36)),
-        (1999, 2026, (26, 36)),
-        (2000, 2026, (16, 26)),
-        (2009, 2026, (16, 26)),
-        (2010, 2026, (6, 16)),
-        (2019, 2026, (6, 16)),
-        (1900, 2026, (116, 126)),
-        (1909, 2026, (116, 126)),
-        (2020, 2029, (0, 9)),
-        (2029, 2029, (0, 9)),
-        (1990, 2030, (30, 40)),
-        (1999, 2030, (30, 40)),
+        ("1990-03-15", "2026-03-14", 35),
+        ("1990-03-15", "2026-03-15", 36),
+        ("1990-03-15", "2026-03-16", 36),
+        ("1990-12-31", "2026-12-30", 35),
+        ("1990-12-31", "2026-12-31", 36),
+        ("1990-12-31", "2027-01-01", 36),
+        ("1990-01-01", "2026-12-31", 36),
+        ("1990-01-01", "2027-01-01", 37),
+        ("2000-02-29", "2023-02-28", 22),
+        ("2000-02-29", "2023-03-01", 23),
+        ("2000-02-29", "2024-02-28", 23),
+        ("2000-02-29", "2024-02-29", 24),
+        ("2000-02-29", "2100-02-28", 99),
+        ("2000-02-29", "2100-03-01", 100),
+        ("1900-01-01", "2026-11-08", 126),
+        ("2026-11-08", "2026-11-08", 0),
     ],
 )
-def test_brackets_cover_both_possible_ages_without_a_boundary_signature(birth_year, year, expected):
-    result = public_age_range(birth_year, year)
-    assert result == {"min": expected[0], "max": expected[1]}
-    calendar_age = year - birth_year
-    assert result["min"] <= max(0, calendar_age - 1) <= calendar_age <= result["max"]
+def test_completed_years_and_march_first_convention(born, today, expected):
+    value = details(born, date.fromisoformat(today))
+    assert value == {"age": expected}
+    assert type(value["age"]) is int
 
 
-@pytest.mark.parametrize("year", [2026, 2029, 2030, 2099, 2100])
-def test_every_public_output_matches_at_least_ten_valid_birth_years(year):
-    cohorts = defaultdict(list)
-    for birth_year in range(MIN_BIRTH_YEAR, year + 1):
-        value = public_age_range(birth_year, year)
-        if value is None:
-            continue
-        cohorts[(value["min"], value["max"])].append(birth_year)
-    assert cohorts
-    assert all(len(candidates) == 10 for candidates in cohorts.values())
+@pytest.mark.parametrize(
+    "value",
+    [
+        "1899-12-31",
+        "1900-02-29",
+        "2001-02-29",
+        "2026-02-30",
+        "2026-13-01",
+        "2026-00-01",
+        "2026-01-00",
+        "2026-11-09",
+        "1990",
+        "1990-1-01",
+        "19900101",
+        "1990-03-15T00:00:00Z",
+        " 1990-03-15",
+        "1990-03-15\n",
+        "١٩٩٠-٠٣-١٥",
+        "unsafe\u202e",
+    ],
+)
+def test_strict_calendar_dates_and_bounds(value):
+    with pytest.raises(ValueError, match="Invalid date of birth"):
+        birth_date(value, date(2026, 11, 8))
+    assert details(value, date(2026, 11, 8)) == {}
 
 
-@pytest.mark.parametrize("year", [2020, 2026, 2028, 2030])
-def test_incomplete_youngest_cohorts_do_not_publish_identifying_birth_years(year):
-    assert public_age_range(year, year) is None
-    assert public_age_range(year // 10 * 10, year) is None
+@pytest.mark.parametrize("value", [None, ""])
+def test_no_date_means_no_age(value):
+    assert birth_date(value) is None
+    assert details(value, date(2026, 11, 8)) == {}
 
 
-@pytest.mark.parametrize("birth_year", [1900, 1989, 1990, 1999, 2000, 2019, 2020, 2026])
-def test_annual_observations_do_not_narrow_a_published_cohort_to_one_birth_year(birth_year):
-    candidates = None
-    for year in [2026, 2027, 2029, 2030, 2039, 2040, 2099, 2100]:
-        bracket = public_age_range(birth_year, year)
-        if bracket is None:
-            continue
-        current = {
-            y for y in range(MIN_BIRTH_YEAR, year + 1) if public_age_range(y, year) == bracket
-        }
-        candidates = current if candidates is None else candidates & current
-        assert len(candidates) == 10
+@pytest.mark.parametrize("value", ["1900-01-01", "2000-02-29", "2026-11-08"])
+def test_valid_dates_are_stored_as_iso(value):
+    assert birth_date(value, date(2026, 11, 8)) == value
 
 
-@pytest.mark.parametrize("calendar_age", [9, 10, 29, 30, 39, 40, None])
-def test_public_api_uses_same_private_brackets_for_entries_and_me_and_withdraws_them(
-    app, calendar_age
-):
-    year = datetime.now(timezone.utc).year
-    birth_year = None if calendar_age is None else year - calendar_age
+def test_public_entries_and_me_use_one_utc_date_and_never_publish_birth_data(app, monkeypatch):
     with TestClient(app) as client:
         account = login(client)
         with app.state.store.connection() as c:
@@ -82,28 +95,45 @@ def test_public_api_uses_same_private_brackets_for_entries_and_me_and_withdraws_
                 "INSERT INTO player_ratings VALUES(?, 'tablut', 1200, 1, 1, 0, 0, 1, 0)",
                 (account["id"],),
             )
-        assert client.patch("/api/profile", json={"birth_year": birth_year}).status_code == 200
-        assert client.get("/api/profile").json()["birth_year"] == birth_year
+        saved = client.patch("/api/profile", json={"date_of_birth": "1990-01-01"})
+        assert saved.status_code == 200
+        assert saved.json()["date_of_birth"] == "1990-01-01"
+        calls = []
 
-        def public():
-            response = client.get("/api/leaderboard?ruleset=tablut")
-            assert response.status_code == 200
-            assert response.headers["cache-control"] == "no-store"
-            value = response.json()
-            assert value["entries"][0] == value["me"]
-            assert "birth_year" not in value["me"] and "public_birth_year" not in value["me"]
-            return value["me"]
+        # A second date sample for `me` would cross this UTC birthday boundary.
+        def boundary():
+            calls.append(True)
+            return date(2026, 12, 31) if len(calls) == 1 else date(2027, 1, 1)
 
-        assert "age_range" not in public()
-        assert client.patch("/api/profile", json={"show_age": True}).status_code == 200
-        if birth_year is None or public_age_range(birth_year, year) is None:
-            assert "age_range" not in public()
-        else:
-            bracket = public()["age_range"]
-            assert bracket["min"] <= max(0, calendar_age - 1) <= calendar_age <= bracket["max"]
-            candidates = [
-                y for y in range(MIN_BIRTH_YEAR, year + 1) if public_age_range(y, year) == bracket
-            ]
-            assert len(candidates) >= 10
-        assert client.patch("/api/profile", json={"show_age": False}).status_code == 200
-        assert "age_range" not in public()
+        monkeypatch.setattr(account_policy, "utc_today", boundary)
+        response = client.get("/api/leaderboard?ruleset=tablut")
+        assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+        board = response.json()
+        assert board["entries"][0] == board["me"] and board["me"]["age"] == 36
+        assert len(calls) == 1
+        for field in (
+            "date_of_birth",
+            "birth_year",
+            "legacy_birth_year",
+            "profile_private_fields",
+            "age_range",
+            "email",
+            "password_hash",
+        ):
+            assert field not in board["me"]
+        monkeypatch.setattr(account_policy, "utc_today", lambda: date(2027, 1, 1))
+        assert client.get("/api/leaderboard?ruleset=tablut").json()["me"]["age"] == 37
+        assert client.patch("/api/profile", json={"date_of_birth": None}).status_code == 200
+        assert "age" not in client.get("/api/leaderboard?ruleset=tablut").json()["me"]
+
+
+def test_utc_today_uses_utc_even_when_local_midnight_differs(monkeypatch):
+    class Clock:
+        @staticmethod
+        def now(zone):
+            assert zone is timezone.utc
+            return datetime(2026, 12, 31, 23, 59, 59, tzinfo=zone)
+
+    monkeypatch.setattr(account_policy, "datetime", Clock)
+    assert account_policy.utc_today() == date(2026, 12, 31)
+    assert details("1990-01-01", account_policy.utc_today())["age"] == 36

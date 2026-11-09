@@ -13,17 +13,19 @@ const profile: Record<string, string> = {
     'Alle Angaben sind freiwillig. Dein Anmeldename bleibt {username}.',
   'Loading your profile…': 'Dein Profil wird geladen…',
   'Display name': 'Anzeigename',
+  'Date of birth': 'Geburtsdatum',
+  Age: 'Alter',
+  'Enter a valid date between 1900-01-01 and today (UTC).':
+    'Gib ein gültiges Datum zwischen 1900-01-01 und heute (UTC) ein.',
+  'Publish saved display name on save': 'Gespeicherten Anzeigenamen beim Speichern veröffentlichen',
+  'Publish saved country on save': 'Gespeichertes Land beim Speichern veröffentlichen',
+  'Publish saved city on save': 'Gespeicherte Stadt beim Speichern veröffentlichen',
+  '{field} will be public when saved.': '{field} wird beim Speichern veröffentlicht.',
+  'Previously saved birth year: {year}. Enter a full date to publish your age.':
+    'Bisher gespeichertes Geburtsjahr: {year}. Gib ein vollständiges Datum ein, um dein Alter zu veröffentlichen.',
   Country: 'Land',
   City: 'Stadt',
-  'Year of birth': 'Geburtsjahr',
   'Not specified': 'Nicht angegeben',
-  'Leaderboard visibility': 'Sichtbarkeit in der Rangliste',
-  'Only checked information is visible to other players. Your public username always identifies your account; a shared display name appears alongside it in leaderboards, games and history. Your birth year stays private; sharing age shows a broad bracket of roughly ten years, allowing for the unknown birthday. Very young players’ ages may remain hidden to protect their birth year.':
-    'Nur ausgewählte Angaben sind für andere Spieler sichtbar. Dein öffentlicher Benutzername kennzeichnet immer dein Konto; ein geteilter Anzeigename erscheint daneben in Ranglisten, Spielen und der Spielhistorie. Dein Geburtsjahr bleibt privat; beim Teilen des Alters wird eine grobe Spanne von ungefähr zehn Jahren angezeigt, die den unbekannten Geburtstag berücksichtigt. Das Alter sehr junger Spieler kann zum Schutz ihres Geburtsjahrs verborgen bleiben.',
-  'Share display name': 'Anzeigenamen teilen',
-  'Share country': 'Land teilen',
-  'Share city': 'Stadt teilen',
-  'Share age range': 'Altersspanne teilen',
   'Save Profile': 'Profil speichern',
   'Profile saved.': 'Profil gespeichert.',
   'Account Security': 'Kontosicherheit',
@@ -45,8 +47,6 @@ const profile: Record<string, string> = {
     'Ungültige Profilanfrage. Prüfe die Felder und versuche es erneut.',
   'Use up to 80 characters for your display name and 100 for your city, without control characters.':
     'Verwende höchstens 80 Zeichen für den Anzeigenamen und 100 für die Stadt, ohne Steuerzeichen.',
-  'Enter a year from 1900 to {year}.': 'Gib ein Jahr zwischen 1900 und {year} ein.',
   'Verify your email in your profile.': 'Bestätige deine E-Mail-Adresse in deinem Profil.',
-  'Age range': 'Altersspanne',
 };
 export default profile;

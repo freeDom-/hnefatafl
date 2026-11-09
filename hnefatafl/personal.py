@@ -419,8 +419,8 @@ class PersonalHistory:
                 json_extract(r.payload,'$.winner') AS winner,
                 json_extract(r.payload,'$.termination_reason') AS reason,
                 r.abandoned_account_id,r.revision,
-                public_account_name(a.username,a.display_name,a.show_display_name) AS attacker_name,
-                public_account_name(d.username,d.display_name,d.show_display_name) AS defender_name,
+                public_account_name(a.username,a.display_name,a.profile_private_fields) AS attacker_name,
+                public_account_name(d.username,d.display_name,d.profile_private_fields) AS defender_name,
                 a.username AS attacker_username,d.username AS defender_username,
                 CASE WHEN g.status='completed' AND r.competitive_eligible=1 THEN
                   CASE WHEN json_extract(r.payload,'$.winner')='draw' THEN 'draw'

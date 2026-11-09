@@ -3,8 +3,10 @@
 import json
 import re
 import unicodedata
+from datetime import date, datetime, timezone
 
 MIN_BIRTH_YEAR = 1900
+LEGACY_PRIVATE_FIELDS = frozenset({"display_name", "country_code", "city"})
 # Unicode Bidi_Control plus the deprecated directional formatting controls.
 # Joiners, variation selectors and ordinary combining marks remain permitted.
 BIDI_CONTROLS = frozenset(
@@ -57,10 +59,62 @@ def validate_password(value: str) -> None:
 
 
 def public_name(account) -> str:
-    """Account IDs stay stable; an editable name requires explicit sharing."""
+    """Populated names are public, except unreconfirmed legacy-private values."""
     return str(
-        (account["display_name"] if account["show_display_name"] else None) or account["username"]
+        (account["display_name"] if "display_name" not in unpublished_fields(account) else None)
+        or account["username"]
     )[:80]
+
+
+def unpublished_fields(account) -> frozenset[str]:
+    """One-time migration exceptions, never client-editable sharing preferences."""
+    try:
+        fields = json.loads(account["profile_private_fields"])
+        if not isinstance(fields, list) or any(
+            field not in LEGACY_PRIVATE_FIELDS for field in fields
+        ):
+            return LEGACY_PRIVATE_FIELDS
+        return frozenset(fields)
+    except (ValueError, TypeError):
+        return LEGACY_PRIVATE_FIELDS
+
+
+def utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def birth_date(value: str | None, today: date | None = None) -> str | None:
+    """Only complete ISO calendar dates; empty values explicitly clear a date."""
+    if value is None or value == "":
+        return None
+    try:
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+            raise ValueError()
+        parsed = date.fromisoformat(value)
+        if not date(MIN_BIRTH_YEAR, 1, 1) <= parsed <= (today or utc_today()):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("Invalid date of birth") from None
+    return parsed.isoformat()
+
+
+def public_profile_fields(account, today: date) -> dict:
+    """Return eligible optional fields; full birth dates never enter public data."""
+    pending = unpublished_fields(account)
+    result = {
+        field: account[field]
+        for field in ("country_code", "city")
+        if account[field] and field not in pending
+    }
+    try:
+        value = birth_date(account["date_of_birth"], today)
+    except ValueError:
+        value = None
+    if value:
+        born = date.fromisoformat(value)
+        # February 29 advances on March 1 in non-leap years.
+        result["age"] = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return result
 
 
 def attributed_name(name: str | None, username: str | None) -> str | None:
@@ -70,12 +124,16 @@ def attributed_name(name: str | None, username: str | None) -> str | None:
     return name
 
 
-def public_account_name(username, display_name, show_display_name):
+def public_account_name(username, display_name, profile_private_fields):
     """SQLite adapter for the same public naming policy used by API projections."""
     if username is None:
         return None
     return public_name(
-        {"username": username, "display_name": display_name, "show_display_name": show_display_name}
+        {
+            "username": username,
+            "display_name": display_name,
+            "profile_private_fields": profile_private_fields,
+        }
     )
 
 
@@ -94,7 +152,7 @@ def resolve_accounts(connection, account_ids) -> dict[str, dict]:
     return {
         row["id"]: public_identity(row)
         for row in connection.execute(
-            "SELECT id,username,display_name,show_display_name FROM accounts "
+            "SELECT id,username,display_name,profile_private_fields FROM accounts "
             "WHERE id IN (SELECT value FROM json_each(?))",
             (json.dumps(identifiers),),
         )
@@ -109,7 +167,7 @@ def game_accounts(connection, game_ids) -> dict[str, dict]:
     return {
         row["id"]: {"owner_account_id": row["owner_account_id"], **public_identity(row)}
         for row in connection.execute(
-            "SELECT g.id,g.owner_account_id,a.username,a.display_name,a.show_display_name "
+            "SELECT g.id,g.owner_account_id,a.username,a.display_name,a.profile_private_fields "
             "FROM games g LEFT JOIN accounts a ON a.id=g.owner_account_id "
             "WHERE g.id IN (SELECT value FROM json_each(?))",
             (json.dumps(identifiers),),
@@ -148,7 +206,7 @@ def account_player_sql(side: str) -> tuple[str, str]:
         f"AND json_extract(games.data,'{path}.account_id')=games.owner_account_id"
     )
     name = (
-        f"CASE WHEN {linked} THEN public_account_name(a.username,a.display_name,a.show_display_name) "
+        f"CASE WHEN {linked} THEN public_account_name(a.username,a.display_name,a.profile_private_fields) "
         f"ELSE substr(json_extract(games.data,'{path}.name'),1,80) END"
     )
     username = f"CASE WHEN {linked} THEN a.username END"

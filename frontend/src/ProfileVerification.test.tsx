@@ -36,11 +36,9 @@ function profile(verified: boolean, name = 'Odin') {
     display_name: null,
     country_code: null,
     city: null,
-    birth_year: null,
-    show_display_name: false,
-    show_country: false,
-    show_city: false,
-    show_age: false,
+    date_of_birth: null,
+    legacy_birth_year: null,
+    legacy_private_fields: [],
     country_codes: ['DE'],
   };
 }
