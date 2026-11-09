@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from .storage import Store
 from .identities import agent_identity
+from .tournament_statistics import historical_statistics, standing
 
 
 STOPPED_WORKER_ERROR = "The tournament worker stopped. Completed games have been kept."
@@ -137,6 +138,8 @@ class TournamentManager:
                 }
             )
         result["config"] = {**tournament["config"], "players": presented}
+        if not summary and result.get("result") is not None:
+            result["result"] = historical_statistics(result["result"], len(players))
         return result
 
     def public_collection(self, records: list[dict], *, summary: bool = False) -> list[dict]:
@@ -214,6 +217,7 @@ class TournamentManager:
                 "games": config["games"],
                 "max_plies": config["max_plies"],
                 "seed": config["seed"],
+                "randomize_start_positions": config.get("randomize_start_positions", False),
                 "results": {
                     "status": public["status"],
                     "created_at": public["created_at"],
@@ -268,18 +272,14 @@ class TournamentManager:
                 "result": {
                     "players": [player["config"] for player in config["players"]],
                     "scores": [0.0] * player_count,
-                    "standings": [
-                        dict(
-                            player=index, wins=0, losses=0, draws=0, truncated=0, games=0, score=0.0
-                        )
-                        for index in range(player_count)
-                    ],
+                    "standings": [standing(index) for index in range(player_count)],
                     "by_ruleset": {
                         ruleset: {
                             "wins": [0] * player_count,
                             "draws": 0,
                             "truncated": 0,
                             "games": 0,
+                            "standings": [standing(index) for index in range(player_count)],
                         }
                         for ruleset in config["rulesets"]
                     },

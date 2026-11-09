@@ -17,7 +17,16 @@ from itertools import combinations
 from typing import Any, Callable, Generator, Iterator
 
 from .engine import RULESETS, Move, State, apply_move, legal_moves, new_game
-from .symmetry import Symmetry, canonical_state_key, inverse, state_stabilizer, transform_move
+from .openings import OPENING_VERSION, Opening, generate_opening, opening_seed
+from .symmetry import (
+    BoardKey,
+    Symmetry,
+    canonical_state_key,
+    inverse,
+    state_stabilizer,
+    transform_move,
+)
+from .tournament_statistics import standing as new_standing, record_standing
 
 
 # Catalog profiles the browser API treats as authoritative presets: selecting one
@@ -1828,6 +1837,7 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
         "mean_decision_time": _mean([seconds for _, seconds, _ in records]),
         "mean_nodes": mean_key("nodes"),
         "mean_evaluations": mean_key("evaluations"),
+        "mean_simulations": mean_key("simulations"),
         "total_cutoffs": sum(int(d.get("cutoffs", 0)) for d, _, _ in records),
         "transposition_cutoffs": sum(int(d.get("transposition_cutoffs", 0)) for d, _, _ in records),
         "symmetry_moves_skipped": sum(
@@ -1843,7 +1853,7 @@ def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
     if not decisions:
         return
     accumulator["decisions"] = accumulator.get("decisions", 0) + decisions
-    for key in ("completed_depth", "nodes", "evaluations"):
+    for key in ("completed_depth", "nodes", "evaluations", "simulations"):
         value = summary.get(f"mean_{key}")
         if value is not None:
             accumulator[f"{key}_sum"] = accumulator.get(f"{key}_sum", 0.0) + value * decisions
@@ -1875,6 +1885,7 @@ def _finalise_diagnostics(accumulator: dict) -> dict:
         "mean_decision_time": accumulator.get("decision_time_sum", 0.0) / decisions,
         "mean_nodes": ratio("nodes_sum", "nodes_count"),
         "mean_evaluations": ratio("evaluations_sum", "evaluations_count"),
+        "mean_simulations": ratio("simulations_sum", "simulations_count"),
         "total_cutoffs": accumulator.get("total_cutoffs", 0),
         "transposition_cutoffs": accumulator.get("transposition_cutoffs", 0),
         "symmetry_moves_skipped": accumulator.get("symmetry_moves_skipped", 0),
@@ -1890,12 +1901,18 @@ def play_game(
     seed: int = 0,
     max_plies: int = 300,
     should_stop: Callable[[], bool] | None = None,
+    opening: Opening | None = None,
 ) -> dict:
-    """Play an experiment, distinguishing unfinished cap runs from rule draws."""
+    """Play an experiment; the move cap and timings count agent decisions only.
+
+    The complete move list includes the generated prefix for engine replay.
+    Its length is recorded separately so opening plies never count as decisions.
+    """
     if not 1 <= max_plies <= 5000:
         raise ValueError("max_plies must be between 1 and 5000")
-    state = new_game(ruleset)
-    moves, durations = [], []
+    state = opening.state if opening else new_game(ruleset)
+    moves = [move.to_dict() for move in opening.moves] if opening else []
+    durations: list[float] = []
     records: dict[str, list[tuple[dict, float, int | None]]] = {"attackers": [], "defenders": []}
     for ply in range(max_plies):
         if should_stop and should_stop():
@@ -1906,7 +1923,7 @@ def play_game(
         config["seed"] = seed + ply
         details: dict = {}
         started = time.monotonic()
-        move = choose_move(state, config, diagnostics=details)
+        move = choose_move(state, config, diagnostics=details, should_stop=should_stop)
         elapsed = time.monotonic() - started
         durations.append(elapsed)
         configured_depth = config.get("depth")
@@ -1924,6 +1941,17 @@ def play_game(
         "outcome": "completed" if state.winner else "truncated",
         "reason": state.reason or "experiment_ply_limit",
         "plies": len(moves),
+        "agent_plies": len(durations),
+        **(
+            {
+                "opening_seed": opening.seed,
+                "opening_version": OPENING_VERSION,
+                "opening_plies": len(opening.moves),
+                "opening_unique": opening.unique,
+            }
+            if opening
+            else {}
+        ),
         "moves": moves,
         "average_decision_time": sum(durations) / max(1, len(durations)),
         "total_decision_time": sum(durations),
@@ -1935,37 +1963,17 @@ def play_game(
 
 
 def validate_fixed_role_players(profiles: list) -> None:
-    """Normalise and validate a fixed-role pairing of two trained neural models.
-
-    Both participants must resolve to identical effective search settings, so the
-    browser API and the headless runner reject a mismatched pairing the same way.
-    Only the model identity and the participant's own seed may differ: the
-    tournament seed supersedes the per-participant seeds and ``play_game`` derives
-    a seed per game and per ply from it, so a recorded participant seed is not a
-    search difference. The browser API and the frontend importer apply the same
-    rule.
-    """
-    from .identities import effective_ai_config
-
+    """Validate two independent seats using the regular agent configuration rules."""
     if not isinstance(profiles, list) or len(profiles) != 2:
         raise ValueError("A fixed-role comparison needs exactly two participants")
-    resolved = []
     for profile in profiles:
-        config = effective_ai_config(profile)
-        if config.get("algorithm") != "neural" or not config.get("model_id"):
-            raise ValueError("A fixed-role comparison requires two trained neural models")
-        resolved.append(
-            {key: value for key, value in config.items() if key not in ("model_id", "seed")}
-        )
-    if resolved[0] != resolved[1]:
-        raise ValueError("Both fixed-role participants must use identical search settings")
+        resolve_ai_config(profile, extra_fields=frozenset({"model_path"}))
 
 
 def validate_fixed_role_rulesets(rulesets: object) -> None:
     """Require exactly one supported battlefield for a fixed-role comparison.
 
-    Trained models belong to a single ruleset, so the browser API already limits
-    the mode to one battlefield. The headless runner enforces the same contract
+    The mode uses one battlefield. The headless runner enforces the same contract
     before any game is scheduled instead of failing later during play.
     """
     if rulesets is None:
@@ -1986,6 +1994,9 @@ def tournament(
     mode = config.get("mode", "round_robin")
     if mode not in ("round_robin", "fixed_roles"):
         raise ValueError("Unknown tournament mode")
+    randomize = config.get("randomize_start_positions", False)
+    if type(randomize) is not bool:
+        raise ValueError("randomize_start_positions must be a boolean")
     profiles = config.get(
         "players", [{"algorithm": "baseline"}, {"algorithm": "mcts", "iterations": 20}]
     )
@@ -2006,14 +2017,15 @@ def tournament(
         pairings = list(combinations(range(len(profiles)), 2))
     results: list[dict] = []
     scores = [0.0] * len(profiles)
-    standings: list[dict] = [
-        dict(player=index, wins=0, losses=0, draws=0, truncated=0, games=0, score=0.0)
-        for index in range(len(profiles))
-    ]
+    standings = [new_standing(index) for index in range(len(profiles))]
     # Per-opponent running search diagnostics, merged from each game's per-side
     # summary. Kept out of the public ``results`` payload until snapshot time.
     diagnostics_accumulators: list[dict] = [{} for _ in profiles]
     by_ruleset: dict = {}
+    total_plies = 0
+    total_agent_plies = 0
+    total_decision_time = 0.0
+    truncated = 0
 
     def snapshot() -> dict:
         for index, standing in enumerate(standings):
@@ -2032,11 +2044,11 @@ def tournament(
             "standings": standings,
             "by_ruleset": by_ruleset,
             "games": results,
-            "truncated": sum(r["winner"] is None for r in results),
-            "average_game_length": sum(r["plies"] for r in results) / max(1, len(results)),
-            "average_decision_time": sum(r["total_decision_time"] for r in results)
-            / max(1, sum(r["plies"] for r in results)),
+            "truncated": truncated,
+            "average_game_length": total_plies / max(1, len(results)),
+            "average_decision_time": total_decision_time / max(1, total_agent_plies),
             "seed": config.get("seed", 0),
+            "randomize_start_positions": randomize,
         }
 
     for ruleset in config.get("rulesets", ["tablut", "brandubh", "copenhagen"]):
@@ -2045,8 +2057,11 @@ def tournament(
             "draws": 0,
             "truncated": 0,
             "games": 0,
+            "standings": [new_standing(index) for index in range(len(profiles))],
         }
+        seen_openings: set[BoardKey] = set()
         for first, second in pairings:
+            opening = None
             for game in range(games_per_ruleset):
                 if should_stop and should_stop():
                     return snapshot()
@@ -2061,6 +2076,18 @@ def tournament(
                     # use a distinct derived seed for every scheduled match.
                     game_seed = game if len(profiles) == 2 else len(results)
                 try:
+                    if randomize and (mode == "fixed_roles" or game % 2 == 0):
+                        opening = generate_opening(
+                            ruleset,
+                            opening_seed(
+                                int(config.get("seed", 0)),
+                                ruleset,
+                                (first, second),
+                                game if mode == "fixed_roles" else game // 2,
+                            ),
+                            seen_openings,
+                            should_stop,
+                        )
                     result = play_game(
                         ruleset,
                         profiles[attacker],
@@ -2068,23 +2095,28 @@ def tournament(
                         seed=int(config.get("seed", 0)) + game_seed,
                         max_plies=int(config.get("max_plies", 300)),
                         should_stop=should_stop,
+                        **({"opening": opening} if randomize else {}),
                     )
                 except InterruptedError:
                     return snapshot()
                 result["attacker_player"] = attacker
                 result["defender_player"] = defender
+                total_plies += result["plies"]
+                total_agent_plies += result.get("agent_plies", result["plies"])
+                total_decision_time += result["total_decision_time"]
                 game_diagnostics = result.get("diagnostics", {})
                 for player, side in ((attacker, "attackers"), (defender, "defenders")):
                     _merge_diagnostics(
                         diagnostics_accumulators[player], game_diagnostics.get(side, {})
                     )
-                for player in (attacker, defender):
-                    standings[player]["games"] += 1
+                    record_standing(standings[player], result["winner"], side)
+                    record_standing(
+                        by_ruleset[ruleset]["standings"][player], result["winner"], side
+                    )
                 by_ruleset[ruleset]["games"] += 1
                 if result["winner"] == "draw":
                     for player in (attacker, defender):
                         scores[player] += 0.5
-                        standings[player]["draws"] += 1
                     by_ruleset[ruleset]["draws"] += 1
                 elif result["winner"] is not None:
                     winner, loser = (
@@ -2093,12 +2125,9 @@ def tournament(
                         else (defender, attacker)
                     )
                     scores[winner] += 1
-                    standings[winner]["wins"] += 1
-                    standings[loser]["losses"] += 1
                     by_ruleset[ruleset]["wins"][winner] += 1
                 else:
-                    for player in (attacker, defender):
-                        standings[player]["truncated"] += 1
+                    truncated += 1
                     by_ruleset[ruleset]["truncated"] += 1
                 results.append(result)
                 if report:

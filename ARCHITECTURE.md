@@ -44,7 +44,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
-| [tournaments.py](hnefatafl/tournaments.py) | Separate browser tournament process/lifecycle and durable partial reports |
+| [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
@@ -75,12 +75,33 @@ no additional aggregate or storage migration is required.
 
 A tournament carries an explicit `mode`: `round_robin` (the default when the
 field is absent, preserving every earlier record) or `fixed_roles`. A fixed-role
-comparison has exactly two trained neural participants, one battlefield and one
-shared search configuration. Seat 0 always attacks and seat 1 always defends, so
-the scheduled total is the plain game count and odd counts are valid. The API and
-the worker both reject a pairing whose effective search settings differ after
-excluding the model identity. The collection endpoint projects the summary in
-SQLite, so listing saved tournaments never decodes retained match histories.
+comparison has exactly two independently configured participants and one battlefield.
+It uses the same validated profiles, heuristic agents and neural wrappers as the
+round robin. Seat 0 always attacks and seat 1 always defends, so its total is the
+plain game count and odd counts are valid. Each seat retains its own effective
+search parameters, even when both reference the same model weights. The collection
+endpoint projects the summary in SQLite, so listing saved tournaments never decodes
+retained match histories.
+
+`tournament_statistics.py` updates overall, per-role and per-battlefield counters
+incrementally. Win rates and draw-adjusted score rates divide by wins + losses +
+draws; unfinished games remain separate. Missing historical role counters are
+reconstructed from complete retained match records only on full-detail/export reads.
+Incomplete histories leave the unavailable side counters absent. No migration or
+historical rewrite is needed.
+
+Optional `randomize_start_positions` defaults to false. `openings.py` uses versioned
+SHA-256 seed derivation and model-independent quiet legal playouts from the standard
+board, retaining immutable engine states and their complete repetition histories.
+Each round-robin return game reuses the exact same opening as its first leg; a new
+pair of games receives a new opening. Fixed-role generation depends on seat order
+and game index, never agent identity/settings, so swapping agents reproduces the
+same opening sequence. Search seeds keep their prior derivation independently.
+Complete move lists contain the generated prefix, identified by `opening_plies`,
+`opening_seed` and `opening_version`; replay traverses it through the engine.
+The game move cap, decision times and search diagnostics count agent moves only.
+See [tournaments](docs/TOURNAMENTS.md#randomized-legal-openings) for the bounded
+policy, duplicate fallback and reproducibility limits.
 
 ## Rules
 

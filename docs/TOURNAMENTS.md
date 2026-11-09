@@ -5,7 +5,7 @@
 Use **Tournaments** in the main navigation to set up a comparison and
 return to its saved results later. Two creation actions are available:
 **New tournament** builds the balanced round robin described below, and
-**Fixed-role comparison** pins one trained model as attackers and another as
+**Fixed-role comparison** pins independently configured opponents as attackers and
 defenders. The saved collection shows both kinds side by side, and fixed-role
 runs carry a **Fixed-role comparison** label.
 
@@ -64,7 +64,7 @@ have three, and four have six. Total scheduled games are games per pairing
 multiplied by pairings and selected battlefields. For example, four opponents
 playing two games per pairing on one battlefield schedule 12 games; each
 opponent participates in six. Standings count only the games that opponent plays.
-The move limit counts individual moves (plies), not pairs of turns.
+The move limit counts individual agent moves (plies), not pairs of turns or generated opening moves.
 The shared tournament seed determines the per-game/per-move randomness; it
 supersedes individual profile seeds. Tight wall-clock budgets can still produce
 different search completion on different hardware. A larger balanced sample is
@@ -77,31 +77,25 @@ seed 0. The headless tournament accepts even game counts 2–10,000 and move cap
 
 ## Fixed-role comparison
 
-**Fixed-role comparison** measures how one trained model performs on a specific
-side. Choose exactly one battlefield — trained models belong to a ruleset — and
-two trained models:
+**Fixed-role comparison** measures independently configured opponents on a specific
+side. Choose exactly one battlefield and configure two participants:
 
-- **Attackers** plays the attacking side in every game.
-- **Defenders** plays the defending side in every game.
+- **Attackers** (seat 0) plays the attacking side in every game.
+- **Defenders** (seat 1) plays the defending side in every game.
 
-The same model can be selected for both seats; that is a self-play comparison of
-one model against itself, and the two seats stay separate in every result. A
-model that does not belong to the selected battlefield is reported as
-incompatible and kept visible rather than silently replaced, and the comparison
-cannot start until both seats match the battlefield.
+Both sections use the regular tournament participant editor: profiles, heuristic
+agents, trained models, MCTS/alpha-beta/no-search neural wrappers and all applicable
+search parameters are independently editable. Selecting the same registered model
+in both seats keeps separate configurations and statistics. For example, attackers
+can use 256 MCTS simulations and defenders 64, with independent time limits,
+exploration and temperature. Named profiles retain their authoritative preset
+parameters; select **Custom opponent** to edit those parameters.
 
-Both seats share exactly one **Shared search configuration**: the wrapper (MCTS,
-alpha-beta or none), the applicable parameters (time limit, search iterations,
-exploration, search depth, temperature and the alpha-beta optimization switches)
-and the move limit. The form submits the identical settings for both seats and
-only the model identity differs; there are no per-seat defaults that could drift
-apart. The browser API, the headless runner and the configuration importer all
-normalise the two effective configurations and reject a pairing whose settings
-differ after excluding the model identity and the participant's own seed: the
-tournament seed supersedes per-participant seeds and derives every game and ply
-seed, so a recorded participant seed is not a search difference. Because the
-search is neural, the alpha-beta symmetry switches are unavailable: a value head
-is not guaranteed to be D4-equivariant.
+A neural model must match the selected battlefield. An incompatible selection stays
+visible until explicitly changed; it is never silently replaced. Neural alpha-beta
+symmetry switches remain unavailable because the value head need not be D4-equivariant.
+The API, worker and importer validate each agent independently. Previously exported
+fixed-role configurations with identical settings remain valid.
 
 Unlike the round robin, sides are never swapped. The game count is therefore the
 total number of scheduled games — 50 games means the attacker model attacks the
@@ -166,6 +160,78 @@ a fixed-role comparison.
 Omitting `mode` keeps the historical balanced round robin, and every record saved
 before this mode existed stays readable.
 
+## Randomized legal openings
+
+Both setup dialogs offer **Randomize starting positions**, disabled by default.
+The additive boolean `randomize_start_positions` is saved, exported and imported;
+its absence means false. Tournament details identify standard versus randomized
+starts. The seed, battlefield, game count and move limit remain tournament settings.
+
+Opening algorithm version 1 plays 2, 4 or 6 legal plies from the standard engine
+position. SHA-256 derives a separate opening seed from the tournament seed,
+ruleset, unordered seat pairing and comparison index. Hash ordering over sorted
+legal moves defines deterministic choices without Python process hashes or
+version-dependent random sampling. No model or search configuration participates.
+Even opening lengths retain the ruleset's initial side to move, including Tablut's
+defender-first convention. The immutable engine state keeps the entire ordered
+repetition history.
+
+The lightweight policy rejects captures, terminal states, repeated positions,
+positions without legal moves and openings that give the side to move an immediate
+win. This avoids material accidents from an unrestricted random playout. It does
+not guarantee strategic balance: evaluate both roles and use enough completed
+games before drawing strength conclusions. Final boards are deduplicated up to
+rotation/reflection within a battlefield. Generation tries at most 32 candidates;
+if no unique candidate remains, a suitable duplicate is retained with
+`opening_unique: false`. If none is suitable, the run fails visibly and retains
+previous games. Generation checks cancellation and performs no model inference.
+
+Each adjacent round-robin pair of games reuses the **same full opening state**,
+including side to move and history, while exchanging agents. The next comparison
+uses another seed. This applies to every pairing in two-, three- and four-player
+runs. Fixed-role games retain their seats and each use another opening; rerunning
+with agents swapped and the same seed/settings reproduces the opening sequence.
+Generation is lazy and independent of search randomness. Seed derivation and
+opening choices are versioned; changing the algorithm requires a new version.
+Saved prefixes remain replayable regardless of later algorithm versions.
+
+Saved games contain `opening_seed`, `opening_version`, `opening_plies` and
+`opening_unique`. Their complete `moves` list starts with the generated prefix;
+replay validates every move from the standard position and labels opening moves
+separately. `plies` includes that prefix, while `agent_plies`, the configured
+`max_plies`, decision timings and search diagnostics count agent moves only.
+Average game length includes the opening; average decision time excludes it.
+Historical games without opening metadata replay exactly as before. Time-limited
+search can still do different work on different hardware even with identical
+openings, so compare configured budgets with **Mean MCTS simulations** or the
+existing alpha-beta diagnostics.
+
+For a portable same-weights Brandubh benchmark, replace the model ID below with
+one registered on the server, then import it from **New tournament**:
+
+```json
+{
+  "name": "Same weights: MCTS 64 vs 256",
+  "mode": "round_robin",
+  "rulesets": ["brandubh"],
+  "players": [
+    {"config": {"algorithm": "neural", "model_id": "REGISTERED_MODEL_ID", "iterations": 64, "time_limit": 15, "temperature": 0}},
+    {"config": {"algorithm": "neural", "model_id": "REGISTERED_MODEL_ID", "iterations": 256, "time_limit": 15, "temperature": 0}}
+  ],
+  "games": 20,
+  "max_plies": 300,
+  "seed": 42,
+  "randomize_start_positions": true
+}
+```
+
+For fixed-role 256-vs-64, change `mode` to `fixed_roles`, reverse the two player
+entries and import from **Fixed-role comparison**. The headless CLI additionally
+needs a validated `model_path` for each neural seat. The regression suite uses a
+real tiny CPU checkpoint and a short agent move cap to check 20 paired games,
+independent budgets, persistence and replay; that is pipeline validation, not a
+measurement of checkpoint strength.
+
 ## Import and export configurations
 
 **Import configuration** in the setup dialog reads a portable JSON document and
@@ -223,8 +289,8 @@ whole document is accepted.
 
 `name` is optional. `mode` is optional and accepts `round_robin` (default) or
 `fixed_roles`. A fixed-role document must list exactly one battlefield, exactly
-two neural participants and 1–100 games; its two `config` objects must be
-identical apart from `model_id`. Each setup dialog accepts only its own mode and
+two supported participants and 1–100 games; its two `config` objects are validated
+independently. Each setup dialog accepts only its own mode and
 reports a document for the other mode instead of filling the form, so a
 fixed-role configuration is imported from the fixed-role setup. `rulesets` must
 list one to three supported, distinct
@@ -268,13 +334,21 @@ described under [API and deployment](#api-and-deployment).
 
 ## Read the results
 
-Standings show each opponent's wins, losses, draws, unfinished games and score.
+Standings show each opponent's wins, losses, draws, unfinished games and score,
+with overall and per-role games, outcomes, win rates and score rates. Percentages
+include their completed sample count (`n`). Win rate is wins / completed; score
+rate is (wins + 0.5 × draws) / completed, where completed = wins + losses + draws.
+Unfinished games are excluded from both denominators. A role without completed
+games shows `—`, including the unplayed role of a fixed-role participant.
+Multi-battlefield standings offer a collapsible per-battlefield role breakdown.
+Historical counters are reconstructed when the retained games are complete;
+otherwise unavailable role statistics show placeholders without inventing results.
 Wins earn one point, actual rule draws half a point for each opponent, and
 unfinished games no points. Reaching the experimental move limit is unfinished,
 even when one side appears to have an advantage. A stopped tournament can have
 fewer finished games than scheduled; an interrupted in-flight game is discarded.
 A fixed-role comparison labels its two seats **Attackers** and **Defenders**
-instead of numbered opponents, and adds the side-specific panel described under
+instead of numbered opponents, and adds the outcome chart described under
 [Fixed-role comparison](#fixed-role-comparison); selecting the same model in both
 seats still reports two separate seats.
 

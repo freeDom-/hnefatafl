@@ -1,4 +1,23 @@
 const german: Record<string, string> = {
+  'Compare independently configured attackers and defenders.':
+    'Vergleiche unabhängig konfigurierte Angreifer und Verteidiger.',
+  'Compare independently configured opponents with fixed sides. Player 1 always attacks and player 2 always defends.':
+    'Vergleiche unabhängig konfigurierte Gegner mit festen Seiten. Spieler 1 greift immer an und Spieler 2 verteidigt immer.',
+  'Randomize starting positions': 'Ausgangsstellungen zufällig variieren',
+  'Start games from reproducible, randomly generated legal openings to test performance across different positions. Paired round-robin games reuse the same opening with swapped sides.':
+    'Starte Partien mit reproduzierbaren, zufällig erzeugten regelkonformen Eröffnungen, um die Spielstärke in verschiedenen Stellungen zu testen. Paarweise Rundenturnierpartien verwenden dieselbe Eröffnung mit getauschten Seiten.',
+  'The move limit counts agent moves only. Generated opening moves are excluded from decision statistics.':
+    'Das Zuglimit zählt nur Züge der Gegner. Erzeugte Eröffnungszüge sind von den Entscheidungsstatistiken ausgenommen.',
+  'Randomized legal openings': 'Zufällig erzeugte regelkonforme Eröffnungen',
+  'Standard starting position': 'Standard-Ausgangsstellung',
+  'Opening seed {seed} · {count} generated plies':
+    'Eröffnungsstartwert {seed} · {count} erzeugte Halbzüge',
+  'Generated opening move': 'Erzeugter Eröffnungszug',
+  'Agent move': 'Zug des Gegners',
+  'As attackers': 'Als Angreifer',
+  'As defenders': 'Als Verteidiger',
+  'By battlefield': 'Nach Schlachtfeld',
+  'Mean MCTS simulations': 'Mittlere MCTS-Simulationen',
   'A MEETING OF MINDS': 'EIN TREFFEN DER KLUGEN KÖPFE',
   'The tournament hall.': 'Die Turnierhalle.',
   'Set your strategists against each other. Every result becomes part of their saga.':

@@ -111,6 +111,7 @@ describe('tournament setup and saved selection', () => {
     expect(setup.getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
       'Brandubh 7 × 7',
       'Tablut 9 × 9',
+      'Randomize starting positions',
     ]);
     fireEvent.change(setup.getByLabelText('Tournament name'), {
       target: { value: 'Ravens at dawn' },
@@ -1412,7 +1413,7 @@ describe('fixed-role comparison setup', () => {
     return within(screen.getByRole('dialog', { name: 'Fixed-role comparison' }));
   };
 
-  it('submits one shared search configuration for two distinct models', async () => {
+  it('submits independent search configurations for two distinct models', async () => {
     let submitted: Record<string, unknown> | undefined;
     vi.stubGlobal(
       'fetch',
@@ -1431,7 +1432,7 @@ describe('fixed-role comparison setup', () => {
       target: { value: 'model-b' },
     });
     fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
-    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+    fireEvent.change(setup.getByLabelText('Attackers search iterations'), {
       target: { value: '300' },
     });
     expect(setup.getByText('5', { selector: '.tournament-run-count strong' })).toBeInTheDocument();
@@ -1447,9 +1448,8 @@ describe('fixed-role comparison setup', () => {
     const players = (submitted as { players: { config: Record<string, unknown> }[] }).players;
     expect(players[0].config.model_id).toBe('model-a');
     expect(players[1].config.model_id).toBe('model-b');
-    // Only the model identity may differ between the two seats.
-    expect(players[0].config).toEqual({ ...players[1].config, model_id: 'model-a' });
     expect(players[0].config.iterations).toBe(300);
+    expect(players[1].config.iterations).toBe(40);
   });
 
   it('allows the same model in both seats with an odd game count', async () => {
@@ -1484,10 +1484,7 @@ describe('fixed-role comparison setup', () => {
     expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-a');
     expect(setup.getByLabelText('Defenders trained model')).toHaveValue('model-a');
     expect(
-      setup.getByText('The attackers model is not trained for this battlefield.'),
-    ).toBeInTheDocument();
-    expect(
-      setup.getByText('The defenders model is not trained for this battlefield.'),
+      setup.getByText('Choose a compatible trained model and its single matching battlefield.'),
     ).toBeInTheDocument();
     const start = setup.getByRole('button', { name: 'Start tournament' });
     expect(start).toBeDisabled();
@@ -1510,7 +1507,7 @@ describe('fixed-role comparison setup', () => {
     const setup = await openFixedSetup([modelA, modelB]);
     fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
     fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
-    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+    fireEvent.change(setup.getByLabelText('Attackers search iterations'), {
       target: { value: '300' },
     });
     fireEvent.change(setup.getByLabelText('Attackers trained model'), {
@@ -1545,7 +1542,7 @@ describe('fixed-role comparison setup', () => {
     expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[1].config.exploraton');
     expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
     expect(setup.getByLabelText('Number of games')).toHaveValue(5);
-    expect(setup.getByLabelText('Shared search iterations')).toHaveValue(300);
+    expect(setup.getByLabelText('Attackers search iterations')).toHaveValue(300);
     expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-b');
   });
 
@@ -1558,7 +1555,7 @@ describe('fixed-role comparison setup', () => {
     const setup = await openFixedSetup([modelA, modelB]);
     fireEvent.change(setup.getByLabelText('Tournament name'), { target: { value: 'Keep me' } });
     fireEvent.change(setup.getByLabelText('Number of games'), { target: { value: '5' } });
-    fireEvent.change(setup.getByLabelText('Shared search iterations'), {
+    fireEvent.change(setup.getByLabelText('Attackers search iterations'), {
       target: { value: '300' },
     });
     fireEvent.change(setup.getByLabelText('Attackers trained model'), {
@@ -1586,7 +1583,7 @@ describe('fixed-role comparison setup', () => {
     expect(String(error.mock.calls.at(-1)?.[0])).toContain('players[0].config.algorithm');
     expect(setup.getByDisplayValue('Keep me')).toBeInTheDocument();
     expect(setup.getByLabelText('Number of games')).toHaveValue(5);
-    expect(setup.getByLabelText('Shared search iterations')).toHaveValue(300);
+    expect(setup.getByLabelText('Attackers search iterations')).toHaveValue(300);
     expect(setup.getByLabelText('Attackers trained model')).toHaveValue('model-b');
   });
 
@@ -1656,7 +1653,7 @@ describe('fixed-role comparison setup', () => {
     });
     await waitFor(() => expect(fixed.getByDisplayValue('Fixed saga')).toBeInTheDocument());
     expect(fixed.getByLabelText('Number of games')).toHaveValue(7);
-    expect(fixed.getByLabelText('Shared search iterations')).toHaveValue(120);
+    expect(fixed.getByLabelText('Attackers search iterations')).toHaveValue(120);
     expect(fixed.getByLabelText('Move limit per game')).toHaveValue(200);
     expect(fixed.getByLabelText('Tournament seed')).toHaveValue(5);
   });
@@ -2377,5 +2374,136 @@ describe('fixed-role outcome chart', () => {
     await showChart([]);
     expect(document.querySelector('.tournament-outcome-bar')).toBeNull();
     expect(screen.getByText('No completed games yet.')).toBeInTheDocument();
+  });
+});
+
+describe('tournament benchmarking', () => {
+  it.each(['running', 'completed'] as const)(
+    'shows role denominators and unfinished counts for a %s tournament',
+    async (status) => {
+      const tournament = saved('benchmark');
+      tournament.status = status;
+      tournament.config.randomize_start_positions = true;
+      const attack = { games: 5, wins: 1, losses: 1, draws: 1, truncated: 2 };
+      const defend = { games: 4, wins: 3, losses: 0, draws: 1, truncated: 0 };
+      tournament.result = {
+        standings: [
+          {
+            player: 0,
+            score: 5,
+            games: 9,
+            wins: 4,
+            losses: 1,
+            draws: 2,
+            truncated: 2,
+            roles: { attackers: attack, defenders: defend },
+            diagnostics: { decisions: 9, mean_simulations: 63.5 },
+          },
+        ],
+        scores: [5, 0],
+        games: [],
+        by_ruleset: {},
+        truncated: 2,
+        average_game_length: 2,
+        average_decision_time: 0.01,
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((path: string) =>
+          json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+        ),
+      );
+      show();
+      await screen.findByRole('heading', { name: 'Challenge benchmark' });
+      const card = within(screen.getByRole('heading', { name: 'Raven' }).closest('article')!);
+      expect(card.getByRole('region', { name: 'Overall' })).toHaveTextContent('57.1% · n=7');
+      expect(card.getByRole('region', { name: 'Overall' })).toHaveTextContent('71.4% · n=7');
+      expect(card.getByRole('region', { name: 'As attackers' })).toHaveTextContent('33.3% · n=3');
+      expect(card.getByRole('region', { name: 'As attackers' })).toHaveTextContent('50.0% · n=3');
+      expect(card.getByRole('region', { name: 'As attackers' })).toHaveTextContent('Unfinished2');
+      expect(card.getByRole('region', { name: 'As defenders' })).toHaveTextContent('75.0% · n=4');
+      expect(card.getByRole('region', { name: 'As defenders' })).toHaveTextContent('87.5% · n=4');
+      expect(card.getByText('Mean MCTS simulations')).toBeInTheDocument();
+      expect(screen.getByText('Randomized legal openings')).toBeInTheDocument();
+    },
+  );
+
+  it('keeps zero-completed and unavailable roles distinct from a 0% result', async () => {
+    const tournament = saved('empty-roles');
+    tournament.config.mode = 'fixed_roles';
+    tournament.result = {
+      scores: [0, 0],
+      games: [],
+      by_ruleset: {},
+      truncated: 1,
+      average_game_length: 1,
+      average_decision_time: 0.01,
+      standings: [
+        {
+          player: 0,
+          score: 0,
+          games: 1,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          truncated: 1,
+          roles: {
+            attackers: { games: 1, wins: 0, losses: 0, draws: 0, truncated: 1 },
+            defenders: { games: 0, wins: 0, losses: 0, draws: 0, truncated: 0 },
+          },
+        },
+      ],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
+    );
+    show();
+    await screen.findByRole('heading', { name: 'Challenge empty-roles' });
+    const card = within(screen.getByRole('heading', { name: 'Raven' }).closest('article')!);
+    expect(card.getByRole('region', { name: 'As attackers' })).toHaveTextContent('— · n=0');
+    expect(card.getByRole('region', { name: 'As defenders' })).toHaveTextContent('— · n=0');
+    expect(card.queryByText(/0\.0%/)).not.toBeInTheDocument();
+  });
+
+  it('submits the same model with independent wrappers, budgets and randomized openings', async () => {
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          submitted = JSON.parse(String(options.body));
+          return json(saved('created'));
+        }
+        return json(path === '/api/tournaments?summary=true' ? [] : saved('created'));
+      }),
+    );
+    show([{ id: 'same', name: 'Same weights', ruleset: 'brandubh' }]);
+    const button = screen.getAllByRole('button', { name: 'Fixed-role comparison' })[0];
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    const form = within(screen.getByRole('dialog', { name: 'Fixed-role comparison' }));
+    fireEvent.change(form.getByLabelText('Attackers search iterations'), {
+      target: { value: '256' },
+    });
+    fireEvent.change(form.getByLabelText('Attackers time limit (seconds)'), {
+      target: { value: '2' },
+    });
+    fireEvent.change(form.getByLabelText('Defenders search wrapper'), {
+      target: { value: 'alpha_beta' },
+    });
+    fireEvent.change(form.getByLabelText('Defenders search depth'), { target: { value: '3' } });
+    fireEvent.click(form.getByLabelText('Randomize starting positions'));
+    fireEvent.click(form.getByRole('button', { name: 'Start tournament' }));
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted).toMatchObject({
+      randomize_start_positions: true,
+      players: [
+        { config: { model_id: 'same', iterations: 256, time_limit: 2 } },
+        { config: { model_id: 'same', search_wrapper: 'alpha_beta', depth: 3, time_limit: 10 } },
+      ],
+    });
   });
 });

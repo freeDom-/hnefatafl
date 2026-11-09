@@ -1,4 +1,4 @@
-"""Fixed-role comparisons: one shared search, two fixed sides, distinct seats."""
+"""Fixed-role comparisons: independent searches, fixed sides, distinct seats."""
 
 import json
 import time
@@ -127,7 +127,7 @@ def test_same_model_in_both_seats_keeps_distinct_role_statistics(client, models)
     assert result["scores"][1] == defender_wins + draws / 2
 
 
-def test_fixed_role_rejects_mismatched_effective_search_settings(client, models):
+def test_fixed_role_preserves_independent_effective_search_settings(client, models):
     for change in (
         {"iterations": 2},
         {"time_limit": 0.02},
@@ -136,16 +136,18 @@ def test_fixed_role_rejects_mismatched_effective_search_settings(client, models)
     ):
         config = fixed_role_configuration(models)
         config["players"][1]["config"].update(change)
-        response = client.post("/api/tournaments", json=config)
-        assert response.status_code == 400, response.text
-        assert "identical search settings" in response.json()["detail"]
-        assert client.get("/api/tournaments").json() == []
+        created = launch(client, config)
+        completed = wait_for(client, created["id"], lambda row: row["status"] == "completed")
+        assert completed["config"]["players"][1]["config"].items() >= change.items()
+        assert completed["config"]["players"][0]["config"]["iterations"] == 1
 
 
 def test_fixed_role_rejects_unsupported_participants_battlefields_and_counts(client, models):
     baseline = {"config": {"algorithm": "baseline", "time_limit": 0.01}}
     rejected = [
-        fixed_role_configuration(models, players=[model_player(models[0]["id"]), baseline]),
+        fixed_role_configuration(
+            models, players=[model_player(models[0]["id"]), {"config": {"algorithm": "unknown"}}]
+        ),
         fixed_role_configuration(models, players=[model_player(models[0]["id"])]),
         fixed_role_configuration(
             models,
@@ -179,7 +181,9 @@ def test_fixed_role_rejects_models_trained_for_another_battlefield(client, model
 
 
 def test_fixed_role_cancellation_keeps_partial_results(client, models):
-    config = fixed_role_configuration(models, games=100, max_plies=1000)
+    config = fixed_role_configuration(
+        models, games=100, max_plies=1000, randomize_start_positions=True
+    )
     created = launch(client, config)
     assert created["progress"]["total_games"] == 100
     partial = wait_for(client, created["id"], lambda row: row["progress"]["completed_games"] >= 1)
@@ -291,17 +295,15 @@ def test_round_robin_mode_defaults_and_even_game_requirement_still_hold(client):
 def test_fixed_role_runner_validates_before_playing():
     with pytest.raises(ValueError, match="two participants"):
         validate_fixed_role_players([{"algorithm": "neural", "model_id": "a"}])
-    with pytest.raises(ValueError, match="trained neural models"):
-        validate_fixed_role_players(
-            [{"algorithm": "baseline"}, {"algorithm": "neural", "model_id": "a"}]
-        )
-    with pytest.raises(ValueError, match="identical search settings"):
-        validate_fixed_role_players(
-            [
-                {"algorithm": "neural", "model_id": "a", "iterations": 5},
-                {"algorithm": "neural", "model_id": "b", "iterations": 6},
-            ]
-        )
+    validate_fixed_role_players(
+        [{"algorithm": "baseline"}, {"algorithm": "neural", "model_id": "a"}]
+    )
+    validate_fixed_role_players(
+        [
+            {"algorithm": "neural", "model_id": "a", "iterations": 5},
+            {"algorithm": "neural", "model_id": "b", "iterations": 6},
+        ]
+    )
     validate_fixed_role_players(
         [
             {"algorithm": "neural", "model_id": "a", "iterations": 5},
@@ -365,10 +367,10 @@ def test_worker_rejects_a_tampered_stored_pairing(client, models):
     wait_for(client, created["id"], lambda row: row["status"] == "completed")
     stored = client.app.state.store.get_tournament(created["id"])
     assert stored["config"]["mode"] == "fixed_roles"
-    # A stored record that would bypass the API equality check fails the worker.
+    # Invalid stored search parameters still fail worker validation.
     stored["status"] = "running"
     stored["ended_at"] = None
-    stored["config"]["players"][1]["config"]["iterations"] = 99
+    stored["config"]["players"][1]["config"]["iterations"] = 0
     client.app.state.store.save_tournament(stored)
     from hnefatafl.tournaments import run_worker
 
@@ -455,9 +457,9 @@ def test_one_battlefield_still_schedules_odd_fixed_role_counts(monkeypatch):
     )
     assert played == ["brandubh"] * 5
     assert len(result["games"]) == 5
-    assert result["by_ruleset"] == {
-        "brandubh": {"wins": [5, 0], "draws": 0, "truncated": 0, "games": 5}
-    }
+    assert {
+        key: value for key, value in result["by_ruleset"]["brandubh"].items() if key != "standings"
+    } == {"wins": [5, 0], "draws": 0, "truncated": 0, "games": 5}
 
 
 def test_round_robin_keeps_accepting_multiple_battlefields(monkeypatch):
@@ -602,14 +604,13 @@ def test_flat_fixed_role_configs_with_different_seeds_run(monkeypatch):
         {"search_wrapper": "alpha_beta", "search": {"move_ordering": False}},
     ],
 )
-def test_effective_search_differences_still_fail(changes):
+def test_effective_search_differences_are_independently_validated(changes):
     players = [
         {"algorithm": "neural", "model_id": "model-a", "iterations": 5},
         {"algorithm": "neural", "model_id": "model-b", "iterations": 5},
     ]
     players[1].update(changes)
-    with pytest.raises(ValueError, match="identical search settings"):
-        validate_fixed_role_players(players)
+    validate_fixed_role_players(players)
 
 
 def test_api_replaces_participant_seeds_before_validating(client, models):

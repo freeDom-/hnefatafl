@@ -20,6 +20,7 @@ export interface TournamentConfig {
   max_plies: number;
   seed: number;
   mode?: TournamentMode;
+  randomize_start_positions?: boolean;
 }
 export interface TournamentDiagnostics {
   decisions: number;
@@ -27,6 +28,7 @@ export interface TournamentDiagnostics {
   mean_decision_time?: number | null;
   mean_nodes?: number | null;
   mean_evaluations?: number | null;
+  mean_simulations?: number | null;
   total_cutoffs?: number;
   transposition_cutoffs?: number;
   symmetry_moves_skipped?: number;
@@ -44,20 +46,41 @@ export interface TournamentGame {
   average_decision_time: number;
   total_decision_time: number;
   diagnostics?: { attackers?: TournamentDiagnostics; defenders?: TournamentDiagnostics };
+  agent_plies?: number;
+  opening_seed?: number;
+  opening_version?: number;
+  opening_plies?: number;
+  opening_unique?: boolean;
+}
+export interface TournamentPerformance {
+  wins: number;
+  losses: number;
+  draws: number;
+  truncated: number;
+  games: number;
+  completed?: number;
+  win_rate?: number | null;
+  score_rate?: number | null;
+}
+export interface TournamentStanding extends TournamentPerformance {
+  player: number;
+  score: number;
+  roles?: Record<Side, TournamentPerformance>;
+  diagnostics?: TournamentDiagnostics;
 }
 export interface TournamentResult {
   scores: number[];
-  standings: {
-    player: number;
-    wins: number;
-    losses: number;
-    draws: number;
-    truncated: number;
-    games: number;
-    score: number;
-    diagnostics?: TournamentDiagnostics;
-  }[];
-  by_ruleset: Record<string, { wins: number[]; draws: number; truncated: number; games: number }>;
+  standings: TournamentStanding[];
+  by_ruleset: Record<
+    string,
+    {
+      wins: number[];
+      draws: number;
+      truncated: number;
+      games: number;
+      standings?: TournamentStanding[];
+    }
+  >;
   games: TournamentGame[];
   truncated: number;
   average_game_length: number;
@@ -79,6 +102,8 @@ export interface Tournament {
 }
 export interface TournamentReplay {
   validated: boolean;
+  opening_plies?: number;
+  opening_seed?: number | null;
   states: {
     ruleset: string;
     board: string[];

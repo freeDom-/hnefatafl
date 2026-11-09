@@ -23,7 +23,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from .account_policy import game_accounts, game_players, public_identity, resolve_accounts
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
@@ -326,6 +326,7 @@ class TournamentRequest(BaseModel):
     games: StrictInt = Field(default=2, ge=1, le=100)
     max_plies: StrictInt = Field(default=300, ge=1, le=1000)
     seed: StrictInt = Field(default=0, ge=0, le=2**32 - 1)
+    randomize_start_positions: StrictBool = False
 
 
 def create_app(
@@ -1713,9 +1714,7 @@ def create_app(
                     snapshot["model"]["rune"] = store.rune(f"model:{snapshot['model']['id']}")
                 players.append(snapshot)
             if request.mode == "fixed_roles":
-                # Both seats must resolve to identical effective search settings;
-                # only the model identity may differ. This guards requests that
-                # bypass the browser UI.
+                # Apply regular agent validation independently to both fixed seats.
                 try:
                     validate_fixed_role_players([player["config"] for player in players])
                 except ValueError as exc:
@@ -1727,6 +1726,7 @@ def create_app(
                 "games": request.games,
                 "max_plies": request.max_plies,
                 "seed": request.seed,
+                "randomize_start_positions": request.randomize_start_positions,
             }
             try:
                 return tournaments.launch(request.name.strip(), config)
@@ -1796,7 +1796,13 @@ def create_app(
             fail("The saved tournament game could not be validated.", 409)
         if state.to_dict() != game["state"]:
             fail("The saved tournament game does not match its replay.", 409)
-        return {"validated": True, "ruleset": game["ruleset"], "states": states}
+        return {
+            "validated": True,
+            "ruleset": game["ruleset"],
+            "states": states,
+            "opening_plies": game.get("opening_plies", 0),
+            "opening_seed": game.get("opening_seed"),
+        }
 
     @app.get("/api/training/device")
     def devices():

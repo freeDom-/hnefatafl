@@ -247,7 +247,7 @@ def test_rejects_mixed_and_malformed_participants():
         normalise_tournament_config(portable("nope"))
 
 
-def test_portable_fixed_role_document_still_validates_the_shared_search(monkeypatch):
+def test_portable_fixed_role_document_preserves_independent_searches(monkeypatch):
     played = []
 
     def play(_ruleset, attackers, defenders, **options):
@@ -279,24 +279,23 @@ def test_portable_fixed_role_document_still_validates_the_shared_search(monkeypa
         )
     )
     assert [game["attacker_player"] for game in same["games"]] == [0, 0]
-    # Differing effective settings are still rejected at the CLI boundary.
+    # Differing effective settings survive normalization at the CLI boundary.
     mismatched = portable(
         [neural("model-a", iterations=5), neural("model-b", iterations=6)], mode="fixed_roles"
     )
-    with pytest.raises(ValueError, match="identical search settings"):
-        tournament(normalise_tournament_config(mismatched))
-    with pytest.raises(ValueError, match="identical search settings"):
-        tournament(
-            normalise_tournament_config(
-                {
-                    **mismatched,
-                    "players": [
-                        neural("model-a", search_wrapper="none"),
-                        neural("model-b", search_wrapper="mcts"),
-                    ],
-                }
-            )
+    independent = tournament(normalise_tournament_config(mismatched))
+    assert [p["iterations"] for p in independent["players"]] == [5, 6]
+    tournament(
+        normalise_tournament_config(
+            {
+                **mismatched,
+                "players": [
+                    neural("model-a", search_wrapper="none"),
+                    neural("model-b", search_wrapper="mcts"),
+                ],
+            }
         )
+    )
 
 
 def test_neural_participants_need_a_resolvable_checkpoint(tmp_path, checkpoints):
