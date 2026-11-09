@@ -23,6 +23,7 @@ import {
   TrainingTuningView,
 } from './TrainingAnalysisViews';
 import TrainingLiveStatus, { LiveElapsed } from './TrainingLiveStatus';
+import TrainingOptimizerStatus from './TrainingOptimizerStatus';
 import { availableJobTabs, type JobTab } from './jobTabs';
 
 interface Props {
@@ -153,6 +154,7 @@ export default function TrainingJobDashboard({
           </span>
         </div>
         <TrainingLiveStatus job={job} observedAt={observedAt} />
+        <TrainingOptimizerStatus progress={progress} />
         <dl className="dashboard-game-counts" aria-label={t('Self-play games generated')}>
           <div>
             <dt>{t('Job games')}</dt>

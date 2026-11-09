@@ -13,6 +13,7 @@ import time
 from uuid import uuid4
 
 import httpx
+import pytest
 from auth_support import AuthenticatedClient as TestClient
 
 from hnefatafl.models import load_checkpoint
@@ -242,7 +243,8 @@ def wait_completed(client, identifier, worker_process, logfile, timeout=90):
     raise AssertionError(("Real remote training did not complete", logfile.read_text()))
 
 
-def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(tmp_path):
+@pytest.mark.parametrize("optimizer", ["sgd", "adamw_schedulefree"])
+def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(tmp_path, optimizer):
     server_data = tmp_path / "server"
     worker_data = tmp_path / "cloud"
     logfile = tmp_path / "worker.log"
@@ -252,8 +254,27 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
 
         Deployment({"port": urlparse(url).port, "public_url": url}, data=server_data).probe()
         remote, headers = worker(client, "Two-slot CPU cloud", capacity=2)
+        if optimizer == "adamw_schedulefree":
+            response = client.post(
+                "/api/worker/heartbeat",
+                headers=headers,
+                json={
+                    "capabilities": {
+                        "package_version": remote["compatibility"]["server_version"],
+                        "training_symmetry_modes": ["off", "random_d4"],
+                        "schedule_free_adamw": True,
+                    }
+                },
+            )
+            assert response.status_code == 200
         first = queued(
-            client, "Cloud Ulf", seed=17, worker_id=remote["id"], optimizer="sgd", momentum=0.7
+            client,
+            "Cloud Ulf",
+            seed=17,
+            worker_id=remote["id"],
+            optimizer=optimizer,
+            momentum=0.7,
+            schedulefree_warmup_steps=32,
         )
         second = queued(
             client,
@@ -350,11 +371,12 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                     server_data / "jobs" / resumed["id"] / "last.pt"
                 )
                 group = resumed_checkpoint["optimizer_state"]["param_groups"][0]
-                assert (group["lr"], group["weight_decay"], group["momentum"]) == (
-                    0.0002,
-                    0.02,
-                    0.4,
-                )
+                assert (group["lr"], group["weight_decay"]) == (0.0002, 0.02)
+                if optimizer == "sgd":
+                    assert group["momentum"] == 0.4
+                else:
+                    assert group["k"] == 2 and group["warmup_steps"] == 32
+                    assert group["train_mode"] is False
                 assert resumed_checkpoint["metadata"]["training_config"]["seed"] == 17
                 assert resumed_checkpoint["extra"]["replay"]
                 assert resumed["progress"]["metrics"]["updates"] > 0

@@ -423,6 +423,11 @@ export default function TrainingCreationPanel({
               errorId: alertId,
             })}
             {numberField('learning_rate', config, update, {
+              label: config.optimizer === 'adamw_schedulefree' ? 'Base learning rate' : undefined,
+              tooltipKey:
+                config.optimizer === 'adamw_schedulefree'
+                  ? 'schedulefree_learning_rate'
+                  : undefined,
               invalid: rejected.has('learning_rate'),
               errorId: alertId,
             })}
@@ -438,8 +443,22 @@ export default function TrainingCreationPanel({
                 <option value="adamw">AdamW</option>
                 <option value="adam">Adam</option>
                 <option value="sgd">SGD</option>
+                <option value="adamw_schedulefree">{t('Schedule-Free AdamW')}</option>
               </select>
             </div>
+            {config.optimizer === 'adamw_schedulefree' && (
+              <>
+                {numberField('schedulefree_warmup_steps', config, update, {
+                  invalid: rejected.has('schedulefree_warmup_steps'),
+                  errorId: alertId,
+                })}
+                <small>
+                  {t(
+                    'Schedule-Free AdamW uses a configured base learning rate and averaged evaluation weights, without a conventional decay schedule.',
+                  )}
+                </small>
+              </>
+            )}
             <div className="training-field">
               <FieldLabel
                 htmlFor={adaptationId}

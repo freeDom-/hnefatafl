@@ -66,6 +66,7 @@ def source_configuration(payload: dict) -> dict:
             ("learning_rate", "lr"),
             ("weight_decay", "weight_decay"),
             ("momentum", "momentum"),
+            ("schedulefree_warmup_steps", "warmup_steps"),
         ):
             if parameter in groups[0]:
                 config[name] = groups[0][parameter]

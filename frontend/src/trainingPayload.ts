@@ -99,6 +99,7 @@ export const RESUME_IMMUTABLE_FIELDS = [
   'blocks',
   'seed',
   'optimizer',
+  'schedulefree_warmup_steps',
   'iterations',
 ];
 

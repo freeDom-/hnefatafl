@@ -26,6 +26,7 @@ const base: TrainingConfig = {
   batch_size: 32,
   learning_rate: 0.001,
   optimizer: 'adamw',
+  schedulefree_warmup_steps: 0,
   mcts_iterations: 24,
   mcts_time_limit: 10,
   self_play_mode: 'auto',
@@ -77,7 +78,7 @@ export const trainingChoices: Record<string, string[]> = {
   inference_cache_mode: ['off', 'exact'],
   training_symmetry_mode: ['off', 'random_d4'],
   inference_backend: ['pytorch', 'openvino'],
-  optimizer: ['adamw', 'adam', 'sgd'],
+  optimizer: ['adamw', 'adam', 'sgd', 'adamw_schedulefree'],
   self_play_mode: ['auto', 'sequential', 'batched'],
   evaluation_mode: ['auto', 'sequential', 'batched'],
   evaluation_inference_backend: ['pytorch', 'training'],
@@ -164,6 +165,12 @@ export function candidateRates(value: unknown): number[] | null {
  */
 export function adaptationConfigError(config: TrainingConfig): AdaptationConfigError | null {
   if (config.adaptation !== 'hypercontroller') return null;
+  if (config.optimizer === 'adamw_schedulefree')
+    return {
+      field: 'adaptation',
+      message:
+        'Schedule-Free AdamW with HyperController is not supported yet; set adaptation to off.',
+    };
   if (Number(config.evaluation_games) < 4)
     return {
       field: 'evaluation_games',

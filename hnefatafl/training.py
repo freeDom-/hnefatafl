@@ -41,6 +41,12 @@ from .training_augmentation import (
     validate_mode,
 )
 from .training_presets import RECOMMENDED
+from .training_optimizers import (
+    OptimizerLifecycle,
+    SCHEDULE_FREE,
+    SCHEDULE_FREE_ADAPTATION_ERROR,
+    SCHEDULE_FREE_DEPENDENCY_ERROR,
+)
 from .game_statistics import checkpoint_cumulative, self_play_statistics
 from .hyper_adaptation import (
     ADAPTATION_EVENT_TAIL,
@@ -75,6 +81,7 @@ DEFAULTS = {
     "batch_size": 32,
     "learning_rate": 0.001,
     "optimizer": "adamw",
+    "schedulefree_warmup_steps": 0,
     "mcts_iterations": 24,
     "mcts_time_limit": 10.0,
     "self_play_mode": "auto",
@@ -193,6 +200,7 @@ def normalize_config(configuration: dict, *, resolved: bool = True) -> dict:
         "self_play_concurrency": (1, 1024),
         "inference_batch_size": (1, 4096),
         "inference_cache_capacity": (1, 65536),
+        "schedulefree_warmup_steps": (0, 1000000),
     }
     for key, (low, high) in integer_bounds.items():
         if type(config[key]) is not int or not low <= config[key] <= high:
@@ -227,8 +235,10 @@ def normalize_config(configuration: dict, *, resolved: bool = True) -> dict:
         if not math.isfinite(value) or not minimum <= value <= maximum:
             raise ValueError(f"{key} must be between {minimum} and {maximum}")
         config[key] = value
-    if config["optimizer"] not in ("adamw", "adam", "sgd"):
-        raise ValueError("optimizer must be adamw, adam, or sgd")
+    if config["optimizer"] not in ("adamw", "adam", "sgd", SCHEDULE_FREE):
+        raise ValueError("optimizer must be adamw, adam, sgd, or adamw_schedulefree")
+    if config["optimizer"] == SCHEDULE_FREE and config["adaptation"] != "off":
+        raise ValueError(SCHEDULE_FREE_ADAPTATION_ERROR)
     if type(config["save_all_best"]) is not bool:
         raise ValueError("save_all_best must be a boolean")
     if type(config["seed"]) is not int or not 0 <= config["seed"] < 2**32:
@@ -290,6 +300,7 @@ def compact_progress(state: dict) -> dict:
             "revision",
             "phase_progress",
             "adaptation",
+            "optimizer",
         )
         if key in state
     }
@@ -635,6 +646,16 @@ def generate_self_play(
 
 def _make_optimizer(model: PolicyValueNet, config: dict):
     arguments = {"lr": config["learning_rate"], "weight_decay": config["weight_decay"]}
+    if config["optimizer"] == SCHEDULE_FREE:
+        try:
+            from schedulefree import AdamWScheduleFree
+        except ImportError as error:
+            raise ValueError(SCHEDULE_FREE_DEPENDENCY_ERROR) from error
+        # 1.4.1 has no inner momentum (equivalent to the newer API's default 0).
+        # Use the official implementation and its remaining published defaults.
+        return AdamWScheduleFree(
+            model.parameters(), warmup_steps=config["schedulefree_warmup_steps"], **arguments
+        )
     if config["optimizer"] == "sgd":
         return torch.optim.SGD(model.parameters(), momentum=config["momentum"], **arguments)
     if config["optimizer"] == "adam":
@@ -648,8 +669,7 @@ def _set_optimizer_learning_rate(optimizer: torch.optim.Optimizer, value: float)
     Rebuilding the optimizer would discard accumulated Adam moments and SGD
     momentum, so adaptation only writes the existing parameter groups.
     """
-    for group in optimizer.param_groups:
-        group["lr"] = float(value)
+    OptimizerLifecycle(optimizer).set_base_learning_rate(value)
 
 
 def optimize_replay(
@@ -673,7 +693,7 @@ def optimize_replay(
     in ``random_d4`` mode (one uniform D4 draw per presented example), so OFF
     consumes no extra random values and keeps its exact baseline stream.
     """
-    model.train()
+    lifecycle = OptimizerLifecycle(optimizer)
     policy_losses: list[float] = []
     value_losses: list[float] = []
     updates = presented = 0
@@ -686,47 +706,55 @@ def optimize_replay(
             optimizer_total_steps=config["epochs"] * batches_per_epoch,
             epoch=0,
         )
-    for epoch in range(config["epochs"]):
-        order = list(range(len(replay)))
-        rng.shuffle(order)
-        for start in range(0, len(order), config["batch_size"]):
-            if should_stop and should_stop():
-                raise InterruptedError("Training was cancelled")
-            batch = [replay[index] for index in order[start : start + config["batch_size"]]]
-            symmetries = sample_symmetries(augment_rng, len(batch)) if augmenting else None
-            inputs, target_policy, legal_mask, values = collate_batch(
-                batch, device, symmetries, augmentation
-            )
-            presented += len(batch)
-            optimizer.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device.type, enabled=mixed):
-                logits, predicted = model(inputs)
-                logits = logits.float().masked_fill(~legal_mask, -1e9)
-                policy_loss = -(target_policy * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
-                value_loss = F.mse_loss(predicted.float(), values)
-                loss = policy_loss + value_loss
-            if not torch.isfinite(loss):
-                raise ValueError("Non-finite training loss; reduce learning rate")
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-            scaler.step(optimizer)
-            scaler.update()
-            policy_losses.append(float(policy_loss.detach()))
-            value_losses.append(float(value_loss.detach()))
-            updates += 1
+    with lifecycle.training_parameters(model):
+        for epoch in range(config["epochs"]):
+            order = list(range(len(replay)))
+            rng.shuffle(order)
+            for start in range(0, len(order), config["batch_size"]):
+                if should_stop and should_stop():
+                    raise InterruptedError("Training was cancelled")
+                batch = [replay[index] for index in order[start : start + config["batch_size"]]]
+                symmetries = sample_symmetries(augment_rng, len(batch)) if augmenting else None
+                inputs, target_policy, legal_mask, values = collate_batch(
+                    batch, device, symmetries, augmentation
+                )
+                presented += len(batch)
+                optimizer.zero_grad(set_to_none=True)
+                with torch.autocast(device_type=device.type, enabled=mixed):
+                    logits, predicted = model(inputs)
+                    logits = logits.float().masked_fill(~legal_mask, -1e9)
+                    policy_loss = -(target_policy * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
+                    value_loss = F.mse_loss(predicted.float(), values)
+                    loss = policy_loss + value_loss
+                if not torch.isfinite(loss):
+                    raise ValueError("Non-finite training loss; reduce learning rate")
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+                if lifecycle.schedule_free and not mixed and not torch.isfinite(norm):
+                    raise ValueError("Non-finite training gradients; reduce learning rate")
+                steps_before = lifecycle.completed_steps() if lifecycle.schedule_free else 0
+                scaler.step(optimizer)
+                scaler.update()
+                policy_losses.append(float(policy_loss.detach()))
+                value_losses.append(float(value_loss.detach()))
+                completed_update = (
+                    lifecycle.completed_steps() > steps_before if lifecycle.schedule_free else True
+                )
+                updates += int(completed_update)
+                if monitor is not None:
+                    # Completed-step counter plus the running means of the losses the
+                    # dashboard shows; the authoritative means are still computed
+                    # from the same lists after the phase.
+                    loss_sum += policy_losses[-1]
+                    value_sum += value_losses[-1]
+                    monitor.tick(optimizer_steps=int(completed_update))
+                    attempts = len(policy_losses)
+                    monitor.counts(policy_loss=loss_sum / attempts, value_loss=value_sum / attempts)
             if monitor is not None:
-                # Completed-step counter plus the running means of the losses the
-                # dashboard shows; the authoritative means are still computed
-                # from the same lists after the phase.
-                loss_sum += policy_losses[-1]
-                value_sum += value_losses[-1]
-                monitor.tick(optimizer_steps=1)
-                monitor.counts(policy_loss=loss_sum / updates, value_loss=value_sum / updates)
-        if monitor is not None:
-            monitor.counts(epoch=epoch + 1)
-        if on_epoch:
-            on_epoch(epoch + 1)
+                monitor.counts(epoch=epoch + 1)
+            if on_epoch:
+                on_epoch(epoch + 1)
     return {
         "policy_losses": policy_losses,
         "value_losses": value_losses,
@@ -820,6 +848,10 @@ def train(
 
     def publish(**changes):
         """Publish a real progress event from the training thread."""
+        if optimizer is not None:
+            live_optimizer = OptimizerLifecycle(optimizer)
+            if live_optimizer.schedule_free:
+                changes["optimizer"] = live_optimizer.diagnostics()
         write_snapshot(False, changes)
 
     def current_metadata():
@@ -836,6 +868,10 @@ def train(
         # Only reached once the training state exists; see ``initialized``.
         assert model is not None and optimizer is not None
         assert selection is not None and scaler is not None and device is not None
+        checkpoint_lifecycle = OptimizerLifecycle(optimizer)
+        checkpoint_lifecycle.inference()
+        if checkpoint_lifecycle.schedule_free:
+            state["optimizer"] = checkpoint_lifecycle.diagnostics()
         extra = {
             "iteration": completed,
             "games_generated": self_play_statistics(job_games, baseline)["cumulative"],
@@ -986,6 +1022,20 @@ def train(
                     "This checkpoint has no optimizer state and cannot resume training"
                 )
             optimizer.load_state_dict(payload["optimizer_state"])
+            lifecycle = OptimizerLifecycle(optimizer)
+            if lifecycle.schedule_free:
+                for group in optimizer.param_groups:
+                    saved_warmup = group["warmup_steps"]
+                    if config["schedulefree_warmup_steps"] != saved_warmup:
+                        if group["k"] > 0:
+                            raise ValueError(
+                                "schedulefree_warmup_steps cannot change after optimizer updates"
+                            )
+                        group["warmup_steps"] = config["schedulefree_warmup_steps"]
+                config["schedulefree_warmup_steps"] = optimizer.param_groups[0]["warmup_steps"]
+            # A saved train-mode checkpoint must first be interpreted in its
+            # recorded mode before switching to inference; never reset flags.
+            lifecycle.inference()
             # Loading optimizer state restores its parameter groups too. Apply each
             # explicit override afterwards, while preserving accumulated moments and
             # momentum buffers. Record the effective values even for older snapshots
@@ -1027,6 +1077,10 @@ def train(
             # The restored state is part of initialization, not a separate phase.
             monitor.phase("initializing")
             publish()
+        lifecycle = OptimizerLifecycle(optimizer)
+        lifecycle.inference()
+        if lifecycle.schedule_free:
+            state["optimizer"] = lifecycle.diagnostics()
         selection = EvaluationSelection(extra, saved_config, config, metrics.get("evaluation"))
         if evaluation_seed is not None:
             selection.context["seed"] = evaluation_seed
@@ -1145,7 +1199,7 @@ def train(
             # self-play, optimization and evaluation actually use. Capture it
             # before any adaptation decision so the reported history attributes
             # the losses to the rate that produced them.
-            interval_learning_rate = float(optimizer.param_groups[0]["lr"])
+            interval_learning_rate = lifecycle.base_learning_rate()
 
             def commit_game(index: int, examples: list[dict], result: dict) -> None:
                 nonlocal replay, job_games
@@ -1156,6 +1210,7 @@ def train(
             # Device/graph preparation can block for seconds on a cold backend
             # (TorchScript/OpenVINO compile); report it as its own phase.
             monitor.phase("preparing", iteration=iteration)
+            lifecycle.inference()
             refresh = backend.refresh()
             if should_stop and should_stop():
                 raise InterruptedError("Training was cancelled")
@@ -1232,6 +1287,9 @@ def train(
                 "augmentation": summary,
                 "performance": performance,
             }
+            if lifecycle.schedule_free:
+                metrics["optimizer"] = lifecycle.diagnostics()
+                state["optimizer"] = metrics["optimizer"]
             # Optimization is complete even if the following evaluation is cancelled.
             # Resume must not repeat these updates merely to retry a comparison.
             completed = iteration
@@ -1338,6 +1396,8 @@ def train(
                 "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "performance": dict(performance),
             }
+            if lifecycle.schedule_free:
+                point["optimizer"] = lifecycle.diagnostics()
             if "evaluation" in metrics:
                 evaluation = metrics["evaluation"]
                 point.update(
@@ -1549,6 +1609,10 @@ def study_identity(
         for key, value in evaluation_base.items()
         if key not in OPERATIONAL_TRAINING_FIELDS and key not in search_space
     }
+    # This setting has no effect on legacy optimizers. Including a new default
+    # would invalidate every pre-feature AdamW/Adam/SGD study identity.
+    if evaluation_base["optimizer"] != SCHEDULE_FREE:
+        fixed.pop("schedulefree_warmup_steps", None)
     import optuna
     from .models import ARCHITECTURE, FORMAT_VERSION
 

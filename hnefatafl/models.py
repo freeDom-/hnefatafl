@@ -290,6 +290,10 @@ def save_checkpoint(
     extra: dict[str, Any] | None = None,
 ) -> Path:
     """Atomically save portable CPU tensors and safe primitive metadata."""
+    if optimizer is not None:
+        from .training_optimizers import OptimizerLifecycle
+
+        OptimizerLifecycle(optimizer).inference()
     _safe_data(metadata)
     if not isinstance(metadata, dict):
         raise ValueError("Checkpoint metadata must be an object")

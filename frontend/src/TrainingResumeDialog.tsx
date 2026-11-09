@@ -71,7 +71,12 @@ export default function TrainingResumeDialog({
     tablut: 'Tablut',
     copenhagen: 'Copenhagen',
   };
-  const optimizerNames: Record<string, string> = { adamw: 'AdamW', adam: 'Adam', sgd: 'SGD' };
+  const optimizerNames: Record<string, string> = {
+    adamw: 'AdamW',
+    adam: 'Adam',
+    sgd: 'SGD',
+    adamw_schedulefree: 'Schedule-Free AdamW',
+  };
   const ref = useRef<HTMLDialogElement>(null);
   const modelNameId = useId();
   const adaptationId = useId();
@@ -118,6 +123,7 @@ export default function TrainingResumeDialog({
         saved.channels = info.channels;
         saved.blocks = info.blocks;
         saved.optimizer = info.optimizer;
+        saved.schedulefree_warmup_steps ??= 0;
         if (info.seed !== undefined) saved.seed = info.seed;
         saved.learning_rate = info.learning_rate ?? saved.learning_rate ?? 0.001;
         saved.weight_decay = info.weight_decay ?? saved.weight_decay ?? 0.0001;
@@ -198,6 +204,7 @@ export default function TrainingResumeDialog({
           blocks: checkpoint.blocks,
           seed: checkpoint.seed,
           optimizer: checkpoint.optimizer,
+          schedulefree_warmup_steps: savedConfig.current.schedulefree_warmup_steps,
         },
         minimumIterations: checkpoint.completed_iteration + 1,
       });
@@ -341,7 +348,18 @@ export default function TrainingResumeDialog({
                   <dt>
                     <ReadOnlyFieldLabel label="Optimizer" tooltipKey="optimizer" />
                   </dt>
-                  <dd>{optimizerNames[checkpoint.optimizer] ?? checkpoint.optimizer}</dd>
+                  <dd>{t(optimizerNames[checkpoint.optimizer] ?? checkpoint.optimizer)}</dd>
+                  {checkpoint.optimizer === 'adamw_schedulefree' && (
+                    <>
+                      <dt>
+                        <ReadOnlyFieldLabel
+                          label="Schedule-Free warm-up steps"
+                          tooltipKey="schedulefree_warmup_steps"
+                        />
+                      </dt>
+                      <dd>{String(config.schedulefree_warmup_steps)}</dd>
+                    </>
+                  )}
                 </div>
               </dl>
               <p className="subtle">
@@ -475,6 +493,7 @@ export default function TrainingResumeDialog({
                             'channels',
                             'blocks',
                             'seed',
+                            'schedulefree_warmup_steps',
                             'inference_cache_capacity',
                             ...adaptationNumberFields,
                           ].includes(key) &&
@@ -485,6 +504,13 @@ export default function TrainingResumeDialog({
                       .map((key) =>
                         numberField(key, config, update, {
                           label: key === 'weight_decay' ? 'Weight decay' : undefined,
+                          ...(key === 'learning_rate' &&
+                          checkpoint.optimizer === 'adamw_schedulefree'
+                            ? {
+                                label: 'Base learning rate',
+                                tooltipKey: 'schedulefree_learning_rate',
+                              }
+                            : {}),
                           disabled: busy || (key === 'momentum' && checkpoint.optimizer !== 'sgd'),
                         }),
                       )}

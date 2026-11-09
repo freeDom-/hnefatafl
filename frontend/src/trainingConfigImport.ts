@@ -1,6 +1,11 @@
 import { object } from './trainingDashboardData';
 import { validTrainingNumbers } from './TrainingFields';
-import { isTrainingParameter, validTrainingInput, type TrainingConfig } from './trainingPresets';
+import {
+  adaptationConfigError,
+  isTrainingParameter,
+  validTrainingInput,
+  type TrainingConfig,
+} from './trainingPresets';
 import { validSearchSpace } from './trainingReuse';
 
 /** Bound the read of a local config.json before parsing it. */
@@ -78,6 +83,10 @@ export function parseImportedConfig(
         key in options.immutable &&
         raw !== (options.immutable as Record<string, unknown>)[key]
       ) {
+        if (key === 'schedulefree_warmup_steps')
+          throw new ConfigImportError('Schedule-Free warm-up steps cannot change on resume.', [
+            key,
+          ]);
         warnings.push(key);
         continue;
       }
@@ -93,6 +102,10 @@ export function parseImportedConfig(
   }
   if (invalid.length) {
     throw new ConfigImportError('Invalid configuration values.', invalid);
+  }
+  if (config.optimizer === 'adamw_schedulefree') {
+    const problem = adaptationConfigError(config);
+    if (problem) throw new ConfigImportError(problem.message, [problem.field]);
   }
   // Exported configs written before D4 augmentation existed omit this setting.
   // Keep their historical OFF behavior rather than silently enabling random D4.

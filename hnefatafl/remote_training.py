@@ -39,6 +39,7 @@ TRAINING_FIELDS = {
     "batch_size",
     "learning_rate",
     "optimizer",
+    "schedulefree_warmup_steps",
     "mcts_iterations",
     "mcts_time_limit",
     "self_play_mode",
@@ -107,6 +108,11 @@ ADAPTATION_FIELDS = frozenset(
 
 def validate_inference_capabilities(capabilities: dict) -> None:
     """Validate optional extension fields without rejecting legacy reports."""
+    if (
+        "schedule_free_adamw" in capabilities
+        and type(capabilities["schedule_free_adamw"]) is not bool
+    ):
+        fail("Invalid worker schedule_free_adamw capability.")
     if "parallel_search" in capabilities and type(capabilities["parallel_search"]) is not bool:
         fail("Invalid worker parallel_search capability.")
     cache_modes = capabilities.get("inference_cache_modes", ["off"])
@@ -173,6 +179,11 @@ def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
     including through an administrator version override, so the reason names the
     missing capability instead of blaming the inference backend or device.
     """
+    if config.get("optimizer") == "adamw_schedulefree":
+        if config.get("adaptation", "off") != "off":
+            return "Schedule-Free AdamW without HyperController (combined behavior is not supported yet)"
+        if capabilities.get("schedule_free_adamw") is not True:
+            return "Schedule-Free AdamW; install the updated training dependencies on this worker"
     if (
         config.get("adaptation", "off") != "off"
         and capabilities.get("hyper_adaptation") is not True
@@ -835,6 +846,8 @@ class RemoteTraining:
                     self.renew(available)
                     self.store.save_job(available)
                     configuration = dict(available["config"])
+                    if worker.get("capabilities", {}).get("schedule_free_adamw") is not True:
+                        configuration.pop("schedulefree_warmup_steps", None)
                     if worker.get("capabilities", {}).get("parallel_search") is not True:
                         configuration.pop("search_workers", None)
                     if (
@@ -946,6 +959,8 @@ class RemoteTraining:
                 if not job.get("resume_source") or not checkpoint.is_file():
                     fail("The saved checkpoint was not found.", 404)
                 omitted = set()
+                if worker.get("capabilities", {}).get("schedule_free_adamw") is not True:
+                    omitted.add("schedulefree_warmup_steps")
                 if worker.get("capabilities", {}).get("parallel_search") is not True:
                     omitted.add("search_workers")
                 if "training_symmetry_modes" not in worker.get("capabilities", {}):

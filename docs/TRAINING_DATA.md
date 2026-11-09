@@ -59,12 +59,28 @@ In the workshop, select a stopped or completed job and choose **Resume from
 checkpoint**. The dialog validates its full `last.pt`, shows the saved completed
 iteration, ruleset, network, seed and optimizer, and lets you choose **Target total
 iterations**. The target must exceed the saved completed iteration. All new-job
-settings except the historical preset, ruleset, channels, blocks, seed and optimizer type are editable,
+settings except the historical preset, ruleset, channels, blocks, seed, optimizer type
+and Schedule-Free warm-up duration are editable,
 initialized from the effective saved configuration rather than the current form.
 The preset selector is available only for new jobs; resumption never reapplies a preset.
 Learning rate, weight decay and SGD momentum reflect saved optimizer groups;
 momentum does not apply to Adam or AdamW. Execution mode/concurrency/inference
 batch size can change without replacing the retained learning state.
+
+For [Schedule-Free AdamW](TRAINING.md#schedule-free-adamw), the saved model contains
+averaged evaluation weights and the full optimizer keeps its internal `z` sequence,
+second moments, warm-up counter, averaging history and evaluation-mode flag.
+Loading the optimizer respects that flag before entering inference mode; training
+then switches back through the upstream API without resetting history. Warm-up
+duration is shown read-only; an imported conflicting duration is rejected with its
+field name. Explicit base-rate/weight-decay overrides preserve all optimizer state.
+The tensor-only format and 128 MiB limit are unchanged. Checkpoints and model exports
+are placed in evaluation mode even when optimization fails or is cancelled.
+Completed-iteration deterministic CPU continuation tests compare tensors with
+`rtol=1e-6, atol=1e-7`, and compare optimizer scalar state/counters, replay, RNG and
+non-timing history exactly. Wall-clock measurements are excluded. Cancellation
+within an iteration retains completed minibatch updates, following the existing
+resume semantics; it is not an exact mid-minibatch replay guarantee.
 
 Model cards linked to a retained source job also offer **Resume training**.
 This continues that job's **latest full checkpoint**, which may be later than

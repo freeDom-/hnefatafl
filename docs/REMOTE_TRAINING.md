@@ -65,6 +65,22 @@ for concurrent MCTS scheduling. Keep workers updated with the server's release;
 v0.17.0 fields require the updated trainer even though the protocol remains 1.
 The CLI accepts 1–16 slots; enrollment capacity must also permit those claims.
 
+### Schedule-Free AdamW workers
+
+Updated workers advertise `schedule_free_adamw: true` only after importing,
+constructing and executing the official optimizer on a small CPU tensor, including
+its train/eval transitions. Install the updated training extra on the worker.
+The server and worker selector require this capability for
+`optimizer: "adamw_schedulefree"`, including with an administrator version override.
+Older workers remain eligible for ordinary jobs; the transport removes the new,
+inert `schedulefree_warmup_steps` field from their configurations and from a derived
+resume download, preserving the original retained checkpoint and its tensors.
+Updated workers receive the setting and complete upstream state unchanged.
+The worker validates the requested configuration and dependency before launching
+Schedule-Free training. Unsupported HyperController combinations are rejected.
+Authentication, leases, artifact paths and the 128 MiB limit remain unchanged.
+See [optimizer settings and device validation](TRAINING.md#schedule-free-adamw).
+
 ## Progress, models and resumption
 
 The workshop lists every queued/running job and its worker. Open any job to view

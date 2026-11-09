@@ -63,6 +63,7 @@ TRAINING_FIELDS = frozenset(
         "batch_size",
         "learning_rate",
         "optimizer",
+        "schedulefree_warmup_steps",
         "mcts_iterations",
         "mcts_time_limit",
         "self_play_mode",
@@ -245,7 +246,11 @@ def resume_study_conflicts(
     conflicts.extend(
         f"training.{key}"
         for key in STUDY_IDENTITY_TRAINING_FIELDS
-        if key in requested_training and training.get(key) != previous_training.get(key)
+        if key in requested_training
+        and training.get(key) != previous_training.get(key)
+        and not (
+            key == "schedulefree_warmup_steps" and training.get("optimizer") != "adamw_schedulefree"
+        )
     )
     return sorted(set(conflicts))
 
@@ -2598,6 +2603,24 @@ def create_app(
                     from .models import load_checkpoint, resolve_device
                     from .training import normalize_config
 
+                    if "schedulefree_warmup_steps" in values:
+                        warmup = values["schedulefree_warmup_steps"]
+                        if type(warmup) is not int or not 0 <= warmup <= 1000000:
+                            raise TrainingFieldsRejected(
+                                [f"{prefix}schedulefree_warmup_steps"],
+                                "schedulefree_warmup_steps must be an integer between 0 and 1000000",
+                            )
+                    if (
+                        values.get("optimizer") == "adamw_schedulefree"
+                        and values.get("adaptation", "off") != "off"
+                    ):
+                        from .training_optimizers import SCHEDULE_FREE_ADAPTATION_ERROR
+
+                        raise TrainingFieldsRejected(
+                            [f"{prefix}optimizer", f"{prefix}adaptation"],
+                            SCHEDULE_FREE_ADAPTATION_ERROR,
+                        )
+
                     result = normalize_config(values)
                     if result["device"] not in {"auto", "cpu", "cuda", "mps"}:
                         fail("Training device must be auto, cpu, cuda or mps.")
@@ -2621,7 +2644,7 @@ def create_app(
                         saved_config = checkpoint_data.get("metadata", {}).get(
                             "training_config", {}
                         )
-                        for name in ("optimizer", "seed"):
+                        for name in ("optimizer", "seed", "schedulefree_warmup_steps"):
                             if name in saved_config and saved_config[name] != result[name]:
                                 fail(f"Resume {name} must match the saved training job.")
                         if checkpoint_data.get("optimizer_state") is None:
@@ -2962,6 +2985,12 @@ def create_app(
                 if not (1e-7 if name == "learning_rate" else 0) <= value <= 1:
                     raise ValueError("Invalid saved optimizer parameter")
                 info[name] = saved[name] = value
+            if saved["optimizer"] == "adamw_schedulefree":
+                warmup = groups[0].get("warmup_steps")
+                if type(warmup) is not int or not 0 <= warmup <= 1000000:
+                    raise ValueError("Invalid saved Schedule-Free warm-up")
+                saved["schedulefree_warmup_steps"] = warmup
+                info["schedulefree_warmup_steps"] = warmup
             info["config"] = {
                 key: value for key, value in saved.items() if key in training_fields - {"resume"}
             }
@@ -2984,7 +3013,14 @@ def create_app(
     def resume_training_locked(job_id: str, request: dict[str, Any]):
         from .training import DEFAULTS
 
-        immutable = {"ruleset", "channels", "blocks", "seed", "optimizer"}
+        immutable = {
+            "ruleset",
+            "channels",
+            "blocks",
+            "seed",
+            "optimizer",
+            "schedulefree_warmup_steps",
+        }
         editable = training_fields - immutable - {"resume"}
         unexpected = set(request) - (editable | {"execution", "worker_id"})
         if unexpected:

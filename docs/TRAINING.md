@@ -73,8 +73,88 @@ MCTS root visit distributions provide policy targets. A final defender win
 provides +1, attacker win -1, and an actual rules draw 0. Replay samples retain
 their legal action masks. Optimization combines policy cross-entropy and value
 mean-squared error with configurable weight decay and gradient clipping. AdamW,
-Adam and momentum SGD are supported. Checkpoints include model/optimizer state,
+Adam, momentum SGD and Schedule-Free AdamW are supported. Checkpoints include model/optimizer state,
 replay, Python/PyTorch RNG and CUDA/gradient-scaler state for resumption.
+
+## Schedule-Free AdamW
+
+Select **Schedule-Free AdamW** (`optimizer: "adamw_schedulefree"`) as a separate
+optimizer. AdamW remains the default and all existing presets are unchanged.
+The official [Schedule-Free algorithm](https://arxiv.org/abs/2405.15682) maintains
+training parameters and averaged evaluation parameters, without a conventional
+learning-rate decay scheduler. This is not ordinary AdamW with EMA weights.
+Self-play targets, every evaluation opponent, Champion snapshots, selected best
+models and playable exports use the averaged parameters. Only gradient updates
+use the training sequence. GroupNorm has no running BatchNorm statistics to
+recompute. Switching happens between completed synchronous inference phases,
+before OpenVINO refresh or actor snapshots; it never runs in inference workers.
+
+Install the training extra (`uv sync --frozen --extra train`). It includes the
+maintained [schedulefree package](https://pypi.org/project/schedulefree/) with
+constraint `>=1.4.1,<2`; the lock selects **1.4.1**, the current PyPI release checked
+on 2026-11-09. The [official implementation](https://github.com/facebookresearch/schedule_free)
+is Apache-2.0, distributed as a platform-independent Python wheel and requires
+PyTorch and typing-extensions. Its declared Python minimum is 3.4; Hnefatafl
+requires Python 3.11+ and PyTorch 2.6–<3. No compiled extension or reference
+optimizer copy is added. API-only installations do not import schedulefree.
+Missing training dependencies produce an explicit error, with no optimizer fallback.
+
+```json
+{
+  "preset": "smoke",
+  "optimizer": "adamw_schedulefree",
+  "learning_rate": 0.001,
+  "weight_decay": 0.0001,
+  "schedulefree_warmup_steps": 100,
+  "adaptation": "off"
+}
+```
+
+`learning_rate` is the **configured base rate**, preserving the supplied starting
+value and existing 1e-7–1 bound. Experiment with it; an AdamW setting need not be
+optimal for Schedule-Free. The optimizer does not autonomously choose a base rate.
+`schedulefree_warmup_steps` is an integer 0–1,000,000, default **0** (upstream's
+default). A nonzero warm-up is recommended for experimentation; its useful length
+depends on minibatches and total training duration. It counts actual successful
+optimizer updates: approximately `epochs * ceil(replay_positions / batch_size)`
+per iteration, excluding GradScaler-skipped steps. It is independent of a desired
+100–200 iteration stable-learning phase and HyperController warm-up evaluations.
+The other published defaults remain `betas=(0.9, 0.999)`, `eps=1e-8`, `r=0`, and
+`weight_lr_power=2`. Release 1.4.1 has no inner momentum (equivalent to the newer
+upstream `inner_momentum=0`); SGD's `momentum` has no effect on this optimizer.
+
+Full checkpoints save evaluation weights with the complete upstream optimizer
+state: `z`, second moments, `k`, `weight_sum`, `lr_max`, last `scheduled_lr`,
+warm-up duration and saved mode. Resume restores these together with replay,
+RNG/scaler, selection/Champion and history. The optimizer identity stays immutable.
+Warm-up duration is read-only in the resume UI/API; the CLI rejects a duration
+change after any successful update. Explicit base-rate and weight-decay overrides
+change existing groups without resetting moments or averaging history.
+Interrupted optimization also returns to evaluation mode before checkpointing.
+
+The dashboard and structured `optimizer` diagnostics in progress, metrics and
+history show the name, base rate, last warm-up-adjusted rate (zero before the first
+update), completed updates, warm-up duration and progress. Existing history
+`learning_rate` and `effective_learning_rate` retain their base-rate/next-interval
+meanings; the separate warm-up rate is neither a HyperController decision nor a
+parameter-independent instantaneous update size. Diagnostics contain only a few
+scalars, never per-minibatch histories or optimizer tensors.
+
+CPU FP32, sequential/batched/parallel self-play, OpenVINO CPU inference and local
+and remote resume are tested. CUDA AMP/GradScaler follows the existing path,
+including clipping and skipped updates; a dedicated hardware-gated test is included.
+CUDA and MPS hardware were unavailable for this change, so neither is claimed as
+validated. There is no algorithm/device fallback. See the
+[measured CPU overhead and checkpoint sizes](benchmarks/schedulefree-adamw.md).
+
+Use `adaptation: "off"`. Combining this optimizer with HyperController is
+explicitly rejected in new/resumed jobs, configuration import, tuning and remote
+assignment. Normal Optuna studies can tune learning rate and weight decay with
+separate optimizer instances and full checkpoints per trial. A future slow
+supervisory controller can use `OptimizerLifecycle.base_learning_rate()` and
+`set_base_learning_rate()` independently of selection/Champion logic. Such updates
+preserve state, but must be tested with Schedule-Free's rate-history-dependent
+averaging (`lr_max`, `weight_sum`). No two-timescale controller is implemented.
 
 ## Parameters and presets
 
@@ -96,6 +176,7 @@ starting. See the complete [configuration bounds](#configuration-bounds).
 | `channels`, `blocks` | Residual architecture width (4–128) and depth (0–8) |
 | `games`, `iterations`, `epochs` | Games per iteration, total iterations, optimization epochs |
 | `batch_size`, `learning_rate`, `optimizer`, `momentum` | Optimization settings; momentum applies to SGD (0–1, default 0.9) |
+| `schedulefree_warmup_steps` | Successful Schedule-Free optimizer updates over which to warm up; 0–1,000,000, default 0 |
 | `mcts_iterations`, `mcts_time_limit`, `exploration` | Search simulation/time budget and PUCT constant; the time ceiling defaults to 10 seconds for new jobs |
 | `self_play_mode` | `auto` (default): batched on CUDA, sequential otherwise; or explicitly `sequential`/`batched` on either CPU or CUDA |
 | `self_play_concurrency` | Maximum independent active self-play games, 1–1024 (default 16), bounded by games remaining |
@@ -194,7 +275,8 @@ Gameplay search has [different defaults and limits](AI.md#configuration).
 | `weight_decay`; `momentum`; `dirichlet_fraction` | 0–1 |
 | `exploration`; `temperature`; `dirichlet_alpha` | 0–20; 0.01–10; 0.001–100 |
 | `seed` | Integer 0–4,294,967,295 |
-| `optimizer` | `adamw` (default), `adam`, `sgd` |
+| `optimizer` | `adamw` (default), `adam`, `sgd`, `adamw_schedulefree` |
+| `schedulefree_warmup_steps` | Integer 0–1,000,000 actual optimizer updates (default 0) |
 | `device`; `self_play_mode` | `auto`/`cpu`/`cuda`/`cuda:N`/`mps`; `auto`/`sequential`/`batched` |
 | `model_name`; `save_all_best` | 1–100 characters; boolean (default false) |
 | `adaptation` | `off` (default) or `hypercontroller` |
@@ -263,7 +345,8 @@ For reviewed UI/API/CLI resume instructions, editable versus immutable parameter
 and exact CPU resumption limits, see [checkpoint resumption](TRAINING_DATA.md#monitoring-cancellation-and-resumption).
 Model-card resumption uses the source job's latest full checkpoint, not necessarily
 the selected model's snapshot. All new-job settings except ruleset, channels,
-blocks, seed and optimizer type are editable; iterations is a target total.
+blocks, seed, optimizer type and Schedule-Free warm-up duration are editable;
+iterations is a target total.
 
 ## Evaluation and model selection
 
