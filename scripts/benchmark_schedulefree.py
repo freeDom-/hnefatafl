@@ -1,4 +1,4 @@
-"""Reproducible, isolated CPU Brandubh optimizer/state-size comparison.
+"""Reproducible, isolated CPU/CUDA Brandubh optimizer/state-size comparison.
 
 Run: .venv/bin/python scripts/benchmark_schedulefree.py --output work/schedulefree.json
 Each optimizer/architecture runs in a fresh process. This measures runtime and
@@ -33,14 +33,32 @@ from hnefatafl.training_evaluation import snapshot
 from hnefatafl.training_optimizers import OptimizerLifecycle
 
 
-def case(optimizer_name, channels, blocks):
+def case(optimizer_name, channels, blocks, device="cpu", mixed=False):
+    if device == "cuda" and not torch.cuda.is_available():
+        raise ValueError("CUDA is unavailable; no CPU fallback or CUDA measurements were produced")
+    if mixed and device != "cuda":
+        raise ValueError("--mixed-precision requires --device cuda")
+    selected_device = torch.device(device)
+    if device == "cuda":
+        torch.use_deterministic_algorithms(True)
+        torch.set_float32_matmul_precision("highest")
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+
+    def synchronize():
+        if device == "cuda":
+            torch.cuda.synchronize(selected_device)
+
     cfg = normalize_config(
         {
             "preset": "smoke",
             "optimizer": optimizer_name,
             "channels": channels,
             "blocks": blocks,
-            "device": "cpu",
+            "device": device,
+            "mixed_precision": mixed,
             "cpu_threads": 2,
             "games": 2,
             "max_game_plies": 4,
@@ -55,47 +73,67 @@ def case(optimizer_name, channels, blocks):
     )
     torch.set_num_threads(2)
     torch.manual_seed(0)
-    model = PolicyValueNet("brandubh", channels, blocks)
+    model = PolicyValueNet("brandubh", channels, blocks).to(selected_device)
     optimizer = _make_optimizer(model, cfg)
     lifecycle = OptimizerLifecycle(optimizer)
-    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    scaler = torch.amp.GradScaler("cuda", enabled=mixed)
+    completed_updates = 0
+
+    def record_update(*args):
+        nonlocal completed_updates
+        completed_updates += 1
+
+    # A scaler-skipped call does not execute optimizer.step or its post-hook.
+    # This also counts actual AdamW updates without changing its legacy metrics.
+    step_hook = optimizer.register_step_post_hook(record_update)
     # Warm the model's kernels without changing weights, optimizer or RNG.
     with torch.inference_mode():
-        model(torch.zeros(32, 6, 7, 7))
+        with torch.autocast(device_type=device, enabled=mixed):
+            model(torch.zeros(32, 6, 7, 7, device=selected_device))
+    synchronize()
+    if device == "cuda":
+        torch.cuda.reset_peak_memory_stats(selected_device)
     iteration_started = time.perf_counter()
     generation_started = time.perf_counter()
     generated, work = generate_self_play(model, cfg, seed=100000)
+    synchronize()
     self_play_seconds = time.perf_counter() - generation_started
     examples = [example for game, _ in generated for example in game]
     replay = [deepcopy(examples[i % len(examples)]) for i in range(256)]
     optimization = []
-    updates = 0
+    updates_per_repetition = []
     for repetition in range(3):
+        updates_before = completed_updates
+        synchronize()
         started = time.perf_counter()
-        result = optimize_replay(
+        optimize_replay(
             model,
             optimizer,
             scaler,
             replay,
             cfg,
-            torch.device("cpu"),
-            False,
+            selected_device,
+            mixed,
             random.Random(123),
             random.Random(456),
         )
         # Ordinary optimizers leave this to the caller, as in train().
         model.eval()
+        synchronize()
         optimization.append(time.perf_counter() - started)
-        updates += result["updates"]
+        updates_per_repetition.append(completed_updates - updates_before)
         if repetition == 0:
             started = time.perf_counter()
             evaluation = evaluate_model(model, cfg)
+            synchronize()
             evaluation_seconds = time.perf_counter() - started
             iteration_seconds = time.perf_counter() - iteration_started
+    synchronize()
     started = time.perf_counter()
     for _ in range(100):
         lifecycle.train()
         lifecycle.inference()
+    synchronize()
     switching_pair_seconds = (time.perf_counter() - started) / 100
     # Representative recommended Brandubh capacity, with independently stored
     # tensors/lists, not repeated references that would undercount serialization.
@@ -104,6 +142,7 @@ def case(optimizer_name, channels, blocks):
     selected = snapshot(model, metadata)
     with tempfile.TemporaryDirectory(dir="work") as directory:
         path = Path(directory) / "last.pt"
+        synchronize()
         started = time.perf_counter()
         save_checkpoint(
             path,
@@ -117,19 +156,27 @@ def case(optimizer_name, channels, blocks):
                 "evaluation_state": {"benchmarks": {"benchmark": {"snapshot": selected}}},
                 "python_rng": random.Random(0).getstate(),
                 "torch_rng": torch.get_rng_state(),
-                "cuda_rng": [],
+                "cuda_rng": torch.cuda.get_rng_state_all() if device == "cuda" else [],
                 "grad_scaler": scaler.state_dict(),
                 "history": [],
             },
         )
+        synchronize()
         save_seconds = time.perf_counter() - started
         size = path.stat().st_size
         started = time.perf_counter()
         restored, payload = load_checkpoint(path)
+        restored.to(selected_device)
         restored_optimizer = _make_optimizer(restored, cfg)
         restored_optimizer.load_state_dict(payload["optimizer_state"])
         OptimizerLifecycle(restored_optimizer).inference()
+        restored_scaler = torch.amp.GradScaler("cuda", enabled=mixed)
+        restored_scaler.load_state_dict(payload["extra"]["grad_scaler"])
+        synchronize()
         resume_seconds = time.perf_counter() - started
+    step_hook.remove()
+    if lifecycle.schedule_free and lifecycle.completed_steps() != completed_updates:
+        raise ValueError("Schedule-Free counter differs from actual executed optimizer steps")
     state_bytes = sum(
         v.numel() * v.element_size()
         for state in optimizer.state.values()
@@ -141,7 +188,13 @@ def case(optimizer_name, channels, blocks):
         "channels": channels,
         "blocks": blocks,
         "parameters": sum(p.numel() for p in model.parameters()),
-        "updates": updates,
+        "device": device,
+        "mixed_precision": mixed,
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "updates": completed_updates,
+        "completed_updates_per_repetition": updates_per_repetition,
+        "optimizer_updates_per_second": completed_updates / sum(optimization),
+        "optimizer_diagnostics": lifecycle.diagnostics(),
         "replay_positions": 256,
         "checkpoint_replay_positions": 8000,
         "batch_size": 32,
@@ -156,7 +209,12 @@ def case(optimizer_name, channels, blocks):
         "train_eval_pair_seconds": switching_pair_seconds,
         "optimizer_tensor_bytes": state_bytes,
         "peak_cpu_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
-        "peak_gpu_bytes": None,
+        "peak_gpu_bytes": torch.cuda.max_memory_allocated(selected_device)
+        if device == "cuda"
+        else None,
+        "peak_gpu_reserved_bytes": torch.cuda.max_memory_reserved(selected_device)
+        if device == "cuda"
+        else None,
         "checkpoint_bytes": size,
         "checkpoint_save_seconds": save_seconds,
         "resume_seconds": resume_seconds,
@@ -168,16 +226,49 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default="work/schedulefree-benchmark.json")
     parser.add_argument("--case", nargs=3)
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--mixed-precision", action="store_true")
     args = parser.parse_args()
+    if args.device == "cuda" and not torch.cuda.is_available():
+        parser.error("CUDA is unavailable; no CPU fallback or CUDA measurements were produced")
+    if args.mixed_precision and args.device != "cuda":
+        parser.error("--mixed-precision requires --device cuda")
+    if args.device == "cuda" and os.environ.get("CUBLAS_WORKSPACE_CONFIG") not in {
+        ":4096:8",
+        ":16:8",
+    }:
+        parser.error("Set CUBLAS_WORKSPACE_CONFIG=:4096:8 before CUDA validation")
     Path("work").mkdir(exist_ok=True)
     if args.case:
-        print(json.dumps(case(args.case[0], int(args.case[1]), int(args.case[2]))))
+        print(
+            json.dumps(
+                case(
+                    args.case[0],
+                    int(args.case[1]),
+                    int(args.case[2]),
+                    args.device,
+                    args.mixed_precision,
+                )
+            )
+        )
         return
     results = []
     for channels, blocks in [(4, 0), (32, 2), (64, 4), (128, 8)]:
         for optimizer in ["adamw", "adamw_schedulefree"]:
+            command = [
+                sys.executable,
+                __file__,
+                "--device",
+                args.device,
+                "--case",
+                optimizer,
+                str(channels),
+                str(blocks),
+            ]
+            if args.mixed_precision:
+                command.append("--mixed-precision")
             completed = subprocess.run(
-                [sys.executable, __file__, "--case", optimizer, str(channels), str(blocks)],
+                command,
                 check=True,
                 capture_output=True,
                 text=True,
@@ -198,7 +289,10 @@ def main():
                 "python": platform.python_version(),
                 "torch": torch.__version__,
                 "platform": platform.platform(),
-                "device": "cpu",
+                "device": args.device,
+                "mixed_precision": args.mixed_precision,
+                "cuda_runtime": torch.version.cuda,
+                "gpu_name": torch.cuda.get_device_name(0) if args.device == "cuda" else None,
                 "cpu_threads": 2,
                 "cpu_model": cpu_model,
                 "cuda_available": torch.cuda.is_available(),

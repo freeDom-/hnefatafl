@@ -1,6 +1,7 @@
 """API and remote transport keep optimizer identity, capabilities and state."""
 
 from pathlib import Path
+import sys
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from auth_support import AuthenticatedClient
 from hnefatafl.models import load_checkpoint
 from hnefatafl.server import create_app
 from hnefatafl.training import train
+from hnefatafl.training_optimizers import SCHEDULE_FREE_DEPENDENCY_ERROR
 from test_remote_api import claim, finish, upload, worker
 from test_training_resume_api import completed
 
@@ -150,3 +152,89 @@ def test_legacy_workers_receive_no_new_setting(client):
     leased = claim(client, auth)
     assert leased["config"]["optimizer"] == "adamw"
     assert "schedulefree_warmup_steps" not in leased["config"]
+
+
+@pytest.mark.parametrize("kind", ["train", "tune"])
+@pytest.mark.parametrize("unavailable", ["missing", "unusable"])
+def test_local_dependency_rejected_before_creating_job(client, monkeypatch, kind, unavailable):
+    if unavailable == "missing":
+        monkeypatch.setitem(sys.modules, "schedulefree", None)
+    else:
+
+        def broken_optimizer(*args, **kwargs):
+            raise ValueError("Installed optimizer cannot execute")
+
+        monkeypatch.setattr("schedulefree.AdamWScheduleFree", broken_optimizer)
+    monkeypatch.setattr(
+        "hnefatafl.server.subprocess.Popen",
+        lambda *args, **kwargs: pytest.fail("Rejected requests must not launch a subprocess"),
+    )
+    payload = inputs() if kind == "train" else {"kind": "tune", "trials": 1, "training": inputs()}
+    response = client.post("/api/training/jobs", json=payload)
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == SCHEDULE_FREE_DEPENDENCY_ERROR
+    assert response.json()["fields"] == ["optimizer" if kind == "train" else "training.optimizer"]
+    assert client.get("/api/training/jobs").json() == []
+    assert not list((client.app.state.data_dir / "jobs").glob("*/config.json"))
+
+
+def test_remote_submission_does_not_probe_server_dependency(client, monkeypatch):
+    remote, auth = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=auth,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "schedule_free_adamw": True,
+            }
+        },
+    )
+    monkeypatch.setitem(sys.modules, "schedulefree", None)
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available",
+        lambda: pytest.fail("Remote jobs must use worker capabilities, not server dependencies"),
+    )
+    response = client.post(
+        "/api/training/jobs", json=inputs(execution="remote", worker_id=remote["id"])
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "queued"
+    assert claim(client, auth)["config"]["optimizer"] == "adamw_schedulefree"
+
+
+@pytest.mark.parametrize("optimizer", ["adamw", "adam", "sgd"])
+def test_ordinary_local_jobs_do_not_probe_schedulefree(client, monkeypatch, optimizer):
+    monkeypatch.setitem(sys.modules, "schedulefree", None)
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available",
+        lambda: pytest.fail("Ordinary optimizer submissions must not initialize Schedule-Free"),
+    )
+    result = completed(client, client.post("/api/training/jobs", json=inputs(optimizer=optimizer)))
+    assert result["config"]["optimizer"] == optimizer
+    assert result["progress"]["metrics"]["updates"] > 0
+
+
+def test_local_tuning_probes_dependency_once_for_all_search_extremes(client, monkeypatch):
+    probes = []
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available", lambda: probes.append(True) or True
+    )
+    result = completed(
+        client,
+        client.post(
+            "/api/training/jobs",
+            json={
+                "kind": "tune",
+                "trials": 1,
+                "training": inputs(),
+                "search_space": {
+                    "learning_rate": {"type": "float", "low": 0.001, "high": 0.002},
+                    "weight_decay": {"type": "float", "low": 0, "high": 0.001},
+                },
+            },
+        ),
+    )
+    assert result["config"]["training"]["optimizer"] == "adamw_schedulefree"
+    assert probes == [True]

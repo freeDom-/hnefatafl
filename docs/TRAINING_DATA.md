@@ -75,7 +75,12 @@ then switches back through the upstream API without resetting history. Warm-up
 duration is shown read-only; an imported conflicting duration is rejected with its
 field name. Explicit base-rate/weight-decay overrides preserve all optimizer state.
 The tensor-only format and 128 MiB limit are unchanged. Checkpoints and model exports
-are placed in evaluation mode even when optimization fails or is cancelled.
+are placed in evaluation mode after recoverable optimization errors or cancellation.
+If the optimizer's in-place mode transition itself fails, the live state is
+explicitly unsafe and no replacement checkpoint/export is written. Its previous
+valid checkpoint remains available, and the error retains the original cause plus
+the restoration limitation. Resume that checkpoint into a fresh optimizer; do not
+interpret a still-false upstream group flag as proof that every weight was restored.
 Completed-iteration deterministic CPU continuation tests compare tensors with
 `rtol=1e-6, atol=1e-7`, and compare optimizer scalar state/counters, replay, RNG and
 non-timing history exactly. Wall-clock measurements are excluded. Cancellation

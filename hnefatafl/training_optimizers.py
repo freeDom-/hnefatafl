@@ -25,26 +25,79 @@ class OptimizerLifecycle:
         self.optimizer = optimizer
         self.schedule_free = "train_mode" in optimizer.defaults
 
+    @property
+    def mode_failure(self) -> str | None:
+        # Transient process state, deliberately outside the serialized optimizer
+        # groups/buffers. Only loading a valid checkpoint into a fresh optimizer
+        # can recover from an interrupted in-place upstream mode transition.
+        return getattr(self.optimizer, "_hnefatafl_mode_failure", None)
+
+    def _mode_failed(self, error: BaseException, action: str) -> None:
+        reason = (
+            f"Schedule-Free AdamW could not {action}. Evaluation parameters cannot be guaranteed; "
+            "checkpoint writing is blocked. Resume from the last valid checkpoint."
+        )
+        self.optimizer._hnefatafl_mode_failure = reason  # type: ignore[attr-defined]
+        error.add_note(reason)
+
+    def _require_valid_mode(self) -> None:
+        if self.mode_failure is not None:
+            raise RuntimeError(self.mode_failure)
+
     def train(self) -> None:
         if self.schedule_free:
-            self.optimizer.train()  # type: ignore[attr-defined]
+            self._require_valid_mode()
+            try:
+                self.optimizer.train()  # type: ignore[attr-defined]
+            except BaseException as error:
+                self._mode_failed(error, "enter training mode")
+                raise
 
     def inference(self) -> None:
         if self.schedule_free:
-            self.optimizer.eval()  # type: ignore[attr-defined]
+            self._require_valid_mode()
+            try:
+                self.optimizer.eval()  # type: ignore[attr-defined]
+            except BaseException as error:
+                self._mode_failed(error, "enter evaluation mode")
+                raise
 
     @contextmanager
     def training_parameters(self, model):
-        model.train()
-        self.train()
+        failure = None
         try:
+            model.train()
+            self.train()
             yield
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            # Also applies on cancellation, nonfinite gradients and pruned trials.
-            # Ordinary optimizer/model mode behavior stays with existing callers.
             if self.schedule_free:
-                self.inference()
-                model.eval()
+                self._finish_training(model, failure)
+
+    def _finish_training(self, model, failure: BaseException | None) -> None:
+        original = failure
+        # Upstream sets train_mode only after switching a whole parameter group.
+        # If entry raised halfway, eval() can silently do nothing for that group;
+        # it cannot prove restoration. Block further use instead of retrying it.
+        restore = (model.eval,) if self.mode_failure else (self.inference, model.eval)
+        for operation in restore:
+            try:
+                operation()
+            except BaseException as error:
+                if self.mode_failure is None:
+                    self._mode_failed(error, "restore model evaluation mode")
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note(
+                        f"Evaluation cleanup also failed: {type(error).__name__}: {error}"
+                    )
+                    if self.mode_failure not in getattr(failure, "__notes__", ()):
+                        failure.add_note(str(self.mode_failure))
+        if failure is not None and original is None:
+            raise failure
 
     def base_learning_rate(self) -> float:
         return float(self.optimizer.param_groups[0]["lr"])
@@ -52,6 +105,8 @@ class OptimizerLifecycle:
     def set_base_learning_rate(self, value: float) -> None:
         if not math.isfinite(value) or not 1e-7 <= value <= 1:
             raise ValueError("learning_rate must be between 1e-7 and 1.0")
+        if self.schedule_free:
+            self._require_valid_mode()
         # Keep z, moments, lr_max and weight_sum, including the rate history.
         for group in self.optimizer.param_groups:
             group["lr"] = float(value)
@@ -88,5 +143,7 @@ def schedule_free_available() -> bool:
         optimizer.step()
         optimizer.eval()
         return bool(torch.isfinite(parameter).all()) and optimizer.param_groups[0]["k"] == 1
-    except (ImportError, RuntimeError, AttributeError, TypeError):
+    except Exception:
+        # An installed but unusable optional optimizer must not take down the
+        # API/worker or be advertised as executable (including upstream errors).
         return False

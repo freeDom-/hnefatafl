@@ -249,6 +249,9 @@ Optimization restores averaged weights in a `finally` block before self-play,
 evaluation, Champion snapshots, inference-backend refresh and checkpoint writes.
 Optimizer sequences/counters remain in the safe full optimizer state, separately
 from adaptation state; ordinary optimizers keep their existing update paths.
+An interrupted upstream mode transition invalidates the live optimizer/model pair
+and blocks new checkpoint writes; its original error and previous valid checkpoint
+are preserved without adding fields to the serialized optimizer state.
 Workers advertise execution-tested Schedule-Free support independently of version
 overrides. See [Schedule-Free AdamW](docs/TRAINING.md#schedule-free-adamw).
 

@@ -2590,7 +2590,10 @@ def create_app(
                     fail("The saved checkpoint was not found or its name is ambiguous.")
                 return str(matches[0].resolve())
 
+            schedule_free_checked = False
+
             def validate_training(values: dict, *, prefix: str = "") -> dict:
+                nonlocal schedule_free_checked
                 if not isinstance(values, dict):
                     fail("A training configuration must be an object.")
                 check_training_fields(values, training_fields, prefix=prefix)
@@ -2625,6 +2628,22 @@ def create_app(
                     if result["device"] not in {"auto", "cpu", "cuda", "mps"}:
                         fail("Training device must be auto, cpu, cuda or mps.")
                     if execution == "local":
+                        if (
+                            result["optimizer"] == "adamw_schedulefree"
+                            and not schedule_free_checked
+                        ):
+                            from .training_optimizers import (
+                                SCHEDULE_FREE_DEPENDENCY_ERROR,
+                                schedule_free_available,
+                            )
+
+                            if not schedule_free_available():
+                                raise TrainingFieldsRejected(
+                                    [f"{prefix}optimizer"], SCHEDULE_FREE_DEPENDENCY_ERROR
+                                )
+                            # Tuning validates search-space extremes through this
+                            # same function; one execution probe per request suffices.
+                            schedule_free_checked = True
                         resolved = resolve_device(result["device"])
                         if result["inference_backend"] == "openvino":
                             from .inference_backends import openvino_capabilities, supports_openvino

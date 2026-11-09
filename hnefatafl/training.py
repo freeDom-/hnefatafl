@@ -1506,7 +1506,7 @@ def train(
         result = {**state, "output_dir": str(output), "iterations": completed}
         _write_json(output / "result.json", result)
         return result
-    except InterruptedError:
+    except InterruptedError as error:
         if not initialized:
             # Cancelled before any training state existed: report the terminal
             # state without pretending a checkpoint was written.
@@ -1525,12 +1525,17 @@ def train(
                     "evaluation_status": "cancelled",
                 }
             )
-        checkpoint_now(checkpoint)
+        assert optimizer is not None
+        mode_failure = OptimizerLifecycle(optimizer).mode_failure
+        if mode_failure is None:
+            checkpoint_now(checkpoint)
+        else:
+            state["error"] = f"{error}; {mode_failure}"
         monitor.phase("cancelled", iteration=completed)
         publish(
             status="cancelled",
             iteration=completed,
-            checkpoint=str(checkpoint),
+            checkpoint=str(checkpoint) if checkpoint.exists() else None,
         )
         result = {
             **state,
@@ -1543,12 +1548,14 @@ def train(
     except Exception as error:
         # TrialPruned also preserves the most recent completed checkpoint.
         status = "pruned" if type(error).__name__ == "TrialPruned" else "failed"
+        mode_failure = OptimizerLifecycle(optimizer).mode_failure if optimizer is not None else None
+        error_message = f"{error}; {mode_failure}" if mode_failure else str(error)
         if not initialized:
             # A failure during initialization has no checkpoint to preserve, but
             # it must still end as a named terminal state instead of a job that
             # looks like it is still starting.
             monitor.phase(status)
-            publish(status=status, error=str(error))
+            publish(status=status, error=error_message)
             raise
         if completed and (not history or history[-1]["iteration"] < completed):
             history.append(
@@ -1560,13 +1567,14 @@ def train(
                     "evaluation_status": status,
                 }
             )
-        checkpoint_now(checkpoint)
+        if mode_failure is None:
+            checkpoint_now(checkpoint)
         monitor.phase(status, iteration=completed)
         publish(
             status=status,
-            error=str(error),
+            error=error_message,
             iteration=completed,
-            checkpoint=str(checkpoint),
+            checkpoint=str(checkpoint) if checkpoint.exists() else None,
         )
         raise
     finally:

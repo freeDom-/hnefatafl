@@ -98,6 +98,11 @@ PyTorch and typing-extensions. Its declared Python minimum is 3.4; Hnefatafl
 requires Python 3.11+ and PyTorch 2.6–<3. No compiled extension or reference
 optimizer copy is added. API-only installations do not import schedulefree.
 Missing training dependencies produce an explicit error, with no optimizer fallback.
+Local API training and Optuna submissions execute the dependency probe before
+creating a job or launching its subprocess, reporting a rejected optimizer field.
+The probe runs once per Schedule-Free request, including tuning search-space
+validation. Ordinary optimizers do not run it. Remote submissions rely on worker
+capabilities and do not require schedulefree in the API server's environment.
 
 ```json
 {
@@ -130,7 +135,15 @@ RNG/scaler, selection/Champion and history. The optimizer identity stays immutab
 Warm-up duration is read-only in the resume UI/API; the CLI rejects a duration
 change after any successful update. Explicit base-rate and weight-decay overrides
 change existing groups without resetting moments or averaging history.
-Interrupted optimization also returns to evaluation mode before checkpointing.
+Recoverable optimization errors and cancellation return to evaluation mode before
+checkpointing. If upstream mode entry/exit itself raises, its in-place transition
+may have switched only part of a parameter group. The adapter preserves the
+original exception and diagnostics, marks that live optimizer/model pair unsafe,
+and blocks new checkpoint writes and further mode/rate changes. Calling upstream
+`eval()` cannot prove recovery when its group flag has not yet been committed.
+The previous valid checkpoint stays intact; discard the unsafe live state and
+resume into a fresh optimizer from that checkpoint. No new optimizer-state fields
+or per-minibatch mode switches are added.
 
 The dashboard and structured `optimizer` diagnostics in progress, metrics and
 history show the name, base rate, last warm-up-adjusted rate (zero before the first
@@ -146,6 +159,10 @@ including clipping and skipped updates; a dedicated hardware-gated test is inclu
 CUDA and MPS hardware were unavailable for this change, so neither is claimed as
 validated. There is no algorithm/device fallback. See the
 [measured CPU overhead and checkpoint sizes](benchmarks/schedulefree-adamw.md).
+For CUDA FP32/AMP, counter/skip, Champion, continuation, export and GPU memory
+checks, use the [RTX 3060 validation procedure](SCHEDULEFREE_CUDA.md). Its commands
+and conditional tests are provided for execution on a supported CUDA host; they
+are not a claim of GPU validation in the CPU implementation environment.
 
 Use `adaptation: "off"`. Combining this optimizer with HyperController is
 explicitly rejected in new/resumed jobs, configuration import, tuning and remote
