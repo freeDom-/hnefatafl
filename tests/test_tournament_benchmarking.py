@@ -303,7 +303,10 @@ def test_real_64_vs_256_checkpoint_benchmark_persistence_and_replay(tmp_path):
             # retained as compact aggregates, never as a raw decision stream.
             assert row["diagnostics"]["configured_simulations"] == (64, 256)[index]
             assert row["diagnostics"]["simulation_decisions"] == 20
-            assert 0 <= row["diagnostics"]["budget_reached_fraction"] <= 1
+            eligible = row["diagnostics"]["eligible_simulation_decisions"]
+            assert eligible == 20 - row["diagnostics"]["immediate_win_shortcuts"]
+            rate = row["diagnostics"]["budget_reached_fraction"]
+            assert rate is None or 0 <= rate <= 1
             assert row["diagnostics"]["deadline_cutoffs"] >= 0
             assert row["diagnostics"]["immediate_win_shortcuts"] >= 0
         for index in range(0, 20, 2):
@@ -328,6 +331,7 @@ def test_real_64_vs_256_checkpoint_benchmark_persistence_and_replay(tmp_path):
         exported_diagnostics = exported["results"]["result"]["standings"][0]["diagnostics"]
         assert exported_diagnostics["configured_simulations"] == 256
         assert exported_diagnostics["simulation_decisions"] == 3
+        assert "eligible_simulation_decisions" in exported_diagnostics
     with TestClient(create_app(tmp_path)) as client:
         for record in (saved, fixed_saved):
             assert client.get(f"/api/tournaments/{record['id']}").json() == record
@@ -447,7 +451,9 @@ def test_search_diagnostics_distinguish_budget_deadlines_and_shortcuts():
     assert summary["decisions"] == 4
     assert summary["configured_simulations"] == 64
     assert summary["simulation_decisions"] == 3
-    assert summary["budget_reached_fraction"] == pytest.approx(1 / 3)
+    assert summary["eligible_simulation_decisions"] == 2
+    assert summary["budget_reached_decisions"] == 1
+    assert summary["budget_reached_fraction"] == pytest.approx(1 / 2)
     assert summary["deadline_cutoffs"] == 1
     assert summary["immediate_win_shortcuts"] == 1
     # The non-MCTS decision contributes no simulation mean of its own.
@@ -461,11 +467,47 @@ def test_search_diagnostics_distinguish_budget_deadlines_and_shortcuts():
     )
     final = _finalise_diagnostics(accumulator)
     assert final["simulation_decisions"] == 4
+    assert final["eligible_simulation_decisions"] == 3
     assert final["configured_simulations"] == pytest.approx((64 * 3 + 256) / 4)
-    assert final["budget_reached_fraction"] == pytest.approx(2 / 4)
+    # Two of the three eligible searches completed their budget; the immediate
+    # win is excluded from the denominator.
+    assert final["budget_reached_fraction"] == pytest.approx(2 / 3)
     assert final["deadline_cutoffs"] == 1
     assert final["deadline_cutoff_fraction"] == pytest.approx(1 / 4)
     assert final["immediate_win_shortcuts"] == 1
+
+
+def test_search_diagnostics_all_eligible_searches_reach_their_budget():
+    summary = _search_diagnostics_summary(
+        [
+            ({"simulations": 64, "simulation_budget": 64}, 0.01, None),
+            ({"simulations": 64, "simulation_budget": 64}, 0.01, None),
+            ({"simulations": 256, "simulation_budget": 256}, 0.01, None),
+        ]
+    )
+    assert summary["simulation_decisions"] == 3
+    assert summary["eligible_simulation_decisions"] == 3
+    assert summary["budget_reached_fraction"] == 1
+
+
+def test_search_diagnostics_only_immediate_wins_have_no_eligible_rate():
+    summary = _search_diagnostics_summary(
+        [
+            ({"simulations": 0, "simulation_budget": 64, "immediate_win_shortcuts": 1}, 0.0, None),
+            ({"simulations": 0, "simulation_budget": 64, "immediate_win_shortcuts": 1}, 0.0, None),
+        ]
+    )
+    # The total MCTS count and the immediate wins stay reported, but no search
+    # was eligible for budget utilization.
+    assert summary["simulation_decisions"] == 2
+    assert summary["immediate_win_shortcuts"] == 2
+    assert summary["eligible_simulation_decisions"] == 0
+    assert summary["budget_reached_fraction"] is None
+    accumulator: dict = {}
+    _merge_diagnostics(accumulator, summary)
+    final = _finalise_diagnostics(accumulator)
+    assert final["eligible_simulation_decisions"] == 0
+    assert final["budget_reached_fraction"] is None
 
 
 def test_search_diagnostics_omit_mcts_fields_for_non_mcts_decisions():
@@ -477,6 +519,8 @@ def test_search_diagnostics_omit_mcts_fields_for_non_mcts_decisions():
     )
     for key in (
         "simulation_decisions",
+        "eligible_simulation_decisions",
+        "budget_reached_decisions",
         "configured_simulations",
         "budget_reached_fraction",
         "deadline_cutoffs",
@@ -489,6 +533,8 @@ def test_search_diagnostics_omit_mcts_fields_for_non_mcts_decisions():
     final = _finalise_diagnostics(accumulator)
     for key in (
         "simulation_decisions",
+        "eligible_simulation_decisions",
+        "budget_reached_decisions",
         "configured_simulations",
         "budget_reached_fraction",
         "deadline_cutoffs",
@@ -509,6 +555,10 @@ def test_mcts_context_records_budget_when_search_completes():
     assert details["simulations"] == 5
     assert "deadline_cutoffs" not in details
     assert "immediate_win_shortcuts" not in details
+    summary = _search_diagnostics_summary([(details, 0.01, None)])
+    assert summary["simulation_decisions"] == 1
+    assert summary["eligible_simulation_decisions"] == 1
+    assert summary["budget_reached_fraction"] == 1
 
 
 def test_mcts_context_records_a_real_deadline_cutoff(monkeypatch):
@@ -530,6 +580,11 @@ def test_mcts_context_records_a_real_deadline_cutoff(monkeypatch):
     assert details["deadline_cutoffs"] == 1
     assert 0 < details["simulations"] < 64
     assert "immediate_win_shortcuts" not in details
+    summary = _search_diagnostics_summary([(details, 0.01, None)])
+    assert summary["simulation_decisions"] == 1
+    assert summary["eligible_simulation_decisions"] == 1
+    assert summary["budget_reached_fraction"] == 0
+    assert summary["deadline_cutoffs"] == 1
 
 
 def test_mcts_context_immediate_win_is_not_a_deadline_cutoff():
@@ -544,6 +599,11 @@ def test_mcts_context_immediate_win_is_not_a_deadline_cutoff():
     assert details["simulations"] == 0
     assert details["immediate_win_shortcuts"] == 1
     assert "deadline_cutoffs" not in details
+    summary = _search_diagnostics_summary([(details, 0.0, None)])
+    assert summary["simulation_decisions"] == 1
+    assert summary["immediate_win_shortcuts"] == 1
+    assert summary["eligible_simulation_decisions"] == 0
+    assert summary["budget_reached_fraction"] is None
 
 
 def test_tournament_omits_diagnostics_without_retained_search_metrics(monkeypatch):

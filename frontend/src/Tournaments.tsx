@@ -102,8 +102,10 @@ const rate = (value: number | null, locale: string) =>
 interface FixedRoleStats {
   /** True when the outcome distribution is authoritative or reconstructed in full. */
   available: boolean;
-  /** True when only part of the authoritative match history was retained. */
+  /** True when fewer match records were retained than the authoritative count. */
   partial: boolean;
+  /** True when more match records were retained than the authoritative count. */
+  inconsistent: boolean;
   /** Games represented by the counts. */
   played: number;
   /** Authoritative completed-game count used to test coverage. */
@@ -117,8 +119,9 @@ interface FixedRoleStats {
 /**
  * New reports use incremental counters; older reports have a bounded detail-only
  * fallback. Role statistics are reconstructed from retained matches only when the
- * authoritative game counters prove the history is complete, so a partial match
- * log can never masquerade as a full outcome distribution.
+ * authoritative game counters agree exactly with the retained history, so a
+ * partial or contradictory match log can never masquerade as a full outcome
+ * distribution.
  */
 function fixedRoleStats(result: TournamentResult): FixedRoleStats {
   const seat = result.standings.find((row) => row.player === 0);
@@ -127,6 +130,7 @@ function fixedRoleStats(result: TournamentResult): FixedRoleStats {
     return {
       available: true,
       partial: false,
+      inconsistent: false,
       played: role.games,
       expected: role.games,
       attackerWins: role.wins,
@@ -148,11 +152,25 @@ function fixedRoleStats(result: TournamentResult): FixedRoleStats {
     else counts.unfinished += 1;
   }
   const played = result.games.length;
-  if (played < expected) {
-    // The retained matches are a subset; do not present them as complete.
-    return { available: false, partial: true, played, expected, ...counts };
+  if (played !== expected) {
+    // A count in either direction disagrees with the authoritative counters.
+    return {
+      available: false,
+      partial: played < expected,
+      inconsistent: played > expected,
+      played,
+      expected,
+      ...counts,
+    };
   }
-  return { available: true, partial: false, played, expected, ...counts };
+  return {
+    available: true,
+    partial: false,
+    inconsistent: false,
+    played,
+    expected,
+    ...counts,
+  };
 }
 const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
   if (!match.winner) return t('Move limit reached');
@@ -807,10 +825,15 @@ export default function Tournaments({
                     if (!stats.available) {
                       return (
                         <p className="empty-copy">
-                          {t(
-                            'Side breakdown unavailable: only {retained} of {expected} match records were retained.',
-                            { retained: stats.played, expected: stats.expected },
-                          )}
+                          {stats.inconsistent
+                            ? t(
+                                'Side breakdown unavailable: {retained} retained match records disagree with {expected} recorded games.',
+                                { retained: stats.played, expected: stats.expected },
+                              )
+                            : t(
+                                'Side breakdown unavailable: only {retained} of {expected} match records were retained.',
+                                { retained: stats.played, expected: stats.expected },
+                              )}
                         </p>
                       );
                     }
@@ -1282,10 +1305,12 @@ function TournamentDiagnosticsPanel({ diagnostics }: { diagnostics?: TournamentD
     ]);
   if (diagnostics.mean_simulations != null)
     rows.push([t('Mean MCTS simulations'), number(diagnostics.mean_simulations, 1)]);
-  if (diagnostics.budget_reached_fraction != null)
+  if (diagnostics.eligible_simulation_decisions != null)
     rows.push([
-      t('Reached simulation budget'),
-      `${Math.round(100 * diagnostics.budget_reached_fraction)}%`,
+      t('Reached budget (eligible searches)'),
+      diagnostics.budget_reached_fraction != null
+        ? `${Math.round(100 * diagnostics.budget_reached_fraction)}%`
+        : '—',
     ]);
   if (diagnostics.deadline_cutoffs != null)
     rows.push([

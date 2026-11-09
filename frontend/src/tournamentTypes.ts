@@ -37,7 +37,16 @@ export interface TournamentDiagnostics {
   configured_simulations?: number | null;
   /** Decisions where an MCTS simulation budget applied. */
   simulation_decisions?: number;
-  /** Share of eligible decisions that completed the configured budget. */
+  /**
+   * MCTS decisions that actually searched, excluding immediate winning moves.
+   * Its presence marks a `budget_reached_fraction` that uses this denominator;
+   * older records lack it and must not be reinterpreted.
+   */
+  eligible_simulation_decisions?: number;
+  /**
+   * Share of eligible decisions that completed the configured budget, or null
+   * when no eligible search existed.
+   */
   budget_reached_fraction?: number | null;
   /** Decisions stopped by the MCTS deadline, never inferred from a low count. */
   deadline_cutoffs?: number;

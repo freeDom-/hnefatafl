@@ -213,7 +213,7 @@ const german: Record<string, string> = {
   'Symmetry-pruned moves': 'Symmetrisch beschnittene Züge',
   'Reached depth cap': 'Tiefenlimit erreicht',
   'Configured MCTS budget': 'Konfiguriertes MCTS-Budget',
-  'Reached simulation budget': 'Simulationsbudget erreicht',
+  'Reached budget (eligible searches)': 'Budget erreicht (zulässige Suchen)',
   'Deadline cutoffs': 'Zeitlimit-Abbrüche',
   'Immediate winning moves': 'Sofortige Gewinnzüge',
   'Canonical transpositions': 'Kanonische Transpositionen',
@@ -256,6 +256,8 @@ const german: Record<string, string> = {
   'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
   'Side breakdown unavailable: only {retained} of {expected} match records were retained.':
     'Seitenaufschlüsselung nicht verfügbar: Nur {retained} von {expected} Partieaufzeichnungen sind erhalten.',
+  'Side breakdown unavailable: {retained} retained match records disagree with {expected} recorded games.':
+    'Seitenaufschlüsselung nicht verfügbar: {retained} erhaltene Partieaufzeichnungen stimmen nicht mit {expected} aufgezeichneten Spielen überein.',
   '{count} of {total} recorded games': '{count} von {total} aufgezeichneten Spielen',
   '{played} games: {attackers} attacker wins, {defenders} defender wins, {draws} draws, {unfinished} unfinished.':
     '{played} Spiele: {attackers} Siege der Angreifer, {defenders} Siege der Verteidiger, {draws} Unentschieden, {unfinished} unvollendet.',

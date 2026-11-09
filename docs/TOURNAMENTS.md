@@ -210,10 +210,13 @@ Average game length includes the opening; average decision time excludes it.
 Historical games without opening metadata replay exactly as before. Time-limited
 search can still do different work on different hardware even with identical
 openings, so compare the participant's **Configured MCTS budget**, **Mean MCTS
-simulations**, **Reached simulation budget** and **Deadline cutoffs** (with the
-immediate winning-move shortcut count) rather than assuming a search that stopped
-short of its budget timed out. Historical records without these counters omit
-them instead of showing zero.
+simulations**, **Reached budget (eligible searches)** and **Deadline cutoffs**
+(with the immediate winning-move shortcut count) rather than assuming a search
+that stopped short of its budget timed out. The reached-budget rate excludes
+immediate winning moves from its denominator and shows `—` when no eligible
+search occurred; it is omitted for records written before the eligible-search
+counter existed so an older value is never read under the new denominator.
+Historical records without these counters omit them instead of showing zero.
 
 For a portable same-weights Brandubh benchmark, replace the model ID below with
 one registered on the server, then import it from **New tournament**:
@@ -350,10 +353,11 @@ rate is (wins + 0.5 × draws) / completed, where completed = wins + losses + dra
 Unfinished games are excluded from both denominators. A role without completed
 games shows `—`, including the unplayed role of a fixed-role participant.
 Multi-battlefield standings offer a collapsible per-battlefield role breakdown.
-Historical counters are reconstructed when the retained games are complete;
-otherwise unavailable role statistics show placeholders without inventing results,
-and a partial match log is labelled with its retained count. Unavailable rates show
-`—` without a fabricated `n=0`; only a genuine zero-completed sample shows `n=0`.
+Historical counters are reconstructed only when the retained match count agrees
+exactly with the authoritative game counters; a partial or contradictory log
+shows an unavailable message instead of a reconstructed distribution, and the
+match log is labelled with its retained count. Unavailable rates show `—` without
+a fabricated `n=0`; only a genuine zero-completed sample shows `n=0`.
 Wins earn one point, actual rule draws half a point for each opponent, and
 unfinished games no points. Reaching the experimental move limit is unfinished,
 even when one side appears to have an advantage. A stopped tournament can have

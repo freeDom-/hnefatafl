@@ -1817,10 +1817,12 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
     Each record is ``(details, seconds, configured_depth)``. Only counters the
     search actually produced are summarised, so non-alpha-beta or historical
     opponents simply yield fewer fields. MCTS budget fields appear only when the
-    search recorded a ``simulation_budget``, which keeps a deadline cutoff
-    distinct from an immediate tactical win or another early termination. The
-    summary is intentionally compact: tournaments store means and totals, never
-    the raw per-decision stream.
+    search recorded a ``simulation_budget``. Budget utilization counts only
+    eligible searches: an immediate winning move is reported separately and is
+    excluded from the denominator, while a deadline cutoff comes from the
+    explicit diagnostic rather than a low simulation count. The summary is
+    intentionally compact: tournaments store means and totals, never the raw
+    per-decision stream.
     """
     if not records:
         return {"decisions": 0}
@@ -1843,6 +1845,14 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
         and isinstance(d.get("simulations"), (int, float))
         and d["simulations"] >= d["simulation_budget"]
     )
+    # An immediate winning move returns before searching, so it is not an
+    # eligible search for budget utilization even though it still carries a
+    # configured simulation budget.
+    immediate_wins = sum(
+        int(d.get("immediate_win_shortcuts", 0))
+        for d, _, _ in records
+        if isinstance(d.get("simulation_budget"), (int, float))
+    )
 
     def mean_key(key: str) -> float | None:
         return _mean([float(d[key]) for d, _, _ in records if isinstance(d.get(key), (int, float))])
@@ -1862,14 +1872,16 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
         "depth_cap_reached_fraction": (reached / len(caps)) if caps else None,
     }
     if simulation_budgets:
+        eligible = len(simulation_budgets) - immediate_wins
         summary.update(
             configured_simulations=_mean(simulation_budgets),
             simulation_decisions=len(simulation_budgets),
-            budget_reached_fraction=budget_reached / len(simulation_budgets),
+            eligible_simulation_decisions=eligible,
+            budget_reached_decisions=budget_reached,
+            # ``None`` means no eligible search existed, so the rate is unavailable.
+            budget_reached_fraction=(budget_reached / eligible) if eligible else None,
             deadline_cutoffs=sum(int(d.get("deadline_cutoffs", 0)) for d, _, _ in records),
-            immediate_win_shortcuts=sum(
-                int(d.get("immediate_win_shortcuts", 0)) for d, _, _ in records
-            ),
+            immediate_win_shortcuts=immediate_wins,
         )
     return summary
 
@@ -1900,10 +1912,12 @@ def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
         accumulator["simulation_decisions"] = (
             accumulator.get("simulation_decisions", 0) + simulation_decisions
         )
-        accumulator["budget_reached_sum"] = (
-            accumulator.get("budget_reached_sum", 0.0)
-            + float(summary.get("budget_reached_fraction") or 0.0) * simulation_decisions
-        )
+        accumulator["eligible_simulation_decisions"] = accumulator.get(
+            "eligible_simulation_decisions", 0
+        ) + int(summary.get("eligible_simulation_decisions", 0))
+        accumulator["budget_reached_decisions"] = accumulator.get(
+            "budget_reached_decisions", 0
+        ) + int(summary.get("budget_reached_decisions", 0))
         configured = summary.get("configured_simulations")
         if configured is not None:
             accumulator["configured_simulations_sum"] = (
@@ -1940,11 +1954,16 @@ def _finalise_diagnostics(accumulator: dict) -> dict:
     }
     simulation_decisions = int(accumulator.get("simulation_decisions", 0))
     if simulation_decisions:
+        eligible = int(accumulator.get("eligible_simulation_decisions", 0))
+        budget_reached = int(accumulator.get("budget_reached_decisions", 0))
         result["configured_simulations"] = ratio(
             "configured_simulations_sum", "configured_simulations_count"
         )
         result["simulation_decisions"] = simulation_decisions
-        result["budget_reached_fraction"] = ratio("budget_reached_sum", "simulation_decisions")
+        # The eligible-search marker lets a reader distinguish this corrected
+        # denominator from an older persisted ``budget_reached_fraction``.
+        result["eligible_simulation_decisions"] = eligible
+        result["budget_reached_fraction"] = (budget_reached / eligible) if eligible else None
         deadline_cutoffs = int(accumulator.get("deadline_cutoffs", 0))
         result["deadline_cutoffs"] = deadline_cutoffs
         result["deadline_cutoff_fraction"] = deadline_cutoffs / simulation_decisions

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Tournaments, { DETAIL_RETRY_DELAYS } from './Tournaments';
 import type { AIProfile, Model, Ruleset } from './types';
-import type { Tournament } from './tournamentTypes';
+import type { Tournament, TournamentDiagnostics } from './tournamentTypes';
 import { setLanguage } from './i18n';
 import { notify } from './notifications';
 
@@ -2578,6 +2578,69 @@ describe('tournament benchmarking', () => {
     expect(screen.queryByText('No completed games yet.')).not.toBeInTheDocument();
   });
 
+  it('treats more retained matches than recorded games as inconsistent history', async () => {
+    await showHistorical(
+      historicalFixed('inconsistent-history', ['attackers', 'defenders', 'draw'], 2),
+    );
+    expect(screen.queryByRole('img', { name: /games:/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Side breakdown unavailable: 3 retained match records disagree with 2 recorded games.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('uses authoritative modern role counters without reconstructing from matches', async () => {
+    const tournament = saved('modern-roles');
+    tournament.mode = 'fixed_roles';
+    tournament.config.mode = 'fixed_roles';
+    tournament.progress = { completed_games: 4, total_games: 4 };
+    tournament.result = {
+      scores: [0, 0],
+      standings: [
+        {
+          player: 0,
+          wins: 3,
+          losses: 1,
+          draws: 0,
+          truncated: 0,
+          games: 4,
+          score: 3,
+          roles: {
+            attackers: { games: 4, wins: 3, losses: 1, draws: 0, truncated: 0 },
+            defenders: { games: 0, wins: 0, losses: 0, draws: 0, truncated: 0 },
+          },
+        },
+        {
+          player: 1,
+          wins: 1,
+          losses: 3,
+          draws: 0,
+          truncated: 0,
+          games: 4,
+          score: 1,
+          roles: {
+            attackers: { games: 0, wins: 0, losses: 0, draws: 0, truncated: 0 },
+            defenders: { games: 4, wins: 1, losses: 3, draws: 0, truncated: 0 },
+          },
+        },
+      ],
+      // Only one match record is retained, but the authoritative roles are shown.
+      by_ruleset: { brandubh: { wins: [3, 1], draws: 0, truncated: 0, games: 4 } },
+      games: [fixedGame('attackers')],
+      truncated: 0,
+      average_game_length: 12,
+      average_decision_time: 0.01,
+    };
+    await showHistorical(tournament);
+    expect(
+      screen.getByRole('img', {
+        name: '4 games: 3 attacker wins, 1 defender wins, 0 draws, 0 unfinished.',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Side breakdown unavailable/)).not.toBeInTheDocument();
+  });
+
   it('shows the ordinary empty chart for a genuine zero-game tournament', async () => {
     await showHistorical(historicalFixed('zero-games', [], 0));
     expect(screen.getByText('No completed games yet.')).toBeInTheDocument();
@@ -2607,8 +2670,8 @@ describe('tournament benchmarking', () => {
     expect(card.getByRole('region', { name: 'Overall' })).toHaveTextContent('100.0% · n=1');
   });
 
-  it('shows MCTS budget, completion and deadline cutoffs and omits historical zeros', async () => {
-    const tournament = saved('mcts-budget');
+  const withDiagnostics = (id: string, diagnostics: TournamentDiagnostics): Tournament => {
+    const tournament = saved(id);
     tournament.result = {
       scores: [1, 0],
       standings: [
@@ -2620,16 +2683,7 @@ describe('tournament benchmarking', () => {
           truncated: 0,
           games: 1,
           score: 1,
-          diagnostics: {
-            decisions: 4,
-            configured_simulations: 64,
-            mean_simulations: 60.5,
-            simulation_decisions: 4,
-            budget_reached_fraction: 0.75,
-            deadline_cutoffs: 1,
-            deadline_cutoff_fraction: 0.25,
-            immediate_win_shortcuts: 1,
-          },
+          diagnostics,
         },
         {
           player: 1,
@@ -2648,18 +2702,60 @@ describe('tournament benchmarking', () => {
       average_game_length: 1,
       average_decision_time: 0.01,
     };
+    return tournament;
+  };
+
+  it('shows MCTS budget, completion and deadline cutoffs and omits historical zeros', async () => {
+    const tournament = withDiagnostics('mcts-budget', {
+      decisions: 4,
+      configured_simulations: 64,
+      mean_simulations: 60.5,
+      simulation_decisions: 4,
+      eligible_simulation_decisions: 4,
+      budget_reached_fraction: 0.75,
+      deadline_cutoffs: 1,
+      deadline_cutoff_fraction: 0.25,
+      immediate_win_shortcuts: 1,
+    });
     await showHistorical(tournament);
     const panels = document.querySelectorAll('details.tournament-diagnostics');
     expect(panels).toHaveLength(2);
     expect(panels[0]).toHaveTextContent('Configured MCTS budget64');
     expect(panels[0]).toHaveTextContent('Mean MCTS simulations60.5');
-    expect(panels[0]).toHaveTextContent('Reached simulation budget75%');
+    expect(panels[0]).toHaveTextContent('Reached budget (eligible searches)75%');
     expect(panels[0]).toHaveTextContent('Deadline cutoffs1 · 25%');
     expect(panels[0]).toHaveTextContent('Immediate winning moves1');
     // The historical opponent reports no MCTS fields, so no false zero appears.
     expect(panels[1]).not.toHaveTextContent('Configured MCTS budget');
     expect(panels[1]).not.toHaveTextContent('Deadline cutoffs');
-    expect(panels[1]).not.toHaveTextContent('Reached simulation budget');
+    expect(panels[1]).not.toHaveTextContent('Reached budget');
+  });
+
+  it('shows an unavailable eligible-search rate when only immediate wins occurred', async () => {
+    const tournament = withDiagnostics('only-shortcuts', {
+      decisions: 2,
+      simulation_decisions: 2,
+      eligible_simulation_decisions: 0,
+      budget_reached_fraction: null,
+      immediate_win_shortcuts: 2,
+    });
+    await showHistorical(tournament);
+    const panel = document.querySelectorAll('details.tournament-diagnostics')[0];
+    expect(panel).toHaveTextContent('Reached budget (eligible searches)—');
+    expect(panel).toHaveTextContent('Immediate winning moves2');
+  });
+
+  it('does not reinterpret a legacy budget fraction without the eligible marker', async () => {
+    const tournament = withDiagnostics('legacy-budget', {
+      decisions: 4,
+      simulation_decisions: 4,
+      budget_reached_fraction: 0.75,
+    });
+    await showHistorical(tournament);
+    const panel = document.querySelectorAll('details.tournament-diagnostics')[0];
+    // The old value used a different denominator and must not appear under the
+    // eligible-search label.
+    expect(panel).not.toHaveTextContent('Reached budget');
   });
 
   it('submits the same model with independent wrappers, budgets and randomized openings', async () => {
