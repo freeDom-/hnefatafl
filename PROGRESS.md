@@ -937,3 +937,40 @@ validation separately, then requires successful release-PR and exact merged-main
 Verify before an annotated tag and stable publication. See
 [0.37.0 release notes](docs/releases/0.37.0.md) for scope, compatibility, evidence
 and installation. Historical release records and fixtures remain unchanged.
+
+## Account profiles and current identities (`0.38.0` preparation)
+
+Release preparation starts from merged `main` at `6ba82a1`, covering all changes
+since published `0.37.0`: PRs #61, #62 and #63 and their review fixes. Python/npm
+metadata and both lockfiles move together to `0.38.0` on `release/0.38.0`.
+
+The username menu opens a dedicated profile for optional personal details,
+verification, current-password-checked password changes and existing appearance
+controls. New/edited populated optional fields publish automatically; clearing
+withdraws them. Full dates stay private and supply only completed-years age.
+One-time legacy-private exceptions survive unrelated updates until each affected
+field is edited or explicitly confirmed. Unicode/code-point limits and verification
+refresh ordering are consistent across the new profile and existing account flows.
+
+Authoritative account-linked humans resolve current public names across active
+and saved games, replay, history, standings and statistics, with canonical username
+attribution. Profile saves change account columns only, never persisted game blobs,
+moves, results or versions. Legacy unlinked humans and AI/model provenance retain
+historical labels. Hall player filtering matches the same current attributed names
+within its existing administrator scope; existing read cycles refresh identities
+without overwriting newer board state or adding continuous single-player polling.
+
+Schema advances 13→15, preserving account/security/ownership state and the original
+clock threshold. Deploy backend/frontend together after a stopped-writer backup;
+older code and automatic cross-schema restore are refused. Checkpoint tensor format
+1, job archive schema 3, game rules and training configuration are unchanged.
+Workers must match `0.38.0` for new assignments. Appearance/language stay local to
+the browser rather than becoming server profile preferences.
+
+Implementation Verify `42538666508` passed on `6ba82a1`: 3,022 backend tests
+(9 skips), 1,022 frontend tests across 81 files and 125 general (9 intentional
+skips)/14 registration-profile/18 online/34 personal-profile browser checks.
+Release preparation records local validation separately and requires successful
+release-PR and exact merged-main CI before an annotated tag and stable publication.
+See [0.38.0 release notes](docs/releases/0.38.0.md) for full scope, migration,
+validation and installation. Historical release records remain unchanged.
