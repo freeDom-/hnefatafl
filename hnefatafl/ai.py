@@ -17,7 +17,16 @@ from itertools import combinations
 from typing import Any, Callable, Generator, Iterator
 
 from .engine import RULESETS, Move, State, apply_move, legal_moves, new_game
-from .symmetry import Symmetry, canonical_state_key, inverse, state_stabilizer, transform_move
+from .openings import OPENING_VERSION, Opening, generate_opening, opening_seed
+from .symmetry import (
+    BoardKey,
+    Symmetry,
+    canonical_state_key,
+    inverse,
+    state_stabilizer,
+    transform_move,
+)
+from .tournament_statistics import standing as new_standing, record_standing
 
 
 # Catalog profiles the browser API treats as authoritative presets: selecting one
@@ -1379,6 +1388,7 @@ def mcts_context(
             value=root_value,
             root_value=root_value,
             simulations=0,
+            simulation_budget=budget,
             mcts_neural_requests=requests,
             mcts_node_prediction_reuses=0,
         )
@@ -1806,8 +1816,13 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
 
     Each record is ``(details, seconds, configured_depth)``. Only counters the
     search actually produced are summarised, so non-alpha-beta or historical
-    opponents simply yield fewer fields. The summary is intentionally compact:
-    tournaments store means and totals, never the raw per-decision stream.
+    opponents simply yield fewer fields. MCTS budget fields appear only when the
+    search recorded a ``simulation_budget``. Budget utilization counts only
+    eligible searches: an immediate winning move is reported separately and is
+    excluded from the denominator, while a deadline cutoff comes from the
+    explicit diagnostic rather than a low simulation count. The summary is
+    intentionally compact: tournaments store means and totals, never the raw
+    per-decision stream.
     """
     if not records:
         return {"decisions": 0}
@@ -1818,16 +1833,37 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
     reached = sum(
         1 for d, _, cap in records if isinstance(cap, int) and d.get("completed_depth") == cap
     )
+    simulation_budgets = [
+        float(d["simulation_budget"])
+        for d, _, _ in records
+        if isinstance(d.get("simulation_budget"), (int, float))
+    ]
+    budget_reached = sum(
+        1
+        for d, _, _ in records
+        if isinstance(d.get("simulation_budget"), (int, float))
+        and isinstance(d.get("simulations"), (int, float))
+        and d["simulations"] >= d["simulation_budget"]
+    )
+    # An immediate winning move returns before searching, so it is not an
+    # eligible search for budget utilization even though it still carries a
+    # configured simulation budget.
+    immediate_wins = sum(
+        int(d.get("immediate_win_shortcuts", 0))
+        for d, _, _ in records
+        if isinstance(d.get("simulation_budget"), (int, float))
+    )
 
     def mean_key(key: str) -> float | None:
         return _mean([float(d[key]) for d, _, _ in records if isinstance(d.get(key), (int, float))])
 
-    return {
+    summary = {
         "decisions": len(records),
         "mean_completed_depth": _mean(depths),
         "mean_decision_time": _mean([seconds for _, seconds, _ in records]),
         "mean_nodes": mean_key("nodes"),
         "mean_evaluations": mean_key("evaluations"),
+        "mean_simulations": mean_key("simulations"),
         "total_cutoffs": sum(int(d.get("cutoffs", 0)) for d, _, _ in records),
         "transposition_cutoffs": sum(int(d.get("transposition_cutoffs", 0)) for d, _, _ in records),
         "symmetry_moves_skipped": sum(
@@ -1835,6 +1871,19 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
         ),
         "depth_cap_reached_fraction": (reached / len(caps)) if caps else None,
     }
+    if simulation_budgets:
+        eligible = len(simulation_budgets) - immediate_wins
+        summary.update(
+            configured_simulations=_mean(simulation_budgets),
+            simulation_decisions=len(simulation_budgets),
+            eligible_simulation_decisions=eligible,
+            budget_reached_decisions=budget_reached,
+            # ``None`` means no eligible search existed, so the rate is unavailable.
+            budget_reached_fraction=(budget_reached / eligible) if eligible else None,
+            deadline_cutoffs=sum(int(d.get("deadline_cutoffs", 0)) for d, _, _ in records),
+            immediate_win_shortcuts=immediate_wins,
+        )
+    return summary
 
 
 def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
@@ -1843,7 +1892,7 @@ def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
     if not decisions:
         return
     accumulator["decisions"] = accumulator.get("decisions", 0) + decisions
-    for key in ("completed_depth", "nodes", "evaluations"):
+    for key in ("completed_depth", "nodes", "evaluations", "simulations"):
         value = summary.get(f"mean_{key}")
         if value is not None:
             accumulator[f"{key}_sum"] = accumulator.get(f"{key}_sum", 0.0) + value * decisions
@@ -1858,6 +1907,28 @@ def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
     if fraction is not None:
         accumulator["cap_sum"] = accumulator.get("cap_sum", 0.0) + float(fraction) * decisions
         accumulator["cap_count"] = accumulator.get("cap_count", 0) + decisions
+    simulation_decisions = int(summary.get("simulation_decisions", 0))
+    if simulation_decisions:
+        accumulator["simulation_decisions"] = (
+            accumulator.get("simulation_decisions", 0) + simulation_decisions
+        )
+        accumulator["eligible_simulation_decisions"] = accumulator.get(
+            "eligible_simulation_decisions", 0
+        ) + int(summary.get("eligible_simulation_decisions", 0))
+        accumulator["budget_reached_decisions"] = accumulator.get(
+            "budget_reached_decisions", 0
+        ) + int(summary.get("budget_reached_decisions", 0))
+        configured = summary.get("configured_simulations")
+        if configured is not None:
+            accumulator["configured_simulations_sum"] = (
+                accumulator.get("configured_simulations_sum", 0.0)
+                + float(configured) * simulation_decisions
+            )
+            accumulator["configured_simulations_count"] = (
+                accumulator.get("configured_simulations_count", 0) + simulation_decisions
+            )
+        for key in ("deadline_cutoffs", "immediate_win_shortcuts"):
+            accumulator[key] = accumulator.get(key, 0) + int(summary.get(key, 0))
 
 
 def _finalise_diagnostics(accumulator: dict) -> dict:
@@ -1869,17 +1940,35 @@ def _finalise_diagnostics(accumulator: dict) -> dict:
         count = accumulator.get(count_key, 0)
         return accumulator[sum_key] / count if count else None
 
-    return {
+    result = {
         "decisions": decisions,
         "mean_completed_depth": ratio("completed_depth_sum", "completed_depth_count"),
         "mean_decision_time": accumulator.get("decision_time_sum", 0.0) / decisions,
         "mean_nodes": ratio("nodes_sum", "nodes_count"),
         "mean_evaluations": ratio("evaluations_sum", "evaluations_count"),
+        "mean_simulations": ratio("simulations_sum", "simulations_count"),
         "total_cutoffs": accumulator.get("total_cutoffs", 0),
         "transposition_cutoffs": accumulator.get("transposition_cutoffs", 0),
         "symmetry_moves_skipped": accumulator.get("symmetry_moves_skipped", 0),
         "depth_cap_reached_fraction": ratio("cap_sum", "cap_count"),
     }
+    simulation_decisions = int(accumulator.get("simulation_decisions", 0))
+    if simulation_decisions:
+        eligible = int(accumulator.get("eligible_simulation_decisions", 0))
+        budget_reached = int(accumulator.get("budget_reached_decisions", 0))
+        result["configured_simulations"] = ratio(
+            "configured_simulations_sum", "configured_simulations_count"
+        )
+        result["simulation_decisions"] = simulation_decisions
+        # The eligible-search marker lets a reader distinguish this corrected
+        # denominator from an older persisted ``budget_reached_fraction``.
+        result["eligible_simulation_decisions"] = eligible
+        result["budget_reached_fraction"] = (budget_reached / eligible) if eligible else None
+        deadline_cutoffs = int(accumulator.get("deadline_cutoffs", 0))
+        result["deadline_cutoffs"] = deadline_cutoffs
+        result["deadline_cutoff_fraction"] = deadline_cutoffs / simulation_decisions
+        result["immediate_win_shortcuts"] = int(accumulator.get("immediate_win_shortcuts", 0))
+    return result
 
 
 def play_game(
@@ -1890,12 +1979,18 @@ def play_game(
     seed: int = 0,
     max_plies: int = 300,
     should_stop: Callable[[], bool] | None = None,
+    opening: Opening | None = None,
 ) -> dict:
-    """Play an experiment, distinguishing unfinished cap runs from rule draws."""
+    """Play an experiment; the move cap and timings count agent decisions only.
+
+    The complete move list includes the generated prefix for engine replay.
+    Its length is recorded separately so opening plies never count as decisions.
+    """
     if not 1 <= max_plies <= 5000:
         raise ValueError("max_plies must be between 1 and 5000")
-    state = new_game(ruleset)
-    moves, durations = [], []
+    state = opening.state if opening else new_game(ruleset)
+    moves = [move.to_dict() for move in opening.moves] if opening else []
+    durations: list[float] = []
     records: dict[str, list[tuple[dict, float, int | None]]] = {"attackers": [], "defenders": []}
     for ply in range(max_plies):
         if should_stop and should_stop():
@@ -1906,7 +2001,7 @@ def play_game(
         config["seed"] = seed + ply
         details: dict = {}
         started = time.monotonic()
-        move = choose_move(state, config, diagnostics=details)
+        move = choose_move(state, config, diagnostics=details, should_stop=should_stop)
         elapsed = time.monotonic() - started
         durations.append(elapsed)
         configured_depth = config.get("depth")
@@ -1924,6 +2019,17 @@ def play_game(
         "outcome": "completed" if state.winner else "truncated",
         "reason": state.reason or "experiment_ply_limit",
         "plies": len(moves),
+        "agent_plies": len(durations),
+        **(
+            {
+                "opening_seed": opening.seed,
+                "opening_version": OPENING_VERSION,
+                "opening_plies": len(opening.moves),
+                "opening_unique": opening.unique,
+            }
+            if opening
+            else {}
+        ),
         "moves": moves,
         "average_decision_time": sum(durations) / max(1, len(durations)),
         "total_decision_time": sum(durations),
@@ -1935,37 +2041,17 @@ def play_game(
 
 
 def validate_fixed_role_players(profiles: list) -> None:
-    """Normalise and validate a fixed-role pairing of two trained neural models.
-
-    Both participants must resolve to identical effective search settings, so the
-    browser API and the headless runner reject a mismatched pairing the same way.
-    Only the model identity and the participant's own seed may differ: the
-    tournament seed supersedes the per-participant seeds and ``play_game`` derives
-    a seed per game and per ply from it, so a recorded participant seed is not a
-    search difference. The browser API and the frontend importer apply the same
-    rule.
-    """
-    from .identities import effective_ai_config
-
+    """Validate two independent seats using the regular agent configuration rules."""
     if not isinstance(profiles, list) or len(profiles) != 2:
         raise ValueError("A fixed-role comparison needs exactly two participants")
-    resolved = []
     for profile in profiles:
-        config = effective_ai_config(profile)
-        if config.get("algorithm") != "neural" or not config.get("model_id"):
-            raise ValueError("A fixed-role comparison requires two trained neural models")
-        resolved.append(
-            {key: value for key, value in config.items() if key not in ("model_id", "seed")}
-        )
-    if resolved[0] != resolved[1]:
-        raise ValueError("Both fixed-role participants must use identical search settings")
+        resolve_ai_config(profile, extra_fields=frozenset({"model_path"}))
 
 
 def validate_fixed_role_rulesets(rulesets: object) -> None:
     """Require exactly one supported battlefield for a fixed-role comparison.
 
-    Trained models belong to a single ruleset, so the browser API already limits
-    the mode to one battlefield. The headless runner enforces the same contract
+    The mode uses one battlefield. The headless runner enforces the same contract
     before any game is scheduled instead of failing later during play.
     """
     if rulesets is None:
@@ -1986,6 +2072,9 @@ def tournament(
     mode = config.get("mode", "round_robin")
     if mode not in ("round_robin", "fixed_roles"):
         raise ValueError("Unknown tournament mode")
+    randomize = config.get("randomize_start_positions", False)
+    if type(randomize) is not bool:
+        raise ValueError("randomize_start_positions must be a boolean")
     profiles = config.get(
         "players", [{"algorithm": "baseline"}, {"algorithm": "mcts", "iterations": 20}]
     )
@@ -2006,14 +2095,15 @@ def tournament(
         pairings = list(combinations(range(len(profiles)), 2))
     results: list[dict] = []
     scores = [0.0] * len(profiles)
-    standings: list[dict] = [
-        dict(player=index, wins=0, losses=0, draws=0, truncated=0, games=0, score=0.0)
-        for index in range(len(profiles))
-    ]
+    standings = [new_standing(index) for index in range(len(profiles))]
     # Per-opponent running search diagnostics, merged from each game's per-side
     # summary. Kept out of the public ``results`` payload until snapshot time.
     diagnostics_accumulators: list[dict] = [{} for _ in profiles]
     by_ruleset: dict = {}
+    total_plies = 0
+    total_agent_plies = 0
+    total_decision_time = 0.0
+    truncated = 0
 
     def snapshot() -> dict:
         for index, standing in enumerate(standings):
@@ -2032,11 +2122,11 @@ def tournament(
             "standings": standings,
             "by_ruleset": by_ruleset,
             "games": results,
-            "truncated": sum(r["winner"] is None for r in results),
-            "average_game_length": sum(r["plies"] for r in results) / max(1, len(results)),
-            "average_decision_time": sum(r["total_decision_time"] for r in results)
-            / max(1, sum(r["plies"] for r in results)),
+            "truncated": truncated,
+            "average_game_length": total_plies / max(1, len(results)),
+            "average_decision_time": total_decision_time / max(1, total_agent_plies),
             "seed": config.get("seed", 0),
+            "randomize_start_positions": randomize,
         }
 
     for ruleset in config.get("rulesets", ["tablut", "brandubh", "copenhagen"]):
@@ -2045,8 +2135,11 @@ def tournament(
             "draws": 0,
             "truncated": 0,
             "games": 0,
+            "standings": [new_standing(index) for index in range(len(profiles))],
         }
+        seen_openings: set[BoardKey] = set()
         for first, second in pairings:
+            opening = None
             for game in range(games_per_ruleset):
                 if should_stop and should_stop():
                     return snapshot()
@@ -2061,6 +2154,18 @@ def tournament(
                     # use a distinct derived seed for every scheduled match.
                     game_seed = game if len(profiles) == 2 else len(results)
                 try:
+                    if randomize and (mode == "fixed_roles" or game % 2 == 0):
+                        opening = generate_opening(
+                            ruleset,
+                            opening_seed(
+                                int(config.get("seed", 0)),
+                                ruleset,
+                                (first, second),
+                                game if mode == "fixed_roles" else game // 2,
+                            ),
+                            seen_openings,
+                            should_stop,
+                        )
                     result = play_game(
                         ruleset,
                         profiles[attacker],
@@ -2068,23 +2173,28 @@ def tournament(
                         seed=int(config.get("seed", 0)) + game_seed,
                         max_plies=int(config.get("max_plies", 300)),
                         should_stop=should_stop,
+                        **({"opening": opening} if randomize else {}),
                     )
                 except InterruptedError:
                     return snapshot()
                 result["attacker_player"] = attacker
                 result["defender_player"] = defender
+                total_plies += result["plies"]
+                total_agent_plies += result.get("agent_plies", result["plies"])
+                total_decision_time += result["total_decision_time"]
                 game_diagnostics = result.get("diagnostics", {})
                 for player, side in ((attacker, "attackers"), (defender, "defenders")):
                     _merge_diagnostics(
                         diagnostics_accumulators[player], game_diagnostics.get(side, {})
                     )
-                for player in (attacker, defender):
-                    standings[player]["games"] += 1
+                    record_standing(standings[player], result["winner"], side)
+                    record_standing(
+                        by_ruleset[ruleset]["standings"][player], result["winner"], side
+                    )
                 by_ruleset[ruleset]["games"] += 1
                 if result["winner"] == "draw":
                     for player in (attacker, defender):
                         scores[player] += 0.5
-                        standings[player]["draws"] += 1
                     by_ruleset[ruleset]["draws"] += 1
                 elif result["winner"] is not None:
                     winner, loser = (
@@ -2093,12 +2203,9 @@ def tournament(
                         else (defender, attacker)
                     )
                     scores[winner] += 1
-                    standings[winner]["wins"] += 1
-                    standings[loser]["losses"] += 1
                     by_ruleset[ruleset]["wins"][winner] += 1
                 else:
-                    for player in (attacker, defender):
-                        standings[player]["truncated"] += 1
+                    truncated += 1
                     by_ruleset[ruleset]["truncated"] += 1
                 results.append(result)
                 if report:

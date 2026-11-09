@@ -354,7 +354,7 @@ it('parses a fixed-role document with its shared search configuration', () => {
   expect(parseTournamentConfig(valid, profiles, models).config.mode).toBe('round_robin');
 });
 
-it('rejects fixed-role documents that break the shared-search contract', () => {
+it('rejects fixed-role documents with invalid participants, models or tournament settings', () => {
   const rejected = [
     { ...fixedRoles, mode: 'unknown' },
     { ...fixedRoles, games: 0 },
@@ -376,25 +376,6 @@ it('rejects fixed-role documents that break the shared-search contract', () => {
           },
         },
       ],
-    },
-    {
-      ...fixedRoles,
-      players: [
-        fixedRoles.players[0],
-        {
-          config: {
-            algorithm: 'neural',
-            model_id: 'model-brandubh',
-            search_wrapper: 'mcts',
-            iterations: 121,
-            time_limit: 2,
-          },
-        },
-      ],
-    },
-    {
-      ...fixedRoles,
-      players: [fixedRoles.players[0], { config: { algorithm: 'baseline', time_limit: 2 } }],
     },
   ];
   for (const document of rejected)
@@ -463,7 +444,7 @@ it('compares effective fixed-role search settings instead of raw objects', () =>
   ]);
 });
 
-it('still rejects genuinely different fixed-role search settings', () => {
+it('preserves independent fixed-role search settings', () => {
   const rejected: [Record<string, unknown>, Record<string, unknown>][] = [
     [{ iterations: 81 }, {}],
     [{ exploration: 2 }, {}],
@@ -486,8 +467,11 @@ it('still rejects genuinely different fixed-role search settings', () => {
       { search_wrapper: 'alpha_beta', search: {} },
     ],
   ];
-  for (const [attacker, defender] of rejected)
-    expect(() => parseSeats(attacker, defender)).toThrow(TournamentConfigImportError);
+  for (const [attacker, defender] of rejected) {
+    const parsed = parseSeats(attacker, defender);
+    expect(parsed.config.players[0].config).toMatchObject(attacker);
+    expect(parsed.config.players[1].config).toMatchObject(defender);
+  }
 });
 
 const importFields = (document: unknown) => {
@@ -1135,3 +1119,69 @@ it('refuses neural symmetry reuse before a legacy search can hide it', () => {
     }),
   ).toEqual(['search.move_ordering']);
 });
+
+it('round-trips independent 64-vs-256 fixed-role configurations with randomized openings', () => {
+  const document = {
+    ...fixedRoles,
+    randomize_start_positions: true,
+    players: [
+      {
+        config: {
+          ...fixedRoles.players[0].config,
+          iterations: 256,
+          exploration: 2,
+          time_limit: 3,
+          temperature: 0,
+        },
+      },
+      {
+        config: {
+          ...fixedRoles.players[1].config,
+          iterations: 64,
+          exploration: 1,
+          time_limit: 0.1,
+          temperature: 0.5,
+        },
+      },
+    ],
+  };
+  const parsed = parseTournamentConfig(document, profiles, models);
+  expect(parsed.config.randomize_start_positions).toBe(true);
+  document.players.forEach((player, index) =>
+    expect(parsed.config.players[index].config).toMatchObject(player.config),
+  );
+  expect(
+    parseTournamentConfig(JSON.parse(JSON.stringify(parsed.config)), profiles, models).config,
+  ).toEqual(parsed.config);
+  expect(parseTournamentConfig(valid, profiles, models).config.randomize_start_positions).toBe(
+    false,
+  );
+});
+
+it('accepts supported heuristic opponents in a fixed-role configuration', () => {
+  const parsed = parseTournamentConfig(
+    {
+      ...fixedRoles,
+      players: [
+        fixedRoles.players[0],
+        { config: { algorithm: 'mcts', heuristic: 'shield_bearer', iterations: 10 } },
+      ],
+    },
+    profiles,
+    models,
+  );
+  expect(parsed.config.players[1].config).toMatchObject({
+    algorithm: 'mcts',
+    heuristic: 'shield_bearer',
+    iterations: 10,
+  });
+});
+
+it.each([null, 1, 'true', [], {}])(
+  'rejects a nonboolean opening mode %j',
+  (randomize_start_positions) => {
+    expect(() =>
+      parseTournamentConfig({ ...valid, randomize_start_positions }, profiles, models),
+    ).toThrow(TournamentConfigImportError);
+  },
+);

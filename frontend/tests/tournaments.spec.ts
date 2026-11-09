@@ -18,6 +18,7 @@ async function setUpTournament(
   seconds = 0.01,
   games = 2,
   opponents = 2,
+  randomize = false,
 ) {
   await page.getByRole('button', { name: 'New tournament', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Set up a tournament' });
@@ -39,6 +40,7 @@ async function setUpTournament(
       .getByLabel(`Opponent ${index} time limit (seconds)`, { exact: true })
       .fill(String(seconds));
   }
+  if (randomize) await setup.getByLabel('Randomize starting positions', { exact: true }).check();
   await expect(setup.getByRole('textbox')).toHaveCount(1);
   await expect(setup.getByLabel(/Opponent \d+ name/, { exact: true })).toHaveCount(0);
   await setup.getByRole('button', { name: 'Start tournament', exact: true }).click();
@@ -599,6 +601,17 @@ test('a fixed-role comparison keeps one model attacking and one defending', asyn
   await setup.getByRole('textbox', { name: 'Tournament name', exact: true }).fill(name);
   await setup.getByLabel('Attackers trained model', { exact: true }).selectOption(attackers.id);
   await setup.getByLabel('Defenders trained model', { exact: true }).selectOption(defenders.id);
+  await setup
+    .getByRole('group', { name: 'Attackers', exact: true })
+    .getByText('Search parameters', { exact: true })
+    .click();
+  await setup
+    .getByRole('group', { name: 'Defenders', exact: true })
+    .getByText('Search parameters', { exact: true })
+    .click();
+  await setup.getByLabel('Attackers search iterations', { exact: true }).fill('2');
+  await setup.getByLabel('Defenders search iterations', { exact: true }).fill('1');
+  await setup.getByLabel('Randomize starting positions', { exact: true }).check();
   await setup.getByLabel('Number of games', { exact: true }).fill('3');
   await setup.getByLabel('Move limit per game', { exact: true }).fill('2');
   const created = page.waitForResponse(
@@ -613,6 +626,8 @@ test('a fixed-role comparison keeps one model attacking and one defending', asyn
     defenders.id,
   ]);
   expect(tournament.progress.total_games).toBe(3);
+  expect(tournament.config.randomize_start_positions).toBe(true);
+  expect(tournament.config.players.map((player) => player.config.iterations)).toEqual([2, 1]);
   await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
     timeout: 120000,
   });
@@ -623,9 +638,9 @@ test('a fixed-role comparison keeps one model attacking and one defending', asyn
   // The attacker seat never defends, and both role cards stay separate.
   expect(saved.result!.games.every((game) => game.attacker_player === 0)).toBe(true);
   expect(saved.result!.games.every((game) => game.defender_player === 1)).toBe(true);
-  await expect(page.locator('.tournament-role-card')).toHaveCount(2);
-  await expect(page.locator('.tournament-role-card.attackers')).toContainText('ATTACKERS');
-  await expect(page.locator('.tournament-role-card.defenders')).toContainText('DEFENDERS');
+  await expect(page.locator('.tournament-role-card')).toHaveCount(6);
+  await expect(page.locator('.tournament-standing.rival-1')).toContainText('ATTACKERS');
+  await expect(page.locator('.tournament-standing.rival-2')).toContainText('DEFENDERS');
   await expect(page.locator('.tournament-side-stats')).toContainText('Side performance');
   await expect(page.locator('.tournament-outcome-legend li')).toHaveCount(4);
   expect(errors).toEqual([]);
@@ -670,7 +685,11 @@ test('the fixed-role dialog and results follow the shared appearance settings', 
     await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
     const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
     await expect(setup.getByLabel('Attackers trained model', { exact: true })).toBeVisible();
-    await expect(setup.getByLabel('Shared search iterations', { exact: true })).toBeVisible();
+    await setup
+      .getByRole('group', { name: 'Attackers', exact: true })
+      .getByText('Search parameters', { exact: true })
+      .click();
+    await expect(setup.getByLabel('Attackers search iterations', { exact: true })).toBeVisible();
     const box = await setup.boundingBox();
     expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     expect(box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
@@ -696,14 +715,67 @@ test('the fixed-role dialog and results follow the shared appearance settings', 
   });
   for (const [mode, density] of appearances) {
     await setAppearance(page, mode, density);
-    await expect(page.locator('.tournament-role-card.attackers')).toBeVisible();
-    await expect(page.locator('.tournament-role-card.defenders')).toBeVisible();
+    await expect(page.locator('.tournament-standing.rival-1')).toBeVisible();
+    await expect(page.locator('.tournament-standing.rival-2')).toBeVisible();
     await expect(page.locator('.tournament-outcome-legend li')).toHaveCount(4);
-    const card = await page.locator('.tournament-role-card.attackers').boundingBox();
+    const card = await page.locator('.tournament-standing.rival-1').boundingBox();
     expect(card!.width).toBeGreaterThan(0);
     expect(await fitsViewport(page)).toBe(true);
   }
   await expect.poll(() => fitsViewport(page)).toBe(true);
   expect(errors).toEqual([]);
   expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
+});
+
+test('randomized round-robin openings pair swapped seats and replay the generated prefix', async ({
+  page,
+  request,
+}, info) => {
+  const name = `Random openings ${info.project.name}`;
+  await openTournaments(page);
+  await setUpTournament(page, name, 2, 0.01, 4, 3, true);
+  await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
+    timeout: 30000,
+  });
+  const collection = (await (await request.get(tournamentApi)).json()) as Tournament[];
+  const summary = collection.find((row) => row.name === name)!;
+  const record = (await (await request.get(`${tournamentApi}/${summary.id}`)).json()) as Tournament;
+  expect(record.config.randomize_start_positions).toBe(true);
+  const games = record.result!.games;
+  expect(games).toHaveLength(12);
+  const seeds = new Set<number>();
+  for (let index = 0; index < games.length; index += 2) {
+    const [first, second] = games.slice(index, index + 2);
+    expect(first.opening_seed).toBe(second.opening_seed);
+    expect(first.attacker_player).toBe(second.defender_player);
+    expect(first.defender_player).toBe(second.attacker_player);
+    expect(first.moves.slice(0, first.opening_plies)).toEqual(
+      second.moves.slice(0, second.opening_plies),
+    );
+    expect(first.agent_plies).toBe(2);
+    expect(seeds.has(first.opening_seed!)).toBe(false);
+    seeds.add(first.opening_seed!);
+  }
+  const detail = page.locator('.tournament-detail');
+  await expect(detail.getByText('Randomized legal openings', { exact: true })).toBeVisible();
+  await expect(detail.getByRole('region', { name: 'As attackers', exact: true })).toHaveCount(3);
+  await expect(detail.getByRole('region', { name: 'As defenders', exact: true })).toHaveCount(3);
+  await page.screenshot({
+    path: test.info().outputPath('randomized-standings.png'),
+    fullPage: true,
+  });
+  await detail.getByRole('button', { name: 'Match log', exact: true }).click();
+  await detail.getByRole('button', { name: 'Replay game 1', exact: true }).click();
+  const replay = page.getByRole('dialog', { name: 'Replay game 1', exact: true });
+  await expect(replay).toContainText(`Opening seed ${games[0].opening_seed}`);
+  await replay.getByRole('button', { name: 'Next tournament move', exact: true }).click();
+  await expect(replay).toContainText('Generated opening move');
+  await replay.getByRole('button', { name: 'Last tournament move', exact: true }).click();
+  await expect(replay).toContainText('Agent move');
+  const exported = await (await request.get(`${tournamentApi}/${record.id}/export`)).json();
+  expect(exported.randomize_start_positions).toBe(true);
+  expect(exported.results.result.games).toEqual(games);
+  await replay.getByRole('button', { name: 'Close tournament replay', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await request.delete(`${tournamentApi}/${record.id}`)).ok()).toBe(true);
 });

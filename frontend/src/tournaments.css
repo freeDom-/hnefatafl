@@ -864,7 +864,7 @@
   padding-top: var(--pad-panel-sm);
   border-top: 1px solid var(--line);
 }
-/* Extends `.tournament-opponents` with the fixed-role seat cards. */
+/* Extends the shared standings styles with per-role performance sections. */
 .tournament-role-cards {
   margin-bottom: var(--gap-card);
 }
@@ -894,8 +894,11 @@
   overflow-wrap: anywhere;
 }
 .tournament-role-card .tournament-score-stats {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-bottom: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: var(--gap-stack);
+}
+.tournament-role-card .tournament-score-stats dd {
+  overflow-wrap: anywhere;
 }
 .tournament-outcome-bar {
   display: flex;

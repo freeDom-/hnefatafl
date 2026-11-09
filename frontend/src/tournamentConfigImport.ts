@@ -98,52 +98,6 @@ const object = (value: unknown): Record<string, unknown> | null =>
 const integer = (value: unknown, low: number, high: number): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high;
 
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value !== null && typeof value === 'object')
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([first], [second]) => first.localeCompare(second))
-        .map(([key, item]) => [key, canonical(item)]),
-    );
-  return value;
-}
-
-/**
- * Effective search settings for one fixed-role seat, mirroring the server's
- * `effective_ai_config` defaults. The server compares these after dropping the
- * model identity, so an omitted default and an explicitly recorded one have to
- * agree instead of being rejected as different settings.
- *
- * The per-participant seed is deliberately excluded: the tournament seed
- * supersedes it, and the server overwrites every seat with that value before it
- * compares the effective configurations.
- */
-function effectiveSearchSettings(config: Config): string {
-  const wrapper = typeof config.search_wrapper === 'string' ? config.search_wrapper : 'mcts';
-  const effective: Record<string, unknown> = {
-    algorithm: 'neural',
-    time_limit: typeof config.time_limit === 'number' ? config.time_limit : 2,
-    evaluation: 'neural',
-  };
-  if (wrapper === 'alpha_beta') {
-    effective.search_wrapper = 'alpha_beta';
-    effective.depth = typeof config.depth === 'number' ? config.depth : 2;
-    // The server keeps the nested search object only when it was recorded, so a
-    // missing object stays distinct from the default one.
-    if (config.search !== undefined) effective.search = config.search;
-  } else if (wrapper === 'none') {
-    effective.search_wrapper = 'none';
-    effective.temperature = typeof config.temperature === 'number' ? config.temperature : 0;
-  } else {
-    effective.iterations = typeof config.iterations === 'number' ? config.iterations : 80;
-    effective.rollout_depth = typeof config.rollout_depth === 'number' ? config.rollout_depth : 8;
-    effective.exploration = typeof config.exploration === 'number' ? config.exploration : 1.4;
-    effective.temperature = typeof config.temperature === 'number' ? config.temperature : 0;
-  }
-  return JSON.stringify(canonical(effective));
-}
-
 const SEARCH_KEYS = new Set([
   'legacy',
   'transposition',
@@ -451,24 +405,20 @@ export function parseTournamentConfig(
     );
   }
   if (mode === 'fixed_roles') {
-    // One battlefield, exactly two trained models and one shared search
-    // configuration; only the model identity may differ between the seats.
+    // One battlefield and two independently configured, fixed seats.
     if (rulesets.length !== 1) fields.push('rulesets');
     if (players.length !== 2) fields.push('players');
     if (!integer(root.games, 1, 100)) fields.push('games');
-    if (players.length === 2) {
-      if (players.some((player) => player.config.algorithm !== 'neural' || !player.config.model_id))
-        fields.push('players');
-      else if (
-        effectiveSearchSettings(players[0].config) !== effectiveSearchSettings(players[1].config)
-      )
-        fields.push('config');
-    }
   } else {
     if (!integer(root.games, 2, 100) || root.games % 2) fields.push('games');
   }
   if (!integer(root.max_plies, 1, 1000)) fields.push('max_plies');
   if (!integer(root.seed, 0, 2 ** 32 - 1)) fields.push('seed');
+  if (
+    root.randomize_start_positions !== undefined &&
+    typeof root.randomize_start_positions !== 'boolean'
+  )
+    fields.push('randomize_start_positions');
   if (fields.length) {
     throw new TournamentConfigImportError('Invalid tournament configuration values.', [
       ...new Set(fields),
@@ -483,6 +433,7 @@ export function parseTournamentConfig(
       games: root.games as number,
       max_plies: root.max_plies as number,
       seed: root.seed as number,
+      randomize_start_positions: (root.randomize_start_positions as boolean | undefined) ?? false,
     },
   };
 }

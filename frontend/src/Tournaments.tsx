@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, apiFetch, errorMessage } from './api';
 import { notify } from './notifications';
 import Board, { coordinate, Crown } from './Board';
@@ -10,27 +10,16 @@ import ModelTrainingSummary from './ModelTrainingSummary';
 import TournamentWinMatrix from './TournamentWinMatrix';
 import PageHeading from './PageHeading';
 import { selectStrongestModel } from './modelSelection';
-import { modelOptionLabel } from './modelLabel';
 import { profileConfiguration } from './profileConfiguration';
-import {
-  DEFAULT_ALPHA_BETA_SEARCH,
-  effectiveSearch,
-  presetSearch,
-  searchFromConfig,
-} from './alphaBetaSearch';
-import AgentConfigFields, {
-  AlphaBetaSearchFields,
-  fallbackPlayer,
-  recommendedPlayer,
-} from './AgentConfigFields';
+import { DEFAULT_ALPHA_BETA_SEARCH, searchFromConfig } from './alphaBetaSearch';
+import AgentConfigFields, { fallbackPlayer, recommendedPlayer } from './AgentConfigFields';
 import ConfigImportButton from './ConfigImportButton';
 import {
   readImportedTournamentConfig,
   TournamentConfigImportError,
 } from './tournamentConfigImport';
-import SearchWrapper from './SearchWrapper';
 import { getLocale, t, useI18n } from './i18n';
-import type { AIProfile, Config, Game, Model, Ruleset } from './types';
+import type { AIProfile, Game, Model, Ruleset } from './types';
 import type {
   Tournament,
   TournamentConfig,
@@ -40,6 +29,7 @@ import type {
   TournamentPlayer,
   TournamentReplay,
   TournamentResult,
+  TournamentPerformance,
 } from './tournamentTypes';
 import './features.css';
 import './tournaments.css';
@@ -110,39 +100,76 @@ const rate = (value: number | null, locale: string) =>
       })}%`;
 
 interface FixedRoleStats {
+  /** True when the outcome distribution is authoritative or reconstructed in full. */
+  available: boolean;
+  /** True when fewer match records were retained than the authoritative count. */
+  partial: boolean;
+  /** True when more match records were retained than the authoritative count. */
+  inconsistent: boolean;
+  /** Games represented by the counts. */
+  played: number;
+  /** Authoritative completed-game count used to test coverage. */
+  expected: number;
   attackerWins: number;
   defenderWins: number;
   draws: number;
   unfinished: number;
-  played: number;
-  completed: number;
-  attackerWinRate: number | null;
-  defenderWinRate: number | null;
-  attackerScoreRate: number | null;
-  defenderScoreRate: number | null;
 }
 
-/** Side-specific outcome counts for a fixed-role comparison. */
+/**
+ * New reports use incremental counters; older reports have a bounded detail-only
+ * fallback. Role statistics are reconstructed from retained matches only when the
+ * authoritative game counters agree exactly with the retained history, so a
+ * partial or contradictory match log can never masquerade as a full outcome
+ * distribution.
+ */
 function fixedRoleStats(result: TournamentResult): FixedRoleStats {
-  const attackerWins = result.games.filter((game) => game.winner === 'attackers').length;
-  const defenderWins = result.games.filter((game) => game.winner === 'defenders').length;
-  const draws = result.games.filter((game) => game.winner === 'draw').length;
-  const unfinished = result.games.filter((game) => !game.winner).length;
-  const completed = attackerWins + defenderWins + draws;
-  const share = (numerator: number) => (completed ? numerator / completed : null);
+  const seat = result.standings.find((row) => row.player === 0);
+  const role = seat?.roles?.attackers;
+  if (role)
+    return {
+      available: true,
+      partial: false,
+      inconsistent: false,
+      played: role.games,
+      expected: role.games,
+      attackerWins: role.wins,
+      defenderWins: role.losses,
+      draws: role.draws,
+      unfinished: role.truncated,
+    };
+  const expected = seat?.games ?? result.games.length;
+  const counts = {
+    attackerWins: 0,
+    defenderWins: 0,
+    draws: 0,
+    unfinished: 0,
+  };
+  for (const game of result.games) {
+    if (game.winner === 'attackers') counts.attackerWins += 1;
+    else if (game.winner === 'defenders') counts.defenderWins += 1;
+    else if (game.winner === 'draw') counts.draws += 1;
+    else counts.unfinished += 1;
+  }
+  const played = result.games.length;
+  if (played !== expected) {
+    // A count in either direction disagrees with the authoritative counters.
+    return {
+      available: false,
+      partial: played < expected,
+      inconsistent: played > expected,
+      played,
+      expected,
+      ...counts,
+    };
+  }
   return {
-    attackerWins,
-    defenderWins,
-    draws,
-    unfinished,
-    played: result.games.length,
-    completed,
-    // The win-rate denominator excludes unfinished games.
-    attackerWinRate: share(attackerWins),
-    defenderWinRate: share(defenderWins),
-    // Score rate keeps the tournament convention: a win is 1 point, a draw 0.5.
-    attackerScoreRate: share(attackerWins + draws / 2),
-    defenderScoreRate: share(defenderWins + draws / 2),
+    available: true,
+    partial: false,
+    inconsistent: false,
+    played,
+    expected,
+    ...counts,
   };
 }
 const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
@@ -166,6 +193,13 @@ export default function Tournaments({
   const { locale, language } = useI18n();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selected, setSelected] = useState<Tournament | null>(null);
+  const sideStats = useMemo(
+    () =>
+      selected?.result && modeOf(selected) === 'fixed_roles'
+        ? fixedRoleStats(selected.result)
+        : null,
+    [selected],
+  );
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -536,7 +570,7 @@ export default function Tournaments({
             className="button secondary"
             onClick={openFixedSetup}
             disabled={loading || running}
-            title={t('Compare one trained model as attackers against another as defenders.')}
+            title={t('Compare independently configured attackers and defenders.')}
           >
             {t('Fixed-role comparison')}
           </button>
@@ -702,6 +736,13 @@ export default function Tournaments({
                           seed: selected.config.seed,
                         })}
                   </p>
+                  <p className="subtle">
+                    {t(
+                      selected.config.randomize_start_positions
+                        ? 'Randomized legal openings'
+                        : 'Standard starting position',
+                    )}
+                  </p>
                 </div>
                 <div className="tournament-actions">
                   <button
@@ -779,45 +820,23 @@ export default function Tournaments({
                     <h3>{t('Side performance')}</h3>
                     <span>{t('Attackers and defenders are never swapped.')}</span>
                   </div>
-                  <div className="tournament-opponents tournament-role-cards">
-                    {(['attackers', 'defenders'] as const).map((role, index) => {
-                      const player = selected.config.players[index];
-                      const stats = fixedRoleStats(selected.result!);
-                      const wins = role === 'attackers' ? stats.attackerWins : stats.defenderWins;
-                      const winRate =
-                        role === 'attackers' ? stats.attackerWinRate : stats.defenderWinRate;
-                      const scoreRate =
-                        role === 'attackers' ? stats.attackerScoreRate : stats.defenderScoreRate;
-                      return (
-                        <article
-                          className={`tournament-standing tournament-role-card ${role}`}
-                          key={role}
-                        >
-                          <small>{t(role === 'attackers' ? 'ATTACKERS' : 'DEFENDERS')}</small>
-                          <h4>
-                            {seatRune(player)}
-                            {playerName(player)}
-                          </h4>
-                          <dl className="tournament-score-stats">
-                            <div>
-                              <dt>{t('Wins')}</dt>
-                              <dd>{wins}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('Win rate')}</dt>
-                              <dd>{rate(winRate, locale)}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('Score rate')}</dt>
-                              <dd>{rate(scoreRate, locale)}</dd>
-                            </div>
-                          </dl>
-                        </article>
-                      );
-                    })}
-                  </div>
                   {(() => {
-                    const stats = fixedRoleStats(selected.result!);
+                    const stats = sideStats!;
+                    if (!stats.available) {
+                      return (
+                        <p className="empty-copy">
+                          {stats.inconsistent
+                            ? t(
+                                'Side breakdown unavailable: {retained} retained match records disagree with {expected} recorded games.',
+                                { retained: stats.played, expected: stats.expected },
+                              )
+                            : t(
+                                'Side breakdown unavailable: only {retained} of {expected} match records were retained.',
+                                { retained: stats.played, expected: stats.expected },
+                              )}
+                        </p>
+                      );
+                    }
                     const outcomes = [
                       { key: 'attackers', label: t('Attacker wins'), count: stats.attackerWins },
                       { key: 'defenders', label: t('Defender wins'), count: stats.defenderWins },
@@ -868,11 +887,6 @@ export default function Tournaments({
                       <p className="empty-copy">{t('No completed games yet.')}</p>
                     );
                   })()}
-                  <p className="tournament-scoring">
-                    {t(
-                      'Win rate and score rate use completed games only; unfinished games are excluded. A win scores 1 point and a rule draw 0.5 for each side.',
-                    )}
-                  </p>
                 </div>
               )}
               <div className="tournament-standings">
@@ -921,24 +935,29 @@ export default function Tournaments({
                             }}
                           />
                         </div>
-                        <dl className="tournament-score-stats">
-                          <div>
-                            <dt>{t('Wins')}</dt>
-                            <dd>{standing?.wins ?? 0}</dd>
-                          </div>
-                          <div>
-                            <dt>{t('Draws')}</dt>
-                            <dd>{standing?.draws ?? 0}</dd>
-                          </div>
-                          <div>
-                            <dt>{t('Losses')}</dt>
-                            <dd>{standing?.losses ?? 0}</dd>
-                          </div>
-                          <div>
-                            <dt>{t('Unfinished')}</dt>
-                            <dd>{standing?.truncated ?? 0}</dd>
-                          </div>
-                        </dl>
+                        <PerformanceStats title="Overall" stats={standing} />
+                        <RolePerformance roles={standing?.roles} />
+                        {selected.config.rulesets.length > 1 && (
+                          <details className="tournament-diagnostics">
+                            <summary>{t('By battlefield')}</summary>
+                            {selected.config.rulesets.map((ruleset) => {
+                              const row = selected.result?.by_ruleset[ruleset]?.standings?.find(
+                                (entry) => entry.player === index,
+                              );
+                              return (
+                                <section key={ruleset}>
+                                  <h4>
+                                    {t(
+                                      rulesets.find((entry) => entry.id === ruleset)?.name ??
+                                        ruleset,
+                                    )}
+                                  </h4>
+                                  <RolePerformance roles={row?.roles} />
+                                </section>
+                              );
+                            })}
+                          </details>
+                        )}
                         <TournamentDiagnosticsPanel diagnostics={standing?.diagnostics} />
                         {model && <ModelTrainingSummary model={model} compact />}
                         <RecordsParameters
@@ -953,6 +972,11 @@ export default function Tournaments({
                 <p className="tournament-scoring">
                   {t(
                     'Win = 1 point · Rule draw = ½ point · Move limit reached = unfinished, 0 points. Stopped games still in progress are discarded.',
+                  )}
+                </p>
+                <p className="tournament-scoring">
+                  {t(
+                    'Win rate and score rate use completed games only; unfinished games are excluded. A win scores 1 point and a rule draw 0.5 for each side.',
                   )}
                 </p>
               </div>
@@ -1050,7 +1074,15 @@ export default function Tournaments({
                   </button>
                 </h3>
                 <span>
-                  {t('{count} recorded games', { count: selected.result?.games.length ?? 0 })}
+                  {selected.result &&
+                  selected.progress.completed_games > selected.result.games.length
+                    ? t('{count} of {total} recorded games', {
+                        count: selected.result.games.length,
+                        total: selected.progress.completed_games,
+                      })
+                    : t('{count} recorded games', {
+                        count: selected.result?.games.length ?? 0,
+                      })}
                 </span>
               </div>
               <div id="tournament-match-log" hidden={!matchesOpen}>
@@ -1195,6 +1227,62 @@ export default function Tournaments({
   );
 }
 
+function PerformanceStats({ title, stats }: { title: string; stats?: TournamentPerformance }) {
+  const { locale } = useI18n();
+  // A missing statistics object is unavailable history, which is distinct from a
+  // valid object whose completed sample is genuinely zero. The former must never
+  // claim `n=0`.
+  const available = stats != null;
+  const completed = stats ? stats.wins + stats.losses + stats.draws : 0;
+  const sample = available ? ` · n=${completed}` : '';
+  const rows = [
+    ['Games', stats?.games ?? '—'],
+    ['Wins', stats?.wins ?? '—'],
+    ['Draws', stats?.draws ?? '—'],
+    ['Losses', stats?.losses ?? '—'],
+    ['Unfinished', stats?.truncated ?? '—'],
+    [
+      'Win rate',
+      available ? `${rate(completed ? stats!.wins / completed : null, locale)}${sample}` : '—',
+    ],
+    [
+      'Score rate',
+      available
+        ? `${rate(
+            completed ? (stats!.wins + 0.5 * stats!.draws) / completed : null,
+            locale,
+          )}${sample}`
+        : '—',
+    ],
+  ];
+  return (
+    <section className="tournament-role-card" aria-label={t(title)}>
+      <h4>{t(title)}</h4>
+      <dl className="tournament-score-stats">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{t(String(label))}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function RolePerformance({
+  roles,
+}: {
+  roles?: Record<'attackers' | 'defenders', TournamentPerformance>;
+}) {
+  return (
+    <div className="tournament-role-cards">
+      <PerformanceStats title="As attackers" stats={roles?.attackers} />
+      <PerformanceStats title="As defenders" stats={roles?.defenders} />
+    </div>
+  );
+}
+
 function TournamentDiagnosticsPanel({ diagnostics }: { diagnostics?: TournamentDiagnostics }) {
   const { locale } = useI18n();
   if (!diagnostics || !diagnostics.decisions) return null;
@@ -1210,6 +1298,31 @@ function TournamentDiagnosticsPanel({ diagnostics }: { diagnostics?: TournamentD
     rows.push([t('Mean decision time'), `${number(diagnostics.mean_decision_time, 3)}${t('s')}`]);
   if (diagnostics.mean_nodes != null)
     rows.push([t('Mean nodes'), number(Math.round(diagnostics.mean_nodes))]);
+  if (diagnostics.configured_simulations != null)
+    rows.push([
+      t('Configured MCTS budget'),
+      number(Math.round(diagnostics.configured_simulations)),
+    ]);
+  if (diagnostics.mean_simulations != null)
+    rows.push([t('Mean MCTS simulations'), number(diagnostics.mean_simulations, 1)]);
+  if (diagnostics.eligible_simulation_decisions != null)
+    rows.push([
+      t('Reached budget (eligible searches)'),
+      diagnostics.budget_reached_fraction != null
+        ? `${Math.round(100 * diagnostics.budget_reached_fraction)}%`
+        : '—',
+    ]);
+  if (diagnostics.deadline_cutoffs != null)
+    rows.push([
+      t('Deadline cutoffs'),
+      diagnostics.deadline_cutoff_fraction != null
+        ? `${number(diagnostics.deadline_cutoffs)} · ${Math.round(
+            100 * diagnostics.deadline_cutoff_fraction,
+          )}%`
+        : number(diagnostics.deadline_cutoffs),
+    ]);
+  if (diagnostics.immediate_win_shortcuts != null)
+    rows.push([t('Immediate winning moves'), number(diagnostics.immediate_win_shortcuts)]);
   if (diagnostics.mean_evaluations != null)
     rows.push([t('Mean evaluations'), number(Math.round(diagnostics.mean_evaluations))]);
   if (diagnostics.transposition_cutoffs != null)
@@ -1237,6 +1350,129 @@ function TournamentDiagnosticsPanel({ diagnostics }: { diagnostics?: TournamentD
   );
 }
 
+/** Profile selection and agent fields shared by both tournament modes. */
+function TournamentParticipantFields({
+  player,
+  profiles,
+  models,
+  ruleset,
+  prefix,
+  showRecommendation,
+  onEdit,
+  onChange,
+}: {
+  player: TournamentPlayer;
+  profiles: AIProfile[];
+  models: Model[];
+  ruleset?: string;
+  prefix: string;
+  showRecommendation?: boolean;
+  onEdit?: () => void;
+  onChange: (player: TournamentPlayer) => void;
+}) {
+  const description = profiles.find((profile) => profile.id === player.profile_id)?.description;
+  const fixed = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(
+    player.profile_id ?? '',
+  );
+  const changeProfile = (id: string) => {
+    onEdit?.();
+    const profile = profiles.find((entry) => entry.id === id);
+    if (!profile) {
+      const config = player.config;
+      onChange({
+        ...player,
+        profile_id: undefined,
+        name: 'Computer',
+        config:
+          config.algorithm === 'alpha_beta' && !searchFromConfig(config)
+            ? { ...config, search: { ...DEFAULT_ALPHA_BETA_SEARCH } }
+            : config,
+      });
+      return;
+    }
+    onChange({
+      ...player,
+      profile_id: id,
+      config: {
+        ...profileConfiguration(profile),
+        ...(!['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(id)
+          ? { time_limit: 10 }
+          : {}),
+        ...(profile.algorithm === 'neural' && ruleset
+          ? { model_id: selectStrongestModel(models, ruleset)?.model.id ?? '' }
+          : {}),
+      },
+    });
+  };
+  return (
+    <>
+      <label>
+        {t('Profile')}
+        <select
+          aria-label={`${prefix} ${t('profile')}`}
+          value={player.profile_id ?? ''}
+          onChange={(event) => changeProfile(event.target.value)}
+        >
+          <option value="">{t('Custom opponent')}</option>
+          {profiles.map((profile) => (
+            <option value={profile.id} key={profile.id}>
+              {t(profile.name)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {description && <p className="subtle">{t(description)}</p>}
+      {fixed ? (
+        <p className="subtle">{parameterSummary(player.config)}</p>
+      ) : (
+        <AgentConfigFields
+          player={player}
+          models={models}
+          ruleset={ruleset}
+          prefix={prefix}
+          showRecommendation={showRecommendation}
+          onEdit={onEdit}
+          onChange={onChange}
+        />
+      )}
+    </>
+  );
+}
+
+function OpeningRandomization({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <fieldset className="tournament-fields">
+      <label>
+        <input
+          type="checkbox"
+          aria-label={t('Randomize starting positions')}
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        {t('Randomize starting positions')}
+      </label>
+      <p className="subtle">
+        {t(
+          'Start games from reproducible, randomly generated legal openings to test performance across different positions. Paired round-robin games reuse the same opening with swapped sides.',
+        )}
+      </p>
+      {checked && (
+        <p className="subtle">
+          {t(
+            'The move limit counts agent moves only. Generated opening moves are excluded from decision statistics.',
+          )}
+        </p>
+      )}
+    </fieldset>
+  );
+}
+
 function FixedRoleSetup({
   initialName,
   existingNames,
@@ -1256,27 +1492,23 @@ function FixedRoleSetup({
   onClose: () => void;
   onCreated: (tournament: Tournament) => void;
 }) {
-  const { locale, language } = useI18n();
+  const { language } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(initialName);
   const previousSuggestion = useRef(initialName);
   const [ruleset, setRuleset] = useState('brandubh');
-  const [attackerId, setAttackerId] = useState(
-    () => selectStrongestModel(models, 'brandubh')?.model.id ?? '',
+  const [players, setPlayers] = useState<TournamentPlayer[]>(() =>
+    [0, 1].map(() =>
+      // The catalogue can arrive after the dialog opens. Keep neural fields
+      // selectable while it loads, without replacing any later user edits.
+      recommendedPlayer(models, profiles, 'brandubh', {
+        name: 'Trained model',
+        profile_id: 'neural',
+        config: { algorithm: 'neural', time_limit: 10, iterations: 80 },
+      }),
+    ),
   );
-  const [defenderId, setDefenderId] = useState(
-    () => selectStrongestModel(models, 'brandubh')?.model.id ?? '',
-  );
-  // One shared search configuration is submitted for both seats; only the model
-  // identity differs, so neither side can drift into hidden defaults.
-  const [shared, setShared] = useState<Config>({
-    algorithm: 'neural',
-    search_wrapper: 'mcts',
-    time_limit: 1,
-    iterations: 80,
-    exploration: 1.4,
-    temperature: 0,
-  });
+  const [randomize, setRandomize] = useState(false);
   const [games, setGames] = useState(20);
   const [maxPlies, setMaxPlies] = useState(300);
   const [seed, setSeed] = useState(42);
@@ -1287,90 +1519,20 @@ function FixedRoleSetup({
     dialog?.showModal();
     return () => dialog?.close();
   }, []);
-  const compatible = models.filter((model) => model.ruleset === ruleset);
-  const wrapper = String(shared.search_wrapper ?? 'mcts');
-  const alphaBeta = searchFromConfig(shared) ?? DEFAULT_ALPHA_BETA_SEARCH;
-  const attacker = models.find((model) => model.id === attackerId);
-  const defender = models.find((model) => model.id === defenderId);
-  const attackerCompatible = compatible.some((model) => model.id === attackerId);
-  const defenderCompatible = compatible.some((model) => model.id === defenderId);
+  const incompatibleModel = players.some(
+    (player) =>
+      player.config.algorithm === 'neural' &&
+      !models.some((model) => model.id === player.config.model_id && model.ruleset === ruleset),
+  );
   const valid =
     !!name.trim() &&
-    attackerCompatible &&
-    defenderCompatible &&
+    !incompatibleModel &&
     games >= 1 &&
     games <= 100 &&
     maxPlies >= 1 &&
     maxPlies <= 1000 &&
     seed >= 0 &&
     seed <= 4294967295;
-  const update = (key: string, value: string | number) =>
-    setShared((previous) => ({ ...previous, [key]: value }));
-  const changeWrapper = (next: string) =>
-    setShared((previous) => {
-      const updated: Config = { ...previous, search_wrapper: next };
-      // Nested alpha-beta settings are rejected for every other wrapper.
-      if (next === 'alpha_beta' && !updated.search)
-        updated.search = { ...DEFAULT_ALPHA_BETA_SEARCH };
-      if (next !== 'alpha_beta') delete updated.search;
-      return updated;
-    });
-  const field = (
-    key: string,
-    label: string,
-    minimum: number,
-    maximum: number,
-    step = 1,
-    fallback = minimum,
-  ) => (
-    <label key={key}>
-      {t(label)}
-      <input
-        type="number"
-        aria-label={`${t('Shared')} ${t(label).toLocaleLowerCase(locale)}`}
-        min={minimum}
-        max={maximum}
-        step={step}
-        required
-        value={Number(shared[key] ?? fallback)}
-        onChange={(event) => update(key, Number(event.target.value))}
-      />
-    </label>
-  );
-  const modelField = (
-    role: 'attackers' | 'defenders',
-    value: string,
-    setValue: (id: string) => void,
-  ) => {
-    const selected = models.find((model) => model.id === value);
-    const compatibleSelection = compatible.some((model) => model.id === value);
-    return (
-      <label>
-        {t('Trained model')}
-        <select
-          aria-label={`${t(role === 'attackers' ? 'Attackers' : 'Defenders')} ${t('trained model')}`}
-          required
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-        >
-          <option value="">{t('Select a compatible model')}</option>
-          {compatible.map((model) => (
-            <option value={model.id} key={model.id}>
-              {modelOptionLabel(model, t)}
-            </option>
-          ))}
-          {value && !compatibleSelection && (
-            <option value={value}>
-              {selected
-                ? `${selected.name} · ${t('incompatible battlefield')}`
-                : t('Unavailable model')}
-            </option>
-          )}
-        </select>
-        <small>{t('Trained models require one matching battlefield.')}</small>
-      </label>
-    );
-  };
   const importConfig = async (file: File) => {
     setImportingConfig(true);
     try {
@@ -1381,13 +1543,9 @@ function FixedRoleSetup({
         );
         return;
       }
-      const [attackers, defenders] = imported.config.players;
-      const settings: Config = { ...attackers.config };
-      delete settings.model_id;
       setRuleset(imported.config.rulesets[0]);
-      setAttackerId(String(attackers.config.model_id ?? ''));
-      setDefenderId(String(defenders.config.model_id ?? ''));
-      setShared(settings);
+      setPlayers(imported.config.players);
+      setRandomize(imported.config.randomize_start_positions ?? false);
       setGames(imported.config.games);
       setMaxPlies(imported.config.max_plies);
       setSeed(imported.config.seed);
@@ -1417,10 +1575,8 @@ function FixedRoleSetup({
           games,
           max_plies: maxPlies,
           seed,
-          players: [
-            { config: { ...shared, model_id: attackerId } },
-            { config: { ...shared, model_id: defenderId } },
-          ],
+          randomize_start_positions: randomize,
+          players: players.map(({ profile_id, config }) => ({ profile_id, config })),
         }),
       );
     } catch (failure) {
@@ -1456,7 +1612,7 @@ function FixedRoleSetup({
         </div>
         <p className="tournament-setup-copy">
           {t(
-            'Compare two trained models with fixed sides. One model always attacks, the other always defends, and both share one search configuration.',
+            'Compare independently configured opponents with fixed sides. Player 1 always attacks and player 2 always defends.',
           )}
         </p>
         <div className="tournament-import">
@@ -1529,66 +1685,35 @@ function FixedRoleSetup({
           </div>
         </fieldset>
         <div className="tournament-setup-opponents fixed-roles">
-          <fieldset className="tournament-player">
-            <legend>{t('Attackers')}</legend>
-            <p className="subtle">{t('Plays the attacking side in every game.')}</p>
-            {modelField('attackers', attackerId, setAttackerId)}
-            {attacker && <ModelTrainingSummary model={attacker} compact />}
-          </fieldset>
-          <fieldset className="tournament-player">
-            <legend>{t('Defenders')}</legend>
-            <p className="subtle">{t('Plays the defending side in every game.')}</p>
-            {modelField('defenders', defenderId, setDefenderId)}
-            {defender && <ModelTrainingSummary model={defender} compact />}
-          </fieldset>
+          {players.map((player, index) => {
+            const prefix = t(index === 0 ? 'Attackers' : 'Defenders');
+            return (
+              <fieldset className="tournament-player" key={index}>
+                <legend>{prefix}</legend>
+                <p className="subtle">
+                  {t(
+                    index === 0
+                      ? 'Plays the attacking side in every game.'
+                      : 'Plays the defending side in every game.',
+                  )}
+                </p>
+                <TournamentParticipantFields
+                  player={player}
+                  profiles={profiles}
+                  models={models}
+                  ruleset={ruleset}
+                  prefix={prefix}
+                  onChange={(next) =>
+                    setPlayers((previous) =>
+                      previous.map((entry, seat) => (seat === index ? next : entry)),
+                    )
+                  }
+                />
+              </fieldset>
+            );
+          })}
         </div>
-        <fieldset className="tournament-fields">
-          <legend>{t('Shared search configuration')}</legend>
-          <p className="subtle">
-            {t('Both participants use these settings. Only the trained model differs.')}
-          </p>
-          <SearchWrapper
-            value={wrapper}
-            label={t('Shared search wrapper')}
-            onChange={changeWrapper}
-          />
-          <div className="form-grid">
-            {wrapper !== 'none' && field('time_limit', 'Time limit (seconds)', 0.01, 15, 0.01, 1)}
-            {wrapper === 'mcts' && (
-              <>
-                {field('iterations', 'Search iterations', 1, 5000, 1, 80)}
-                {field('exploration', 'Exploration', 0, 10, 0.1, 1.4)}
-              </>
-            )}
-            {wrapper === 'alpha_beta' && field('depth', 'Search depth', 1, 5, 1, 2)}
-            {(wrapper === 'mcts' || wrapper === 'none') &&
-              field('temperature', 'Temperature', 0, 5, 0.1, 0)}
-          </div>
-          {wrapper === 'alpha_beta' && (
-            <AlphaBetaSearchFields
-              prefix={t('Shared')}
-              modelBacked
-              search={alphaBeta}
-              onPreset={(preset) =>
-                setShared((previous) => ({
-                  ...previous,
-                  search: effectiveSearch(
-                    presetSearch(preset, searchFromConfig(previous) ?? DEFAULT_ALPHA_BETA_SEARCH),
-                  ),
-                }))
-              }
-              onField={(patch) =>
-                setShared((previous) => ({
-                  ...previous,
-                  search: effectiveSearch({
-                    ...(searchFromConfig(previous) ?? DEFAULT_ALPHA_BETA_SEARCH),
-                    ...patch,
-                  }),
-                }))
-              }
-            />
-          )}
-        </fieldset>
+        <OpeningRandomization checked={randomize} onChange={setRandomize} />
         <div className="form-grid tournament-run-settings">
           <label>
             {t('Number of games')}
@@ -1636,18 +1761,9 @@ function FixedRoleSetup({
             'Every scheduled game keeps the same sides, so an odd game count is valid. The tournament seed controls all game and move seeds. Unfinished games score no points.',
           )}
         </p>
-        {!attackerCompatible && (
+        {incompatibleModel && (
           <p className="form-error">
-            {attackerId
-              ? t('The attackers model is not trained for this battlefield.')
-              : t('Select a trained model for the attackers.')}
-          </p>
-        )}
-        {!defenderCompatible && (
-          <p className="form-error">
-            {defenderId
-              ? t('The defenders model is not trained for this battlefield.')
-              : t('Select a trained model for the defenders.')}
+            {t('Choose a compatible trained model and its single matching battlefield.')}
           </p>
         )}
         <div className="modal-actions">
@@ -1759,34 +1875,6 @@ function TournamentSetup({
             players: previous.players.filter((_, playerIndex) => playerIndex !== index),
           },
     );
-  };
-  const changeProfile = (index: number, id: string) => {
-    const profile = profiles.find((item) => item.id === id);
-    manualOpponents.current[index] = true;
-    if (!profile) {
-      const current = config.players[index].config;
-      updatePlayer(index, {
-        profile_id: undefined,
-        name: 'Computer',
-        config:
-          current.algorithm === 'alpha_beta' && !searchFromConfig(current)
-            ? { ...current, search: { ...DEFAULT_ALPHA_BETA_SEARCH } }
-            : current,
-      });
-      return;
-    }
-    updatePlayer(index, {
-      profile_id: id,
-      config: {
-        ...profileConfiguration(profile),
-        ...(!['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(id)
-          ? { time_limit: 10 }
-          : {}),
-        ...(profile.algorithm === 'neural' && config.rulesets.length === 1
-          ? { model_id: selectStrongestModel(models, config.rulesets[0])?.model.id ?? '' }
-          : {}),
-      },
-    });
   };
   const compatible = models.filter(
     (model) => config.rulesets.length === 1 && config.rulesets[0] === model.ruleset,
@@ -1947,12 +2035,6 @@ function TournamentSetup({
         <div className="tournament-setup-opponents">
           {config.players.map((player, index) => {
             const prefix = t('Opponent {number}', { number: index + 1 });
-            const description = profiles.find(
-              (profile) => profile.id === player.profile_id,
-            )?.description;
-            const fixedPreset = ['baseline', 'shield_maiden', 'alpha_beta', 'mcts'].includes(
-              player.profile_id ?? '',
-            );
             return (
               <fieldset key={index} className="tournament-player">
                 <legend>{prefix}</legend>
@@ -1967,37 +2049,18 @@ function TournamentSetup({
                     ×
                   </button>
                 )}
-                <label>
-                  {t('Profile')}
-                  <select
-                    aria-label={`${prefix} ${t('profile')}`}
-                    value={player.profile_id ?? ''}
-                    onChange={(event) => changeProfile(index, event.target.value)}
-                  >
-                    <option value="">{t('Custom opponent')}</option>
-                    {profiles.map((profile) => (
-                      <option value={profile.id} key={profile.id}>
-                        {t(profile.name)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {description && <p className="subtle">{t(description)}</p>}
-                {fixedPreset ? (
-                  <p className="subtle">{parameterSummary(player.config)}</p>
-                ) : (
-                  <AgentConfigFields
-                    player={player}
-                    models={models}
-                    ruleset={config.rulesets.length === 1 ? config.rulesets[0] : undefined}
-                    prefix={prefix}
-                    showRecommendation={!manualOpponents.current[index]}
-                    onEdit={() => {
-                      manualOpponents.current[index] = true;
-                    }}
-                    onChange={(next) => updatePlayer(index, next)}
-                  />
-                )}
+                <TournamentParticipantFields
+                  player={player}
+                  profiles={profiles}
+                  models={models}
+                  ruleset={config.rulesets.length === 1 ? config.rulesets[0] : undefined}
+                  prefix={prefix}
+                  showRecommendation={!manualOpponents.current[index]}
+                  onEdit={() => {
+                    manualOpponents.current[index] = true;
+                  }}
+                  onChange={(next) => updatePlayer(index, next)}
+                />
               </fieldset>
             );
           })}
@@ -2017,6 +2080,12 @@ function TournamentSetup({
             {t('Add opponent')}
           </button>
         </div>
+        <OpeningRandomization
+          checked={config.randomize_start_positions ?? false}
+          onChange={(checked) =>
+            setConfig((previous) => ({ ...previous, randomize_start_positions: checked }))
+          }
+        />
         <div className="form-grid tournament-run-settings">
           <label>
             {t('Games per battlefield')}
@@ -2186,6 +2255,22 @@ function TournamentPlayback({
       <p className="tournament-replay-result">
         {outcome(match, tournament.config.players)} · {t(match.reason.replaceAll('_', ' '))}
       </p>
+      {!!match.opening_plies && (
+        <p className="subtle">
+          {t('Opening seed {seed} · {count} generated plies', {
+            seed: match.opening_seed ?? '—',
+            count: match.opening_plies,
+          })}
+          {' · '}
+          {t(
+            cursor > 0 && cursor <= match.opening_plies
+              ? 'Generated opening move'
+              : cursor > match.opening_plies
+                ? 'Agent move'
+                : 'Starting position',
+          )}
+        </p>
+      )}
       <p className="tournament-replay-players">
         {seatRune(tournament.config.players[match.attacker_player])}
         {playerName(tournament.config.players[match.attacker_player])}

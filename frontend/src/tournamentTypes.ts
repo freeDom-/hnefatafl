@@ -20,6 +20,7 @@ export interface TournamentConfig {
   max_plies: number;
   seed: number;
   mode?: TournamentMode;
+  randomize_start_positions?: boolean;
 }
 export interface TournamentDiagnostics {
   decisions: number;
@@ -27,10 +28,31 @@ export interface TournamentDiagnostics {
   mean_decision_time?: number | null;
   mean_nodes?: number | null;
   mean_evaluations?: number | null;
+  mean_simulations?: number | null;
   total_cutoffs?: number;
   transposition_cutoffs?: number;
   symmetry_moves_skipped?: number;
   depth_cap_reached_fraction?: number | null;
+  /** Effective MCTS budget recorded by the participant's search settings. */
+  configured_simulations?: number | null;
+  /** Decisions where an MCTS simulation budget applied. */
+  simulation_decisions?: number;
+  /**
+   * MCTS decisions that actually searched, excluding immediate winning moves.
+   * Its presence marks a `budget_reached_fraction` that uses this denominator;
+   * older records lack it and must not be reinterpreted.
+   */
+  eligible_simulation_decisions?: number;
+  /**
+   * Share of eligible decisions that completed the configured budget, or null
+   * when no eligible search existed.
+   */
+  budget_reached_fraction?: number | null;
+  /** Decisions stopped by the MCTS deadline, never inferred from a low count. */
+  deadline_cutoffs?: number;
+  deadline_cutoff_fraction?: number | null;
+  /** Root moves that returned an immediate tactical win before searching. */
+  immediate_win_shortcuts?: number;
 }
 export interface TournamentGame {
   ruleset: string;
@@ -44,20 +66,41 @@ export interface TournamentGame {
   average_decision_time: number;
   total_decision_time: number;
   diagnostics?: { attackers?: TournamentDiagnostics; defenders?: TournamentDiagnostics };
+  agent_plies?: number;
+  opening_seed?: number;
+  opening_version?: number;
+  opening_plies?: number;
+  opening_unique?: boolean;
+}
+export interface TournamentPerformance {
+  wins: number;
+  losses: number;
+  draws: number;
+  truncated: number;
+  games: number;
+  completed?: number;
+  win_rate?: number | null;
+  score_rate?: number | null;
+}
+export interface TournamentStanding extends TournamentPerformance {
+  player: number;
+  score: number;
+  roles?: Record<Side, TournamentPerformance>;
+  diagnostics?: TournamentDiagnostics;
 }
 export interface TournamentResult {
   scores: number[];
-  standings: {
-    player: number;
-    wins: number;
-    losses: number;
-    draws: number;
-    truncated: number;
-    games: number;
-    score: number;
-    diagnostics?: TournamentDiagnostics;
-  }[];
-  by_ruleset: Record<string, { wins: number[]; draws: number; truncated: number; games: number }>;
+  standings: TournamentStanding[];
+  by_ruleset: Record<
+    string,
+    {
+      wins: number[];
+      draws: number;
+      truncated: number;
+      games: number;
+      standings?: TournamentStanding[];
+    }
+  >;
   games: TournamentGame[];
   truncated: number;
   average_game_length: number;
@@ -79,6 +122,8 @@ export interface Tournament {
 }
 export interface TournamentReplay {
   validated: boolean;
+  opening_plies?: number;
+  opening_seed?: number | null;
   states: {
     ruleset: string;
     board: string[];

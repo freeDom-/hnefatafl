@@ -76,7 +76,11 @@ def test_real_worker_balances_every_pair_and_retains_replay_after_restart(
         assert len(ordered_pairs) == total
         assert set(ordered_pairs.values()) == {1}
         for ruleset in rulesets:
-            assert result["by_ruleset"][ruleset] == {
+            assert {
+                key: value
+                for key, value in result["by_ruleset"][ruleset].items()
+                if key != "standings"
+            } == {
                 "wins": [0] * player_count,
                 "draws": 0,
                 "truncated": total // len(rulesets),
@@ -115,12 +119,20 @@ def test_only_match_participants_receive_wins_draws_losses_or_unfinished_counts(
     monkeypatch.setattr("hnefatafl.ai.play_game", play)
     result = tournament({"players": [{}, {}, {}], "rulesets": ["brandubh"], "games": 2})
     assert result["scores"] == [1.5, 2.5, 1.0]
-    assert result["standings"] == [
+    assert [
+        {
+            key: row[key]
+            for key in ("player", "wins", "losses", "draws", "truncated", "games", "score")
+        }
+        for row in result["standings"]
+    ] == [
         dict(player=0, wins=1, losses=1, draws=1, truncated=1, games=4, score=1.5),
         dict(player=1, wins=2, losses=1, draws=1, truncated=0, games=4, score=2.5),
         dict(player=2, wins=1, losses=2, draws=0, truncated=1, games=4, score=1.0),
     ]
-    assert result["by_ruleset"]["brandubh"] == {
+    assert {
+        key: value for key, value in result["by_ruleset"]["brandubh"].items() if key != "standings"
+    } == {
         "wins": [1, 2, 1],
         "draws": 1,
         "truncated": 1,

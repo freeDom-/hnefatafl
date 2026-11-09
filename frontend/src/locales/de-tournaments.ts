@@ -1,4 +1,23 @@
 const german: Record<string, string> = {
+  'Compare independently configured attackers and defenders.':
+    'Vergleiche unabhängig konfigurierte Angreifer und Verteidiger.',
+  'Compare independently configured opponents with fixed sides. Player 1 always attacks and player 2 always defends.':
+    'Vergleiche unabhängig konfigurierte Gegner mit festen Seiten. Spieler 1 greift immer an und Spieler 2 verteidigt immer.',
+  'Randomize starting positions': 'Ausgangsstellungen zufällig variieren',
+  'Start games from reproducible, randomly generated legal openings to test performance across different positions. Paired round-robin games reuse the same opening with swapped sides.':
+    'Starte Partien mit reproduzierbaren, zufällig erzeugten regelkonformen Eröffnungen, um die Spielstärke in verschiedenen Stellungen zu testen. Paarweise Rundenturnierpartien verwenden dieselbe Eröffnung mit getauschten Seiten.',
+  'The move limit counts agent moves only. Generated opening moves are excluded from decision statistics.':
+    'Das Zuglimit zählt nur Züge der Gegner. Erzeugte Eröffnungszüge sind von den Entscheidungsstatistiken ausgenommen.',
+  'Randomized legal openings': 'Zufällig erzeugte regelkonforme Eröffnungen',
+  'Standard starting position': 'Standard-Ausgangsstellung',
+  'Opening seed {seed} · {count} generated plies':
+    'Eröffnungsstartwert {seed} · {count} erzeugte Halbzüge',
+  'Generated opening move': 'Erzeugter Eröffnungszug',
+  'Agent move': 'Zug des Gegners',
+  'As attackers': 'Als Angreifer',
+  'As defenders': 'Als Verteidiger',
+  'By battlefield': 'Nach Schlachtfeld',
+  'Mean MCTS simulations': 'Mittlere MCTS-Simulationen',
   'A MEETING OF MINDS': 'EIN TREFFEN DER KLUGEN KÖPFE',
   'The tournament hall.': 'Die Turnierhalle.',
   'Set your strategists against each other. Every result becomes part of their saga.':
@@ -193,6 +212,10 @@ const german: Record<string, string> = {
   'Transposition cutoffs': 'Transpositions-Abschnitte',
   'Symmetry-pruned moves': 'Symmetrisch beschnittene Züge',
   'Reached depth cap': 'Tiefenlimit erreicht',
+  'Configured MCTS budget': 'Konfiguriertes MCTS-Budget',
+  'Reached budget (eligible searches)': 'Budget erreicht (zulässige Suchen)',
+  'Deadline cutoffs': 'Zeitlimit-Abbrüche',
+  'Immediate winning moves': 'Sofortige Gewinnzüge',
   'Canonical transpositions': 'Kanonische Transpositionen',
   'Improved ordering': 'Verbesserte Reihenfolge',
   'Plain alpha-beta': 'Einfaches Alpha-Beta',
@@ -231,6 +254,11 @@ const german: Record<string, string> = {
   'Defender wins': 'Siege der Verteidiger',
   'Rule draws': 'Regel-Unentschieden',
   'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
+  'Side breakdown unavailable: only {retained} of {expected} match records were retained.':
+    'Seitenaufschlüsselung nicht verfügbar: Nur {retained} von {expected} Partieaufzeichnungen sind erhalten.',
+  'Side breakdown unavailable: {retained} retained match records disagree with {expected} recorded games.':
+    'Seitenaufschlüsselung nicht verfügbar: {retained} erhaltene Partieaufzeichnungen stimmen nicht mit {expected} aufgezeichneten Spielen überein.',
+  '{count} of {total} recorded games': '{count} von {total} aufgezeichneten Spielen',
   '{played} games: {attackers} attacker wins, {defenders} defender wins, {draws} draws, {unfinished} unfinished.':
     '{played} Spiele: {attackers} Siege der Angreifer, {defenders} Siege der Verteidiger, {draws} Unentschieden, {unfinished} unvollendet.',
   'Win rate and score rate use completed games only; unfinished games are excluded. A win scores 1 point and a rule draw 0.5 for each side.':
