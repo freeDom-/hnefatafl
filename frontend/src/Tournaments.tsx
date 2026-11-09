@@ -99,23 +99,47 @@ const rate = (value: number | null, locale: string) =>
         maximumFractionDigits: 1,
       })}%`;
 
-/** New reports use incremental counters; older reports have a bounded detail-only fallback. */
-function fixedRoleStats(result: TournamentResult) {
-  const role = result.standings.find((row) => row.player === 0)?.roles?.attackers;
+interface FixedRoleStats {
+  /** True when the outcome distribution is authoritative or reconstructed in full. */
+  available: boolean;
+  /** True when only part of the authoritative match history was retained. */
+  partial: boolean;
+  /** Games represented by the counts. */
+  played: number;
+  /** Authoritative completed-game count used to test coverage. */
+  expected: number;
+  attackerWins: number;
+  defenderWins: number;
+  draws: number;
+  unfinished: number;
+}
+
+/**
+ * New reports use incremental counters; older reports have a bounded detail-only
+ * fallback. Role statistics are reconstructed from retained matches only when the
+ * authoritative game counters prove the history is complete, so a partial match
+ * log can never masquerade as a full outcome distribution.
+ */
+function fixedRoleStats(result: TournamentResult): FixedRoleStats {
+  const seat = result.standings.find((row) => row.player === 0);
+  const role = seat?.roles?.attackers;
   if (role)
     return {
+      available: true,
+      partial: false,
+      played: role.games,
+      expected: role.games,
       attackerWins: role.wins,
       defenderWins: role.losses,
       draws: role.draws,
       unfinished: role.truncated,
-      played: role.games,
     };
+  const expected = seat?.games ?? result.games.length;
   const counts = {
     attackerWins: 0,
     defenderWins: 0,
     draws: 0,
     unfinished: 0,
-    played: result.games.length,
   };
   for (const game of result.games) {
     if (game.winner === 'attackers') counts.attackerWins += 1;
@@ -123,7 +147,12 @@ function fixedRoleStats(result: TournamentResult) {
     else if (game.winner === 'draw') counts.draws += 1;
     else counts.unfinished += 1;
   }
-  return counts;
+  const played = result.games.length;
+  if (played < expected) {
+    // The retained matches are a subset; do not present them as complete.
+    return { available: false, partial: true, played, expected, ...counts };
+  }
+  return { available: true, partial: false, played, expected, ...counts };
 }
 const outcome = (match: TournamentGame, players: TournamentPlayer[]) => {
   if (!match.winner) return t('Move limit reached');
@@ -775,6 +804,16 @@ export default function Tournaments({
                   </div>
                   {(() => {
                     const stats = sideStats!;
+                    if (!stats.available) {
+                      return (
+                        <p className="empty-copy">
+                          {t(
+                            'Side breakdown unavailable: only {retained} of {expected} match records were retained.',
+                            { retained: stats.played, expected: stats.expected },
+                          )}
+                        </p>
+                      );
+                    }
                     const outcomes = [
                       { key: 'attackers', label: t('Attacker wins'), count: stats.attackerWins },
                       { key: 'defenders', label: t('Defender wins'), count: stats.defenderWins },
@@ -1012,7 +1051,15 @@ export default function Tournaments({
                   </button>
                 </h3>
                 <span>
-                  {t('{count} recorded games', { count: selected.result?.games.length ?? 0 })}
+                  {selected.result &&
+                  selected.progress.completed_games > selected.result.games.length
+                    ? t('{count} of {total} recorded games', {
+                        count: selected.result.games.length,
+                        total: selected.progress.completed_games,
+                      })
+                    : t('{count} recorded games', {
+                        count: selected.result?.games.length ?? 0,
+                      })}
                 </span>
               </div>
               <div id="tournament-match-log" hidden={!matchesOpen}>
@@ -1159,7 +1206,12 @@ export default function Tournaments({
 
 function PerformanceStats({ title, stats }: { title: string; stats?: TournamentPerformance }) {
   const { locale } = useI18n();
+  // A missing statistics object is unavailable history, which is distinct from a
+  // valid object whose completed sample is genuinely zero. The former must never
+  // claim `n=0`.
+  const available = stats != null;
   const completed = stats ? stats.wins + stats.losses + stats.draws : 0;
+  const sample = available ? ` · n=${completed}` : '';
   const rows = [
     ['Games', stats?.games ?? '—'],
     ['Wins', stats?.wins ?? '—'],
@@ -1168,11 +1220,16 @@ function PerformanceStats({ title, stats }: { title: string; stats?: TournamentP
     ['Unfinished', stats?.truncated ?? '—'],
     [
       'Win rate',
-      `${rate(completed && stats ? stats.wins / completed : null, locale)} · n=${completed}`,
+      available ? `${rate(completed ? stats!.wins / completed : null, locale)}${sample}` : '—',
     ],
     [
       'Score rate',
-      `${rate(completed && stats ? (stats.wins + 0.5 * stats.draws) / completed : null, locale)} · n=${completed}`,
+      available
+        ? `${rate(
+            completed ? (stats!.wins + 0.5 * stats!.draws) / completed : null,
+            locale,
+          )}${sample}`
+        : '—',
     ],
   ];
   return (
@@ -1218,8 +1275,29 @@ function TournamentDiagnosticsPanel({ diagnostics }: { diagnostics?: TournamentD
     rows.push([t('Mean decision time'), `${number(diagnostics.mean_decision_time, 3)}${t('s')}`]);
   if (diagnostics.mean_nodes != null)
     rows.push([t('Mean nodes'), number(Math.round(diagnostics.mean_nodes))]);
+  if (diagnostics.configured_simulations != null)
+    rows.push([
+      t('Configured MCTS budget'),
+      number(Math.round(diagnostics.configured_simulations)),
+    ]);
   if (diagnostics.mean_simulations != null)
     rows.push([t('Mean MCTS simulations'), number(diagnostics.mean_simulations, 1)]);
+  if (diagnostics.budget_reached_fraction != null)
+    rows.push([
+      t('Reached simulation budget'),
+      `${Math.round(100 * diagnostics.budget_reached_fraction)}%`,
+    ]);
+  if (diagnostics.deadline_cutoffs != null)
+    rows.push([
+      t('Deadline cutoffs'),
+      diagnostics.deadline_cutoff_fraction != null
+        ? `${number(diagnostics.deadline_cutoffs)} · ${Math.round(
+            100 * diagnostics.deadline_cutoff_fraction,
+          )}%`
+        : number(diagnostics.deadline_cutoffs),
+    ]);
+  if (diagnostics.immediate_win_shortcuts != null)
+    rows.push([t('Immediate winning moves'), number(diagnostics.immediate_win_shortcuts)]);
   if (diagnostics.mean_evaluations != null)
     rows.push([t('Mean evaluations'), number(Math.round(diagnostics.mean_evaluations))]);
   if (diagnostics.transposition_cutoffs != null)

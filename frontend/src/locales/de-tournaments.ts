@@ -212,6 +212,10 @@ const german: Record<string, string> = {
   'Transposition cutoffs': 'Transpositions-Abschnitte',
   'Symmetry-pruned moves': 'Symmetrisch beschnittene Züge',
   'Reached depth cap': 'Tiefenlimit erreicht',
+  'Configured MCTS budget': 'Konfiguriertes MCTS-Budget',
+  'Reached simulation budget': 'Simulationsbudget erreicht',
+  'Deadline cutoffs': 'Zeitlimit-Abbrüche',
+  'Immediate winning moves': 'Sofortige Gewinnzüge',
   'Canonical transpositions': 'Kanonische Transpositionen',
   'Improved ordering': 'Verbesserte Reihenfolge',
   'Plain alpha-beta': 'Einfaches Alpha-Beta',
@@ -250,6 +254,9 @@ const german: Record<string, string> = {
   'Defender wins': 'Siege der Verteidiger',
   'Rule draws': 'Regel-Unentschieden',
   'No completed games yet.': 'Noch keine abgeschlossenen Spiele.',
+  'Side breakdown unavailable: only {retained} of {expected} match records were retained.':
+    'Seitenaufschlüsselung nicht verfügbar: Nur {retained} von {expected} Partieaufzeichnungen sind erhalten.',
+  '{count} of {total} recorded games': '{count} von {total} aufgezeichneten Spielen',
   '{played} games: {attackers} attacker wins, {defenders} defender wins, {draws} draws, {unfinished} unfinished.':
     '{played} Spiele: {attackers} Siege der Angreifer, {defenders} Siege der Verteidiger, {draws} Unentschieden, {unfinished} unvollendet.',
   'Win rate and score rate use completed games only; unfinished games are excluded. A win scores 1 point and a rule draw 0.5 for each side.':

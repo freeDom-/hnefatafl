@@ -1388,6 +1388,7 @@ def mcts_context(
             value=root_value,
             root_value=root_value,
             simulations=0,
+            simulation_budget=budget,
             mcts_neural_requests=requests,
             mcts_node_prediction_reuses=0,
         )
@@ -1815,8 +1816,11 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
 
     Each record is ``(details, seconds, configured_depth)``. Only counters the
     search actually produced are summarised, so non-alpha-beta or historical
-    opponents simply yield fewer fields. The summary is intentionally compact:
-    tournaments store means and totals, never the raw per-decision stream.
+    opponents simply yield fewer fields. MCTS budget fields appear only when the
+    search recorded a ``simulation_budget``, which keeps a deadline cutoff
+    distinct from an immediate tactical win or another early termination. The
+    summary is intentionally compact: tournaments store means and totals, never
+    the raw per-decision stream.
     """
     if not records:
         return {"decisions": 0}
@@ -1827,11 +1831,23 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
     reached = sum(
         1 for d, _, cap in records if isinstance(cap, int) and d.get("completed_depth") == cap
     )
+    simulation_budgets = [
+        float(d["simulation_budget"])
+        for d, _, _ in records
+        if isinstance(d.get("simulation_budget"), (int, float))
+    ]
+    budget_reached = sum(
+        1
+        for d, _, _ in records
+        if isinstance(d.get("simulation_budget"), (int, float))
+        and isinstance(d.get("simulations"), (int, float))
+        and d["simulations"] >= d["simulation_budget"]
+    )
 
     def mean_key(key: str) -> float | None:
         return _mean([float(d[key]) for d, _, _ in records if isinstance(d.get(key), (int, float))])
 
-    return {
+    summary = {
         "decisions": len(records),
         "mean_completed_depth": _mean(depths),
         "mean_decision_time": _mean([seconds for _, seconds, _ in records]),
@@ -1845,6 +1861,17 @@ def _search_diagnostics_summary(records: list[tuple[dict, float, int | None]]) -
         ),
         "depth_cap_reached_fraction": (reached / len(caps)) if caps else None,
     }
+    if simulation_budgets:
+        summary.update(
+            configured_simulations=_mean(simulation_budgets),
+            simulation_decisions=len(simulation_budgets),
+            budget_reached_fraction=budget_reached / len(simulation_budgets),
+            deadline_cutoffs=sum(int(d.get("deadline_cutoffs", 0)) for d, _, _ in records),
+            immediate_win_shortcuts=sum(
+                int(d.get("immediate_win_shortcuts", 0)) for d, _, _ in records
+            ),
+        )
+    return summary
 
 
 def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
@@ -1868,6 +1895,26 @@ def _merge_diagnostics(accumulator: dict, summary: dict) -> None:
     if fraction is not None:
         accumulator["cap_sum"] = accumulator.get("cap_sum", 0.0) + float(fraction) * decisions
         accumulator["cap_count"] = accumulator.get("cap_count", 0) + decisions
+    simulation_decisions = int(summary.get("simulation_decisions", 0))
+    if simulation_decisions:
+        accumulator["simulation_decisions"] = (
+            accumulator.get("simulation_decisions", 0) + simulation_decisions
+        )
+        accumulator["budget_reached_sum"] = (
+            accumulator.get("budget_reached_sum", 0.0)
+            + float(summary.get("budget_reached_fraction") or 0.0) * simulation_decisions
+        )
+        configured = summary.get("configured_simulations")
+        if configured is not None:
+            accumulator["configured_simulations_sum"] = (
+                accumulator.get("configured_simulations_sum", 0.0)
+                + float(configured) * simulation_decisions
+            )
+            accumulator["configured_simulations_count"] = (
+                accumulator.get("configured_simulations_count", 0) + simulation_decisions
+            )
+        for key in ("deadline_cutoffs", "immediate_win_shortcuts"):
+            accumulator[key] = accumulator.get(key, 0) + int(summary.get(key, 0))
 
 
 def _finalise_diagnostics(accumulator: dict) -> dict:
@@ -1879,7 +1926,7 @@ def _finalise_diagnostics(accumulator: dict) -> dict:
         count = accumulator.get(count_key, 0)
         return accumulator[sum_key] / count if count else None
 
-    return {
+    result = {
         "decisions": decisions,
         "mean_completed_depth": ratio("completed_depth_sum", "completed_depth_count"),
         "mean_decision_time": accumulator.get("decision_time_sum", 0.0) / decisions,
@@ -1891,6 +1938,18 @@ def _finalise_diagnostics(accumulator: dict) -> dict:
         "symmetry_moves_skipped": accumulator.get("symmetry_moves_skipped", 0),
         "depth_cap_reached_fraction": ratio("cap_sum", "cap_count"),
     }
+    simulation_decisions = int(accumulator.get("simulation_decisions", 0))
+    if simulation_decisions:
+        result["configured_simulations"] = ratio(
+            "configured_simulations_sum", "configured_simulations_count"
+        )
+        result["simulation_decisions"] = simulation_decisions
+        result["budget_reached_fraction"] = ratio("budget_reached_sum", "simulation_decisions")
+        deadline_cutoffs = int(accumulator.get("deadline_cutoffs", 0))
+        result["deadline_cutoffs"] = deadline_cutoffs
+        result["deadline_cutoff_fraction"] = deadline_cutoffs / simulation_decisions
+        result["immediate_win_shortcuts"] = int(accumulator.get("immediate_win_shortcuts", 0))
+    return result
 
 
 def play_game(

@@ -33,6 +33,17 @@ export interface TournamentDiagnostics {
   transposition_cutoffs?: number;
   symmetry_moves_skipped?: number;
   depth_cap_reached_fraction?: number | null;
+  /** Effective MCTS budget recorded by the participant's search settings. */
+  configured_simulations?: number | null;
+  /** Decisions where an MCTS simulation budget applied. */
+  simulation_decisions?: number;
+  /** Share of eligible decisions that completed the configured budget. */
+  budget_reached_fraction?: number | null;
+  /** Decisions stopped by the MCTS deadline, never inferred from a low count. */
+  deadline_cutoffs?: number;
+  deadline_cutoff_fraction?: number | null;
+  /** Root moves that returned an immediate tactical win before searching. */
+  immediate_win_shortcuts?: number;
 }
 export interface TournamentGame {
   ruleset: string;

@@ -195,6 +195,12 @@ Generation is lazy and independent of search randomness. Seed derivation and
 opening choices are versioned; changing the algorithm requires a new version.
 Saved prefixes remain replayable regardless of later algorithm versions.
 
+Openings are shared within a pairing, but different pairings in a multi-agent
+round robin generate their opening sets independently. Each pairing therefore
+sees a different sample of positions, so multi-agent standings carry additional
+sampling variance beyond the shared tournament seed. A shared opening suite for
+every pairing is not part of version 1 and can be considered separately.
+
 Saved games contain `opening_seed`, `opening_version`, `opening_plies` and
 `opening_unique`. Their complete `moves` list starts with the generated prefix;
 replay validates every move from the standard position and labels opening moves
@@ -203,8 +209,11 @@ separately. `plies` includes that prefix, while `agent_plies`, the configured
 Average game length includes the opening; average decision time excludes it.
 Historical games without opening metadata replay exactly as before. Time-limited
 search can still do different work on different hardware even with identical
-openings, so compare configured budgets with **Mean MCTS simulations** or the
-existing alpha-beta diagnostics.
+openings, so compare the participant's **Configured MCTS budget**, **Mean MCTS
+simulations**, **Reached simulation budget** and **Deadline cutoffs** (with the
+immediate winning-move shortcut count) rather than assuming a search that stopped
+short of its budget timed out. Historical records without these counters omit
+them instead of showing zero.
 
 For a portable same-weights Brandubh benchmark, replace the model ID below with
 one registered on the server, then import it from **New tournament**:
@@ -342,7 +351,9 @@ Unfinished games are excluded from both denominators. A role without completed
 games shows `—`, including the unplayed role of a fixed-role participant.
 Multi-battlefield standings offer a collapsible per-battlefield role breakdown.
 Historical counters are reconstructed when the retained games are complete;
-otherwise unavailable role statistics show placeholders without inventing results.
+otherwise unavailable role statistics show placeholders without inventing results,
+and a partial match log is labelled with its retained count. Unavailable rates show
+`—` without a fabricated `n=0`; only a genuine zero-completed sample shows `n=0`.
 Wins earn one point, actual rule draws half a point for each opponent, and
 unfinished games no points. Reaching the experimental move limit is unfinished,
 even when one side appears to have an advantage. A stopped tournament can have

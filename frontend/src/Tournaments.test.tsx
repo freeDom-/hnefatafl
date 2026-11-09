@@ -2497,6 +2497,171 @@ describe('tournament benchmarking', () => {
     expect(card.queryByText(/0\.0%/)).not.toBeInTheDocument();
   });
 
+  const fixedGame = (winner: 'attackers' | 'defenders' | 'draw' | null) => ({
+    ruleset: 'brandubh',
+    winner,
+    outcome: winner ? ('completed' as const) : ('truncated' as const),
+    reason: winner ? 'king_captured' : 'experiment_ply_limit',
+    plies: 12,
+    moves: [],
+    attacker_player: 0,
+    defender_player: 1,
+    average_decision_time: 0.01,
+    total_decision_time: 0.12,
+  });
+
+  const historicalFixed = (
+    id: string,
+    retained: ('attackers' | 'defenders' | 'draw' | null)[],
+    authoritativeGames: number,
+  ): Tournament => {
+    const tournament = saved(id);
+    tournament.mode = 'fixed_roles';
+    tournament.config.mode = 'fixed_roles';
+    tournament.progress = { completed_games: authoritativeGames, total_games: authoritativeGames };
+    tournament.result = {
+      scores: [0, 0],
+      standings: [0, 1].map((player) => ({
+        player,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        truncated: 0,
+        games: authoritativeGames,
+        score: 0,
+      })),
+      by_ruleset: { brandubh: { wins: [0, 0], draws: 0, truncated: 0, games: authoritativeGames } },
+      games: retained.map(fixedGame),
+      truncated: retained.filter((winner) => winner === null).length,
+      average_game_length: 12,
+      average_decision_time: 0.01,
+    };
+    return tournament;
+  };
+
+  const showHistorical = async (tournament: Tournament) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) =>
+        json(path === '/api/tournaments?summary=true' ? [tournament] : tournament),
+      ),
+    );
+    show();
+    await screen.findByRole('heading', { name: `Challenge ${tournament.id}` });
+  };
+
+  it('reconstructs fixed-role outcomes when every retained match is available', async () => {
+    await showHistorical(historicalFixed('complete-history', ['attackers', 'defenders'], 2));
+    expect(
+      screen.getByRole('img', {
+        name: '2 games: 1 attacker wins, 1 defender wins, 0 draws, 0 unfinished.',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Side breakdown unavailable/)).not.toBeInTheDocument();
+  });
+
+  it('refuses to present a partial fixed-role history as a complete distribution', async () => {
+    await showHistorical(historicalFixed('partial-history', ['attackers', 'attackers'], 5));
+    expect(screen.queryByRole('img', { name: /games:/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Side breakdown unavailable: only 2 of 5 match records were retained.'),
+    ).toBeInTheDocument();
+    // The partial match log is labelled with its coverage as well.
+    expect(screen.getByText('2 of 5 recorded games')).toBeInTheDocument();
+  });
+
+  it('keeps a fixed-role history with no retained matches unavailable', async () => {
+    await showHistorical(historicalFixed('no-history', [], 4));
+    expect(
+      screen.getByText('Side breakdown unavailable: only 0 of 4 match records were retained.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No completed games yet.')).not.toBeInTheDocument();
+  });
+
+  it('shows the ordinary empty chart for a genuine zero-game tournament', async () => {
+    await showHistorical(historicalFixed('zero-games', [], 0));
+    expect(screen.getByText('No completed games yet.')).toBeInTheDocument();
+    expect(screen.queryByText(/Side breakdown unavailable/)).not.toBeInTheDocument();
+  });
+
+  it('shows unavailable role rates without a fabricated zero sample', async () => {
+    const tournament = saved('unavailable-roles');
+    tournament.result = {
+      scores: [1, 0],
+      standings: [
+        { player: 0, wins: 1, losses: 0, draws: 0, truncated: 0, games: 1, score: 1 },
+        { player: 1, wins: 0, losses: 1, draws: 0, truncated: 0, games: 1, score: 0 },
+      ],
+      by_ruleset: { brandubh: { wins: [1, 0], draws: 0, truncated: 0, games: 1 } },
+      games: [],
+      truncated: 0,
+      average_game_length: 1,
+      average_decision_time: 0.01,
+    };
+    await showHistorical(tournament);
+    const card = within(screen.getByRole('heading', { name: 'Raven' }).closest('article')!);
+    const attackers = card.getByRole('region', { name: 'As attackers' });
+    expect(attackers).toHaveTextContent('Win rate—');
+    expect(attackers).not.toHaveTextContent('n=0');
+    // The authoritative overall counters are still shown.
+    expect(card.getByRole('region', { name: 'Overall' })).toHaveTextContent('100.0% · n=1');
+  });
+
+  it('shows MCTS budget, completion and deadline cutoffs and omits historical zeros', async () => {
+    const tournament = saved('mcts-budget');
+    tournament.result = {
+      scores: [1, 0],
+      standings: [
+        {
+          player: 0,
+          wins: 1,
+          losses: 0,
+          draws: 0,
+          truncated: 0,
+          games: 1,
+          score: 1,
+          diagnostics: {
+            decisions: 4,
+            configured_simulations: 64,
+            mean_simulations: 60.5,
+            simulation_decisions: 4,
+            budget_reached_fraction: 0.75,
+            deadline_cutoffs: 1,
+            deadline_cutoff_fraction: 0.25,
+            immediate_win_shortcuts: 1,
+          },
+        },
+        {
+          player: 1,
+          wins: 0,
+          losses: 1,
+          draws: 0,
+          truncated: 0,
+          games: 1,
+          score: 0,
+          diagnostics: { decisions: 2, mean_completed_depth: 2 },
+        },
+      ],
+      by_ruleset: { brandubh: { wins: [1, 0], draws: 0, truncated: 0, games: 1 } },
+      games: [],
+      truncated: 0,
+      average_game_length: 1,
+      average_decision_time: 0.01,
+    };
+    await showHistorical(tournament);
+    const panels = document.querySelectorAll('details.tournament-diagnostics');
+    expect(panels).toHaveLength(2);
+    expect(panels[0]).toHaveTextContent('Configured MCTS budget64');
+    expect(panels[0]).toHaveTextContent('Mean MCTS simulations60.5');
+    expect(panels[0]).toHaveTextContent('Reached simulation budget75%');
+    expect(panels[0]).toHaveTextContent('Deadline cutoffs1 · 25%');
+    expect(panels[0]).toHaveTextContent('Immediate winning moves1');
+    // The historical opponent reports no MCTS fields, so no false zero appears.
+    expect(panels[1]).not.toHaveTextContent('Configured MCTS budget');
+    expect(panels[1]).not.toHaveTextContent('Deadline cutoffs');
+    expect(panels[1]).not.toHaveTextContent('Reached simulation budget');
+  });
+
   it('submits the same model with independent wrappers, budgets and randomized openings', async () => {
     let submitted: Record<string, unknown> | undefined;
     vi.stubGlobal(

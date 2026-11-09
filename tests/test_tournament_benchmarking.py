@@ -10,8 +10,15 @@ import time
 import pytest
 from auth_support import AuthenticatedClient as TestClient
 
-from hnefatafl.ai import play_game, tournament
-from hnefatafl.engine import RULESETS, Move, apply_move, legal_moves, new_game
+from hnefatafl.ai import (
+    _finalise_diagnostics,
+    _merge_diagnostics,
+    _search_diagnostics_summary,
+    mcts_context,
+    play_game,
+    tournament,
+)
+from hnefatafl.engine import RULESETS, Move, State, apply_move, legal_moves, new_game
 from hnefatafl.openings import generate_opening, opening_seed
 from hnefatafl.server import create_app
 from hnefatafl.symmetry import canonical_board
@@ -292,6 +299,13 @@ def test_real_64_vs_256_checkpoint_benchmark_persistence_and_replay(tmp_path):
             assert row["roles"]["defenders"]["games"] == 10
             assert row["diagnostics"]["decisions"] == 20
             assert 0 < row["diagnostics"]["mean_simulations"] <= (64, 256)[index]
+            # The effective budget, budget completion and deadline cutoffs are
+            # retained as compact aggregates, never as a raw decision stream.
+            assert row["diagnostics"]["configured_simulations"] == (64, 256)[index]
+            assert row["diagnostics"]["simulation_decisions"] == 20
+            assert 0 <= row["diagnostics"]["budget_reached_fraction"] <= 1
+            assert row["diagnostics"]["deadline_cutoffs"] >= 0
+            assert row["diagnostics"]["immediate_win_shortcuts"] >= 0
         for index in range(0, 20, 2):
             first, second = saved["result"]["games"][index : index + 2]
             assert first["opening_seed"] == second["opening_seed"]
@@ -310,6 +324,10 @@ def test_real_64_vs_256_checkpoint_benchmark_persistence_and_replay(tmp_path):
         exported = client.get(f"/api/tournaments/{fixed_saved['id']}/export").json()
         assert exported["randomize_start_positions"] is True
         assert [p["config"]["iterations"] for p in exported["players"]] == [256, 64]
+        # Export and persistence preserve the new diagnostic scalars verbatim.
+        exported_diagnostics = exported["results"]["result"]["standings"][0]["diagnostics"]
+        assert exported_diagnostics["configured_simulations"] == 256
+        assert exported_diagnostics["simulation_decisions"] == 3
     with TestClient(create_app(tmp_path)) as client:
         for record in (saved, fixed_saved):
             assert client.get(f"/api/tournaments/{record['id']}").json() == record
@@ -394,3 +412,144 @@ def test_disabled_openings_keep_historical_moves_and_cancellation_keeps_only_sav
     assert partial == reports[0]
     assert partial["standings"][0]["roles"]["attackers"]["games"] == 1
     assert partial["standings"][0]["roles"]["defenders"]["games"] == 0
+
+
+def drive_mcts(state, config, diagnostics):
+    """Run the cooperative context to completion with legal uniform priors."""
+    context = mcts_context(state, config, diagnostics=diagnostics)
+    pending = next(context)
+    assert pending is state
+    try:
+        while True:
+            priors = {move: 1.0 for move in legal_moves(pending)}
+            pending = context.send((priors, 0.0))
+    except StopIteration:
+        return
+
+
+def escaping_state():
+    board = ["."] * 49
+    board[1] = "K"
+    board[24] = "D"
+    board[8] = "A"
+    board[48] = "A"
+    return State("brandubh", tuple(board), turn="defenders")
+
+
+def test_search_diagnostics_distinguish_budget_deadlines_and_shortcuts():
+    records = [
+        ({"simulations": 64, "simulation_budget": 64}, 0.01, None),
+        ({"simulations": 20, "simulation_budget": 64, "deadline_cutoffs": 1}, 0.02, None),
+        ({"simulations": 0, "simulation_budget": 64, "immediate_win_shortcuts": 1}, 0.001, None),
+        ({"nodes": 10, "evaluations": 5}, 0.03, 3),
+    ]
+    summary = _search_diagnostics_summary(records)
+    assert summary["decisions"] == 4
+    assert summary["configured_simulations"] == 64
+    assert summary["simulation_decisions"] == 3
+    assert summary["budget_reached_fraction"] == pytest.approx(1 / 3)
+    assert summary["deadline_cutoffs"] == 1
+    assert summary["immediate_win_shortcuts"] == 1
+    # The non-MCTS decision contributes no simulation mean of its own.
+    assert summary["mean_simulations"] == pytest.approx((64 + 20 + 0) / 3)
+
+    accumulator: dict = {}
+    _merge_diagnostics(accumulator, summary)
+    _merge_diagnostics(
+        accumulator,
+        _search_diagnostics_summary([({"simulations": 256, "simulation_budget": 256}, 0.01, None)]),
+    )
+    final = _finalise_diagnostics(accumulator)
+    assert final["simulation_decisions"] == 4
+    assert final["configured_simulations"] == pytest.approx((64 * 3 + 256) / 4)
+    assert final["budget_reached_fraction"] == pytest.approx(2 / 4)
+    assert final["deadline_cutoffs"] == 1
+    assert final["deadline_cutoff_fraction"] == pytest.approx(1 / 4)
+    assert final["immediate_win_shortcuts"] == 1
+
+
+def test_search_diagnostics_omit_mcts_fields_for_non_mcts_decisions():
+    summary = _search_diagnostics_summary(
+        [
+            ({"completed_depth": 3, "nodes": 10}, 0.01, 3),
+            ({"completed_depth": 2, "nodes": 5}, 0.02, 2),
+        ]
+    )
+    for key in (
+        "simulation_decisions",
+        "configured_simulations",
+        "budget_reached_fraction",
+        "deadline_cutoffs",
+        "deadline_cutoff_fraction",
+        "immediate_win_shortcuts",
+    ):
+        assert key not in summary
+    accumulator: dict = {}
+    _merge_diagnostics(accumulator, summary)
+    final = _finalise_diagnostics(accumulator)
+    for key in (
+        "simulation_decisions",
+        "configured_simulations",
+        "budget_reached_fraction",
+        "deadline_cutoffs",
+        "deadline_cutoff_fraction",
+        "immediate_win_shortcuts",
+    ):
+        assert key not in final
+
+
+def test_mcts_context_records_budget_when_search_completes():
+    details: dict = {}
+    drive_mcts(
+        new_game("brandubh"),
+        {"iterations": 5, "time_limit": 300, "seed": 1, "rollout_depth": 1},
+        details,
+    )
+    assert details["simulation_budget"] == 5
+    assert details["simulations"] == 5
+    assert "deadline_cutoffs" not in details
+    assert "immediate_win_shortcuts" not in details
+
+
+def test_mcts_context_records_a_real_deadline_cutoff(monkeypatch):
+    clock = {"calls": 0}
+
+    def monotonic():
+        clock["calls"] += 1
+        # The first call sets the deadline; every later check is past it.
+        return 0.0 if clock["calls"] == 1 else 1e9
+
+    monkeypatch.setattr("hnefatafl.ai.time.monotonic", monotonic)
+    details: dict = {}
+    drive_mcts(
+        new_game("brandubh"),
+        {"iterations": 64, "time_limit": 1.0, "seed": 1, "rollout_depth": 1},
+        details,
+    )
+    assert details["simulation_budget"] == 64
+    assert details["deadline_cutoffs"] == 1
+    assert 0 < details["simulations"] < 64
+    assert "immediate_win_shortcuts" not in details
+
+
+def test_mcts_context_immediate_win_is_not_a_deadline_cutoff():
+    state = escaping_state()
+    details: dict = {}
+    context = mcts_context(state, {"iterations": 64, "time_limit": 300}, diagnostics=details)
+    assert next(context) is state
+    priors = {move: 1.0 for move in legal_moves(state)}
+    with pytest.raises(StopIteration):
+        context.send((priors, 0.0))
+    assert details["simulation_budget"] == 64
+    assert details["simulations"] == 0
+    assert details["immediate_win_shortcuts"] == 1
+    assert "deadline_cutoffs" not in details
+
+
+def test_tournament_omits_diagnostics_without_retained_search_metrics(monkeypatch):
+    def play(ruleset, *_args, **_kwargs):
+        return dict(ruleset=ruleset, winner=None, plies=0, total_decision_time=0)
+
+    monkeypatch.setattr("hnefatafl.ai.play_game", play)
+    result = tournament({"players": [{}] * 2, "rulesets": ["brandubh"], "games": 2})
+    assert all("diagnostics" not in row for row in result["standings"])
