@@ -1395,7 +1395,15 @@ function FixedRoleSetup({
   const previousSuggestion = useRef(initialName);
   const [ruleset, setRuleset] = useState('brandubh');
   const [players, setPlayers] = useState<TournamentPlayer[]>(() =>
-    [0, 1].map((index) => recommendedPlayer(models, profiles, 'brandubh', fallbackPlayer(index))),
+    [0, 1].map(() =>
+      // The catalogue can arrive after the dialog opens. Keep neural fields
+      // selectable while it loads, without replacing any later user edits.
+      recommendedPlayer(models, profiles, 'brandubh', {
+        name: 'Trained model',
+        profile_id: 'neural',
+        config: { algorithm: 'neural', time_limit: 10, iterations: 80 },
+      }),
+    ),
   );
   const [randomize, setRandomize] = useState(false);
   const [games, setGames] = useState(20);

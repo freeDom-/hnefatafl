@@ -1413,6 +1413,35 @@ describe('fixed-role comparison setup', () => {
     return within(screen.getByRole('dialog', { name: 'Fixed-role comparison' }));
   };
 
+  it('keeps neural selectors and edited budgets available when the model catalogue arrives late', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json([])),
+    );
+    const view = show();
+    const button = screen.getAllByRole('button', { name: 'Fixed-role comparison' })[0];
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    const setup = within(screen.getByRole('dialog', { name: 'Fixed-role comparison' }));
+    expect(setup.getByLabelText('Attackers trained model')).toHaveValue('');
+    expect(setup.getByLabelText('Defenders trained model')).toHaveValue('');
+    fireEvent.change(setup.getByLabelText('Attackers search iterations'), {
+      target: { value: '256' },
+    });
+    view.rerender(
+      <Tournaments rulesets={rulesets} profiles={profiles} models={[modelA]} onError={vi.fn()} />,
+    );
+    fireEvent.change(setup.getByLabelText('Attackers trained model'), {
+      target: { value: modelA.id },
+    });
+    fireEvent.change(setup.getByLabelText('Defenders trained model'), {
+      target: { value: modelA.id },
+    });
+    expect(setup.getByLabelText('Attackers search iterations')).toHaveValue(256);
+    expect(setup.getByLabelText('Defenders search iterations')).toHaveValue(80);
+    expect(setup.getByRole('button', { name: 'Start tournament' })).toBeEnabled();
+  });
+
   it('submits independent search configurations for two distinct models', async () => {
     let submitted: Record<string, unknown> | undefined;
     vi.stubGlobal(
