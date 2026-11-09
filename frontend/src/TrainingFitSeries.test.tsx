@@ -136,6 +136,18 @@ it('finds no latest group when observations have invalid iterations or scores', 
   ).toBeUndefined();
 });
 
+it('keeps the latest valid context when later imported observations are invalid', () => {
+  const groups = evaluationGroups([
+    { iteration: 1200, opponent_identity: 'valid', evaluation_score: 0 },
+    { iteration: 1250, opponent_identity: 'missing-score' },
+    { iteration: 1300, opponent_identity: 'invalid-score', evaluation_score: NaN },
+    { iteration: 1400, opponent_identity: 'invalid-score', evaluation_score: Infinity },
+    { iteration: NaN, opponent_identity: 'invalid-iteration', evaluation_score: 0.9 },
+    { iteration: Infinity, opponent_identity: 'invalid-iteration', evaluation_score: 0.9 },
+  ]);
+  expect(latestEvaluationGroup(groups)).toBe(groups[0]);
+});
+
 it.each([false, true])(
   'defaults the Evaluation tab to a returning latest context with fit=%s',
   (fitSeries) => {
