@@ -1040,3 +1040,51 @@ short runtime/memory evidence, not strength or general speedup evidence; CUDA/MP
 hardware validation and production deployment remain unperformed. See
 [0.39.0 release notes](docs/releases/0.39.0.md) for complete scope, compatibility,
 measurements and installation. Historical release records remain unchanged.
+
+## Persistent Champion adaptation, selectable learning metrics and configurable analytics budgets (`0.40.0` preparation)
+
+Release preparation starts from merged `main` at `e1bc2bd`, covering every change
+since published `0.39.0`: PRs #69, #70 and #71 and their review fixes. Python/npm
+metadata and both lockfiles move together to `0.40.0` on `release/0.40.0`.
+
+A Champion promotion is now an idempotent HyperController transition: learned
+predictors, reward/action history, lifetime counters, dwell timers, effective rate
+and RNG survive, while only the new Champion's per-Champion evaluation block is
+refreshed. Champion reward is the genuine within-Champion improvement
+`score - baseline_score`; identical scores yield exactly zero, and a regularized
+per-evaluation uncertainty only widens the decision margin. Every automatic
+Champion rate change needs two comparable post-baseline observations. The
+controller state schema advances to version 7, with version 5 and fixed-opponent
+absolute states preserved and incompatible predictors discarded rather than
+misread. New `adaptation_min_dwell_iterations` adds an optional iteration dwell,
+and workers advertise `hyper_adaptation_champion_transition`,
+`hyper_adaptation_state_versions` and `hyper_adaptation_iteration_dwell`.
+
+Learning gains one selectable metric chart (both/individual losses, replay
+occupancy/capacity, optimizer updates, used/selected base rates, exposures and
+configured hyperparameters) with adaptive small-value scaling and desktop job-row
+scrolling. New optional version-1 `training_parameters` snapshots record
+whitelisted normalized settings at the first completed iteration and on change,
+referenced per row, so older-worker rows cannot inherit stale settings. Legacy
+optimizer-update histories read the `optimizer_updates` alias only when the modern
+`updates` field is absent or invalid, including explicit zero. These optional
+fields travel inside existing checkpoints, progress/result files, history chunks
+and archives.
+
+Neural analytics expose a configurable MCTS iteration budget (1–5000, default
+1024) that survives edits, replay and reload. A focus-destination check discards
+pending drafts before advisor/algorithm/model selector changes. Temporary HTTP 503
+responses retry with 1–30 second backoff while retaining partial estimates, and
+synchronous and background clients share one bounded task per
+game/position/role/revision with at most 16 running/queued tasks, eight concurrent
+waiters and a 20-second synchronous wait.
+
+No database (15), tensor (1) or archive (3) format migration is added. The
+committed synthetic Champion benchmark and production-browser learning
+measurements retain their recorded scope; no playing-strength or general speedup
+is inferred, and CUDA/MPS hardware validation and production deployment remain
+unperformed. Release preparation records local checks separately and requires
+successful release-PR and exact merged-main CI before an annotated tag and stable
+publication. See [0.40.0 release notes](docs/releases/0.40.0.md) for complete
+scope, compatibility, measurements and installation. Historical release records
+remain unchanged.
