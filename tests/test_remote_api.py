@@ -463,6 +463,7 @@ def test_remote_resume_copies_checkpoint_before_source_training_data_is_deleted(
                 "training_symmetry_modes": ["off", "random_d4"],
                 "parallel_search": True,
                 "hyper_adaptation": True,
+                "hyper_adaptation_iteration_dwell": True,
                 "schedule_free_adamw": True,
             }
         },
@@ -710,6 +711,7 @@ def test_champion_adaptation_requires_the_champion_worker_capability(client):
                 "training_symmetry_modes": ["off", "random_d4"],
                 "hyper_adaptation": True,
                 "hyper_adaptation_champion": True,
+                "hyper_adaptation_champion_transition": True,
             }
         },
     )
@@ -1135,3 +1137,76 @@ def test_remote_progress_retains_bounded_adaptation_events(client):
     assert report(client, headers, lease, sequence=1, policy_loss=0.5).status_code == 200
     job = client.get(f"/api/training/jobs/{lease['id']}").json()
     assert len(job["progress"]["adaptation_events"]) == 50
+
+
+def test_remote_iteration_dwell_transport_matches_worker_capability(client):
+    legacy, legacy_headers = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=legacy_headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "hyper_adaptation": True,
+            }
+        },
+    )
+    job = queue(
+        client,
+        worker_id=legacy["id"],
+        adaptation="hypercontroller",
+        adaptation_lr_candidates="0.0003,0.001,0.003",
+        adaptation_min_dwell_iterations=0,
+        evaluation_games=4,
+    )
+    lease = claim(client, legacy_headers)
+    assert lease["id"] == job["id"]
+    # The worker never sees the unknown iteration-dwell field, even at its inert
+    # zero default.
+    assert "adaptation_min_dwell_iterations" not in lease["config"]
+    assert lease["config"]["adaptation"] == "hypercontroller"
+
+    # A requested nonzero dwell is rejected rather than silently dropped.
+    rejected = client.post(
+        "/api/training/jobs",
+        json={
+            "execution": "remote",
+            "worker_id": legacy["id"],
+            "preset": "smoke",
+            "ruleset": "brandubh",
+            "model_name": "Cloud raven",
+            "device": "cpu",
+            "adaptation": "hypercontroller",
+            "adaptation_lr_candidates": "0.0003,0.001,0.003",
+            "adaptation_min_dwell_iterations": 10,
+            "evaluation_games": 4,
+        },
+    )
+    assert rejected.status_code >= 400
+    assert "dwell" in rejected.text
+
+    modern, modern_headers = worker(client, capacity=1)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=modern_headers,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "hyper_adaptation": True,
+                "hyper_adaptation_iteration_dwell": True,
+            }
+        },
+    )
+    modern_job = queue(
+        client,
+        worker_id=modern["id"],
+        adaptation="hypercontroller",
+        adaptation_lr_candidates="0.0003,0.001,0.003",
+        adaptation_min_dwell_iterations=10,
+        evaluation_games=4,
+    )
+    modern_lease = claim(client, modern_headers, "modern-claim")
+    assert modern_lease["id"] == modern_job["id"]
+    assert modern_lease["config"]["adaptation_min_dwell_iterations"] == 10

@@ -292,11 +292,83 @@ export function TrainingLearningView({
     ? selection.champion_iteration
     : null;
   const warmup = finite(adaptation.warmup) ? Number(adaptation.warmup) : null;
+  // Warm-up is a lifetime property of the controller: it must never be derived
+  // from the current Champion's observation count.
+  const lifetimeObservations = finite(adaptation.observations)
+    ? Number(adaptation.observations)
+    : null;
+  const warmupComplete =
+    adaptation.warmup_complete === true ||
+    (lifetimeObservations !== null && warmup !== null && lifetimeObservations >= warmup);
   const regimeObservations = finite(adaptation.regime_observations)
     ? Number(adaptation.regime_observations)
-    : finite(adaptation.observations)
-      ? Number(adaptation.observations)
+    : null;
+  const championState = object(adaptation.champion);
+  const championImprovements = finite(championState?.count) ? Number(championState.count) : null;
+  const championUncertainty = finite(championState?.uncertainty)
+    ? Number(championState.uncertainty)
+    : null;
+  const championBaseline = finite(championState?.baseline_score)
+    ? Number(championState.baseline_score)
+    : null;
+  // The backend owns the calibration decision logic. New progress reports an
+  // explicit `calibration_state`; older progress may not, so it is inferred only
+  // when the data supports it. A missing or ambiguous legacy state is shown as
+  // unavailable rather than claiming a baseline that may not exist.
+  const explicitCalibration =
+    typeof adaptation.calibration_state === 'string' ? adaptation.calibration_state : null;
+  const calibrationState = (() => {
+    if (explicitCalibration) return explicitCalibration;
+    if (!championState) return null;
+    if (championBaseline !== null) {
+      if (championImprovements === null || championImprovements === 0)
+        return 'baseline_established';
+      if (championImprovements < 2) return 'collecting';
+      return 'evidence_available';
+    }
+    // No baseline reported: only claim "awaiting" when the regime is known to
+    // have no observations at all.
+    if (regimeObservations === 0) return 'awaiting_evaluation';
+    return null;
+  })();
+  const evidenceSufficient =
+    adaptation.evidence_sufficient === true || calibrationState === 'evidence_available';
+  const calibrationValue = (() => {
+    switch (calibrationState) {
+      case 'awaiting_evaluation':
+        return 'Awaiting first evaluation';
+      case 'baseline_established':
+        return 'Baseline established';
+      case 'collecting':
+      case 'evidence_available':
+        return championImprovements !== null && championImprovements > 0
+          ? '{count} comparable observations'
+          : 'Baseline established';
+      default:
+        return 'Calibration status unavailable';
+    }
+  })();
+  const calibrationDetail = (() => {
+    const observations = t('Regime observations: {observations}', {
+      observations: regimeObservations ?? 0,
+    });
+    if (championImprovements !== null && championImprovements > 0 && championUncertainty !== null) {
+      const status = evidenceSufficient
+        ? t('Evidence available for rate decisions')
+        : t('Collecting comparable observations');
+      return `${t('Uncertainty')}: ±${championUncertainty.toFixed(3)} · ${observations} · ${status}`;
+    }
+    return observations;
+  })();
+  const transitions = finite(adaptation.transitions)
+    ? Number(adaptation.transitions)
+    : finite(adaptation.promotion_resets)
+      ? Number(adaptation.promotion_resets)
       : null;
+  const iterationsSinceChange = finite(adaptation.iterations_since_change)
+    ? Number(adaptation.iterations_since_change)
+    : null;
+  const resetReason = typeof adaptation.reset_reason === 'string' ? adaptation.reset_reason : null;
   const lastPromotion = object(adaptation.last_promotion);
   const [metric, setMetric] = useState<LearningMetricKey>('loss');
   const graphHistory = useMemo(() => learningChartRows(history), [history]);
@@ -321,28 +393,44 @@ export function TrainingLearningView({
         {championActive && championIteration !== null && (
           <TrainingKpi label="Current Champion" value={championIteration} />
         )}
-        {championActive && warmup !== null && regimeObservations !== null && (
+        {adaptationActive && warmup !== null && lifetimeObservations !== null && (
           <TrainingKpi
             label="Controller warm-up"
             value={
-              regimeObservations < warmup
-                ? t('Warm-up ({observations} / {warmup} evaluations)', {
-                    observations: regimeObservations,
+              warmupComplete
+                ? t('Active · Warm-up complete')
+                : t('Warm-up ({observations} / {warmup} evaluations)', {
+                    observations: lifetimeObservations,
                     warmup,
                   })
-                : t('Active · Warm-up complete')
             }
             detail={
-              regimeObservations >= warmup
-                ? t('Regime observations: {observations}', { observations: regimeObservations })
+              warmupComplete
+                ? t('Lifetime observations: {observations}', {
+                    observations: lifetimeObservations,
+                  })
                 : undefined
             }
           />
         )}
-        {finite(adaptation.promotion_resets) && adaptation.promotion_resets > 0 && (
+        {championActive && (
           <TrainingKpi
-            label="Promotion resets"
-            value={adaptation.promotion_resets}
+            label="Champion calibration"
+            value={
+              calibrationValue === '{count} comparable observations'
+                ? t(calibrationValue, { count: championImprovements ?? 0 })
+                : t(calibrationValue)
+            }
+            detail={calibrationDetail}
+          />
+        )}
+        {adaptationActive && iterationsSinceChange !== null && (
+          <TrainingKpi label="Iterations since rate change" value={iterationsSinceChange} />
+        )}
+        {transitions !== null && transitions > 0 && (
+          <TrainingKpi
+            label="Promotion transitions"
+            value={transitions}
             detail={
               lastPromotion && finite(lastPromotion.preserved_learning_rate)
                 ? `${t('Rate kept at last promotion')}: ${formatLearningRate(
@@ -352,6 +440,9 @@ export function TrainingLearningView({
                 : undefined
             }
           />
+        )}
+        {adaptationActive && resetReason && (
+          <TrainingKpi label="Controller state" value={t(adaptationResetReason(resetReason))} />
         )}
         <TrainingKpi
           label="Optimizer updates"
@@ -422,14 +513,43 @@ const SKIP_LABELS: Record<string, string> = {
   warmup: 'Warm-up',
   cadence: 'Waiting for cadence',
   dwell: 'Minimum dwell',
+  dwell_iterations: 'Minimum dwell (iterations)',
   fallback: 'Fallback',
-  promotion_reset: 'Champion promoted · warm-up restarted',
+  baseline: 'Local baseline',
+  uncertain: 'Insufficient evidence',
+  insufficient_evidence: 'Insufficient evidence',
+  // A historical reset discarded the previous Champion's learned state; a new
+  // transition keeps it. The two are never conflated in the log.
+  promotion_reset: 'Champion promoted · previous learning discarded',
+  promotion_transition: 'Champion promoted · learning state preserved',
 };
+
+/** Human label for a controller reset/migration reason shown in monitoring. */
+function adaptationResetReason(reason: string): string {
+  const labels: Record<string, string> = {
+    reward_semantics_changed: 'Legacy reward state discarded',
+    champion_changed: 'Champion changed',
+    champion_identity_unknown: 'Champion identity unknown',
+    opponent_promoted: 'Champion promoted',
+    candidates_changed: 'Candidate set changed',
+    lag_changed: 'History window changed',
+    evaluation_changed: 'Evaluation changed',
+    unreadable_state: 'Saved controller state unreadable',
+    rng_absent: 'Saved controller RNG missing',
+    unsupported_state: 'Saved controller state unsupported',
+    disabled_on_resume: 'Controller disabled on resume',
+  };
+  return labels[reason] ?? reason;
+}
 
 function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {
   if (event.skipped === 'missing_observation') return <>{t('No observation')}</>;
+  if (event.baseline === true) return <>{t('Local baseline')}</>;
   if (typeof event.skipped === 'string' && SKIP_LABELS[event.skipped])
     return <>{t(SKIP_LABELS[event.skipped])}</>;
+  // An exploratory change is a coverage pull, never presented as a confirmed
+  // improvement.
+  if (event.exploratory === true) return <>{t('Candidate exploration')}</>;
   return <>{event.changed === true ? t('Changed') : t('Kept')}</>;
 }
 

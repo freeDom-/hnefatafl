@@ -66,6 +66,8 @@ and a small explicit candidate set, so no continuous space is discretized.
 * `adaptation_cadence` — evaluations between decisions.
 * `adaptation_warmup` — evaluations before any decision.
 * `adaptation_min_dwell` — evaluations a chosen rate is kept before it may change.
+* `adaptation_min_dwell_iterations` — optional training iterations a chosen rate
+  is kept before it may change; 0 disables the extra gate.
 * `adaptation_min_trials` — forced trials of every candidate **in each
   action-history context** before that context's predictions may be exploited.
   Coverage is per `(candidate, context)`, not global: a predictor that has never
@@ -79,17 +81,32 @@ Lower training loss is not a strength signal, so the controller never reads
 losses. It observes the **completed-game score against the selected evaluation
 opponent**, balanced across attacker and defender roles by the existing
 evaluation protocol. The opponent is normally a fixed, versioned benchmark; it may
-also be the evolving Champion, in which case each promotion starts a new regime as
-described below.
+also be the evolving Champion. A fixed opponent keeps the historical absolute
+score; an evolving Champion uses genuine within-Champion change against the
+observed baseline.
 
 ```
-score = (wins + 0.5 * draws) / completed_games
+# fixed opponent (absolute, historical representation)
+reward = (wins + 0.5 * draws) / completed_games
+
+# evolving Champion (genuine change from the observed baseline)
+raw = (wins + 0.5 * draws) / completed_games
+reward = clamp(raw - baseline_score, -1, 1)
 ```
 
 * Only completed games count; **unfinished (truncated) games are excluded**, not
   scored as losses. This is deliberately different from the promotion score, which
   keeps truncated games in the denominator.
 * An evaluation with no completed game yields no observation.
+* For a Champion, the first evaluation sets the observed `baseline_score` and is
+  a baseline only: it is counted but never fed to the predictor and never triggers
+  a decision. For a fixed opponent there is no baseline and the score is the
+  reward directly.
+* The reward is genuine measured change: two identical scores against the same
+  Champion yield exactly zero improvement, a higher score is positive and a lower
+  score is negative. The regularized baseline uncertainty (`baseline_se`) is kept
+  separately and only widens the decision margin; it never enters the reward, so a
+  neutral-score prior cannot manufacture progress.
 * The observation is only taken at an evaluation boundary. No extra evaluation is
   added, so the controller never multiplies evaluation cost.
 * The credited action is the learning rate that was active for the interval that
@@ -110,31 +127,144 @@ varies the learning rate.
 ### Champion evaluation and promotion boundaries
 
 A fixed opponent keeps the controller's observations comparable for the whole
-run. Champion does not: a promotion replaces the incumbent, so a score observed
-before the promotion is not comparable with one observed after it. Treating them
-as one series would make the controller react to the promotion itself rather than
-to training progress.
+run. Champion does not: a promotion replaces the incumbent, so a raw score
+observed before the promotion is not comparable with one observed after it.
+Treating them as one series would make the controller react to the promotion
+itself rather than to training progress, and discarding all learned state at
+every promotion would throw away valid persistent learning.
 
-The controller therefore consumes the explicit promotion signal produced by
+The controller therefore separates two kinds of state:
+
+* **Persistent global state** — the candidate set, effective rate, learned
+  predictors, reward/action history, lifetime counters, dwell timers and the
+  dedicated RNG stream. It describes the one continuing trajectory and is never
+discarded at a promotion.
+* **Per-Champion evaluation state** — the Champion identity, promotion
+  iteration, evaluation protocol, the local baseline, raw-score telemetry and the
+  shrunk calibration offset and uncertainty. It is refreshed when a new Champion
+  is installed.
+
+The controller consumes the explicit promotion signal produced by
 `EvaluationSelection.accept()` (`evaluation["promoted"]`, `champion_iteration` and
-the incumbent-suffixed `opponent_identity`), never a score threshold. On a
-promotion:
+the incumbent-suffixed `opponent_identity`), never a score threshold. A promotion
+is an **idempotent transition**, not a reset:
 
 * The promoting observation is still ingested and attributed to the outgoing
   Champion, but the decision is suppressed so the rate does not change at the
   boundary.
+* The learned predictors, reward/action history and lifetime counters are kept.
+  Cross-Champion transfer is deliberate: the observations are expressed as
+  within-Champion improvement, so a predictor learned on one incumbent remains
+  meaningful on the next.
 * The currently effective rate is preserved. The optimizer is not rebuilt, and
   its moments, the model weights and the replay buffer are untouched.
-* The learned predictors, reward/action history, candidate counts and warm-up
-  counters are discarded, and `adaptation_warmup` restarts against the new
-  Champion. The next evaluation is the first observation of the new regime.
+* The dwell timers (`adaptation_min_dwell` and
+  `adaptation_min_dwell_iterations`) and the warm-up counter continue across the
+  boundary; a promotion cannot unlock an immediate change.
+* Only the per-Champion evaluation block is refreshed, so the next evaluation
+  establishes the new Champion's local baseline.
 * A replayed promotion signal is an inert duplicate: it never ingests the score
   again, advances any counter, moves the controller RNG or records a decision
   event. Promotion iterations strictly increase, so any event at or before the
   most recently applied promotion is rejected as duplicate or stale, even after
   later promotions; a genuinely later promotion is still applied. This makes
   repeated processing of any evaluation boundary safe.
-* A failed attempt, a draw or a missing observation never resets the controller.
+* A failed attempt, a draw or a missing observation never refreshes the regime.
+
+### Comparing scores across Champions
+
+Raw win rates against different Champions are never compared. Only an evolving
+Champion uses baseline-relative feedback; a **fixed opponent keeps the historical
+absolute score**, because it is already comparable for the whole run. The two
+representations are stored separately (`reward_semantics`) and are never mixed in
+one predictor.
+
+For a Champion, every observation after the first is the **within-Champion
+improvement** `clamp(score - baseline_score, -1, 1)`. The first evaluation sets
+the observed baseline and is never fed to the predictor, so an uncalibrated score
+cannot inject a spurious reward. The reward is genuine change: identical scores
+yield exactly zero, so a neutral-score prior or the uncertainty regularization can
+never manufacture progress. Because one evaluation is a noisy reference, the
+**regularized baseline uncertainty** (`baseline_se`) is kept separately and only
+widens the decision margin; it is never subtracted from the reward. Predictor
+updates
+are **weighted by completed games** (capped), and the candidate comparison is
+**confidence-aware**: a different candidate is only adopted when its predicted
+improvement exceeds the current rate's by at least one standard error of the
+Champion's mean improvement (`HYSTERESIS`). Marginal, noisy differences therefore
+keep the current rate (`skipped="uncertain"`), and a baseline-only evaluation is
+never a decision point (`skipped="baseline"`).
+
+#### Regularized evaluation uncertainty
+
+The decision uncertainty is a per-evaluation sampling error, not the variance
+between successive scores. The per-game score is 1 for a win, 0.5 for a draw and
+0 for a loss, so its variance is computed exactly from the outcome counts, and a
+weak prior variance (0.25 with a pseudo-count of one game) keeps a degenerate
+sample -- all wins or all draws -- from being treated as certain:
+
+```
+se_score = sqrt( ((n * var_per_game) + 0.25) / (n + 1) / n )
+```
+
+The Champion's uncertainty combines each improvement's `se_score` with the
+once-shared baseline error in quadrature:
+
+```
+uncertainty = sqrt( baseline_se^2 + sum(se_score_i^2) / count^2 )
+```
+
+so two identical four-game evaluations keep a meaningful uncertainty instead of
+collapsing to a numerical floor, while the same result over hundreds of games is
+more certain. This is a lightweight per-evaluation estimate, not a confidence
+interval for playing strength: the protocol's paired, side-swapped games are
+correlated, and the weak prior plus the fixed margin acknowledge that rather than
+model it exactly. The baseline error and the candidate-prediction error are kept
+conceptually separate, and the game count is not double-counted (it weights the
+predictor update and, independently, the sampling error of the decision).
+
+#### Conservative, explicit exploration
+
+`adaptation_min_trials` forces every `(candidate, context)` pair to be observed,
+but an exploratory change is not an evidence-based improvement and must not bypass
+the safety gates. In Champion mode **every** automatic rate change -- exploration
+and exploitation alike -- requires at least `EXPLORATION_MIN_EVIDENCE` (2)
+comparable post-baseline observations, so a freshly promoted Champion cannot move
+the rate even when the shared predictor strongly favours another candidate. The
+first post-promotion evaluation only establishes the baseline; the first
+comparable evaluation is blocked with `skipped="insufficient_evidence"`, and the
+second may act.
+
+An exploratory change additionally requires the ordinary observation-based and
+iteration-based dwell and a stricter exploration cooldown (`EXPLORATION_DWELL`, 2
+observations) since the last exploratory change, tracked separately from the
+ordinary dwell. When there is too little reward history to form a context window,
+a Champion no longer explores at random: it picks the least-observed candidate,
+with the multiplicative (log) distance to the current rate as the tie-breaker.
+When a context exists, the multiplicatively nearest untried candidate is chosen.
+Both paths are deterministic (ties break toward the lower index, so no RNG is
+needed) and avoid jumping between extreme rates. Candidate-list position is not
+rate distance: adjacent candidates can still span orders of magnitude, so the
+distance is `|ln(rate_a) - ln(rate_b)|`. No hard multiplicative cap is imposed,
+so a far candidate remains reachable when no closer one is untried.
+
+A promotion preserves the cooldown reference and starts the new Champion with no
+comparable evidence, so it never restarts exploration. Fixed-opponent selection
+keeps the historical random coverage and greedy exploitation. The decision event
+records `exploratory` so the log presents a coverage pull as candidate
+exploration rather than a confirmed improvement.
+
+Each Champion also keeps a **calibration offset**, the mean improvement shrunk
+toward the cross-Champion prior. A constant offset cannot change the candidate
+ranking, so it is retained as diagnostic telemetry rather than as a selection
+signal; the uncertainty is what drives the confidence margin. The prior is also
+updated per observation and is explicitly diagnostic. The explicit calibration
+state (`awaiting_evaluation`, `baseline_established`, `collecting`,
+`evidence_available`) is published for monitoring so the UI never reports a
+baseline or a certainty that does not exist yet. When older progress lacks the
+field, the UI infers the state only from a reported baseline and improvement
+count and otherwise shows "Calibration status unavailable" rather than claiming a
+baseline.
 
 The controller keeps the same evaluation identity across promotions (the context
 hash is unchanged). The boundary is carried by the promotion signal, and the
@@ -142,13 +272,21 @@ controller additionally persists the **active Champion regime identity** derived
 from the Champion's persisted metadata (promotion iteration, provisional flag and
 provenance). On resume the identity is compared with the restored
 `EvaluationSelection` Champion: a match restores the learned state unchanged; a
-mismatch (or a pre-v4 state that cannot prove which Champion it belongs to)
-discards the observations while preserving the effective rate and the optimizer
-state, with `reset_reason` `champion_changed` or `champion_identity_unknown`.
-The active Champion is shown in monitoring as
-`adaptation.active_champion_identity`; the current-regime observation count is
-`adaptation.regime_observations` and `adaptation.warmup_complete` reports whether
-warm-up has been satisfied, distinct from the lifetime `promotion_resets`.
+mismatch refreshes only the per-Champion block, preserving the shared predictors,
+the effective rate and the optimizer state, with `reset_reason`
+`champion_changed`. A state whose reward representation differs from the current
+job discards only the learned predictors with `reset_reason`
+`reward_semantics_changed`; the effective rate, optimizer state, lifetime
+counters, dwell timers and RNG are preserved. The corrected definition is
+`raw_relative` (change from the observed baseline). It is compatible with version
+5 (`raw_relative`), incompatible with an absolute-score fixed-opponent state and
+incompatible with a version-6 Champion state, which measured change from a shrunk
+baseline. The active
+Champion is shown in monitoring as `adaptation.active_champion_identity`; the
+current-regime observation count is `adaptation.regime_observations`, the lifetime
+warm-up is `adaptation.observations >= adaptation.warmup`, and
+`adaptation.transitions` (`promotion_resets` remains as a backward-compatible
+alias) is the lifetime promotion count.
 
 With adaptation `off` the controller settings are inert: they never block a run,
 so a user can disable the controller after an invalid edit and still start
@@ -162,14 +300,19 @@ transport. Enabling it validates every supplied candidate strictly.
 * The fixed opponent can saturate near 1.0 (especially Shield bearer), after which
   the controller cannot distinguish candidates. This is a real limitation, not a
   bug: the score is an honest, comparable proxy, not a strength proof.
-* With Champion, every promotion starts a new regime. The controller deliberately
-  does not carry any learned state across the boundary, so it needs at least
-  `adaptation_warmup` evaluations after each promotion before it may decide
-  again. Frequent promotions therefore slow adaptation; that is the intended
-  trade for never mixing incomparable scores.
-* Evaluation scores from a small game count are noisy. `adaptation_min_dwell`
-  and `adaptation_min_trials` bound how fast the controller reacts; a run that
-  needs finer decisions should raise `evaluation_games`.
+* With Champion, every promotion refreshes the new incumbent's local baseline
+  while the shared predictors and dwell counters continue. Cross-Champion
+  transfer means a new incumbent is not judged from scratch, but its first
+  evaluation is still only a baseline and never a decision. Frequent promotions
+  therefore no longer reset adaptation; the intended trade is that a very
+  different incumbent may need a few observations before its uncertainty is small
+  enough to justify a change.
+* Evaluation scores from a small game count are noisy. The shrunk baseline, the
+  game-count weighting, the confidence margin and `adaptation_min_dwell`,
+  `adaptation_min_dwell_iterations` and `adaptation_min_trials` bound how fast
+  the controller reacts; a run that needs finer decisions should raise
+  `evaluation_games`. Baseline-relative improvement is a local proxy and is never
+  an Elo or playing-strength estimate.
 * The controller optimizes its proxy, not Elo or tournament strength. No run
   should be described as "stronger" from a lower loss or from a successful
   adaptation run alone.
@@ -197,14 +340,22 @@ transport.
 
 * Resume with the same algorithm, candidates, lag and evaluation identity
   restores continuity: counters, effective rate and learned predictors.
-* A resume after a Champion promotion restores the post-promotion state: the
-  promotion counter and record, the active Champion identity, the preserved
-  effective rate and the restarted warm-up counters. The promotion is not
+* A resume after a Champion promotion restores the post-transition state: the
+  transition counter and record, the active Champion identity, the preserved
+  effective rate and the continued dwell counters. The promotion is not
   re-applied on load.
-* A resume whose active Champion identity differs from the restored Champion (or
-  a pre-v4 state that carries no active-regime identity) resets the learned state
-  with `champion_changed` or `champion_identity_unknown` while preserving the
-  effective rate; the optimizer, model and replay are untouched.
+* A resume whose active Champion identity differs from the restored Champion
+  refreshes only the per-Champion evaluation block with `champion_changed`, while
+  the shared predictors, the effective rate and the optimizer state are preserved.
+* A resume whose saved reward representation differs from the current job
+  discards only the learned predictors with `reward_semantics_changed`; the
+  effective rate, optimizer state, lifetime
+  counters, dwell timers and RNG are preserved, so incompatible rewards never
+  reach a predictor. The current definition is compatible with version 5 and
+  with a fixed-opponent absolute-score state; it discards an absolute state
+  resumed into a Champion and a version-6 Champion state (shrunk baseline).
+* A legacy state with no iteration metadata for its last change starts the
+  conservative iteration dwell at the resume iteration.
 * Changed candidate set, changed lag or changed evaluation identity resets the
   learned state with a visible `reset_reason` (`candidates_changed`,
   `lag_changed`, `evaluation_changed`); counters restart because the observations
@@ -246,23 +397,44 @@ key structure and legal action identifiers, matrix/vector dimensions, numeric
 (not string) finite values, symmetry and positive definiteness of each ridge
 system, history lengths, non-negative integer counters, the effective index, the
 state version, the saved RNG stream, the active Champion identity, the bounded
-promotion record (iteration, optional incumbent iteration and identity, and a
-preserved rate drawn from the candidate set, consistent with the promotion
-counter) and the bounded decision-event schema (accepted fields, finite in-range
-numbers, candidate references, legal skip reasons, bounded provenance strings, no
-unexpected nested data). The RNG is
+transition record (iteration, optional incumbent iteration and identity, and a
+preserved rate drawn from the candidate set, consistent with the transition
+counter), the bounded per-Champion evaluation block (identity, promotion
+iteration, protocol, observed baseline score and game count, regularized baseline
+error, observation/improvement counters, finite improvement
+statistics, the shrunk offset, the regularized uncertainty and its
+`score_se_sum_sq` accumulator, and the bounded raw-score telemetry) and the
+bounded cross-Champion prior, plus the bounded decision-event schema (accepted
+fields, finite in-range numbers, candidate references, legal skip reasons, the
+baseline/exploration/transition/margin/weight fields, bounded provenance strings,
+no unexpected nested data). Version 7 additionally **requires** the complete
+Champion block, the `reward_semantics` field, the serialized prior and a `weights`
+history matching `rewards`; every weight must be within
+`[1, MAX_GAME_WEIGHT]`, the baseline and score uncertainty accumulators must be
+consistent with the improvement count (including the mathematical upper bound
+`score_se_sum_sq <= count * MAX_SCORE_SE^2` and
+`uncertainty == sqrt(baseline_se^2 + score_se_sum_sq / count^2)`), the exploration
+marker must not exceed the lifetime observation count, a positive improvement
+count must have a baseline, and a Champion protocol that disagrees
+with the active evaluation is rejected. Missing or defaulted current-schema
+metadata is a controlled controller-state recovery, never a silent default that
+could change learning. The RNG is
 validated **before** adoption: a malformed stream resets the controller with
 `unreadable_state`, and a state without a saved stream resets with `rng_absent`,
 so learned predictors are never adopted under a silently different exploration
-sequence. Version 1 (the same learned contexts, the earlier global exploration
-gate, and its own saved RNG), version 2 (per-context exploration without the
-promotion record) and version 3 (the promotion record without the active-Champion
-identity) are migrated in place for fixed-opponent runs; a version-3 Champion run
-is conservatively reset with `champion_identity_unknown` because its history
-cannot be proven to belong to the restored Champion. Unknown versions reset with
-`unsupported_state`. Accepted telemetry is JSON-serializable. Loading goes through
-the existing tensor-only checkpoint loader; no arbitrary objects are
-deserialized.
+sequence. Historical schemas are migrated with explicit reward-semantics rules:
+versions 1-4 used absolute scores, so a fixed-opponent state keeps its predictors
+and a Champion state discards them (`reward_semantics_changed`); version 5 used
+improvement against the raw baseline for every opponent, so a fixed-opponent state
+discards them while a Champion state is compatible (its uncertainty is
+replaced with the conservative regularized estimate); version 6 used absolute
+scores for a fixed opponent but a shrunk baseline for a Champion, so a fixed
+state is compatible and a Champion state discards its predictors. A legacy state
+with no
+iteration metadata for its last change starts the conservative iteration dwell at
+the resume iteration. Unknown versions reset with `unsupported_state`. Accepted
+telemetry is JSON-serializable. Loading goes through the existing tensor-only
+checkpoint loader; no arbitrary objects are deserialized.
 
 ## Remote workers
 
@@ -270,13 +442,26 @@ The controller executes inside the training process, so it works identically on 
 remote worker. Workers advertise a `hyper_adaptation` capability; a job with
 adaptation enabled is never offered to a worker that lacks it, and an
 administrator version override cannot bypass that gate. A Champion-adapted job
-additionally requires the narrower `hyper_adaptation_champion` capability, so a
-worker running an older fixed-opponent-only controller is never offered one;
-fixed-opponent adapted jobs remain compatible with those workers. The rejection
-names the missing capability (for example, automatic hyperparameter updates, or
-those updates with a Champion opponent) instead of blaming the inference backend
-or device. A transport copy sent to a legacy worker omits the adaptation keys, so
-the old binary cannot silently ignore an enabled controller.
+additionally requires the narrower `hyper_adaptation_champion_transition`
+capability, so a worker running an older fixed-opponent-only controller, or the
+earlier reset-based Champion controller, is never offered one; fixed-opponent
+adapted jobs remain compatible with those workers. Workers additionally advertise
+`hyper_adaptation_state_versions`; a resumed adapted job carries the controller
+schema version of its checkpoint, and a worker whose advertised list does not
+include it is never offered the job, so an older worker cannot silently discard
+learned state through its own migration. A worker without the list is assumed to
+understand only the historical versions (1-4). A fresh job carries no saved state
+and is not gated on a version, so a legacy worker can still run a new
+fixed-opponent job and write its own state. Workers that understand the
+iteration-based dwell advertise `hyper_adaptation_iteration_dwell`; a job with a
+nonzero `adaptation_min_dwell_iterations` is rejected on a worker without it, and
+the inert zero default is omitted from that worker's transport so it never sees an
+unknown configuration key. The rejection names the
+missing capability (for example, automatic hyperparameter updates, those updates
+with a persistent Champion opponent, the iteration-based controller dwell, or the
+controller state schema version) instead of blaming the inference
+backend or device. A transport copy sent to a legacy worker omits the adaptation
+keys, so the old binary cannot silently ignore an enabled controller.
 
 ## Differences between the paper, the reference code and this implementation
 
@@ -334,7 +519,11 @@ being validated). This implementation is intentionally conservative.
 
 The measured controller overhead on a tiny CPU smoke budget is recorded in the
 [online adaptation benchmark](../benchmarks/online-hyperparameter-adaptation.md)
-(~0.05 ms per decision, negligible against the evaluation it reads).
+(~0.05 ms per decision, negligible against the evaluation it reads). The synthetic
+[Champion-adaptation benchmark](../benchmarks/champion-adaptation.md) compares a
+fixed rate, the original destructive reset and the persistent transition under
+frequent promotions; it measures controller CPU overhead, state size, rate churn
+and evidence retention, and explicitly makes no strength claim.
 
 The controller only adds a bounded decision at evaluation boundaries, so compare
 equal-budget runs and report the controller overhead separately:
