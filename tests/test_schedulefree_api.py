@@ -1,0 +1,240 @@
+"""API and remote transport keep optimizer identity, capabilities and state."""
+
+from pathlib import Path
+import sys
+from uuid import uuid4
+
+import pytest
+from auth_support import AuthenticatedClient
+
+from hnefatafl.models import load_checkpoint
+from hnefatafl.server import create_app
+from hnefatafl.training import train
+from hnefatafl.training_optimizers import SCHEDULE_FREE_DEPENDENCY_ERROR
+from test_remote_api import claim, finish, upload, worker
+from test_training_resume_api import completed
+
+
+@pytest.fixture
+def client(tmp_path):
+    with AuthenticatedClient(create_app(tmp_path / "server")) as session:
+        yield session
+
+
+def inputs(**changes):
+    return {
+        "preset": "smoke",
+        "ruleset": "brandubh",
+        "device": "cpu",
+        "cpu_threads": 1,
+        "optimizer": "adamw_schedulefree",
+        "schedulefree_warmup_steps": 20,
+        "max_game_plies": 4,
+        "evaluation_max_plies": 2,
+        **changes,
+    }
+
+
+def test_local_creation_resume_review_immutable_settings_and_rate_overrides(client):
+    first = completed(client, client.post("/api/training/jobs", json=inputs()))
+    route = f"/api/training/jobs/{first['id']}/resume"
+    info = client.get(route).json()
+    assert info["can_resume"] and info["optimizer"] == "adamw_schedulefree"
+    assert info["config"]["schedulefree_warmup_steps"] == 20
+    for changed in [{"optimizer": "adamw"}, {"schedulefree_warmup_steps": 21}]:
+        response = client.post(route, json={"iterations": 2, **changed})
+        assert response.status_code == 400
+        assert list(changed)[0] in response.json()["fields"]
+    response = client.post(route, json={"iterations": 2, "adaptation": "hypercontroller"})
+    assert response.status_code == 400 and "not supported yet" in response.text
+    resumed = completed(
+        client,
+        client.post(route, json={"iterations": 2, "learning_rate": 0.002, "weight_decay": 0.003}),
+    )
+    _, saved = load_checkpoint(client.app.state.data_dir / "jobs" / resumed["id"] / "last.pt")
+    group = saved["optimizer_state"]["param_groups"][0]
+    assert group["k"] > 1 and group["warmup_steps"] == 20
+    assert group["lr"] == 0.002 and group["weight_decay"] == 0.003
+    assert group["train_mode"] is False
+
+
+@pytest.mark.parametrize("value", [-1, 1000001, 0.5, True, "20"])
+def test_api_rejects_invalid_warmup_before_launch(client, value):
+    response = client.post(
+        "/api/training/jobs", json=inputs(execution="remote", schedulefree_warmup_steps=value)
+    )
+    assert response.status_code == 400 and "schedulefree_warmup_steps" in response.text
+
+
+def test_remote_capability_required_even_with_version_override_and_complete_transport(
+    client, tmp_path
+):
+    remote, auth = worker(client)
+    override = client.patch(
+        f"/api/training/workers/{remote['id']}/version-override", json={"enabled": True}
+    )
+    assert override.status_code == 200
+    bad = client.post("/api/training/jobs", json=inputs(execution="remote", worker_id=remote["id"]))
+    assert bad.status_code == 400 and "Schedule-Free AdamW" in bad.text
+    queued = client.post("/api/training/jobs", json=inputs(execution="remote")).json()
+    assert claim(client, auth, "old") is None
+    for value in [1, "true", []]:
+        response = client.post(
+            "/api/worker/heartbeat",
+            headers=auth,
+            json={"capabilities": {"schedule_free_adamw": value}},
+        )
+        assert response.status_code == 400
+    client.post(
+        "/api/worker/heartbeat",
+        headers=auth,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "schedule_free_adamw": True,
+            }
+        },
+    )
+    leased = claim(client, auth, "updated")
+    assert leased["id"] == queued["id"]
+    assert leased["config"]["schedulefree_warmup_steps"] == 20
+    result = train(
+        {
+            **leased["config"],
+            "output_dir": str(tmp_path / "remote"),
+            "registry_dir": str(tmp_path / "remote-models"),
+        }
+    )
+    for kind, path in [
+        ("checkpoint", result["checkpoint"]),
+        ("inference", result["inference_checkpoint"]),
+    ]:
+        response = upload(client, auth, leased, kind, Path(path))
+        assert response.status_code == 200, response.text
+    assert finish(client, auth, leased).status_code == 200
+    response = client.post(
+        f"/api/training/jobs/{queued['id']}/resume", json={"iterations": 2, "execution": "remote"}
+    )
+    assert response.status_code == 201, response.text
+    resumed = claim(client, auth, uuid4().hex)
+    download = client.get(
+        f"/api/worker/jobs/{resumed['id']}/resume",
+        headers={**auth, "X-Lease-Token": resumed["lease_token"]},
+    )
+    assert download.status_code == 200
+    received = tmp_path / "received.pt"
+    received.write_bytes(download.content)
+    _, old = load_checkpoint(result["checkpoint"])
+    _, transported = load_checkpoint(received)
+    assert transported["optimizer_state"]["param_groups"] == old["optimizer_state"]["param_groups"]
+    continuation = train(
+        {
+            **resumed["config"],
+            "resume": str(received),
+            "output_dir": str(tmp_path / "resumed"),
+            "registry_dir": str(tmp_path / "remote-models"),
+        }
+    )
+    _, final = load_checkpoint(continuation["checkpoint"])
+    assert (
+        final["optimizer_state"]["param_groups"][0]["k"]
+        > old["optimizer_state"]["param_groups"][0]["k"]
+    )
+
+
+def test_legacy_workers_receive_no_new_setting(client):
+    _, auth = worker(client)
+    result = client.post(
+        "/api/training/jobs", json={"preset": "smoke", "execution": "remote", "device": "cpu"}
+    )
+    assert result.status_code == 201
+    leased = claim(client, auth)
+    assert leased["config"]["optimizer"] == "adamw"
+    assert "schedulefree_warmup_steps" not in leased["config"]
+
+
+@pytest.mark.parametrize("kind", ["train", "tune"])
+@pytest.mark.parametrize("unavailable", ["missing", "unusable"])
+def test_local_dependency_rejected_before_creating_job(client, monkeypatch, kind, unavailable):
+    if unavailable == "missing":
+        monkeypatch.setitem(sys.modules, "schedulefree", None)
+    else:
+
+        def broken_optimizer(*args, **kwargs):
+            raise ValueError("Installed optimizer cannot execute")
+
+        monkeypatch.setattr("schedulefree.AdamWScheduleFree", broken_optimizer)
+    monkeypatch.setattr(
+        "hnefatafl.server.subprocess.Popen",
+        lambda *args, **kwargs: pytest.fail("Rejected requests must not launch a subprocess"),
+    )
+    payload = inputs() if kind == "train" else {"kind": "tune", "trials": 1, "training": inputs()}
+    response = client.post("/api/training/jobs", json=payload)
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == SCHEDULE_FREE_DEPENDENCY_ERROR
+    assert response.json()["fields"] == ["optimizer" if kind == "train" else "training.optimizer"]
+    assert client.get("/api/training/jobs").json() == []
+    assert not list((client.app.state.data_dir / "jobs").glob("*/config.json"))
+
+
+def test_remote_submission_does_not_probe_server_dependency(client, monkeypatch):
+    remote, auth = worker(client)
+    client.post(
+        "/api/worker/heartbeat",
+        headers=auth,
+        json={
+            "capabilities": {
+                "package_version": client.app.version,
+                "training_symmetry_modes": ["off", "random_d4"],
+                "schedule_free_adamw": True,
+            }
+        },
+    )
+    monkeypatch.setitem(sys.modules, "schedulefree", None)
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available",
+        lambda: pytest.fail("Remote jobs must use worker capabilities, not server dependencies"),
+    )
+    response = client.post(
+        "/api/training/jobs", json=inputs(execution="remote", worker_id=remote["id"])
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "queued"
+    assert claim(client, auth)["config"]["optimizer"] == "adamw_schedulefree"
+
+
+@pytest.mark.parametrize("optimizer", ["adamw", "adam", "sgd"])
+def test_ordinary_local_jobs_do_not_probe_schedulefree(client, monkeypatch, optimizer):
+    monkeypatch.setitem(sys.modules, "schedulefree", None)
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available",
+        lambda: pytest.fail("Ordinary optimizer submissions must not initialize Schedule-Free"),
+    )
+    result = completed(client, client.post("/api/training/jobs", json=inputs(optimizer=optimizer)))
+    assert result["config"]["optimizer"] == optimizer
+    assert result["progress"]["metrics"]["updates"] > 0
+
+
+def test_local_tuning_probes_dependency_once_for_all_search_extremes(client, monkeypatch):
+    probes = []
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available", lambda: probes.append(True) or True
+    )
+    result = completed(
+        client,
+        client.post(
+            "/api/training/jobs",
+            json={
+                "kind": "tune",
+                "trials": 1,
+                "training": inputs(),
+                "search_space": {
+                    "learning_rate": {"type": "float", "low": 0.001, "high": 0.002},
+                    "weight_decay": {"type": "float", "low": 0, "high": 0.001},
+                },
+            },
+        ),
+    )
+    assert result["config"]["training"]["optimizer"] == "adamw_schedulefree"
+    assert probes == [True]

@@ -10,6 +10,7 @@
     "batch_size",
     "learning_rate",
     "optimizer",
+    "schedulefree_warmup_steps",
     "mcts_iterations",
     "mcts_time_limit",
     "self_play_mode",
@@ -74,7 +75,15 @@
     "max_failures"
   ],
   "execution_fields": ["execution", "worker_id"],
-  "resume_immutable_fields": ["ruleset", "channels", "blocks", "seed", "optimizer", "iterations"],
+  "resume_immutable_fields": [
+    "ruleset",
+    "channels",
+    "blocks",
+    "seed",
+    "optimizer",
+    "schedulefree_warmup_steps",
+    "iterations"
+  ],
   "training_phases": [
     "starting",
     "loading_checkpoint",

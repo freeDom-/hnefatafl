@@ -15,6 +15,7 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   blocks: ['Residual blocks', 0, 8],
   epochs: ['Epochs per iteration', 1, 100],
   learning_rate: ['Learning rate', 1e-7, 1, 0.0001],
+  schedulefree_warmup_steps: ['Schedule-Free warm-up steps', 0, 1000000],
   mcts_time_limit: ['Search time limit (seconds)', 0.001, 300, 0.01],
   exploration: ['MCTS exploration', 0, 20, 0.1],
   temperature: ['Self-play temperature', 0.01, 10, 0.01],
@@ -93,6 +94,7 @@ export function trainingParameterLabel(key: string): string {
 
 export interface NumberFieldOptions {
   label?: string;
+  tooltipKey?: string;
   min?: number;
   disabled?: boolean;
   invalid?: boolean;
@@ -119,7 +121,11 @@ export function TrainingNumberField({
   const [label, min, max, step = 1] = trainingNumberFields[fieldKey];
   return (
     <div className="training-field">
-      <FieldLabel htmlFor={id} label={options.label ?? label} tooltipKey={fieldKey} />
+      <FieldLabel
+        htmlFor={id}
+        label={options.label ?? label}
+        tooltipKey={options.tooltipKey ?? fieldKey}
+      />
       <input
         id={id}
         type="number"

@@ -645,6 +645,16 @@ class JobRunner:
                 config.update(
                     output_dir=str(self.directory), registry_dir=str(self.directory / "models")
                 )
+                if config.get("optimizer") == "adamw_schedulefree":
+                    from .training import normalize_config
+                    from .training_optimizers import (
+                        SCHEDULE_FREE_DEPENDENCY_ERROR,
+                        schedule_free_available,
+                    )
+
+                    normalize_config(config)
+                    if not schedule_free_available():
+                        raise ValueError(SCHEDULE_FREE_DEPENDENCY_ERROR)
                 if self.job.get("resume_available"):
                     source = self.directory / "resume.pt"
                     self._retry(lambda: self.api.download_resume(self.job_id, self.token, source))
@@ -766,11 +776,13 @@ def run_worker(
     from .models import device_info
 
     from .versioning import application_metadata
+    from .training_optimizers import schedule_free_available
 
     capabilities = {
         "protocol_version": PROTOCOL_VERSION,
         **application_metadata(),
         **device_info(),
+        "schedule_free_adamw": schedule_free_available(),
         # Advertised so a server never offers an adaptation-enabled job to a
         # worker whose training binary cannot run the controller.
         "hyper_adaptation": True,

@@ -9,6 +9,11 @@ import type { Job, TrainingWorker } from './types';
  * backend enforces the same rule; this keeps the form honest before submission.
  */
 export function workerCapabilityError(worker: TrainingWorker, config: TrainingConfig): string {
+  if (
+    config.optimizer === 'adamw_schedulefree' &&
+    worker.capabilities?.schedule_free_adamw !== true
+  )
+    return 'This worker does not support Schedule-Free AdamW. Install the updated training dependencies or choose another worker.';
   if (config.adaptation === 'hypercontroller' && worker.capabilities?.hyper_adaptation !== true)
     return 'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.';
   if (

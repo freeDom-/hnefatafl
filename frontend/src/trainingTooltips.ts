@@ -33,6 +33,10 @@ const additionalTuningIterations =
   'Extra training iterations each checkpoint-based trial runs on top of the source checkpoint\u2019s completed iteration. Every trial uses the same total, so hyperparameters are compared from one common state without modifying the source checkpoint.';
 
 export const trainingTooltips: Record<string, string> = {
+  schedulefree_warmup_steps:
+    'Actual optimizer updates used for linear warm-up, from 0 to 1,000,000. A nonzero warm-up is recommended for experimentation; the useful duration depends on minibatches and total training duration. One training iteration can contain many optimizer updates. This is separate from a stable-learning phase or HyperController warm-up. Saved progress is restored, and the duration cannot change on resume.',
+  schedulefree_learning_rate:
+    'Configured base learning rate for Schedule-Free AdamW. Warm-up scales this rate during the first optimizer updates; no conventional decay schedule is required. The optimizer does not choose a new base rate. Experiment with the starting value rather than assuming ordinary AdamW settings are optimal. Resume overrides keep the averaging and moment state.',
   opponent_weight:
     'Relative contribution to Optuna’s aggregate score. Weights are normalized by their total; larger weights make an opponent more influential. They do not change evaluation game counts. Every trial uses the same configured weights.',
   // ── General ──────────────────────────────────────────────────────────────

@@ -667,13 +667,15 @@ export default function Training({
       );
       requestAnimationFrame(() => trainingForm.current?.scrollIntoView?.({ block: 'start' }));
     } catch (error) {
-      if (error instanceof ConfigImportError && error.fields.length)
+      if (error instanceof ConfigImportError && error.fields.length) {
+        setRejectedFields(error.fields);
+        setRejectedReason('');
         onError(
           t('Invalid configuration values: {fields}.', {
             fields: error.fields.map((key) => t(trainingParameterLabel(key))).join(', '),
           }),
         );
-      else onError((error as Error).message);
+      } else onError((error as Error).message);
     } finally {
       setImportingConfig(false);
     }

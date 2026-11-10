@@ -328,7 +328,8 @@ def test_unknown_server_identity_cannot_authorize_new_jobs(client, monkeypatch):
         )
 
 
-def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch):
+@pytest.mark.parametrize("schedule_free", [False, True])
+def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch, schedule_free):
     from hnefatafl import remote_worker
     from test_remote_worker import FastStop, ReplyAPI, supervisor
 
@@ -342,6 +343,9 @@ def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch):
             return {"job": None}
 
     monkeypatch.setattr(versioning, "application_metadata", lambda: dict(BUILD))
+    monkeypatch.setattr(
+        "hnefatafl.training_optimizers.schedule_free_available", lambda: schedule_free
+    )
     supervisor(monkeypatch, API(), None)
     remote_worker.run_worker(
         "https://example.invalid",
@@ -355,6 +359,7 @@ def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch):
         {
             "protocol_version": 1,
             **BUILD,
+            "schedule_free_adamw": schedule_free,
             "hyper_adaptation": True,
             "hyper_adaptation_champion": True,
         }

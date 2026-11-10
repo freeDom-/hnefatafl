@@ -608,11 +608,16 @@ it('documents every immutable checkpoint parameter in the resume summary', async
     ).toBeGreaterThan(0);
   }
 
-  // The five immutable checkpoint parameters resolve to the shared registry, and
-  // every immutable field from the contract is represented except the editable
-  // iteration target.
+  // Ordinary optimizers show their five immutable parameters. Schedule-Free's
+  // conditional warm-up summary is covered with that optimizer's resume tests.
   const seen = expectEveryReadOnlyParameterDocumented();
-  expect(seen).toEqual(new Set(RESUME_IMMUTABLE_FIELDS.filter((key) => key !== 'iterations')));
+  expect(seen).toEqual(
+    new Set(
+      RESUME_IMMUTABLE_FIELDS.filter(
+        (key) => !['iterations', 'schedulefree_warmup_steps'].includes(key),
+      ),
+    ),
+  );
 });
 
 it('gives network channels and residual blocks separate explanations', async () => {

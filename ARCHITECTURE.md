@@ -264,6 +264,18 @@ sequential. Opt-in evaluation through the training OpenVINO backend refreshes ea
 post-optimization snapshot and starts a separate benchmark identity. Compact stdout events
 exclude history; atomic JSON/checkpoints retain it for local and remote polling.
 
+`training_optimizers.py` owns the small train/inference lifecycle and state-preserving
+base-rate interface for the optional official Schedule-Free AdamW optimizer.
+Optimization restores averaged weights in a `finally` block before self-play,
+evaluation, Champion snapshots, inference-backend refresh and checkpoint writes.
+Optimizer sequences/counters remain in the safe full optimizer state, separately
+from adaptation state; ordinary optimizers keep their existing update paths.
+An interrupted upstream mode transition invalidates the live optimizer/model pair
+and blocks new checkpoint writes; its original error and previous valid checkpoint
+are preserved without adding fields to the serialized optimizer state.
+Workers advertise execution-tested Schedule-Free support independently of version
+overrides. See [Schedule-Free AdamW](docs/TRAINING.md#schedule-free-adamw).
+
 `training_monitoring.py` owns phase-independent progress: the training process
 keeps a `TrainingMonitor` whose hot path only accumulates plain counters, while a
 daemon thread republishes a bounded `heartbeat.json` (phase, phase/iteration

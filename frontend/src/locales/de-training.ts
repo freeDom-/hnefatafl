@@ -1,4 +1,28 @@
 const translations: Record<string, string> = {
+  'Schedule-Free AdamW': 'Schedule-Free AdamW',
+  'Schedule-Free warm-up steps': 'Schedule-Free-Aufwärmschritte',
+  'Base learning rate': 'Basislernrate',
+  'Warm-up learning rate (last update)': 'Aufwärm-Lernrate (letztes Update)',
+  'Completed optimizer steps': 'Abgeschlossene Optimierungsschritte',
+  'Warm-up progress': 'Aufwärmfortschritt',
+  'Schedule-Free AdamW uses a configured base learning rate and averaged evaluation weights, without a conventional decay schedule.':
+    'Schedule-Free AdamW verwendet eine konfigurierte Basislernrate und gemittelte Bewertungsgewichte, ohne herkömmlichen Absenkungsplan.',
+  'Actual optimizer updates used for linear warm-up, from 0 to 1,000,000. A nonzero warm-up is recommended for experimentation; the useful duration depends on minibatches and total training duration. One training iteration can contain many optimizer updates. This is separate from a stable-learning phase or HyperController warm-up. Saved progress is restored, and the duration cannot change on resume.':
+    'Tatsächliche Optimierungsschritte zum linearen Aufwärmen, von 0 bis 1.000.000. Zum Experimentieren wird ein Wert über null empfohlen; die sinnvolle Dauer hängt von Minibatches und der gesamten Trainingsdauer ab. Eine Trainingsiteration kann viele Optimierungsschritte enthalten. Dies ist unabhängig von einer stabilen Lernphase oder dem Aufwärmen des HyperControllers. Gespeicherter Fortschritt wird wiederhergestellt; die Dauer kann beim Fortsetzen nicht geändert werden.',
+  'Configured base learning rate for Schedule-Free AdamW. Warm-up scales this rate during the first optimizer updates; no conventional decay schedule is required. The optimizer does not choose a new base rate. Experiment with the starting value rather than assuming ordinary AdamW settings are optimal. Resume overrides keep the averaging and moment state.':
+    'Konfigurierte Basislernrate für Schedule-Free AdamW. Das Aufwärmen skaliert diese Rate während der ersten Optimierungsschritte; ein herkömmlicher Absenkungsplan ist nicht erforderlich. Der Optimierer wählt keine neue Basislernrate. Den Startwert experimentell bestimmen; gewöhnliche AdamW-Einstellungen sind nicht unbedingt optimal. Änderungen beim Fortsetzen erhalten Mittelungszustand und Momente.',
+  'Schedule-Free AdamW with HyperController is not supported yet; set adaptation to off.':
+    'Schedule-Free AdamW mit HyperController wird noch nicht unterstützt; automatische Anpassung ausschalten.',
+  'This worker does not support Schedule-Free AdamW. Install the updated training dependencies or choose another worker.':
+    'Dieser Worker unterstützt Schedule-Free AdamW nicht. Aktualisierte Trainingsabhängigkeiten installieren oder einen anderen Worker auswählen.',
+  'Schedule-Free AdamW requires schedulefree>=1.4.1,<2; install hnefatafl[train] on this worker.':
+    'Schedule-Free AdamW benötigt schedulefree>=1.4.1,<2; hnefatafl[train] auf diesem Worker installieren.',
+  'Schedule-Free warm-up steps cannot change on resume.':
+    'Schedule-Free-Aufwärmschritte können beim Fortsetzen nicht geändert werden.',
+  'schedulefree_warmup_steps must be an integer between 0 and 1000000':
+    'schedulefree_warmup_steps muss eine ganze Zahl zwischen 0 und 1000000 sein',
+  'schedulefree_warmup_steps cannot change after optimizer updates':
+    'schedulefree_warmup_steps kann nach Optimierungsschritten nicht geändert werden',
   'Delete entire tuning study': 'Gesamte Optimierungsstudie löschen',
   'Delete entire tuning study?': 'Gesamte Optimierungsstudie löschen?',
   'Delete entire study': 'Gesamte Studie löschen',

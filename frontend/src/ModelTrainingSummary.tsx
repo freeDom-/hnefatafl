@@ -30,7 +30,12 @@ export default function ModelTrainingSummary({
   const epochs = number(config.epochs);
   const batch = number(config.batch_size);
   const seed = number(config.seed);
-  const optimizerNames: Record<string, string> = { adamw: 'AdamW', adam: 'Adam', sgd: 'SGD' };
+  const optimizerNames: Record<string, string> = {
+    adamw: 'AdamW',
+    adam: 'Adam',
+    sgd: 'SGD',
+    adamw_schedulefree: 'Schedule-Free AdamW',
+  };
   const optimizer =
     typeof config.optimizer === 'string'
       ? (optimizerNames[config.optimizer] ?? config.optimizer)
