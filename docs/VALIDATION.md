@@ -2,6 +2,19 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Persistent Champion adaptation, learning metrics and analytics budgets (`0.40.0` preparation)
+
+The [0.40.0 release notes](releases/0.40.0.md#validation) identify integration
+coverage for PRs #69–#71, including genuine within-Champion reward and schema
+4→7 migration, selectable Learning metrics with portable parameter provenance,
+configurable neural analytics MCTS budgets, and shared bounded advisor analysis.
+Database schema 15, checkpoint tensor format 1 and job-archive schema 3 remain
+unchanged; the controller state schema advances to 7. Synthetic controller and
+learning-history measurements retain their recorded scope, and no playing
+strength or general speedup is inferred. Successful release-PR and exact
+merged-main Verify remain required before tagging and stable publication.
+Historical evidence below is unchanged.
+
 ## Schedule-Free training and tournament benchmarking (`0.39.0` preparation)
 
 The [0.39.0 release notes](releases/0.39.0.md#validation) identify integration
