@@ -13,6 +13,23 @@ The formerly unreleased online phases are consolidated in the
 [0.32.0 release preparation](docs/releases/0.32.0.md). Their original phase status,
 test counts and rollout limits below remain historical evidence.
 
+## Persistent Champion-aware HyperController (unreleased)
+
+Replaces the reset-based Champion handling in `hnefatafl/hyper_adaptation.py` with
+a persistent, Champion-aware controller. A promotion is now an idempotent
+transition: the learned predictors, reward/action history, lifetime counters, dwell
+timers and effective rate survive, and only the new Champion's local baseline and
+calibration state are refreshed. Observations are within-Champion improvements
+over the first post-promotion score, so raw win rates against different Champions
+are never compared, and the baseline evaluation is never fed to the predictor.
+State schema version 5 migrates version 1–4 state in place, preserving the learned
+predictors, and remote Champion-adapted jobs now require the
+`hyper_adaptation_champion_transition` worker capability. Adds
+`adaptation_min_dwell_iterations`, the EN/DE monitoring and tooltip updates, and
+controller tests for the baseline, shrinkage, dwell continuity, migration and
+validation paths. This is not a strength claim: no held-out strength evaluation
+was run.
+
 ## Online milestone phases (unreleased)
 
 Phase work integrates into `feat/online-multiplayer`, not main. Phase 0 PR #6 was

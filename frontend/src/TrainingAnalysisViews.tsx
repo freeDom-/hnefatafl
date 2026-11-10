@@ -337,7 +337,7 @@ export function TrainingLearningView({
         )}
         {finite(adaptation.promotion_resets) && adaptation.promotion_resets > 0 && (
           <TrainingKpi
-            label="Promotion resets"
+            label="Promotion transitions"
             value={adaptation.promotion_resets}
             detail={
               lastPromotion && finite(lastPromotion.preserved_learning_rate)
@@ -397,12 +397,15 @@ const SKIP_LABELS: Record<string, string> = {
   warmup: 'Warm-up',
   cadence: 'Waiting for cadence',
   dwell: 'Minimum dwell',
+  dwell_iterations: 'Minimum dwell (iterations)',
   fallback: 'Fallback',
-  promotion_reset: 'Champion promoted · warm-up restarted',
+  promotion_reset: 'Champion promoted · learning state preserved',
+  promotion_transition: 'Champion promoted · learning state preserved',
 };
 
 function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {
   if (event.skipped === 'missing_observation') return <>{t('No observation')}</>;
+  if (event.baseline === true) return <>{t('Local baseline')}</>;
   if (typeof event.skipped === 'string' && SKIP_LABELS[event.skipped])
     return <>{t(SKIP_LABELS[event.skipped])}</>;
   return <>{event.changed === true ? t('Changed') : t('Kept')}</>;

@@ -19,9 +19,9 @@ export function workerCapabilityError(worker: TrainingWorker, config: TrainingCo
   if (
     config.adaptation === 'hypercontroller' &&
     config.evaluation_opponent === 'champion' &&
-    worker.capabilities?.hyper_adaptation_champion !== true
+    worker.capabilities?.hyper_adaptation_champion_transition !== true
   )
-    return 'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.';
+    return 'This worker does not support automatic hyperparameter updates with a persistent Champion opponent. Choose a newer worker, a fixed opponent, or disable them.';
   return '';
 }
 

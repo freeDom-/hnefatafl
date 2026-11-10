@@ -710,6 +710,7 @@ def test_champion_adaptation_requires_the_champion_worker_capability(client):
                 "training_symmetry_modes": ["off", "random_d4"],
                 "hyper_adaptation": True,
                 "hyper_adaptation_champion": True,
+                "hyper_adaptation_champion_transition": True,
             }
         },
     )

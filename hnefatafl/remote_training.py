@@ -87,6 +87,7 @@ TRAINING_FIELDS = {
     "adaptation_cadence",
     "adaptation_warmup",
     "adaptation_min_dwell",
+    "adaptation_min_dwell_iterations",
     "adaptation_lag",
     "adaptation_min_trials",
 }
@@ -100,6 +101,7 @@ ADAPTATION_FIELDS = frozenset(
         "adaptation_cadence",
         "adaptation_warmup",
         "adaptation_min_dwell",
+        "adaptation_min_dwell_iterations",
         "adaptation_lag",
         "adaptation_min_trials",
     }
@@ -141,6 +143,11 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         and type(capabilities["hyper_adaptation_champion"]) is not bool
     ):
         fail("Invalid worker hyper_adaptation_champion capability.")
+    if (
+        "hyper_adaptation_champion_transition" in capabilities
+        and type(capabilities["hyper_adaptation_champion_transition"]) is not bool
+    ):
+        fail("Invalid worker hyper_adaptation_champion_transition capability.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -194,12 +201,13 @@ def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
     if (
         config.get("adaptation", "off") != "off"
         and config.get("evaluation_opponent", "shield_bearer") == "champion"
-        and capabilities.get("hyper_adaptation_champion") is not True
+        and capabilities.get("hyper_adaptation_champion_transition") is not True
     ):
-        # A worker that only understands the fixed-opponent controller would
-        # reject the Champion objective, so it must not be offered the job even
-        # with an administrator version override active.
-        return "automatic hyperparameter updates with a Champion opponent"
+        # A worker that only understands the fixed-opponent controller, or the
+        # earlier reset-based Champion controller, cannot continue the persistent
+        # per-Champion state, so it must not be offered the job even with an
+        # administrator version override active.
+        return "automatic hyperparameter updates with a persistent Champion opponent"
     if config.get("search_workers", 0) and capabilities.get("parallel_search") is not True:
         return "parallel search processes"
     if config.get("training_symmetry_mode", "off") not in capabilities.get(

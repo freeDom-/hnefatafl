@@ -530,18 +530,21 @@ const translations: Record<string, string> = {
   'Decide every (evaluations)': 'Entscheidung alle (Evaluationen)',
   'Warm-up evaluations': 'Aufwärm-Evaluationen',
   'Minimum dwell (evaluations)': 'Minimale Verweildauer (Evaluationen)',
+  'Minimum dwell (iterations)': 'Minimale Verweildauer (Iterationen)',
   'Observation history window': 'Beobachtungsfenster',
   'Minimum trials per candidate': 'Mindestversuche pro Kandidat',
-  'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and at least four evaluation games are required. Champion is supported: when a candidate is promoted the controller keeps its current effective rate, discards the learning it derived from the previous Champion and starts a new warm-up, so scores from before and after a promotion are never mixed.':
-    'Ob der Auftrag die Lernrate während des Trainings online anpasst. Aus lässt die konfigurierte Rate fest. HyperController passt sie innerhalb desselben Laufs anhand der Auswertungsergebnisse an; das ist nicht Optuna, das über getrennte Versuche statt über eine fortlaufende Bahn sucht. Solange es aktiv ist, besitzt der Controller die effektive Rate, die konfigurierte Lernrate ist der Startwert und muss einer der Kandidaten sein, und mindestens vier Auswertungspartien sind erforderlich. Champion wird unterstützt: Wird ein Kandidat befördert, behält der Controller seine aktuelle effektive Rate, verwirft das aus dem vorherigen Champion Gelernte und startet eine neue Aufwärmphase, sodass Ergebnisse vor und nach einer Beförderung nie vermischt werden.',
+  'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and at least four evaluation games are required. Champion is supported with a persistent, Champion-aware controller: a promotion is an idempotent transition that keeps the learned predictors, the dwell timers and the effective rate, and refreshes only the new Champion’s local baseline, so raw scores from different Champions are never compared.':
+    'Ob der Auftrag die Lernrate während des Trainings online anpasst. Aus lässt die konfigurierte Rate fest. HyperController passt sie innerhalb desselben Laufs anhand der Auswertungsergebnisse an; das ist nicht Optuna, das über getrennte Versuche statt über eine fortlaufende Bahn sucht. Solange es aktiv ist, besitzt der Controller die effektive Rate, die konfigurierte Lernrate ist der Startwert und muss einer der Kandidaten sein, und mindestens vier Auswertungspartien sind erforderlich. Champion wird mit einem persistenten, Champion-bewussten Controller unterstützt: Eine Beförderung ist ein idempotenter Übergang, der die gelernten Prädiktoren, die Verweildauer-Timer und die effektive Rate beibehält und nur die lokale Basislinie des neuen Champions erneuert, sodass rohe Ergebnisse verschiedener Champions nie verglichen werden.',
   'Comma-separated learning rates the controller may choose between. Each must be between 1e-7 and 1 and all must be distinct, with 2–8 values. The configured learning rate must appear in the list. A small set keeps each decision cheap and the saved controller state bounded.':
     'Kommagetrennte Lernraten, zwischen denen der Controller wählen darf. Jede muss zwischen 1e-7 und 1 liegen und alle müssen verschieden sein, mit 2–8 Werten. Die konfigurierte Lernrate muss in der Liste vorkommen. Eine kleine Menge hält jede Entscheidung günstig und den gespeicherten Controller-Zustand begrenzt.',
   'Number of completed evaluations between controller decisions. 1 decides after every evaluation; higher values judge a longer interval before the rate can change.':
     'Anzahl abgeschlossener Auswertungen zwischen Controller-Entscheidungen. 1 entscheidet nach jeder Auswertung; höhere Werte beurteilen ein längeres Intervall, bevor sich die Rate ändern kann.',
   'Completed evaluations observed before the controller may change the learning rate. The configured starting rate is used during warm-up so the first decision is not made from too little evidence.':
     'Abgeschlossene Auswertungen, die beobachtet werden, bevor der Controller die Lernrate ändern darf. Während der Aufwärmphase wird die konfigurierte Startrate verwendet, damit die erste Entscheidung nicht aus zu wenig Evidenz getroffen wird.',
-  'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy.':
-    'Mindestanzahl an Auswertungen, die eine neu gewählte Lernrate beibehalten wird, bevor sie sich erneut ändern darf. Verhindert schnelles Oszillieren, wenn die Auswertungsergebnisse verrauscht sind.',
+  'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy. It is preserved across a Champion promotion, so a promotion cannot unlock an immediate change.':
+    'Mindestanzahl an Auswertungen, die eine neu gewählte Lernrate beibehalten wird, bevor sie sich erneut ändern darf. Verhindert schnelles Oszillieren, wenn die Auswertungsergebnisse verrauscht sind. Sie bleibt über eine Champion-Beförderung hinweg erhalten, sodass eine Beförderung keine sofortige Änderung freischalten kann.',
+  'Optional minimum number of training iterations a newly selected learning rate is kept before it may change again. 0 disables the extra gate. Use it when evaluations are frequent enough that the evaluation-count dwell alone would let the rate move too often; it is also preserved across a Champion promotion.':
+    'Optionale Mindestanzahl an Trainingsiterationen, die eine neu gewählte Lernrate beibehalten wird, bevor sie sich erneut ändern darf. 0 deaktiviert die zusätzliche Sperre. Sinnvoll, wenn Auswertungen so häufig sind, dass die Verweildauer nach Auswertungen allein die Rate zu oft bewegen würde; sie bleibt ebenfalls über eine Champion-Beförderung hinweg erhalten.',
   'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.':
     'Anzahl der jüngsten Beobachtungen, die der Controller zur Vorhersage des nächsten Ergebnisses nutzt (1–3). Ein größeres Fenster stützt sich auf mehr Vorgeschichte, vergrößert aber den gelernten Zustand; 1 entspricht der Referenzkonfiguration.',
   'Number of times every candidate must be observed in a given action-history context before the controller may exploit its predictions there. Coverage is per context, so a new context is always explored and a promising candidate cannot hide an unobserved alternative; the value must be at least 1.':
@@ -559,6 +562,9 @@ const translations: Record<string, string> = {
   'No observation': 'Keine Beobachtung',
   Fallback: 'Rückfall',
   'Champion promoted · warm-up restarted': 'Champion befördert · Aufwärmphase neu gestartet',
+  'Champion promoted · learning state preserved': 'Champion befördert · Lernzustand beibehalten',
+  'Local baseline': 'Lokale Basislinie',
+  'Promotion transitions': 'Beförderungs-Übergänge',
   'Promotion resets': 'Beförderungs-Resets',
   'Current Champion': 'Aktueller Champion',
   'Controller warm-up': 'Controller-Aufwärmphase',
@@ -569,6 +575,8 @@ const translations: Record<string, string> = {
   'Rate kept at last promotion': 'Bei der letzten Beförderung beibehaltene Rate',
   'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.':
     'Jede Champion-Beförderung behält die aktuelle Lernrate bei, startet aber die Aufwärmphase des Controllers neu; Ergebnisse von vor der Beförderung werden nicht wiederverwendet.',
+  'Each Champion promotion is an idempotent transition: the learned predictors, the dwell timers and the current learning rate are kept, and only the new Champion’s local baseline is refreshed, so raw scores from different Champions are never compared.':
+    'Jede Champion-Beförderung ist ein idempotenter Übergang: Die gelernten Prädiktoren, die Verweildauer-Timer und die aktuelle Lernrate bleiben erhalten, und nur die lokale Basislinie des neuen Champions wird erneuert, sodass rohe Ergebnisse verschiedener Champions nie verglichen werden.',
   'Unavailable while tuning: the study varies the learning rate across trials.':
     'Während der Optimierung nicht verfügbar: Die Studie variiert die Lernrate über die Versuche hinweg.',
   'Automatic hyperparameter updates need at least 4 evaluation games.':
@@ -589,6 +597,8 @@ const translations: Record<string, string> = {
     'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen. Wähle einen neueren Worker oder deaktiviere sie.',
   'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.':
     'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen mit einem Champion-Gegner. Wähle einen neueren Worker, einen festen Gegner oder deaktiviere sie.',
+  'This worker does not support automatic hyperparameter updates with a persistent Champion opponent. Choose a newer worker, a fixed opponent, or disable them.':
+    'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen mit einem persistenten Champion-Gegner. Wähle einen neueren Worker, einen festen Gegner oder deaktiviere sie.',
   'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.':
     'Eine Änderung der Lernrate beim Fortsetzen verschiebt die effektive Rate des Controllers; sein gelernter Zustand bleibt erhalten.',
 };

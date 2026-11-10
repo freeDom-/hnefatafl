@@ -790,6 +790,10 @@ def run_worker(
         # opponent with the controller, so it advertises the narrower capability
         # separately and is never offered a Champion-adapted job.
         "hyper_adaptation_champion": True,
+        # The persistent, Champion-aware controller keeps the learned predictors
+        # and dwell counters across promotions. A worker that only advertises the
+        # earlier reset-based Champion controller is not offered such a job.
+        "hyper_adaptation_champion_transition": True,
     }
     results: list[dict] = []
     with (

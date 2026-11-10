@@ -75,7 +75,7 @@ export const trainingTooltips: Record<string, string> = {
   optimizer:
     'Algorithm that updates the network weights. AdamW is Adam with decoupled weight decay and is the default; Adam adapts a step size per parameter; SGD uses the momentum setting and often needs a higher learning rate. The optimizer is part of the checkpoint identity, so a resumed run cannot change it.',
   adaptation:
-    'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and at least four evaluation games are required. Champion is supported: when a candidate is promoted the controller keeps its current effective rate, discards the learning it derived from the previous Champion and starts a new warm-up, so scores from before and after a promotion are never mixed.',
+    'Whether the job adjusts the learning rate online while it trains. Off keeps the configured rate fixed. HyperController adapts inside the same run from its evaluation scores; it is not Optuna, which searches across separate trials instead of one continuing trajectory. While it is enabled the controller owns the effective rate, the configured learning rate is the starting value and must be one of the candidates, and at least four evaluation games are required. Champion is supported with a persistent, Champion-aware controller: a promotion is an idempotent transition that keeps the learned predictors, the dwell timers and the effective rate, and refreshes only the new Champion’s local baseline, so raw scores from different Champions are never compared.',
   adaptation_lr_candidates:
     'Comma-separated learning rates the controller may choose between. Each must be between 1e-7 and 1 and all must be distinct, with 2–8 values. The configured learning rate must appear in the list. A small set keeps each decision cheap and the saved controller state bounded.',
   adaptation_cadence:
@@ -83,7 +83,9 @@ export const trainingTooltips: Record<string, string> = {
   adaptation_warmup:
     'Completed evaluations observed before the controller may change the learning rate. The configured starting rate is used during warm-up so the first decision is not made from too little evidence.',
   adaptation_min_dwell:
-    'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy.',
+    'Minimum number of evaluations a newly selected learning rate is kept before it may change again. Prevents rapid oscillation when evaluation scores are noisy. It is preserved across a Champion promotion, so a promotion cannot unlock an immediate change.',
+  adaptation_min_dwell_iterations:
+    'Optional minimum number of training iterations a newly selected learning rate is kept before it may change again. 0 disables the extra gate. Use it when evaluations are frequent enough that the evaluation-count dwell alone would let the rate move too often; it is also preserved across a Champion promotion.',
   adaptation_lag:
     'Number of recent observations the controller uses to predict the next score (1–3). A larger window conditions on more history but enlarges the learned state; 1 matches the reference configuration.',
   adaptation_min_trials:

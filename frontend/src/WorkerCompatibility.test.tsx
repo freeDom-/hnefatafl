@@ -228,6 +228,7 @@ it('requires the Champion capability only for Champion-adapted jobs', () => {
       cuda_available: true,
       hyper_adaptation: true,
       hyper_adaptation_champion: true,
+      hyper_adaptation_champion_transition: true,
     },
   };
   const championConfig = { adaptation: 'hypercontroller', evaluation_opponent: 'champion' };

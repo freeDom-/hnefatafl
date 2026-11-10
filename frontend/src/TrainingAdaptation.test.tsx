@@ -63,10 +63,10 @@ beforeEach(() => {
   });
 });
 
-it('shows a Champion promotion reset with the preserved rate', async () => {
+it('shows a Champion promotion transition with the preserved rate', async () => {
   renderLearning(
     {
-      adaptation: { effective_learning_rate: 0.003, promotion_resets: 2 },
+      adaptation: { effective_learning_rate: 0.003, promotion_resets: 2, transitions: 2 },
       adaptation_events: [
         {
           iteration: 8,
@@ -75,18 +75,21 @@ it('shows a Champion promotion reset with the preserved rate', async () => {
           selected_learning_rate: 0.003,
           preserved_learning_rate: 0.003,
           changed: false,
-          skipped: 'promotion_reset',
+          skipped: 'promotion_transition',
           promotion_reset: true,
+          transition: true,
         },
       ],
     },
     [{ iteration: 8, learning_rate: 0.003, effective_learning_rate: 0.003 }],
     0,
   );
-  expect(screen.getByText('Promotion resets')).toBeInTheDocument();
+  expect(screen.getByText('Promotion transitions')).toBeInTheDocument();
   fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
   const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
-  expect(within(table).getByText('Champion promoted · warm-up restarted')).toBeInTheDocument();
+  expect(
+    within(table).getByText('Champion promoted · learning state preserved'),
+  ).toBeInTheDocument();
   // The preserved rate is shown as both the used and the selected rate.
   expect(within(table).getAllByText('0.003').length).toBeGreaterThanOrEqual(2);
 });
@@ -1020,9 +1023,13 @@ it('translates the new controller labels and tooltips into German', () => {
     'Warm-up',
     'Waiting for cadence',
     'Minimum dwell',
+    'Minimum dwell (iterations)',
     'No observation',
     'Fallback',
     'Champion promoted · warm-up restarted',
+    'Champion promoted · learning state preserved',
+    'Local baseline',
+    'Promotion transitions',
     'Promotion resets',
     'Current Champion',
     'Controller warm-up',
@@ -1031,6 +1038,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Regime observations: {observations}',
     'Rate kept at last promotion',
     'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
+    'Each Champion promotion is an idempotent transition: the learned predictors, the dwell timers and the current learning rate are kept, and only the new Champion’s local baseline is refreshed, so raw scores from different Champions are never compared.',
     'Unavailable while tuning: the study varies the learning rate across trials.',
     'Learning rate candidates must be decimal numbers separated by commas.',
     'Learning rate candidates must be between 1e-7 and 1.',
@@ -1039,6 +1047,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
     'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.',
     'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.',
+    'This worker does not support automatic hyperparameter updates with a persistent Champion opponent. Choose a newer worker, a fixed opponent, or disable them.',
   ]) {
     expect(translate(source, {}, 'de'), `untranslated ${source}`).not.toBe(source);
   }

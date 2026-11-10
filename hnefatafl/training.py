@@ -1354,11 +1354,12 @@ def train(
                 # next iteration. No extra evaluation is performed here.
                 adaptation_started = time.monotonic()
                 observation, provenance = observation_from_evaluation(evaluation)
-                # A Champion promotion is a regime boundary: the promoting
-                # observation belongs to the outgoing incumbent, and the
-                # controller discards the opponent-specific state while keeping
-                # the effective rate. It is signalled from the selection decision
-                # rather than inferred from the score.
+                # A Champion promotion is an idempotent transition, not a reset:
+                # the promoting observation belongs to the outgoing incumbent, and
+                # the controller keeps its learned predictors, dwell counters and
+                # effective rate while refreshing only the per-Champion baseline.
+                # It is signalled from the selection decision rather than inferred
+                # from the score.
                 promotion = None
                 if config["evaluation_opponent"] == "champion" and evaluation.get("promoted"):
                     promotion = {

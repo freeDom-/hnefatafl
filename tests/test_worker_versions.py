@@ -362,5 +362,6 @@ def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch, s
             "schedule_free_adamw": schedule_free,
             "hyper_adaptation": True,
             "hyper_adaptation_champion": True,
+            "hyper_adaptation_champion_transition": True,
         }
     ]

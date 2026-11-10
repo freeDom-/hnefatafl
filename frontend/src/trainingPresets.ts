@@ -11,6 +11,7 @@ export const adaptationDefaults: TrainingConfig = {
   adaptation_cadence: 1,
   adaptation_warmup: 2,
   adaptation_min_dwell: 1,
+  adaptation_min_dwell_iterations: 0,
   adaptation_lag: 1,
   adaptation_min_trials: 1,
 };
@@ -377,6 +378,7 @@ export function changeTrainingPlan(
     adaptation_cadence: previous.adaptation_cadence ?? 1,
     adaptation_warmup: previous.adaptation_warmup ?? 2,
     adaptation_min_dwell: previous.adaptation_min_dwell ?? 1,
+    adaptation_min_dwell_iterations: previous.adaptation_min_dwell_iterations ?? 0,
     adaptation_lag: previous.adaptation_lag ?? 1,
     adaptation_min_trials: previous.adaptation_min_trials ?? 1,
   };
