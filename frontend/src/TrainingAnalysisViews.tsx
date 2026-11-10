@@ -5,7 +5,12 @@ import { opponentName } from './EvaluationSettings';
 import { trainingNumberFields, trainingParameterLabel } from './TrainingFields';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
 import TrainingHistoryChart from './TrainingHistoryChart';
-import { learningMetrics, learningChartRows, type LearningMetricKey } from './trainingLearningData';
+import {
+  learningMetrics,
+  learningChartRows,
+  availableLearningMetrics,
+  type LearningMetricKey,
+} from './trainingLearningData';
 import TrainingPerformance from './TrainingPerformance';
 import TuningCharts from './TuningCharts';
 import { PhaseTimings } from './TrainingPhaseTimings';
@@ -294,17 +299,7 @@ export function TrainingLearningView({
   const lastPromotion = object(adaptation.last_promotion);
   const [metric, setMetric] = useState<LearningMetricKey>('loss');
   const graphHistory = useMemo(() => learningChartRows(history), [history]);
-  const available = useMemo(
-    () =>
-      new Set(
-        learningMetrics
-          .filter((metric) =>
-            graphHistory.some((row) => metric.series.some((series) => finite(row[series.key]))),
-          )
-          .map((metric) => metric.key),
-      ),
-    [graphHistory],
-  );
+  const available = useMemo(() => availableLearningMetrics(graphHistory), [graphHistory]);
   const selectedMetric = learningMetrics.find((item) => item.key === metric) ?? learningMetrics[0];
   // The dashboard hands the view the full history and the selected window, so
   // every metric and the adaptation log share the same iteration boundaries.
@@ -409,7 +404,7 @@ export function TrainingLearningView({
       </label>
       <p className="subtle">{t(selectedMetric.description)}</p>
       <TrainingHistoryChart
-        history={windowedHistory}
+        normalizedRows={windowedHistory}
         view="learning"
         learningMetric={selectedMetric}
         range={0}

@@ -60,12 +60,14 @@ const parameter = (
   label: string,
   unit: string,
   description: string,
+  smallScale = false,
 ): LearningMetric => ({
   key,
   label,
   unit,
   description,
   step: true,
+  smallScale,
   series: [{ key: `parameter_${key}`, name: label, color: 'var(--chart-value)' }],
 });
 
@@ -148,6 +150,7 @@ export const learningMetrics: LearningMetric[] = [
     'Weight decay',
     'Coefficient',
     'Configured optimizer regularization. Zero disables weight decay.',
+    true,
   ),
   parameter(
     'exploration',
@@ -181,6 +184,22 @@ export const learningMetrics: LearningMetric[] = [
   ),
 ];
 
+/** Availability uses the complete projected lineage, before selecting a window. */
+export function availableLearningMetrics(rows: HistoryPoint[]): Set<LearningMetricKey> {
+  // Every configured value originates in a snapshot row. Inspect those sparse
+  // rows once instead of scanning a long unknown legacy prefix twelve times.
+  const snapshots = rows.filter((row) => Object.hasOwn(row, 'training_parameters'));
+  return new Set(
+    learningMetrics
+      .filter((metric) =>
+        (metric.step ? snapshots : rows).some((row) =>
+          metric.series.some((series) => finite(row[series.key])),
+        ),
+      )
+      .map((metric) => metric.key),
+  );
+}
+
 const parameterKeys = Object.keys(trainingParameterFields) as TrainingParameterKey[];
 type Parameters = Partial<Record<TrainingParameterKey, number>>;
 function recordedParameters(value: unknown): Parameters {
@@ -201,6 +220,10 @@ function recordedParameters(value: unknown): Parameters {
   return parameters;
 }
 
+const parameterColumns = (parameters: Parameters) =>
+  Object.fromEntries(parameterKeys.map((key) => [`parameter_${key}`, parameters[key]]));
+const missingParameterColumns = parameterColumns({});
+
 /**
  * One linear pass over the complete chronological lineage, before range filtering.
  * A row's small numeric reference proves which snapshot its worker used. Rows
@@ -208,23 +231,24 @@ function recordedParameters(value: unknown): Parameters {
  * Events replace the whole snapshot: invalid/missing fields stay unknown.
  */
 export function learningChartRows(history: HistoryPoint[]): HistoryPoint[] {
-  let parameters: Parameters = {};
+  let columns = missingParameterColumns;
   let snapshotIteration: number | undefined;
   return history.map((row) => {
     const event = Object.hasOwn(row, 'training_parameters');
     if (event) {
-      parameters = recordedParameters(row.training_parameters);
+      // Build the twelve columns once per sparse event, rather than once per row.
+      columns = parameterColumns(recordedParameters(row.training_parameters));
       snapshotIteration = row.iteration;
     }
     const recorded =
       event ||
       (snapshotIteration !== undefined && row.training_parameters_iteration === snapshotIteration);
-    const values: HistoryPoint = { ...row };
-    // Always overwrite derived columns; imported arbitrary columns are not provenance.
-    for (const key of parameterKeys)
-      values[`parameter_${key}`] = recorded ? parameters[key] : undefined;
-    values.training_exposures = object(row.performance)?.training_exposures;
-    return values;
+    return {
+      ...row,
+      // Include missing columns too: imported columns never establish provenance.
+      ...(recorded ? columns : missingParameterColumns),
+      training_exposures: object(row.performance)?.training_exposures,
+    };
   });
 }
 

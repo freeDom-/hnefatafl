@@ -4,7 +4,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { TrainingLearningView } from './TrainingAnalysisViews';
 import TrainingJobDashboard from './TrainingJobDashboard';
 import { chartMaximum, policySeries } from './TrainingMetricChart';
-import { learningChartRows, learningMetrics, formatLearningValue } from './trainingLearningData';
+import {
+  learningChartRows,
+  learningMetrics,
+  availableLearningMetrics,
+  formatLearningValue,
+} from './trainingLearningData';
 import { iterationRanges, recentHistory, type HistoryPoint } from './trainingDashboardData';
 import { learningHistory } from '../tests/learning-fixtures';
 import { setLanguage, translate } from './i18n';
@@ -240,6 +245,175 @@ it('scales tiny rates to their data and preserves the existing loss, score and p
   expect(graph().textContent).toContain('E-7');
   expect(formatLearningValue(0.000000123456789123456, 'en-GB')).toBe('1.23456789123456E-7');
   expect(formatLearningValue(0.000000123456789123456, 'de-DE')).toBe('1,23456789123456E-7');
+});
+
+it.each([
+  ['changing tiny values', [0.000001, 0.000002]],
+  ['zero to positive', [0, 0.0001]],
+  ['constant positive', [0.000001, 0.000001, 0.000001]],
+  ['zero only', [0, 0, 0]],
+  ['missing then recorded', [undefined, 0.000001, undefined, 0.000002]],
+] as const)('keeps %s weight decay readable with exact tooltip/table values', async (_, values) => {
+  let reference: number | undefined;
+  let previous: number | undefined;
+  const rows: HistoryPoint[] = values.map((value, index) => {
+    const iteration = index + 1;
+    const event = value !== undefined && (reference === undefined || value !== previous);
+    if (event) reference = iteration;
+    previous = value;
+    return {
+      iteration,
+      ...(event ? { training_parameters: { version: 1, weight_decay: value } } : {}),
+      ...(value !== undefined ? { training_parameters_iteration: reference } : {}),
+    };
+  });
+  render(view(rows));
+  choose('weight_decay');
+  const weightDecay = learningMetrics.find((metric) => metric.key === 'weight_decay')!;
+  expect(weightDecay.smallScale).toBe(true);
+  const maximum = chartMaximum(
+    learningChartRows(rows),
+    weightDecay.series,
+    false,
+    false,
+    weightDecay.smallScale,
+  );
+  expect(Number.isFinite(maximum) && maximum > 0).toBe(true);
+  const observed = values.filter((value) => value !== undefined);
+  const largest = Math.max(...observed);
+  if (largest > 0) expect(maximum).toBeCloseTo(largest * 1.08, 14);
+  const ys = [...graph().querySelectorAll('circle')].map((circle) =>
+    Number(circle.getAttribute('cy')),
+  );
+  expect(ys).toHaveLength(observed.length);
+  expect(ys.every((value) => Number.isFinite(value) && value >= 24 && value <= 187)).toBe(true);
+  if (observed.length === new Set(observed).size && observed.length > 1)
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(70);
+  if (largest === 0) expect(ys.every((value) => value === 187)).toBe(true);
+  if (largest > 0 && new Set(observed).size === 1)
+    expect(ys.every((value) => value < 60)).toBe(true);
+  if (values.some((value) => value === undefined)) expect(paths()[0].match(/M/g)).toHaveLength(2);
+  const data = await table();
+  const records = within(data).getAllByRole('row').slice(1);
+  for (let index = 0; index < values.length; index++) {
+    fireEvent.keyDown(graph(), { key: index === 0 ? 'Home' : 'ArrowRight' });
+    const exact = formatLearningValue(values[index], 'en-GB');
+    expect(tooltip()).toHaveTextContent(`Iteration ${index + 1} · Weight decay: ${exact}`);
+    expect(records[index].lastElementChild).toHaveTextContent(exact);
+  }
+});
+
+it('limits adaptive small-value scaling to rates and weight decay', () => {
+  expect(learningMetrics.filter((metric) => metric.smallScale).map((metric) => metric.key)).toEqual(
+    ['learning_rate', 'effective_learning_rate', 'weight_decay'],
+  );
+  expect(availableLearningMetrics(learningChartRows(history)).size).toBe(20);
+  expect([
+    ...availableLearningMetrics(learningChartRows([{ iteration: 1, policy_loss: 0 }])),
+  ]).toEqual(['loss', 'policy_loss']);
+});
+
+it('formats tiny weight decay in German tooltips and the exact-value table', async () => {
+  setLanguage('de', false);
+  render(
+    view([
+      { iteration: 1, training_parameters: { version: 1, weight_decay: 0.00000125 } },
+      { iteration: 2, training_parameters: { version: 1, weight_decay: 0.0000025 } },
+    ]),
+  );
+  fireEvent.change(screen.getByLabelText('Lernmetrik'), { target: { value: 'weight_decay' } });
+  fireEvent.keyDown(graph(), { key: 'Home' });
+  expect(tooltip()).toHaveTextContent('1,25E-6');
+  fireEvent.click(screen.getByText(translate('View graph data', {}, 'de')));
+  const data = await screen.findByRole('table', {
+    name: translate('Training history data', {}, 'de'),
+  });
+  expect(within(data).getAllByRole('row')[1].lastElementChild).toHaveTextContent('1,25E-6');
+  fireEvent.keyDown(graph(), { key: 'End' });
+  expect(tooltip()).toHaveTextContent('2,5E-6');
+  expect(within(data).getAllByRole('row')[2].lastElementChild).toHaveTextContent('2,5E-6');
+});
+
+it('preserves sparse provenance, partial resets and unknown references across a long lineage', () => {
+  const events = new Map([
+    [1, { version: 1, batch_size: 64, mcts_iterations: 64, weight_decay: 0 }],
+    [1001, { version: 1, batch_size: 128, mcts_iterations: 128, weight_decay: 0.000001 }],
+    [1251, { version: 1, batch_size: 128, mcts_iterations: 256, weight_decay: 0.000002 }],
+    [8001, { version: 1, batch_size: 256, weight_decay: 0 }],
+    [9001, { version: 2, batch_size: 512 }],
+  ]);
+  let reference = 1;
+  const source: HistoryPoint[] = Array.from({ length: 10000 }, (_, index) => {
+    const iteration = index + 1;
+    const event = events.get(iteration);
+    if (event) reference = iteration;
+    return {
+      iteration,
+      policy_loss: 1 / iteration,
+      ...(event ? { training_parameters: event } : {}),
+      ...(iteration !== 7000 ? { training_parameters_iteration: reference } : {}),
+      ...(iteration === 6500 ? { parameter_batch_size: 2048 } : {}),
+    };
+  });
+  const rows = learningChartRows(source);
+  for (const [iteration, batch, mcts, decay] of [
+    [1000, 64, 64, 0],
+    [1001, 128, 128, 0.000001],
+    [1251, 128, 256, 0.000002],
+    [6500, 128, 256, 0.000002],
+    [7000, undefined, undefined, undefined],
+    [7001, 128, 256, 0.000002],
+    [8001, 256, undefined, 0],
+    [9000, 256, undefined, 0],
+    [9001, undefined, undefined, undefined],
+    [10000, undefined, undefined, undefined],
+  ]) {
+    expect(rows[iteration! - 1]).toMatchObject({
+      parameter_batch_size: batch,
+      parameter_mcts_iterations: mcts,
+      parameter_weight_decay: decay,
+    });
+  }
+  expect(source[6499].parameter_batch_size).toBe(2048);
+  expect(source[0]).not.toHaveProperty('parameter_batch_size');
+  expect(events.get(1)).toEqual({
+    version: 1,
+    batch_size: 64,
+    mcts_iterations: 64,
+    weight_decay: 0,
+  });
+  expect(availableLearningMetrics(rows)).toEqual(
+    new Set(['loss', 'policy_loss', 'weight_decay', 'batch_size', 'mcts_iterations']),
+  );
+});
+
+it('bounds step-path commands while preserving transitions, gaps and inspection of every iteration', () => {
+  const rows = Array.from({ length: 10000 }, (_, index) =>
+    index < history.length
+      ? history[index]
+      : {
+          iteration: index + 1,
+          ...(index + 1 !== 5000 ? { training_parameters_iteration: 1251 } : {}),
+        },
+  ).filter((row) => row.iteration !== 6000);
+  const component = render(view(rows));
+  choose('mcts_iterations');
+  const path = paths()[0];
+  expect(path.match(/V/g)).toHaveLength(2);
+  expect(path.match(/M/g)).toHaveLength(3);
+  const x = (iteration: number) => 58 + ((iteration - 1) / 9999) * (520 - 58 - 16);
+  expect(path).toContain(`H${x(1001).toFixed(2)}V`);
+  expect(path).toContain(`H${x(1251).toFixed(2)}V`);
+  expect(path).toContain(`H${x(4999).toFixed(2)} M${x(5001).toFixed(2)},`);
+  expect(path).toContain(`H${x(5999).toFixed(2)} M${x(6001).toFixed(2)},`);
+  expect(path.endsWith('H504.00')).toBe(true);
+  expect(path.length).toBeLessThan(200);
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  fireEvent.keyDown(graph(), { key: 'End' });
+  expect(tooltip()).toHaveTextContent('Iteration 10000 · Self-play MCTS iterations: 256');
+  component.rerender(view(rows, 10));
+  fireEvent.keyDown(graph(), { key: 'Home' });
+  expect(tooltip()).toHaveTextContent('Iteration 9991 · Self-play MCTS iterations: 256');
 });
 
 it('keeps one lazy bounded table with core recorded values, per-iteration updates and the selected exact value', async () => {

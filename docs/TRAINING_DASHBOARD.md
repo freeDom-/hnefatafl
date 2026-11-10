@@ -223,6 +223,11 @@ AdamW's base rate is distinct from its warm-up-adjusted rate and from the
 parameter-dependent magnitude of an update. Very small rates use an appropriate
 data scale and locale-aware scientific notation.
 
+Weight decay also uses adaptive small-value scaling, so changes such as
+0.000001 to 0.000002 remain visible. The axis starts at zero; genuine zero and
+zero-only histories remain inspectable in the chart and exact-value table.
+Loss, Evaluation and Performance retain their existing scales.
+
 Configured parameters use stepped lines: replay capacity, batch size, epochs,
 self-play MCTS iterations/time limit, games per iteration, weight decay, PUCT
 exploration, move temperature, Dirichlet alpha/fraction and the game-ply limit.
@@ -247,6 +252,12 @@ disabled; an available metric with no observations in the chosen range shows
 Unknown values show `—`, genuine zero remains zero, and paths break at unknown
 values or missing iterations. Configuration KPIs identify the selected job's
 settings, which may differ from earlier training phases.
+
+Large histories reuse their normalized rows. Stepped paths keep every actual
+transition and gap while omitting redundant commands along constant stretches;
+all recorded iterations remain available for inspection. See the reproducible
+[Learning performance measurements](benchmarks/learning-metrics.md) for datasets
+from 1,500 to 100,000 iterations and the remaining measurement limits.
 
 ## Live monitoring
 

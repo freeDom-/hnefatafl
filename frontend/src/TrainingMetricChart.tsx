@@ -43,6 +43,50 @@ function markerIndices(
     return endpoints ? !connectedBefore || !connectedAfter : !connectedBefore && !connectedAfter;
   });
 }
+
+/**
+ * Constant step stretches need only their endpoints. Keep each true transition
+ * at its exact iteration, finish before every gap, and retain all input rows for
+ * pointer/keyboard inspection and the exact-value table.
+ */
+function steppedPath(
+  rows: HistoryPoint[],
+  key: string,
+  gaps: boolean,
+  x: (iteration: number) => number,
+  y: (value: number) => number,
+): string {
+  const commands: string[] = [];
+  let previousIteration: number | undefined;
+  let previousValue: number | undefined;
+  let lastEmitted: number | undefined;
+  const finish = () => {
+    if (previousIteration !== undefined && previousIteration !== lastEmitted)
+      commands.push(`H${x(previousIteration).toFixed(2)}`);
+    previousIteration = undefined;
+    previousValue = undefined;
+    lastEmitted = undefined;
+  };
+  for (const row of rows) {
+    const value = row[key];
+    if (!finite(value)) {
+      if (gaps) finish();
+      continue;
+    }
+    if (gaps && previousIteration !== undefined && row.iteration > previousIteration + 1) finish();
+    if (previousIteration === undefined) {
+      commands.push(`M${x(row.iteration).toFixed(2)},${y(value).toFixed(2)}`);
+      lastEmitted = row.iteration;
+    } else if (value !== previousValue) {
+      commands.push(`H${x(row.iteration).toFixed(2)}V${y(value).toFixed(2)}`);
+      lastEmitted = row.iteration;
+    }
+    previousIteration = row.iteration;
+    previousValue = value;
+  }
+  finish();
+  return commands.join(' ');
+}
 /**
  * Upper bound of the y axis. Evaluation scores keep a fixed 0-1 scale. A
  * percentage series never exceeds 100% but still zooms in on small rates, and
@@ -95,7 +139,7 @@ export default memo(function TrainingMetricChart({
   scatter?: boolean;
   /** Configuration changes take effect at the new iteration, without interpolation. */
   step?: boolean;
-  /** Opt-in data scale for tiny rates; existing loss/performance scales stay unchanged. */
+  /** Opt-in data scale for tiny rates/coefficients; other metric scales stay unchanged. */
   smallScale?: boolean;
   description?: string;
   precision?: number;
@@ -141,6 +185,7 @@ export default memo(function TrainingMetricChart({
   const paths = useMemo(
     () =>
       series.map((item) => {
+        if (step) return { ...item, path: steppedPath(rows, item.key, gaps, x, y) };
         let drawing = false;
         let previousIteration: number | null = null;
         return {
@@ -155,11 +200,7 @@ export default memo(function TrainingMetricChart({
                 drawing = false;
               previousIteration = row.iteration;
               const coordinate = `${x(row.iteration).toFixed(2)},${y(row[item.key] as number).toFixed(2)}`;
-              const command = drawing
-                ? step
-                  ? `H${x(row.iteration).toFixed(2)}V${y(row[item.key] as number).toFixed(2)}`
-                  : `L${coordinate}`
-                : `M${coordinate}`;
+              const command = drawing ? `L${coordinate}` : `M${coordinate}`;
               drawing = true;
               return command;
             })

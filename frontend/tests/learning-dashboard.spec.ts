@@ -78,6 +78,53 @@ for (const mode of ['light', 'dark']) {
   });
 }
 
+test('tiny weight decay uses its own scale and exact localized values', async ({ page }) => {
+  const job = {
+    ...workshopFixture('tiny-weight-decay', 2, 'completed'),
+    progress: {
+      history: [
+        {
+          iteration: 1,
+          learning_rate: 1e-7,
+          training_parameters: { version: 1, weight_decay: 0.00000125 },
+        },
+        {
+          iteration: 2,
+          learning_rate: 1e-7,
+          training_parameters: { version: 1, weight_decay: 0.0000025 },
+        },
+      ],
+    },
+  };
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: [job] }));
+  await open(page);
+  await page.getByRole('tab', { name: 'Learning', exact: true }).click();
+  await page.getByLabel('Learning metric', { exact: true }).selectOption('weight_decay');
+  await page.getByText('View graph data', { exact: true }).click();
+  for (const language of ['en', 'de']) {
+    await page.locator('.language-select select').selectOption(language);
+    const chart = page.locator('.training-history svg');
+    await expect(chart).toHaveAccessibleName(
+      language === 'en' ? 'Weight decay' : 'Gewichtsverfall',
+    );
+    const positions = await chart
+      .locator('circle')
+      .evaluateAll((circles) => circles.map((circle) => Number(circle.getAttribute('cy'))));
+    expect(positions).toHaveLength(2);
+    expect(Math.max(...positions) - Math.min(...positions)).toBeGreaterThan(70);
+    const mantissas = language === 'en' ? ['1.25E-6', '2.5E-6'] : ['1,25E-6', '2,5E-6'];
+    const rows = page.locator('.training-history table tbody tr');
+    await chart.focus();
+    await chart.press('Home');
+    await expect(page.locator('.chart-tooltip')).toContainText(mantissas[0]);
+    await expect(rows.nth(0).getByRole('cell').last()).toHaveText(mantissas[0]);
+    await chart.press('End');
+    await expect(page.locator('.chart-tooltip')).toContainText(mantissas[1]);
+    await expect(rows.nth(1).getByRole('cell').last()).toHaveText(mantissas[1]);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('a short job list keeps its natural height and mobile keeps the selector', async ({
   page,
 }, info) => {

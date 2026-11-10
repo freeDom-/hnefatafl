@@ -29,16 +29,19 @@ interface DisplayedSeries {
   points: HistoryPoint[];
   merged?: boolean;
 }
+type HistorySource =
+  | { history: unknown; normalizedRows?: never }
+  | { history?: never; normalizedRows: HistoryPoint[] };
 export default function TrainingHistoryChart({
   history,
+  normalizedRows,
   view = 'all',
   range = 0,
   compact = false,
   selectable = false,
   fitSeries = false,
   learningMetric,
-}: {
-  history: unknown;
+}: HistorySource & {
   view?: 'all' | 'learning' | 'evaluation';
   range?: number;
   compact?: boolean;
@@ -49,8 +52,10 @@ export default function TrainingHistoryChart({
   const { t, locale } = useI18n();
   const [selectedSeries, setSelectedSeries] = useState('latest');
   const rows = useMemo(
-    () => recentHistory(trainingHistory(history), fitSeries ? 0 : range),
-    [history, range, fitSeries],
+    // Learning already receives chronological normalized rows from the dashboard.
+    // Reuse its projection instead of cloning/sorting the complete history again.
+    () => recentHistory(normalizedRows ?? trainingHistory(history), fitSeries ? 0 : range),
+    [history, normalizedRows, range, fitSeries],
   );
   const groups = useMemo(() => (view === 'learning' ? [] : evaluationGroups(rows)), [rows, view]);
   const latestGroup = useMemo(() => latestEvaluationGroup(groups), [groups]);
