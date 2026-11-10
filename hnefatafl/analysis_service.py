@@ -102,6 +102,15 @@ class AnalysisService:
         key = (game["id"], snapshot["position_key"], role, revision)
         with self.lock:
             previous = self.tasks.get(key)
+            # Playing-agent polls retain their existing read ordering: their
+            # final report read follows the activity check in the HTTP adapter.
+            if (
+                role != "advisor"
+                and previous is not None
+                and not previous.done()
+                and not self.closed
+            ):
+                return key, previous
             # A poll may have read its report just before the preceding worker
             # committed. Recheck under the scheduling lock before starting work.
             if self._completed(key):
