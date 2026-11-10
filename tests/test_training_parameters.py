@@ -200,6 +200,33 @@ def test_legacy_checkpoint_remains_resumable_and_earlier_parameters_stay_unknown
     assert legacy.read_bytes() == original
 
 
+def test_cancelled_legacy_resume_without_history_does_not_backfill_current_settings(tmp_path):
+    import torch
+
+    first = training.train(smoke_config(tmp_path / "first"))
+    payload = torch.load(first["checkpoint"], weights_only=True)
+    payload["extra"].pop("history")
+    legacy = tmp_path / "legacy-no-history.pt"
+    torch.save(payload, legacy)
+    cancelled = training.train(
+        smoke_config(
+            tmp_path / "cancelled",
+            resume=str(legacy),
+            iterations=2,
+            batch_size=128,
+            learning_rate=0.01,
+        ),
+        should_stop=lambda: True,
+    )
+    point = cancelled["history"][0]
+    assert point["iteration"] == 1
+    assert "training_parameters" not in point
+    assert "training_parameters_iteration" not in point
+    assert point["learning_rate"] is None
+    assert point["effective_learning_rate"] is None
+    assert cancelled["status"] == "cancelled"
+
+
 @pytest.mark.parametrize(
     "value",
     [None, [], "bad", {"version": 2, "batch_size": 128}, {"version": True, "batch_size": 128}],

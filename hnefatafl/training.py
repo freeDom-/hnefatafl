@@ -957,11 +957,12 @@ def train(
         create events, and an incomplete iteration cannot consume the boundary.
         """
         nonlocal recorded_parameters, parameter_iteration
-        if iteration_parameters != recorded_parameters:
+        if iteration_parameters and iteration_parameters != recorded_parameters:
             point["training_parameters"] = iteration_parameters
             recorded_parameters = iteration_parameters
             parameter_iteration = point["iteration"]
-        point["training_parameters_iteration"] = parameter_iteration
+        if parameter_iteration is not None:
+            point["training_parameters_iteration"] = parameter_iteration
         history.append(point)
 
     monitor.start()
@@ -1543,11 +1544,13 @@ def train(
                     "iteration": completed,
                     "policy_loss": metrics["policy_loss"],
                     "value_loss": metrics["value_loss"],
-                    "replay_positions": metrics["replay_positions"],
-                    "updates": metrics["updates"],
+                    "replay_positions": metrics.get("replay_positions"),
+                    "updates": metrics.get("updates"),
                     "learning_rate": interval_learning_rate,
-                    "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
-                    "performance": metrics["performance"],
+                    "effective_learning_rate": float(optimizer.param_groups[0]["lr"])
+                    if interval_learning_rate is not None
+                    else None,
+                    "performance": metrics.get("performance"),
                     "evaluation_status": "cancelled",
                 }
             )
@@ -1589,11 +1592,13 @@ def train(
                     "iteration": completed,
                     "policy_loss": metrics["policy_loss"],
                     "value_loss": metrics["value_loss"],
-                    "replay_positions": metrics["replay_positions"],
-                    "updates": metrics["updates"],
+                    "replay_positions": metrics.get("replay_positions"),
+                    "updates": metrics.get("updates"),
                     "learning_rate": interval_learning_rate,
-                    "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
-                    "performance": metrics["performance"],
+                    "effective_learning_rate": float(optimizer.param_groups[0]["lr"])
+                    if interval_learning_rate is not None
+                    else None,
+                    "performance": metrics.get("performance"),
                     "evaluation_status": status,
                 }
             )
