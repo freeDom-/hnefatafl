@@ -135,6 +135,51 @@ def test_timed_out_synchronous_wait_does_not_cancel_shared_work(
     assert calls == [1024]
 
 
+def test_worker_finishing_during_cache_read_is_joined_instead_of_restarted(
+    client, neural_advisor, monkeypatch
+):
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def search(state, config, *, diagnostics, **kwargs):
+        calls.append(config["iterations"])
+        entered.set()
+        assert release.wait(5)
+        diagnostics.update(value=0.25, simulations=config["iterations"])
+        return {legal_moves(state)[0]: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    game = create(client)
+    selected = settings(client, game, neural_advisor)
+    service, store = client.app.state.analyses, client.app.state.store
+    try:
+        analyze(client, game)
+        assert entered.wait(5)
+        task = next(iter(service.tasks.values()))
+        original = store.advisor_analysis
+        reads = 0
+
+        def finish_during_read(*args):
+            nonlocal reads
+            retained = original(*args)
+            reads += 1
+            if reads == 1:
+                assert retained is None
+                release.set()
+                # A future becomes done before its cleanup callback takes the
+                # scheduling lock, so waiting for it here does not need that lock.
+                wait_for(task.done)
+            return retained
+
+        monkeypatch.setattr(store, "advisor_analysis", finish_during_read)
+        result = synchronous(client, game)
+        assert result.status_code == 200, result.text
+        assert result.json()["advisor_revision"] == selected["revision"]
+        assert calls == [1024]
+    finally:
+        release.set()
+
+
 def test_completed_cache_is_reused_while_a_late_worker_is_still_running(
     client, neural_advisor, monkeypatch
 ):

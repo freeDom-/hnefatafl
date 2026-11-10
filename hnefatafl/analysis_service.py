@@ -102,14 +102,12 @@ class AnalysisService:
         key = (game["id"], snapshot["position_key"], role, revision)
         with self.lock:
             previous = self.tasks.get(key)
+            # Capture activity before reading storage. If this future completes
+            # during the cache read, joining it still observes that completion.
+            previous_running = previous is not None and not previous.done()
             # Playing-agent polls retain their existing read ordering: their
             # final report read follows the activity check in the HTTP adapter.
-            if (
-                role != "advisor"
-                and previous is not None
-                and not previous.done()
-                and not self.closed
-            ):
+            if role != "advisor" and previous_running and not self.closed:
                 return key, previous
             # A poll may have read its report just before the preceding worker
             # committed. Recheck under the scheduling lock before starting work.
@@ -117,7 +115,7 @@ class AnalysisService:
                 return key, None
             if self.closed:
                 raise AnalysisUnavailable("Analysis service is stopping. Retry later.")
-            if previous is not None and not previous.done():
+            if previous_running:
                 return key, previous
             if len(self.tasks) >= MAX_ANALYSIS_TASKS:
                 raise AnalysisUnavailable("Analysis workers are busy. Retry shortly.")
