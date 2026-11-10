@@ -551,10 +551,16 @@ never triggers a decision. Champion predictor updates are weighted by completed
 games and a different candidate is only adopted when its predicted improvement
 exceeds the current rate's by a confidence margin (one standard error of the
 Champion's mean improvement); marginal differences keep the current rate. The
+uncertainty is a regularized per-evaluation sampling error derived from the
+win/draw/loss counts and the baseline error, so identical small evaluations keep a
+meaningful uncertainty. Untried candidate/context pairs are still explored, but
+only after two comparable observations, under a separate exploration cooldown and
+with the nearest candidate preferred, so exploration never oscillates the rate or
+jumps between extremes; the decision log marks it as candidate exploration. The
 controller separates persistent global state (candidates, effective rate, learned
 predictors, reward/action/weight history, lifetime counters, dwell timers and RNG)
 from per-Champion evaluation state (identity, promotion iteration, baseline,
-calibration offset and uncertainty).
+calibration offset, uncertainty and the explicit calibration state).
 
 When `EvaluationSelection.accept()` reports a promotion, the promoting
 observation is still attributed to the outgoing Champion, but it never changes

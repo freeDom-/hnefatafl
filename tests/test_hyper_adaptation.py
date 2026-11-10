@@ -17,10 +17,12 @@ import pytest
 import torch
 
 from hnefatafl.hyper_adaptation import (
+    EXPLORATION_DWELL,
     MAX_CANDIDATES_ITEMS,
     MAX_CANDIDATES_TEXT,
     MAX_CONTEXTS,
     MAX_EVENTS,
+    MAX_GAME_WEIGHT,
     RIDGE,
     HyperController,
     format_candidates,
@@ -2568,15 +2570,15 @@ def test_champion_selection_requires_a_confidence_margin():
     controller.effective_index = 0
     controller.champion["count"] = 2
     controller.champion["uncertainty"] = 2.0
-    chosen, uncertain = controller._select()
+    chosen, status = controller._select()
     assert chosen == 0
-    assert uncertain is True
+    assert status == "uncertain"
     # With enough evidence the same prediction difference is acted on.
     controller.champion["count"] = 50
     controller.champion["uncertainty"] = 0.01
-    chosen, uncertain = controller._select()
+    chosen, status = controller._select()
     assert chosen == 1
-    assert uncertain is False
+    assert status == "exploit"
 
 
 def test_game_count_weights_champion_predictor_updates():
@@ -2678,3 +2680,295 @@ def test_version_five_state_requires_a_valid_champion_block():
     state["version"] = 5
     state["champion"]["protocol"] = "different:protocol"
     assert _restore(state).reset_reason == "unreadable_state"
+
+
+# ── Conservative exploration and evidence-aware uncertainty ──────────────────
+
+
+def test_champion_exploration_needs_comparable_evidence():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=0.5, provenance={"completed_games": 4})
+    # Only the baseline exists; the first comparable observation is still not
+    # enough evidence to explore, so the rate is held.
+    held = controller.observe(iteration=2, score=0.5, provenance={"completed_games": 4})
+    assert controller.champion["count"] == 1
+    assert held["skipped"] == "insufficient_evidence"
+    assert held["changed"] is False
+    assert held["exploratory"] is False
+    # A second comparable observation unlocks exploration.
+    controller.observe(iteration=3, score=0.5, provenance={"completed_games": 4})
+    assert controller.champion["count"] == 2
+
+
+def test_champion_exploration_is_a_cooldown_and_neighbor_bounded():
+    controller = champion_controller(
+        warmup=0, cadence=1, min_dwell=1, min_trials=2, initial_index=2
+    )
+    exploration_changes = []
+    for iteration in range(1, 80):
+        action = controller.effective_index
+        event = controller.observe(
+            iteration=iteration, score=0.5, provenance={"completed_games": 4}
+        )
+        if event.get("changed") and event.get("exploratory"):
+            exploration_changes.append((iteration, action, controller.effective_index))
+    assert exploration_changes, "exploration must eventually happen"
+    # The cooldown separates every exploratory change, and the total number of
+    # exploratory changes is bounded by the coverage requirement rather than an
+    # unbounded random walk.
+    iterations = [item[0] for item in exploration_changes]
+    for before, after in zip(iterations, iterations[1:]):
+        assert after - before >= EXPLORATION_DWELL
+    assert len(exploration_changes) <= len(controller.candidates) * 8
+    # Coverage eventually completes for every candidate/context pair.
+    for index in range(len(controller.candidates)):
+        assert any(controller._context_count(index, context) >= 2 for context in {(0,), (1,), (2,)})
+
+
+def test_exploration_prefers_the_nearest_untried_candidate():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.champion["count"] = 5
+    controller.rewards = [0.0]
+    controller.actions = [1]
+    controller.weights = [1.0]
+    controller.last_exploration_observation = 0
+    controller.observations = 10
+    controller.effective_index = 1
+    # Context (1,) is untried for candidates 0 and 2; the nearest (tie broken
+    # toward the lower index) is chosen, never an extreme jump.
+    controller.contexts = {
+        "1:1": {"V": [[1.0]], "b": [0.0], "n": 1},
+    }
+    chosen, status = controller._select()
+    assert status == "explore"
+    assert chosen == 0
+
+
+def test_promotions_do_not_restart_exploration_immediately():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 8):
+        controller.observe(iteration=iteration, score=0.5, provenance={"completed_games": 4})
+    cooldown = controller.last_exploration_observation
+    controller.observe(
+        iteration=8,
+        score=0.6,
+        provenance={"completed_games": 4},
+        promotion=promotion(8, champion_iteration=0),
+    )
+    # The cooldown reference survives the transition, and the new regime has no
+    # comparable evidence, so the next evaluation cannot explore.
+    assert controller.last_exploration_observation == cooldown
+    baseline = controller.observe(iteration=9, score=0.5, provenance={"completed_games": 4})
+    assert baseline["skipped"] == "baseline"
+    held = controller.observe(iteration=10, score=0.5, provenance={"completed_games": 4})
+    assert held["skipped"] == "insufficient_evidence"
+
+
+def test_exploration_state_is_deterministic_across_resume():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 12):
+        controller.observe(iteration=iteration, score=0.5, provenance={"completed_games": 4})
+    state = controller.state_dict()
+    assert state["last_exploration_observation"] == controller.last_exploration_observation
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=controller.active_champion_identity,
+    )
+    assert restored.reset_reason is None
+    assert restored.last_exploration_observation == controller.last_exploration_observation
+    before = controller.observe(iteration=12, score=0.5, provenance={"completed_games": 4})
+    after = restored.observe(iteration=12, score=0.5, provenance={"completed_games": 4})
+    assert before["selected_index"] == after["selected_index"]
+    assert before["exploratory"] == after["exploratory"]
+
+
+def test_fixed_opponent_selection_keeps_its_historical_behavior():
+    controller = make_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=0.5)
+    # Fixed opponents keep the absolute reward and do not apply the Champion
+    # evidence gate or the exploration cooldown.
+    assert controller.reward_semantics == "absolute"
+    chosen, status = controller._select()
+    assert status in ("explore", "exploit")
+    assert 0 <= chosen < len(controller.candidates)
+
+
+def test_identical_small_evaluations_keep_meaningful_uncertainty():
+    small = HyperController._score_se({"completed_games": 4, "wins": 4, "draws": 0, "losses": 0})
+    large = HyperController._score_se(
+        {"completed_games": 200, "wins": 200, "draws": 0, "losses": 0}
+    )
+    assert small > 0.05
+    assert 0.0 < large < small
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 4):
+        controller.observe(
+            iteration=iteration,
+            score=1.0,
+            provenance={"completed_games": 4, "wins": 4, "losses": 0},
+        )
+    assert controller.champion["count"] == 2
+    assert controller.champion["uncertainty"] > 0.05
+    # The same result over 200 games is more certain but still positive.
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 4):
+        controller.observe(
+            iteration=iteration,
+            score=1.0,
+            provenance={"completed_games": 200, "wins": 200, "losses": 0},
+        )
+    assert controller.champion["count"] == 2
+    assert 0.0 < controller.champion["uncertainty"] < 0.01
+
+
+def test_uncertainty_reflects_outcome_mix():
+    alternating = HyperController._score_se(
+        {"completed_games": 4, "wins": 2, "draws": 0, "losses": 2}
+    )
+    draws = HyperController._score_se({"completed_games": 4, "wins": 0, "draws": 4, "losses": 0})
+    unequal = HyperController._score_se({"completed_games": 4, "wins": 3, "draws": 0, "losses": 1})
+    # A mixed or unbalanced outcome is less certain than an all-draw sample.
+    assert alternating > draws
+    assert unequal > draws
+    assert draws > 0.0
+
+
+def test_noisy_baseline_uncertainty_is_recorded_and_shrunk():
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(
+        iteration=1, score=1.0, provenance={"completed_games": 1, "wins": 1, "losses": 0}
+    )
+    assert controller.champion["baseline_games"] == 1
+    assert controller.champion["baseline_se"] > 0.2
+    assert controller.champion["effective_baseline"] == pytest.approx(0.75)
+
+
+def test_many_games_eventually_justify_a_small_predicted_change():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 12):
+        controller.observe(
+            iteration=iteration, score=0.75, provenance={"completed_games": 200, "wins": 150}
+        )
+    # With many games the sampling uncertainty is small, so a modest predictor
+    # edge clears the margin.
+    controller.rewards = [1.0]
+    controller.actions = [0]
+    controller.weights = [1.0]
+    controller.contexts = {
+        "0:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "1:0": {"V": [[1.0]], "b": [0.05], "n": 1},
+        "2:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+    }
+    controller.effective_index = 0
+    controller.champion["count"] = 20
+    chosen, status = controller._select()
+    assert chosen == 1
+    assert status == "exploit"
+
+
+def test_version_six_validation_enforces_weight_and_structure_invariants():
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 6):
+        controller.observe(
+            iteration=iteration,
+            score=0.75,
+            provenance={"completed_games": 8, "wins": 6, "losses": 2},
+        )
+    base = controller.state_dict()
+    for mutate in (
+        # Observation weights must be within the documented operational bounds.
+        lambda s: s["weights"].__setitem__(0, 0.0),
+        lambda s: s["weights"].__setitem__(0, MAX_GAME_WEIGHT + 1.0),
+        lambda s: s["weights"].__setitem__(0, float("inf")),
+        # The current schema requires the serialized prior.
+        lambda s: s.pop("prior"),
+        # The current schema requires explicit Champion protocol metadata.
+        lambda s: s["champion"].pop("protocol"),
+        # The uncertainty accumulators must agree with the improvement count.
+        lambda s: s["champion"].__setitem__("score_se_sum_sq", 0.0),
+        lambda s: s["champion"].__setitem__("baseline_se", 0.0),
+    ):
+        state = json.loads(json.dumps(base))
+        mutate(state)
+        restored = _restore(
+            state,
+            evaluation_identity=controller.evaluation_identity,
+            active_champion_identity=controller.active_champion_identity,
+        )
+        assert restored.reset_reason == "unreadable_state"
+        assert restored.contexts == {}
+
+
+def test_version_six_round_trip_preserves_uncertainty_state():
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 6):
+        controller.observe(
+            iteration=iteration,
+            score=0.75,
+            provenance={"completed_games": 8, "wins": 6, "losses": 2},
+        )
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=controller.active_champion_identity,
+    )
+    assert restored.reset_reason is None
+    assert restored.champion["baseline_se"] == controller.champion["baseline_se"]
+    assert restored.champion["score_se_sum_sq"] == controller.champion["score_se_sum_sq"]
+    assert restored.champion["uncertainty"] == controller.champion["uncertainty"]
+    assert restored.last_exploration_observation == controller.last_exploration_observation
+
+
+def test_worker_iteration_dwell_capability_gates_nonzero_dwell(tmp_path):
+    from hnefatafl.remote_training import worker_compatible, worker_incompatibility
+
+    config = normalize_config(adapted_config(tmp_path, adaptation_min_dwell_iterations=10))
+    default_config = normalize_config(adapted_config(tmp_path))
+    legacy = {"hyper_adaptation": True, "training_symmetry_modes": ["off", "random_d4"]}
+    modern = {**legacy, "hyper_adaptation_iteration_dwell": True}
+    # A legacy adapted worker rejects a requested nonzero dwell but accepts the
+    # inert zero default.
+    assert worker_incompatibility(config, legacy) == "iteration-based controller dwell"
+    assert not worker_compatible(config, legacy)
+    assert worker_compatible(default_config, legacy)
+    # A worker advertising the feature accepts both.
+    assert worker_compatible(config, modern)
+    assert worker_incompatibility(config, modern) is None
+    # An administrator version override cannot bypass the missing feature.
+    assert not worker_compatible(config, {**legacy, "version_override": True})
+
+
+def test_calibration_state_tracks_evidence_without_false_certainty():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    assert controller._calibration_state() == "awaiting_evaluation"
+    assert controller.summary()["evidence_sufficient"] is False
+    controller.observe(iteration=1, score=0.5, provenance={"completed_games": 4})
+    assert controller._calibration_state() == "baseline_established"
+    controller.observe(iteration=2, score=0.5, provenance={"completed_games": 4})
+    assert controller._calibration_state() == "collecting"
+    controller.observe(iteration=3, score=0.5, provenance={"completed_games": 4})
+    assert controller._calibration_state() == "evidence_available"
+    summary = controller.summary()
+    assert summary["calibration_state"] == "evidence_available"
+    assert summary["evidence_sufficient"] is True
+    # A fixed-opponent run reports no Champion calibration at all.
+    fixed = make_controller()
+    assert fixed._calibration_state() == "not_applicable"

@@ -274,6 +274,51 @@ it('requires the Champion capability only for Champion-adapted jobs', () => {
   expect(screen.getByRole('status')).toHaveTextContent(/Champion opponent/);
 });
 
+it('requires the iteration-dwell capability only for a nonzero dwell', () => {
+  const legacy: TrainingWorker = {
+    ...compatible,
+    capabilities: { cuda_available: true, hyper_adaptation: true },
+  };
+  const modern: TrainingWorker = {
+    ...legacy,
+    capabilities: {
+      cuda_available: true,
+      hyper_adaptation: true,
+      hyper_adaptation_iteration_dwell: true,
+    },
+  };
+  const zeroDwell = { adaptation: 'hypercontroller', adaptation_min_dwell_iterations: 0 };
+  const nonzeroDwell = { adaptation: 'hypercontroller', adaptation_min_dwell_iterations: 50 };
+  // The inert zero default stays compatible with an older adapted worker.
+  expect(workerCapabilityError(legacy, zeroDwell)).toBe('');
+  expect(workerEligible(legacy, zeroDwell)).toBe(true);
+  // A requested nonzero dwell is rejected on the older worker and accepted on a
+  // worker advertising the feature.
+  expect(workerCapabilityError(legacy, nonzeroDwell)).toMatch(/iteration-based controller dwell/);
+  expect(workerEligible(legacy, nonzeroDwell)).toBe(false);
+  expect(workerCapabilityError(modern, nonzeroDwell)).toBe('');
+  const { rerender } = render(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[legacy]}
+      config={nonzeroDwell}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent(/iteration-based controller dwell/);
+  rerender(
+    <TrainingTarget
+      value="worker:cloud"
+      workers={[modern]}
+      config={nonzeroDwell}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('option', { name: /Cloud raven/ })).toBeEnabled();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+
 it('localizes compatibility, version and override labels in German', () => {
   setLanguage('de', false);
   render(<TrainingWorkers workers={[mismatch]} onChanged={vi.fn()} />);

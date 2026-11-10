@@ -35,7 +35,7 @@ def test_fixed_strategy_never_changes_and_uses_no_controller():
 
 def test_persistent_transition_retains_more_evidence_than_a_reset():
     persistent = benchmark.run("persistent", seed=0, evaluations=400, promotion_every=20)
-    reset = benchmark.run("reset", seed=0, evaluations=400, promotion_every=20)
+    reset = benchmark.run("forced_reset", seed=0, evaluations=400, promotion_every=20)
     # The reset rebuilds the controller at every promotion, so it loses the long
     # reward history and churns the rate far more often.
     assert persistent["reward_history"] == benchmark.MAX_REWARD_HISTORY
@@ -50,10 +50,10 @@ def test_summary_reports_every_mode_and_stays_bounded():
     rows = [
         benchmark.run(mode, seed=seed, evaluations=60, promotion_every=10)
         for seed in range(2)
-        for mode in ("fixed", "reset", "persistent")
+        for mode in ("fixed", "forced_reset", "persistent")
     ]
     summary = benchmark.summarize(rows)
-    assert set(summary) == {"fixed", "reset", "persistent"}
+    assert set(summary) == {"fixed", "forced_reset", "persistent"}
     for entry in summary.values():
         assert entry["median_controller_seconds"] >= 0
         assert entry["median_contexts"] <= MAX_CONTEXTS

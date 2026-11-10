@@ -5,8 +5,10 @@ a synthetic evaluation stream whose true best learning rate changes at Champion
 promotions, and compares three strategies at equal evaluation budget:
 
 * ``fixed`` — one learning rate for the whole run.
-* ``reset`` — the original behavior: the controller is rebuilt (learned
-  predictors, history and counters cleared) at every promotion.
+* ``forced_reset`` — a forced-reset ablation: the controller is rebuilt
+  (learned predictors, history and counters cleared) at every promotion. This
+  emulates the observable effect of the earlier reset-based controller; it does
+  not execute the historical version-4 algorithm.
 * ``persistent`` — the corrected behavior: promotions are idempotent transitions
   that keep the learned predictors, dwell timers and effective rate.
 
@@ -81,8 +83,8 @@ def run(
     evaluations: int = 400,
     promotion_every: int = 10,
 ) -> dict:
-    if mode not in ("fixed", "reset", "persistent"):
-        raise ValueError("mode must be fixed, reset or persistent")
+    if mode not in ("fixed", "forced_reset", "persistent"):
+        raise ValueError("mode must be fixed, forced_reset or persistent")
     rng = random.Random(seed)
     controller = None if mode == "fixed" else _controller(seed + 7)
     effective_index = 1
@@ -120,7 +122,7 @@ def run(
         controller_seconds += time.perf_counter() - started
         if event.get("changed"):
             changes += 1
-        if mode == "reset" and promotion is not None:
+        if mode == "forced_reset" and promotion is not None:
             # Emulate the original destructive reset: keep only the effective rate
             # and rebuild every learned structure.
             preserved = controller.effective_index
@@ -175,7 +177,7 @@ def main() -> None:
             promotion_every=arguments.promotion_every,
         )
         for seed in range(arguments.seeds)
-        for mode in ("fixed", "reset", "persistent")
+        for mode in ("fixed", "forced_reset", "persistent")
     ]
     report = {
         "kind": "synthetic-controller-benchmark",

@@ -149,6 +149,11 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         and type(capabilities["hyper_adaptation_champion_transition"]) is not bool
     ):
         fail("Invalid worker hyper_adaptation_champion_transition capability.")
+    if (
+        "hyper_adaptation_iteration_dwell" in capabilities
+        and type(capabilities["hyper_adaptation_iteration_dwell"]) is not bool
+    ):
+        fail("Invalid worker hyper_adaptation_iteration_dwell capability.")
     state_versions = capabilities.get("hyper_adaptation_state_versions")
     if state_versions is not None and (
         not isinstance(state_versions, list)
@@ -236,6 +241,16 @@ def worker_incompatibility(
         # per-Champion state, so it must not be offered the job even with an
         # administrator version override active.
         return "automatic hyperparameter updates with a persistent Champion opponent"
+    if (
+        config.get("adaptation", "off") != "off"
+        and int(config.get("adaptation_min_dwell_iterations", 0) or 0) != 0
+        and capabilities.get("hyper_adaptation_iteration_dwell") is not True
+    ):
+        # An older worker does not implement the iteration-based dwell. A zero
+        # value is omitted from the transport (so the worker's default behavior is
+        # preserved), but a requested nonzero dwell must never be silently
+        # dropped, even through an administrator version override.
+        return "iteration-based controller dwell"
     if (
         config.get("adaptation", "off") != "off"
         and state_version is not None
@@ -956,6 +971,16 @@ class RemoteTraining:
                     if worker.get("capabilities", {}).get("hyper_adaptation") is not True:
                         for key in ADAPTATION_FIELDS:
                             configuration.pop(key, None)
+                    elif (
+                        worker.get("capabilities", {}).get("hyper_adaptation_iteration_dwell")
+                        is not True
+                        and configuration.get("adaptation", "off") != "off"
+                    ):
+                        # An older adapted worker understands the controller but not
+                        # the iteration-based dwell. A nonzero value is rejected by
+                        # worker_compatible(), so only the inert zero default is
+                        # removed here to keep the transport field set compatible.
+                        configuration.pop("adaptation_min_dwell_iterations", None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
@@ -1060,6 +1085,16 @@ class RemoteTraining:
                     )
                 if worker.get("capabilities", {}).get("hyper_adaptation") is not True:
                     omitted.update(ADAPTATION_FIELDS)
+                elif (
+                    worker.get("capabilities", {}).get("hyper_adaptation_iteration_dwell")
+                    is not True
+                    and job.get("config", {}).get("adaptation", "off") != "off"
+                ):
+                    # The saved config may carry the new field with its inert zero
+                    # default; drop it so a worker that predates the iteration
+                    # dwell never sees an unknown key. A nonzero value would have
+                    # been rejected before the claim.
+                    omitted.add("adaptation_min_dwell_iterations")
                 if omitted:
                     from .models import load_checkpoint
                     import torch

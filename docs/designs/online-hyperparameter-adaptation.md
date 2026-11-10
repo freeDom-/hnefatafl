@@ -193,12 +193,62 @@ Champion's mean improvement (`HYSTERESIS`). Marginal, noisy differences therefor
 keep the current rate (`skipped="uncertain"`), and a baseline-only evaluation is
 never a decision point (`skipped="baseline"`).
 
+#### Regularized evaluation uncertainty
+
+The decision uncertainty is a per-evaluation sampling error, not the variance
+between successive scores. The per-game score is 1 for a win, 0.5 for a draw and
+0 for a loss, so its variance is computed exactly from the outcome counts, and a
+weak prior variance (0.25 with a pseudo-count of one game) keeps a degenerate
+sample -- all wins or all draws -- from being treated as certain:
+
+```
+se_score = sqrt( ((n * var_per_game) + 0.25) / (n + 1) / n )
+```
+
+The Champion's uncertainty combines each improvement's `se_score` with the
+once-shared baseline error in quadrature:
+
+```
+uncertainty = sqrt( baseline_se^2 + sum(se_score_i^2) / count^2 )
+```
+
+so two identical four-game evaluations keep a meaningful uncertainty instead of
+collapsing to a numerical floor, while the same result over hundreds of games is
+more certain. This is a lightweight per-evaluation estimate, not a confidence
+interval for playing strength: the protocol's paired, side-swapped games are
+correlated, and the weak prior plus the fixed margin acknowledge that rather than
+model it exactly. The baseline error and the candidate-prediction error are kept
+conceptually separate, and the game count is not double-counted (it weights the
+predictor update and, independently, the sampling error of the decision).
+
+#### Conservative, explicit exploration
+
+`adaptation_min_trials` forces every `(candidate, context)` pair to be observed,
+but an exploratory change is not an evidence-based improvement and must not bypass
+the safety gates. In Champion mode an exploratory rate change therefore requires:
+
+* at least `EXPLORATION_MIN_EVIDENCE` (2) comparable post-baseline observations,
+  so a freshly promoted Champion cannot immediately explore;
+* the ordinary observation-based and iteration-based dwell; and
+* a stricter exploration cooldown (`EXPLORATION_DWELL`, 2 observations) since the
+  last exploratory change, tracked separately from the ordinary dwell.
+
+The untried candidate nearest the current rate is chosen (ties break toward the
+lower index, so no RNG is needed), which avoids jumping between extremes. A
+promotion preserves the cooldown reference and starts the new Champion with no
+comparable evidence, so it never restarts exploration. Fixed-opponent selection
+keeps the historical random coverage and greedy exploitation. The decision event
+records `exploratory` so the log presents a coverage pull as candidate
+exploration rather than a confirmed improvement.
+
 Each Champion also keeps a **calibration offset**, the mean improvement shrunk
-toward the cross-Champion prior, and an **uncertainty** (the standard error of
-that mean). A constant offset cannot change the candidate ranking, so it is
-retained as diagnostic telemetry rather than as a selection signal; the
-uncertainty is what drives the confidence margin. The prior is also updated per
-observation and is explicitly diagnostic.
+toward the cross-Champion prior. A constant offset cannot change the candidate
+ranking, so it is retained as diagnostic telemetry rather than as a selection
+signal; the uncertainty is what drives the confidence margin. The prior is also
+updated per observation and is explicitly diagnostic. The explicit calibration
+state (`awaiting_evaluation`, `baseline_established`, `collecting`,
+`evidence_available`) is published for monitoring so the UI never reports a
+baseline or a certainty that does not exist yet.
 
 The controller keeps the same evaluation identity across promotions (the context
 hash is unchanged). The boundary is carried by the promotion signal, and the
@@ -330,15 +380,21 @@ state version, the saved RNG stream, the active Champion identity, the bounded
 transition record (iteration, optional incumbent iteration and identity, and a
 preserved rate drawn from the candidate set, consistent with the transition
 counter), the bounded per-Champion evaluation block (identity, promotion
-iteration, protocol, baseline score and game count, effective baseline,
-observation/improvement counters, finite improvement statistics, the shrunk
-offset and uncertainty, and the bounded raw-score telemetry) and the bounded
-cross-Champion prior, plus the bounded decision-event schema (accepted fields,
-finite in-range numbers, candidate references, legal skip reasons, the
-baseline/transition/margin/weight fields, bounded provenance strings, no
-unexpected nested data). Version 6 additionally **requires** the Champion block,
-the `reward_semantics` field and a `weights` history matching `rewards`, and
-rejects a Champion protocol that disagrees with the active evaluation. The RNG is
+iteration, protocol, baseline score and game count, regularized baseline error,
+effective baseline, observation/improvement counters, finite improvement
+statistics, the shrunk offset, the regularized uncertainty and its
+`score_se_sum_sq` accumulator, and the bounded raw-score telemetry) and the
+bounded cross-Champion prior, plus the bounded decision-event schema (accepted
+fields, finite in-range numbers, candidate references, legal skip reasons, the
+baseline/exploration/transition/margin/weight fields, bounded provenance strings,
+no unexpected nested data). Version 6 additionally **requires** the complete
+Champion block, the `reward_semantics` field, the serialized prior and a `weights`
+history matching `rewards`; every weight must be within
+`[1, MAX_GAME_WEIGHT]`, the baseline and score uncertainty accumulators must be
+consistent with the improvement count, and a Champion protocol that disagrees
+with the active evaluation is rejected. Missing or defaulted current-schema
+metadata is a controlled controller-state recovery, never a silent default that
+could change learning. The RNG is
 validated **before** adoption: a malformed stream resets the controller with
 `unreadable_state`, and a state without a saved stream resets with `rng_absent`,
 so learned predictors are never adopted under a silently different exploration
@@ -346,7 +402,8 @@ sequence. Historical schemas are migrated with explicit reward-semantics rules:
 versions 1-4 used absolute scores, so a fixed-opponent state keeps its predictors
 and a Champion state discards them (`reward_semantics_changed`); version 5 used
 baseline-relative improvement for every opponent, so a fixed-opponent state
-discards them while a Champion state is compatible. A legacy state with no
+discards them while a Champion state is compatible and its uncertainty is
+replaced with the conservative regularized estimate. A legacy state with no
 iteration metadata for its last change starts the conservative iteration dwell at
 the resume iteration. Unknown versions reset with `unsupported_state`. Accepted
 telemetry is JSON-serializable. Loading goes through the existing tensor-only
@@ -368,10 +425,14 @@ include it is never offered the job, so an older worker cannot silently discard
 learned state through its own migration. A worker without the list is assumed to
 understand only the historical versions (1-4). A fresh job carries no saved state
 and is not gated on a version, so a legacy worker can still run a new
-fixed-opponent job and write its own state. The rejection names the
+fixed-opponent job and write its own state. Workers that understand the
+iteration-based dwell advertise `hyper_adaptation_iteration_dwell`; a job with a
+nonzero `adaptation_min_dwell_iterations` is rejected on a worker without it, and
+the inert zero default is omitted from that worker's transport so it never sees an
+unknown configuration key. The rejection names the
 missing capability (for example, automatic hyperparameter updates, those updates
-with a persistent Champion opponent, or the controller state schema version)
-instead of blaming the inference
+with a persistent Champion opponent, the iteration-based controller dwell, or the
+controller state schema version) instead of blaming the inference
 backend or device. A transport copy sent to a legacy worker omits the adaptation
 keys, so the old binary cannot silently ignore an enabled controller.
 

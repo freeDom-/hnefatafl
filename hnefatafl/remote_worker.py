@@ -801,6 +801,9 @@ def run_worker(
         # checkpoint with a newer version is never offered, so this worker's
         # migration cannot silently discard the learned predictors.
         "hyper_adaptation_state_versions": list(COMPATIBLE_STATE_VERSIONS),
+        # The iteration-based minimum dwell (adaptation_min_dwell_iterations).
+        # Older adapted workers reject the field, so it is advertised separately.
+        "hyper_adaptation_iteration_dwell": True,
     }
     results: list[dict] = []
     with (

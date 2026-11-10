@@ -22,6 +22,12 @@ export function workerCapabilityError(worker: TrainingWorker, config: TrainingCo
     worker.capabilities?.hyper_adaptation_champion_transition !== true
   )
     return 'This worker does not support automatic hyperparameter updates with a persistent Champion opponent. Choose a newer worker, a fixed opponent, or disable them.';
+  if (
+    config.adaptation === 'hypercontroller' &&
+    Number(config.adaptation_min_dwell_iterations ?? 0) !== 0 &&
+    worker.capabilities?.hyper_adaptation_iteration_dwell !== true
+  )
+    return 'This worker does not support the iteration-based controller dwell. Set it to 0, choose a newer worker, or disable automatic hyperparameter updates.';
   return '';
 }
 

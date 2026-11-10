@@ -11,7 +11,7 @@ an equal evaluation budget (5 seeds, 400 evaluations, 4 completed games each):
 | Mode | Strategy |
 | --- | --- |
 | `fixed` | One learning rate (`0.001`) for the whole run |
-| `reset` | The original behavior: rebuild the controller at every promotion, keeping only the effective rate |
+| `forced_reset` | A forced-reset ablation: rebuild the controller at every promotion, keeping only the effective rate. It emulates the observable effect of the earlier reset-based controller, not the historical version-4 algorithm |
 | `persistent` | The corrected behavior: an idempotent transition that keeps the learned predictors, dwell timers and effective rate |
 
 The synthetic score is `0.75 - 0.2 * |index - best| + N(0, 0.08)`, so the optimum
@@ -30,23 +30,24 @@ OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_champion_adaptation.py \
 | Mode | Median mean regret | Median changes | Median controller CPU | Contexts | Events kept | Reward history |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Fixed | 0.196 | 0 | 0 ms | 0 | 0 | 0 |
-| Reset | 0.159 | 151 | 10.9 ms | 9 | 19 | 18 |
-| Persistent | 0.119 | 32 | 14.9 ms | 9 | 100 | 64 |
+| Forced reset | 0.188 | 145 | 9.2 ms | 9 | 19 | 18 |
+| Persistent | 0.118 | 26 | 12.8 ms | 9 | 100 | 64 |
 
 The persistent transition tracks the changing optimum with the lowest regret,
-changes the rate about five times less often than the destructive reset, and keeps
-the full bounded reward history (64) and event log (100) instead of losing them at
-every promotion. The controller CPU cost stays tens of microseconds per evaluation
-across 400 evaluations, three orders of magnitude below the evaluation it reads.
+changes the rate about five times less often than the forced-reset ablation, and
+keeps the full bounded reward history (64) and event log (100) instead of losing
+them at every promotion. The controller CPU cost stays tens of microseconds per
+evaluation across 400 evaluations, three orders of magnitude below the evaluation
+it reads.
 
 ## Limitations and non-claims
 
 * The score is synthetic. The report records
   `held_out_strength_evaluation: "not executed"`, and **no playing-strength claim
   is made**.
-* `reset` is emulated by rebuilding a controller at each promotion and restoring
-  only the effective rate; it reproduces the old observable behavior rather than
-  running the old source.
+* `forced_reset` is a forced-reset ablation, not a comparison against the
+  historical version-4 source: it rebuilds the current controller at each
+  promotion and restores only the effective rate.
 * The optimum alternates deterministically; a real Champion's difficulty changes
   for reasons this benchmark does not model.
 * `tests/test_benchmark_champion_adaptation.py` pins the accounting and the

@@ -308,6 +308,31 @@ export function TrainingLearningView({
   const championUncertainty = finite(championState?.uncertainty)
     ? Number(championState.uncertainty)
     : null;
+  // The backend owns the calibration decision logic; the UI only renders the
+  // explicit state so a freshly promoted Champion never shows a misleading
+  // "±0.000" or a baseline that has not been evaluated yet.
+  const calibrationState =
+    typeof adaptation.calibration_state === 'string' ? adaptation.calibration_state : null;
+  const evidenceSufficient = adaptation.evidence_sufficient === true;
+  const calibrationValue = (() => {
+    if (calibrationState === 'awaiting_evaluation') return 'Awaiting first evaluation';
+    if (calibrationState === 'baseline_established') return 'Baseline established';
+    if (championImprovements !== null && championImprovements > 0)
+      return '{count} comparable observations';
+    return 'Baseline established';
+  })();
+  const calibrationDetail = (() => {
+    const observations = t('Regime observations: {observations}', {
+      observations: regimeObservations ?? 0,
+    });
+    if (championImprovements !== null && championImprovements > 0 && championUncertainty !== null) {
+      const status = evidenceSufficient
+        ? t('Evidence available for rate decisions')
+        : t('Collecting comparable observations');
+      return `${t('Uncertainty')}: ±${championUncertainty.toFixed(3)} · ${observations} · ${status}`;
+    }
+    return observations;
+  })();
   const transitions = finite(adaptation.transitions)
     ? Number(adaptation.transitions)
     : finite(adaptation.promotion_resets)
@@ -365,18 +390,11 @@ export function TrainingLearningView({
           <TrainingKpi
             label="Champion calibration"
             value={
-              championImprovements !== null && championImprovements > 0
-                ? t('{count} comparable observations', { count: championImprovements })
-                : t('Baseline established')
+              calibrationValue === '{count} comparable observations'
+                ? t(calibrationValue, { count: championImprovements ?? 0 })
+                : t(calibrationValue)
             }
-            detail={
-              championUncertainty !== null
-                ? `${t('Uncertainty')}: ±${championUncertainty.toFixed(3)} · ${t(
-                    'Regime observations: {observations}',
-                    { observations: regimeObservations },
-                  )}`
-                : t('Regime observations: {observations}', { observations: regimeObservations })
-            }
+            detail={calibrationDetail}
           />
         )}
         {adaptationActive && iterationsSinceChange !== null && (
@@ -472,6 +490,7 @@ const SKIP_LABELS: Record<string, string> = {
   fallback: 'Fallback',
   baseline: 'Local baseline',
   uncertain: 'Insufficient evidence',
+  insufficient_evidence: 'Insufficient evidence',
   // A historical reset discarded the previous Champion's learned state; a new
   // transition keeps it. The two are never conflated in the log.
   promotion_reset: 'Champion promoted · previous learning discarded',
@@ -501,6 +520,9 @@ function AdaptationDecision({ event, t }: { event: Values; t: (source: string) =
   if (event.baseline === true) return <>{t('Local baseline')}</>;
   if (typeof event.skipped === 'string' && SKIP_LABELS[event.skipped])
     return <>{t(SKIP_LABELS[event.skipped])}</>;
+  // An exploratory change is a coverage pull, never presented as a confirmed
+  // improvement.
+  if (event.exploratory === true) return <>{t('Candidate exploration')}</>;
   return <>{event.changed === true ? t('Changed') : t('Kept')}</>;
 }
 

@@ -83,10 +83,24 @@ DEFAULT_UNCERTAINTY = 0.5
 HYSTERESIS = 1.0
 #: Cap on the per-observation predictor weight derived from completed games.
 MAX_GAME_WEIGHT = 64.0
+#: Minimum number of comparable (post-baseline) Champion observations before the
+#: controller may change the rate, whether by exploitation or by exploration.
+EXPLORATION_MIN_EVIDENCE = 2
+#: Minimum number of observations between two exploratory rate changes. This is
+#: an additional limit on top of ``adaptation_min_dwell`` so forced coverage can
+#: never oscillate the rate on consecutive decisions.
+EXPLORATION_DWELL = 2
+#: Weak-prior variance of one game's score, used to regularize a score standard
+#: error so a degenerate sample (all wins, all draws) is never treated as certain.
+SCORE_SE_PRIOR_VAR = 0.25
+#: Pseudo-count of that weak prior.
+SCORE_SE_PSEUDO = 1.0
 #: The two reward representations a serialized state may use.
 REWARD_SEMANTICS = ("absolute", "baseline_relative")
 #: Bound on the per-Champion raw-score telemetry kept for monitoring.
 MAX_SCORE_HISTORY = 64
+#: Maximum plausible per-evaluation score standard error (a single game).
+MAX_SCORE_SE = 0.5
 
 #: Bounds that keep the learned state small and the decisions cheap.
 MIN_CANDIDATES = 2
@@ -132,6 +146,7 @@ EVENT_KEYS = frozenset(
         "changed",
         "skipped",
         "baseline",
+        "exploratory",
         "margin",
         "weight",
         "observations",
@@ -169,6 +184,7 @@ SKIP_REASONS = frozenset(
         "missing_observation",
         "baseline",
         "uncertain",
+        "insufficient_evidence",
         "promotion_reset",
         "promotion_transition",
         "promotion_duplicate",
@@ -188,6 +204,7 @@ CHAMPION_KEYS = frozenset(
         "protocol",
         "baseline_score",
         "baseline_games",
+        "baseline_se",
         "effective_baseline",
         "baseline_iteration",
         "observations",
@@ -196,6 +213,7 @@ CHAMPION_KEYS = frozenset(
         "m2",
         "offset",
         "uncertainty",
+        "score_se_sum_sq",
         "scores",
         "last_score",
     }
@@ -710,11 +728,18 @@ def _validate_optional_iteration(value: Any) -> int | None:
     return value
 
 
-def _validate_prior(value: Any) -> dict[str, Any]:
-    """Validate the bounded cross-Champion improvement prior."""
+def _validate_prior(value: Any, *, required: bool = False) -> dict[str, Any]:
+    """Validate the bounded cross-Champion improvement prior.
+
+    ``required`` is set for the current schema, which always serializes the
+    prior; a missing prior in a current-schema state is malformed rather than a
+    silent default. Historical schemas without a prior keep the neutral default.
+    """
     if value is None:
+        if required:
+            raise ValueError("Controller improvement prior is missing")
         return {"mean": 0.0, "m2": 0.0, "count": 0}
-    if not isinstance(value, dict) or set(value) - PRIOR_KEYS:
+    if not isinstance(value, dict) or set(value) != PRIOR_KEYS:
         raise ValueError("Controller improvement prior is invalid")
     mean = _finite_float(value.get("mean", 0.0))
     if not -1.0 <= mean <= 1.0:
@@ -723,26 +748,42 @@ def _validate_prior(value: Any) -> dict[str, Any]:
     if m2 < 0:
         raise ValueError("Controller improvement prior variance is invalid")
     count = _validate_counter(value.get("count", 0), "prior")
-    if count == 0 and m2 != 0.0:
+    if count == 0 and (m2 != 0.0 or mean != 0.0):
         raise ValueError("Controller improvement prior is inconsistent")
     return {"mean": mean, "m2": m2, "count": count}
 
 
-def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None:
+def _validate_champion_state(
+    value: Any, protocol: str, *, strict: bool = False
+) -> dict[str, Any] | None:
     """Validate the per-Champion evaluation state, rejecting malformed entries.
 
     The block records which Champion the learned observations belong to, the
-    local baseline that turns raw scores into within-Champion improvements, and
-    the shrunk calibration offset and uncertainty used for telemetry and
-    conservative decisions. It never stores model tensors or arbitrary objects.
+    local baseline that turns raw scores into within-Champion improvements, the
+    regularized evaluation uncertainty and the shrunk calibration offset used for
+    telemetry. It never stores model tensors or arbitrary objects.
+
+    ``strict`` is set for the current schema, which always serializes every field
+    with a documented meaning. A strict block must carry exactly the documented
+    fields (no missing protocol or uncertainty metadata), so a corrupted current
+    state cannot silently fall back to defaults. Historical schemas keep the
+    lenient path and supply version-specific defaults instead.
     """
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) - CHAMPION_KEYS:
         raise ValueError("Controller Champion state is invalid")
+    if strict and set(value) != CHAMPION_KEYS:
+        raise ValueError("Controller Champion state is incomplete")
     identity = _validate_champion_identity(value.get("identity"))
     promotion_iteration = _validate_optional_iteration(value.get("promotion_iteration"))
-    saved_protocol = value.get("protocol", protocol)
+    saved_protocol: Any
+    if "protocol" not in value:
+        if strict:
+            raise ValueError("Controller Champion protocol is missing")
+        saved_protocol = protocol
+    else:
+        saved_protocol = value.get("protocol")
     if not isinstance(saved_protocol, str) or len(saved_protocol) > MAX_PROVENANCE_TEXT:
         raise ValueError("Controller Champion protocol is invalid")
     baseline_score = value.get("baseline_score")
@@ -753,6 +794,10 @@ def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None
     baseline_games = value.get("baseline_games", 0)
     if type(baseline_games) is not int or baseline_games < 0:
         raise ValueError("Controller Champion baseline game count is invalid")
+    baseline_se = value.get("baseline_se", 0.0)
+    baseline_se = _finite_float(baseline_se)
+    if not 0.0 <= baseline_se <= MAX_SCORE_SE:
+        raise ValueError("Controller Champion baseline uncertainty is invalid")
     effective_baseline = value.get("effective_baseline")
     if effective_baseline is not None:
         effective_baseline = _finite_float(effective_baseline)
@@ -773,8 +818,11 @@ def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None
     if not -1.0 <= offset <= 1.0:
         raise ValueError("Controller Champion offset is invalid")
     uncertainty = _finite_float(value.get("uncertainty", 0.0))
-    if uncertainty < 0:
+    if not 0.0 <= uncertainty <= 1.0:
         raise ValueError("Controller Champion uncertainty is invalid")
+    score_se_sum_sq = _finite_float(value.get("score_se_sum_sq", 0.0))
+    if score_se_sum_sq < 0:
+        raise ValueError("Controller Champion score uncertainty is invalid")
     scores = _validate_number_list(value.get("scores", []), MAX_SCORE_HISTORY, "Champion score")
     if any(not 0.0 <= score <= 1.0 for score in scores):
         raise ValueError("Controller Champion score history is invalid")
@@ -784,19 +832,26 @@ def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None
         if not 0.0 <= last_score <= 1.0:
             raise ValueError("Controller Champion last score is invalid")
     # Cross-field consistency: the number of improvements cannot exceed the
-    # number of regime observations, and a baseline observation is required
-    # before any improvement can exist.
+    # number of regime observations, a baseline observation is required before
+    # any improvement can exist, and the uncertainty accumulators agree with the
+    # improvement count.
     minimum = count + (1 if baseline_score is not None else 0)
     if observations < minimum:
         raise ValueError("Controller Champion counters are inconsistent")
-    if count == 0 and (m2 != 0.0 or mean != 0.0):
+    if count == 0 and (m2 != 0.0 or mean != 0.0 or score_se_sum_sq != 0.0):
         raise ValueError("Controller Champion improvement statistics are inconsistent")
+    if strict and count > 0 and score_se_sum_sq <= 0.0:
+        raise ValueError("Controller Champion score uncertainty is inconsistent")
+    if strict and count > 0 and baseline_score is not None and baseline_se <= 0.0:
+        # A scored baseline always carries a positive regularized uncertainty.
+        raise ValueError("Controller Champion baseline uncertainty is inconsistent")
     return {
         "identity": identity,
         "promotion_iteration": promotion_iteration,
         "protocol": saved_protocol,
         "baseline_score": baseline_score,
         "baseline_games": baseline_games,
+        "baseline_se": baseline_se,
         "effective_baseline": effective_baseline,
         "baseline_iteration": baseline_iteration,
         "observations": observations,
@@ -805,6 +860,7 @@ def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None
         "m2": m2,
         "offset": offset,
         "uncertainty": uncertainty,
+        "score_se_sum_sq": score_se_sum_sq,
         "scores": scores,
         "last_score": last_score,
     }
@@ -863,6 +919,10 @@ def _validate_event(event: Any, candidates: list[float]) -> dict[str, Any]:
     if type(baseline) is not bool:
         raise ValueError("Controller event baseline flag is invalid")
     validated["baseline"] = baseline
+    exploratory = event.get("exploratory", False)
+    if type(exploratory) is not bool:
+        raise ValueError("Controller event exploration flag is invalid")
+    validated["exploratory"] = exploratory
     for key in ("margin", "weight"):
         if key in event:
             number = _finite_float(event[key])
@@ -981,6 +1041,9 @@ class HyperController:
         #: iteration-based minimum dwell. ``None`` with ``changes == 0`` means no
         #: change has happened yet, so the dwell is already satisfied.
         self.last_change_iteration: int | None = None
+        #: Observation count of the last exploratory rate change, so forced
+        #: coverage cannot oscillate the rate on consecutive decisions.
+        self.last_exploration_observation = 0
         #: Most recent training iteration seen, for the ``iterations_since_change``
         #: monitoring metric.
         self.last_iteration: int | None = None
@@ -1032,6 +1095,7 @@ class HyperController:
             "protocol": self.evaluation_identity,
             "baseline_score": None,
             "baseline_games": 0,
+            "baseline_se": 0.0,
             "effective_baseline": None,
             "baseline_iteration": None,
             "observations": 0,
@@ -1040,6 +1104,7 @@ class HyperController:
             "m2": 0.0,
             "offset": float(self.prior["mean"]),
             "uncertainty": 0.0,
+            "score_se_sum_sq": 0.0,
             "scores": [],
             "last_score": None,
         }
@@ -1066,12 +1131,33 @@ class HyperController:
         self.last_change_iteration = iteration
         self.override_learning_rate = self.candidates[index]
 
+    def _calibration_state(self) -> str:
+        """Explicit Champion calibration state for monitoring and decisions.
+
+        ``awaiting_evaluation`` means no post-promotion evaluation has arrived;
+        ``baseline_established`` means only the baseline score exists;
+        ``collecting`` means comparable observations exist but not yet enough for a
+        decision; ``evidence_available`` means the controller may act on them. A
+        fixed-opponent run reports ``not_applicable``.
+        """
+        if not self.champion_aware:
+            return "not_applicable"
+        champion = self.champion
+        if champion["baseline_score"] is None:
+            return "awaiting_evaluation"
+        if champion["count"] == 0:
+            return "baseline_established"
+        if champion["count"] < EXPLORATION_MIN_EVIDENCE:
+            return "collecting"
+        return "evidence_available"
+
     def summary(self) -> dict[str, Any]:
         """A bounded live projection for progress files and monitoring."""
         champion = self.champion
         iterations_since_change = None
         if self.last_iteration is not None and self.last_change_iteration is not None:
             iterations_since_change = max(0, self.last_iteration - self.last_change_iteration)
+        calibration_state = self._calibration_state()
         return {
             "algorithm": "hypercontroller",
             "state_version": STATE_VERSION,
@@ -1091,6 +1177,8 @@ class HyperController:
             "observations": self.observations,
             "regime_observations": champion["observations"] if champion else 0,
             "warmup_complete": self.observations >= self.warmup,
+            "calibration_state": calibration_state,
+            "evidence_sufficient": calibration_state == "evidence_available",
             "active_champion_identity": self.active_champion_identity,
             "champion": (
                 {key: value for key, value in champion.items() if key != "scores"}
@@ -1105,6 +1193,7 @@ class HyperController:
             "last_decision_observation": self.last_decision_observation,
             "last_change_observation": self.last_change_observation,
             "last_change_iteration": self.last_change_iteration,
+            "last_exploration_observation": self.last_exploration_observation,
             "last_iteration": self.last_iteration,
             "iterations_since_change": iterations_since_change,
             "evaluation_identity": self.evaluation_identity,
@@ -1225,6 +1314,37 @@ class HyperController:
             return 1.0
         return float(min(games, MAX_GAME_WEIGHT))
 
+    @staticmethod
+    def _score_se(provenance: dict[str, Any]) -> float:
+        """Regularized standard error of one evaluation's completed-game score.
+
+        The per-game score is 1 for a win, 0.5 for a draw and 0 for a loss, so its
+        variance is computed exactly from the outcome counts. A weak prior variance
+        (``SCORE_SE_PRIOR_VAR`` with a pseudo-count of one game) keeps a degenerate
+        sample -- all wins or all draws -- from being treated as certain. This is a
+        per-evaluation sampling uncertainty, not a confidence interval for the
+        Champion's strength: the pairing and side balance of the protocol mean the
+        games are not independent draws, which the weak prior and the fixed margin
+        acknowledge rather than model exactly.
+        """
+        games = provenance.get("completed_games")
+        if type(games) is not int or games < 1:
+            return DEFAULT_UNCERTAINTY
+        wins = provenance.get("wins")
+        draws = provenance.get("draws")
+        losses = provenance.get("losses")
+        wins = wins if type(wins) is int and wins >= 0 else 0
+        draws = draws if type(draws) is int and draws >= 0 else 0
+        losses = losses if type(losses) is int and losses >= 0 else 0
+        total = wins + draws + losses
+        if total <= 0:
+            total = games
+        score = (wins + 0.5 * draws) / total
+        second = (wins + 0.25 * draws) / total
+        variance = max(0.0, second - score * score)
+        regularized = (total * variance + SCORE_SE_PRIOR_VAR) / (total + SCORE_SE_PSEUDO)
+        return min(MAX_SCORE_SE, math.sqrt(regularized / total))
+
     def _shrunk_baseline(self, score: float, games: int) -> float:
         """Shrink the first Champion score toward a neutral reference.
 
@@ -1258,6 +1378,7 @@ class HyperController:
             if champion["baseline_score"] is None:
                 champion["baseline_score"] = raw
                 champion["baseline_games"] = int(provenance.get("completed_games") or 0)
+                champion["baseline_se"] = self._score_se(provenance)
                 champion["effective_baseline"] = self._shrunk_baseline(
                     raw, champion["baseline_games"]
                 )
@@ -1277,8 +1398,12 @@ class HyperController:
             champion["mean"] = mean
             champion["m2"] = m2
             champion["offset"] = self._shrunk_offset(mean, count)
-            champion["uncertainty"] = (
-                math.sqrt(m2 / (count - 1) / count) if count > 1 else DEFAULT_UNCERTAINTY
+            # The decision uncertainty combines the evaluation sampling error of
+            # each improvement with the once-shared baseline error, so repeated
+            # identical small evaluations never look certain.
+            champion["score_se_sum_sq"] += self._score_se(provenance) ** 2
+            champion["uncertainty"] = math.sqrt(
+                champion["baseline_se"] ** 2 + champion["score_se_sum_sq"] / (count * count)
             )
             self._update_prior(reward)
         action = self.effective_index
@@ -1408,20 +1533,28 @@ class HyperController:
         self.last_decision_observation = self.observations
         self.decisions += 1
         try:
-            chosen, uncertain = self._select()
+            chosen, status = self._select()
         except (ValueError, TypeError, ZeroDivisionError):
             event["skipped"] = "fallback"
             return event
         event["selected_index"] = chosen
         event["selected_learning_rate"] = self.candidates[chosen]
-        if uncertain:
+        event["exploratory"] = status == "explore"
+        if status == "uncertain":
+            # The evidence does not justify a change; the current rate is kept.
             event["skipped"] = "uncertain"
+        elif status == "insufficient":
+            event["skipped"] = "insufficient_evidence"
         if chosen != previous_index:
             self.effective_index = chosen
             self.last_change_observation = self.observations
             self.last_change_iteration = iteration
             self.changes += 1
             event["changed"] = True
+            if status == "explore":
+                # Start the exploration cooldown only when a change happened, so a
+                # coverage pull that keeps the current rate does not consume it.
+                self.last_exploration_observation = self.observations
         event["effective_learning_rate"] = self.effective_learning_rate
         return event
 
@@ -1443,26 +1576,49 @@ class HyperController:
         return iteration - self.last_change_iteration >= self.min_dwell_iterations
 
     def _decision_uncertainty(self) -> float:
-        """Standard error of the current Champion's mean improvement."""
+        """Regularized standard error of the current Champion's mean improvement.
+
+        The estimate combines the per-evaluation sampling error of every
+        improvement with the once-shared baseline error (see :meth:`_score_se`),
+        so repeated identical small evaluations keep a meaningful uncertainty
+        instead of collapsing to a numerical floor.
+        """
         champion = self.champion
-        if champion["count"] < 2:
+        if champion["count"] < 1:
             return DEFAULT_UNCERTAINTY
-        return max(float(champion["uncertainty"]), 1e-9)
+        value = float(champion["uncertainty"])
+        return value if value > 0.0 else DEFAULT_UNCERTAINTY
 
-    def _select(self) -> tuple[int, bool]:
-        """Choose the next candidate index and whether it is merely tentative.
+    def _exploration_ready(self) -> bool:
+        """Whether a Champion may explore a new candidate/context right now.
 
-        Fixed-opponent selection is the historical greedy rule. Champion-aware
-        selection adds a confidence margin: a different candidate is only adopted
-        when its predicted improvement exceeds the current rate's by at least one
-        standard error of the Champion's mean improvement. Otherwise the current
-        rate is kept and the decision is marked uncertain.
+        Exploration needs enough comparable evidence to be worth the training
+        disruption and must respect a cooldown stricter than the ordinary dwell,
+        so forced coverage can never oscillate the rate on consecutive decisions.
+        """
+        if self.champion["count"] < EXPLORATION_MIN_EVIDENCE:
+            return False
+        return self.observations - self.last_exploration_observation >= EXPLORATION_DWELL
+
+    def _select(self) -> tuple[int, str]:
+        """Choose the next candidate index and the reason for the choice.
+
+        Returns ``(index, status)`` where ``status`` is one of ``"explore"``
+        (a coverage pull for an unobserved candidate/context), ``"exploit"`` (an
+        evidence-based choice), ``"uncertain"`` (the evidence is too weak to move
+        the rate) or ``"insufficient"`` (too few comparable observations to
+        explore safely). Fixed-opponent selection is the historical greedy rule;
+        Champion-aware selection adds the evidence gate, the exploration cooldown,
+        nearest-neighbor exploration and the confidence margin.
         """
         size = len(self.candidates)
+        current = self.effective_index
         if len(self.rewards) < self.lag:
-            # Too little history to form a context window; explore uniformly.
+            # Too little history to form a context window.
+            if self.champion_aware and not self._exploration_ready():
+                return current, "insufficient"
             self.coverage_pulls += 1
-            return self.rng.randrange(size), False
+            return self.rng.randrange(size), "explore"
         context = tuple(self.actions[-self.lag :])
         window = self.rewards[-self.lag :]
         # Coverage is per (candidate, context): a predictor that has never seen a
@@ -1473,8 +1629,21 @@ class HyperController:
             index for index in range(size) if self._context_count(index, context) < self.min_trials
         ]
         if untried:
+            if not self.champion_aware:
+                self.coverage_pulls += 1
+                return untried[self.rng.randrange(len(untried))], "explore"
+            if self.champion["count"] < EXPLORATION_MIN_EVIDENCE:
+                return current, "insufficient"
+            if self.observations - self.last_exploration_observation < EXPLORATION_DWELL:
+                return current, "uncertain"
             self.coverage_pulls += 1
-            return untried[self.rng.randrange(len(untried))], False
+            # Prefer the nearest unobserved candidate so exploration does not jump
+            # between extreme rates; ties break toward the lower index, which is
+            # deterministic and needs no RNG.
+            others = [index for index in untried if index != current]
+            if not others:
+                return current, "exploit"
+            return min(others, key=lambda index: (abs(index - current), index)), "explore"
         values = [self._prediction(index, context, window) for index in range(size)]
         counts = [self._context_count(index, context) for index in range(size)]
         best_index = 0
@@ -1487,14 +1656,13 @@ class HyperController:
             ):
                 best_index = index
         if not self.champion_aware:
-            return best_index, False
-        current = self.effective_index
+            return best_index, "exploit"
         if best_index == current:
-            return current, False
+            return current, "exploit"
         margin = HYSTERESIS * self._decision_uncertainty()
         if values[best_index] - values[current] <= margin:
-            return current, True
-        return best_index, False
+            return current, "uncertain"
+        return best_index, "exploit"
 
     def _context_count(self, action: int, context: tuple[int, ...]) -> int:
         entry = self.contexts.get(self._key(action, context))
@@ -1600,6 +1768,7 @@ class HyperController:
             "last_decision_observation": self.last_decision_observation,
             "last_change_observation": self.last_change_observation,
             "last_change_iteration": self.last_change_iteration,
+            "last_exploration_observation": self.last_exploration_observation,
             "last_iteration": self.last_iteration,
             "counts": list(self.counts),
             "rewards": list(self.rewards),
@@ -1748,6 +1917,9 @@ class HyperController:
             )
             last_change = _validate_counter(state.get("last_change_observation", 0), "last-change")
             last_change_iteration = _validate_optional_iteration(state.get("last_change_iteration"))
+            last_exploration = _validate_counter(
+                state.get("last_exploration_observation", 0), "last-exploration"
+            )
             last_iteration = _validate_optional_iteration(state.get("last_iteration"))
             limit_hits = _validate_counter(state.get("limit_hits", 0), "limit-hit")
             # Version 4 stored the transition count as ``promotion_resets``.
@@ -1769,14 +1941,16 @@ class HyperController:
                 weights = _validate_number_list(state.get("weights"), MAX_REWARD_HISTORY, "weight")
                 if len(weights) != len(rewards):
                     raise ValueError("Controller reward and weight histories disagree")
-                if any(item < 0 for item in weights):
+                if any(not 1.0 <= item <= MAX_GAME_WEIGHT for item in weights):
                     raise ValueError("Controller observation weight is invalid")
-                champion = _validate_champion_state(state.get("champion"), evaluation_identity)
+                champion = _validate_champion_state(
+                    state.get("champion"), evaluation_identity, strict=True
+                )
                 if champion is None:
                     raise ValueError("Controller version-6 state requires a Champion block")
                 if champion["protocol"] != evaluation_identity:
                     raise ValueError("Controller Champion protocol does not match the evaluation")
-                prior = _validate_prior(state.get("prior"))
+                prior = _validate_prior(state.get("prior"), required=True)
                 saved_active = _validate_champion_identity(state.get("active_champion_identity"))
                 if saved_active != champion["identity"]:
                     raise ValueError("Controller Champion identity is inconsistent")
@@ -1808,6 +1982,19 @@ class HyperController:
                         )
                     if saved_active != champion["identity"]:
                         raise ValueError("Controller Champion identity is inconsistent")
+                    # Version 5 estimated uncertainty from the between-observation
+                    # variance, which could collapse to zero. Replace it with the
+                    # conservative regularized estimate used by the current
+                    # schema, so a migrated Champion is never treated as certain.
+                    champion["baseline_se"] = (
+                        DEFAULT_UNCERTAINTY if champion["baseline_score"] is not None else 0.0
+                    )
+                    champion["score_se_sum_sq"] = champion["count"] * DEFAULT_UNCERTAINTY**2
+                    if champion["count"] > 0:
+                        champion["uncertainty"] = math.sqrt(
+                            champion["baseline_se"] ** 2
+                            + champion["score_se_sum_sq"] / (champion["count"] ** 2)
+                        )
                 elif version == 5:
                     # Version 5 always carried a Champion block; a state without
                     # one is malformed, not a genuine legacy schema.
@@ -1831,6 +2018,7 @@ class HyperController:
         controller.last_decision_observation = last_decision
         controller.last_change_observation = last_change
         controller.last_change_iteration = last_change_iteration
+        controller.last_exploration_observation = last_exploration
         controller.last_iteration = last_iteration
         controller.limit_hits = limit_hits
         controller.events = events

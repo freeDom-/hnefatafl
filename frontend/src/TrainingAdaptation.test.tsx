@@ -1070,6 +1070,88 @@ it('generates distinct candidates at the supported rate boundaries', () => {
   expect(boundedCandidates(0.00123456).split(',')).toContain('0.00123456');
 });
 
+it('distinguishes Champion calibration states without false certainty', () => {
+  const champion = (extra: Record<string, unknown>) => ({
+    evaluation_selection: { opponent: 'champion', champion_iteration: 10 },
+    adaptation: {
+      algorithm: 'hypercontroller',
+      effective_learning_rate: 0.001,
+      active_champion_identity: 'champion-10',
+      warmup: 0,
+      observations: 6,
+      regime_observations: 0,
+      ...extra,
+    },
+  });
+  // A freshly promoted Champion has no evaluation yet: no baseline is claimed
+  // and no zero uncertainty is presented as confidence.
+  renderLearning(
+    champion({
+      calibration_state: 'awaiting_evaluation',
+      evidence_sufficient: false,
+      champion: { count: 0, baseline_score: null, uncertainty: 0 },
+    }),
+  );
+  expect(screen.getByText('Champion calibration')).toBeInTheDocument();
+  expect(screen.getByText('Awaiting first evaluation')).toBeInTheDocument();
+  expect(screen.queryByText(/±0\.000/)).toBeNull();
+  cleanup();
+  renderLearning(
+    champion({
+      regime_observations: 1,
+      calibration_state: 'baseline_established',
+      evidence_sufficient: false,
+      champion: { count: 0, baseline_score: 0.5, uncertainty: 0 },
+    }),
+  );
+  expect(screen.getByText('Baseline established')).toBeInTheDocument();
+  expect(screen.queryByText(/±0\.000/)).toBeNull();
+  cleanup();
+  renderLearning(
+    champion({
+      regime_observations: 2,
+      calibration_state: 'collecting',
+      evidence_sufficient: false,
+      champion: { count: 1, baseline_score: 0.5, uncertainty: 0.12 },
+    }),
+  );
+  expect(screen.getByText('1 comparable observations')).toBeInTheDocument();
+  expect(screen.getByText(/±0\.120/)).toBeInTheDocument();
+  expect(screen.getByText(/Collecting comparable observations/)).toBeInTheDocument();
+  cleanup();
+  renderLearning(
+    champion({
+      regime_observations: 5,
+      calibration_state: 'evidence_available',
+      evidence_sufficient: true,
+      champion: { count: 4, baseline_score: 0.5, uncertainty: 0.05 },
+    }),
+  );
+  expect(screen.getByText('4 comparable observations')).toBeInTheDocument();
+  expect(screen.getByText(/Evidence available for rate decisions/)).toBeInTheDocument();
+});
+
+it('labels an exploratory change as candidate exploration, not an improvement', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.003 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.5,
+        previous_learning_rate: 0.001,
+        selected_learning_rate: 0.003,
+        changed: true,
+        skipped: null,
+        exploratory: true,
+      },
+    ],
+  });
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(within(table).getByText('Candidate exploration')).toBeInTheDocument();
+  expect(within(table).queryByText('Changed')).toBeNull();
+});
+
 it('translates the new controller labels and tooltips into German', () => {
   for (const source of [
     'Effective learning rate',
@@ -1091,7 +1173,11 @@ it('translates the new controller labels and tooltips into German', () => {
     'Local baseline',
     'Insufficient evidence',
     'Champion calibration',
+    'Awaiting first evaluation',
     'Baseline established',
+    'Collecting comparable observations',
+    'Evidence available for rate decisions',
+    'Candidate exploration',
     '{count} comparable observations',
     'Uncertainty',
     'Iterations since rate change',

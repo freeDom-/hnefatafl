@@ -567,6 +567,10 @@ const translations: Record<string, string> = {
     'Champion befördert · vorheriges Lernen verworfen',
   'Local baseline': 'Lokale Basislinie',
   'Insufficient evidence': 'Unzureichende Evidenz',
+  'Candidate exploration': 'Kandidaten-Erkundung',
+  'Awaiting first evaluation': 'Warte auf erste Auswertung',
+  'Collecting comparable observations': 'Sammle vergleichbare Beobachtungen',
+  'Evidence available for rate decisions': 'Evidenz für Ratenentscheidungen verfügbar',
   'Champion calibration': 'Champion-Kalibrierung',
   'Baseline established': 'Basislinie festgelegt',
   '{count} comparable observations': '{count} vergleichbare Beobachtungen',
@@ -620,6 +624,8 @@ const translations: Record<string, string> = {
     'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen mit einem Champion-Gegner. Wähle einen neueren Worker, einen festen Gegner oder deaktiviere sie.',
   'This worker does not support automatic hyperparameter updates with a persistent Champion opponent. Choose a newer worker, a fixed opponent, or disable them.':
     'Dieser Worker unterstützt keine automatischen Hyperparameter-Aktualisierungen mit einem persistenten Champion-Gegner. Wähle einen neueren Worker, einen festen Gegner oder deaktiviere sie.',
+  'This worker does not support the iteration-based controller dwell. Set it to 0, choose a newer worker, or disable automatic hyperparameter updates.':
+    'Dieser Worker unterstützt die iterierungsbasierte Controller-Verweildauer nicht. Setze sie auf 0, wähle einen neueren Worker oder deaktiviere die automatischen Hyperparameter-Aktualisierungen.',
   'Changing the learning rate on resume moves the controller’s effective rate; its learned state is kept.':
     'Eine Änderung der Lernrate beim Fortsetzen verschiebt die effektive Rate des Controllers; sein gelernter Zustand bleibt erhalten.',
 };

@@ -366,7 +366,11 @@ controller schema version, and a worker whose advertised list does not include i
 is never offered the job, so an older worker cannot silently discard learned state
 through its own migration. A worker without the list is assumed to understand only
 versions 1-4, and a fresh job with no saved state is not gated on a version, so a
-legacy worker can still run a new fixed-opponent adapted job. Fixed-
+legacy worker can still run a new fixed-opponent adapted job. Workers that
+implement the iteration-based dwell advertise `hyper_adaptation_iteration_dwell`;
+a job with a nonzero `adaptation_min_dwell_iterations` is rejected on a worker
+without it, while the inert zero default is omitted from that worker's transport
+so it never sees an unknown configuration key. Fixed-
 opponent adapted jobs stay compatible with those workers. Legacy resume transports
 omit the adaptation keys from the saved configuration, so a worker that cannot run
 the controller can never silently ignore it. The controller state travels inside

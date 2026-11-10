@@ -25,11 +25,17 @@ compatible version-4 predictors), while only an evolving Champion uses
 baseline-relative improvement over a game-count-shrunk baseline. Champion
 predictor updates are weighted by completed games and a rate change needs a
 confidence margin, so a noisy baseline or a small sample cannot move the rate.
-Legacy migration discards only incompatible predictors (`reward_semantics_changed`)
+Decision uncertainty is a regularized per-evaluation sampling error (win/draw/loss
+counts plus the baseline error), so identical small evaluations never look
+certain, and exploration is gated by a comparable-observation threshold, a
+separate cooldown and nearest-candidate selection instead of unrestricted random
+changes. Legacy migration discards only incompatible predictors
+(`reward_semantics_changed`)
 and preserves the effective rate, optimizer state, lifetime counters and dwell;
 a legacy change with no iteration metadata starts the conservative iteration dwell
 at resume. Adds `adaptation_min_dwell_iterations`, the EN/DE monitoring and
-tooltip updates, the `hyper_adaptation_state_versions` worker capability and
+tooltip updates, the `hyper_adaptation_state_versions` and
+`hyper_adaptation_iteration_dwell` worker capabilities and
 controller tests for the baseline, weighting, confidence margin, migration, dwell
 and validation paths, plus a synthetic [Champion-adaptation benchmark](docs/benchmarks/champion-adaptation.md)
 that compares a fixed rate, the original reset and the persistent transition under
