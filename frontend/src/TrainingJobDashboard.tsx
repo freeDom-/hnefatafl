@@ -281,6 +281,7 @@ export default function TrainingJobDashboard({
         )}
         {!job.summary && tab === 'Learning' && (
           <TrainingLearningView
+            key={`${job.id}:${revision}`}
             progress={progress}
             history={history}
             config={config}

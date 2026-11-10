@@ -329,6 +329,11 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 first_done = wait_completed(client, first["id"], process, logfile)
                 second_done = wait_completed(client, second["id"], process, logfile)
                 assert first_done["progress"]["history"] and second_done["progress"]["history"]
+                for completed_job in (first_done, second_done):
+                    point = completed_job["progress"]["history"][0]
+                    assert point["training_parameters"]["version"] == 1
+                    assert point["training_parameters"]["batch_size"] == 8
+                    assert point["training_parameters_iteration"] == 1
                 assert first_done["progress"]["self_play_games"] == {
                     "version": 1,
                     "job": 1,
@@ -361,6 +366,11 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 assert resumed_response.status_code == 201, resumed_response.text
                 resumed = wait_completed(client, resumed_response.json()["id"], process, logfile)
                 assert [point["iteration"] for point in resumed["progress"]["history"]] == [1, 2]
+                parameter_history = resumed["progress"]["history"]
+                assert parameter_history[0] == first_done["progress"]["history"][0]
+                assert parameter_history[1]["training_parameters"]["weight_decay"] == 0.02
+                assert parameter_history[1]["training_parameters_iteration"] == 2
+                assert parameter_history[1]["learning_rate"] == 0.0002
                 assert resumed["progress"]["self_play_games"] == {
                     "version": 1,
                     "job": 1,
@@ -370,6 +380,7 @@ def test_real_remote_worker_trains_two_models_concurrently_uploads_and_resumes(t
                 _, resumed_checkpoint = load_checkpoint(
                     server_data / "jobs" / resumed["id"] / "last.pt"
                 )
+                assert resumed_checkpoint["extra"]["history"] == parameter_history
                 group = resumed_checkpoint["optimizer_state"]["param_groups"][0]
                 assert (group["lr"], group["weight_decay"]) == (0.0002, 0.02)
                 if optimizer == "sgd":

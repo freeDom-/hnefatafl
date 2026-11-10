@@ -1,4 +1,69 @@
 const translations: Record<string, string> = {
+  'Learning metric': 'Lernmetrik',
+  'Replay buffer capacity': 'Kapazität des Replay-Puffers',
+  'Learning rate (used)': 'Lernrate (verwendet)',
+  'Learning rate (selected)': 'Lernrate (ausgewählt)',
+  'Training batch size': 'Trainings-Batchgröße',
+  'Training epochs': 'Trainingsepochen',
+  'Self-play MCTS iterations': 'MCTS-Iterationen im Selbstspiel',
+  'Self-play MCTS time limit': 'MCTS-Zeitlimit im Selbstspiel',
+  'Self-play games per iteration': 'Selbstspielpartien pro Iteration',
+  'MCTS exploration constant': 'MCTS-Explorationskonstante',
+  'Self-play temperature': 'Selbstspieltemperatur',
+  'Dirichlet alpha': 'Dirichlet-Alpha',
+  'Dirichlet fraction': 'Dirichlet-Anteil',
+  'Maximum game plies': 'Maximale Halbzüge pro Partie',
+  Samples: 'Trainingsbeispiele',
+  Updates: 'Aktualisierungen',
+  Epochs: 'Epochen',
+  Simulations: 'Simulationen',
+  Seconds: 'Sekunden',
+  Coefficient: 'Koeffizient',
+  Temperature: 'Temperatur',
+  Fraction: 'Anteil',
+  Plies: 'Halbzüge',
+  'Selected job configuration; earlier iterations may differ.':
+    'Konfiguration des ausgewählten Auftrags; frühere Iterationen können abweichen.',
+  'Policy and value loss against self-play targets for each completed iteration.':
+    'Strategie- und Wertverlust gegenüber Selbstspielzielen für jede abgeschlossene Iteration.',
+  'Policy loss against self-play move targets.':
+    'Strategieverlust gegenüber den Zugzielen aus dem Selbstspiel.',
+  'Value loss against self-play outcome targets.':
+    'Wertverlust gegenüber den Ergebniszielen aus dem Selbstspiel.',
+  'Actual positions stored in replay after this iteration; distinct from configured capacity.':
+    'Tatsächlich nach dieser Iteration im Replay gespeicherte Stellungen; die konfigurierte Kapazität ist davon unabhängig.',
+  'Configured maximum replay positions, recorded for this training interval.':
+    'Konfigurierte maximale Anzahl an Replay-Stellungen, aufgezeichnet für diesen Trainingsabschnitt.',
+  'Optimizer updates performed during this iteration, not the cumulative update count.':
+    'In dieser Iteration ausgeführte Optimierer-Aktualisierungen, keine kumulative Anzahl.',
+  'Optimizer base rate used for this iteration. Schedule-Free warm-up rates and parameter update magnitudes differ.':
+    'In dieser Iteration verwendete Basislernrate des Optimierers. Aufwärmlernraten von Schedule-Free und die Größe der Parameteränderungen weichen davon ab.',
+  'Effective optimizer base rate selected after this iteration for the next training interval.':
+    'Nach dieser Iteration ausgewählte effektive Basislernrate des Optimierers für den nächsten Trainingsabschnitt.',
+  'Recorded training examples presented to the optimizer during this iteration.':
+    'Aufgezeichnete Trainingsbeispiele, die dem Optimierer während dieser Iteration vorgelegt wurden.',
+  'Configured replay samples per gradient batch.':
+    'Konfigurierte Anzahl an Replay-Beispielen pro Gradienten-Batch.',
+  'Configured optimization epochs per iteration.':
+    'Konfigurierte Optimierungsepochen pro Iteration.',
+  'Configured maximum simulations per move. Time limits and early termination can reduce actual work.':
+    'Konfigurierte maximale Simulationen pro Zug. Zeitlimits und vorzeitiges Beenden können den tatsächlichen Aufwand verringern.',
+  'Configured self-play search time limit per move, in seconds.':
+    'Konfiguriertes Suchzeitlimit pro Selbstspielzug in Sekunden.',
+  'Configured target self-play games per iteration, not a measured game count.':
+    'Konfigurierte Zielanzahl an Selbstspielpartien pro Iteration, keine gemessene Partienanzahl.',
+  'Configured optimizer regularization. Zero disables weight decay.':
+    'Konfigurierte Optimierer-Regularisierung. Null deaktiviert die Gewichtsabnahme.',
+  'Configured PUCT exploration constant for self-play.':
+    'Konfigurierte PUCT-Explorationskonstante für das Selbstspiel.',
+  'Configured self-play move-selection temperature.':
+    'Konfigurierte Temperatur für die Zugauswahl im Selbstspiel.',
+  'Configured root exploration-noise alpha.':
+    'Konfiguriertes Alpha des Explorationsrauschens an der Suchwurzel.',
+  'Configured fraction of root exploration noise.':
+    'Konfigurierter Anteil des Explorationsrauschens an der Suchwurzel.',
+  'Configured self-play game-length limit, not the measured game length.':
+    'Konfiguriertes Längenlimit für Selbstspielpartien, keine gemessene Partienlänge.',
   'Use parameters': 'Parameter übernehmen',
   'Parameters copied from job {name}. Unrecorded inputs keep their current values. Starting creates a new job.':
     'Parameter aus Auftrag {name} übernommen. Nicht aufgezeichnete Eingaben behalten ihre aktuellen Werte. Beim Start entsteht ein neuer Auftrag.',

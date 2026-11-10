@@ -27,6 +27,11 @@ workspace width. Tablet and phone layouts use a job selector with collapsible
 search/filter controls. A filtered-out selected job remains selected and is
 identified in the selector.
 
+On desktop, only the job rows scroll within a viewport-relative maximum height.
+Search, status, sorting and the job count stay above that area; short lists keep
+their natural height. Polling preserves its scroll position, and keyboard focus
+can bring older rows into view. The mobile selector is unchanged.
+
 Selecting another job in the list keeps the currently open analysis tab, so the
 same view can be compared across jobs. The panel always renders the newly
 selected job's data and actions; per-job view state such as the iteration range,
@@ -123,8 +128,9 @@ and execution state never change.
   changed opponent or Champion incumbent no longer needs several small graphs.
   Saturation, champion decisions, incomplete evaluations and failed/cancelled
   jobs receive contextual messages.
-- **Learning** shows loss trends, replay positions, recorded optimizer updates,
-  saved configuration and an accessible iteration table. Lower loss measures
+- **Learning** offers one **Learning metric** chart, defaulting to **Loss by
+  iteration** with both policy and value loss. It retains recorded optimizer
+  updates, saved configuration and an accessible iteration table. Lower loss measures
   fit to self-play targets; it does not establish stronger play.
 - **Evaluation** shows the effective opponent, side scores, wins/losses, rules
   draws, unfinished games, duration, champion decisions and fixed-benchmark
@@ -196,6 +202,51 @@ The same window also bounds the automatic hyperparameter decision log, anchored
 to the latest recorded training iteration rather than the last decision. Data
 tables mount when opened, keeping long histories out of the DOM during ordinary
 monitoring.
+
+### Selecting Learning metrics
+
+Use **Learning metric** to switch the single chart's title, series, units,
+legend, accessible description and exact-value tooltips. **Loss by iteration**
+keeps both loss series in their usual colors; policy and value loss can also be
+selected separately. The chosen metric survives progress polling. Selecting a
+different job restores the loss default. All/recent 10/25/50/100/250 iterations
+applies to every metric, including the lazily opened **View graph data** table.
+That one bounded table retains policy/value loss, replay positions and
+per-iteration optimizer updates, and adds the selected metric's exact values.
+
+Measured observations include replay positions, optimizer updates during the
+iteration, recorded training exposures and the optimizer base learning rate.
+**Learning rate (used)** belongs to the completed interval; **Learning rate
+(selected)** is the effective rate chosen afterward for the next interval.
+HyperController decisions remain in the separate adaptation log. Schedule-Free
+AdamW's base rate is distinct from its warm-up-adjusted rate and from the
+parameter-dependent magnitude of an update. Very small rates use an appropriate
+data scale and locale-aware scientific notation.
+
+Configured parameters use stepped lines: replay capacity, batch size, epochs,
+self-play MCTS iterations/time limit, games per iteration, weight decay, PUCT
+exploration, move temperature, Dirichlet alpha/fraction and the game-ply limit.
+Each change starts at its first effective iteration. For example, recorded MCTS
+budgets 64 for iterations 1–1000, 128 for 1001–1250 and 256 from 1251 onward retain
+those exact phases in the newest resumed job. Replay **positions** is actual
+occupancy; replay **capacity** is the configured maximum. MCTS iterations is a
+configured per-move ceiling: a time limit, terminal search or shortcut can finish
+with fewer simulations. Performance retains the actual work counters.
+
+New workers record sparse, whitelisted parameter snapshots in the portable full
+checkpoint history, at each execution's first completed iteration and whenever
+these settings change. Rows reference their applicable snapshot; resuming keeps
+all earlier events and establishes a new boundary. See the
+[history format](TRAINING_DATA.md#historical-training-parameters).
+
+Legacy rows without reliable provenance remain unknown, including rows appended
+by an older worker. The selected job's current configuration is never projected
+back onto them. Metrics without observations are marked **Not recorded** and
+disabled; an available metric with no observations in the chosen range shows
+**No recorded observations**. Partial histories retain their recorded portions.
+Unknown values show `—`, genuine zero remains zero, and paths break at unknown
+values or missing iterations. Configuration KPIs identify the selected job's
+settings, which may differ from earlier training phases.
 
 ## Live monitoring
 

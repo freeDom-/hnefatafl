@@ -5,7 +5,7 @@ import { opponentName } from './EvaluationSettings';
 import { trainingNumberFields, trainingParameterLabel } from './TrainingFields';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
 import TrainingHistoryChart from './TrainingHistoryChart';
-import TrainingMetricChart from './TrainingMetricChart';
+import { learningMetrics, learningChartRows, type LearningMetricKey } from './trainingLearningData';
 import TrainingPerformance from './TrainingPerformance';
 import TuningCharts from './TuningCharts';
 import { PhaseTimings } from './TrainingPhaseTimings';
@@ -292,15 +292,23 @@ export function TrainingLearningView({
       ? Number(adaptation.observations)
       : null;
   const lastPromotion = object(adaptation.last_promotion);
-  const replay = useMemo(
-    () => [
-      { key: 'replay_positions', name: 'Replay buffer positions', color: 'var(--chart-value)' },
-    ],
-    [],
+  const [metric, setMetric] = useState<LearningMetricKey>('loss');
+  const graphHistory = useMemo(() => learningChartRows(history), [history]);
+  const available = useMemo(
+    () =>
+      new Set(
+        learningMetrics
+          .filter((metric) =>
+            graphHistory.some((row) => metric.series.some((series) => finite(row[series.key]))),
+          )
+          .map((metric) => metric.key),
+      ),
+    [graphHistory],
   );
+  const selectedMetric = learningMetrics.find((item) => item.key === metric) ?? learningMetrics[0];
   // The dashboard hands the view the full history and the selected window, so
   // every metric and the adaptation log share the same iteration boundaries.
-  const windowedHistory = useMemo(() => recentHistory(history, range), [history, range]);
+  const windowedHistory = useMemo(() => recentHistory(graphHistory, range), [graphHistory, range]);
   return (
     <>
       <dl className="training-kpis learning-kpis">
@@ -351,7 +359,8 @@ export function TrainingLearningView({
         )}
         <TrainingKpi
           label="Optimizer updates"
-          value={last?.optimizer_updates ?? last?.updates ?? metrics.updates}
+          value={last?.updates ?? metrics.updates}
+          detail={t('Last completed iteration')}
         />
         {[
           'optimizer',
@@ -373,18 +382,36 @@ export function TrainingLearningView({
               value={
                 key === 'learning_rate' ? formatLearningRate(config![key], locale) : config![key]
               }
+              detail={t('Selected job configuration; earlier iterations may differ.')}
             />
           ))}
       </dl>
-      <TrainingHistoryChart history={windowedHistory} view="learning" range={0} />
-      {windowedHistory.some((row) => finite(row.replay_positions)) && (
-        <TrainingMetricChart
-          title="Replay buffer positions"
-          rows={windowedHistory}
-          series={replay}
-          unit="Positions"
-        />
-      )}
+      <label className="learning-metric-control">
+        {t('Learning metric')}
+        <select
+          aria-label={t('Learning metric')}
+          value={metric}
+          onChange={(event) => setMetric(event.target.value as LearningMetricKey)}
+        >
+          {learningMetrics.map((item) => (
+            <option
+              key={item.key}
+              value={item.key}
+              disabled={item.key !== 'loss' && !available.has(item.key)}
+            >
+              {t(item.label)}
+              {!available.has(item.key) && item.key !== 'loss' ? ` · ${t('Not recorded')}` : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="subtle">{t(selectedMetric.description)}</p>
+      <TrainingHistoryChart
+        history={windowedHistory}
+        view="learning"
+        learningMetric={selectedMetric}
+        range={0}
+      />
       <p className="subtle">
         {t('Missing metrics were not recorded; they are never interpreted as zero.')}
       </p>

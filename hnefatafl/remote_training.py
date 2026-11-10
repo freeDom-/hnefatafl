@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from .storage import Store
+from .training_parameters import validated_parameters
 from .versioning import known_revision, known_version
 
 PROTOCOL_VERSION = 1
@@ -260,7 +261,9 @@ def clean(value: Any, depth: int = 0) -> Any:
         return None
     if isinstance(value, dict):
         return {
-            str(key): clean(item, depth + 1)
+            str(key): validated_parameters(item)
+            if str(key) == "training_parameters"
+            else clean(item, depth + 1)
             for key, item in value.items()
             if str(key)
             not in {

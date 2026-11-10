@@ -19,7 +19,13 @@ export const policySeries: ChartSeries[] = [
  * scatter plots keep every recorded point. `rows` is chronological, so the
  * result preserves order.
  */
-function markerIndices(rows: HistoryPoint[], key: string, gaps: boolean, all: boolean): number[] {
+function markerIndices(
+  rows: HistoryPoint[],
+  key: string,
+  gaps: boolean,
+  all: boolean,
+  endpoints: boolean,
+): number[] {
   const recorded: number[] = [];
   for (let index = 0; index < rows.length; index += 1)
     if (finite(rows[index][key])) recorded.push(index);
@@ -34,7 +40,7 @@ function markerIndices(rows: HistoryPoint[], key: string, gaps: boolean, all: bo
       !!previous && finite(previous[key]) && previous.iteration + 1 === rows[index].iteration;
     const connectedAfter =
       !!next && finite(next[key]) && next.iteration === rows[index].iteration + 1;
-    return !connectedBefore || !connectedAfter;
+    return endpoints ? !connectedBefore || !connectedAfter : !connectedBefore && !connectedAfter;
   });
 }
 /**
@@ -48,6 +54,7 @@ export function chartMaximum(
   series: ChartSeries[],
   score: boolean,
   percent: boolean,
+  smallScale = false,
 ): number {
   if (score) return 1;
   const dataMax = rows.reduce(
@@ -59,7 +66,7 @@ export function chartMaximum(
     0,
   );
   if (percent) return dataMax > 0 ? Math.min(1, dataMax * 1.08) : 1;
-  return Math.max(dataMax, 0.001) * 1.08;
+  return (smallScale && dataMax > 0 ? dataMax : Math.max(dataMax, 0.001)) * 1.08;
 }
 export default memo(function TrainingMetricChart({
   title,
@@ -71,6 +78,10 @@ export default memo(function TrainingMetricChart({
   gaps = false,
   xLabel = 'Iteration',
   scatter = false,
+  step = false,
+  smallScale = false,
+  description,
+  precision = 10,
 }: {
   title: string;
   rows: HistoryPoint[];
@@ -82,6 +93,12 @@ export default memo(function TrainingMetricChart({
   gaps?: boolean;
   xLabel?: string;
   scatter?: boolean;
+  /** Configuration changes take effect at the new iteration, without interpolation. */
+  step?: boolean;
+  /** Opt-in data scale for tiny rates; existing loss/performance scales stay unchanged. */
+  smallScale?: boolean;
+  description?: string;
+  precision?: number;
 }) {
   const { t, locale } = useI18n();
   const container = useRef<HTMLElement>(null);
@@ -104,8 +121,8 @@ export default memo(function TrainingMetricChart({
   const lastIteration = rows.at(-1)?.iteration ?? minIteration;
   const maxIteration = lastIteration > minIteration ? lastIteration : minIteration + 1;
   const maximum = useMemo(
-    () => chartMaximum(rows, series, score, percent),
-    [rows, series, score, percent],
+    () => chartMaximum(rows, series, score, percent, smallScale),
+    [rows, series, score, percent, smallScale],
   );
   const hasData = rows.some((row) => series.some((item) => finite(row[item.key])));
   const x = (value: number) =>
@@ -114,8 +131,8 @@ export default memo(function TrainingMetricChart({
   const format = (value: unknown, precise = true) =>
     finite(value)
       ? new Intl.NumberFormat(locale, {
-          maximumSignificantDigits: precise ? 10 : 3,
-          ...(typeof value === 'number' && value !== 0 && Math.abs(value) < 0.0001 && !precise
+          maximumSignificantDigits: precise ? precision : 3,
+          ...(value !== 0 && Math.abs(value) < 0.0001 && (!precise || smallScale)
             ? { notation: 'scientific' as const }
             : {}),
           ...(score || percent ? { style: 'percent' as const } : {}),
@@ -137,15 +154,20 @@ export default memo(function TrainingMetricChart({
               if (gaps && previousIteration !== null && row.iteration > previousIteration + 1)
                 drawing = false;
               previousIteration = row.iteration;
-              const command = drawing ? 'L' : 'M';
+              const coordinate = `${x(row.iteration).toFixed(2)},${y(row[item.key] as number).toFixed(2)}`;
+              const command = drawing
+                ? step
+                  ? `H${x(row.iteration).toFixed(2)}V${y(row[item.key] as number).toFixed(2)}`
+                  : `L${coordinate}`
+                : `M${coordinate}`;
               drawing = true;
-              return `${command}${x(row.iteration).toFixed(2)},${y(row[item.key] as number).toFixed(2)}`;
+              return command;
             })
             .join(' '),
         };
         // Coordinate functions are entirely determined by these scalar bounds.
       }),
-    [rows, series, width, maximum, minIteration, maxIteration, gaps],
+    [rows, series, width, maximum, minIteration, maxIteration, gaps, step],
   );
   // Dense charts follow the data instead of forcing a circle per observation:
   // non-score series only mark small datasets, while dense evaluation series
@@ -155,7 +177,7 @@ export default memo(function TrainingMetricChart({
     return new Map(
       series.map((item): [string, number[]] => [
         item.key,
-        all || score ? markerIndices(rows, item.key, gaps, all) : [],
+        all || score || gaps ? markerIndices(rows, item.key, gaps, all, score) : [],
       ]),
     );
   }, [rows, series, gaps, scatter, score]);
@@ -166,9 +188,12 @@ export default memo(function TrainingMetricChart({
       <svg
         role="img"
         aria-label={t(title)}
-        aria-description={t(
-          'Use left and right arrow keys to inspect iterations. Exact values are available in the data table.',
-        )}
+        aria-description={
+          (description ? `${t(title)} · ${t(unit)}. ${t(description)} ` : '') +
+          t(
+            'Use left and right arrow keys to inspect iterations. Exact values are available in the data table.',
+          )
+        }
         tabIndex={hasData ? 0 : undefined}
         viewBox={`0 0 ${width} ${height}`}
         onKeyDown={(event) => {

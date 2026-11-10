@@ -82,7 +82,11 @@ def assert_state(actual, expected, mixed, *, history=False):
             key
             for key in expected
             if not history
-            or (key != "performance" and "duration" not in key and not key.endswith("seconds"))
+            or (
+                key not in {"performance", "training_parameters", "training_parameters_iteration"}
+                and "duration" not in key
+                and not key.endswith("seconds")
+            )
         }
         if history:
             assert keys <= actual.keys()
@@ -165,6 +169,14 @@ def test_cuda_training_resume_batched_averages_and_exports(tmp_path, monkeypatch
     for key in ["replay", "python_rng", "augmentation_rng", "torch_rng", "cuda_rng", "grad_scaler"]:
         assert_state(resumed["extra"][key], whole_state["extra"][key], mixed)
     assert_state(continued["history"], whole["history"], mixed, history=True)
+    whole_events = [row for row in whole["history"] if "training_parameters" in row]
+    resumed_events = [row for row in continued["history"] if "training_parameters" in row]
+    assert [row["iteration"] for row in whole_events] == [1]
+    assert [row["iteration"] for row in resumed_events] == [1, 2]
+    assert all(
+        row["training_parameters"] == whole_events[0]["training_parameters"]
+        for row in resumed_events
+    )
     group = resumed["optimizer_state"]["param_groups"][0]
     assert group["k"] == sum(point["updates"] for point in continued["history"]) > 0
     assert group["warmup_steps"] == 32 and group["train_mode"] is False

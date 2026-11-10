@@ -41,6 +41,7 @@ from .training_augmentation import (
     validate_mode,
 )
 from .training_presets import RECOMMENDED
+from .training_parameters import parameter_snapshot, restore_parameter_history
 from .training_optimizers import (
     OptimizerLifecycle,
     SCHEDULE_FREE,
@@ -925,6 +926,10 @@ def train(
     candidate_iteration = None
     metrics: dict = {}
     history: list[dict] = []
+    recorded_parameters: dict | None = None
+    parameter_iteration: int | None = None
+    iteration_parameters: dict = {}
+    interval_learning_rate: float | None = None
     best_models: list[dict] = []
     produced_best = False
     resume_payload: dict | None = None
@@ -943,6 +948,21 @@ def train(
     checkpoint = output / "last.pt"
     best_checkpoint = output / "best.pt"
     search_pool = None
+
+    def append_history(point: dict) -> None:
+        """Commit provenance once, including recovery after completed optimization.
+
+        The first completed iteration of every execution establishes its own
+        settings even when they match the source. Polls/checkpoint writes never
+        create events, and an incomplete iteration cannot consume the boundary.
+        """
+        nonlocal recorded_parameters, parameter_iteration
+        if iteration_parameters != recorded_parameters:
+            point["training_parameters"] = iteration_parameters
+            recorded_parameters = iteration_parameters
+            parameter_iteration = point["iteration"]
+        point["training_parameters_iteration"] = parameter_iteration
+        history.append(point)
 
     monitor.start()
     try:
@@ -1051,7 +1071,7 @@ def train(
             extra = payload.get("extra", {})
             if extra.get("training_state_version", 1) not in (1, 2):
                 raise ValueError("Unsupported training checkpoint state version")
-            history = extra.get("history", [])
+            history = restore_parameter_history(extra.get("history", []))
             best_models = extra.get("best_models", [])
             completed = int(extra.get("iteration", 0))
             baseline = checkpoint_cumulative(payload)
@@ -1200,6 +1220,7 @@ def train(
             # before any adaptation decision so the reported history attributes
             # the losses to the rate that produced them.
             interval_learning_rate = lifecycle.base_learning_rate()
+            iteration_parameters = parameter_snapshot(config)
 
             def commit_game(index: int, examples: list[dict], result: dict) -> None:
                 nonlocal replay, job_games
@@ -1410,7 +1431,7 @@ def train(
                         for key in ("wins", "losses", "draws", "truncated")
                     },
                 )
-            history.append(point)
+            append_history(point)
             # Model selection, checkpoint writes and registry publication are a
             # real phase: they can take seconds and must show as such.
             monitor.phase("checkpoint", iteration=iteration)
@@ -1515,17 +1536,21 @@ def train(
             result = {**state, "output_dir": str(output), "model": None, "best_checkpoint": None}
             _write_json(output / "result.json", result)
             return result
+        assert optimizer is not None
         if completed and (not history or history[-1]["iteration"] < completed):
-            history.append(
+            append_history(
                 {
                     "iteration": completed,
                     "policy_loss": metrics["policy_loss"],
                     "value_loss": metrics["value_loss"],
+                    "replay_positions": metrics["replay_positions"],
+                    "updates": metrics["updates"],
+                    "learning_rate": interval_learning_rate,
+                    "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
                     "performance": metrics["performance"],
                     "evaluation_status": "cancelled",
                 }
             )
-        assert optimizer is not None
         mode_failure = OptimizerLifecycle(optimizer).mode_failure
         if mode_failure is None:
             checkpoint_now(checkpoint)
@@ -1557,12 +1582,17 @@ def train(
             monitor.phase(status)
             publish(status=status, error=error_message)
             raise
+        assert optimizer is not None
         if completed and (not history or history[-1]["iteration"] < completed):
-            history.append(
+            append_history(
                 {
                     "iteration": completed,
                     "policy_loss": metrics["policy_loss"],
                     "value_loss": metrics["value_loss"],
+                    "replay_positions": metrics["replay_positions"],
+                    "updates": metrics["updates"],
+                    "learning_rate": interval_learning_rate,
+                    "effective_learning_rate": float(optimizer.param_groups[0]["lr"]),
                     "performance": metrics["performance"],
                     "evaluation_status": status,
                 }
