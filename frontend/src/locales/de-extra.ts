@@ -32,6 +32,10 @@ const translations: Record<string, string> = {
   'Show winning chances': 'Gewinnchancen anzeigen',
   'Custom move advisor': 'Eigener Zugberater',
   'Maximum search time (seconds)': 'Maximale Suchzeit (Sekunden)',
+  'MCTS Iterations': 'MCTS-Iterationen',
+  'Number of MCTS simulations per analyzed position. Higher values generally provide stronger search and more reliable move evaluations, but increase computation time. The maximum search time can stop a search before all simulations finish.':
+    'Anzahl der MCTS-Simulationen pro analysierter Stellung. Höhere Werte ermöglichen in der Regel eine stärkere Suche und zuverlässigere Zugbewertungen, erhöhen aber die Rechenzeit. Die maximale Suchzeit kann die Suche beenden, bevor alle Simulationen abgeschlossen sind.',
+  'Enter a whole number from 1 to {max}.': 'Gib eine ganze Zahl zwischen 1 und {max} ein.',
   'Analysis runs in the background. You can keep playing while the advisor searches.':
     'Die Analyse läuft im Hintergrund. Du kannst weiterspielen, während der Zugberater sucht.',
   'Saving analytics settings…': 'Analyseeinstellungen werden gespeichert…',

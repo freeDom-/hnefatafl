@@ -1,5 +1,8 @@
 import type { Config, Move, Side } from './types';
 
+export const DEFAULT_NEURAL_MCTS_ITERATIONS = 1024;
+export const MAX_ANALYTICS_MCTS_ITERATIONS = 5000;
+
 export interface Advisor {
   rune?: string;
   name: string;

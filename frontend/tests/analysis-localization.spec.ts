@@ -6,8 +6,78 @@ import {
   gameTab,
   showMove,
 } from './play-helpers';
-import { historicalGame } from './historical-fixture';
+import { fixtureModel, historicalGame } from './historical-fixture';
 import { expect, test } from './auth-fixture';
+
+test('neural analytics budgets persist across search windows, replay and reload on desktop and mobile', async ({
+  page,
+  request,
+}) => {
+  const model = await (await fixtureModel(request, { data: { name: 'Analytics Hugin' } })).json();
+  const stored = await historicalGame(request, {
+    data: { ruleset: 'brandubh', mode: 'human-human' },
+  });
+  const game = await stored.json();
+  await page.goto(`/games/${game.id}`);
+  await openGameOptions(page);
+  const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
+  const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
+  const iterations = analytics.getByRole('spinbutton', { name: 'MCTS Iterations', exact: true });
+  const searchTime = analytics.getByRole('spinbutton', { name: 'Maximum search time (seconds)' });
+  await expect(iterations).toHaveCount(0);
+  // Keep real neural searches short; this exercises the full pipeline without
+  // asking routine browser CI to complete thousands of neural simulations.
+  await searchTime.fill('0.05');
+  await advisor.selectOption(`model:${model.id}`);
+  await expect(iterations).toHaveValue('1024');
+  await iterations.fill('4096');
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`http://127.0.0.1:8001/api/games/${game.id}/analytics`)).json())
+          .advisor?.config.iterations,
+    )
+    .toBe(4096);
+  await searchTime.fill('0.1');
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`http://127.0.0.1:8001/api/games/${game.id}/analytics`)).json())
+          .time_limit,
+    )
+    .toBe(0.1);
+  await expect(iterations).toHaveValue('4096');
+  await analytics.getByRole('button', { name: 'Explain MCTS Iterations', exact: true }).click();
+  await expect(page.getByRole('tooltip')).toContainText('per analyzed position');
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    .toBe(true);
+  await gameTab(page, 'analytics');
+  const estimates = page.getByRole('region', { name: 'Agent evaluations' });
+  await expect(estimates).toHaveAttribute('aria-busy', 'false');
+  const response = await request.post(`http://127.0.0.1:8001/api/games/${game.id}/analysis`, {
+    data: { version: game.version, cursor: game.cursor, background: true },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  const initial = await response.json();
+  expect(initial.evaluations[0].config.iterations).toBe(4096);
+  const board = page.getByRole('grid', { name: 'brandubh game board' });
+  await board
+    .getByRole('gridcell', { name: /attacker/ })
+    .first()
+    .click();
+  await board
+    .getByRole('gridcell', { name: /empty, legal move/ })
+    .first()
+    .click();
+  await showMove(page, 1);
+  await page.getByRole('button', { name: '↤ Starting position', exact: true }).click();
+  await page.reload();
+  await openGameOptions(page);
+  await expect(iterations).toHaveValue('4096');
+  await advisor.selectOption('profile:baseline');
+  await expect(iterations).toHaveCount(0);
+});
 
 test('a searching advisor publishes partial results while the human can move and can be changed immediately', async ({
   page,

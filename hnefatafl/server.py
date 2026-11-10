@@ -623,11 +623,14 @@ def create_app(
         if provided is None:
             return None
         from .ai import ai_profiles
+        from .analysis_service import advisor_config
 
         name = provided.name.strip()
         if not name:
             fail("The move advisor needs a name.")
-        config = clean_ai_config(provided.config, provided.profile_id)
+        config = clean_ai_config(
+            advisor_config(provided.config, provided.profile_id), provided.profile_id
+        )
         config["seed"] = seed
         profile = next(p for p in ai_profiles() if p["algorithm"] == config["algorithm"])
         result = {
@@ -962,7 +965,14 @@ def create_app(
         state: State | None = None,
     ) -> dict:
         state = state or state_of(game)
-        configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
+        from .analysis_service import advisor_config
+
+        raw = (
+            advisor_config(agent["config"], agent.get("profile_id"))
+            if role == "advisor"
+            else agent["config"]
+        )
+        configuration = effective_ai_config(raw, agent.get("profile_id"))
         if role == "advisor":
             configuration["time_limit"] = settings["time_limit"]
         entry = {
@@ -1001,12 +1011,10 @@ def create_app(
         from .ai import analyze_position
 
         state = state or state_of(game)
-        configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
-        if role == "advisor":
-            configuration["time_limit"] = settings["time_limit"]
+        entry = evaluation_entry(game, role, agent, settings, state=state)
+        configuration = dict(entry["config"])
         if "seed" in game:
             configuration["seed"] = (configuration["seed"] + state.ply) % 2**32
-        entry = evaluation_entry(game, role, agent, settings, state=state)
         try:
             if configuration.get("model_id") and not state.winner:
                 with catalog_lock:
@@ -1016,10 +1024,10 @@ def create_app(
                 state,
                 configuration,
                 progress=lambda partial: progress(
-                    evaluation_entry(game, role, agent, settings, partial)
+                    evaluation_entry(game, role, agent, settings, partial, state=state)
                 ),
             )
-            return evaluation_entry(game, role, agent, settings, report)
+            return evaluation_entry(game, role, agent, settings, report, state=state)
         except (OSError, HTTPException):
             entry["unavailable_reason"] = "model_unavailable"
         except (ValueError, RuntimeError):
@@ -1161,13 +1169,33 @@ def create_app(
             return background_analysis(game)
         state = state_of(game)
         key = position_key(state)
+        settings = analytics_settings(game)
+        saved_settings = store.analytics(game_id) is not None
+        if saved_settings:
+            # Synchronous clients use the same saved advisor budget and revision
+            # as the background path, including when re-analyzing a position.
+            if settings["advisor"]:
+                retained = store.advisor_analysis(game_id, key, settings["revision"])
+                if retained is None or retained.get("partial"):
+                    entry = evaluate_background(
+                        game, "advisor", settings["advisor"], settings, lambda _entry: None
+                    )
+                    try:
+                        store.save_analysis_entry(
+                            game,
+                            position_snapshot(game),
+                            entry,
+                            advisor_revision=settings["revision"],
+                        )
+                    except ConflictError as exc:
+                        fail(str(exc), 409)
         cached = store.game_analysis(game_id, key)
         if cached is not None:
-            return analysis_response(cached)
+            return analysis_response(current_analysis(game, settings) if saved_settings else cached)
         # A recorded opinion belongs to the original point in play. Never
         # fabricate historical evidence by evaluating with newer/deleted weights.
         if not game.get("analysis_enabled") or game["cursor"] < len(game["moves"]):
-            return missing_analysis(game)
+            return analysis_response(current_analysis(game, settings) or missing_analysis(game))
         snapshot = {
             "cursor": game["cursor"],
             "ply": state.ply,
@@ -1180,10 +1208,17 @@ def create_app(
         agents = [
             (side, player) for side, player in game["players"].items() if player["kind"] == "ai"
         ]
-        if game.get("advisor"):
+        if game.get("advisor") and not saved_settings:
             agents.append(("advisor", game["advisor"]))
         for role, agent in agents:
-            configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
+            from .analysis_service import advisor_config
+
+            raw = (
+                advisor_config(agent["config"], agent.get("profile_id"))
+                if role == "advisor"
+                else agent["config"]
+            )
+            configuration = effective_ai_config(raw, agent.get("profile_id"))
             entry = {
                 "agent_id": role,
                 "role": role,
@@ -1230,7 +1265,8 @@ def create_app(
                 entry["unavailable_reason"] = "evaluation_failed"
             snapshot["evaluations"].append(entry)
         try:
-            return store.save_game_analysis(game_id, request.version, snapshot)
+            stored = store.save_game_analysis(game_id, request.version, snapshot)
+            return analysis_response(current_analysis(game, settings)) if saved_settings else stored
         except ConflictError as exc:
             fail(str(exc), 409)
 

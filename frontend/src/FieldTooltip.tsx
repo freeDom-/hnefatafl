@@ -363,14 +363,16 @@ export function FieldLabel({
   htmlFor,
   label,
   tooltipKey,
+  tooltip,
 }: {
   htmlFor: string;
   label: string;
   tooltipKey?: string;
+  tooltip?: string;
 }) {
   const group = useRef<HTMLDivElement>(null);
   const state = useFieldTooltip(group);
-  const text = tooltipKey ? trainingTooltip(tooltipKey) : undefined;
+  const text = tooltip ?? (tooltipKey ? trainingTooltip(tooltipKey) : undefined);
   return (
     <div className="field-help" ref={group} {...state.hover}>
       <label htmlFor={htmlFor}>{t(label)}</label>

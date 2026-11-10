@@ -11,9 +11,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { advisorOptions, AnalyticsSettingsPanel } from './AdvisorSelect';
 import { defaultAnalyticsSettings } from './analysisTypes';
-import type { Game } from './types';
-import type { PositionAnalysis } from './analysisTypes';
+import type { AIProfile, Game, Model } from './types';
+import type { AnalyticsSettings, PositionAnalysis } from './analysisTypes';
 import { MobilePlayContext } from './mobilePlay';
+import { setLanguage } from './i18n';
 
 const game = {
   id: 'one',
@@ -76,6 +77,7 @@ const report: PositionAnalysis = {
 const response = (value: unknown) => ({ ok: true, json: async () => value }) as Response;
 afterEach(() => {
   cleanup();
+  setLanguage('en', false);
   vi.unstubAllGlobals();
 });
 
@@ -518,4 +520,180 @@ it('selects the evaluator for a custom alpha-beta move advisor', () => {
   expect(heuristic).toHaveValue('shield_maiden');
   fireEvent.change(heuristic, { target: { value: 'shield_bearer' } });
   expect(onChange.mock.calls.at(-1)?.[0].advisor?.config.heuristic).toBe('shield_bearer');
+});
+
+const neuralProfiles: AIProfile[] = [
+  {
+    id: 'neural',
+    name: 'Trained model',
+    algorithm: 'neural',
+    difficulty: 'Model dependent',
+    parameters: { iterations: 40, time_limit: 10 },
+    supported_rulesets: ['brandubh'],
+  },
+];
+const neuralModels: Model[] = [{ id: 'hugin', name: 'Hugin', ruleset: 'brandubh' }];
+const neuralSettings: AnalyticsSettings = {
+  ...defaultAnalyticsSettings,
+  advisor: {
+    name: 'Hugin',
+    profile_id: 'neural',
+    config: { algorithm: 'neural', model_id: 'hugin' },
+  },
+};
+
+it('saves neural analytics iterations and keeps them when changing the search window or reloading', async () => {
+  let saved = defaultAnalyticsSettings;
+  const writes: AnalyticsSettings[] = [];
+  let searches = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url, options) => {
+      if (options?.method === 'PUT') {
+        saved = { ...JSON.parse(String(options.body)), revision: saved.revision + 1 };
+        writes.push(saved);
+        return response(saved);
+      }
+      searches += 1;
+      return response({ ...report, status: 'complete', advisor_revision: saved.revision });
+    }),
+  );
+  function Settings() {
+    const analysis = useGameAnalysis({ ...game, analytics: saved }, true);
+    return (
+      <AnalyticsSettingsPanel
+        game={game}
+        profiles={neuralProfiles}
+        models={neuralModels}
+        settings={analysis.settings}
+        onChange={analysis.updateSettings}
+      />
+    );
+  }
+  const view = render(<Settings />);
+  expect(screen.queryByRole('spinbutton', { name: 'MCTS Iterations' })).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Move advisor' }), {
+    target: { value: 'model:hugin' },
+  });
+  const input = screen.getByRole('spinbutton', { name: 'MCTS Iterations' });
+  expect(input).toHaveValue(1024);
+  await waitFor(() => expect(writes.at(-1)?.advisor?.config.iterations).toBe(1024));
+  for (const budget of [2048, 4096]) {
+    fireEvent.change(input, { target: { value: String(budget) } });
+    await waitFor(() => expect(writes.at(-1)?.advisor?.config.iterations).toBe(budget));
+  }
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Maximum search time (seconds)' }), {
+    target: { value: '15' },
+  });
+  await waitFor(() => expect(writes.at(-1)?.time_limit).toBe(15));
+  expect(writes.at(-1)?.advisor?.config.iterations).toBe(4096);
+  expect(input).toHaveValue(4096);
+  await waitFor(() => expect(searches).toBeGreaterThan(0));
+  view.unmount();
+  render(<Settings />);
+  expect(screen.getByRole('spinbutton', { name: 'MCTS Iterations' })).toHaveValue(4096);
+});
+
+it.each<AnalyticsSettings['advisor']>([
+  null,
+  { name: 'Heuristic', config: { algorithm: 'baseline' } },
+  { name: 'Seer', profile_id: 'mcts', config: { algorithm: 'mcts', iterations: 5000 } },
+  { name: 'Policy', config: { algorithm: 'neural', model_id: 'hugin', search_wrapper: 'none' } },
+  {
+    name: 'Neural alpha-beta',
+    config: { algorithm: 'neural', model_id: 'hugin', search_wrapper: 'alpha_beta' },
+  },
+])('hides MCTS iterations for analytics without neural MCTS: %j', (advisor) => {
+  render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={{ ...defaultAnalyticsSettings, advisor }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole('spinbutton', { name: 'MCTS Iterations' })).toBeNull();
+});
+
+it('reports invalid MCTS budgets locally without saving them and allows clearing before retyping', () => {
+  const onChange = vi.fn();
+  render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={neuralSettings}
+      onChange={onChange}
+    />,
+  );
+  const input = screen.getByRole('spinbutton', { name: 'MCTS Iterations' });
+  expect(input).toHaveValue(1024);
+  for (const invalid of ['', '0', '-1', '1.5', '5001']) {
+    fireEvent.change(input, { target: { value: invalid } });
+    expect(input).toBeInvalid();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number from 1 to 5000.');
+    expect(onChange).not.toHaveBeenCalled();
+  }
+  fireEvent.change(input, { target: { value: '4096' } });
+  expect(input).toBeValid();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(onChange.mock.calls[0][0].advisor.config.iterations).toBe(4096);
+});
+
+it('gives custom neural MCTS advisors one iterations input with the analytics default', () => {
+  const onChange = vi.fn();
+  const view = render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={{
+        ...defaultAnalyticsSettings,
+        advisor: {
+          name: 'Custom move advisor',
+          config: { algorithm: 'alpha_beta', iterations: 5000 },
+        },
+      }}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.change(screen.getByRole('combobox', { name: 'Algorithm' }), {
+    target: { value: 'neural' },
+  });
+  const chosen = onChange.mock.calls[0][0];
+  expect(chosen.advisor.config.iterations).toBe(1024);
+  view.rerender(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={chosen}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.getByRole('spinbutton', { name: 'MCTS Iterations' })).toHaveValue(1024);
+  expect(screen.queryByRole('spinbutton', { name: 'Search iterations' })).toBeNull();
+});
+
+it('localizes the accessible MCTS label, tooltip and validation', () => {
+  setLanguage('de', false);
+  render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={neuralSettings}
+      onChange={vi.fn()}
+    />,
+  );
+  const input = screen.getByRole('spinbutton', { name: 'MCTS-Iterationen' });
+  fireEvent.click(screen.getByRole('button', { name: 'MCTS-Iterationen erklären' }));
+  expect(screen.getByRole('tooltip')).toHaveTextContent(
+    'Anzahl der MCTS-Simulationen pro analysierter Stellung',
+  );
+  fireEvent.change(input, { target: { value: '0' } });
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Gib eine ganze Zahl zwischen 1 und 5000 ein.',
+  );
 });

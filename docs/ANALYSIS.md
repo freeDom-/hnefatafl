@@ -36,6 +36,15 @@ advisors use MCTS by default. API clients can set `search_wrapper` in the adviso
 configuration, and playing-agent reports honor the wrapper selected for that agent.
 New-game setup no longer contains advisor settings.
 
+Neural MCTS advisors expose **MCTS Iterations**, defaulting to **1024**.
+This is a per-position simulation budget, independent of the selected maximum
+search time. Positive integers from **1 to 5000** are accepted, including 2048
+and 4096. Higher budgets generally allow stronger search but take longer; the
+time limit may stop a search before it completes all simulations. Changing the
+search time, moving through replay or reloading retains the saved iteration count.
+Policy-only and neural alpha-beta advisors do not expose this MCTS control.
+Playing agents, training, evaluation and tournament budgets keep their own defaults.
+
 Advisor search runs on a bounded background executor, separate from gameplay
 requests. Completed alpha-beta depths and MCTS checkpoints update the suggested
 move and its winning-chance estimate. Changing advisor settings starts a new
@@ -82,14 +91,32 @@ value-head source label rather than being retroactively rewritten as search resu
 - `GET /api/games/{id}/analytics` returns `advisor`, `time_limit`,
   `show_win_chances` and an independent settings `revision`.
 - `PUT /api/games/{id}/analytics` saves those settings without changing the
-  gameplay version or moves.
+  gameplay version or moves. Set the neural MCTS budget in the existing
+  `advisor.config.iterations` field, for example:
+
+  ```json
+  {
+    "advisor": {
+      "profile_id": "neural",
+      "config": { "model_id": "registered-model-id", "iterations": 4096 }
+    },
+    "time_limit": 15
+  }
+  ```
+
+  Omitted neural MCTS iteration budgets default to 1024. Explicit saved budgets
+  remain authoritative, including earlier values of 40. Invalid budgets are
+  rejected using the shared AI configuration validation. Updating the budget
+  creates a settings revision, cancelling superseded advisor work through the
+  existing progress observer. No database or checkpoint migration is required.
 - `POST /api/games/{id}/analysis` with `{ "version": ..., "cursor": ...,
   "background": true }` schedules missing work and returns immediately with the
   available position report, `status` (`pending` or `complete`) and
   `advisor_revision`. Poll the same request for progressive updates. The UI polls
   only while work remains pending and ignores obsolete position/settings replies.
 - The older synchronous analysis request remains available to existing API
-  clients. The game UI uses background requests and actual-move diagnostics.
+  clients and honors saved advisor settings/revisions. The game UI uses
+  background requests and actual-move diagnostics.
 
 Game responses include saved `analysis` and `analytics`. Reloads, undo, redo and
 seeks recover retained reports. Player opinions are immutable per position and

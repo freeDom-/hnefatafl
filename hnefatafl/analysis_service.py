@@ -10,6 +10,24 @@ from typing import Callable
 from .storage import ConflictError, Store
 
 
+DEFAULT_NEURAL_MCTS_ITERATIONS = 1024
+
+
+def advisor_config(config: dict, profile_id: str | None = None) -> dict:
+    """Apply analytics defaults before shared profile/search resolution.
+
+    Explicit budgets, including those in saved advisors, remain authoritative.
+    Playing agents and other users of the shared neural profile keep their defaults.
+    """
+    result = dict(config)
+    algorithm = result.get("algorithm", profile_id)
+    if (algorithm == "neural" and result.get("search_wrapper", "mcts") == "mcts") or (
+        algorithm == "mcts" and result.get("model_id")
+    ):
+        result.setdefault("iterations", DEFAULT_NEURAL_MCTS_ITERATIONS)
+    return result
+
+
 class SupersededAnalysis(Exception):
     """An advisor was changed or its game was removed during a search."""
 
