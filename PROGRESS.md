@@ -27,9 +27,10 @@ predictor updates are weighted by completed games and a rate change needs a
 confidence margin, so a noisy baseline or a small sample cannot move the rate.
 Decision uncertainty is a regularized per-evaluation sampling error (win/draw/loss
 counts plus the baseline error), so identical small evaluations never look
-certain, and exploration is gated by a comparable-observation threshold, a
-separate cooldown and nearest-candidate selection instead of unrestricted random
-changes. Legacy migration discards only incompatible predictors
+certain, and every automatic Champion rate change (exploitation included) needs
+two comparable observations, with exploration additionally gated by a separate
+cooldown and multiplicatively nearest-candidate selection instead of unrestricted
+random changes. Legacy migration discards only incompatible predictors
 (`reward_semantics_changed`)
 and preserves the effective rate, optimizer state, lifetime counters and dwell;
 a legacy change with no iteration metadata starts the conservative iteration dwell

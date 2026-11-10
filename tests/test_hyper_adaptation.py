@@ -2523,7 +2523,7 @@ def test_promotions_preserve_the_iteration_dwell_reference():
     )
     for iteration in range(1, 4):
         controller.observe(iteration=iteration, score=0.5)
-    controller.set_effective_index(2, iteration=1000)
+    controller.set_effective_index(0, iteration=1000)
     assert controller.last_change_iteration == 1000
     for promotion_iteration, incumbent in ((1050, 1), (1100, 1050), (1150, 1100)):
         controller.observe(
@@ -2734,14 +2734,15 @@ def test_exploration_prefers_the_nearest_untried_candidate():
     controller.last_exploration_observation = 0
     controller.observations = 10
     controller.effective_index = 1
-    # Context (1,) is untried for candidates 0 and 2; the nearest (tie broken
-    # toward the lower index) is chosen, never an extreme jump.
+    # Context (1,) is untried for candidates 0 and 2. Candidate 2 (0.003) is
+    # multiplicatively nearer to 0.001 than candidate 0 (0.0003), so it is chosen
+    # and the controller never makes an extreme jump.
     controller.contexts = {
         "1:1": {"V": [[1.0]], "b": [0.0], "n": 1},
     }
     chosen, status = controller._select()
     assert status == "explore"
-    assert chosen == 0
+    assert chosen == 2
 
 
 def test_promotions_do_not_restart_exploration_immediately():
@@ -2972,3 +2973,265 @@ def test_calibration_state_tracks_evidence_without_false_certainty():
     # A fixed-opponent run reports no Champion calibration at all.
     fixed = make_controller()
     assert fixed._calibration_state() == "not_applicable"
+
+
+# ── Exploitation evidence gate and conservative exploration ──────────────────
+
+
+def test_exploitation_cannot_bypass_the_evidence_gate():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    # Every candidate/context pair is already covered, so the greedy branch is
+    # reached with a predictor that strongly favours candidate 1.
+    controller.rewards = [1.0]
+    controller.actions = [0]
+    controller.weights = [1.0]
+    controller.contexts = {
+        "0:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "1:0": {"V": [[1.0]], "b": [1.0], "n": 1},
+        "2:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+    }
+    controller.effective_index = 0
+    before_rng = controller.rng.getstate()
+    before_coverage = controller.coverage_pulls
+    for count in (0, 1):
+        controller.champion["count"] = count
+        chosen, status = controller._select()
+        assert chosen == 0
+        assert status == "insufficient"
+    # A blocked decision consumes no RNG and no exploration counter.
+    assert controller.rng.getstate() == before_rng
+    assert controller.coverage_pulls == before_coverage
+    # With the required evidence the same prediction is acted on.
+    controller.champion["count"] = 2
+    controller.champion["uncertainty"] = 0.01
+    chosen, status = controller._select()
+    assert chosen == 1
+    assert status == "exploit"
+
+
+def test_new_champion_needs_two_comparable_observations_before_a_change():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    # A fully covered predictor that strongly prefers candidate 2 over candidate 1.
+    controller.rewards = [1.0]
+    controller.actions = [1]
+    controller.weights = [1.0]
+    controller.contexts = {
+        "0:1": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "1:1": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "2:1": {"V": [[1.0]], "b": [1.0], "n": 1},
+    }
+    controller.effective_index = 1
+    controller.observations = 10
+    controller.last_decision_observation = 0
+    controller.last_change_observation = 0
+    controller.last_exploration_observation = 0
+    # The outgoing Champion already had a comparable history, so the promoting
+    # evaluation is an improvement for it, not a baseline.
+    controller.champion.update(
+        baseline_score=0.5,
+        effective_baseline=0.5,
+        baseline_se=0.1,
+        count=1,
+        score_se_sum_sq=0.01,
+        uncertainty=0.1,
+    )
+    boundary = controller.observe(
+        iteration=11,
+        score=0.5,
+        provenance={"completed_games": 4},
+        promotion=promotion(11, champion_iteration=10),
+    )
+    assert boundary["skipped"] == "promotion_transition"
+    baseline = controller.observe(iteration=12, score=0.5, provenance={"completed_games": 4})
+    assert baseline["skipped"] == "baseline"
+    # The first comparable evaluation cannot move the rate even though the shared
+    # predictor strongly favours another candidate.
+    first = controller.observe(iteration=13, score=0.9, provenance={"completed_games": 4})
+    assert controller.champion["count"] == 1
+    assert first["skipped"] == "insufficient_evidence"
+    assert first["changed"] is False
+    assert controller.effective_index == 1
+    # The second comparable evaluation satisfies the evidence requirement.
+    second = controller.observe(iteration=14, score=0.9, provenance={"completed_games": 4})
+    assert controller.champion["count"] == 2
+    assert second["skipped"] != "insufficient_evidence"
+    assert controller.effective_index == 2
+
+
+def test_evidence_gate_is_deterministic_across_resume():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.rewards = [1.0]
+    controller.actions = [0]
+    controller.weights = [1.0]
+    controller.contexts = {
+        "0:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "1:0": {"V": [[1.0]], "b": [1.0], "n": 1},
+        "2:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+    }
+    controller.effective_index = 0
+    controller.champion.update(
+        baseline_score=0.5,
+        effective_baseline=0.5,
+        baseline_se=0.1,
+        observations=2,
+        count=1,
+        score_se_sum_sq=0.01,
+        uncertainty=0.1,
+    )
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=controller.active_champion_identity,
+    )
+    assert restored.reset_reason is None
+    assert restored.champion["count"] == 1
+    assert controller._select() == restored._select()
+    assert controller._select()[1] == "insufficient"
+
+
+def test_insufficient_history_exploration_is_conservative_for_every_lag():
+    candidates = [0.0001, 0.001, 0.01, 0.1]
+    for lag in (1, 2, 3):
+        controller = champion_controller(
+            warmup=0, cadence=1, min_dwell=1, min_trials=1, lag=lag, candidates=candidates
+        )
+        controller.champion["count"] = 5
+        controller.rewards = [0.0]
+        controller.actions = [2]
+        controller.weights = [1.0]
+        controller.observations = 20
+        controller.last_exploration_observation = 0
+        controller.effective_index = 2
+        chosen, status = controller._select()
+        assert status == "explore", lag
+        # 0.001 and 0.1 are equally far in log space from 0.01; the lower index wins,
+        # so the controller never picks the far 0.0001 candidate.
+        assert chosen == 1, lag
+
+
+def test_exploration_uses_multiplicative_distance_with_uneven_candidates():
+    controller = champion_controller(
+        warmup=0,
+        cadence=1,
+        min_dwell=1,
+        min_trials=1,
+        candidates=[0.0001, 0.00011, 0.05],
+        initial_index=0,
+    )
+    controller.champion["count"] = 5
+    controller.rewards = [0.0]
+    controller.actions = [0]
+    controller.weights = [1.0]
+    controller.observations = 20
+    controller.last_exploration_observation = 0
+    controller.effective_index = 0
+    chosen, status = controller._select()
+    assert status == "explore"
+    # 0.00011 is multiplicatively adjacent to 0.0001; 0.05 is far.
+    assert chosen == 1
+    # Once the near candidate is covered, the far candidate is still reachable.
+    controller.contexts = {
+        "0:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "1:0": {"V": [[1.0]], "b": [0.0], "n": 1},
+    }
+    controller.observations = 40
+    chosen, status = controller._select()
+    assert status == "explore"
+    assert chosen == 2
+
+
+def test_exploration_cooldown_blocks_even_with_adequate_evidence():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.champion["count"] = 10
+    controller.rewards = [0.0]
+    controller.actions = [1]
+    controller.weights = [1.0]
+    controller.observations = 5
+    controller.last_exploration_observation = 5
+    controller.effective_index = 1
+    chosen, status = controller._select()
+    assert chosen == 1
+    assert status == "uncertain"
+    controller.observations = 5 + EXPLORATION_DWELL
+    chosen, status = controller._select()
+    assert status == "explore"
+
+
+def test_repeated_promotions_do_not_bypass_the_evidence_gate():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.rewards = [1.0]
+    controller.actions = [1]
+    controller.weights = [1.0]
+    controller.contexts = {
+        "0:1": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "1:1": {"V": [[1.0]], "b": [0.0], "n": 1},
+        "2:1": {"V": [[1.0]], "b": [1.0], "n": 1},
+    }
+    controller.effective_index = 1
+    controller.observations = 100
+    controller.last_decision_observation = 0
+    controller.last_change_observation = 0
+    controller.last_exploration_observation = 0
+    for generation in range(4):
+        base = 200 + generation * 10
+        controller.observe(
+            iteration=base,
+            score=0.5,
+            provenance={"completed_games": 4},
+            promotion=promotion(base, champion_iteration=base - 1),
+        )
+        assert (
+            controller.observe(iteration=base + 1, score=0.5, provenance={"completed_games": 4})[
+                "skipped"
+            ]
+            == "baseline"
+        )
+        first = controller.observe(iteration=base + 2, score=0.9, provenance={"completed_games": 4})
+        assert first["skipped"] == "insufficient_evidence"
+        second = controller.observe(
+            iteration=base + 3, score=0.9, provenance={"completed_games": 4}
+        )
+        assert second["skipped"] != "insufficient_evidence"
+
+
+def test_exploration_state_survives_resume_midway():
+    controller = champion_controller(
+        warmup=0,
+        cadence=1,
+        min_dwell=1,
+        min_trials=2,
+        lag=3,
+        candidates=[0.0001, 0.001, 0.01, 0.1],
+        initial_index=2,
+    )
+    for iteration in range(1, 12):
+        controller.observe(iteration=iteration, score=0.5, provenance={"completed_games": 4})
+    state = controller.state_dict()
+    restored = HyperController.from_state(
+        state,
+        candidates=controller.candidates,
+        lag=controller.lag,
+        cadence=controller.cadence,
+        warmup=controller.warmup,
+        min_dwell=controller.min_dwell,
+        min_trials=controller.min_trials,
+        initial_index=1,
+        seed=7,
+        evaluation_identity=controller.evaluation_identity,
+        active_champion_identity=controller.active_champion_identity,
+    )
+    assert restored.reset_reason is None
+    before = controller.observe(iteration=12, score=0.5, provenance={"completed_games": 4})
+    after = restored.observe(iteration=12, score=0.5, provenance={"completed_games": 4})
+    assert before["selected_index"] == after["selected_index"]
+    assert before["skipped"] == after["skipped"]
+    assert before["exploratory"] == after["exploratory"]

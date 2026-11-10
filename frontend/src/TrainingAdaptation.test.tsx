@@ -1131,6 +1131,51 @@ it('distinguishes Champion calibration states without false certainty', () => {
   expect(screen.getByText(/Evidence available for rate decisions/)).toBeInTheDocument();
 });
 
+it('infers legacy Champion calibration only when the data supports it', () => {
+  const legacy = (extra: Record<string, unknown>) => ({
+    evaluation_selection: { opponent: 'champion', champion_iteration: 10 },
+    adaptation: {
+      algorithm: 'hypercontroller',
+      effective_learning_rate: 0.001,
+      active_champion_identity: 'champion-10',
+      warmup: 0,
+      observations: 6,
+      regime_observations: 3,
+      ...extra,
+    },
+  });
+  // A legacy state with a baseline and no comparable count is a baseline only.
+  renderLearning(legacy({ champion: { baseline_score: 0.5, count: 0 } }));
+  expect(screen.getByText('Baseline established')).toBeInTheDocument();
+  expect(screen.queryByText('Calibration status unavailable')).toBeNull();
+  cleanup();
+  // A legacy state with a baseline and comparable observations is inferred.
+  renderLearning(legacy({ champion: { baseline_score: 0.5, count: 4, uncertainty: 0.05 } }));
+  expect(screen.getByText('4 comparable observations')).toBeInTheDocument();
+  cleanup();
+  // A legacy state with no baseline and no observations is awaiting evaluation.
+  renderLearning(legacy({ regime_observations: 0, champion: { baseline_score: null, count: 0 } }));
+  expect(screen.getByText('Awaiting first evaluation')).toBeInTheDocument();
+  cleanup();
+  // Ambiguous legacy data never claims a baseline.
+  renderLearning(legacy({ champion: { count: 2 } }));
+  expect(screen.getByText('Calibration status unavailable')).toBeInTheDocument();
+  expect(screen.queryByText('Baseline established')).toBeNull();
+  cleanup();
+  renderLearning(legacy({ regime_observations: 2, champion: { baseline_score: null, count: 0 } }));
+  expect(screen.getByText('Calibration status unavailable')).toBeInTheDocument();
+  cleanup();
+  // A legacy Champion job with no controller block at all is also unavailable.
+  renderLearning(legacy({ champion: undefined }));
+  expect(screen.getByText('Calibration status unavailable')).toBeInTheDocument();
+  cleanup();
+  // A fixed-opponent job never shows Champion calibration.
+  renderLearning({
+    adaptation: { algorithm: 'hypercontroller', effective_learning_rate: 0.001 },
+  });
+  expect(screen.queryByText('Champion calibration')).toBeNull();
+});
+
 it('labels an exploratory change as candidate exploration, not an improvement', async () => {
   renderLearning({
     adaptation: { effective_learning_rate: 0.003 },
@@ -1174,6 +1219,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Insufficient evidence',
     'Champion calibration',
     'Awaiting first evaluation',
+    'Calibration status unavailable',
     'Baseline established',
     'Collecting comparable observations',
     'Evidence available for rate decisions',

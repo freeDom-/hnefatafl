@@ -225,17 +225,28 @@ predictor update and, independently, the sampling error of the decision).
 
 `adaptation_min_trials` forces every `(candidate, context)` pair to be observed,
 but an exploratory change is not an evidence-based improvement and must not bypass
-the safety gates. In Champion mode an exploratory rate change therefore requires:
+the safety gates. In Champion mode **every** automatic rate change -- exploration
+and exploitation alike -- requires at least `EXPLORATION_MIN_EVIDENCE` (2)
+comparable post-baseline observations, so a freshly promoted Champion cannot move
+the rate even when the shared predictor strongly favours another candidate. The
+first post-promotion evaluation only establishes the baseline; the first
+comparable evaluation is blocked with `skipped="insufficient_evidence"`, and the
+second may act.
 
-* at least `EXPLORATION_MIN_EVIDENCE` (2) comparable post-baseline observations,
-  so a freshly promoted Champion cannot immediately explore;
-* the ordinary observation-based and iteration-based dwell; and
-* a stricter exploration cooldown (`EXPLORATION_DWELL`, 2 observations) since the
-  last exploratory change, tracked separately from the ordinary dwell.
+An exploratory change additionally requires the ordinary observation-based and
+iteration-based dwell and a stricter exploration cooldown (`EXPLORATION_DWELL`, 2
+observations) since the last exploratory change, tracked separately from the
+ordinary dwell. When there is too little reward history to form a context window,
+a Champion no longer explores at random: it picks the least-observed candidate,
+with the multiplicative (log) distance to the current rate as the tie-breaker.
+When a context exists, the multiplicatively nearest untried candidate is chosen.
+Both paths are deterministic (ties break toward the lower index, so no RNG is
+needed) and avoid jumping between extreme rates. Candidate-list position is not
+rate distance: adjacent candidates can still span orders of magnitude, so the
+distance is `|ln(rate_a) - ln(rate_b)|`. No hard multiplicative cap is imposed,
+so a far candidate remains reachable when no closer one is untried.
 
-The untried candidate nearest the current rate is chosen (ties break toward the
-lower index, so no RNG is needed), which avoids jumping between extremes. A
-promotion preserves the cooldown reference and starts the new Champion with no
+A promotion preserves the cooldown reference and starts the new Champion with no
 comparable evidence, so it never restarts exploration. Fixed-opponent selection
 keeps the historical random coverage and greedy exploitation. The decision event
 records `exploratory` so the log presents a coverage pull as candidate
@@ -248,7 +259,10 @@ signal; the uncertainty is what drives the confidence margin. The prior is also
 updated per observation and is explicitly diagnostic. The explicit calibration
 state (`awaiting_evaluation`, `baseline_established`, `collecting`,
 `evidence_available`) is published for monitoring so the UI never reports a
-baseline or a certainty that does not exist yet.
+baseline or a certainty that does not exist yet. When older progress lacks the
+field, the UI infers the state only from a reported baseline and improvement
+count and otherwise shows "Calibration status unavailable" rather than claiming a
+baseline.
 
 The controller keeps the same evaluation identity across promotions (the context
 hash is unchanged). The boundary is carried by the promotion signal, and the

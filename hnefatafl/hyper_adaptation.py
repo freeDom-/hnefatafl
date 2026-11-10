@@ -1589,16 +1589,40 @@ class HyperController:
         value = float(champion["uncertainty"])
         return value if value > 0.0 else DEFAULT_UNCERTAINTY
 
-    def _exploration_ready(self) -> bool:
-        """Whether a Champion may explore a new candidate/context right now.
+    def _log_distance(self, first: int, second: int) -> float:
+        """Multiplicative distance between two candidate learning rates.
 
-        Exploration needs enough comparable evidence to be worth the training
-        disruption and must respect a cooldown stricter than the ordinary dwell,
-        so forced coverage can never oscillate the rate on consecutive decisions.
+        Candidate-list position is not rate distance: adjacent candidates can
+        still span orders of magnitude. The absolute log-ratio is the natural
+        scale-invariant distance between two positive rates.
         """
-        if self.champion["count"] < EXPLORATION_MIN_EVIDENCE:
-            return False
-        return self.observations - self.last_exploration_observation >= EXPLORATION_DWELL
+        return abs(math.log(self.candidates[first]) - math.log(self.candidates[second]))
+
+    def _nearest_candidate(
+        self, current: int, eligible: list[int], *, least_observed_first: bool = False
+    ) -> int:
+        """The eligible candidate closest to the current rate, deterministically.
+
+        Ties break toward the lower index, so no RNG is consumed. When
+        ``least_observed_first`` is set (the no-context exploration path), the
+        least-observed candidates are preferred first and the log-distance only
+        breaks ties, so every candidate is eventually explored without an
+        unbounded random walk. The distance is always the tie-breaker, so a far
+        candidate is only chosen when no closer one is eligible.
+        """
+        if least_observed_first:
+            return min(
+                eligible,
+                key=lambda index: (
+                    self.counts[index],
+                    round(self._log_distance(current, index), 9),
+                    index,
+                ),
+            )
+        return min(
+            eligible,
+            key=lambda index: (round(self._log_distance(current, index), 9), index),
+        )
 
     def _select(self) -> tuple[int, str]:
         """Choose the next candidate index and the reason for the choice.
@@ -1606,19 +1630,36 @@ class HyperController:
         Returns ``(index, status)`` where ``status`` is one of ``"explore"``
         (a coverage pull for an unobserved candidate/context), ``"exploit"`` (an
         evidence-based choice), ``"uncertain"`` (the evidence is too weak to move
-        the rate) or ``"insufficient"`` (too few comparable observations to
-        explore safely). Fixed-opponent selection is the historical greedy rule;
-        Champion-aware selection adds the evidence gate, the exploration cooldown,
-        nearest-neighbor exploration and the confidence margin.
+        the rate) or ``"insufficient"`` (too few comparable observations to act
+        at all). Fixed-opponent selection is the historical greedy rule;
+        Champion-aware selection gates every automatic change on comparable
+        evidence, applies the exploration cooldown, explores the multiplicatively
+        nearest candidate and applies the confidence margin.
         """
         size = len(self.candidates)
         current = self.effective_index
+        # The minimum comparable-evidence requirement applies to every automatic
+        # Champion change, exploitation included. A new Champion's first
+        # comparable evaluation cannot move the rate even when the shared
+        # predictor strongly favours another candidate. No RNG or exploration
+        # counter is consumed while this gate blocks.
+        if self.champion_aware and self.champion["count"] < EXPLORATION_MIN_EVIDENCE:
+            return current, "insufficient"
         if len(self.rewards) < self.lag:
-            # Too little history to form a context window.
-            if self.champion_aware and not self._exploration_ready():
-                return current, "insufficient"
+            # Too little history to form a context window. Fixed opponents keep
+            # their historical uniform exploration; a Champion explores the
+            # least-observed candidate closest to the current rate instead of
+            # jumping at random.
+            if not self.champion_aware:
+                self.coverage_pulls += 1
+                return self.rng.randrange(size), "explore"
+            if self.observations - self.last_exploration_observation < EXPLORATION_DWELL:
+                return current, "uncertain"
+            eligible = [index for index in range(size) if index != current]
+            if not eligible:
+                return current, "exploit"
             self.coverage_pulls += 1
-            return self.rng.randrange(size), "explore"
+            return self._nearest_candidate(current, eligible, least_observed_first=True), "explore"
         context = tuple(self.actions[-self.lag :])
         window = self.rewards[-self.lag :]
         # Coverage is per (candidate, context): a predictor that has never seen a
@@ -1632,18 +1673,16 @@ class HyperController:
             if not self.champion_aware:
                 self.coverage_pulls += 1
                 return untried[self.rng.randrange(len(untried))], "explore"
-            if self.champion["count"] < EXPLORATION_MIN_EVIDENCE:
-                return current, "insufficient"
             if self.observations - self.last_exploration_observation < EXPLORATION_DWELL:
                 return current, "uncertain"
             self.coverage_pulls += 1
-            # Prefer the nearest unobserved candidate so exploration does not jump
-            # between extreme rates; ties break toward the lower index, which is
-            # deterministic and needs no RNG.
+            # Prefer the multiplicatively nearest unobserved candidate so
+            # exploration never jumps between extreme rates; ties break toward
+            # the lower index, which is deterministic and needs no RNG.
             others = [index for index in untried if index != current]
             if not others:
                 return current, "exploit"
-            return min(others, key=lambda index: (abs(index - current), index)), "explore"
+            return self._nearest_candidate(current, others), "explore"
         values = [self._prediction(index, context, window) for index in range(size)]
         counts = [self._context_count(index, context) for index in range(size)]
         best_index = 0

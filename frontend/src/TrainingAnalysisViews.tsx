@@ -308,18 +308,45 @@ export function TrainingLearningView({
   const championUncertainty = finite(championState?.uncertainty)
     ? Number(championState.uncertainty)
     : null;
-  // The backend owns the calibration decision logic; the UI only renders the
-  // explicit state so a freshly promoted Champion never shows a misleading
-  // "±0.000" or a baseline that has not been evaluated yet.
-  const calibrationState =
+  const championBaseline = finite(championState?.baseline_score)
+    ? Number(championState.baseline_score)
+    : null;
+  // The backend owns the calibration decision logic. New progress reports an
+  // explicit `calibration_state`; older progress may not, so it is inferred only
+  // when the data supports it. A missing or ambiguous legacy state is shown as
+  // unavailable rather than claiming a baseline that may not exist.
+  const explicitCalibration =
     typeof adaptation.calibration_state === 'string' ? adaptation.calibration_state : null;
-  const evidenceSufficient = adaptation.evidence_sufficient === true;
+  const calibrationState = (() => {
+    if (explicitCalibration) return explicitCalibration;
+    if (!championState) return null;
+    if (championBaseline !== null) {
+      if (championImprovements === null || championImprovements === 0)
+        return 'baseline_established';
+      if (championImprovements < 2) return 'collecting';
+      return 'evidence_available';
+    }
+    // No baseline reported: only claim "awaiting" when the regime is known to
+    // have no observations at all.
+    if (regimeObservations === 0) return 'awaiting_evaluation';
+    return null;
+  })();
+  const evidenceSufficient =
+    adaptation.evidence_sufficient === true || calibrationState === 'evidence_available';
   const calibrationValue = (() => {
-    if (calibrationState === 'awaiting_evaluation') return 'Awaiting first evaluation';
-    if (calibrationState === 'baseline_established') return 'Baseline established';
-    if (championImprovements !== null && championImprovements > 0)
-      return '{count} comparable observations';
-    return 'Baseline established';
+    switch (calibrationState) {
+      case 'awaiting_evaluation':
+        return 'Awaiting first evaluation';
+      case 'baseline_established':
+        return 'Baseline established';
+      case 'collecting':
+      case 'evidence_available':
+        return championImprovements !== null && championImprovements > 0
+          ? '{count} comparable observations'
+          : 'Baseline established';
+      default:
+        return 'Calibration status unavailable';
+    }
   })();
   const calibrationDetail = (() => {
     const observations = t('Regime observations: {observations}', {
@@ -386,7 +413,7 @@ export function TrainingLearningView({
             }
           />
         )}
-        {championActive && regimeObservations !== null && (
+        {championActive && (
           <TrainingKpi
             label="Champion calibration"
             value={

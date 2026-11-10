@@ -30,15 +30,17 @@ OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_champion_adaptation.py \
 | Mode | Median mean regret | Median changes | Median controller CPU | Contexts | Events kept | Reward history |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Fixed | 0.196 | 0 | 0 ms | 0 | 0 | 0 |
-| Forced reset | 0.188 | 145 | 9.2 ms | 9 | 19 | 18 |
-| Persistent | 0.118 | 26 | 12.8 ms | 9 | 100 | 64 |
+| Forced reset | 0.187 | 147 | 10.4 ms | 9 | 19 | 18 |
+| Persistent | 0.144 | 28 | 13.1 ms | 9 | 100 | 64 |
 
 The persistent transition tracks the changing optimum with the lowest regret,
 changes the rate about five times less often than the forced-reset ablation, and
 keeps the full bounded reward history (64) and event log (100) instead of losing
 them at every promotion. The controller CPU cost stays tens of microseconds per
 evaluation across 400 evaluations, three orders of magnitude below the evaluation
-it reads.
+it reads. The evidence gate makes the persistent controller act one comparable
+evaluation later than before, which slightly raises its synthetic regret while
+removing the unjustified early changes.
 
 ## Limitations and non-claims
 

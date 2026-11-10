@@ -569,6 +569,7 @@ const translations: Record<string, string> = {
   'Insufficient evidence': 'Unzureichende Evidenz',
   'Candidate exploration': 'Kandidaten-Erkundung',
   'Awaiting first evaluation': 'Warte auf erste Auswertung',
+  'Calibration status unavailable': 'Kalibrierungsstatus nicht verfügbar',
   'Collecting comparable observations': 'Sammle vergleichbare Beobachtungen',
   'Evidence available for rate decisions': 'Evidenz für Ratenentscheidungen verfügbar',
   'Champion calibration': 'Champion-Kalibrierung',
