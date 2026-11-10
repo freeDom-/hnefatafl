@@ -30,17 +30,23 @@ OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_champion_adaptation.py \
 | Mode | Median mean regret | Median changes | Median controller CPU | Contexts | Events kept | Reward history |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Fixed | 0.196 | 0 | 0 ms | 0 | 0 | 0 |
-| Forced reset | 0.187 | 147 | 10.4 ms | 9 | 19 | 18 |
-| Persistent | 0.144 | 28 | 13.1 ms | 9 | 100 | 64 |
+| Forced reset | 0.188 | 150 | 7.8 ms | 9 | 19 | 18 |
+| Persistent | 0.203 | 16 | 10.6 ms | 9 | 100 | 64 |
 
-The persistent transition tracks the changing optimum with the lowest regret,
-changes the rate about five times less often than the forced-reset ablation, and
-keeps the full bounded reward history (64) and event log (100) instead of losing
-them at every promotion. The controller CPU cost stays tens of microseconds per
-evaluation across 400 evaluations, three orders of magnitude below the evaluation
-it reads. The evidence gate makes the persistent controller act one comparable
-evaluation later than before, which slightly raises its synthetic regret while
-removing the unjustified early changes.
+The persistent transition changes the rate about nine times less often than the
+forced-reset ablation and keeps the full bounded reward history (64) and event log
+(100) instead of losing them at every promotion. The controller CPU cost stays tens
+of microseconds per evaluation across 400 evaluations, three orders of magnitude
+below the evaluation it reads.
+
+The corrected reward is genuine change (`score - baseline_score`). In this
+synthetic stream the baseline is a single noisy four-game sample, so measuring
+change against it is much weaker than the previous shrunken reference, which
+partly reflected the absolute score level and manufactured a spurious signal. The
+persistent controller is therefore deliberately conservative here and its
+synthetic regret is slightly above the fixed rate; that is the honest cost of not
+inventing progress, not a strength result. The evidence gate, the exploration
+cooldown and the regularized uncertainty together keep the rate changes bounded.
 
 ## Limitations and non-claims
 
@@ -51,6 +57,8 @@ removing the unjustified early changes.
   historical version-4 source: it rebuilds the current controller at each
   promotion and restores only the effective rate.
 * The optimum alternates deterministically; a real Champion's difficulty changes
-  for reasons this benchmark does not model.
+  for reasons this benchmark does not model. The four-game evaluations make the
+  baseline noisy, which is precisely the regime where genuine-change measurement
+  is hardest.
 * `tests/test_benchmark_champion_adaptation.py` pins the accounting and the
   qualitative evidence-retention property, not the exact medians.

@@ -544,15 +544,18 @@ controller's observations are comparable for the whole run, so it keeps the
 historical **absolute score** reward and its compatible predictors. With Champion,
 a promotion replaces the incumbent and changes what a raw score means, so the
 controller never compares raw win rates across Champions. It scores each
-observation as the **within-Champion improvement** over a baseline shrunk toward a
-neutral score by the baseline's completed-game count; the first post-promotion
+observation as the **within-Champion improvement** `score - baseline_score` over
+the observed baseline; the first post-promotion
 evaluation is a local baseline only, is never fed to the shared predictor and
-never triggers a decision. Champion predictor updates are weighted by completed
+never triggers a decision. The improvement is genuine measured change: identical
+scores yield exactly zero, so no neutral-score prior or uncertainty regularization
+can manufacture progress. Champion predictor updates are weighted by completed
 games and a different candidate is only adopted when its predicted improvement
 exceeds the current rate's by a confidence margin (one standard error of the
 Champion's mean improvement); marginal differences keep the current rate. The
 uncertainty is a regularized per-evaluation sampling error derived from the
-win/draw/loss counts and the baseline error, so identical small evaluations keep a
+win/draw/loss counts and the baseline error, kept separate from the reward, so
+identical small evaluations keep a
 meaningful uncertainty. **Every** automatic Champion rate change, exploitation
 included, needs two comparable post-baseline observations, so a new Champion's
 first comparable evaluation cannot move the rate. Untried candidate/context pairs
@@ -583,10 +586,12 @@ regime identity derived from the Champion's metadata. On resume it is compared
 with the restored Champion; a mismatch refreshes only the per-Champion block while
 preserving the shared predictors, the effective rate and the optimizer state
 (`champion_changed`). A state whose reward representation differs from the
-current job (an absolute-score state resumed into a Champion, or a version-5
-baseline-relative state resumed into a fixed opponent) discards only the learned
+current job discards only the learned
 predictors with `reward_semantics_changed`, preserving the effective rate,
-optimizer state, lifetime counters, dwell timers and RNG. A legacy state with no
+optimizer state, lifetime counters, dwell timers and RNG. The current definition
+(`raw_relative`) is compatible with version 5 and with a fixed-opponent
+absolute-score state; it discards an absolute state resumed into a Champion and a
+version-6 Champion state, whose reward used a shrunk baseline. A legacy state with no
 iteration metadata for its last change starts the conservative iteration dwell at
 the resume iteration. Monitoring exposes
 `adaptation.active_champion_identity`, the current-regime

@@ -23,6 +23,7 @@ from hnefatafl.hyper_adaptation import (
     MAX_CONTEXTS,
     MAX_EVENTS,
     MAX_GAME_WEIGHT,
+    MAX_SCORE_SE,
     RIDGE,
     HyperController,
     format_candidates,
@@ -792,7 +793,7 @@ def test_champion_promotion_transitions_and_survives_resume(tmp_path, monkeypatc
     # Exactly one transition for the one promotion. The persistent state (learned
     # predictors, counters, lifetime observations) is kept; only the per-Champion
     # baseline is refreshed, so the lifetime observation count is not reset.
-    assert state["version"] == 6
+    assert state["version"] == 7
     assert state["transitions"] == 1
     assert state["last_promotion"]["iteration"] == 2
     assert state["last_promotion"]["champion_iteration"] == 0
@@ -1725,7 +1726,7 @@ def test_promotion_telemetry_round_trips_through_state():
     assert summary["last_event"]["transition"] is True
     assert summary["champion"]["baseline_score"] is None
     state = controller.state_dict()
-    assert state["version"] == 6
+    assert state["version"] == 7
     assert state["transitions"] == 1
     assert state["active_champion_identity"] == "champion-2-promoted-head_to_head"
     assert state["champion"]["identity"] == "champion-2-promoted-head_to_head"
@@ -1930,7 +1931,7 @@ def test_rejected_state_cannot_leak_into_telemetry_or_a_checkpoint():
     assert summary["contexts"] == 0
     # The fresh state serializes cleanly, so the malformed state never reaches a
     # later checkpoint.
-    assert restored.state_dict()["version"] == 6
+    assert restored.state_dict()["version"] == 7
     assert restored.state_dict()["contexts"] == {}
 
 
@@ -2657,17 +2658,21 @@ def test_repeated_promotions_keep_state_bounded_and_the_rate_stable():
     assert restored.contexts == controller.contexts
 
 
-def test_noisy_single_game_baseline_is_shrunk_toward_neutral():
+def test_noisy_single_game_baseline_keeps_uncertainty_but_never_fakes_progress():
     controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
     controller.observe(iteration=1, score=1.0, provenance={"completed_games": 1})
-    # One lucky win is shrunk halfway to the neutral score instead of becoming a
-    # perfectly reliable reference for the whole generation.
+    # One lucky win stays the observed baseline (the reward's zero point) but
+    # carries a large regularized uncertainty, so it is not treated as certain.
     assert controller.champion["baseline_score"] == 1.0
     assert controller.champion["baseline_games"] == 1
-    assert controller.champion["effective_baseline"] == pytest.approx(0.75)
-    controller.observe(iteration=2, score=0.5, provenance={"completed_games": 8})
-    # The improvement is measured against the shrunk baseline, not the raw outlier.
-    assert controller.rewards[-1] == pytest.approx(-0.25)
+    assert controller.champion["baseline_se"] > 0.2
+    # The identical score is exactly zero improvement: the neutral-score prior
+    # never manufactures progress.
+    controller.observe(iteration=2, score=1.0, provenance={"completed_games": 1})
+    assert controller.rewards[-1] == pytest.approx(0.0, abs=1e-12)
+    # A genuinely lower score is negative improvement against the observed baseline.
+    controller.observe(iteration=3, score=0.5, provenance={"completed_games": 8})
+    assert controller.rewards[-1] == pytest.approx(-0.5)
     assert controller.weights[-1] == 8.0
 
 
@@ -2843,14 +2848,14 @@ def test_uncertainty_reflects_outcome_mix():
     assert draws > 0.0
 
 
-def test_noisy_baseline_uncertainty_is_recorded_and_shrunk():
+def test_noisy_baseline_uncertainty_is_recorded_and_never_certain():
     controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
     controller.observe(
         iteration=1, score=1.0, provenance={"completed_games": 1, "wins": 1, "losses": 0}
     )
     assert controller.champion["baseline_games"] == 1
+    assert controller.champion["baseline_score"] == 1.0
     assert controller.champion["baseline_se"] > 0.2
-    assert controller.champion["effective_baseline"] == pytest.approx(0.75)
 
 
 def test_many_games_eventually_justify_a_small_predicted_change():
@@ -2876,7 +2881,7 @@ def test_many_games_eventually_justify_a_small_predicted_change():
     assert status == "exploit"
 
 
-def test_version_six_validation_enforces_weight_and_structure_invariants():
+def test_current_state_validation_enforces_weight_and_structure_invariants():
     controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
     for iteration in range(1, 6):
         controller.observe(
@@ -3029,7 +3034,6 @@ def test_new_champion_needs_two_comparable_observations_before_a_change():
     # evaluation is an improvement for it, not a baseline.
     controller.champion.update(
         baseline_score=0.5,
-        effective_baseline=0.5,
         baseline_se=0.1,
         count=1,
         score_se_sum_sq=0.01,
@@ -3071,12 +3075,11 @@ def test_evidence_gate_is_deterministic_across_resume():
     controller.effective_index = 0
     controller.champion.update(
         baseline_score=0.5,
-        effective_baseline=0.5,
         baseline_se=0.1,
         observations=2,
         count=1,
         score_se_sum_sq=0.01,
-        uncertainty=0.1,
+        uncertainty=math.sqrt(0.1**2 + 0.01),
     )
     state = controller.state_dict()
     restored = HyperController.from_state(
@@ -3235,3 +3238,314 @@ def test_exploration_state_survives_resume_midway():
     assert before["selected_index"] == after["selected_index"]
     assert before["skipped"] == after["skipped"]
     assert before["exploratory"] == after["exploratory"]
+
+
+# ── Genuine within-Champion improvement ──────────────────────────────────────
+
+
+def _champion_state(**changes) -> dict:
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 6):
+        controller.observe(
+            iteration=iteration,
+            score=0.6,
+            provenance={"completed_games": 8, "wins": 5, "losses": 3},
+        )
+    state = controller.state_dict()
+    state.update(changes)
+    return state
+
+
+@pytest.mark.parametrize("games", [4, 8, 64, 200])
+@pytest.mark.parametrize("kind", ["win", "loss", "draw"])
+def test_identical_champion_scores_yield_exactly_zero_improvement(kind, games):
+    if kind == "win":
+        score, provenance = 1.0, {"completed_games": games, "wins": games}
+    elif kind == "loss":
+        score, provenance = 0.0, {"completed_games": games, "losses": games}
+    else:
+        score, provenance = 0.5, {"completed_games": games, "draws": games}
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=score, provenance=provenance)
+    controller.observe(iteration=2, score=score, provenance=provenance)
+    # Identical scores are exactly zero improvement: the neutral-score prior can
+    # never manufacture progress.
+    assert controller.rewards[-1] == pytest.approx(0.0, abs=1e-12)
+    # The regularized baseline uncertainty is still recorded and non-zero.
+    assert controller.champion["baseline_se"] > 0.0
+    assert controller.champion["uncertainty"] > 0.0
+
+
+@pytest.mark.parametrize("baseline", [0.25, 0.5, 0.75, 1.0])
+def test_baseline_level_never_creates_artificial_improvement(baseline):
+    # A four-game baseline at the requested level: win/loss split for 0.25/0.75,
+    # all draws for 0.5, all wins for 1.0.
+    if baseline == 0.25:
+        provenance = {"completed_games": 4, "wins": 1, "losses": 3}
+    elif baseline == 0.75:
+        provenance = {"completed_games": 4, "wins": 3, "losses": 1}
+    elif baseline == 0.5:
+        provenance = {"completed_games": 4, "draws": 4}
+    else:
+        provenance = {"completed_games": 4, "wins": 4}
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(iteration=1, score=baseline, provenance=provenance)
+    controller.observe(iteration=2, score=baseline, provenance=provenance)
+    assert controller.rewards[-1] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_genuine_improvement_and_deterioration_are_signed():
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(
+        iteration=1, score=0.5, provenance={"completed_games": 8, "wins": 4, "losses": 4}
+    )
+    controller.observe(
+        iteration=2, score=0.75, provenance={"completed_games": 8, "wins": 6, "losses": 2}
+    )
+    assert controller.rewards[-1] == pytest.approx(0.25)
+    controller.observe(
+        iteration=3, score=0.25, provenance={"completed_games": 8, "wins": 2, "losses": 6}
+    )
+    assert controller.rewards[-1] == pytest.approx(-0.25)
+
+
+def test_high_baseline_identical_scores_do_not_prefer_another_candidate():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    controller.observe(
+        iteration=1, score=0.9, provenance={"completed_games": 8, "wins": 7, "losses": 1}
+    )
+    for iteration in range(2, 10):
+        controller.observe(
+            iteration=iteration,
+            score=0.9,
+            provenance={"completed_games": 8, "wins": 7, "losses": 1},
+        )
+    # Every improvement is exactly zero, so the shared predictors never learn a
+    # spurious candidate preference from the high baseline level.
+    assert controller.rewards == [0.0] * 8
+    assert controller.contexts
+    for entry in controller.contexts.values():
+        assert all(value == 0.0 for value in entry["b"])
+
+
+def test_repeated_promotions_with_unchanged_scores_learn_nothing():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    for generation in range(4):
+        base = 100 + generation * 10
+        controller.observe(
+            iteration=base,
+            score=0.7,
+            provenance={"completed_games": 8, "wins": 5, "losses": 2},
+            promotion=promotion(base, champion_iteration=base - 1),
+        )
+        # Baseline, then unchanged scores for the new Champion.
+        for step in range(1, 5):
+            controller.observe(
+                iteration=base + step,
+                score=0.7,
+                provenance={"completed_games": 8, "wins": 5, "losses": 2},
+            )
+    assert controller.rewards == [0.0] * len(controller.rewards)
+
+
+def test_different_champion_difficulties_are_not_compared_directly():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    # Champion A is hard (baseline 0.2); identical scores are zero improvement.
+    controller.observe(
+        iteration=1, score=0.2, provenance={"completed_games": 8, "wins": 1, "losses": 7}
+    )
+    controller.observe(
+        iteration=2, score=0.2, provenance={"completed_games": 8, "wins": 1, "losses": 7}
+    )
+    assert controller.rewards[-1] == pytest.approx(0.0, abs=1e-12)
+    # Promote to an easier Champion (baseline 0.8): the raw level jump is not a
+    # reward because the baseline is re-established.
+    controller.observe(
+        iteration=3,
+        score=0.8,
+        provenance={"completed_games": 8, "wins": 7, "losses": 1},
+        promotion=promotion(3, champion_iteration=2),
+    )
+    baseline_event = controller.observe(
+        iteration=4, score=0.8, provenance={"completed_games": 8, "wins": 7, "losses": 1}
+    )
+    assert baseline_event["skipped"] == "baseline"
+    controller.observe(
+        iteration=5, score=0.8, provenance={"completed_games": 8, "wins": 7, "losses": 1}
+    )
+    assert controller.rewards[-1] == pytest.approx(0.0, abs=1e-12)
+
+
+# ── Reward-semantics migration ───────────────────────────────────────────────
+
+
+def _v5_champion_state() -> dict:
+    state = _champion_state(version=5)
+    state.pop("reward_semantics", None)
+    state.pop("weights", None)
+    state.pop("last_exploration_observation", None)
+    champion = state["champion"]
+    champion.pop("baseline_se", None)
+    champion.pop("score_se_sum_sq", None)
+    return state
+
+
+def _v6_champion_state() -> dict:
+    state = _champion_state(version=6)
+    state["reward_semantics"] = "baseline_relative"
+    state["champion"]["effective_baseline"] = state["champion"]["baseline_score"]
+    return state
+
+
+def _restore_champion(state, controller, **changes):
+    options = {
+        "candidates": controller.candidates,
+        "lag": controller.lag,
+        "cadence": controller.cadence,
+        "warmup": controller.warmup,
+        "min_dwell": controller.min_dwell,
+        "min_trials": controller.min_trials,
+        "initial_index": 1,
+        "seed": 7,
+        "evaluation_identity": controller.evaluation_identity,
+        "active_champion_identity": controller.active_champion_identity,
+    }
+    options.update(changes)
+    return HyperController.from_state(state, **options)
+
+
+def test_authentic_v5_champion_state_is_compatible_with_the_corrected_reward():
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 6):
+        controller.observe(
+            iteration=iteration,
+            score=0.6,
+            provenance={"completed_games": 8, "wins": 5, "losses": 3},
+        )
+    state = _v5_champion_state()
+    assert state["contexts"]
+    restored = _restore_champion(state, controller)
+    # Version 5 measured improvement against the raw baseline, exactly like the
+    # corrected definition, so its predictors are preserved.
+    assert restored.reset_reason is None
+    assert restored.migrated_from == 5
+    assert restored.reward_semantics == "raw_relative"
+    assert restored.contexts == controller.contexts
+    assert restored.rewards == controller.rewards
+    # Its uncertainty is replaced with the conservative regularized estimate.
+    assert restored.champion["baseline_se"] > 0.0
+    assert restored.champion["score_se_sum_sq"] > 0.0
+
+
+def test_version_six_champion_state_is_incompatible_and_discarded():
+    controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 6):
+        controller.observe(
+            iteration=iteration,
+            score=0.6,
+            provenance={"completed_games": 8, "wins": 5, "losses": 3},
+        )
+    state = _v6_champion_state()
+    restored = _restore_champion(state, controller)
+    # Version 6 measured improvement against a shrunk baseline, so its predictors
+    # must never be mixed with the corrected raw-baseline rewards.
+    assert restored.reset_reason == "reward_semantics_changed"
+    assert restored.migrated_from == 6
+    assert restored.contexts == {}
+    assert restored.rewards == []
+    assert restored.weights == []
+    # Transferable state survives.
+    assert restored.observations == controller.observations
+    assert restored.effective_index == controller.effective_index
+    assert restored.last_change_iteration == controller.last_change_iteration
+
+
+def test_version_six_fixed_state_remains_compatible():
+    controller = make_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 6):
+        controller.observe(iteration=iteration, score=0.5)
+    state = controller.state_dict()
+    state["version"] = 6
+    state["reward_semantics"] = "absolute"
+    state["champion"]["effective_baseline"] = None
+    restored = _restore(
+        state,
+        evaluation_identity=controller.evaluation_identity,
+    )
+    assert restored.reset_reason is None
+    assert restored.migrated_from == 6
+    assert restored.reward_semantics == "absolute"
+    assert restored.contexts == controller.contexts
+    assert restored.rewards == controller.rewards
+
+
+def test_corrected_state_round_trips_and_replays_identically():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 8):
+        controller.observe(
+            iteration=iteration,
+            score=0.5 + 0.05 * (iteration % 3),
+            provenance={"completed_games": 8, "wins": 4, "losses": 2},
+        )
+    state = controller.state_dict()
+    restored = _restore_champion(state, controller)
+    assert restored.reset_reason is None
+    assert restored.reward_semantics == "raw_relative"
+    assert restored.contexts == controller.contexts
+    assert restored.rewards == controller.rewards
+    before = controller.observe(
+        iteration=8, score=0.7, provenance={"completed_games": 8, "wins": 6, "losses": 2}
+    )
+    after = restored.observe(
+        iteration=8, score=0.7, provenance={"completed_games": 8, "wins": 6, "losses": 2}
+    )
+    assert before["selected_index"] == after["selected_index"]
+    assert before["skipped"] == after["skipped"]
+
+
+# ── Restored-state invariants ────────────────────────────────────────────────
+
+
+def test_restored_state_rejects_impossible_counters_and_uncertainty():
+    base = _champion_state()
+    for mutate in (
+        # An exploration marker beyond the lifetime observation count.
+        lambda s: s.__setitem__("last_exploration_observation", s["observations"] + 1),
+        # A positive improvement count without a baseline.
+        lambda s: s["champion"].__setitem__("baseline_score", None),
+        # An aggregate score uncertainty above the mathematical bound.
+        lambda s: s["champion"].__setitem__(
+            "score_se_sum_sq", s["champion"]["count"] * MAX_SCORE_SE**2 + 1.0
+        ),
+        # An uncertainty that disagrees with its accumulators.
+        lambda s: s["champion"].__setitem__("uncertainty", 0.9),
+    ):
+        state = json.loads(json.dumps(base))
+        mutate(state)
+        controller = champion_controller(warmup=1000, cadence=1, min_dwell=1, min_trials=1)
+        restored = _restore_champion(state, controller)
+        assert restored.reset_reason == "unreadable_state"
+        assert restored.contexts == {}
+
+
+def test_large_valid_history_round_trips_and_recovers_after_rejection():
+    controller = champion_controller(warmup=0, cadence=1, min_dwell=1, min_trials=1)
+    for iteration in range(1, 400):
+        controller.observe(
+            iteration=iteration,
+            score=0.5 + 0.01 * (iteration % 7),
+            provenance={"completed_games": 8, "wins": 4, "losses": 2},
+        )
+    state = controller.state_dict()
+    restored = _restore_champion(state, controller)
+    assert restored.reset_reason is None
+    assert restored.observations == controller.observations
+    # A rejected state recovers to a clean controller that can keep training and
+    # serialize a valid checkpoint.
+    broken = json.loads(json.dumps(state))
+    broken["last_exploration_observation"] = broken["observations"] + 5
+    recovered = _restore_champion(broken, controller)
+    assert recovered.reset_reason == "unreadable_state"
+    recovered.observe(iteration=500, score=0.6, provenance={"completed_games": 8})
+    round_trip = _restore_champion(recovered.state_dict(), controller)
+    assert round_trip.reset_reason is None

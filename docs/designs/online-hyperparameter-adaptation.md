@@ -82,26 +82,31 @@ losses. It observes the **completed-game score against the selected evaluation
 opponent**, balanced across attacker and defender roles by the existing
 evaluation protocol. The opponent is normally a fixed, versioned benchmark; it may
 also be the evolving Champion. A fixed opponent keeps the historical absolute
-score; an evolving Champion uses a shrunk local baseline.
+score; an evolving Champion uses genuine within-Champion change against the
+observed baseline.
 
 ```
 # fixed opponent (absolute, historical representation)
 reward = (wins + 0.5 * draws) / completed_games
 
-# evolving Champion (baseline-relative, shrunk baseline)
+# evolving Champion (genuine change from the observed baseline)
 raw = (wins + 0.5 * draws) / completed_games
-effective_baseline = (1 * 0.5 + games * first_score) / (1 + games)
-reward = clamp(raw - effective_baseline, -1, 1)
+reward = clamp(raw - baseline_score, -1, 1)
 ```
 
 * Only completed games count; **unfinished (truncated) games are excluded**, not
   scored as losses. This is deliberately different from the promotion score, which
   keeps truncated games in the denominator.
 * An evaluation with no completed game yields no observation.
-* For a Champion, the first evaluation sets the shrunk `effective_baseline` and is
+* For a Champion, the first evaluation sets the observed `baseline_score` and is
   a baseline only: it is counted but never fed to the predictor and never triggers
   a decision. For a fixed opponent there is no baseline and the score is the
   reward directly.
+* The reward is genuine measured change: two identical scores against the same
+  Champion yield exactly zero improvement, a higher score is positive and a lower
+  score is negative. The regularized baseline uncertainty (`baseline_se`) is kept
+  separately and only widens the decision margin; it never enters the reward, so a
+  neutral-score prior cannot manufacture progress.
 * The observation is only taken at an evaluation boundary. No extra evaluation is
   added, so the controller never multiplies evaluation cost.
 * The credited action is the learning rate that was active for the interval that
@@ -175,17 +180,14 @@ representations are stored separately (`reward_semantics`) and are never mixed i
 one predictor.
 
 For a Champion, every observation after the first is the **within-Champion
-improvement** `clamp(score - effective_baseline, -1, 1)`. The first evaluation
-sets the baseline and is never fed to the predictor, so an uncalibrated score
-cannot inject a spurious reward. Because one evaluation is a noisy reference for
-a whole generation, the baseline is **shrunk toward a neutral score** by its
-completed-game count:
-
-```
-effective_baseline = (1 * 0.5 + games * first_score) / (1 + games)
-```
-
-so a lucky one-game win does not become a reliable reference. Predictor updates
+improvement** `clamp(score - baseline_score, -1, 1)`. The first evaluation sets
+the observed baseline and is never fed to the predictor, so an uncalibrated score
+cannot inject a spurious reward. The reward is genuine change: identical scores
+yield exactly zero, so a neutral-score prior or the uncertainty regularization can
+never manufacture progress. Because one evaluation is a noisy reference, the
+**regularized baseline uncertainty** (`baseline_se`) is kept separately and only
+widens the decision margin; it is never subtracted from the reward. Predictor
+updates
 are **weighted by completed games** (capped), and the candidate comparison is
 **confidence-aware**: a different candidate is only adopted when its predicted
 improvement exceeds the current rate's by at least one standard error of the
@@ -273,10 +275,13 @@ provenance). On resume the identity is compared with the restored
 mismatch refreshes only the per-Champion block, preserving the shared predictors,
 the effective rate and the optimizer state, with `reset_reason`
 `champion_changed`. A state whose reward representation differs from the current
-job (an absolute-score state resumed into a Champion, or a version-5
-baseline-relative state resumed into a fixed opponent) discards only the learned
-predictors with `reset_reason` `reward_semantics_changed`; the effective rate,
-optimizer state, lifetime counters, dwell timers and RNG are preserved. The active
+job discards only the learned predictors with `reset_reason`
+`reward_semantics_changed`; the effective rate, optimizer state, lifetime
+counters, dwell timers and RNG are preserved. The corrected definition is
+`raw_relative` (change from the observed baseline). It is compatible with version
+5 (`raw_relative`), incompatible with an absolute-score fixed-opponent state and
+incompatible with a version-6 Champion state, which measured change from a shrunk
+baseline. The active
 Champion is shown in monitoring as `adaptation.active_champion_identity`; the
 current-regime observation count is `adaptation.regime_observations`, the lifetime
 warm-up is `adaptation.observations >= adaptation.warmup`, and
@@ -342,12 +347,13 @@ transport.
 * A resume whose active Champion identity differs from the restored Champion
   refreshes only the per-Champion evaluation block with `champion_changed`, while
   the shared predictors, the effective rate and the optimizer state are preserved.
-* A resume whose saved reward representation differs from the current job (an
-  absolute-score state resumed into a Champion, or a version-5 baseline-relative
-  state resumed into a fixed opponent) discards only the learned predictors with
-  `reward_semantics_changed`; the effective rate, optimizer state, lifetime
+* A resume whose saved reward representation differs from the current job
+  discards only the learned predictors with `reward_semantics_changed`; the
+  effective rate, optimizer state, lifetime
   counters, dwell timers and RNG are preserved, so incompatible rewards never
-  reach a predictor.
+  reach a predictor. The current definition is compatible with version 5 and
+  with a fixed-opponent absolute-score state; it discards an absolute state
+  resumed into a Champion and a version-6 Champion state (shrunk baseline).
 * A legacy state with no iteration metadata for its last change starts the
   conservative iteration dwell at the resume iteration.
 * Changed candidate set, changed lag or changed evaluation identity resets the
@@ -394,18 +400,22 @@ state version, the saved RNG stream, the active Champion identity, the bounded
 transition record (iteration, optional incumbent iteration and identity, and a
 preserved rate drawn from the candidate set, consistent with the transition
 counter), the bounded per-Champion evaluation block (identity, promotion
-iteration, protocol, baseline score and game count, regularized baseline error,
-effective baseline, observation/improvement counters, finite improvement
+iteration, protocol, observed baseline score and game count, regularized baseline
+error, observation/improvement counters, finite improvement
 statistics, the shrunk offset, the regularized uncertainty and its
 `score_se_sum_sq` accumulator, and the bounded raw-score telemetry) and the
 bounded cross-Champion prior, plus the bounded decision-event schema (accepted
 fields, finite in-range numbers, candidate references, legal skip reasons, the
 baseline/exploration/transition/margin/weight fields, bounded provenance strings,
-no unexpected nested data). Version 6 additionally **requires** the complete
+no unexpected nested data). Version 7 additionally **requires** the complete
 Champion block, the `reward_semantics` field, the serialized prior and a `weights`
 history matching `rewards`; every weight must be within
 `[1, MAX_GAME_WEIGHT]`, the baseline and score uncertainty accumulators must be
-consistent with the improvement count, and a Champion protocol that disagrees
+consistent with the improvement count (including the mathematical upper bound
+`score_se_sum_sq <= count * MAX_SCORE_SE^2` and
+`uncertainty == sqrt(baseline_se^2 + score_se_sum_sq / count^2)`), the exploration
+marker must not exceed the lifetime observation count, a positive improvement
+count must have a baseline, and a Champion protocol that disagrees
 with the active evaluation is rejected. Missing or defaulted current-schema
 metadata is a controlled controller-state recovery, never a silent default that
 could change learning. The RNG is
@@ -415,9 +425,12 @@ so learned predictors are never adopted under a silently different exploration
 sequence. Historical schemas are migrated with explicit reward-semantics rules:
 versions 1-4 used absolute scores, so a fixed-opponent state keeps its predictors
 and a Champion state discards them (`reward_semantics_changed`); version 5 used
-baseline-relative improvement for every opponent, so a fixed-opponent state
-discards them while a Champion state is compatible and its uncertainty is
-replaced with the conservative regularized estimate. A legacy state with no
+improvement against the raw baseline for every opponent, so a fixed-opponent state
+discards them while a Champion state is compatible (its uncertainty is
+replaced with the conservative regularized estimate); version 6 used absolute
+scores for a fixed opponent but a shrunk baseline for a Champion, so a fixed
+state is compatible and a Champion state discards its predictors. A legacy state
+with no
 iteration metadata for its last change starts the conservative iteration dwell at
 the resume iteration. Unknown versions reset with `unsupported_state`. Accepted
 telemetry is JSON-serializable. Loading goes through the existing tensor-only

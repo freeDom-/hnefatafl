@@ -62,18 +62,16 @@ ALGORITHMS = ("off", "hypercontroller")
 #: and scores within-Champion improvement instead of raw win rates. Version 6
 #: corrects the reward semantics: fixed-opponent jobs keep the historical
 #: absolute-score reward (and their compatible predictors), while only an
-#: evolving Champion uses baseline-relative improvement, weighted by completed
-#: evaluation games and gated by a confidence margin. Earlier versions are
+#: evolving Champion uses baseline-relative improvement. Version 7 makes that
+#: improvement genuine: the reward is ``score - baseline_score`` against the
+#: observed baseline, so identical scores yield zero improvement, while the
+#: regularized baseline uncertainty still gates confidence. Earlier versions are
 #: migrated on load; unknown versions reset only the controller state.
-STATE_VERSION = 6
-COMPATIBLE_STATE_VERSIONS = (1, 2, 3, 4, 5, 6)
+STATE_VERSION = 7
+COMPATIBLE_STATE_VERSIONS = (1, 2, 3, 4, 5, 6, 7)
 #: Pseudo-count of the cross-Champion prior when shrinking a Champion's local
-#: calibration offset. One prior observation means a new Champion starts at the
-#: global mean and moves toward its own mean as evidence accumulates.
+#: calibration offset (diagnostic telemetry only; it never changes the reward).
 PRIOR_WEIGHT = 1.0
-#: Neutral score the first Champion baseline is shrunk toward, so one unusually
-#: high or low evaluation is never treated as a reliable reference.
-NEUTRAL_SCORE = 0.5
 #: Conservative uncertainty (in score units) used before a Champion has enough
 #: observations to estimate the spread of its improvements.
 DEFAULT_UNCERTAINTY = 0.5
@@ -95,8 +93,13 @@ EXPLORATION_DWELL = 2
 SCORE_SE_PRIOR_VAR = 0.25
 #: Pseudo-count of that weak prior.
 SCORE_SE_PSEUDO = 1.0
-#: The two reward representations a serialized state may use.
-REWARD_SEMANTICS = ("absolute", "baseline_relative")
+#: The current reward representations a serialized state may use: an absolute
+#: score for a fixed opponent, or genuine within-Champion improvement over the
+#: observed baseline for an evolving Champion.
+REWARD_SEMANTICS = ("absolute", "raw_relative")
+#: Internal migration label for version-6 state, whose reward was measured from a
+#: shrunk baseline and is therefore incompatible with the corrected definition.
+SHRUNK_RELATIVE = "shrunk_relative"
 #: Bound on the per-Champion raw-score telemetry kept for monitoring.
 MAX_SCORE_HISTORY = 64
 #: Maximum plausible per-evaluation score standard error (a single game).
@@ -196,7 +199,9 @@ MAX_PROVENANCE_TEXT = 200
 PROMOTION_KEYS = frozenset(
     {"iteration", "champion_iteration", "opponent_identity", "preserved_learning_rate"}
 )
-#: Accepted fields of the bounded per-Champion evaluation state.
+#: Accepted fields of the bounded per-Champion evaluation state. The reward zero
+#: point is the observed ``baseline_score``; ``baseline_se`` is its regularized
+#: uncertainty and never changes the reward.
 CHAMPION_KEYS = frozenset(
     {
         "identity",
@@ -205,7 +210,6 @@ CHAMPION_KEYS = frozenset(
         "baseline_score",
         "baseline_games",
         "baseline_se",
-        "effective_baseline",
         "baseline_iteration",
         "observations",
         "count",
@@ -218,6 +222,10 @@ CHAMPION_KEYS = frozenset(
         "last_score",
     }
 )
+#: Historical schemas 5 and 6 also carried a shrunken ``effective_baseline``. It
+#: is accepted (and ignored) so those states can be validated and migrated; it is
+#: never part of the corrected reward definition.
+LEGACY_CHAMPION_KEYS = CHAMPION_KEYS | {"effective_baseline"}
 #: Accepted fields of the cross-Champion improvement prior.
 PRIOR_KEYS = frozenset({"mean", "m2", "count"})
 
@@ -754,24 +762,26 @@ def _validate_prior(value: Any, *, required: bool = False) -> dict[str, Any]:
 
 
 def _validate_champion_state(
-    value: Any, protocol: str, *, strict: bool = False
+    value: Any, protocol: str, *, strict: bool = False, allow_legacy: bool = False
 ) -> dict[str, Any] | None:
     """Validate the per-Champion evaluation state, rejecting malformed entries.
 
     The block records which Champion the learned observations belong to, the
-    local baseline that turns raw scores into within-Champion improvements, the
-    regularized evaluation uncertainty and the shrunk calibration offset used for
-    telemetry. It never stores model tensors or arbitrary objects.
+    observed baseline that defines the reward's zero point, its regularized
+    uncertainty, and the calibration offset used for diagnostic telemetry. It
+    never stores model tensors or arbitrary objects.
 
     ``strict`` is set for the current schema, which always serializes every field
-    with a documented meaning. A strict block must carry exactly the documented
-    fields (no missing protocol or uncertainty metadata), so a corrupted current
-    state cannot silently fall back to defaults. Historical schemas keep the
-    lenient path and supply version-specific defaults instead.
+    with a documented meaning, so a strict block must carry exactly the documented
+    fields and its uncertainty accumulators must be internally consistent.
+    ``allow_legacy`` accepts the historical ``effective_baseline`` field so a
+    version-6 state can be validated and then discarded by the reward-semantics
+    migration.
     """
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) - CHAMPION_KEYS:
+    allowed = LEGACY_CHAMPION_KEYS if allow_legacy else CHAMPION_KEYS
+    if not isinstance(value, dict) or set(value) - allowed:
         raise ValueError("Controller Champion state is invalid")
     if strict and set(value) != CHAMPION_KEYS:
         raise ValueError("Controller Champion state is incomplete")
@@ -798,12 +808,11 @@ def _validate_champion_state(
     baseline_se = _finite_float(baseline_se)
     if not 0.0 <= baseline_se <= MAX_SCORE_SE:
         raise ValueError("Controller Champion baseline uncertainty is invalid")
-    effective_baseline = value.get("effective_baseline")
-    if effective_baseline is not None:
-        effective_baseline = _finite_float(effective_baseline)
-        if not 0.0 <= effective_baseline <= 1.0:
+    if "effective_baseline" in value and value.get("effective_baseline") is not None:
+        legacy_baseline = _finite_float(value.get("effective_baseline"))
+        if not 0.0 <= legacy_baseline <= 1.0:
             raise ValueError("Controller Champion effective baseline is invalid")
-    if baseline_score is None and (baseline_games != 0 or effective_baseline is not None):
+    if baseline_score is None and baseline_games != 0:
         raise ValueError("Controller Champion baseline metadata is inconsistent")
     baseline_iteration = _validate_optional_iteration(value.get("baseline_iteration"))
     observations = _validate_counter(value.get("observations", 0), "Champion observation")
@@ -838,13 +847,27 @@ def _validate_champion_state(
     minimum = count + (1 if baseline_score is not None else 0)
     if observations < minimum:
         raise ValueError("Controller Champion counters are inconsistent")
+    if count > 0 and baseline_score is None:
+        raise ValueError("Controller Champion improvements require a baseline")
     if count == 0 and (m2 != 0.0 or mean != 0.0 or score_se_sum_sq != 0.0):
         raise ValueError("Controller Champion improvement statistics are inconsistent")
-    if strict and count > 0 and score_se_sum_sq <= 0.0:
+    # Each per-evaluation standard error is at most ``MAX_SCORE_SE``, so the
+    # aggregate cannot exceed ``count * MAX_SCORE_SE^2``.
+    if score_se_sum_sq > count * MAX_SCORE_SE**2 + 1e-9:
         raise ValueError("Controller Champion score uncertainty is inconsistent")
-    if strict and count > 0 and baseline_score is not None and baseline_se <= 0.0:
-        # A scored baseline always carries a positive regularized uncertainty.
-        raise ValueError("Controller Champion baseline uncertainty is inconsistent")
+    if strict:
+        if count > 0 and score_se_sum_sq <= 0.0:
+            raise ValueError("Controller Champion score uncertainty is inconsistent")
+        if count > 0 and baseline_se <= 0.0:
+            # A scored baseline always carries a positive regularized uncertainty.
+            raise ValueError("Controller Champion baseline uncertainty is inconsistent")
+        # The baseline error only enters the mean-improvement uncertainty once at
+        # least one improvement exists; with no improvements the uncertainty is 0.
+        expected = (
+            math.sqrt(baseline_se**2 + score_se_sum_sq / (count * count)) if count > 0 else 0.0
+        )
+        if abs(uncertainty - expected) > 1e-6:
+            raise ValueError("Controller Champion uncertainty is inconsistent")
     return {
         "identity": identity,
         "promotion_iteration": promotion_iteration,
@@ -852,7 +875,6 @@ def _validate_champion_state(
         "baseline_score": baseline_score,
         "baseline_games": baseline_games,
         "baseline_se": baseline_se,
-        "effective_baseline": effective_baseline,
         "baseline_iteration": baseline_iteration,
         "observations": observations,
         "count": count,
@@ -1083,7 +1105,12 @@ class HyperController:
 
     @property
     def reward_semantics(self) -> str:
-        return "baseline_relative" if self.champion_aware else "absolute"
+        """The reward definition of the current run.
+
+        A fixed opponent keeps the absolute score; an evolving Champion uses
+        genuine within-Champion improvement over its observed baseline.
+        """
+        return "raw_relative" if self.champion_aware else "absolute"
 
     def _fresh_champion(
         self, identity: str | None, promotion_iteration: int | None
@@ -1096,7 +1123,6 @@ class HyperController:
             "baseline_score": None,
             "baseline_games": 0,
             "baseline_se": 0.0,
-            "effective_baseline": None,
             "baseline_iteration": None,
             "observations": 0,
             "count": 0,
@@ -1345,24 +1371,17 @@ class HyperController:
         regularized = (total * variance + SCORE_SE_PRIOR_VAR) / (total + SCORE_SE_PSEUDO)
         return min(MAX_SCORE_SE, math.sqrt(regularized / total))
 
-    def _shrunk_baseline(self, score: float, games: int) -> float:
-        """Shrink the first Champion score toward a neutral reference.
-
-        A single evaluation is a noisy reference for a whole generation. Weighting
-        it by its completed-game count against a neutral prior means an unusually
-        high or low one-game baseline cannot dominate the improvements that follow.
-        """
-        weight = max(0, games)
-        return (PRIOR_WEIGHT * NEUTRAL_SCORE + weight * score) / (PRIOR_WEIGHT + weight)
-
     def _ingest(
         self, iteration: int, raw: float, provenance: dict[str, Any]
     ) -> tuple[float | None, bool]:
         """Record one raw score and return ``(reward, baseline_only)``.
 
         A fixed opponent keeps the absolute score as the reward. A Champion uses
-        the improvement over its shrunk local baseline; the first observation
-        establishes that baseline and returns ``(None, True)``.
+        the genuine improvement ``score - baseline_score`` over the observed
+        baseline, so two identical scores yield exactly zero; the regularized
+        ``baseline_se`` only controls decision confidence and never changes the
+        reward. The first observation establishes the baseline and returns
+        ``(None, True)``.
         """
         champion = self.champion
         self.observations += 1
@@ -1379,15 +1398,13 @@ class HyperController:
                 champion["baseline_score"] = raw
                 champion["baseline_games"] = int(provenance.get("completed_games") or 0)
                 champion["baseline_se"] = self._score_se(provenance)
-                champion["effective_baseline"] = self._shrunk_baseline(
-                    raw, champion["baseline_games"]
-                )
                 champion["baseline_iteration"] = iteration
                 return None, True
-            reference = champion["effective_baseline"]
-            if reference is None:
-                reference = champion["baseline_score"]
-            reward = min(1.0, max(-1.0, raw - float(reference)))
+            # The observed baseline is the reward's zero point. An identical score
+            # yields exactly zero; a higher score yields positive improvement and a
+            # lower score negative improvement. The regularized baseline error is
+            # deliberately not subtracted here: it only widens the decision margin.
+            reward = min(1.0, max(-1.0, raw - float(champion["baseline_score"])))
             # Update the Champion's Welford statistics and its shrunk offset. The
             # offset is diagnostic: a constant cannot change the candidate ranking.
             count = champion["count"] + 1
@@ -1968,12 +1985,17 @@ class HyperController:
             last_promotion = _validate_promotion(state.get("last_promotion"), candidates)
             if bool(transitions) != bool(last_promotion):
                 raise ValueError("Controller transition counters are inconsistent")
-            if last_decision > observations or last_change > observations:
+            if (
+                last_decision > observations
+                or last_change > observations
+                or last_exploration > observations
+            ):
                 raise ValueError("Controller observation counters are inconsistent")
             events = _validate_events(state.get("events", []), candidates)
             rng = _restore_rng(state["rng"], seed)
-            if version >= 6:
-                # The current schema requires the complete structure.
+            if version >= 7:
+                # The current schema requires the complete structure and internally
+                # consistent uncertainty accumulators.
                 semantics = state.get("reward_semantics")
                 if semantics not in REWARD_SEMANTICS:
                     raise ValueError("Controller reward semantics are invalid")
@@ -1986,6 +2008,33 @@ class HyperController:
                     state.get("champion"), evaluation_identity, strict=True
                 )
                 if champion is None:
+                    raise ValueError("Controller version-7 state requires a Champion block")
+                if champion["protocol"] != evaluation_identity:
+                    raise ValueError("Controller Champion protocol does not match the evaluation")
+                prior = _validate_prior(state.get("prior"), required=True)
+                saved_active = _validate_champion_identity(state.get("active_champion_identity"))
+                if saved_active != champion["identity"]:
+                    raise ValueError("Controller Champion identity is inconsistent")
+            elif version == 6:
+                # Version 6 used absolute scores for a fixed opponent but a
+                # *shrunk* baseline for a Champion, so the stored label is not
+                # enough to identify the reward definition.
+                stored_semantics = state.get("reward_semantics")
+                if stored_semantics == "absolute":
+                    semantics = "absolute"
+                elif stored_semantics == "baseline_relative":
+                    semantics = SHRUNK_RELATIVE
+                else:
+                    raise ValueError("Controller reward semantics are invalid")
+                weights = _validate_number_list(state.get("weights"), MAX_REWARD_HISTORY, "weight")
+                if len(weights) != len(rewards):
+                    raise ValueError("Controller reward and weight histories disagree")
+                if any(not 1.0 <= item <= MAX_GAME_WEIGHT for item in weights):
+                    raise ValueError("Controller observation weight is invalid")
+                champion = _validate_champion_state(
+                    state.get("champion"), evaluation_identity, allow_legacy=True
+                )
+                if champion is None:
                     raise ValueError("Controller version-6 state requires a Champion block")
                 if champion["protocol"] != evaluation_identity:
                     raise ValueError("Controller Champion protocol does not match the evaluation")
@@ -1994,12 +2043,15 @@ class HyperController:
                 if saved_active != champion["identity"]:
                     raise ValueError("Controller Champion identity is inconsistent")
             else:
-                # Historical schema. Version 1-4 used absolute scores; version 5
-                # used baseline-relative improvement for every opponent.
-                semantics = "absolute" if version <= 4 else "baseline_relative"
+                # Historical schema. Versions 1-4 used absolute scores; version 5
+                # used baseline-relative improvement against the raw baseline for
+                # every opponent, which matches the corrected definition.
+                semantics = "absolute" if version <= 4 else "raw_relative"
                 weights = [1.0] * len(rewards)
                 champion = (
-                    _validate_champion_state(state.get("champion"), evaluation_identity)
+                    _validate_champion_state(
+                        state.get("champion"), evaluation_identity, allow_legacy=True
+                    )
                     if version == 5
                     else None
                 )
@@ -2010,11 +2062,6 @@ class HyperController:
                 )
                 saved_active = _validate_champion_identity(state.get("active_champion_identity"))
                 if champion is not None:
-                    if (
-                        champion["effective_baseline"] is None
-                        and champion["baseline_score"] is not None
-                    ):
-                        champion["effective_baseline"] = champion["baseline_score"]
                     if champion["protocol"] != evaluation_identity:
                         raise ValueError(
                             "Controller Champion protocol does not match the evaluation"
@@ -2070,7 +2117,7 @@ class HyperController:
             champion["observations"] = observations
             champion["offset"] = float(prior["mean"])
         controller.champion = champion
-        if version < 6:
+        if version < 7:
             controller.migrated_from = version
         if semantics != controller.reward_semantics:
             # The saved predictors were trained on a different reward
@@ -2087,7 +2134,7 @@ class HyperController:
                 identity=active_champion_identity, reason="champion_changed"
             )
         if (
-            version < 6
+            version < 7
             and controller.min_dwell_iterations > 0
             and controller.last_change_iteration is None
             and controller.changes > 0
