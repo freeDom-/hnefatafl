@@ -9,6 +9,7 @@ import {
   learningMetrics,
   learningChartRows,
   availableLearningMetrics,
+  recordedOptimizerUpdates,
   type LearningMetricKey,
 } from './trainingLearningData';
 import TrainingPerformance from './TrainingPerformance';
@@ -354,7 +355,7 @@ export function TrainingLearningView({
         )}
         <TrainingKpi
           label="Optimizer updates"
-          value={last?.updates ?? metrics.updates}
+          value={graphHistory.at(-1)?.updates ?? recordedOptimizerUpdates(metrics)}
           detail={t('Last completed iteration')}
         />
         {[

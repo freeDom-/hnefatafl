@@ -214,6 +214,14 @@ applies to every metric, including the lazily opened **View graph data** table.
 That one bounded table retains policy/value loss, replay positions and
 per-iteration optimizer updates, and adds the selected metric's exact values.
 
+Optimizer updates use the recorded per-iteration `updates` count, falling back
+to the legacy top-level `optimizer_updates` alias only if `updates` is invalid
+or absent. Valid counts are nonnegative safe integers, including zero; missing
+or invalid counts remain unknown. The KPI, metric availability, chart and table
+share this normalization without modifying imported rows. Cumulative optimizer
+diagnostics, such as Schedule-Free `completed_steps`, never supply this metric;
+counts are not inferred from adjacent iterations or configuration.
+
 Measured observations include replay positions, optimizer updates during the
 iteration, recorded training exposures and the optimizer base learning rate.
 **Learning rate (used)** belongs to the completed interval; **Learning rate

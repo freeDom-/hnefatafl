@@ -35,6 +35,11 @@ const graph = () => screen.getByRole('img');
 const tooltip = () => document.querySelector('.chart-tooltip');
 const paths = () =>
   [...graph().querySelectorAll('path')].map((path) => path.getAttribute('d') ?? '');
+const optimizerKpi = () =>
+  within(document.querySelector('.learning-kpis') as HTMLElement)
+    .getByText('Optimizer updates')
+    .closest('div')!
+    .querySelector('dd');
 async function table() {
   fireEvent.click(screen.getByText('View graph data'));
   return screen.findByRole('table', { name: 'Training history data' });
@@ -69,6 +74,175 @@ it('labels the selected job replay capacity separately from recorded replay occu
   expect(capacity.querySelector('dd')).toHaveTextContent('8,000');
   expect(capacity).toHaveTextContent('Selected job configuration; earlier iterations may differ.');
 });
+
+it.each([
+  { name: 'legacy count', fields: { optimizer_updates: 12 }, expected: 12 },
+  { name: 'modern count', fields: { updates: 4 }, expected: 4 },
+  {
+    name: 'current field precedence',
+    fields: { updates: 4, optimizer_updates: 6000 },
+    expected: 4,
+  },
+  { name: 'modern zero', fields: { updates: 0, optimizer_updates: 6000 }, expected: 0 },
+  { name: 'legacy zero', fields: { optimizer_updates: 0 }, expected: 0 },
+  { name: 'null fallback', fields: { updates: null, optimizer_updates: 3 }, expected: 3 },
+  { name: 'string fallback', fields: { updates: '4', optimizer_updates: 3 }, expected: 3 },
+  { name: 'nonfinite fallback', fields: { updates: NaN, optimizer_updates: 3 }, expected: 3 },
+  { name: 'negative fallback', fields: { updates: -1, optimizer_updates: 3 }, expected: 3 },
+  { name: 'fractional fallback', fields: { updates: 1.5, optimizer_updates: 3 }, expected: 3 },
+  { name: 'missing fields', fields: {}, expected: undefined },
+  { name: 'invalid string', fields: { optimizer_updates: '4' }, expected: undefined },
+  { name: 'invalid boolean', fields: { updates: true }, expected: undefined },
+  { name: 'invalid null', fields: { optimizer_updates: null }, expected: undefined },
+  { name: 'invalid negative', fields: { optimizer_updates: -1 }, expected: undefined },
+  { name: 'invalid fraction', fields: { optimizer_updates: 1.5 }, expected: undefined },
+  { name: 'invalid infinity', fields: { updates: Infinity }, expected: undefined },
+  {
+    name: 'unsafe integer',
+    fields: { updates: Number.MAX_SAFE_INTEGER + 1 },
+    expected: undefined,
+  },
+  {
+    name: 'invalid aliases',
+    fields: { updates: NaN, optimizer_updates: Infinity },
+    expected: undefined,
+  },
+  {
+    name: 'cumulative optimizer diagnostics',
+    fields: { optimizer: { completed_steps: 6000 } },
+    expected: undefined,
+  },
+])('normalizes $name without modifying imported history', ({ fields, expected }) => {
+  const source = Object.freeze({ iteration: 1, ...fields });
+  const original = { ...source };
+  const [row] = learningChartRows([source]);
+  expect(row.updates).toBe(expected);
+  expect(availableLearningMetrics([row]).has('updates')).toBe(expected !== undefined);
+  expect(row).not.toBe(source);
+  expect(source).toEqual(original);
+});
+
+it.each(['legacy', 'modern', 'mixed'] as const)(
+  'uses %s per-iteration counts consistently in the KPI, chart and lazy table',
+  async (format) => {
+    const rows: HistoryPoint[] = [
+      {
+        iteration: 1000,
+        ...(format === 'modern' ? { updates: 12345 } : { optimizer_updates: 12345 }),
+      },
+      {
+        iteration: 1001,
+        ...(format === 'legacy'
+          ? { optimizer_updates: 0 }
+          : format === 'modern'
+            ? { updates: 0 }
+            : { updates: 0, optimizer_updates: 6000 }),
+        optimizer: { completed_steps: 6000 },
+      },
+    ];
+    render(view(rows));
+    expect(optimizerKpi()).toHaveTextContent(/^0$/);
+    expect(screen.getByRole('option', { name: 'Optimizer updates' })).toBeEnabled();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    choose('updates');
+    expect(graph()).toHaveAccessibleName('Optimizer updates');
+    fireEvent.keyDown(graph(), { key: 'Home' });
+    expect(tooltip()).toHaveTextContent('Iteration 1000 · Optimizer updates: 12,345');
+    fireEvent.keyDown(graph(), { key: 'End' });
+    expect(tooltip()).toHaveTextContent('Iteration 1001 · Optimizer updates: 0');
+    const data = await table();
+    expect(within(data).getAllByRole('columnheader', { name: 'Optimizer updates' })).toHaveLength(
+      1,
+    );
+    const body = within(data).getAllByRole('row').slice(1);
+    expect(body.map((row) => row.lastElementChild?.textContent)).toEqual(['12,345', '0']);
+  },
+);
+
+it('keeps missing counts unknown until a recorded observation arrives, without carrying earlier counts forward', async () => {
+  const rows: HistoryPoint[] = [
+    { iteration: 1, updates: '4', optimizer_updates: -1, optimizer: { completed_steps: 6000 } },
+    { iteration: 2, updates: NaN, optimizer_updates: null },
+  ];
+  const component = render(view(rows));
+  expect(screen.getByRole('option', { name: 'Optimizer updates · Not recorded' })).toBeDisabled();
+  expect(optimizerKpi()).toHaveTextContent('—');
+  component.rerender(view([...rows, { iteration: 3, optimizer_updates: 7 }]));
+  expect(screen.getByRole('option', { name: 'Optimizer updates' })).toBeEnabled();
+  expect(optimizerKpi()).toHaveTextContent(/^7$/);
+  choose('updates');
+  fireEvent.keyDown(graph(), { key: 'Home' });
+  expect(tooltip()).toHaveTextContent('Iteration 1 · Optimizer updates: —');
+  fireEvent.keyDown(graph(), { key: 'End' });
+  expect(tooltip()).toHaveTextContent('Iteration 3 · Optimizer updates: 7');
+  const data = await table();
+  expect(
+    within(data)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.lastElementChild?.textContent),
+  ).toEqual(['—', '—', '7']);
+  component.rerender(view([...rows, { iteration: 3, optimizer_updates: 7 }, { iteration: 4 }]));
+  expect(optimizerKpi()).toHaveTextContent('—');
+  fireEvent.keyDown(graph(), { key: 'End' });
+  expect(tooltip()).toHaveTextContent('Iteration 4 · Optimizer updates: —');
+});
+
+it('preserves update counts and parameter boundaries across a resumed legacy/modern lineage and range changes', async () => {
+  const rows: HistoryPoint[] = [
+    { iteration: 999, optimizer_updates: 12 },
+    { iteration: 1000, optimizer_updates: 8 },
+    {
+      iteration: 1001,
+      updates: 4,
+      optimizer_updates: 4004,
+      training_parameters: { version: 1, batch_size: 128 },
+    },
+    { iteration: 1002, updates: 0, optimizer_updates: 4004, training_parameters_iteration: 1001 },
+  ];
+  const projected = learningChartRows(rows);
+  expect(projected.map((row) => row.updates)).toEqual([12, 8, 4, 0]);
+  expect(projected.map((row) => row.parameter_batch_size)).toEqual([
+    undefined,
+    undefined,
+    128,
+    128,
+  ]);
+  const component = render(view(rows));
+  choose('updates');
+  fireEvent.keyDown(graph(), { key: 'Home' });
+  expect(tooltip()).toHaveTextContent('Iteration 999 · Optimizer updates: 12');
+  fireEvent.keyDown(graph(), { key: 'ArrowRight' });
+  expect(tooltip()).toHaveTextContent('Iteration 1000 · Optimizer updates: 8');
+  fireEvent.keyDown(graph(), { key: 'ArrowRight' });
+  expect(tooltip()).toHaveTextContent('Iteration 1001 · Optimizer updates: 4');
+  component.rerender(view(rows, 2));
+  expect(screen.getByLabelText('Learning metric')).toHaveValue('updates');
+  fireEvent.keyDown(graph(), { key: 'Home' });
+  expect(tooltip()).toHaveTextContent('Iteration 1001 · Optimizer updates: 4');
+  const data = await table();
+  expect(within(data).getAllByRole('row')).toHaveLength(3);
+  expect(
+    within(data)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.lastElementChild?.textContent),
+  ).toEqual(['4', '0']);
+});
+
+it.each([
+  { metrics: { optimizer_updates: 7 }, expected: '7' },
+  { metrics: { updates: 0, optimizer_updates: 6000 }, expected: '0' },
+  { metrics: { updates: null, optimizer_updates: 0 }, expected: '0' },
+  { metrics: { updates: -1, optimizer_updates: '4' }, expected: '—' },
+  { metrics: { optimizer: { completed_steps: 6000 } }, expected: '—' },
+])(
+  'normalizes latest-metrics KPI fallback without borrowing cumulative diagnostics: $expected',
+  ({ metrics, expected }) => {
+    render(<TrainingLearningView progress={{ metrics }} history={[]} range={0} />);
+    expect(optimizerKpi()).toHaveTextContent(expected);
+  },
+);
 
 it('switches every recorded metric, title, series, unit, description and exact tooltip', () => {
   render(view());

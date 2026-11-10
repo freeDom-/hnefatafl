@@ -1,4 +1,4 @@
-import { finite, object, type HistoryPoint } from './trainingDashboardData';
+import { finite, object, type HistoryPoint, type Values } from './trainingDashboardData';
 import { policySeries, type ChartSeries } from './TrainingMetricChart';
 
 /** Version-1 whitelist and bounds mirror training_parameters.py. No job-config fallback. */
@@ -224,6 +224,17 @@ const parameterColumns = (parameters: Parameters) =>
   Object.fromEntries(parameterKeys.map((key) => [`parameter_${key}`, parameters[key]]));
 const missingParameterColumns = parameterColumns({});
 
+const recordedUpdateCount = (value: unknown): number | undefined =>
+  finite(value) && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+
+/**
+ * The historical top-level alias describes this iteration, just like updates.
+ * Prefer the current field, including zero. Never use cumulative optimizer
+ * diagnostics (such as Schedule-Free completed_steps) or infer missing counts.
+ */
+export const recordedOptimizerUpdates = (row: Values | undefined): number | undefined =>
+  recordedUpdateCount(row?.updates) ?? recordedUpdateCount(row?.optimizer_updates);
+
 /**
  * One linear pass over the complete chronological lineage, before range filtering.
  * A row's small numeric reference proves which snapshot its worker used. Rows
@@ -247,6 +258,7 @@ export function learningChartRows(history: HistoryPoint[]): HistoryPoint[] {
       ...row,
       // Include missing columns too: imported columns never establish provenance.
       ...(recorded ? columns : missingParameterColumns),
+      updates: recordedOptimizerUpdates(row),
       training_exposures: object(row.performance)?.training_exposures,
     };
   });

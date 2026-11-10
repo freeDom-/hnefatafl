@@ -78,6 +78,53 @@ for (const mode of ['light', 'dark']) {
   });
 }
 
+test('legacy and resumed optimizer-update counts share the KPI, selectable chart and localized table', async ({
+  page,
+}) => {
+  const job = {
+    ...workshopFixture('legacy-optimizer-updates', 6, 'completed'),
+    progress: {
+      history: [
+        { iteration: 1, optimizer_updates: 12345 },
+        { iteration: 2, optimizer_updates: 0 },
+        { iteration: 3, updates: 4, optimizer_updates: 6000 },
+        { iteration: 4, updates: null, optimizer_updates: 7 },
+        { iteration: 5, optimizer: { completed_steps: 6000 } },
+        { iteration: 6, updates: 0, optimizer_updates: 6000 },
+      ],
+    },
+  };
+  await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: [job] }));
+  await open(page);
+  await page.getByRole('tab', { name: 'Learning', exact: true }).click();
+  await expect(page.locator('.training-history table')).toHaveCount(0);
+  await expect(page.getByRole('option', { name: 'Optimizer updates', exact: true })).toBeEnabled();
+  await page.getByLabel('Learning metric', { exact: true }).selectOption('updates');
+  await page.getByText('View graph data', { exact: true }).click();
+  for (const language of ['en', 'de']) {
+    await page.locator('.language-select select').selectOption(language);
+    const label = language === 'en' ? 'Optimizer updates' : 'Optimierungsschritte';
+    const chart = page.getByRole('img', { name: label, exact: true });
+    await expect(
+      page
+        .locator('.learning-kpis .training-kpi')
+        .filter({ has: page.getByText(label, { exact: true }) })
+        .locator('dd'),
+    ).toHaveText('0');
+    const values = [language === 'en' ? '12,345' : '12.345', '0', '4', '7', '—', '0'];
+    const rows = page.locator('.training-history table tbody tr');
+    await chart.focus();
+    await chart.press('Home');
+    for (let index = 0; index < values.length; index++) {
+      if (index) await chart.press('ArrowRight');
+      await expect(page.locator('.chart-tooltip')).toHaveText(
+        `Iteration ${index + 1} · ${label}: ${values[index]}`,
+      );
+      await expect(rows.nth(index).getByRole('cell').last()).toHaveText(values[index]);
+    }
+  }
+});
+
 test('tiny weight decay uses its own scale and exact localized values', async ({ page }) => {
   const job = {
     ...workshopFixture('tiny-weight-decay', 2, 'completed'),
