@@ -431,7 +431,11 @@ being validated). This implementation is intentionally conservative.
 
 The measured controller overhead on a tiny CPU smoke budget is recorded in the
 [online adaptation benchmark](../benchmarks/online-hyperparameter-adaptation.md)
-(~0.05 ms per decision, negligible against the evaluation it reads).
+(~0.05 ms per decision, negligible against the evaluation it reads). The synthetic
+[Champion-adaptation benchmark](../benchmarks/champion-adaptation.md) compares a
+fixed rate, the original destructive reset and the persistent transition under
+frequent promotions; it measures controller CPU overhead, state size, rate churn
+and evidence retention, and explicitly makes no strength claim.
 
 The controller only adds a bounded decision at evaluation boundaries, so compare
 equal-budget runs and report the controller overhead separately:

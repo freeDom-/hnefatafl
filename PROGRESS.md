@@ -31,7 +31,9 @@ a legacy change with no iteration metadata starts the conservative iteration dwe
 at resume. Adds `adaptation_min_dwell_iterations`, the EN/DE monitoring and
 tooltip updates, the `hyper_adaptation_state_versions` worker capability and
 controller tests for the baseline, weighting, confidence margin, migration, dwell
-and validation paths. This is not a strength claim: no held-out strength
+and validation paths, plus a synthetic [Champion-adaptation benchmark](docs/benchmarks/champion-adaptation.md)
+that compares a fixed rate, the original reset and the persistent transition under
+frequent promotions. This is not a strength claim: no held-out strength
 evaluation was run.
 
 ## Online milestone phases (unreleased)
