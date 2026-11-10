@@ -1,0 +1,59 @@
+{
+  "iterations": 1500,
+  "segments": [
+    {
+      "iteration": 1,
+      "training_parameters": {
+        "version": 1,
+        "batch_size": 64,
+        "epochs": 4,
+        "mcts_iterations": 64,
+        "mcts_time_limit": 10.0,
+        "games": 64,
+        "replay_buffer_size": 12000,
+        "weight_decay": 0.0,
+        "exploration": 1.4,
+        "temperature": 1.0,
+        "dirichlet_alpha": 0.3,
+        "dirichlet_fraction": 0.25,
+        "max_game_plies": 300
+      }
+    },
+    {
+      "iteration": 1001,
+      "training_parameters": {
+        "version": 1,
+        "batch_size": 128,
+        "epochs": 4,
+        "mcts_iterations": 128,
+        "mcts_time_limit": 10.0,
+        "games": 64,
+        "replay_buffer_size": 12000,
+        "weight_decay": 0.0,
+        "exploration": 1.4,
+        "temperature": 1.0,
+        "dirichlet_alpha": 0.3,
+        "dirichlet_fraction": 0.25,
+        "max_game_plies": 300
+      }
+    },
+    {
+      "iteration": 1251,
+      "training_parameters": {
+        "version": 1,
+        "batch_size": 128,
+        "epochs": 4,
+        "mcts_iterations": 256,
+        "mcts_time_limit": 10.0,
+        "games": 64,
+        "replay_buffer_size": 12000,
+        "weight_decay": 0.0,
+        "exploration": 1.4,
+        "temperature": 1.0,
+        "dirichlet_alpha": 0.3,
+        "dirichlet_fraction": 0.25,
+        "max_game_plies": 300
+      }
+    }
+  ]
+}

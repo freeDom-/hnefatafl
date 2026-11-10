@@ -1948,6 +1948,10 @@ def test_history_attributes_each_iteration_to_the_rate_that_trained_it(tmp_path)
     # distinct and the reported loss is not associated with the next rate.
     assert any(point["learning_rate"] != point["effective_learning_rate"] for point in history)
     assert result["adaptation"]["effective_learning_rate"] == history[-1]["effective_learning_rate"]
+    events = [point for point in history if "training_parameters" in point]
+    assert len(events) == 1
+    assert "learning_rate" not in events[0]["training_parameters"]
+    assert all(point["training_parameters_iteration"] == 1 for point in history)
 
 
 # ── Bounded decision history ─────────────────────────────────────────────────

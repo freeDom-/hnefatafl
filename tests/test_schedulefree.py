@@ -346,14 +346,24 @@ def test_completed_iteration_continuation_preserves_full_state_and_history(tmp_p
     assert group["k"] == 4 and group["warmup_steps"] == 13
     assert group["weight_sum"] > 0 and group["lr_max"] > 0
 
-    # Runtime/timing measurements are intentionally excluded; every learning
-    # and evaluation field, including paired seeds and scores, must match.
+    # Timing and execution-boundary provenance differ between a continuous run
+    # and a resume. Every numerical learning/evaluation field still matches.
+    whole_events = [row for row in uninterrupted["history"] if "training_parameters" in row]
+    split_events = [row for row in continued["history"] if "training_parameters" in row]
+    assert [row["iteration"] for row in whole_events] == [1]
+    assert [row["iteration"] for row in split_events] == [1, 2]
+    assert all(
+        row["training_parameters"] == whole_events[0]["training_parameters"] for row in split_events
+    )
+
     def learning(value):
         if isinstance(value, dict):
             return {
                 k: learning(v)
                 for k, v in value.items()
-                if k != "performance" and "duration" not in k and not k.endswith("seconds")
+                if k not in {"performance", "training_parameters", "training_parameters_iteration"}
+                and "duration" not in k
+                and not k.endswith("seconds")
             }
         if isinstance(value, list):
             return [learning(v) for v in value]
