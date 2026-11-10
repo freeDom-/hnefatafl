@@ -1,12 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { notify } from './notifications';
-import type { Advisor, AnalyticsSettings } from './analysisTypes';
+import {
+  DEFAULT_NEURAL_MCTS_ITERATIONS,
+  MAX_ANALYTICS_MCTS_ITERATIONS,
+  type Advisor,
+  type AnalyticsSettings,
+} from './analysisTypes';
 import type { AIProfile, Game, Model } from './types';
 import { selectStrongestModel } from './modelSelection';
 import { useI18n } from './i18n';
 import { modelLabel } from './modelLabel';
 import { profileConfiguration } from './profileConfiguration';
 import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
+import { FieldLabel } from './FieldTooltip';
 
 export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: string) {
   const options: { id: string; label: string; rune?: string; advisor: Advisor }[] = profiles
@@ -36,11 +42,105 @@ export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: 
       advisor: {
         name: model.name,
         profile_id: neural?.id ?? 'neural',
-        config: { ...neural?.parameters, algorithm: 'neural', model_id: model.id },
+        config: {
+          ...neural?.parameters,
+          algorithm: 'neural',
+          model_id: model.id,
+          iterations: DEFAULT_NEURAL_MCTS_ITERATIONS,
+        },
       },
     });
   }
   return options;
+}
+
+function MctsIterationsField({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const { t } = useI18n();
+  const id = useId();
+  const [input, setInput] = useState(String(value));
+  const field = useRef<HTMLInputElement>(null);
+  const dirty = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const latest = useRef({ value, onChange });
+  latest.current = { value, onChange };
+  useEffect(() => {
+    if (!dirty.current) setInput(String(value));
+  }, [value]);
+  // Navigation/selection changes discard an uncommitted draft instead of
+  // writing the old advisor's value after a different advisor has been selected.
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const commit = () => {
+    clearTimeout(timer.current);
+    if (!dirty.current) return;
+    const control = field.current;
+    if (!control?.validity.valid || !Number.isInteger(control.valueAsNumber)) return;
+    dirty.current = false;
+    if (control.valueAsNumber !== latest.current.value)
+      latest.current.onChange(control.valueAsNumber);
+  };
+  const next = Number(input);
+  const valid =
+    input !== '' && Number.isInteger(next) && next >= 1 && next <= MAX_ANALYTICS_MCTS_ITERATIONS;
+  return (
+    <div className="training-field">
+      <FieldLabel
+        htmlFor={id}
+        label="MCTS Iterations"
+        tooltip="Number of MCTS simulations per analyzed position. Higher values generally provide stronger search and more reliable move evaluations, but increase computation time. The maximum search time can stop a search before all simulations finish."
+      />
+      <input
+        id={id}
+        ref={field}
+        type="number"
+        min={1}
+        max={MAX_ANALYTICS_MCTS_ITERATIONS}
+        step={1}
+        required
+        value={input}
+        aria-invalid={!valid || undefined}
+        aria-describedby={!valid ? `${id}-error` : undefined}
+        onChange={(event) => {
+          const input = event.currentTarget;
+          dirty.current = true;
+          setInput(input.value);
+          clearTimeout(timer.current);
+          if (input.validity.valid && Number.isInteger(input.valueAsNumber))
+            timer.current = setTimeout(commit, 600);
+        }}
+        onBlur={(event) => {
+          // Native blur precedes the select's change event. Abandon this
+          // owner's draft before a replacement can queue a settings write.
+          if (
+            event.relatedTarget instanceof HTMLElement &&
+            event.relatedTarget.closest('[data-advisor-selection]')
+          ) {
+            clearTimeout(timer.current);
+            dirty.current = false;
+            setInput(String(latest.current.value));
+            return;
+          }
+          commit();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {!valid && (
+        <p id={`${id}-error`} className="form-error" role="alert">
+          {t('Enter a whole number from 1 to {max}.', { max: MAX_ANALYTICS_MCTS_ITERATIONS })}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function AdvisorSelect({
@@ -113,6 +213,11 @@ export function AnalyticsSettingsPanel({
         ? `model:${advisor.config.model_id}`
         : `profile:${advisor.profile_id}`;
   const custom = value === 'custom';
+  const neuralMcts =
+    !!advisor &&
+    ((advisor.config.algorithm === 'neural' &&
+      (advisor.config.search_wrapper ?? 'mcts') === 'mcts') ||
+      (advisor.config.algorithm === 'mcts' && !!advisor.config.model_id));
   const compatibleModels = models.filter((model) => model.ruleset === game.ruleset);
   const update = (next: Partial<AnalyticsSettings>) => void onChange({ ...settings, ...next });
   const updateConfig = (key: string, input: string | number) => {
@@ -123,8 +228,10 @@ export function AnalyticsSettingsPanel({
       delete config.heuristic_version;
       delete config.heuristic;
       delete config.model_id;
-      if (input === 'neural')
+      if (input === 'neural') {
         config.model_id = selectStrongestModel(models, game.ruleset)?.model.id ?? '';
+        config.iterations = DEFAULT_NEURAL_MCTS_ITERATIONS;
+      }
     }
     update({ advisor: { ...advisor, config } });
   };
@@ -150,7 +257,11 @@ export function AnalyticsSettingsPanel({
       <h2>{t('Analytics')}</h2>
       <label>
         {t('Move advisor')}
-        <select value={value} onChange={(event) => choose(event.target.value)}>
+        <select
+          data-advisor-selection
+          value={value}
+          onChange={(event) => choose(event.target.value)}
+        >
           <option value="">{t('None')}</option>
           <option value="custom">{t('Custom move advisor')}</option>
           {value && value !== 'custom' && !options.some((option) => option.id === value) && (
@@ -179,12 +290,20 @@ export function AnalyticsSettingsPanel({
           }}
         />
       </label>
+      {neuralMcts && advisor && (
+        <MctsIterationsField
+          key={`${game.id}:${value}:${advisor.config.model_id}:${advisor.config.algorithm}:${advisor.config.search_wrapper ?? 'mcts'}`}
+          value={Number(advisor.config.iterations ?? DEFAULT_NEURAL_MCTS_ITERATIONS)}
+          onChange={(next) => updateConfig('iterations', next)}
+        />
+      )}
       {custom && advisor && (
         <fieldset className="advisor-custom-fields">
           <legend>{t('Custom move advisor')}</legend>
           <label>
             {t('Algorithm')}
             <select
+              data-advisor-selection
               value={String(advisor.config.algorithm ?? 'baseline')}
               onChange={(event) => updateConfig('algorithm', event.target.value)}
             >
@@ -218,16 +337,18 @@ export function AnalyticsSettingsPanel({
           )}
           {['mcts', 'neural'].includes(String(advisor.config.algorithm)) && (
             <>
-              <label>
-                {t('Search iterations')}
-                <input
-                  type="number"
-                  min="1"
-                  max="5000"
-                  value={Number(advisor.config.iterations ?? 5000)}
-                  onChange={(event) => updateConfig('iterations', Number(event.target.value))}
-                />
-              </label>
+              {advisor.config.algorithm === 'mcts' && !neuralMcts && (
+                <label>
+                  {t('Search iterations')}
+                  <input
+                    type="number"
+                    min="1"
+                    max="5000"
+                    value={Number(advisor.config.iterations ?? 5000)}
+                    onChange={(event) => updateConfig('iterations', Number(event.target.value))}
+                  />
+                </label>
+              )}
               <label>
                 {t('Exploration')}
                 <input
@@ -256,6 +377,7 @@ export function AnalyticsSettingsPanel({
             <label>
               {t('Trained model')}
               <select
+                data-advisor-selection
                 value={String(advisor.config.model_id ?? '')}
                 onChange={(event) => updateConfig('model_id', event.target.value)}
               >

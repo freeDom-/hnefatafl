@@ -486,3 +486,188 @@ def test_restart_retains_current_analytics_preferences_with_new_search_seed(clie
     assert current["time_limit"] == 3 and current["show_win_chances"] is False
     assert current["advisor"]["name"] == previous["advisor"]["name"]
     assert current["advisor"]["config"]["seed"] == restarted["seed"] != game["seed"]
+
+
+@pytest.fixture
+def neural_advisor(client, tmp_path):
+    checkpoint = save_checkpoint(tmp_path / "advisor.pt", PolicyValueNet("brandubh", 4, 0), {})
+    model = ModelRegistry(client.app.state.data_dir / "models").register(checkpoint)
+    return {"profile_id": "neural", "config": {"model_id": model["id"]}}
+
+
+@pytest.mark.parametrize("iterations", [None, 128, 1024, 2048, 4096, 5000])
+@pytest.mark.parametrize("time_limit", [0.05, 5, 15])
+def test_neural_analytics_budget_reaches_mcts_at_each_position(
+    client, neural_advisor, monkeypatch, iterations, time_limit
+):
+    calls = []
+
+    def search(state, config, *, diagnostics, progress, should_stop=None):
+        calls.append((state.ply, config["iterations"], config["time_limit"]))
+        move = legal_moves(state)[0]
+        diagnostics.update(value=0.25, simulations=config["iterations"])
+        progress(ai.analysis_from_search(state, config, move, diagnostics))
+        return {move: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    if iterations is not None:
+        neural_advisor["config"]["iterations"] = iterations
+    budget = iterations if iterations is not None else 1024
+    game = create(client)
+    chosen = settings(client, game, neural_advisor, time_limit=time_limit)
+    assert chosen["advisor"]["config"]["iterations"] == budget
+    # Each position gets its own budget, including read-only replay requests.
+    game = move(client, move(client, game))
+    for cursor in (0, 1, 2):
+        request = {
+            "version": game["version"],
+            "cursor": cursor,
+            "background": True,
+            "historical": True,
+        }
+        path = f"/api/games/{game['id']}/analysis"
+        final = wait_for(
+            lambda: (
+                result
+                if (result := client.post(path, json=request).json())["status"] == "complete"
+                else None
+            )
+        )
+        entry = final["evaluations"][0]
+        assert entry["config"]["iterations"] == entry["simulations"] == budget
+        assert entry["search_seed"] == 51 + cursor
+        assert final["advisor_revision"] == chosen["revision"]
+    assert calls == [(cursor, budget, time_limit) for cursor in (0, 1, 2)]
+    loaded = client.get(f"/api/games/{game['id']}").json()
+    assert loaded["cursor"] == 2 and loaded["analytics"] == chosen
+    # The shared gameplay/tournament neural profile still supplies its original budget.
+    assert (
+        ai.resolve_ai_config({"model_id": neural_advisor["config"]["model_id"]}, "neural")[
+            "iterations"
+        ]
+        == 40
+    )
+
+
+@pytest.mark.parametrize("iterations", [0, -1, 5001, 1.5, True, None, "1024"])
+def test_neural_analytics_rejects_invalid_iterations(client, neural_advisor, iterations):
+    game = create(client)
+    neural_advisor["config"]["iterations"] = iterations
+    response = client.put(f"/api/games/{game['id']}/analytics", json={"advisor": neural_advisor})
+    assert response.status_code == 400, response.text
+    assert "iterations" in response.json()["detail"]
+    assert client.app.state.store.analytics(game["id"]) is None
+
+
+@pytest.mark.parametrize("algorithm", ["neural", "mcts"])
+def test_neural_analytics_default_also_applies_without_a_profile(client, neural_advisor, algorithm):
+    game = create(client)
+    neural_advisor.pop("profile_id")
+    neural_advisor["config"]["algorithm"] = algorithm
+    assert settings(client, game, neural_advisor)["advisor"]["config"]["iterations"] == 1024
+    assert settings(client, game, {"profile_id": "mcts"})["advisor"]["config"]["iterations"] == 5000
+
+
+def test_synchronous_analytics_uses_current_saved_budget_and_invalidates_cached_advice(
+    client, neural_advisor, monkeypatch
+):
+    calls = []
+
+    def search(state, config, *, diagnostics, **_kwargs):
+        calls.append(config["iterations"])
+        diagnostics.update(value=0.25, simulations=config["iterations"])
+        return {legal_moves(state)[0]: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    game = create(client)
+    path = f"/api/games/{game['id']}/analysis"
+    for budget in (1024, 4096):
+        if budget != 1024:
+            neural_advisor["config"]["iterations"] = budget
+        selected = settings(client, game, neural_advisor)
+        response = client.post(path, json={"version": 0, "cursor": 0})
+        assert response.status_code == 200, response.text
+        assert response.json()["advisor_revision"] == selected["revision"]
+        assert response.json()["evaluations"][0]["simulations"] == budget
+        assert client.post(path, json={"version": 0, "cursor": 0}).json() == response.json()
+        # Changing the time window preserves the saved iteration count.
+        advisor = selected["advisor"]
+        changed = settings(
+            client,
+            game,
+            {key: advisor[key] for key in ("name", "profile_id", "config")},
+            time_limit=15,
+        )
+        assert changed["advisor"]["config"]["iterations"] == budget
+    assert calls == [1024, 4096]
+
+
+def test_large_neural_search_publishes_progress_and_cancels_when_budget_changes(
+    client, neural_advisor, monkeypatch
+):
+    entered, release = threading.Event(), threading.Event()
+    finished = []
+
+    def search(state, config, *, diagnostics, progress, **_kwargs):
+        selected = legal_moves(state)[0]
+        diagnostics.update(value=0.25, simulations=1)
+        if config["iterations"] == 2048:
+            progress(ai.analysis_from_search(state, config, selected, diagnostics))
+            entered.set()
+            assert release.wait(5)
+            # The existing progress observer must interrupt superseded searches.
+            diagnostics["simulations"] = 2
+            progress(ai.analysis_from_search(state, config, selected, diagnostics))
+        finished.append(config["iterations"])
+        diagnostics["simulations"] = config["iterations"]
+        return {selected: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    game = create(client)
+    neural_advisor["config"]["iterations"] = 2048
+    old = settings(client, game, neural_advisor, time_limit=15)
+    try:
+        analyze(client, game)
+        assert entered.wait(5)
+        partial = analyze(client, game)
+        assert partial["status"] == "pending"
+        assert partial["evaluations"][0]["simulations"] == 1
+        # Gameplay and the second worker remain available during expensive work.
+        game = move(client, game)
+        neural_advisor["config"]["iterations"] = 4096
+        new = settings(client, game, neural_advisor, time_limit=15)
+        final = complete(client, game)
+        assert final["advisor_revision"] == new["revision"] > old["revision"]
+        assert final["evaluations"][0]["simulations"] == 4096
+    finally:
+        release.set()
+    wait_for(lambda: not client.app.state.analyses.tasks)
+    assert finished == [4096]
+    assert complete(client, game) == final
+
+
+def test_neural_analytics_reuses_loaded_checkpoint_across_positions(
+    client, neural_advisor, monkeypatch
+):
+    from hnefatafl import models
+
+    game = create(client)
+    neural_advisor["config"]["iterations"] = 2
+    settings(client, game, neural_advisor)
+    original = models.load_checkpoint
+    loads = []
+
+    def load(*args, **kwargs):
+        loads.append(args[0])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(models, "load_checkpoint", load)
+    ai._loaded_model.cache_clear()
+    try:
+        for _ in range(2):
+            entry = complete(client, game)["evaluations"][0]
+            assert entry["source"] == "neural_search" and entry["simulations"] == 2
+            game = move(client, game)
+        assert len(loads) == 1
+    finally:
+        ai._loaded_model.cache_clear()

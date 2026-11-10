@@ -162,6 +162,7 @@
   margin: 7px 0 16px;
 }
 .analytics-settings > label,
+.analytics-settings > .training-field,
 .advisor-custom-fields > label {
   display: grid;
   gap: 6px;

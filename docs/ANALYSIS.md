@@ -36,6 +36,22 @@ advisors use MCTS by default. API clients can set `search_wrapper` in the adviso
 configuration, and playing-agent reports honor the wrapper selected for that agent.
 New-game setup no longer contains advisor settings.
 
+Neural MCTS advisors expose **MCTS Iterations**, defaulting to **1024**.
+This is a per-position simulation budget, independent of the selected maximum
+search time. Positive integers from **1 to 5000** are accepted, including 2048
+and 4096. Higher budgets generally allow stronger search but take longer; the
+time limit may stop a search before it completes all simulations. Changing the
+search time, moving through replay or reloading retains the saved iteration count.
+The input keeps a local draft and saves a valid value after 600 ms without typing,
+or immediately on blur or Enter. Rapid edits produce one settings revision.
+Invalid drafts are never saved. Unmounting the control or changing the game/advisor
+discards any draft that has not yet been committed.
+Focusing an advisor, algorithm or model selector also discards the pending draft
+and cancels its timer before the selector changes. Blurring into another setting
+still commits a valid value; Enter commits before a subsequent advisor switch.
+Policy-only and neural alpha-beta advisors do not expose this MCTS control.
+Playing agents, training, evaluation and tournament budgets keep their own defaults.
+
 Advisor search runs on a bounded background executor, separate from gameplay
 requests. Completed alpha-beta depths and MCTS checkpoints update the suggested
 move and its winning-chance estimate. Changing advisor settings starts a new
@@ -82,14 +98,56 @@ value-head source label rather than being retroactively rewritten as search resu
 - `GET /api/games/{id}/analytics` returns `advisor`, `time_limit`,
   `show_win_chances` and an independent settings `revision`.
 - `PUT /api/games/{id}/analytics` saves those settings without changing the
-  gameplay version or moves.
+  gameplay version or moves. Set the neural MCTS budget in the existing
+  `advisor.config.iterations` field, for example:
+
+  ```json
+  {
+    "advisor": {
+      "profile_id": "neural",
+      "config": { "model_id": "registered-model-id", "iterations": 4096 }
+    },
+    "time_limit": 15
+  }
+  ```
+
+  Omitted neural MCTS iteration budgets default to 1024. Explicit saved budgets
+  remain authoritative, including earlier values of 40. Invalid budgets are
+  rejected using the shared AI configuration validation. Updating the budget
+  creates a settings revision, cancelling superseded advisor work through the
+  existing progress observer. No database or checkpoint migration is required.
 - `POST /api/games/{id}/analysis` with `{ "version": ..., "cursor": ...,
   "background": true }` schedules missing work and returns immediately with the
   available position report, `status` (`pending` or `complete`) and
   `advisor_revision`. Poll the same request for progressive updates. The UI polls
   only while work remains pending and ignores obsolete position/settings replies.
+  HTTP 503 switches the UI to a capacity-waiting state while retaining available
+  partial estimates. Retries back off from 1 to 30 seconds, honor `Retry-After`
+  within those bounds, and return to normal polling after a successful response.
+  Only one poll is active at a time; navigation, position or settings changes
+  cancel the old request and retry timer. Other errors retain manual retry.
 - The older synchronous analysis request remains available to existing API
-  clients. The game UI uses background requests and actual-move diagnostics.
+  clients and honors saved advisor settings/revisions, including an
+  `advisor_revision` in responses when preferences have been saved. It joins
+  the same advisor task as a background request for that game, position and
+  revision, or reuses its completed report. Synchronous requests at earlier
+  replay cursors remain read-only; request explicit historical background
+  analysis to generate a new advisor opinion there. The game UI uses background
+  requests and actual-move diagnostics.
+
+Two analysis workers share a maximum of 16 running/queued tasks. Excess work
+returns HTTP 503 with `Retry-After: 1`. At most eight synchronous callers can
+wait for those shared tasks at once, leaving request workers available for
+gameplay. Additional waiters receive the same retryable response; completed
+cached advice remains readable. A synchronous wait is limited to 20 seconds;
+timeout returns the same retryable status without cancelling shared work.
+A disconnected caller likewise does not own the shared search's lifetime.
+Superseded queued work keeps its bounded slot until a worker drains it, then
+checks its revision/position before evaluating. Shutdown cancels queued tasks
+and running workers stop cooperatively through the existing progress observer.
+An individual model inference cannot be forcibly interrupted. Once an advisor
+report completes, storage rejects replacement by late progress or another
+completion for the same position/revision.
 
 Game responses include saved `analysis` and `analytics`. Reloads, undo, redo and
 seeks recover retained reports. Player opinions are immutable per position and
