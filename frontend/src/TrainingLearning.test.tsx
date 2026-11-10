@@ -47,6 +47,24 @@ it('defaults to one loss chart with both existing series and no separate replay 
   expect(screen.getByText(/Lower loss means better fit/)).toBeInTheDocument();
 });
 
+it('labels the selected job replay capacity separately from recorded replay occupancy', () => {
+  render(
+    <TrainingLearningView
+      progress={{}}
+      history={history}
+      config={{ replay_buffer_size: 8000 }}
+      range={0}
+    />,
+  );
+  const kpis = document.querySelector('.learning-kpis') as HTMLElement;
+  expect(
+    within(kpis).getByText('Replay buffer positions').closest('div')?.querySelector('dd'),
+  ).toHaveTextContent('12,000');
+  const capacity = within(kpis).getByText('Replay buffer capacity').closest('div')!;
+  expect(capacity.querySelector('dd')).toHaveTextContent('8,000');
+  expect(capacity).toHaveTextContent('Selected job configuration; earlier iterations may differ.');
+});
+
 it('switches every recorded metric, title, series, unit, description and exact tooltip', () => {
   render(view());
   for (const metric of learningMetrics) {

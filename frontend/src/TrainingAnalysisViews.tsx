@@ -376,8 +376,10 @@ export function TrainingLearningView({
             <TrainingKpi
               key={key}
               label={
-                trainingNumberFields[key]?.[0] ??
-                (key === 'optimizer' ? 'Optimizer' : key.replaceAll('_', ' '))
+                key === 'replay_buffer_size'
+                  ? 'Replay buffer capacity'
+                  : (trainingNumberFields[key]?.[0] ??
+                    (key === 'optimizer' ? 'Optimizer' : key.replaceAll('_', ' ')))
               }
               value={
                 key === 'learning_rate' ? formatLearningRate(config![key], locale) : config![key]
