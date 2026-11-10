@@ -44,6 +44,7 @@ export const trainingNumberFields: Record<string, [string, number, number, numbe
   adaptation_cadence: ['Decide every (evaluations)', 1, 10000],
   adaptation_warmup: ['Warm-up evaluations', 0, 10000],
   adaptation_min_dwell: ['Minimum dwell (evaluations)', 1, 10000],
+  adaptation_min_dwell_iterations: ['Minimum dwell (iterations)', 0, 1000000],
   adaptation_lag: ['Observation history window', 1, 3],
   adaptation_min_trials: ['Minimum trials per candidate', 1, 100],
 };

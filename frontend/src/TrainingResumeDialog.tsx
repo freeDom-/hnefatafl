@@ -85,6 +85,7 @@ export default function TrainingResumeDialog({
     'adaptation_cadence',
     'adaptation_warmup',
     'adaptation_min_dwell',
+    'adaptation_min_dwell_iterations',
     'adaptation_lag',
     'adaptation_min_trials',
   ];

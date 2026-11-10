@@ -358,8 +358,19 @@ extra service. Workers advertise `hyper_adaptation` in their capabilities; a job
 with adaptation enabled is only assigned to (or accepted for) a worker that
 advertises it, and an administrator version override cannot bypass that gate.
 A Champion-adapted job (`adaptation` enabled with `evaluation_opponent: champion`)
-additionally requires the `hyper_adaptation_champion` capability, so a worker
-running an older fixed-opponent-only controller is never offered one; fixed-
+additionally requires the `hyper_adaptation_champion_transition` capability, so a
+worker running an older fixed-opponent-only controller, or the earlier
+reset-based Champion controller, is never offered one. Workers also advertise
+`hyper_adaptation_state_versions`; a resumed adapted job carries its checkpoint's
+controller schema version, and a worker whose advertised list does not include it
+is never offered the job, so an older worker cannot silently discard learned state
+through its own migration. A worker without the list is assumed to understand only
+versions 1-4, and a fresh job with no saved state is not gated on a version, so a
+legacy worker can still run a new fixed-opponent adapted job. Workers that
+implement the iteration-based dwell advertise `hyper_adaptation_iteration_dwell`;
+a job with a nonzero `adaptation_min_dwell_iterations` is rejected on a worker
+without it, while the inert zero default is omitted from that worker's transport
+so it never sees an unknown configuration key. Fixed-
 opponent adapted jobs stay compatible with those workers. Legacy resume transports
 omit the adaptation keys from the saved configuration, so a worker that cannot run
 the controller can never silently ignore it. The controller state travels inside

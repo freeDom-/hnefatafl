@@ -192,7 +192,7 @@ export default function EvaluationSettings({
       {config.adaptation === 'hypercontroller' && values.evaluation_opponent === 'champion' && (
         <p className="subtle">
           {t(
-            'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
+            'Each Champion promotion is an idempotent transition: the learned predictors, the dwell timers and the current learning rate are kept, and only the new Champion’s local baseline is refreshed, so raw scores from different Champions are never compared.',
           )}
         </p>
       )}

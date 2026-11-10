@@ -26,6 +26,7 @@ import urllib.parse
 import urllib.request
 from uuid import uuid4
 
+from .hyper_adaptation import COMPATIBLE_STATE_VERSIONS
 from .training_parameters import validated_parameters
 
 
@@ -792,6 +793,17 @@ def run_worker(
         # opponent with the controller, so it advertises the narrower capability
         # separately and is never offered a Champion-adapted job.
         "hyper_adaptation_champion": True,
+        # The persistent, Champion-aware controller keeps the learned predictors
+        # and dwell counters across promotions. A worker that only advertises the
+        # earlier reset-based Champion controller is not offered such a job.
+        "hyper_adaptation_champion_transition": True,
+        # The controller state schema versions this worker can read. A resume
+        # checkpoint with a newer version is never offered, so this worker's
+        # migration cannot silently discard the learned predictors.
+        "hyper_adaptation_state_versions": list(COMPATIBLE_STATE_VERSIONS),
+        # The iteration-based minimum dwell (adaptation_min_dwell_iterations).
+        # Older adapted workers reject the field, so it is advertised separately.
+        "hyper_adaptation_iteration_dwell": True,
     }
     results: list[dict] = []
     with (

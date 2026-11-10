@@ -88,6 +88,7 @@ TRAINING_FIELDS = {
     "adaptation_cadence",
     "adaptation_warmup",
     "adaptation_min_dwell",
+    "adaptation_min_dwell_iterations",
     "adaptation_lag",
     "adaptation_min_trials",
 }
@@ -101,6 +102,7 @@ ADAPTATION_FIELDS = frozenset(
         "adaptation_cadence",
         "adaptation_warmup",
         "adaptation_min_dwell",
+        "adaptation_min_dwell_iterations",
         "adaptation_lag",
         "adaptation_min_trials",
     }
@@ -142,6 +144,23 @@ def validate_inference_capabilities(capabilities: dict) -> None:
         and type(capabilities["hyper_adaptation_champion"]) is not bool
     ):
         fail("Invalid worker hyper_adaptation_champion capability.")
+    if (
+        "hyper_adaptation_champion_transition" in capabilities
+        and type(capabilities["hyper_adaptation_champion_transition"]) is not bool
+    ):
+        fail("Invalid worker hyper_adaptation_champion_transition capability.")
+    if (
+        "hyper_adaptation_iteration_dwell" in capabilities
+        and type(capabilities["hyper_adaptation_iteration_dwell"]) is not bool
+    ):
+        fail("Invalid worker hyper_adaptation_iteration_dwell capability.")
+    state_versions = capabilities.get("hyper_adaptation_state_versions")
+    if state_versions is not None and (
+        not isinstance(state_versions, list)
+        or len(state_versions) > 16
+        or any(type(item) is not int or not 1 <= item <= 1000 for item in state_versions)
+    ):
+        fail("Invalid worker hyper_adaptation_state_versions capability.")
     backends = capabilities.get("inference_backends", ["pytorch"])
     if (
         not isinstance(backends, list)
@@ -173,12 +192,32 @@ def validate_inference_capabilities(capabilities: dict) -> None:
             fail("Invalid worker OpenVINO runtime metadata.")
 
 
-def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
+#: Controller state schema versions a legacy worker (which does not advertise
+#: the capability) is assumed to understand. A worker that understands only these
+#: cannot safely resume a newer controller state, because its own migration would
+#: silently discard the learned predictors.
+LEGACY_ADAPTATION_STATE_VERSIONS = (1, 2, 3, 4)
+
+
+def worker_adaptation_state_versions(capabilities: dict) -> tuple[int, ...]:
+    """Schema versions the worker advertises, defaulting to the legacy set."""
+    versions = capabilities.get("hyper_adaptation_state_versions")
+    if not isinstance(versions, list) or not versions:
+        return LEGACY_ADAPTATION_STATE_VERSIONS
+    return tuple(item for item in versions if type(item) is int)
+
+
+def worker_incompatibility(
+    config: dict, capabilities: dict, state_version: int | None = None
+) -> str | None:
     """The first requested capability the worker does not advertise, if any.
 
     A worker that cannot run the controller must never be offered an adapted job,
     including through an administrator version override, so the reason names the
     missing capability instead of blaming the inference backend or device.
+    ``state_version`` is the controller state schema of a resume checkpoint; when
+    it is newer than the worker understands, the job must not be offered, because
+    the worker would silently discard the learned state.
     """
     if config.get("optimizer") == "adamw_schedulefree":
         if config.get("adaptation", "off") != "off":
@@ -195,12 +234,32 @@ def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
     if (
         config.get("adaptation", "off") != "off"
         and config.get("evaluation_opponent", "shield_bearer") == "champion"
-        and capabilities.get("hyper_adaptation_champion") is not True
+        and capabilities.get("hyper_adaptation_champion_transition") is not True
     ):
-        # A worker that only understands the fixed-opponent controller would
-        # reject the Champion objective, so it must not be offered the job even
-        # with an administrator version override active.
-        return "automatic hyperparameter updates with a Champion opponent"
+        # A worker that only understands the fixed-opponent controller, or the
+        # earlier reset-based Champion controller, cannot continue the persistent
+        # per-Champion state, so it must not be offered the job even with an
+        # administrator version override active.
+        return "automatic hyperparameter updates with a persistent Champion opponent"
+    if (
+        config.get("adaptation", "off") != "off"
+        and int(config.get("adaptation_min_dwell_iterations", 0) or 0) != 0
+        and capabilities.get("hyper_adaptation_iteration_dwell") is not True
+    ):
+        # An older worker does not implement the iteration-based dwell. A zero
+        # value is omitted from the transport (so the worker's default behavior is
+        # preserved), but a requested nonzero dwell must never be silently
+        # dropped, even through an administrator version override.
+        return "iteration-based controller dwell"
+    if (
+        config.get("adaptation", "off") != "off"
+        and state_version is not None
+        and state_version not in worker_adaptation_state_versions(capabilities)
+    ):
+        # The saved controller state uses a schema this worker cannot read. Its
+        # own migration would reset the learned predictors, so the job must not be
+        # offered even with an administrator version override active.
+        return f"controller state schema version {state_version}"
     if config.get("search_workers", 0) and capabilities.get("parallel_search") is not True:
         return "parallel search processes"
     if config.get("training_symmetry_mode", "off") not in capabilities.get(
@@ -235,8 +294,30 @@ def worker_incompatibility(config: dict, capabilities: dict) -> str | None:
     return None
 
 
-def worker_compatible(config: dict, capabilities: dict) -> bool:
-    return worker_incompatibility(config, capabilities) is None
+def worker_compatible(config: dict, capabilities: dict, state_version: int | None = None) -> bool:
+    return worker_incompatibility(config, capabilities, state_version) is None
+
+
+def resume_adaptation_state_version(path: Any) -> int | None:
+    """The controller state schema version inside a resume checkpoint, if any.
+
+    Read through the same tensor-only loader as every other checkpoint access; a
+    missing, unreadable or controller-free checkpoint yields ``None`` so the job
+    is not gated on a version it does not carry. Loading happens once at enqueue
+    and the result is stored on the job, so worker selection never re-reads it.
+    """
+    if not path:
+        return None
+    from .models import load_checkpoint
+
+    try:
+        _, payload = load_checkpoint(path)
+    except Exception:
+        return None
+    state = payload.get("extra", {}).get("adaptation_state")
+    if isinstance(state, dict) and type(state.get("version")) is int:
+        return state["version"]
+    return None
 
 
 def timestamp() -> float:
@@ -404,7 +485,9 @@ class RemoteTraining:
         hardware = [
             worker
             for worker in workers
-            if worker_compatible(job["config"], worker.get("capabilities", {}))
+            if worker_compatible(
+                job["config"], worker.get("capabilities", {}), job.get("adaptation_state_version")
+            )
         ]
         eligible = [worker for worker in hardware if self.compatibility(worker)["eligible"]]
         if not workers or eligible:
@@ -550,6 +633,8 @@ class RemoteTraining:
 
     def enqueue(self, identifier: str, config: dict, worker_id: str | None) -> dict:
         with self.lock:
+            resume = config.get("resume")
+            state_version = resume_adaptation_state_version(resume) if resume else None
             if worker_id is not None:
                 worker = self.store.get_worker(worker_id)
                 if worker is None or worker.get("revoked_at"):
@@ -562,7 +647,9 @@ class RemoteTraining:
                         f"server {compatibility['server_version']}).",
                         409,
                     )
-                incompatibility = worker_incompatibility(config, worker.get("capabilities", {}))
+                incompatibility = worker_incompatibility(
+                    config, worker.get("capabilities", {}), state_version
+                )
                 if incompatibility:
                     fail(
                         "Selected worker cannot run this job because it does not "
@@ -570,7 +657,6 @@ class RemoteTraining:
                     )
             directory = self.directory(identifier)
             directory.mkdir()
-            resume = config.get("resume")
             if resume:
                 import shutil
 
@@ -592,6 +678,8 @@ class RemoteTraining:
             }
             if resume:
                 job["resume_source"] = True
+                if state_version is not None:
+                    job["adaptation_state_version"] = state_version
             (directory / "config.json").write_text(json.dumps(saved, indent=2))
             self.store.save_job(job)
             return self.public_job(job)
@@ -811,7 +899,11 @@ class RemoteTraining:
                             if job.get("execution") == "remote"
                             and job["status"] == "queued"
                             and job.get("target_worker_id") in (None, worker["id"])
-                            and worker_compatible(job["config"], worker.get("capabilities", {}))
+                            and worker_compatible(
+                                job["config"],
+                                worker.get("capabilities", {}),
+                                job.get("adaptation_state_version"),
+                            )
                         ),
                         None,
                     )
@@ -879,6 +971,15 @@ class RemoteTraining:
                     if worker.get("capabilities", {}).get("hyper_adaptation") is not True:
                         for key in ADAPTATION_FIELDS:
                             configuration.pop(key, None)
+                    elif (
+                        worker.get("capabilities", {}).get("hyper_adaptation_iteration_dwell")
+                        is not True
+                    ):
+                        # An older adapted worker understands the controller but not
+                        # the iteration-based dwell. A nonzero value is rejected by
+                        # worker_compatible(), so only the inert zero default is
+                        # removed here to keep the transport field set compatible.
+                        configuration.pop("adaptation_min_dwell_iterations", None)
                     reply["job"] = {
                         "id": available["id"],
                         "kind": "train",
@@ -983,6 +1084,15 @@ class RemoteTraining:
                     )
                 if worker.get("capabilities", {}).get("hyper_adaptation") is not True:
                     omitted.update(ADAPTATION_FIELDS)
+                elif (
+                    worker.get("capabilities", {}).get("hyper_adaptation_iteration_dwell")
+                    is not True
+                ):
+                    # The saved config carries the new field with its inert zero
+                    # default; drop it so a worker that predates the iteration
+                    # dwell never sees an unknown key. A nonzero value would have
+                    # been rejected before the claim.
+                    omitted.add("adaptation_min_dwell_iterations")
                 if omitted:
                     from .models import load_checkpoint
                     import torch

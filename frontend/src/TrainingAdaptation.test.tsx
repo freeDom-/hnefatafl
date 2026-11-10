@@ -63,10 +63,10 @@ beforeEach(() => {
   });
 });
 
-it('shows a Champion promotion reset with the preserved rate', async () => {
+it('shows a Champion promotion transition with the preserved rate', async () => {
   renderLearning(
     {
-      adaptation: { effective_learning_rate: 0.003, promotion_resets: 2 },
+      adaptation: { effective_learning_rate: 0.003, promotion_resets: 2, transitions: 2 },
       adaptation_events: [
         {
           iteration: 8,
@@ -75,20 +75,78 @@ it('shows a Champion promotion reset with the preserved rate', async () => {
           selected_learning_rate: 0.003,
           preserved_learning_rate: 0.003,
           changed: false,
-          skipped: 'promotion_reset',
+          skipped: 'promotion_transition',
           promotion_reset: true,
+          transition: true,
         },
       ],
     },
     [{ iteration: 8, learning_rate: 0.003, effective_learning_rate: 0.003 }],
     0,
   );
-  expect(screen.getByText('Promotion resets')).toBeInTheDocument();
+  expect(screen.getByText('Promotion transitions')).toBeInTheDocument();
   fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
   const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
-  expect(within(table).getByText('Champion promoted · warm-up restarted')).toBeInTheDocument();
+  expect(
+    within(table).getByText('Champion promoted · learning state preserved'),
+  ).toBeInTheDocument();
   // The preserved rate is shown as both the used and the selected rate.
   expect(within(table).getAllByText('0.003').length).toBeGreaterThanOrEqual(2);
+});
+
+it('labels a historical promotion reset as discarded learning', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.003, promotion_resets: 1 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.9,
+        previous_learning_rate: 0.003,
+        selected_learning_rate: 0.003,
+        preserved_learning_rate: 0.003,
+        changed: false,
+        skipped: 'promotion_reset',
+        promotion_reset: true,
+      },
+    ],
+  });
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  // A legacy job reset the controller; it must not be relabelled as a preserved
+  // transition.
+  expect(
+    within(table).getByText('Champion promoted · previous learning discarded'),
+  ).toBeInTheDocument();
+  expect(within(table).queryByText('Champion promoted · learning state preserved')).toBeNull();
+});
+
+it('labels baseline and insufficient-evidence decisions truthfully', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.003 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.5,
+        previous_learning_rate: 0.003,
+        selected_learning_rate: 0.003,
+        changed: false,
+        skipped: 'baseline',
+        baseline: true,
+      },
+      {
+        iteration: 5,
+        observation: 0.5,
+        previous_learning_rate: 0.003,
+        selected_learning_rate: 0.003,
+        changed: false,
+        skipped: 'uncertain',
+      },
+    ],
+  });
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(within(table).getByText('Local baseline')).toBeInTheDocument();
+  expect(within(table).getByText('Insufficient evidence')).toBeInTheDocument();
 });
 
 it('shows the active Champion and warm-up progress for a Champion controller', () => {
@@ -168,7 +226,7 @@ it('keeps the active state stable well past the warm-up threshold', () => {
   expect(screen.queryByText('Warm-up (128 / 3 evaluations)')).toBeNull();
 });
 
-it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', () => {
+it('shows lifetime warm-up but no Champion KPIs for fixed-opponent jobs', () => {
   renderLearning({
     adaptation: {
       algorithm: 'hypercontroller',
@@ -177,8 +235,12 @@ it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', (
       warmup: 3,
     },
   });
+  // Lifetime warm-up is a controller property, not a Champion one, so it is
+  // shown for a fixed-opponent controller; the Champion-specific KPIs are not.
+  expect(screen.getByText('Controller warm-up')).toBeInTheDocument();
+  expect(screen.getByText('Warm-up (2 / 3 evaluations)')).toBeInTheDocument();
   expect(screen.queryByText('Current Champion')).toBeNull();
-  expect(screen.queryByText('Controller warm-up')).toBeNull();
+  expect(screen.queryByText('Champion calibration')).toBeNull();
   // A Champion job without an enabled controller is not an adaptation monitor.
   cleanup();
   renderLearning({
@@ -1008,6 +1070,133 @@ it('generates distinct candidates at the supported rate boundaries', () => {
   expect(boundedCandidates(0.00123456).split(',')).toContain('0.00123456');
 });
 
+it('distinguishes Champion calibration states without false certainty', () => {
+  const champion = (extra: Record<string, unknown>) => ({
+    evaluation_selection: { opponent: 'champion', champion_iteration: 10 },
+    adaptation: {
+      algorithm: 'hypercontroller',
+      effective_learning_rate: 0.001,
+      active_champion_identity: 'champion-10',
+      warmup: 0,
+      observations: 6,
+      regime_observations: 0,
+      ...extra,
+    },
+  });
+  // A freshly promoted Champion has no evaluation yet: no baseline is claimed
+  // and no zero uncertainty is presented as confidence.
+  renderLearning(
+    champion({
+      calibration_state: 'awaiting_evaluation',
+      evidence_sufficient: false,
+      champion: { count: 0, baseline_score: null, uncertainty: 0 },
+    }),
+  );
+  expect(screen.getByText('Champion calibration')).toBeInTheDocument();
+  expect(screen.getByText('Awaiting first evaluation')).toBeInTheDocument();
+  expect(screen.queryByText(/±0\.000/)).toBeNull();
+  cleanup();
+  renderLearning(
+    champion({
+      regime_observations: 1,
+      calibration_state: 'baseline_established',
+      evidence_sufficient: false,
+      champion: { count: 0, baseline_score: 0.5, uncertainty: 0 },
+    }),
+  );
+  expect(screen.getByText('Baseline established')).toBeInTheDocument();
+  expect(screen.queryByText(/±0\.000/)).toBeNull();
+  cleanup();
+  renderLearning(
+    champion({
+      regime_observations: 2,
+      calibration_state: 'collecting',
+      evidence_sufficient: false,
+      champion: { count: 1, baseline_score: 0.5, uncertainty: 0.12 },
+    }),
+  );
+  expect(screen.getByText('1 comparable observations')).toBeInTheDocument();
+  expect(screen.getByText(/±0\.120/)).toBeInTheDocument();
+  expect(screen.getByText(/Collecting comparable observations/)).toBeInTheDocument();
+  cleanup();
+  renderLearning(
+    champion({
+      regime_observations: 5,
+      calibration_state: 'evidence_available',
+      evidence_sufficient: true,
+      champion: { count: 4, baseline_score: 0.5, uncertainty: 0.05 },
+    }),
+  );
+  expect(screen.getByText('4 comparable observations')).toBeInTheDocument();
+  expect(screen.getByText(/Evidence available for rate decisions/)).toBeInTheDocument();
+});
+
+it('infers legacy Champion calibration only when the data supports it', () => {
+  const legacy = (extra: Record<string, unknown>) => ({
+    evaluation_selection: { opponent: 'champion', champion_iteration: 10 },
+    adaptation: {
+      algorithm: 'hypercontroller',
+      effective_learning_rate: 0.001,
+      active_champion_identity: 'champion-10',
+      warmup: 0,
+      observations: 6,
+      regime_observations: 3,
+      ...extra,
+    },
+  });
+  // A legacy state with a baseline and no comparable count is a baseline only.
+  renderLearning(legacy({ champion: { baseline_score: 0.5, count: 0 } }));
+  expect(screen.getByText('Baseline established')).toBeInTheDocument();
+  expect(screen.queryByText('Calibration status unavailable')).toBeNull();
+  cleanup();
+  // A legacy state with a baseline and comparable observations is inferred.
+  renderLearning(legacy({ champion: { baseline_score: 0.5, count: 4, uncertainty: 0.05 } }));
+  expect(screen.getByText('4 comparable observations')).toBeInTheDocument();
+  cleanup();
+  // A legacy state with no baseline and no observations is awaiting evaluation.
+  renderLearning(legacy({ regime_observations: 0, champion: { baseline_score: null, count: 0 } }));
+  expect(screen.getByText('Awaiting first evaluation')).toBeInTheDocument();
+  cleanup();
+  // Ambiguous legacy data never claims a baseline.
+  renderLearning(legacy({ champion: { count: 2 } }));
+  expect(screen.getByText('Calibration status unavailable')).toBeInTheDocument();
+  expect(screen.queryByText('Baseline established')).toBeNull();
+  cleanup();
+  renderLearning(legacy({ regime_observations: 2, champion: { baseline_score: null, count: 0 } }));
+  expect(screen.getByText('Calibration status unavailable')).toBeInTheDocument();
+  cleanup();
+  // A legacy Champion job with no controller block at all is also unavailable.
+  renderLearning(legacy({ champion: undefined }));
+  expect(screen.getByText('Calibration status unavailable')).toBeInTheDocument();
+  cleanup();
+  // A fixed-opponent job never shows Champion calibration.
+  renderLearning({
+    adaptation: { algorithm: 'hypercontroller', effective_learning_rate: 0.001 },
+  });
+  expect(screen.queryByText('Champion calibration')).toBeNull();
+});
+
+it('labels an exploratory change as candidate exploration, not an improvement', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.003 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.5,
+        previous_learning_rate: 0.001,
+        selected_learning_rate: 0.003,
+        changed: true,
+        skipped: null,
+        exploratory: true,
+      },
+    ],
+  });
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(within(table).getByText('Candidate exploration')).toBeInTheDocument();
+  expect(within(table).queryByText('Changed')).toBeNull();
+});
+
 it('translates the new controller labels and tooltips into German', () => {
   for (const source of [
     'Effective learning rate',
@@ -1020,9 +1209,28 @@ it('translates the new controller labels and tooltips into German', () => {
     'Warm-up',
     'Waiting for cadence',
     'Minimum dwell',
+    'Minimum dwell (iterations)',
     'No observation',
     'Fallback',
     'Champion promoted · warm-up restarted',
+    'Champion promoted · learning state preserved',
+    'Champion promoted · previous learning discarded',
+    'Local baseline',
+    'Insufficient evidence',
+    'Champion calibration',
+    'Awaiting first evaluation',
+    'Calibration status unavailable',
+    'Baseline established',
+    'Collecting comparable observations',
+    'Evidence available for rate decisions',
+    'Candidate exploration',
+    '{count} comparable observations',
+    'Uncertainty',
+    'Iterations since rate change',
+    'Lifetime observations: {observations}',
+    'Controller state',
+    'Legacy reward state discarded',
+    'Promotion transitions',
     'Promotion resets',
     'Current Champion',
     'Controller warm-up',
@@ -1031,6 +1239,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Regime observations: {observations}',
     'Rate kept at last promotion',
     'Each Champion promotion keeps the current learning rate but restarts the controller’s warm-up; scores from before the promotion are not reused.',
+    'Each Champion promotion is an idempotent transition: the learned predictors, the dwell timers and the current learning rate are kept, and only the new Champion’s local baseline is refreshed, so raw scores from different Champions are never compared.',
     'Unavailable while tuning: the study varies the learning rate across trials.',
     'Learning rate candidates must be decimal numbers separated by commas.',
     'Learning rate candidates must be between 1e-7 and 1.',
@@ -1039,6 +1248,7 @@ it('translates the new controller labels and tooltips into German', () => {
     'Learning rate candidates and the observation history window produce too many controller contexts; use fewer candidates or a smaller window.',
     'This worker does not support automatic hyperparameter updates. Choose a newer worker or disable them.',
     'This worker does not support automatic hyperparameter updates with a Champion opponent. Choose a newer worker, a fixed opponent, or disable them.',
+    'This worker does not support automatic hyperparameter updates with a persistent Champion opponent. Choose a newer worker, a fixed opponent, or disable them.',
   ]) {
     expect(translate(source, {}, 'de'), `untranslated ${source}`).not.toBe(source);
   }

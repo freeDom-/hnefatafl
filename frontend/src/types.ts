@@ -180,6 +180,8 @@ export interface DeviceInfo {
   hyper_adaptation?: boolean;
   schedule_free_adamw?: boolean;
   hyper_adaptation_champion?: boolean;
+  hyper_adaptation_champion_transition?: boolean;
+  hyper_adaptation_iteration_dwell?: boolean;
   parallel_search?: boolean;
   evaluation_batching?: boolean;
   openvino_version?: string;
