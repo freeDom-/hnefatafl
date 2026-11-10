@@ -46,6 +46,9 @@ The input keeps a local draft and saves a valid value after 600 ms without typin
 or immediately on blur or Enter. Rapid edits produce one settings revision.
 Invalid drafts are never saved. Unmounting the control or changing the game/advisor
 discards any draft that has not yet been committed.
+Focusing an advisor, algorithm or model selector also discards the pending draft
+and cancels its timer before the selector changes. Blurring into another setting
+still commits a valid value; Enter commits before a subsequent advisor switch.
 Policy-only and neural alpha-beta advisors do not expose this MCTS control.
 Playing agents, training, evaluation and tournament budgets keep their own defaults.
 

@@ -113,7 +113,20 @@ function MctsIterationsField({
           if (input.validity.valid && Number.isInteger(input.valueAsNumber))
             timer.current = setTimeout(commit, 600);
         }}
-        onBlur={commit}
+        onBlur={(event) => {
+          // Native blur precedes the select's change event. Abandon this
+          // owner's draft before a replacement can queue a settings write.
+          if (
+            event.relatedTarget instanceof HTMLElement &&
+            event.relatedTarget.closest('[data-advisor-selection]')
+          ) {
+            clearTimeout(timer.current);
+            dirty.current = false;
+            setInput(String(latest.current.value));
+            return;
+          }
+          commit();
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault();
@@ -244,7 +257,11 @@ export function AnalyticsSettingsPanel({
       <h2>{t('Analytics')}</h2>
       <label>
         {t('Move advisor')}
-        <select value={value} onChange={(event) => choose(event.target.value)}>
+        <select
+          data-advisor-selection
+          value={value}
+          onChange={(event) => choose(event.target.value)}
+        >
           <option value="">{t('None')}</option>
           <option value="custom">{t('Custom move advisor')}</option>
           {value && value !== 'custom' && !options.some((option) => option.id === value) && (
@@ -286,6 +303,7 @@ export function AnalyticsSettingsPanel({
           <label>
             {t('Algorithm')}
             <select
+              data-advisor-selection
               value={String(advisor.config.algorithm ?? 'baseline')}
               onChange={(event) => updateConfig('algorithm', event.target.value)}
             >
@@ -359,6 +377,7 @@ export function AnalyticsSettingsPanel({
             <label>
               {t('Trained model')}
               <select
+                data-advisor-selection
                 value={String(advisor.config.model_id ?? '')}
                 onChange={(event) => updateConfig('model_id', event.target.value)}
               >

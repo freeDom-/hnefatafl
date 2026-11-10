@@ -956,6 +956,33 @@ it('commits MCTS edits on blur or Enter and never commits invalid drafts', async
   }
 });
 
+it.each(['Move advisor', 'Algorithm', 'Trained model'])(
+  'discards the MCTS draft when real focus moves to %s, before selection changes',
+  async (label) => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    render(
+      <AnalyticsSettingsPanel
+        game={game}
+        profiles={neuralProfiles}
+        models={neuralModels}
+        settings={{
+          ...neuralSettings,
+          advisor: { ...neuralSettings.advisor!, profile_id: undefined },
+        }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole('spinbutton', { name: 'MCTS Iterations' });
+    act(() => input.focus());
+    fireEvent.change(input, { target: { value: '4096' } });
+    act(() => screen.getByRole('combobox', { name: label }).focus());
+    expect(input).toHaveValue(1024);
+    await tick(2000);
+    expect(onChange).not.toHaveBeenCalled();
+  },
+);
+
 it.each(['unmount', 'game', 'advisor'])(
   'discards pending MCTS drafts on %s changes',
   async (change) => {
