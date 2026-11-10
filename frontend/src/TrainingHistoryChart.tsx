@@ -12,6 +12,7 @@ import {
   type HistoryPoint,
 } from './trainingDashboardData';
 import TrainingDataDisclosure from './TrainingDataDisclosure';
+import { formatLearningValue, type LearningMetric } from './trainingLearningData';
 import './trainingHistory.css';
 export { trainingHistory } from './trainingDashboardData';
 
@@ -28,28 +29,35 @@ interface DisplayedSeries {
   points: HistoryPoint[];
   merged?: boolean;
 }
+type HistorySource =
+  | { history: unknown; normalizedRows?: never }
+  | { history?: never; normalizedRows: HistoryPoint[] };
 export default function TrainingHistoryChart({
   history,
+  normalizedRows,
   view = 'all',
   range = 0,
   compact = false,
   selectable = false,
   fitSeries = false,
-}: {
-  history: unknown;
+  learningMetric,
+}: HistorySource & {
   view?: 'all' | 'learning' | 'evaluation';
   range?: number;
   compact?: boolean;
   selectable?: boolean;
   fitSeries?: boolean;
+  learningMetric?: LearningMetric;
 }) {
   const { t, locale } = useI18n();
   const [selectedSeries, setSelectedSeries] = useState('latest');
   const rows = useMemo(
-    () => recentHistory(trainingHistory(history), fitSeries ? 0 : range),
-    [history, range, fitSeries],
+    // Learning already receives chronological normalized rows from the dashboard.
+    // Reuse its projection instead of cloning/sorting the complete history again.
+    () => recentHistory(normalizedRows ?? trainingHistory(history), fitSeries ? 0 : range),
+    [history, normalizedRows, range, fitSeries],
   );
-  const groups = useMemo(() => evaluationGroups(rows), [rows]);
+  const groups = useMemo(() => (view === 'learning' ? [] : evaluationGroups(rows)), [rows, view]);
   const latestGroup = useMemo(() => latestEvaluationGroup(groups), [groups]);
   // Every observation in one series: the merged chart keeps each iteration's own
   // score, so changed opponents or incumbents stay visible without splitting the graph.
@@ -142,10 +150,17 @@ export default function TrainingHistoryChart({
       </p>
     );
   const format = (value: unknown) =>
-    finite(value)
-      ? new Intl.NumberFormat(locale, { maximumSignificantDigits: 10 }).format(value)
-      : '—';
+    view === 'learning'
+      ? formatLearningValue(value, locale)
+      : finite(value)
+        ? new Intl.NumberFormat(locale, { maximumSignificantDigits: 10 }).format(value)
+        : '—';
   const detailedEvaluation = rows.some((row) => row.evaluation);
+  const learningColumns =
+    learningMetric?.series.filter(
+      (series) =>
+        !['policy_loss', 'value_loss', 'replay_positions', 'updates'].includes(series.key),
+    ) ?? [];
   const headers = [
     'Iteration',
     'Policy loss',
@@ -163,6 +178,7 @@ export default function TrainingHistoryChart({
         ]
       : []),
     ...(view === 'learning' ? ['Replay buffer positions', 'Optimizer updates'] : []),
+    ...(view === 'learning' ? learningColumns.map((series) => series.name) : []),
     ...(view === 'evaluation'
       ? [
           'Wins',
@@ -209,7 +225,17 @@ export default function TrainingHistoryChart({
         </label>
       )}
       {view !== 'evaluation' && (
-        <TrainingMetricChart title="Loss by iteration" rows={rows} series={policySeries} />
+        <TrainingMetricChart
+          title={learningMetric?.label ?? 'Loss by iteration'}
+          rows={rows}
+          series={learningMetric?.series ?? policySeries}
+          unit={learningMetric?.unit}
+          description={learningMetric?.description}
+          step={learningMetric?.step}
+          smallScale={learningMetric?.smallScale}
+          precision={view === 'learning' ? 17 : 10}
+          gaps={view === 'learning'}
+        />
       )}
       {view !== 'learning' &&
         displayedGroups.map((group) => {
@@ -340,7 +366,10 @@ export default function TrainingHistoryChart({
                         {view === 'learning' && (
                           <>
                             <td>{format(row.replay_positions)}</td>
-                            <td>{format(row.optimizer_updates ?? row.updates)}</td>
+                            <td>{format(row.updates)}</td>
+                            {learningColumns.map((series) => (
+                              <td key={series.key}>{format(row[series.key])}</td>
+                            ))}
                           </>
                         )}
                         {view === 'evaluation' && (

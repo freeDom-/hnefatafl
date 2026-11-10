@@ -26,6 +26,8 @@ import urllib.parse
 import urllib.request
 from uuid import uuid4
 
+from .training_parameters import validated_parameters
+
 
 PROTOCOL_VERSION = 1
 MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
@@ -72,7 +74,7 @@ def safe_progress(value: Any) -> Any:
     """Remove worker paths/credentials without changing graph and metric values."""
     if isinstance(value, dict):
         return {
-            key: safe_progress(item)
+            key: validated_parameters(item) if key == "training_parameters" else safe_progress(item)
             for key, item in value.items()
             if isinstance(key, str) and key not in _PRIVATE_KEYS
         }

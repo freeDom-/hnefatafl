@@ -137,6 +137,68 @@ metadata. Moving that one checkpoint to a new output directory preserves the
 saved benchmark records and champion, even when later candidates are weaker.
 `best.pt` and registry inference exports intentionally have no optimizer state and cannot be used for exact training resumption.
 
+### Historical training parameters
+
+New workers add optional provenance to `extra.history` in full checkpoints and
+to the same history rows in `progress.json` and `result.json`:
+
+```json
+{
+  "iteration": 1001,
+  "training_parameters_iteration": 1001,
+  "training_parameters": {
+    "version": 1,
+    "batch_size": 128,
+    "epochs": 4,
+    "mcts_iterations": 128,
+    "mcts_time_limit": 10.0,
+    "games": 64,
+    "replay_buffer_size": 12000,
+    "weight_decay": 0.0,
+    "exploration": 1.4,
+    "temperature": 1.0,
+    "dirichlet_alpha": 0.3,
+    "dirichlet_fraction": 0.25,
+    "max_game_plies": 300
+  }
+}
+```
+
+Snapshots contain only these bounded numeric fields and a schema version. They
+come from the normalized configuration after restoring effective optimizer
+settings. No arbitrary configuration object, path or credential is copied.
+Each execution records a complete snapshot at its first completed iteration,
+even if a resume keeps identical settings. Another snapshot appears only when
+the whitelisted values change. Subsequent rows keep only the small
+`training_parameters_iteration` reference to their applicable snapshot. This
+reference proves which settings the worker used without repeating the object
+thousands of times; an older worker's appended rows lack the reference and
+therefore cannot silently inherit a previous execution's settings.
+
+The snapshot replaces the complete parameter set, rather than applying a delta.
+Unsupported versions and malformed optional snapshots become unknown boundaries
+on resume; invalid/missing fields remain unknown. The dashboard validates these
+fields too. It reconstructs the full timeline before selecting an iteration
+window, and never uses the newest job configuration to fill old rows. Older
+checkpoints remain loadable and resumable without these fields. Source
+checkpoint bytes are never rewritten to backfill provenance.
+
+Cancellation before any completed iteration adds no event. Cancellation or
+failure during evaluation preserves the already optimized iteration and its
+parameter snapshot exactly once. Checkpoint writes and polling add no events.
+Existing mid-optimization cancellation guarantees are unchanged. Learning rates
+remain separate per-iteration `learning_rate` (used) and
+`effective_learning_rate` (selected afterward), so HyperController adjustments
+are not lost in sparse configuration history. Schedule-Free optimizer state and
+its separate diagnostics are unchanged.
+
+The existing local reports, remote history chunks, uploaded full checkpoints and
+TAR.GZ exports/imports carry these optional fields without a database, tensor or
+worker-protocol version change. Older workers remain readable; use updated
+workers to record new parameter history. Compact inference exports do not carry
+the full learning lineage. The complete history remains portable in `last.pt`.
+No general reconstruction of pre-existing job configurations is attempted.
+
 ### Evaluation strategy changes and checkpoint migration
 
 Choose Shield bearer, Jarl or Champion and the evaluation budgets when resuming,

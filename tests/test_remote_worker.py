@@ -452,12 +452,21 @@ def test_worker_cli_missing_credential_has_an_actionable_error(monkeypatch, caps
 def test_large_progress_flushes_incremental_history_without_losing_rows(tmp_path):
     history = [
         {
-            "iteration": index,
+            "iteration": index + 1,
             "policy_loss": 1.2,
             "evaluation": {"score": 0.5, "games": [{"reason": "x" * 200}]},
         }
         for index in range(3000)
     ]
+    for index, point in enumerate(history):
+        boundary = (index // 1000) * 1000
+        point["training_parameters_iteration"] = boundary + 1
+        if index == boundary:
+            point["training_parameters"] = {
+                "version": 1,
+                "batch_size": 64 * (index // 1000 + 1),
+                "weight_decay": 0,
+            }
     (tmp_path / "progress.json").write_text(json.dumps({"iteration": 3000, "history": history}))
     received = []
     sizes = []
