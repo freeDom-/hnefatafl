@@ -496,10 +496,12 @@ def create_app(
         advisor = analytics_settings(game)["advisor"]
         return [*game["players"].values(), *([advisor] if advisor else [])]
 
-    def missing_analysis(game: dict) -> dict:
-        state = state_of(game)
+    def missing_analysis(
+        game: dict, *, state: State | None = None, cursor: int | None = None
+    ) -> dict:
+        state = state or state_of(game)
         return {
-            "cursor": game["cursor"],
+            "cursor": game["cursor"] if cursor is None else cursor,
             "ply": state.ply,
             "side_to_move": state.turn,
             "position_key": position_key(state),
@@ -1034,10 +1036,14 @@ def create_app(
             entry["unavailable_reason"] = "evaluation_failed"
         return entry
 
-    from .analysis_service import AnalysisService
+    from .analysis_service import AnalysisService, AnalysisUnavailable, SupersededAnalysis
 
     analyses = AnalysisService(store, evaluate_background)
     app.state.analyses = analyses
+
+    @app.exception_handler(AnalysisUnavailable)
+    async def _analysis_unavailable(_request, error: AnalysisUnavailable):
+        return JSONResponse({"detail": str(error)}, status_code=503, headers={"Retry-After": "1"})
 
     @app.get("/api/games/{game_id}/analytics")
     def get_analytics(game_id: str):
@@ -1125,7 +1131,9 @@ def create_app(
         # A stale "pending" only causes another poll; stale "complete" could
         # otherwise hide the newly committed result indefinitely.
         pending = any(analyses.active(key) for key in tasks)
-        result = current_analysis(game, settings, state=state) or missing_analysis(game)
+        result = current_analysis(game, settings, state=state) or missing_analysis(
+            game, state=state, cursor=cursor
+        )
         rendered = analysis_response(
             {
                 **result,
@@ -1148,13 +1156,9 @@ def create_app(
             if request.background:
                 return background_analysis(game, state=state, cursor=request.cursor)
             settings = analytics_settings(game)
-            recorded = current_analysis(game, settings, state=state) or {
-                **missing_analysis(game),
-                "cursor": request.cursor,
-                "ply": state.ply,
-                "side_to_move": state.turn,
-                "position_key": position_key(state),
-            }
+            recorded = current_analysis(game, settings, state=state) or missing_analysis(
+                game, state=state, cursor=request.cursor
+            )
             return analysis_response(
                 {
                     **recorded,
@@ -1171,31 +1175,45 @@ def create_app(
         key = position_key(state)
         settings = analytics_settings(game)
         saved_settings = store.analytics(game_id) is not None
-        if saved_settings:
-            # Synchronous clients use the same saved advisor budget and revision
-            # as the background path, including when re-analyzing a position.
-            if settings["advisor"]:
-                retained = store.advisor_analysis(game_id, key, settings["revision"])
-                if retained is None or retained.get("partial"):
-                    entry = evaluate_background(
-                        game, "advisor", settings["advisor"], settings, lambda _entry: None
-                    )
-                    try:
-                        store.save_analysis_entry(
-                            game,
-                            position_snapshot(game),
-                            entry,
-                            advisor_revision=settings["revision"],
-                        )
-                    except ConflictError as exc:
-                        fail(str(exc), 409)
         cached = store.game_analysis(game_id, key)
-        if cached is not None:
-            return analysis_response(current_analysis(game, settings) if saved_settings else cached)
+
+        def retained_response() -> dict | None:
+            result = current_analysis(game, settings) or missing_analysis(game)
+            current = analytics_settings(game_or_404(game_id, request.version))
+            if current["revision"] != settings["revision"]:
+                fail("The move advisor changed. Retry analysis.", 409)
+            if saved_settings:
+                result = {**result, "advisor_revision": settings["revision"]}
+            return analysis_response(result)
+
         # A recorded opinion belongs to the original point in play. Never
         # fabricate historical evidence by evaluating with newer/deleted weights.
-        if not game.get("analysis_enabled") or game["cursor"] < len(game["moves"]):
-            return analysis_response(current_analysis(game, settings) or missing_analysis(game))
+        if game["cursor"] < len(game["moves"]) or (
+            not game.get("analysis_enabled") and not saved_settings
+        ):
+            return retained_response()
+        legacy_advisor = bool(
+            not saved_settings
+            and cached
+            and any(entry["agent_id"] == "advisor" for entry in cached["evaluations"])
+        )
+        if settings["advisor"] and not legacy_advisor:
+            try:
+                analyses.wait(
+                    game,
+                    position_snapshot(game),
+                    "advisor",
+                    settings["advisor"],
+                    settings,
+                    state=state,
+                )
+            except SupersededAnalysis as exc:
+                fail(str(exc), 409)
+            # Preserve the synchronous API's optimistic version contract after
+            # waiting. The worker still owns its independent retained-line guard.
+            game_or_404(game_id, request.version)
+        if cached is not None or not game.get("analysis_enabled"):
+            return retained_response()
         snapshot = {
             "cursor": game["cursor"],
             "ply": state.ply,
@@ -1208,17 +1226,8 @@ def create_app(
         agents = [
             (side, player) for side, player in game["players"].items() if player["kind"] == "ai"
         ]
-        if game.get("advisor") and not saved_settings:
-            agents.append(("advisor", game["advisor"]))
         for role, agent in agents:
-            from .analysis_service import advisor_config
-
-            raw = (
-                advisor_config(agent["config"], agent.get("profile_id"))
-                if role == "advisor"
-                else agent["config"]
-            )
-            configuration = effective_ai_config(raw, agent.get("profile_id"))
+            configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
             entry = {
                 "agent_id": role,
                 "role": role,
@@ -1257,16 +1266,21 @@ def create_app(
                     win_probability=max(0.0, min(1.0, (current_value + 1.0) / 2.0)),
                     search_seed=runtime_config["seed"],
                 )
-                if role == "advisor" and report.get("best_move") is not None:
-                    snapshot["hint"] = {"agent_id": "advisor", "move": report["best_move"]}
             except (OSError, HTTPException):
                 entry["unavailable_reason"] = "model_unavailable"
             except (ValueError, RuntimeError):
                 entry["unavailable_reason"] = "evaluation_failed"
             snapshot["evaluations"].append(entry)
+        if not saved_settings:
+            # Keep the original synchronous response/storage shape for clients
+            # with a legacy game advisor, while sharing its bounded computation.
+            advisor = store.advisor_analysis(game_id, key, settings["revision"])
+            if advisor:
+                snapshot["evaluations"].extend(advisor["evaluations"])
+                snapshot["hint"] = advisor["hint"]
         try:
-            stored = store.save_game_analysis(game_id, request.version, snapshot)
-            return analysis_response(current_analysis(game, settings)) if saved_settings else stored
+            store.save_game_analysis(game_id, request.version, snapshot)
+            return retained_response()
         except ConflictError as exc:
             fail(str(exc), 409)
 
@@ -1371,7 +1385,8 @@ def create_app(
             return background_analysis(game, state=state, cursor=request.cursor)
         settings = analytics_settings(game)
         return analysis_response(
-            current_analysis(game, settings, state=state) or missing_analysis(game)
+            current_analysis(game, settings, state=state)
+            or missing_analysis(game, state=state, cursor=request.cursor)
         )
 
     @app.delete("/api/games/{game_id}")

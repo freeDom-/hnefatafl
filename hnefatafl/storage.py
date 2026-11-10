@@ -375,6 +375,16 @@ class Store:
                 revision = json.loads(preferences["data"])["revision"] if preferences else 0
                 if revision != advisor_revision:
                     raise ConflictError("The move advisor changed.")
+                retained = connection.execute(
+                    "SELECT data FROM advisor_analysis WHERE game_id=? AND position_key=? AND revision=?",
+                    (game_id, key, advisor_revision),
+                ).fetchone()
+                if retained is not None:
+                    completed = json.loads(retained["data"])
+                    if not completed.get("partial"):
+                        # Completion is immutable, even if a late observer or
+                        # another writer publishes progress for this same key.
+                        return completed
                 report = {**snapshot, "evaluations": [entry], "partial": partial}
                 report["hint"] = (
                     {"agent_id": "advisor", "move": entry["best_move"]}

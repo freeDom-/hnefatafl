@@ -587,6 +587,7 @@ def test_synchronous_analytics_uses_current_saved_budget_and_invalidates_cached_
         selected = settings(client, game, neural_advisor)
         response = client.post(path, json={"version": 0, "cursor": 0})
         assert response.status_code == 200, response.text
+        assert response.json()["advisor_revision"] == selected["revision"]
         assert response.json()["evaluations"][0]["simulations"] == budget
         assert client.post(path, json={"version": 0, "cursor": 0}).json() == response.json()
         # Changing the time window preserves the saved iteration count.

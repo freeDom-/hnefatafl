@@ -296,10 +296,10 @@ def test_late_analysis_cannot_overwrite_moves_or_resurrect_deleted_games(
     started, release = threading.Event(), threading.Event()
     original = ai.analyze_position
 
-    def waiting(*args):
+    def waiting(*args, **kwargs):
         started.set()
         assert release.wait(5)
-        return original(*args)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(ai, "analyze_position", waiting)
     with ThreadPoolExecutor(max_workers=1) as pool:

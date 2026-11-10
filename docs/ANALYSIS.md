@@ -115,8 +115,24 @@ value-head source label rather than being retroactively rewritten as search resu
   `advisor_revision`. Poll the same request for progressive updates. The UI polls
   only while work remains pending and ignores obsolete position/settings replies.
 - The older synchronous analysis request remains available to existing API
-  clients and honors saved advisor settings/revisions. The game UI uses
-  background requests and actual-move diagnostics.
+  clients and honors saved advisor settings/revisions, including an
+  `advisor_revision` in responses when preferences have been saved. It joins
+  the same advisor task as a background request for that game, position and
+  revision, or reuses its completed report. Synchronous requests at earlier
+  replay cursors remain read-only; request explicit historical background
+  analysis to generate a new advisor opinion there. The game UI uses background
+  requests and actual-move diagnostics.
+
+Two analysis workers share a maximum of 16 running/queued tasks. Excess work
+returns HTTP 503 with `Retry-After: 1`. A synchronous wait is limited to 20
+seconds; timeout returns the same retryable status without cancelling shared
+work. A disconnected caller likewise does not own the shared search's lifetime.
+Superseded queued work keeps its bounded slot until a worker drains it, then
+checks its revision/position before evaluating. Shutdown cancels queued tasks
+and running workers stop cooperatively through the existing progress observer.
+An individual model inference cannot be forcibly interrupted. Once an advisor
+report completes, storage rejects replacement by late progress or another
+completion for the same position/revision.
 
 Game responses include saved `analysis` and `analytics`. Reloads, undo, redo and
 seeks recover retained reports. Player opinions are immutable per position and
