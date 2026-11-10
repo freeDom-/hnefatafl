@@ -2,6 +2,17 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Schedule-Free training and tournament benchmarking (`0.39.0` preparation)
+
+The [0.39.0 release notes](releases/0.39.0.md#validation) identify integration
+coverage for PRs #65–#67, including returning evaluation contexts, independent
+fixed-role agents, paired legal openings, qualified role/search statistics and
+Schedule-Free optimizer continuation and capability negotiation. Database schema
+15, checkpoint tensor format 1 and job-archive schema 3 remain unchanged.
+CPU measurements retain their recorded scope; CUDA/MPS and playing strength are
+not inferred. Successful release-PR and exact merged-main Verify remain required
+before tagging and stable publication. Historical evidence below is unchanged.
+
 ## Account profiles and current identities (`0.38.0` preparation)
 
 The [0.38.0 release notes](releases/0.38.0.md#validation) identify the merged

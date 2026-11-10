@@ -974,3 +974,34 @@ Release preparation records local validation separately and requires successful
 release-PR and exact merged-main CI before an annotated tag and stable publication.
 See [0.38.0 release notes](docs/releases/0.38.0.md) for full scope, migration,
 validation and installation. Historical release records remain unchanged.
+
+## Schedule-Free training and tournament benchmarking (`0.39.0` preparation)
+
+Release preparation starts from merged `main` at `6abda09`, covering every change
+since published `0.38.0`: PRs #65, #66 and #67 and their review fixes. Python/npm
+metadata and both lockfiles move together to `0.39.0` on `release/0.39.0`.
+
+Evaluation Fit series uses selected valid observations and returning Latest
+contexts. Tournaments add independent fixed-role configurations, completed-sample
+role/battlefield statistics, qualified MCTS budgets/deadlines and optional seeded
+legal openings shared between adjacent side-swapped legs. Partial historical
+records remain unavailable where evidence cannot support the new metrics.
+
+Optional Schedule-Free AdamW uses the official training dependency and averaged
+inference/export weights with full-state continuation. Successful optimizer updates
+count warm-up; optimizer identity and resume warm-up stay fixed. HyperController
+is rejected. Submission probes and execution-tested worker capability checks fail
+explicitly, and unsafe mode transitions preserve the previous valid checkpoint.
+AdamW presets remain unchanged. Workers must match `0.39.0` and advertise
+`schedule_free_adamw` for these jobs; no database (15), tensor (1) or archive (3)
+format migration is added.
+
+Integration Verify `42694842216` passed with 3,114 backend tests (16 skips),
+1,082 frontend tests across 83 files and 131 general (9 intentional skips)/14
+registration/18 online/34 personal browser checks. Release preparation records
+local checks separately and requires successful release-PR and exact merged-main
+CI before an annotated tag and stable publication. The committed CPU benchmark is
+short runtime/memory evidence, not strength or general speedup evidence; CUDA/MPS
+hardware validation and production deployment remain unperformed. See
+[0.39.0 release notes](docs/releases/0.39.0.md) for complete scope, compatibility,
+measurements and installation. Historical release records remain unchanged.

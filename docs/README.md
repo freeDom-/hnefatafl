@@ -101,6 +101,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.39.0](releases/0.39.0.md) | Schedule-Free AdamW, tournament role analytics and legal openings, evaluation-series fitting |
 | [0.38.0](releases/0.38.0.md) | Account profiles, automatic optional-field publication and current player identities |
 | [0.37.0](releases/0.37.0.md) | Champion-aware adaptation, self-play outcome charts and reliable large job transfers |
 | [0.36.0](releases/0.36.0.md) | Reliable tuning, online learning-rate adaptation, model reuse and longer analysis windows |
