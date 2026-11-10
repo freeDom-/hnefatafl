@@ -286,11 +286,31 @@ export function TrainingLearningView({
     ? selection.champion_iteration
     : null;
   const warmup = finite(adaptation.warmup) ? Number(adaptation.warmup) : null;
+  // Warm-up is a lifetime property of the controller: it must never be derived
+  // from the current Champion's observation count.
+  const lifetimeObservations = finite(adaptation.observations)
+    ? Number(adaptation.observations)
+    : null;
+  const warmupComplete =
+    adaptation.warmup_complete === true ||
+    (lifetimeObservations !== null && warmup !== null && lifetimeObservations >= warmup);
   const regimeObservations = finite(adaptation.regime_observations)
     ? Number(adaptation.regime_observations)
-    : finite(adaptation.observations)
-      ? Number(adaptation.observations)
+    : null;
+  const championState = object(adaptation.champion);
+  const championImprovements = finite(championState?.count) ? Number(championState.count) : null;
+  const championUncertainty = finite(championState?.uncertainty)
+    ? Number(championState.uncertainty)
+    : null;
+  const transitions = finite(adaptation.transitions)
+    ? Number(adaptation.transitions)
+    : finite(adaptation.promotion_resets)
+      ? Number(adaptation.promotion_resets)
       : null;
+  const iterationsSinceChange = finite(adaptation.iterations_since_change)
+    ? Number(adaptation.iterations_since_change)
+    : null;
+  const resetReason = typeof adaptation.reset_reason === 'string' ? adaptation.reset_reason : null;
   const lastPromotion = object(adaptation.last_promotion);
   const replay = useMemo(
     () => [
@@ -317,28 +337,51 @@ export function TrainingLearningView({
         {championActive && championIteration !== null && (
           <TrainingKpi label="Current Champion" value={championIteration} />
         )}
-        {championActive && warmup !== null && regimeObservations !== null && (
+        {adaptationActive && warmup !== null && lifetimeObservations !== null && (
           <TrainingKpi
             label="Controller warm-up"
             value={
-              regimeObservations < warmup
-                ? t('Warm-up ({observations} / {warmup} evaluations)', {
-                    observations: regimeObservations,
+              warmupComplete
+                ? t('Active · Warm-up complete')
+                : t('Warm-up ({observations} / {warmup} evaluations)', {
+                    observations: lifetimeObservations,
                     warmup,
                   })
-                : t('Active · Warm-up complete')
             }
             detail={
-              regimeObservations >= warmup
-                ? t('Regime observations: {observations}', { observations: regimeObservations })
+              warmupComplete
+                ? t('Lifetime observations: {observations}', {
+                    observations: lifetimeObservations,
+                  })
                 : undefined
             }
           />
         )}
-        {finite(adaptation.promotion_resets) && adaptation.promotion_resets > 0 && (
+        {championActive && regimeObservations !== null && (
+          <TrainingKpi
+            label="Champion calibration"
+            value={
+              championImprovements !== null && championImprovements > 0
+                ? t('{count} comparable observations', { count: championImprovements })
+                : t('Baseline established')
+            }
+            detail={
+              championUncertainty !== null
+                ? `${t('Uncertainty')}: ±${championUncertainty.toFixed(3)} · ${t(
+                    'Regime observations: {observations}',
+                    { observations: regimeObservations },
+                  )}`
+                : t('Regime observations: {observations}', { observations: regimeObservations })
+            }
+          />
+        )}
+        {adaptationActive && iterationsSinceChange !== null && (
+          <TrainingKpi label="Iterations since rate change" value={iterationsSinceChange} />
+        )}
+        {transitions !== null && transitions > 0 && (
           <TrainingKpi
             label="Promotion transitions"
-            value={adaptation.promotion_resets}
+            value={transitions}
             detail={
               lastPromotion && finite(lastPromotion.preserved_learning_rate)
                 ? `${t('Rate kept at last promotion')}: ${formatLearningRate(
@@ -348,6 +391,9 @@ export function TrainingLearningView({
                 : undefined
             }
           />
+        )}
+        {adaptationActive && resetReason && (
+          <TrainingKpi label="Controller state" value={t(adaptationResetReason(resetReason))} />
         )}
         <TrainingKpi
           label="Optimizer updates"
@@ -399,9 +445,31 @@ const SKIP_LABELS: Record<string, string> = {
   dwell: 'Minimum dwell',
   dwell_iterations: 'Minimum dwell (iterations)',
   fallback: 'Fallback',
-  promotion_reset: 'Champion promoted · learning state preserved',
+  baseline: 'Local baseline',
+  uncertain: 'Insufficient evidence',
+  // A historical reset discarded the previous Champion's learned state; a new
+  // transition keeps it. The two are never conflated in the log.
+  promotion_reset: 'Champion promoted · previous learning discarded',
   promotion_transition: 'Champion promoted · learning state preserved',
 };
+
+/** Human label for a controller reset/migration reason shown in monitoring. */
+function adaptationResetReason(reason: string): string {
+  const labels: Record<string, string> = {
+    reward_semantics_changed: 'Legacy reward state discarded',
+    champion_changed: 'Champion changed',
+    champion_identity_unknown: 'Champion identity unknown',
+    opponent_promoted: 'Champion promoted',
+    candidates_changed: 'Candidate set changed',
+    lag_changed: 'History window changed',
+    evaluation_changed: 'Evaluation changed',
+    unreadable_state: 'Saved controller state unreadable',
+    rng_absent: 'Saved controller RNG missing',
+    unsupported_state: 'Saved controller state unsupported',
+    disabled_on_resume: 'Controller disabled on resume',
+  };
+  return labels[reason] ?? reason;
+}
 
 function AdaptationDecision({ event, t }: { event: Values; t: (source: string) => string }) {
   if (event.skipped === 'missing_observation') return <>{t('No observation')}</>;

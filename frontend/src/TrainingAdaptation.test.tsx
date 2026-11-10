@@ -94,6 +94,61 @@ it('shows a Champion promotion transition with the preserved rate', async () => 
   expect(within(table).getAllByText('0.003').length).toBeGreaterThanOrEqual(2);
 });
 
+it('labels a historical promotion reset as discarded learning', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.003, promotion_resets: 1 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.9,
+        previous_learning_rate: 0.003,
+        selected_learning_rate: 0.003,
+        preserved_learning_rate: 0.003,
+        changed: false,
+        skipped: 'promotion_reset',
+        promotion_reset: true,
+      },
+    ],
+  });
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  // A legacy job reset the controller; it must not be relabelled as a preserved
+  // transition.
+  expect(
+    within(table).getByText('Champion promoted · previous learning discarded'),
+  ).toBeInTheDocument();
+  expect(within(table).queryByText('Champion promoted · learning state preserved')).toBeNull();
+});
+
+it('labels baseline and insufficient-evidence decisions truthfully', async () => {
+  renderLearning({
+    adaptation: { effective_learning_rate: 0.003 },
+    adaptation_events: [
+      {
+        iteration: 4,
+        observation: 0.5,
+        previous_learning_rate: 0.003,
+        selected_learning_rate: 0.003,
+        changed: false,
+        skipped: 'baseline',
+        baseline: true,
+      },
+      {
+        iteration: 5,
+        observation: 0.5,
+        previous_learning_rate: 0.003,
+        selected_learning_rate: 0.003,
+        changed: false,
+        skipped: 'uncertain',
+      },
+    ],
+  });
+  fireEvent.click(screen.getByText('Automatic hyperparameter updates'));
+  const table = await screen.findByRole('table', { name: 'Automatic hyperparameter updates' });
+  expect(within(table).getByText('Local baseline')).toBeInTheDocument();
+  expect(within(table).getByText('Insufficient evidence')).toBeInTheDocument();
+});
+
 it('shows the active Champion and warm-up progress for a Champion controller', () => {
   renderLearning(
     {
@@ -171,7 +226,7 @@ it('keeps the active state stable well past the warm-up threshold', () => {
   expect(screen.queryByText('Warm-up (128 / 3 evaluations)')).toBeNull();
 });
 
-it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', () => {
+it('shows lifetime warm-up but no Champion KPIs for fixed-opponent jobs', () => {
   renderLearning({
     adaptation: {
       algorithm: 'hypercontroller',
@@ -180,8 +235,12 @@ it('does not show Champion controller KPIs for fixed-opponent or legacy jobs', (
       warmup: 3,
     },
   });
+  // Lifetime warm-up is a controller property, not a Champion one, so it is
+  // shown for a fixed-opponent controller; the Champion-specific KPIs are not.
+  expect(screen.getByText('Controller warm-up')).toBeInTheDocument();
+  expect(screen.getByText('Warm-up (2 / 3 evaluations)')).toBeInTheDocument();
   expect(screen.queryByText('Current Champion')).toBeNull();
-  expect(screen.queryByText('Controller warm-up')).toBeNull();
+  expect(screen.queryByText('Champion calibration')).toBeNull();
   // A Champion job without an enabled controller is not an adaptation monitor.
   cleanup();
   renderLearning({
@@ -1028,7 +1087,17 @@ it('translates the new controller labels and tooltips into German', () => {
     'Fallback',
     'Champion promoted · warm-up restarted',
     'Champion promoted · learning state preserved',
+    'Champion promoted · previous learning discarded',
     'Local baseline',
+    'Insufficient evidence',
+    'Champion calibration',
+    'Baseline established',
+    '{count} comparable observations',
+    'Uncertainty',
+    'Iterations since rate change',
+    'Lifetime observations: {observations}',
+    'Controller state',
+    'Legacy reward state discarded',
     'Promotion transitions',
     'Promotion resets',
     'Current Champion',

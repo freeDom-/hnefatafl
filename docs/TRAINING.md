@@ -540,15 +540,20 @@ games are excluded from the observation rather than scored as losses, and no
 extra evaluation is added.
 
 The evaluation opponent may be fixed or `champion`. With a fixed opponent the
-controller's observations are comparable for the whole run. With Champion, a
-promotion replaces the incumbent and changes what a raw score means, so the
+controller's observations are comparable for the whole run, so it keeps the
+historical **absolute score** reward and its compatible predictors. With Champion,
+a promotion replaces the incumbent and changes what a raw score means, so the
 controller never compares raw win rates across Champions. It scores each
-observation as the **within-Champion improvement** over the first evaluation
-seen after that Champion was installed; the first post-promotion evaluation is a
-local baseline only and is never fed to the shared predictor. The controller
-separates persistent global state (candidates, effective rate, learned
-predictors, reward/action history, lifetime counters, dwell timers and RNG) from
-per-Champion evaluation state (identity, promotion iteration, baseline,
+observation as the **within-Champion improvement** over a baseline shrunk toward a
+neutral score by the baseline's completed-game count; the first post-promotion
+evaluation is a local baseline only, is never fed to the shared predictor and
+never triggers a decision. Champion predictor updates are weighted by completed
+games and a different candidate is only adopted when its predicted improvement
+exceeds the current rate's by a confidence margin (one standard error of the
+Champion's mean improvement); marginal differences keep the current rate. The
+controller separates persistent global state (candidates, effective rate, learned
+predictors, reward/action/weight history, lifetime counters, dwell timers and RNG)
+from per-Champion evaluation state (identity, promotion iteration, baseline,
 calibration offset and uncertainty).
 
 When `EvaluationSelection.accept()` reports a promotion, the promoting
@@ -566,18 +571,24 @@ rejected as duplicate or stale even after later promotions, while a genuinely
 later promotion is still applied. Failed attempts, draws and missing observations
 never transition the controller. The controller also persists the active Champion
 regime identity derived from the Champion's metadata. On resume it is compared
-with the restored Champion; a mismatch, or a pre-v4 state that cannot prove which
-Champion its observations belong to, refreshes only the per-Champion block while
+with the restored Champion; a mismatch refreshes only the per-Champion block while
 preserving the shared predictors, the effective rate and the optimizer state
-(`champion_changed` or `champion_identity_unknown`). Monitoring exposes
+(`champion_changed`). A state whose reward representation differs from the
+current job (an absolute-score state resumed into a Champion, or a version-5
+baseline-relative state resumed into a fixed opponent) discards only the learned
+predictors with `reward_semantics_changed`, preserving the effective rate,
+optimizer state, lifetime counters, dwell timers and RNG. A legacy state with no
+iteration metadata for its last change starts the conservative iteration dwell at
+the resume iteration. Monitoring exposes
 `adaptation.active_champion_identity`, the current-regime
-`adaptation.regime_observations` and `adaptation.warmup_complete`, distinct from
-the lifetime `adaptation.transitions` (`promotion_resets` remains as an alias) and
-`adaptation.last_promotion` (iteration, beaten incumbent iteration, identity and
-preserved rate); the Learning view shows the active Champion, the warm-up
-progress and the rate kept at the last promotion, and the decision log marks the
-boundary with a transition event and shows the preserved rate as both the used
-and the selected rate. This
+`adaptation.regime_observations`, the lifetime warm-up
+(`adaptation.observations` against `adaptation.warmup`), the iterations since the
+last rate change and the lifetime `adaptation.transitions` (`promotion_resets`
+remains as an alias) and `adaptation.last_promotion` (iteration, beaten incumbent
+iteration, identity and preserved rate); the Learning view shows the active
+Champion, lifetime warm-up, Champion calibration progress and the rate kept at the
+last promotion, and the decision log marks the boundary with a transition event
+and shows the preserved rate as both the used and the selected rate. This
 is distinguishable from the `reset_reason` values reported for a changed
 configuration (`candidates_changed`, `lag_changed`, `evaluation_changed`) or an
 invalid saved state (`unreadable_state`, `rng_absent`, `unsupported_state`).

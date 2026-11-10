@@ -19,16 +19,20 @@ Replaces the reset-based Champion handling in `hnefatafl/hyper_adaptation.py` wi
 a persistent, Champion-aware controller. A promotion is now an idempotent
 transition: the learned predictors, reward/action history, lifetime counters, dwell
 timers and effective rate survive, and only the new Champion's local baseline and
-calibration state are refreshed. Observations are within-Champion improvements
-over the first post-promotion score, so raw win rates against different Champions
-are never compared, and the baseline evaluation is never fed to the predictor.
-State schema version 5 migrates version 1–4 state in place, preserving the learned
-predictors, and remote Champion-adapted jobs now require the
-`hyper_adaptation_champion_transition` worker capability. Adds
-`adaptation_min_dwell_iterations`, the EN/DE monitoring and tooltip updates, and
-controller tests for the baseline, shrinkage, dwell continuity, migration and
-validation paths. This is not a strength claim: no held-out strength evaluation
-was run.
+calibration state are refreshed. State schema version 6 separates the two reward
+representations: a fixed opponent keeps the historical absolute score (and its
+compatible version-4 predictors), while only an evolving Champion uses
+baseline-relative improvement over a game-count-shrunk baseline. Champion
+predictor updates are weighted by completed games and a rate change needs a
+confidence margin, so a noisy baseline or a small sample cannot move the rate.
+Legacy migration discards only incompatible predictors (`reward_semantics_changed`)
+and preserves the effective rate, optimizer state, lifetime counters and dwell;
+a legacy change with no iteration metadata starts the conservative iteration dwell
+at resume. Adds `adaptation_min_dwell_iterations`, the EN/DE monitoring and
+tooltip updates, the `hyper_adaptation_state_versions` worker capability and
+controller tests for the baseline, weighting, confidence margin, migration, dwell
+and validation paths. This is not a strength claim: no held-out strength
+evaluation was run.
 
 ## Online milestone phases (unreleased)
 

@@ -59,15 +59,32 @@ ALGORITHMS = ("off", "hypercontroller")
 #: active-Champion regime identity that the learned observations belong to;
 #: version 5 separates the persistent global controller state from the
 #: per-Champion evaluation state, keeps the learned predictors across promotions
-#: and scores within-Champion improvement instead of raw win rates. Earlier
-#: versions are migrated on load; unknown versions reset only the controller
-#: state.
-STATE_VERSION = 5
-COMPATIBLE_STATE_VERSIONS = (1, 2, 3, 4, 5)
+#: and scores within-Champion improvement instead of raw win rates. Version 6
+#: corrects the reward semantics: fixed-opponent jobs keep the historical
+#: absolute-score reward (and their compatible predictors), while only an
+#: evolving Champion uses baseline-relative improvement, weighted by completed
+#: evaluation games and gated by a confidence margin. Earlier versions are
+#: migrated on load; unknown versions reset only the controller state.
+STATE_VERSION = 6
+COMPATIBLE_STATE_VERSIONS = (1, 2, 3, 4, 5, 6)
 #: Pseudo-count of the cross-Champion prior when shrinking a Champion's local
 #: calibration offset. One prior observation means a new Champion starts at the
 #: global mean and moves toward its own mean as evidence accumulates.
 PRIOR_WEIGHT = 1.0
+#: Neutral score the first Champion baseline is shrunk toward, so one unusually
+#: high or low evaluation is never treated as a reliable reference.
+NEUTRAL_SCORE = 0.5
+#: Conservative uncertainty (in score units) used before a Champion has enough
+#: observations to estimate the spread of its improvements.
+DEFAULT_UNCERTAINTY = 0.5
+#: The best candidate's predicted improvement must exceed the current rate's by
+#: at least this many standard errors before the rate may change. This hysteresis
+#: keeps marginal, noisy differences from moving the learning rate.
+HYSTERESIS = 1.0
+#: Cap on the per-observation predictor weight derived from completed games.
+MAX_GAME_WEIGHT = 64.0
+#: The two reward representations a serialized state may use.
+REWARD_SEMANTICS = ("absolute", "baseline_relative")
 #: Bound on the per-Champion raw-score telemetry kept for monitoring.
 MAX_SCORE_HISTORY = 64
 
@@ -115,6 +132,8 @@ EVENT_KEYS = frozenset(
         "changed",
         "skipped",
         "baseline",
+        "margin",
+        "weight",
         "observations",
         "seconds",
         # Champion-promotion transition marker (state versions 3 and 5).
@@ -148,6 +167,8 @@ SKIP_REASONS = frozenset(
         "dwell_iterations",
         "fallback",
         "missing_observation",
+        "baseline",
+        "uncertain",
         "promotion_reset",
         "promotion_transition",
         "promotion_duplicate",
@@ -166,6 +187,8 @@ CHAMPION_KEYS = frozenset(
         "promotion_iteration",
         "protocol",
         "baseline_score",
+        "baseline_games",
+        "effective_baseline",
         "baseline_iteration",
         "observations",
         "count",
@@ -727,6 +750,16 @@ def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None
         baseline_score = _finite_float(baseline_score)
         if not 0.0 <= baseline_score <= 1.0:
             raise ValueError("Controller Champion baseline score is invalid")
+    baseline_games = value.get("baseline_games", 0)
+    if type(baseline_games) is not int or baseline_games < 0:
+        raise ValueError("Controller Champion baseline game count is invalid")
+    effective_baseline = value.get("effective_baseline")
+    if effective_baseline is not None:
+        effective_baseline = _finite_float(effective_baseline)
+        if not 0.0 <= effective_baseline <= 1.0:
+            raise ValueError("Controller Champion effective baseline is invalid")
+    if baseline_score is None and (baseline_games != 0 or effective_baseline is not None):
+        raise ValueError("Controller Champion baseline metadata is inconsistent")
     baseline_iteration = _validate_optional_iteration(value.get("baseline_iteration"))
     observations = _validate_counter(value.get("observations", 0), "Champion observation")
     count = _validate_counter(value.get("count", 0), "Champion improvement")
@@ -763,6 +796,8 @@ def _validate_champion_state(value: Any, protocol: str) -> dict[str, Any] | None
         "promotion_iteration": promotion_iteration,
         "protocol": saved_protocol,
         "baseline_score": baseline_score,
+        "baseline_games": baseline_games,
+        "effective_baseline": effective_baseline,
         "baseline_iteration": baseline_iteration,
         "observations": observations,
         "count": count,
@@ -828,6 +863,12 @@ def _validate_event(event: Any, candidates: list[float]) -> dict[str, Any]:
     if type(baseline) is not bool:
         raise ValueError("Controller event baseline flag is invalid")
     validated["baseline"] = baseline
+    for key in ("margin", "weight"):
+        if key in event:
+            number = _finite_float(event[key])
+            if number < 0:
+                raise ValueError("Controller event numeric field is invalid")
+            validated[key] = number
     if "observations" in event:
         validated["observations"] = _validate_counter(event["observations"], "event observation")
     if "seconds" in event:
@@ -852,21 +893,28 @@ class HyperController:
     learning rate into the optimizer's parameter groups, so optimizer momentum is
     never rebuilt.
 
+    Two feedback representations are supported, chosen by the evaluation opponent:
+
+    * **Absolute** (fixed opponent). The completed-game score is directly
+      comparable for the whole run, so the historical reward representation and
+      its compatible predictors are preserved unchanged.
+    * **Baseline-relative** (evolving Champion). Raw scores against different
+      Champions are never compared: every observation is the improvement over a
+      shrunk local baseline established by the first evaluation after a Champion
+      was installed. Predictor updates are weighted by completed games and a rate
+      change needs a confidence margin, so a noisy baseline or a small sample
+      cannot move the rate on its own.
+
     State is split in two:
 
     * The **persistent global state** (candidate set, effective rate, learned
-      predictors, reward/action history, dwell counters, lifetime statistics and
-      the dedicated RNG stream) describes the single continuing trajectory. It is
-      never discarded at a Champion promotion.
+      predictors, reward/action/weight history, dwell counters, lifetime
+      statistics and the dedicated RNG stream) describes the single continuing
+      trajectory. It is never discarded at a Champion promotion.
     * The **per-Champion evaluation state** (identity, promotion iteration,
       evaluation protocol, local baseline, raw-score telemetry, shrunk calibration
       offset and uncertainty) describes the incumbent the current observations are
       compared against. It is refreshed when a new Champion is installed.
-
-    Raw scores against different Champions are never compared. Every observation
-    is the *within-Champion improvement* over the first score seen after that
-    Champion was installed, so the shared predictors see a comparable scale while
-    the local baseline absorbs each incumbent's difficulty.
     """
 
     def __init__(
@@ -902,12 +950,18 @@ class HyperController:
         self.min_dwell_iterations = min_dwell_iterations
         self.min_trials = min_trials
         self.evaluation_identity = evaluation_identity
+        #: An evolving Champion scores baseline-relative improvement; a fixed
+        #: opponent keeps the historical absolute score. The two representations
+        #: are never mixed in one predictor.
+        self.champion_aware = active_champion_identity is not None
         self.effective_index = initial_index
         self.rng = random.Random(seed)
         #: Shared, persistent predictor history. It survives Champion promotions
-        #: so knowledge transfers across regimes.
+        #: so knowledge transfers across regimes. ``weights`` is the per-observation
+        #: evidence weight (completed games) for the baseline-relative mode.
         self.rewards: list[float] = []
         self.actions: list[int] = []
+        self.weights: list[float] = []
         # Observations attributed per candidate (lifetime telemetry). Exploration
         # is gated on the per-context count in ``contexts[...]["n"]`` instead.
         self.counts = [0] * len(self.candidates)
@@ -924,8 +978,12 @@ class HyperController:
         self.last_decision_observation = 0
         self.last_change_observation = 0
         #: Training iteration of the last effective-rate change, for the optional
-        #: iteration-based minimum dwell. ``None`` means the timer is satisfied.
+        #: iteration-based minimum dwell. ``None`` with ``changes == 0`` means no
+        #: change has happened yet, so the dwell is already satisfied.
         self.last_change_iteration: int | None = None
+        #: Most recent training iteration seen, for the ``iterations_since_change``
+        #: monitoring metric.
+        self.last_iteration: int | None = None
         self.limit_hits = 0
         self.events: list[dict[str, Any]] = []
         self.reset_reason: str | None = None
@@ -933,8 +991,9 @@ class HyperController:
         #: Set when a resume explicitly overrode the effective rate, so the
         #: override is visible in monitoring rather than silent.
         self.override_learning_rate: float | None = None
-        #: Cross-Champion improvement prior used to shrink each Champion's local
-        #: calibration offset. Updated continuously as observations arrive.
+        #: Cross-Champion improvement prior. Retained as diagnostic telemetry: a
+        #: constant offset cannot change the ranking of candidates, so it is not
+        #: used to select the rate.
         self.prior: dict[str, Any] = {"mean": 0.0, "m2": 0.0, "count": 0}
         #: Per-Champion evaluation state. Always present; ``identity`` is ``None``
         #: for a fixed-opponent run, which is a single implicit regime.
@@ -959,6 +1018,10 @@ class HyperController:
         """Backward-compatible alias for the lifetime transition count."""
         return self.transitions
 
+    @property
+    def reward_semantics(self) -> str:
+        return "baseline_relative" if self.champion_aware else "absolute"
+
     def _fresh_champion(
         self, identity: str | None, promotion_iteration: int | None
     ) -> dict[str, Any]:
@@ -968,6 +1031,8 @@ class HyperController:
             "promotion_iteration": promotion_iteration,
             "protocol": self.evaluation_identity,
             "baseline_score": None,
+            "baseline_games": 0,
+            "effective_baseline": None,
             "baseline_iteration": None,
             "observations": 0,
             "count": 0,
@@ -979,27 +1044,39 @@ class HyperController:
             "last_score": None,
         }
 
-    def set_effective_index(self, index: int) -> None:
+    def set_effective_index(self, index: int, iteration: int | None = None) -> None:
         """Adopt an externally requested effective rate (a resume override).
 
         The learned predictors and counters are kept: the override only changes
         the rate applied from the next interval, and the dwell timer is restarted
-        so the override is not immediately replaced. There is no pending feedback
-        to reconcile because the checkpoint is written after each decision.
+        from ``iteration`` so the override is not immediately replaced. When the
+        requested index is already effective, nothing is restarted. If the
+        iteration is unknown and a change is actually made, the iteration dwell is
+        started conservatively at the first subsequent observed iteration.
         """
         if not 0 <= index < len(self.candidates):
             raise ValueError("Effective index is out of range")
+        if index == self.effective_index:
+            # The requested rate is already effective: no state transition and no
+            # dwell restart, only the visible record of the explicit request.
+            self.override_learning_rate = self.candidates[index]
+            return
         self.effective_index = index
         self.last_change_observation = self.observations
-        self.last_change_iteration = None
+        self.last_change_iteration = iteration
         self.override_learning_rate = self.candidates[index]
 
     def summary(self) -> dict[str, Any]:
         """A bounded live projection for progress files and monitoring."""
         champion = self.champion
+        iterations_since_change = None
+        if self.last_iteration is not None and self.last_change_iteration is not None:
+            iterations_since_change = max(0, self.last_iteration - self.last_change_iteration)
         return {
             "algorithm": "hypercontroller",
             "state_version": STATE_VERSION,
+            "reward_semantics": self.reward_semantics,
+            "champion_aware": self.champion_aware,
             "candidates": list(self.candidates),
             "lag": self.lag,
             "cadence": self.cadence,
@@ -1028,6 +1105,8 @@ class HyperController:
             "last_decision_observation": self.last_decision_observation,
             "last_change_observation": self.last_change_observation,
             "last_change_iteration": self.last_change_iteration,
+            "last_iteration": self.last_iteration,
+            "iterations_since_change": iterations_since_change,
             "evaluation_identity": self.evaluation_identity,
             "contexts": len(self.contexts),
             "limit_hits": self.limit_hits,
@@ -1054,9 +1133,13 @@ class HyperController:
         interval. A missing or non-finite score is recorded but never advances a
         counter, so warm-up, cadence and dwell cannot be satisfied by noise.
 
-        The first evaluation after a Champion is installed only establishes that
-        Champion's local baseline. It is never fed to the shared predictor, so an
-        uncalibrated score cannot inject a spurious reward.
+        Three situations are distinguished:
+
+        * A **learning observation** feeds the predictor and may drive a decision.
+        * A **baseline-only observation** (the first evaluation after a Champion
+          was installed) records the local baseline but never triggers a decision,
+          moves the decision counters or advances the RNG.
+        * A **missing observation** is recorded and changes nothing.
 
         ``promotion`` carries the :class:`EvaluationSelection` signal that a new
         Champion replaced the incumbent. The promoting observation still belongs
@@ -1072,7 +1155,7 @@ class HyperController:
             # An already-processed promotion boundary is a no-op. Re-ingesting the
             # old Champion's score would contaminate the new regime's history and
             # could advance its warm-up or trigger a rate change, so nothing is
-            # updated and no decision event is recorded.
+            # updated (not even the monitoring iteration) and no event is recorded.
             return {
                 "iteration": iteration,
                 "observation": None,
@@ -1084,6 +1167,8 @@ class HyperController:
                 "skipped": "promotion_duplicate",
                 "observations": self.observations,
             }
+        if type(iteration) is int and iteration >= 0:
+            self.last_iteration = iteration
         if score is None or not math.isfinite(float(score)):
             event = {
                 "iteration": iteration,
@@ -1103,59 +1188,108 @@ class HyperController:
             self._record_event(event, started)
             return event
         raw = min(1.0, max(0.0, float(score)))
-        reward = self._ingest(iteration, raw, provenance)
-        event = self._decide(iteration, raw, provenance, promotion)
-        if reward is None:
-            # The first evaluation of this Champion only established its local
-            # baseline; it was not fed to the shared predictor.
-            event["baseline"] = True
+        reward, baseline = self._ingest(iteration, raw, provenance)
+        if baseline:
+            # A baseline-only observation must not independently trigger a rate
+            # selection: it carries no comparable evidence yet.
+            event = self._baseline_event(iteration, raw, provenance)
+        else:
+            event = self._decide(iteration, raw, provenance, promotion)
         if promotion is not None:
             self._transition(promotion, event)
         self._record_event(event, started)
         return event
 
-    def _ingest(self, iteration: int, raw: float, provenance: dict[str, Any]) -> float | None:
-        """Record one raw score and return its reward, or ``None`` for a baseline.
+    def _baseline_event(
+        self, iteration: int, observation: float, provenance: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The event for a baseline-only evaluation: no decision, no RNG."""
+        rate = self.effective_learning_rate
+        return {
+            "iteration": iteration,
+            "observation": round(observation, 6),
+            "provenance": provenance,
+            "attributed_learning_rate": rate,
+            "previous_learning_rate": rate,
+            "selected_learning_rate": rate,
+            "changed": False,
+            "skipped": "baseline",
+            "baseline": True,
+            "observations": self.observations,
+        }
 
-        The reward is the within-Champion improvement over the local baseline, so
-        two Champions' scores are never compared directly. The first observation
-        of a Champion sets that baseline and returns ``None``: it is counted as a
-        valid evaluation but is deliberately not fed to the shared predictor.
+    def _observation_weight(self, provenance: dict[str, Any]) -> float:
+        """Evidence weight of one observation, from its completed-game count."""
+        games = provenance.get("completed_games")
+        if type(games) is not int or games < 1:
+            return 1.0
+        return float(min(games, MAX_GAME_WEIGHT))
+
+    def _shrunk_baseline(self, score: float, games: int) -> float:
+        """Shrink the first Champion score toward a neutral reference.
+
+        A single evaluation is a noisy reference for a whole generation. Weighting
+        it by its completed-game count against a neutral prior means an unusually
+        high or low one-game baseline cannot dominate the improvements that follow.
+        """
+        weight = max(0, games)
+        return (PRIOR_WEIGHT * NEUTRAL_SCORE + weight * score) / (PRIOR_WEIGHT + weight)
+
+    def _ingest(
+        self, iteration: int, raw: float, provenance: dict[str, Any]
+    ) -> tuple[float | None, bool]:
+        """Record one raw score and return ``(reward, baseline_only)``.
+
+        A fixed opponent keeps the absolute score as the reward. A Champion uses
+        the improvement over its shrunk local baseline; the first observation
+        establishes that baseline and returns ``(None, True)``.
         """
         champion = self.champion
-        champion["observations"] += 1
         self.observations += 1
+        champion["observations"] += 1
         champion["last_score"] = raw
         champion["scores"].append(raw)
         if len(champion["scores"]) > MAX_SCORE_HISTORY:
             champion["scores"] = champion["scores"][-MAX_SCORE_HISTORY:]
-        baseline = champion["baseline_score"]
-        if baseline is None:
-            champion["baseline_score"] = raw
-            champion["baseline_iteration"] = iteration
-            return None
-        improvement = min(1.0, max(-1.0, raw - baseline))
-        # Update the Champion's Welford statistics and its shrunk offset. The
-        # offset is computed against the cross-Champion prior *before* this
-        # observation joins it, so the calibration is causal.
-        count = champion["count"] + 1
-        delta = improvement - champion["mean"]
-        mean = champion["mean"] + delta / count
-        m2 = champion["m2"] + delta * (improvement - mean)
-        champion["count"] = count
-        champion["mean"] = mean
-        champion["m2"] = m2
-        champion["offset"] = self._shrunk_offset(mean, count)
-        champion["uncertainty"] = math.sqrt(m2 / (count - 1) / count) if count > 1 else 0.0
-        self._update_prior(improvement)
-        # The predictor history is shared across Champions so knowledge transfers.
+        weight = self._observation_weight(provenance) if self.champion_aware else 1.0
+        if not self.champion_aware:
+            reward = raw
+        else:
+            if champion["baseline_score"] is None:
+                champion["baseline_score"] = raw
+                champion["baseline_games"] = int(provenance.get("completed_games") or 0)
+                champion["effective_baseline"] = self._shrunk_baseline(
+                    raw, champion["baseline_games"]
+                )
+                champion["baseline_iteration"] = iteration
+                return None, True
+            reference = champion["effective_baseline"]
+            if reference is None:
+                reference = champion["baseline_score"]
+            reward = min(1.0, max(-1.0, raw - float(reference)))
+            # Update the Champion's Welford statistics and its shrunk offset. The
+            # offset is diagnostic: a constant cannot change the candidate ranking.
+            count = champion["count"] + 1
+            delta = reward - champion["mean"]
+            mean = champion["mean"] + delta / count
+            m2 = champion["m2"] + delta * (reward - mean)
+            champion["count"] = count
+            champion["mean"] = mean
+            champion["m2"] = m2
+            champion["offset"] = self._shrunk_offset(mean, count)
+            champion["uncertainty"] = (
+                math.sqrt(m2 / (count - 1) / count) if count > 1 else DEFAULT_UNCERTAINTY
+            )
+            self._update_prior(reward)
         action = self.effective_index
-        self.rewards.append(improvement)
+        self.rewards.append(reward)
         self.actions.append(action)
+        self.weights.append(weight)
         self.counts[action] += 1
         if len(self.rewards) > MAX_REWARD_HISTORY:
             self.rewards = self.rewards[-MAX_REWARD_HISTORY:]
             self.actions = self.actions[-MAX_REWARD_HISTORY:]
+            self.weights = self.weights[-MAX_REWARD_HISTORY:]
         try:
             if self._learn():
                 # Only an observation that actually updated a predictor counts as
@@ -1164,7 +1298,7 @@ class HyperController:
         except (ValueError, TypeError, ZeroDivisionError):
             # A malformed window must never abort training; skip this update.
             pass
-        return improvement
+        return reward, False
 
     def _shrunk_offset(self, mean: float, count: int) -> float:
         """Shrink a Champion's mean improvement toward the cross-Champion prior."""
@@ -1172,7 +1306,7 @@ class HyperController:
         return (PRIOR_WEIGHT * prior_mean + count * mean) / (PRIOR_WEIGHT + count)
 
     def _update_prior(self, improvement: float) -> None:
-        """Fold one improvement into the cross-Champion prior (Welford)."""
+        """Fold one improvement into the cross-Champion prior (diagnostic)."""
         count = self.prior["count"] + 1
         delta = improvement - self.prior["mean"]
         mean = self.prior["mean"] + delta / count
@@ -1203,8 +1337,8 @@ class HyperController:
         """Move to a new Champion without discarding persistent learning.
 
         This is an idempotent *transition*, not a reset. The effective rate, the
-        shared predictors, the reward/action history, the lifetime counters, the
-        RNG stream and the dwell timers all survive; only the per-Champion
+        shared predictors, the reward/action/weight history, the lifetime counters,
+        the RNG stream and the dwell timers all survive; only the per-Champion
         evaluation block is refreshed, so the next evaluation establishes the new
         Champion's local baseline. Warm-up is not restarted, which is what keeps
         dwell periods continuous across promotions.
@@ -1274,12 +1408,14 @@ class HyperController:
         self.last_decision_observation = self.observations
         self.decisions += 1
         try:
-            chosen = self._select()
+            chosen, uncertain = self._select()
         except (ValueError, TypeError, ZeroDivisionError):
             event["skipped"] = "fallback"
             return event
         event["selected_index"] = chosen
         event["selected_learning_rate"] = self.candidates[chosen]
+        if uncertain:
+            event["skipped"] = "uncertain"
         if chosen != previous_index:
             self.effective_index = chosen
             self.last_change_observation = self.observations
@@ -1290,17 +1426,43 @@ class HyperController:
         return event
 
     def _iteration_dwell_ok(self, iteration: int) -> bool:
-        """Whether the optional iteration-based minimum dwell has elapsed."""
-        if self.min_dwell_iterations <= 0 or self.last_change_iteration is None:
+        """Whether the optional iteration-based minimum dwell has elapsed.
+
+        When the last change's iteration is unknown but a change did happen
+        (legacy state or an override without iteration metadata), the clock starts
+        conservatively at the first observed iteration instead of being treated as
+        already satisfied.
+        """
+        if self.min_dwell_iterations <= 0:
+            return True
+        if self.last_change_iteration is None:
+            if self.changes > 0:
+                self.last_change_iteration = iteration
+                return False
             return True
         return iteration - self.last_change_iteration >= self.min_dwell_iterations
 
-    def _select(self) -> int:
+    def _decision_uncertainty(self) -> float:
+        """Standard error of the current Champion's mean improvement."""
+        champion = self.champion
+        if champion["count"] < 2:
+            return DEFAULT_UNCERTAINTY
+        return max(float(champion["uncertainty"]), 1e-9)
+
+    def _select(self) -> tuple[int, bool]:
+        """Choose the next candidate index and whether it is merely tentative.
+
+        Fixed-opponent selection is the historical greedy rule. Champion-aware
+        selection adds a confidence margin: a different candidate is only adopted
+        when its predicted improvement exceeds the current rate's by at least one
+        standard error of the Champion's mean improvement. Otherwise the current
+        rate is kept and the decision is marked uncertain.
+        """
         size = len(self.candidates)
         if len(self.rewards) < self.lag:
             # Too little history to form a context window; explore uniformly.
             self.coverage_pulls += 1
-            return self.rng.randrange(size)
+            return self.rng.randrange(size), False
         context = tuple(self.actions[-self.lag :])
         window = self.rewards[-self.lag :]
         # Coverage is per (candidate, context): a predictor that has never seen a
@@ -1312,18 +1474,27 @@ class HyperController:
         ]
         if untried:
             self.coverage_pulls += 1
-            return untried[self.rng.randrange(len(untried))]
+            return untried[self.rng.randrange(len(untried))], False
+        values = [self._prediction(index, context, window) for index in range(size)]
+        counts = [self._context_count(index, context) for index in range(size)]
         best_index = 0
-        best_value: float | None = None
-        best_count = 0
-        for index in range(size):
-            value = self._prediction(index, context, window)
-            count = self._context_count(index, context)
-            if best_value is None or value > best_value + 1e-12:
-                best_index, best_value, best_count = index, value, count
-            elif abs(value - best_value) <= 1e-12 and count < best_count:
-                best_index, best_count = index, count
-        return best_index
+        for index in range(1, size):
+            if values[index] > values[best_index] + 1e-12:
+                best_index = index
+            elif (
+                abs(values[index] - values[best_index]) <= 1e-12
+                and counts[index] < counts[best_index]
+            ):
+                best_index = index
+        if not self.champion_aware:
+            return best_index, False
+        current = self.effective_index
+        if best_index == current:
+            return current, False
+        margin = HYSTERESIS * self._decision_uncertainty()
+        if values[best_index] - values[current] <= margin:
+            return current, True
+        return best_index, False
 
     def _context_count(self, action: int, context: tuple[int, ...]) -> int:
         entry = self.contexts.get(self._key(action, context))
@@ -1338,10 +1509,16 @@ class HyperController:
         action = self.actions[target]
         if len(context) != self.lag or len(window) != self.lag:
             return False
-        return self._update(action, context, window, self.rewards[target])
+        weight = self.weights[target] if target < len(self.weights) else 1.0
+        return self._update(action, context, window, self.rewards[target], weight)
 
     def _update(
-        self, action: int, context: tuple[int, ...], window: list[float], reward: float
+        self,
+        action: int,
+        context: tuple[int, ...],
+        window: list[float],
+        reward: float,
+        weight: float = 1.0,
     ) -> bool:
         key = self._key(action, context)
         entry = self.contexts.get(key)
@@ -1358,12 +1535,13 @@ class HyperController:
                 "n": 0,
             }
             self.contexts[key] = entry
+        weight = max(0.0, float(weight))
         matrix = entry["V"]
         vector = entry["b"]
         for row in range(self.lag):
             for column in range(self.lag):
-                matrix[row][column] += window[row] * window[column]
-            vector[row] += reward * window[row]
+                matrix[row][column] += weight * window[row] * window[column]
+            vector[row] += weight * reward * window[row]
         entry["n"] += 1
         return True
 
@@ -1392,6 +1570,7 @@ class HyperController:
         return {
             "version": STATE_VERSION,
             "algorithm": "hypercontroller",
+            "reward_semantics": self.reward_semantics,
             "candidates": list(self.candidates),
             "lag": self.lag,
             "cadence": self.cadence,
@@ -1421,9 +1600,11 @@ class HyperController:
             "last_decision_observation": self.last_decision_observation,
             "last_change_observation": self.last_change_observation,
             "last_change_iteration": self.last_change_iteration,
+            "last_iteration": self.last_iteration,
             "counts": list(self.counts),
             "rewards": list(self.rewards),
             "actions": list(self.actions),
+            "weights": list(self.weights),
             "contexts": {
                 key: {
                     "V": [list(row) for row in entry["V"]],
@@ -1458,6 +1639,25 @@ class HyperController:
         self.reset_reason = reason
         return self
 
+    def _discard_learned_state(self, *, identity: str | None, reason: str) -> "HyperController":
+        """Drop predictors whose reward representation no longer applies.
+
+        Used only during migration, when a saved state was trained on a different
+        reward representation (absolute scores versus baseline-relative
+        improvement). The effective rate, optimizer state, lifetime counters, dwell
+        timers, per-candidate telemetry and the RNG stream are preserved, so
+        training continues from the same rate with a clean calibrated history.
+        """
+        self.contexts = {}
+        self.rewards = []
+        self.actions = []
+        self.weights = []
+        self.coverage_pulls = 0
+        self.learned = 0
+        self.champion = self._fresh_champion(identity, None)
+        self.reset_reason = reason
+        return self
+
     @classmethod
     def from_state(
         cls,
@@ -1474,17 +1674,18 @@ class HyperController:
         evaluation_identity: str,
         active_champion_identity: str | None = None,
         min_dwell_iterations: int = 0,
+        current_iteration: int | None = None,
     ) -> "HyperController":
         """Restore a controller, migrating older schemas and refreshing regimes.
 
         A saved candidate set, lag or evaluation identity that no longer matches
-        cannot be reused: the learned predictors describe different actions or a
-        different objective, so the whole learned state resets with an explicit
-        reason. A changed active Champion is different: only the per-Champion
-        evaluation block is refreshed (the learned predictors and counters are
-        shared and survive), because the observations are already expressed as
-        within-Champion improvement. In every case the model, optimizer and replay
-        are untouched.
+        cannot be reused, so the whole learned state resets with an explicit
+        reason. A changed reward representation (an absolute-score state resumed
+        into a baseline-relative Champion, or the reverse) also discards the
+        learned predictors, because a predictor must never mix incompatible
+        rewards. A changed active Champion alone refreshes only the per-Champion
+        block, because the shared observations are already within-Champion
+        improvements. In every case the model, optimizer and replay are untouched.
         """
         controller = cls(
             candidates=candidates,
@@ -1547,6 +1748,7 @@ class HyperController:
             )
             last_change = _validate_counter(state.get("last_change_observation", 0), "last-change")
             last_change_iteration = _validate_optional_iteration(state.get("last_change_iteration"))
+            last_iteration = _validate_optional_iteration(state.get("last_iteration"))
             limit_hits = _validate_counter(state.get("limit_hits", 0), "limit-hit")
             # Version 4 stored the transition count as ``promotion_resets``.
             transitions = _validate_counter(
@@ -1555,30 +1757,66 @@ class HyperController:
             last_promotion = _validate_promotion(state.get("last_promotion"), candidates)
             if bool(transitions) != bool(last_promotion):
                 raise ValueError("Controller transition counters are inconsistent")
-            prior = _validate_prior(state.get("prior"))
-            champion = _validate_champion_state(state.get("champion"), evaluation_identity)
-            saved_active = _validate_champion_identity(state.get("active_champion_identity"))
-            saved_identity = champion["identity"] if champion is not None else saved_active
-            if saved_active != saved_identity:
-                raise ValueError("Controller Champion identity is inconsistent")
             if last_decision > observations or last_change > observations:
                 raise ValueError("Controller observation counters are inconsistent")
             events = _validate_events(state.get("events", []), candidates)
             rng = _restore_rng(state["rng"], seed)
+            if version >= 6:
+                # The current schema requires the complete structure.
+                semantics = state.get("reward_semantics")
+                if semantics not in REWARD_SEMANTICS:
+                    raise ValueError("Controller reward semantics are invalid")
+                weights = _validate_number_list(state.get("weights"), MAX_REWARD_HISTORY, "weight")
+                if len(weights) != len(rewards):
+                    raise ValueError("Controller reward and weight histories disagree")
+                if any(item < 0 for item in weights):
+                    raise ValueError("Controller observation weight is invalid")
+                champion = _validate_champion_state(state.get("champion"), evaluation_identity)
+                if champion is None:
+                    raise ValueError("Controller version-6 state requires a Champion block")
+                if champion["protocol"] != evaluation_identity:
+                    raise ValueError("Controller Champion protocol does not match the evaluation")
+                prior = _validate_prior(state.get("prior"))
+                saved_active = _validate_champion_identity(state.get("active_champion_identity"))
+                if saved_active != champion["identity"]:
+                    raise ValueError("Controller Champion identity is inconsistent")
+            else:
+                # Historical schema. Version 1-4 used absolute scores; version 5
+                # used baseline-relative improvement for every opponent.
+                semantics = "absolute" if version <= 4 else "baseline_relative"
+                weights = [1.0] * len(rewards)
+                champion = (
+                    _validate_champion_state(state.get("champion"), evaluation_identity)
+                    if version == 5
+                    else None
+                )
+                prior = (
+                    _validate_prior(state.get("prior"))
+                    if version == 5
+                    else {"mean": 0.0, "m2": 0.0, "count": 0}
+                )
+                saved_active = _validate_champion_identity(state.get("active_champion_identity"))
+                if champion is not None:
+                    if (
+                        champion["effective_baseline"] is None
+                        and champion["baseline_score"] is not None
+                    ):
+                        champion["effective_baseline"] = champion["baseline_score"]
+                    if champion["protocol"] != evaluation_identity:
+                        raise ValueError(
+                            "Controller Champion protocol does not match the evaluation"
+                        )
+                    if saved_active != champion["identity"]:
+                        raise ValueError("Controller Champion identity is inconsistent")
         except (KeyError, TypeError, ValueError, IndexError, OverflowError):
             controller.reset_reason = "unreadable_state"
             return controller
-        if champion is None:
-            # Pre-v5 state (or a v5 state with no Champion block) describes a
-            # single implicit regime. Its baseline is unknown, so the next
-            # observation establishes one; the learned predictors are preserved.
-            champion = controller._fresh_champion(saved_active, None)
-            champion["observations"] = observations
-            champion["offset"] = float(prior["mean"])
-        # Adopt the validated state, then reconcile the Champion regime.
+        saved_identity = champion["identity"] if champion is not None else saved_active
+        # Adopt the validated state, then reconcile semantics and the Champion.
         controller.contexts = contexts
         controller.rewards = rewards
         controller.actions = actions
+        controller.weights = weights
         controller.counts = counts
         controller.effective_index = effective_index
         controller.observations = observations
@@ -1589,22 +1827,42 @@ class HyperController:
         controller.last_decision_observation = last_decision
         controller.last_change_observation = last_change
         controller.last_change_iteration = last_change_iteration
+        controller.last_iteration = last_iteration
         controller.limit_hits = limit_hits
         controller.events = events
         controller.rng = rng
         controller.transitions = transitions
         controller.last_promotion = last_promotion
         controller.prior = prior
+        if champion is None:
+            champion = controller._fresh_champion(saved_identity, None)
+            champion["observations"] = observations
+            champion["offset"] = float(prior["mean"])
         controller.champion = champion
-        if saved_identity != active_champion_identity:
-            # The per-Champion statistics describe a different (or, for a legacy
-            # state, unverifiable) Champion. Refresh only that block: the shared
-            # predictors and counters are expressed as within-Champion improvement
-            # and stay valid, so the persistent learning is never discarded.
+        if version < 6:
+            controller.migrated_from = version
+        if semantics != controller.reward_semantics:
+            # The saved predictors were trained on a different reward
+            # representation and must never be mixed with the current one. Keep
+            # the effective rate, optimizer state, lifetime counters and dwell.
+            controller._discard_learned_state(
+                identity=active_champion_identity, reason="reward_semantics_changed"
+            )
+        elif saved_identity != active_champion_identity:
+            # Same reward representation but a different (or unverifiable) Champion
+            # for the per-Champion statistics. Refresh only that block: the shared
+            # predictors stay valid.
             reason = "champion_identity_unknown" if version < 4 else "champion_changed"
             controller._reset_champion_state(identity=active_champion_identity, reason=reason)
-        if version < 5:
-            controller.migrated_from = version
+        if (
+            version < 6
+            and controller.min_dwell_iterations > 0
+            and controller.last_change_iteration is None
+            and controller.changes > 0
+        ):
+            # A legacy state has no iteration metadata for its last change. Start
+            # the conservative dwell clock at the resume iteration.
+            controller.last_change_iteration = current_iteration
         return controller
 
 
@@ -1617,6 +1875,7 @@ def resolve_controller(
     resume: bool,
     override_learning_rate: float | None = None,
     active_champion_identity: str | None = None,
+    current_iteration: int | None = None,
 ) -> HyperController | None:
     """Build the controller for a run, or ``None`` when adaptation is off.
 
@@ -1625,6 +1884,8 @@ def resolve_controller(
     a different objective are never mixed. ``active_champion_identity`` names the
     Champion the restored observations must belong to; a mismatch refreshes only
     the per-Champion evaluation block while the shared predictors are preserved.
+    ``current_iteration`` is the resume iteration, used to start the conservative
+    iteration dwell after an explicit override or a legacy migration.
     ``override_learning_rate`` is a rate the caller explicitly requested for a
     resume; it is honoured by moving the restored controller's effective rate
     (keeping the learned state) so the override is never silently discarded.
@@ -1649,12 +1910,15 @@ def resolve_controller(
             evaluation_identity=evaluation_identity,
             active_champion_identity=active_champion_identity,
             min_dwell_iterations=min_dwell_iterations,
+            current_iteration=current_iteration,
         )
         if override_learning_rate is not None and override_learning_rate in candidates:
             # The rate must already be a candidate: normalize_config enforces it.
             # An explicit override is honoured even after a regime refresh, so a
             # user request is never silently discarded.
-            controller.set_effective_index(candidates.index(override_learning_rate))
+            controller.set_effective_index(
+                candidates.index(override_learning_rate), iteration=current_iteration
+            )
         return controller
     return HyperController(
         candidates=candidates,

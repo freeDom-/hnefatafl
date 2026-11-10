@@ -1130,6 +1130,9 @@ def train(
             seed=config["seed"] + 900000,
             resume=bool(config.get("resume")),
             override_learning_rate=explicit_learning_rate,
+            # The iteration the checkpoint completed, so an explicit override or a
+            # legacy migration starts its conservative iteration dwell here.
+            current_iteration=completed,
         )
         if controller is not None:
             _set_optimizer_learning_rate(optimizer, controller.effective_learning_rate)

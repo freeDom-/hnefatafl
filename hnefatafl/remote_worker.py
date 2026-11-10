@@ -26,6 +26,8 @@ import urllib.parse
 import urllib.request
 from uuid import uuid4
 
+from .hyper_adaptation import COMPATIBLE_STATE_VERSIONS
+
 
 PROTOCOL_VERSION = 1
 MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
@@ -794,6 +796,10 @@ def run_worker(
         # and dwell counters across promotions. A worker that only advertises the
         # earlier reset-based Champion controller is not offered such a job.
         "hyper_adaptation_champion_transition": True,
+        # The controller state schema versions this worker can read. A resume
+        # checkpoint with a newer version is never offered, so this worker's
+        # migration cannot silently discard the learned predictors.
+        "hyper_adaptation_state_versions": list(COMPATIBLE_STATE_VERSIONS),
     }
     results: list[dict] = []
     with (
