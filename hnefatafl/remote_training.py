@@ -974,7 +974,6 @@ class RemoteTraining:
                     elif (
                         worker.get("capabilities", {}).get("hyper_adaptation_iteration_dwell")
                         is not True
-                        and configuration.get("adaptation", "off") != "off"
                     ):
                         # An older adapted worker understands the controller but not
                         # the iteration-based dwell. A nonzero value is rejected by
@@ -1088,9 +1087,8 @@ class RemoteTraining:
                 elif (
                     worker.get("capabilities", {}).get("hyper_adaptation_iteration_dwell")
                     is not True
-                    and job.get("config", {}).get("adaptation", "off") != "off"
                 ):
-                    # The saved config may carry the new field with its inert zero
+                    # The saved config carries the new field with its inert zero
                     # default; drop it so a worker that predates the iteration
                     # dwell never sees an unknown key. A nonzero value would have
                     # been rejected before the claim.
