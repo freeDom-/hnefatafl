@@ -30,7 +30,25 @@ test('neural analytics budgets persist across search windows, replay and reload 
   await searchTime.fill('0.05');
   await advisor.selectOption(`model:${model.id}`);
   await expect(iterations).toHaveValue('1024');
-  await iterations.fill('4096');
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`http://127.0.0.1:8001/api/games/${game.id}/analytics`)).json())
+          .advisor?.config.iterations,
+    )
+    .toBe(1024);
+  const writes: number[] = [];
+  let editing = true;
+  page.on('request', (outgoing) => {
+    if (
+      editing &&
+      outgoing.method() === 'PUT' &&
+      new URL(outgoing.url()).pathname === `/api/games/${game.id}/analytics`
+    )
+      writes.push(outgoing.postDataJSON().advisor.config.iterations);
+  });
+  await iterations.fill('');
+  await iterations.pressSequentially('4096', { delay: 50 });
   await expect
     .poll(
       async () =>
@@ -38,6 +56,8 @@ test('neural analytics budgets persist across search windows, replay and reload 
           .advisor?.config.iterations,
     )
     .toBe(4096);
+  expect(writes).toEqual([4096]);
+  editing = false;
   await searchTime.fill('0.1');
   await expect
     .poll(
@@ -77,6 +97,40 @@ test('neural analytics budgets persist across search windows, replay and reload 
   await expect(iterations).toHaveValue('4096');
   await advisor.selectOption('profile:baseline');
   await expect(iterations).toHaveCount(0);
+});
+
+test('temporary analysis capacity errors recover automatically on desktop and mobile', async ({
+  page,
+  request,
+}) => {
+  const stored = await historicalGame(request, {
+    data: { ruleset: 'brandubh', mode: 'human-human' },
+  });
+  const game = await stored.json();
+  let attempts = 0;
+  await page.route(`**/api/games/${game.id}/analysis`, async (route) => {
+    if (route.request().method() === 'POST' && ++attempts === 1)
+      await route.fulfill({
+        status: 503,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '2' },
+        body: JSON.stringify({ detail: 'Analysis capacity is busy. Retry later.' }),
+      });
+    else await route.continue();
+  });
+  await page.goto(`/games/${game.id}`);
+  await openGameOptions(page);
+  await page
+    .getByRole('region', { name: 'Analytics', exact: true })
+    .getByRole('combobox', { name: 'Move advisor', exact: true })
+    .selectOption('profile:baseline');
+  await gameTab(page, 'analytics');
+  const panel = page.getByRole('region', { name: 'Agent evaluations' });
+  await expect(panel.getByRole('status')).toHaveText('Waiting for analysis capacity…');
+  await expect(panel).toHaveAttribute('aria-busy', 'true');
+  await expect(panel.getByRole('button', { name: /Retry/ })).toHaveCount(0);
+  await expect(panel.getByRole('meter')).toHaveCount(1);
+  await expect(panel).toHaveAttribute('aria-busy', 'false');
+  expect(attempts).toBeGreaterThanOrEqual(2);
 });
 
 test('a searching advisor publishes partial results while the human can move and can be changed immediately', async ({

@@ -3,6 +3,39 @@ import { api, ApiError, setCSRF } from './api';
 afterEach(() => {
   vi.unstubAllGlobals();
   setCSRF('');
+  vi.useRealTimers();
+});
+
+it.each([
+  ['2', 2000],
+  ['0', 0],
+  ['Tue, 10 Nov 2026 12:00:03 GMT', 3000],
+  ['Tue, 10 Nov 2026 11:00:00 GMT', 0],
+  ['invalid', undefined],
+  ['', undefined],
+])('preserves Retry-After %s on the existing typed API error', async (header, expected) => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-10T12:00:00Z'));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            detail: 'Analysis workers are busy.',
+            code: 'busy',
+            fields: ['advisor'],
+          }),
+          { status: 503, headers: { 'Retry-After': header as string } },
+        ),
+    ),
+  );
+  await expect(api('/games/one/analysis', { version: 0, cursor: 0 })).rejects.toMatchObject({
+    status: 503,
+    code: 'busy',
+    fields: ['advisor'],
+    retryAfterMs: expected,
+  });
 });
 it('uses the current in-memory CSRF and exposes typed online quota errors', async () => {
   setCSRF('memory-token');

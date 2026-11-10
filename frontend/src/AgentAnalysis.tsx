@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { coordinate } from './Board';
 import { useI18n } from './i18n';
 import {
@@ -142,7 +142,7 @@ export function useGameAnalysis(
       : null;
   const [request, setRequest] = useState<{
     key: string;
-    status: 'pending' | 'done' | 'failed';
+    status: 'pending' | 'waiting' | 'done' | 'failed';
     report?: PositionAnalysis;
   } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -157,43 +157,76 @@ export function useGameAnalysis(
     )
       return;
     let alive = true;
+    let running = false;
+    let failures = 0;
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sequence = settingsSequence.current;
-    setRequest({ key, status: 'pending', report: stored ?? undefined });
+    const current = () =>
+      alive && !controller.signal.aborted && settingsSequence.current === sequence;
+    setRequest((previous) => ({
+      key,
+      status: 'pending',
+      report: previous?.key === key ? previous.report : (stored ?? undefined),
+    }));
     const poll = async () => {
+      if (!current() || running) return;
+      running = true;
       try {
-        const report = await api<PositionAnalysis>(`${basePath}/${game.id}/analysis`, {
-          version: game.version,
-          cursor: game.cursor,
-          background: !readOnlyHistory,
-          historical,
-        });
-        if (!alive) return;
+        const report = await api<PositionAnalysis>(
+          `${basePath}/${game.id}/analysis`,
+          {
+            version: game.version,
+            cursor: game.cursor,
+            background: !readOnlyHistory,
+            historical,
+          },
+          undefined,
+          controller.signal,
+        );
+        if (!current()) return;
         // A response from before an advisor edit must never redraw its arrow.
         if ((report.advisor_revision ?? 0) !== settings.revision) {
-          const value = await api<AnalyticsSettings>(`${basePath}/${game.id}/analytics`);
-          if (alive && settingsSequence.current === sequence) {
+          const value = await api<AnalyticsSettings>(
+            `${basePath}/${game.id}/analytics`,
+            undefined,
+            undefined,
+            controller.signal,
+          );
+          if (current()) {
             confirmedSettings.current = { gameId, value };
             setPreferences({ gameId, value, pending: false, confirmed: true });
           }
           return;
         }
+        failures = 0;
         const pending = report.status === 'pending';
         setRequest({ key, status: pending ? 'pending' : 'done', report });
         if (pending) timer = setTimeout(() => void poll(), 300);
-      } catch {
-        if (alive)
-          setRequest((previous) => ({
-            key,
-            status: 'failed',
-            report: previous?.key === key ? previous.report : undefined,
-          }));
+      } catch (error) {
+        if (!current()) return;
+        const temporary = error instanceof ApiError && error.status === 503;
+        setRequest((previous) => ({
+          key,
+          status: temporary ? 'waiting' : 'failed',
+          report: previous?.key === key ? previous.report : (stored ?? undefined),
+        }));
+        if (temporary) {
+          // Match the existing poller's capped backoff, while retaining fast
+          // progress polling for an admitted search. Never spin during overload.
+          const delay = Math.min(30000, Math.max(1000 * 2 ** failures, error.retryAfterMs ?? 0));
+          failures = Math.min(failures + 1, 5);
+          timer = setTimeout(() => void poll(), delay);
+        }
+      } finally {
+        running = false;
       }
     };
     void poll();
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
+      controller.abort();
     };
     // Stored reports arrive with gameplay responses; requests are keyed explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,7 +248,10 @@ export function useGameAnalysis(
       needed &&
       !settingsPending &&
       settingsConfirmed &&
-      (current ? current.status === 'pending' : !stored || stored.status === 'pending'),
+      (current
+        ? current.status === 'pending' || current.status === 'waiting'
+        : !stored || stored.status === 'pending'),
+    waiting: current?.status === 'waiting',
     failed: current?.status === 'failed',
     retry: () => setAttempt((value) => value + 1),
     show: !!game && !!settings.advisor,
@@ -232,12 +268,14 @@ export default function AgentAnalysis({
   pending,
   failed,
   retry,
+  waiting = false,
 }: {
   game: Game;
   report: PositionAnalysis | null;
   pending: boolean;
   failed: boolean;
   retry: () => void;
+  waiting?: boolean;
 }) {
   const { t, locale } = useI18n();
   const compact = useCompactPlay();
@@ -268,7 +306,7 @@ export default function AgentAnalysis({
         {pending && (
           <p className="analysis-status" role="status">
             <i className="analysis-spinner" />
-            {t('Evaluating this position…')}
+            {t(waiting ? 'Waiting for analysis capacity…' : 'Evaluating this position…')}
           </p>
         )}
         {failed ? (

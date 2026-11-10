@@ -13,6 +13,7 @@ from .storage import ConflictError, Store
 DEFAULT_NEURAL_MCTS_ITERATIONS = 1024
 MAX_ANALYSIS_TASKS = 16
 SYNCHRONOUS_WAIT_SECONDS = 20
+MAX_SYNCHRONOUS_WAITERS = 8
 
 
 def advisor_config(config: dict, profile_id: str | None = None) -> dict:
@@ -47,6 +48,7 @@ class AnalysisService:
         self.tasks: dict[tuple, Future] = {}
         self.closed = False
         self.latest_advisor: dict[str, tuple] = {}
+        self.synchronous_waiters = threading.BoundedSemaphore(MAX_SYNCHRONOUS_WAITERS)
 
     def active(self, key: tuple) -> bool:
         with self.lock:
@@ -73,19 +75,34 @@ class AnalysisService:
 
         A request timeout/disconnect must not cancel work another client needs.
         Only workers wait for inference; no worker submits or waits on this pool.
+        Bound HTTP waiters separately so shared searches leave request workers free.
         """
-        key, task = self._schedule(game, snapshot, role, agent, settings, state=state)
-        if task is not None:
-            try:
-                task.result(timeout=SYNCHRONOUS_WAIT_SECONDS)
-            except TimeoutError as exc:
-                raise AnalysisUnavailable(
-                    "Analysis is still running. Retry this request or use background analysis."
-                ) from exc
-            except CancelledError as exc:
-                raise AnalysisUnavailable("Analysis service is stopping. Retry later.") from exc
-        if not self._completed(key):
-            raise SupersededAnalysis("The analyzed position or advisor changed. Retry analysis.")
+        if not self.synchronous_waiters.acquire(blocking=False):
+            revision = settings["revision"] if role == "advisor" else None
+            if self._completed((game["id"], snapshot["position_key"], role, revision)):
+                return
+            raise AnalysisUnavailable(
+                "Synchronous analysis capacity is busy. Retry later or use background analysis."
+            )
+        try:
+            key, task = self._schedule(game, snapshot, role, agent, settings, state=state)
+            if task is not None:
+                try:
+                    task.result(timeout=SYNCHRONOUS_WAIT_SECONDS)
+                except TimeoutError as exc:
+                    raise AnalysisUnavailable(
+                        "Analysis is still running. Retry this request or use background analysis."
+                    ) from exc
+                except CancelledError as exc:
+                    raise AnalysisUnavailable("Analysis service is stopping. Retry later.") from exc
+            if not self._completed(key):
+                if self.closed:
+                    raise AnalysisUnavailable("Analysis service is stopping. Retry later.")
+                raise SupersededAnalysis(
+                    "The analyzed position or advisor changed. Retry analysis."
+                )
+        finally:
+            self.synchronous_waiters.release()
 
     def _completed(self, key: tuple) -> bool:
         game_id, position_key, role, revision = key

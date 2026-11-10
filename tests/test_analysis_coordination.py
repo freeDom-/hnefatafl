@@ -3,6 +3,7 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 import threading
 
+import anyio.to_thread
 import pytest
 
 from hnefatafl import ai, analysis_service
@@ -603,3 +604,148 @@ def test_late_task_cleanup_cannot_cancel_a_replacement_with_the_same_key(client)
     assert service.latest_advisor[key[0]] == key
     service._forget(key, replacement)
     assert not service.tasks and not service.latest_advisor
+
+
+@pytest.fixture
+def small_http_pool(client, monkeypatch):
+    """Exercise saturation with six callers and four actual HTTP worker slots."""
+
+    async def resize():
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        previous = limiter.total_tokens
+        limiter.total_tokens = 4
+        return limiter, previous
+
+    limiter, previous = client.portal.call(resize)
+    service = client.app.state.analyses
+    monkeypatch.setattr(service, "synchronous_waiters", threading.BoundedSemaphore(2))
+    try:
+        yield service
+    finally:
+
+        async def restore():
+            limiter.total_tokens = previous
+
+        client.portal.call(restore)
+
+
+@pytest.mark.parametrize("finish", ["complete", "shutdown"])
+def test_synchronous_load_leaves_http_workers_available_for_gameplay(
+    client, neural_advisor, small_http_pool, monkeypatch, finish
+):
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def search(state, config, *, diagnostics, progress, **kwargs):
+        calls.append(config["iterations"])
+        entered.set()
+        assert release.wait(10)
+        diagnostics.update(value=0.25, simulations=config["iterations"])
+        return {legal_moves(state)[0]: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    game, other = create(client), create(client)
+    settings(client, game, neural_advisor)
+    service = small_http_pool
+    with ThreadPoolExecutor(max_workers=7) as requests:
+        try:
+            analyze(client, game)
+            assert entered.wait(5)
+            waiting = [requests.submit(synchronous, client, game) for _ in range(6)]
+            wait_for(lambda: sum(request.done() for request in waiting) == 4)
+            overflow = [request.result() for request in waiting if request.done()]
+            assert all(response.status_code == 503 for response in overflow)
+            assert all(response.headers["Retry-After"] == "1" for response in overflow)
+            assert all("Synchronous" in response.json()["detail"] for response in overflow)
+            # Without waiter admission, four callers would occupy every HTTP
+            # worker while sharing this same single MCTS future.
+            assert move(client, other)["cursor"] == 1
+            assert not release.is_set() and calls == [1024]
+            assert len(service.tasks) == 1
+            if finish == "shutdown":
+                stopping = requests.submit(service.shutdown)
+                wait_for(lambda: service.closed)
+            release.set()
+            responses = [request.result(timeout=5) for request in waiting]
+            if finish == "complete":
+                assert sorted(response.status_code for response in responses) == [
+                    200,
+                    200,
+                    503,
+                    503,
+                    503,
+                    503,
+                ]
+            else:
+                stopping.result(timeout=5)
+                assert all(response.status_code == 503 for response in responses)
+        finally:
+            release.set()
+    assert calls == [1024]
+    # All acquired slots are released on completion and on shutdown.
+    assert service.synchronous_waiters.acquire(blocking=False)
+    assert service.synchronous_waiters.acquire(blocking=False)
+    assert not service.synchronous_waiters.acquire(blocking=False)
+    service.synchronous_waiters.release()
+    service.synchronous_waiters.release()
+
+
+def test_concurrent_sync_timeouts_release_waiter_slots_without_cancelling_shared_search(
+    client, neural_advisor, small_http_pool, monkeypatch
+):
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def search(state, config, *, diagnostics, **kwargs):
+        calls.append(config["iterations"])
+        entered.set()
+        assert release.wait(10)
+        diagnostics.update(value=0.25, simulations=config["iterations"])
+        return {legal_moves(state)[0]: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    monkeypatch.setattr(analysis_service, "SYNCHRONOUS_WAIT_SECONDS", 0.05)
+    game = create(client)
+    settings(client, game, neural_advisor)
+    with ThreadPoolExecutor(max_workers=6) as requests:
+        try:
+            analyze(client, game)
+            assert entered.wait(5)
+            responses = [requests.submit(synchronous, client, game) for _ in range(6)]
+            assert all(response.result(timeout=5).status_code == 503 for response in responses)
+            task = next(iter(small_http_pool.tasks.values()))
+            assert not task.done() and not task.cancelled()
+            assert small_http_pool.synchronous_waiters.acquire(blocking=False)
+            assert small_http_pool.synchronous_waiters.acquire(blocking=False)
+            small_http_pool.synchronous_waiters.release()
+            small_http_pool.synchronous_waiters.release()
+        finally:
+            release.set()
+    assert complete(client, game)["evaluations"][0]["simulations"] == 1024
+    assert calls == [1024]
+
+
+def test_cached_advice_is_readable_even_when_all_sync_waiter_slots_are_reserved(
+    client, neural_advisor, monkeypatch
+):
+    calls = []
+
+    def search(state, config, *, diagnostics, **kwargs):
+        calls.append(config["iterations"])
+        diagnostics.update(value=0.25, simulations=config["iterations"])
+        return {legal_moves(state)[0]: 1.0}
+
+    monkeypatch.setattr(ai, "mcts_policy", search)
+    game = create(client)
+    settings(client, game, neural_advisor)
+    expected = synchronous(client, game)
+    assert expected.status_code == 200, expected.text
+    service = client.app.state.analyses
+    for _ in range(analysis_service.MAX_SYNCHRONOUS_WAITERS):
+        assert service.synchronous_waiters.acquire(blocking=False)
+    try:
+        assert synchronous(client, game).json() == expected.json()
+        assert calls == [1024]
+    finally:
+        for _ in range(analysis_service.MAX_SYNCHRONOUS_WAITERS):
+            service.synchronous_waiters.release()

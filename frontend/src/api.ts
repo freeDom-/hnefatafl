@@ -63,10 +63,19 @@ export class ApiError extends Error {
     public readonly code?: string,
     /** Rejected field paths, when the response names them. */
     public readonly fields?: string[],
+    /** Server retry guidance, as a delay rather than a response/header dependency. */
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+function retryAfter(response: Response): number | undefined {
+  const value = response.headers?.get('Retry-After')?.trim();
+  if (!value) return undefined;
+  const delay = /^\d+(\.\d+)?$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
 }
 
 /** Read the optional machine-readable fields of a structured error payload. */
@@ -135,7 +144,13 @@ export async function api<T>(
       readableDetail(payload) ||
       response.statusText?.trim() ||
       `Request failed (${response.status}).`;
-    throw new ApiError(response.status, cap(message), errorCode(payload), errorFields(payload));
+    throw new ApiError(
+      response.status,
+      cap(message),
+      errorCode(payload),
+      errorFields(payload),
+      retryAfter(response),
+    );
   }
   const value = await response.json();
   if (!path.startsWith('/auth/') && expected !== sessionEpoch)

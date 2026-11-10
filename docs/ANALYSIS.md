@@ -42,6 +42,10 @@ search time. Positive integers from **1 to 5000** are accepted, including 2048
 and 4096. Higher budgets generally allow stronger search but take longer; the
 time limit may stop a search before it completes all simulations. Changing the
 search time, moving through replay or reloading retains the saved iteration count.
+The input keeps a local draft and saves a valid value after 600 ms without typing,
+or immediately on blur or Enter. Rapid edits produce one settings revision.
+Invalid drafts are never saved. Unmounting the control or changing the game/advisor
+discards any draft that has not yet been committed.
 Policy-only and neural alpha-beta advisors do not expose this MCTS control.
 Playing agents, training, evaluation and tournament budgets keep their own defaults.
 
@@ -114,6 +118,11 @@ value-head source label rather than being retroactively rewritten as search resu
   available position report, `status` (`pending` or `complete`) and
   `advisor_revision`. Poll the same request for progressive updates. The UI polls
   only while work remains pending and ignores obsolete position/settings replies.
+  HTTP 503 switches the UI to a capacity-waiting state while retaining available
+  partial estimates. Retries back off from 1 to 30 seconds, honor `Retry-After`
+  within those bounds, and return to normal polling after a successful response.
+  Only one poll is active at a time; navigation, position or settings changes
+  cancel the old request and retry timer. Other errors retain manual retry.
 - The older synchronous analysis request remains available to existing API
   clients and honors saved advisor settings/revisions, including an
   `advisor_revision` in responses when preferences have been saved. It joins
@@ -124,9 +133,12 @@ value-head source label rather than being retroactively rewritten as search resu
   requests and actual-move diagnostics.
 
 Two analysis workers share a maximum of 16 running/queued tasks. Excess work
-returns HTTP 503 with `Retry-After: 1`. A synchronous wait is limited to 20
-seconds; timeout returns the same retryable status without cancelling shared
-work. A disconnected caller likewise does not own the shared search's lifetime.
+returns HTTP 503 with `Retry-After: 1`. At most eight synchronous callers can
+wait for those shared tasks at once, leaving request workers available for
+gameplay. Additional waiters receive the same retryable response; completed
+cached advice remains readable. A synchronous wait is limited to 20 seconds;
+timeout returns the same retryable status without cancelling shared work.
+A disconnected caller likewise does not own the shared search's lifetime.
 Superseded queued work keeps its bounded slot until a worker drains it, then
 checks its revision/position before evaluating. Shutdown cancels queued tasks
 and running workers stop cooperatively through the existing progress observer.

@@ -79,6 +79,7 @@ afterEach(() => {
   cleanup();
   setLanguage('en', false);
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 it('lets mobile readers switch agents and recovers when the selected report disappears', () => {
@@ -638,6 +639,7 @@ it('reports invalid MCTS budgets locally without saving them and allows clearing
   fireEvent.change(input, { target: { value: '4096' } });
   expect(input).toBeValid();
   expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.blur(input);
   expect(onChange.mock.calls[0][0].advisor.config.iterations).toBe(4096);
 });
 
@@ -696,4 +698,353 @@ it('localizes the accessible MCTS label, tooltip and validation', () => {
   expect(screen.getByRole('alert')).toHaveTextContent(
     'Gib eine ganze Zahl zwischen 1 und 5000 ein.',
   );
+});
+
+const busy = (retryAfter = '1') =>
+  new Response(JSON.stringify({ detail: 'Analysis workers are busy.' }), {
+    status: 503,
+    headers: { 'Retry-After': retryAfter },
+  });
+const tick = async (ms = 0) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+
+it('recovers from a capacity error using Retry-After while preserving a valid partial report', async () => {
+  vi.useFakeTimers();
+  const partial = { ...report, status: 'pending' };
+  const final = {
+    ...report,
+    status: 'complete',
+    hint: { agent_id: 'advisor', move: { source: 2, target: 3 } },
+  };
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(response(partial))
+    .mockImplementationOnce(async () => busy('2'))
+    .mockResolvedValue(response(final));
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await tick();
+  expect(view.result.current.report).toEqual(partial);
+  await tick(300);
+  expect(view.result.current.waiting).toBe(true);
+  expect(view.result.current.pending).toBe(true);
+  expect(view.result.current.failed).toBe(false);
+  expect(view.result.current.report).toEqual(partial);
+  await tick(1999);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await tick(1);
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(view.result.current.report).toEqual(final);
+  expect(view.result.current.waiting).toBe(false);
+  expect(view.result.current.pending).toBe(false);
+});
+
+it('backs off repeated 503s to a capped delay without overlapping polls or declaring failure', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async () => busy());
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await tick();
+  let calls = 1;
+  for (const delay of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
+    await tick(delay - 1);
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+    await tick(1);
+    expect(fetcher).toHaveBeenCalledTimes(++calls);
+    expect(view.result.current.waiting).toBe(true);
+    expect(view.result.current.failed).toBe(false);
+    expect(vi.getTimerCount()).toBe(1);
+  }
+  view.unmount();
+  await tick(60000);
+  expect(fetcher).toHaveBeenCalledTimes(calls);
+});
+
+it('caps excessive retry guidance and resets backoff after successful progress', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce(async () => busy('999999'))
+    .mockResolvedValueOnce(response({ ...report, status: 'pending' }))
+    .mockImplementationOnce(async () => busy())
+    .mockResolvedValue(response({ ...report, status: 'complete' }));
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await tick();
+  await tick(29999);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await tick(1);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await tick(300);
+  expect(view.result.current.waiting).toBe(true);
+  await tick(1000);
+  expect(fetcher).toHaveBeenCalledTimes(4);
+  expect(view.result.current.pending).toBe(false);
+});
+
+it.each(['unmount', 'game', 'position', 'iterations'])(
+  'cancels capacity backoff on %s changes',
+  async (change) => {
+    vi.useFakeTimers();
+    let reads = 0;
+    let revision = 0;
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT') {
+        revision++;
+        return response({ ...JSON.parse(String(options.body)), revision });
+      }
+      if (++reads === 1) return busy();
+      return response({
+        ...report,
+        cursor: change === 'position' ? 1 : 0,
+        status: 'complete',
+        advisor_revision: revision,
+      });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const current = { ...game, analytics: neuralSettings };
+    const view = renderHook(({ current }) => useGameAnalysis(current, true), {
+      initialProps: { current },
+    });
+    await tick();
+    expect(view.result.current.waiting).toBe(true);
+    const oldSignal = fetcher.mock.calls[0][1]?.signal;
+    if (change === 'unmount') view.unmount();
+    else if (change === 'iterations')
+      await act(() =>
+        view.result.current.updateSettings({
+          ...neuralSettings,
+          advisor: {
+            ...neuralSettings.advisor!,
+            config: { ...neuralSettings.advisor!.config, iterations: 4096 },
+          },
+        }),
+      );
+    else
+      view.rerender({
+        current: { ...current, ...(change === 'game' ? { id: 'two' } : { cursor: 1, version: 1 }) },
+      });
+    await tick();
+    expect(oldSignal?.aborted).toBe(true);
+    await tick(60000);
+    expect(reads).toBe(change === 'unmount' ? 1 : 2);
+    if (change !== 'unmount') expect(view.result.current.failed).toBe(false);
+    if (change === 'iterations')
+      expect(view.result.current.settings.advisor?.config.iterations).toBe(4096);
+  },
+);
+
+it('aborts an old in-flight poll and never publishes its delayed response or starts duplicate polls', async () => {
+  vi.useFakeTimers();
+  let finish!: (value: Response) => void;
+  const old = new Promise<Response>((resolve) => {
+    finish = resolve;
+  });
+  const fetcher = vi
+    .fn()
+    .mockReturnValueOnce(old)
+    .mockResolvedValue(response({ ...report, cursor: 1, status: 'complete' }));
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(({ current }) => useGameAnalysis(current, true), {
+    initialProps: { current: game },
+  });
+  await tick(60000);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  view.rerender({ current: { ...game, version: 1, cursor: 1 } });
+  await tick();
+  expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
+  expect(view.result.current.report?.cursor).toBe(1);
+  await act(async () => {
+    finish(response({ ...report, cursor: 0 }));
+    await old;
+  });
+  expect(view.result.current.report?.cursor).toBe(1);
+  await tick(60000);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it.each([400, 401, 403, 422, 429, 500])(
+  'keeps HTTP %s failures terminal until manual retry',
+  async (status) => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(
+      async () => new Response(JSON.stringify({ detail: 'Unavailable' }), { status }),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const view = renderHook(() => useGameAnalysis(game, true));
+    await tick();
+    expect(view.result.current.failed).toBe(true);
+    expect(view.result.current.pending).toBe(false);
+    await tick(60000);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fetcher.mockImplementation(async () => response({ ...report, status: 'complete' }));
+    act(() => view.result.current.retry());
+    await tick();
+    expect(view.result.current.failed).toBe(false);
+    expect(view.result.current.report).toMatchObject({ status: 'complete' });
+  },
+);
+
+it('localizes the pending capacity message without hiding available estimates', () => {
+  setLanguage('de', false);
+  render(
+    <AgentAnalysis game={game} report={report} pending waiting failed={false} retry={vi.fn()} />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Warten auf freie Analysekapazität…');
+  expect(screen.getAllByRole('meter')).toHaveLength(2);
+});
+
+it('debounces rapid MCTS typing and does not save again on blur or Enter', async () => {
+  vi.useFakeTimers();
+  const onChange = vi.fn();
+  render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={neuralSettings}
+      onChange={onChange}
+    />,
+  );
+  const input = screen.getByRole('spinbutton', { name: 'MCTS Iterations' });
+  for (const value of ['2', '20', '204', '2048']) {
+    fireEvent.change(input, { target: { value } });
+    await tick(100);
+    expect(input).toHaveValue(Number(value));
+    expect(onChange).not.toHaveBeenCalled();
+  }
+  await tick(499);
+  expect(onChange).not.toHaveBeenCalled();
+  await tick(1);
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(onChange.mock.calls[0][0].advisor.config.iterations).toBe(2048);
+  fireEvent.blur(input);
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await tick(1000);
+  expect(onChange).toHaveBeenCalledTimes(1);
+});
+
+it('commits MCTS edits on blur or Enter and never commits invalid drafts', async () => {
+  vi.useFakeTimers();
+  const onChange = vi.fn();
+  render(
+    <AnalyticsSettingsPanel
+      game={game}
+      profiles={neuralProfiles}
+      models={neuralModels}
+      settings={neuralSettings}
+      onChange={onChange}
+    />,
+  );
+  const input = screen.getByRole('spinbutton', { name: 'MCTS Iterations' });
+  fireEvent.change(input, { target: { value: '2048' } });
+  fireEvent.blur(input);
+  expect(onChange.mock.calls[0][0].advisor.config.iterations).toBe(2048);
+  fireEvent.change(input, { target: { value: '4096' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.blur(input);
+  expect(onChange.mock.calls[1][0].advisor.config.iterations).toBe(4096);
+  for (const invalid of ['', '-1', '0', '1.5', '5001']) {
+    fireEvent.change(input, { target: { value: invalid } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.blur(input);
+    await tick(1000);
+    expect(input).toBeInvalid();
+    expect(onChange).toHaveBeenCalledTimes(2);
+  }
+});
+
+it.each(['unmount', 'game', 'advisor'])(
+  'discards pending MCTS drafts on %s changes',
+  async (change) => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const panel = (current = game, settings = neuralSettings) => (
+      <AnalyticsSettingsPanel
+        game={current}
+        profiles={neuralProfiles}
+        models={neuralModels}
+        settings={settings}
+        onChange={onChange}
+      />
+    );
+    const view = render(panel());
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'MCTS Iterations' }), {
+      target: { value: '4096' },
+    });
+    if (change === 'unmount') view.unmount();
+    else if (change === 'game') view.rerender(panel({ ...game, id: 'two' }));
+    else
+      view.rerender(
+        panel(game, {
+          ...neuralSettings,
+          advisor: {
+            ...neuralSettings.advisor!,
+            config: { algorithm: 'neural', model_id: 'another-model', iterations: 128 },
+          },
+        }),
+      );
+    await tick(10000);
+    expect(onChange).not.toHaveBeenCalled();
+    if (change === 'advisor')
+      expect(screen.getByRole('spinbutton', { name: 'MCTS Iterations' })).toHaveValue(128);
+  },
+);
+
+it('persists one MCTS revision after rapid edits without undoing a search-time change', async () => {
+  vi.useFakeTimers();
+  let saved = neuralSettings;
+  const writes: AnalyticsSettings[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url, options) => {
+      const body = JSON.parse(String(options.body));
+      saved = {
+        ...body,
+        revision: saved.revision + 1,
+        advisor: {
+          ...body.advisor,
+          config: { ...body.advisor.config, iterations: body.advisor.config.iterations ?? 1024 },
+        },
+      };
+      writes.push(saved);
+      return response(saved);
+    }),
+  );
+  function Controls() {
+    const analysis = useGameAnalysis({ ...game, analytics: saved }, false);
+    return (
+      <AnalyticsSettingsPanel
+        game={game}
+        profiles={neuralProfiles}
+        models={neuralModels}
+        settings={analysis.settings}
+        onChange={analysis.updateSettings}
+      />
+    );
+  }
+  const view = render(<Controls />);
+  const input = screen.getByRole('spinbutton', { name: 'MCTS Iterations' });
+  for (const value of ['4', '40', '409', '4096']) fireEvent.change(input, { target: { value } });
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Maximum search time (seconds)' }), {
+    target: { value: '15' },
+  });
+  await tick();
+  expect(writes).toHaveLength(1);
+  expect(input).toHaveValue(4096);
+  await tick(600);
+  expect(writes).toHaveLength(2);
+  expect(saved).toMatchObject({
+    time_limit: 15,
+    revision: 2,
+    advisor: { config: { iterations: 4096 } },
+  });
+  fireEvent.blur(input);
+  await tick(1000);
+  expect(writes).toHaveLength(2);
+  view.unmount();
+  render(<Controls />);
+  expect(screen.getByRole('spinbutton', { name: 'MCTS Iterations' })).toHaveValue(4096);
 });

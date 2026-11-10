@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { notify } from './notifications';
 import {
   DEFAULT_NEURAL_MCTS_ITERATIONS,
@@ -64,7 +64,26 @@ function MctsIterationsField({
   const { t } = useI18n();
   const id = useId();
   const [input, setInput] = useState(String(value));
-  useEffect(() => setInput(String(value)), [value]);
+  const field = useRef<HTMLInputElement>(null);
+  const dirty = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const latest = useRef({ value, onChange });
+  latest.current = { value, onChange };
+  useEffect(() => {
+    if (!dirty.current) setInput(String(value));
+  }, [value]);
+  // Navigation/selection changes discard an uncommitted draft instead of
+  // writing the old advisor's value after a different advisor has been selected.
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const commit = () => {
+    clearTimeout(timer.current);
+    if (!dirty.current) return;
+    const control = field.current;
+    if (!control?.validity.valid || !Number.isInteger(control.valueAsNumber)) return;
+    dirty.current = false;
+    if (control.valueAsNumber !== latest.current.value)
+      latest.current.onChange(control.valueAsNumber);
+  };
   const next = Number(input);
   const valid =
     input !== '' && Number.isInteger(next) && next >= 1 && next <= MAX_ANALYTICS_MCTS_ITERATIONS;
@@ -77,6 +96,7 @@ function MctsIterationsField({
       />
       <input
         id={id}
+        ref={field}
         type="number"
         min={1}
         max={MAX_ANALYTICS_MCTS_ITERATIONS}
@@ -87,9 +107,18 @@ function MctsIterationsField({
         aria-describedby={!valid ? `${id}-error` : undefined}
         onChange={(event) => {
           const input = event.currentTarget;
+          dirty.current = true;
           setInput(input.value);
+          clearTimeout(timer.current);
           if (input.validity.valid && Number.isInteger(input.valueAsNumber))
-            onChange(input.valueAsNumber);
+            timer.current = setTimeout(commit, 600);
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+          }
         }}
       />
       {!valid && (
@@ -246,7 +275,7 @@ export function AnalyticsSettingsPanel({
       </label>
       {neuralMcts && advisor && (
         <MctsIterationsField
-          key={`${game.id}:${advisor.config.model_id}`}
+          key={`${game.id}:${value}:${advisor.config.model_id}:${advisor.config.algorithm}:${advisor.config.search_wrapper ?? 'mcts'}`}
           value={Number(advisor.config.iterations ?? DEFAULT_NEURAL_MCTS_ITERATIONS)}
           onChange={(next) => updateConfig('iterations', next)}
         />

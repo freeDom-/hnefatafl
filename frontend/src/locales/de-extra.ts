@@ -47,6 +47,7 @@ const translations: Record<string, string> = {
   'Winning chances': 'Gewinnchancen',
   'For the current player: {side}': 'Für die Seite am Zug: {side}',
   'Evaluating this position…': 'Stellung wird bewertet…',
+  'Waiting for analysis capacity…': 'Warten auf freie Analysekapazität…',
   'The evaluation is unavailable. You can keep playing.':
     'Die Bewertung ist nicht verfügbar. Du kannst weiterspielen.',
   'Retry evaluation': 'Bewertung erneut versuchen',
