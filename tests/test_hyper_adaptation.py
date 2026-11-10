@@ -2663,3 +2663,14 @@ def test_noisy_single_game_baseline_is_shrunk_toward_neutral():
     # The improvement is measured against the shrunk baseline, not the raw outlier.
     assert controller.rewards[-1] == pytest.approx(-0.25)
     assert controller.weights[-1] == 8.0
+
+
+def test_version_five_state_requires_a_valid_champion_block():
+    state = _valid_state()
+    state["version"] = 5
+    state.pop("champion")
+    assert _restore(state).reset_reason == "unreadable_state"
+    state = _valid_state()
+    state["version"] = 5
+    state["champion"]["protocol"] = "different:protocol"
+    assert _restore(state).reset_reason == "unreadable_state"

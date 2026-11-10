@@ -1808,6 +1808,10 @@ class HyperController:
                         )
                     if saved_active != champion["identity"]:
                         raise ValueError("Controller Champion identity is inconsistent")
+                elif version == 5:
+                    # Version 5 always carried a Champion block; a state without
+                    # one is malformed, not a genuine legacy schema.
+                    raise ValueError("Controller version-5 state requires a Champion block")
         except (KeyError, TypeError, ValueError, IndexError, OverflowError):
             controller.reset_reason = "unreadable_state"
             return controller
@@ -1849,11 +1853,12 @@ class HyperController:
                 identity=active_champion_identity, reason="reward_semantics_changed"
             )
         elif saved_identity != active_champion_identity:
-            # Same reward representation but a different (or unverifiable) Champion
-            # for the per-Champion statistics. Refresh only that block: the shared
+            # Same reward representation but a different Champion for the
+            # per-Champion statistics. Refresh only that block: the shared
             # predictors stay valid.
-            reason = "champion_identity_unknown" if version < 4 else "champion_changed"
-            controller._reset_champion_state(identity=active_champion_identity, reason=reason)
+            controller._reset_champion_state(
+                identity=active_champion_identity, reason="champion_changed"
+            )
         if (
             version < 6
             and controller.min_dwell_iterations > 0
