@@ -433,7 +433,107 @@ def test_list_games_exclusion_keeps_migrated_legacy_records(tmp_path):
     # dropped by the local-exclusion filter after the additive migration.
     upgraded = Store(store.path)
     assert [g["id"] for g in upgraded.list_games(exclude_category="local")] == ["legacy"]
+    assert [g["id"] for g in upgraded.list_games(category="account-single-player")] == ["legacy"]
     assert upgraded.list_games(category="local") == []
+
+
+def _insert_game(c, game_id, account_id, category, created_at):
+    c.execute(
+        "INSERT INTO games(id,version,created_at,data,owner_account_id,category) "
+        "VALUES(?,0,?,?,?,?)",
+        (game_id, created_at, json.dumps({"id": game_id}), account_id, category),
+    )
+
+
+def test_single_player_listing_uses_the_category_owner_index(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    with store.connection() as c:
+        # The positive single-player filter searches the category index...
+        positive = [
+            row[3]
+            for row in c.execute(
+                "EXPLAIN QUERY PLAN SELECT data FROM games "
+                "WHERE owner_account_id=? AND category=? ORDER BY created_at DESC,id",
+                ("owner-1", "account-single-player"),
+            ).fetchall()
+        ]
+        assert any("games_category_owner" in detail for detail in positive), positive
+        # ...while the previous COALESCE inequality could only use the owner index
+        # and had to read and filter every owned row.
+        previous = [
+            row[3]
+            for row in c.execute(
+                "EXPLAIN QUERY PLAN SELECT data FROM games "
+                "WHERE owner_account_id=? AND "
+                "COALESCE(category,'account-single-player')<>? ORDER BY created_at DESC,id",
+                ("owner-1", "local"),
+            ).fetchall()
+        ]
+        assert all("games_category_owner" not in detail for detail in previous), previous
+
+
+def test_single_player_listing_excludes_future_categories(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    owner = {"id": "owner-1", "role": "USER", "active": 1}
+    with store.connection() as c:
+        _insert_game(c, "solo-1", "owner-1", "account-single-player", "0001")
+        _insert_game(c, "local-1", "owner-1", "local", "0002")
+        _insert_game(c, "tournament-1", "owner-1", "player-tournament", "0003")
+    token = principal.set(owner)
+    try:
+        # A future category is never mistaken for a single-player record.
+        assert {g["id"] for g in store.list_games(category="account-single-player")} == {"solo-1"}
+        # The generic unfiltered caller still sees every category.
+        assert {g["id"] for g in store.list_games()} == {
+            "solo-1",
+            "local-1",
+            "tournament-1",
+        }
+    finally:
+        principal.reset(token)
+
+
+def test_single_player_listing_stays_indexed_with_many_local_games(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    owner = {"id": "owner-1", "role": "USER", "active": 1}
+    with store.connection() as c:
+        for index in range(500):
+            _insert_game(c, f"local-{index}", "owner-1", "local", f"1{index:04d}")
+        _insert_game(c, "solo-1", "owner-1", "account-single-player", "0000")
+    token = principal.set(owner)
+    try:
+        assert [g["id"] for g in store.list_games(category="account-single-player")] == ["solo-1"]
+    finally:
+        principal.reset(token)
+    with store.connection() as c:
+        details = [
+            row[3]
+            for row in c.execute(
+                "EXPLAIN QUERY PLAN SELECT data FROM games "
+                "WHERE owner_account_id=? AND category=? ORDER BY created_at DESC,id",
+                ("owner-1", "account-single-player"),
+            ).fetchall()
+        ]
+    assert any("games_category_owner" in detail for detail in details), details
+
+
+def test_single_player_listing_respects_admin_scope(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    with store.connection() as c:
+        _insert_game(c, "solo-1", "owner-1", "account-single-player", "0001")
+        _insert_game(c, "solo-2", "owner-2", "account-single-player", "0002")
+        _insert_game(c, "local-1", "owner-1", "local", "0003")
+    admin = {"id": "admin-1", "role": "ADMIN", "active": 1}
+    token = principal.set(admin)
+    try:
+        # An all_data administrator is not owner-scoped, but the category filter
+        # still applies and local games stay out of the single-player listing.
+        assert {g["id"] for g in store.list_games(category="account-single-player")} == {
+            "solo-1",
+            "solo-2",
+        }
+    finally:
+        principal.reset(token)
 
 
 def test_unrelated_listings_never_deserialize_local_games(application, monkeypatch):

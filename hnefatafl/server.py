@@ -989,10 +989,10 @@ def create_app(
             fail("Kind must be human or ai.")
         selected = [
             g
-            for g in store.list_games(exclude_category="local")
-            # Local pass-and-play has its own /api/personal/local category and
-            # never appears in the single-player/vs-AI launcher or statistics;
-            # the persisted category column excludes it before deserialization.
+            for g in store.list_games(category="account-single-player")
+            # Ordinary account games are exactly the persisted single-player
+            # category; local pass-and-play and any future category never appear
+            # in the single-player/vs-AI launcher or statistics.
             if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(player["kind"] == kind for player in g["players"].values()))
@@ -1652,10 +1652,10 @@ def create_app(
             fail("Kind must be human or ai.")
         selected = [
             g
-            for g in store.list_games(exclude_category="local")
-            # Local pass-and-play is reported under its own category and must
-            # never mix into vs-AI or account single-player statistics; the
-            # persisted category column excludes it before deserialization.
+            for g in store.list_games(category="account-single-player")
+            # Local pass-and-play and future categories must never mix into vs-AI
+            # or account single-player statistics; the positive category filter
+            # keeps the lookup on the indexed column before deserialization.
             if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(p["kind"] == kind for p in g["players"].values()))
@@ -2034,10 +2034,10 @@ def create_app(
     def unfinished_model_games(model_id: str) -> list[dict]:
         return [
             game
-            for game in store.list_games(exclude_category="local")
+            for game in store.list_games(category="account-single-player")
             # Local games have no AI opponent, so they can never reference a
-            # model; excluding them at the storage level only avoids needless
-            # JSON work, it never changes the result.
+            # model; filtering to the single-player category at the storage level
+            # only avoids needless JSON work, it never changes the result.
             if not recorded_outcome(game)["winner"]
             and any(
                 player.get("config", {}).get("model_id") == model_id

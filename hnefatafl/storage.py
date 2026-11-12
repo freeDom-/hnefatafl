@@ -242,10 +242,14 @@ class Store:
             conditions.append("owner_account_id=?")
             values.append(owner)
         if category is not None:
-            conditions.append("COALESCE(category,'account-single-player')=?")
+            # Schema 16 declares `category` NOT NULL, so a plain equality both
+            # matches migrated legacy rows (defaulted to the single-player
+            # category) and lets SQLite use the games_category_owner index
+            # instead of scanning every owned game.
+            conditions.append("category=?")
             values.append(category)
         if exclude_category is not None:
-            conditions.append("COALESCE(category,'account-single-player')<>?")
+            conditions.append("category<>?")
             values.append(exclude_category)
         where = "WHERE " + " AND ".join(conditions) + " " if conditions else ""
         with self.connection() as connection:
