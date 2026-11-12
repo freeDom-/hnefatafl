@@ -240,7 +240,6 @@
 /* Play hierarchy: continue a running game, then the three equal-start modes. */
 .play-modes > h2 {
   margin: 0 0 8px;
-  font-size: 1rem;
 }
 .play-continue {
   display: grid;
@@ -305,7 +304,7 @@
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--accent, #a5703c);
+  background: #7d4f28;
   color: #fff;
   font-size: 0.625rem;
   text-transform: uppercase;

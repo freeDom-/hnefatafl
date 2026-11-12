@@ -123,7 +123,8 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
     ).toBe(409);
     await openDestination(page, 'archive');
     if (name === 'PersonalOdin') {
-      await page.getByLabel('Game type').selectOption('account-single-player');
+      await page.getByRole('tab', { name: 'Singleplayer' }).click();
+      await expect(page).toHaveURL(/category=account-single-player/);
       await page.getByLabel('Player name').fill('PersonalArcher');
       const ownList = await (
         await context.request.get(
@@ -243,7 +244,7 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
     (response) =>
       new URL(response.url()).pathname === '/api' + path && response.request().method() === 'GET',
   );
-  await page.getByRole('link', { name: 'Resume single-player', exact: true }).click();
+  await page.locator(`.play-continue a[href="${path}"]`).click();
   expect((await (await reload).json()).version).toBe((await changed.json()).version);
   await expect(page.getByRole('grid')).toBeVisible();
 });

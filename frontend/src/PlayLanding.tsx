@@ -56,7 +56,7 @@ export default function PlayLanding({
   }
   const target = running.some((game) => game.href === remembered) ? remembered : running[0]?.href;
   // A suppressed resume (open creation dialog) keeps the hierarchy visible.
-  const resuming = !!target && !creation && !creatingSingle;
+  const resuming = games.phase === 'ready' && !!target && !creation && !creatingSingle;
   useEffect(() => {
     if (games.phase !== 'ready' || !target || creation || creatingSingle) return;
     // Resuming a saved game is an automatic redirect. It must never override a

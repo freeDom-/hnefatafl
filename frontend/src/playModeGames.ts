@@ -7,7 +7,7 @@ export type LocalHistory = { games: { id: string; ruleset: string; status: strin
 const gameModes: Record<string, string> = {
   'human-ai': 'Human vs AI',
   'ai-ai': 'AI vs AI',
-  local: 'Pass & play',
+  local: 'Local 1v1',
 };
 const gameStatuses: Record<string, string> = { waiting: 'Waiting', active: 'Active' };
 
