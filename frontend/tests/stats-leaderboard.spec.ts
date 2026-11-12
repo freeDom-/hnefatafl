@@ -207,3 +207,70 @@ test('keeps the rating chart tick labels readable at every viewport width', asyn
       .toBeGreaterThanOrEqual(9);
   }
 });
+
+test('an entry that is both corrected and missing a date shows both chart markers', async ({
+  page,
+}) => {
+  await page.route(/\/api\/personal\/online\?/, (route) =>
+    route.fulfill({
+      json: { category: 'online', statistics: { groups: [], coverage: { unattributed_games: 0 } } },
+    }),
+  );
+  await page.route(/\/api\/personal\/progress$/, (route) =>
+    route.fulfill({
+      json: {
+        as_of: '2025-02-01T00:00:00Z',
+        streaks: {
+          rated_win_current: 1,
+          rated_win_best: 1,
+          by_ruleset: [
+            { ruleset: 'brandubh', rated_win_current: 1, rated_win_best: 1, rated_games: 2 },
+          ],
+        },
+      },
+    }),
+  );
+  await page.route(/\/api\/personal\/ratings\/([a-z]+)\/history/, (route) => {
+    const ruleset = /ratings\/([a-z]+)\//.exec(route.request().url())![1];
+    return route.fulfill({
+      json:
+        ruleset === 'brandubh'
+          ? {
+              ruleset,
+              policy_version: 1,
+              current_rating: 1520,
+              as_of: '2025-02-01T00:00:00Z',
+              legacy_timestamp_gaps: true,
+              // The newest point is corrected and has no trusted date at once.
+              items: [
+                ledgerItem(5, 1520, '2025-01-02T12:00:00Z', false),
+                ledgerItem(3, 1510, null, true),
+              ],
+              next_cursor: null,
+              limit: 100,
+              matching: 2,
+            }
+          : {
+              ruleset,
+              policy_version: 1,
+              current_rating: null,
+              as_of: '2025-02-01T00:00:00Z',
+              legacy_timestamp_gaps: false,
+              items: [],
+              next_cursor: null,
+              limit: 100,
+              matching: 0,
+            },
+    });
+  });
+  await page.goto('/statistics?mode=multiplayer&ruleset=brandubh');
+  const chart = page.getByRole('img', { name: 'Brandubh rating progression' });
+  await expect(chart).toBeVisible();
+  // The gold diamond and the hollow gap ring overlap at the same ledger point.
+  await expect(chart.locator('.rating-chart-corrected')).toHaveCount(1);
+  await expect(chart.locator('.rating-chart-gap')).toHaveCount(1);
+  await expect(chart.locator('.rating-chart-corrected-gap')).toHaveCount(1);
+  await page.getByText('Rating entries').first().click();
+  await expect(page.getByText('Corrected result')).toBeVisible();
+  await expect(page.getByText('Date unavailable')).toBeVisible();
+});

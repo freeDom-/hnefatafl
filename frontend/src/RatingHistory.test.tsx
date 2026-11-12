@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import RatingHistory from './RatingHistory';
 import { setLanguage } from './i18n';
 import type { PersonalProgress, RatingHistory as RatingHistoryData } from './personalTypes';
 
-vi.mock('./Auth', () => ({ useAuth: () => ({ account: { id: 'archer' } }) }));
+const authState = vi.hoisted(() => ({ account: { id: 'archer' } as { id: string } | null }));
+vi.mock('./Auth', () => ({ useAuth: () => authState }));
 
 const respond = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status < 400, status, json: async () => body } as Response);
@@ -91,6 +92,7 @@ const fetcher = vi.fn((path: string) => serve(path));
 const rulesetOf = (path: string) => /\/personal\/ratings\/([a-z]+)\/history/.exec(path)?.[1] ?? '';
 beforeEach(() => {
   setLanguage('en', false);
+  authState.account = { id: 'archer' };
   fetcher.mockClear();
   serve = (path) => {
     if (path.startsWith('/api/personal/progress')) return respond(progress);
@@ -101,6 +103,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   setLanguage('en', false);
 });
@@ -164,4 +167,80 @@ it('labels the streak from the progress projection and translates into German', 
   expect(screen.getAllByText('Aktuelle Wertung')).toHaveLength(3);
   fireEvent.click(screen.getAllByText('Wertungseinträge')[0]);
   expect(screen.getByText('Korrigiertes Ergebnis')).toBeVisible();
+});
+
+it('loads three pools and progress once and issues no recurring requests', async () => {
+  vi.useFakeTimers();
+  render(<RatingHistory ruleset="brandubh" />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  const paths = fetcher.mock.calls.map(([path]) => path);
+  expect(paths.filter((path) => path === '/api/personal/progress')).toHaveLength(1);
+  expect(paths.filter((path) => path.startsWith('/api/personal/ratings/'))).toHaveLength(3);
+  expect(fetcher).toHaveBeenCalledTimes(4);
+  // The old 5 s cadence would have issued a dozen reads within one minute.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(4);
+});
+
+it('retries only the failed pool on demand and never resumes a timer', async () => {
+  vi.useFakeTimers();
+  let failing = true;
+  serve = (path) => {
+    if (path.startsWith('/api/personal/progress')) return respond(progress);
+    return failing ? respond({ detail: 'down' }, 503) : respond(history(rulesetOf(path)));
+  };
+  render(<RatingHistory ruleset="brandubh" />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  const alerts = screen.getAllByRole('alert');
+  expect(alerts).toHaveLength(3);
+  failing = false;
+  await act(async () => {
+    fireEvent.click(within(alerts[0]).getByRole('button', { name: 'Retry' }));
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getAllByRole('alert')).toHaveLength(2);
+  expect(screen.getAllByRole('img')).toHaveLength(1);
+  expect(fetcher).toHaveBeenCalledTimes(5);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(screen.getAllByRole('alert')).toHaveLength(2);
+  expect(fetcher).toHaveBeenCalledTimes(5);
+});
+
+it('reloads every pool for a new account and never reuses the old account data', async () => {
+  vi.useFakeTimers();
+  const view = render(<RatingHistory ruleset="brandubh" />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(4);
+  expect(screen.getByRole('img', { name: 'Brandubh rating progression' })).toBeVisible();
+  // The new account's reads stay unresolved, so any stale data would still show.
+  const pending: Array<(response: Response | Promise<Response>) => void> = [];
+  serve = () => new Promise<Response>((resolve) => pending.push(resolve));
+  authState.account = { id: 'other' };
+  act(() => {
+    view.rerender(<RatingHistory ruleset="brandubh" />);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(8);
+  expect(screen.queryByRole('img', { name: 'Brandubh rating progression' })).toBeNull();
+  expect(screen.getAllByText('Loading rating history…')).toHaveLength(3);
+  await act(async () => {
+    pending.forEach((resolve, index) => {
+      const path = fetcher.mock.calls[4 + index][0];
+      resolve(
+        path.startsWith('/api/personal/progress')
+          ? respond(progress)
+          : respond(plainHistory(rulesetOf(path))),
+      );
+    });
+  });
+  expect(screen.getByRole('img', { name: 'Brandubh rating progression' })).toBeVisible();
 });

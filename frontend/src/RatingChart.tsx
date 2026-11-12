@@ -5,7 +5,8 @@ import { useI18n } from './i18n';
  *
  * Only authoritative `rating_after` values are plotted. A point with no trusted
  * completion stamp is drawn as an explicit gap marker; a corrected result is
- * drawn as a diamond. Both keep their ledger sequence position. */
+ * drawn as a diamond. A point can be both, so the two markers overlap and keep
+ * their ledger sequence position. */
 export const RATING_CHART_WIDTH = 640;
 export const RATING_CHART_HEIGHT = 168;
 export const RATING_CHART_PADDING = { top: 14, right: 14, bottom: 26, left: 48 } as const;
@@ -130,23 +131,32 @@ export default function RatingChart({
         </g>
       ))}
       <path className="rating-chart-line" d={geometry.path} />
-      {geometry.points.map((point, index) =>
-        point.corrected ? (
-          <path
-            key={index}
-            className="rating-chart-point rating-chart-corrected"
-            d={`M${point.x} ${point.y - 4}L${point.x + 4} ${point.y}L${point.x} ${point.y + 4}L${point.x - 4} ${point.y}Z`}
-          />
-        ) : (
-          <circle
-            key={index}
-            className={`rating-chart-point${point.gap ? ' rating-chart-gap' : ''}`}
-            cx={point.x}
-            cy={point.y}
-            r={point.gap ? 3 : 2.5}
-          />
-        ),
-      )}
+      {geometry.points.map((point, index) => (
+        <g key={index}>
+          {/* A point can be both corrected and missing a trusted date: the gold
+              diamond marks the correction and the hollow ring marks the gap, so
+              neither state hides the other. */}
+          {point.gap && (
+            <circle
+              className={`rating-chart-point rating-chart-gap${
+                point.corrected ? ' rating-chart-corrected-gap' : ''
+              }`}
+              cx={point.x}
+              cy={point.y}
+              r={point.corrected ? 5 : 3}
+            />
+          )}
+          {point.corrected && (
+            <path
+              className="rating-chart-point rating-chart-corrected"
+              d={`M${point.x} ${point.y - 4}L${point.x + 4} ${point.y}L${point.x} ${point.y + 4}L${point.x - 4} ${point.y}Z`}
+            />
+          )}
+          {!point.gap && !point.corrected && (
+            <circle className="rating-chart-point" cx={point.x} cy={point.y} r={2.5} />
+          )}
+        </g>
+      ))}
     </svg>
   );
 }

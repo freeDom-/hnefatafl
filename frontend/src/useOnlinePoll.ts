@@ -14,8 +14,23 @@ type Controls<T> = {
   resume: () => Promise<T | null>;
 };
 
+/**
+ * Optional polling policy. `intervalMs` is the recurring read cadence; `0`
+ * loads once and reloads only on an explicit refresh or a wake signal, which
+ * suits historical data that changes only on account or game-state events. The
+ * default keeps the 5 s live-online cadence for every existing caller.
+ */
+export type PollOptions = { intervalMs?: number };
+
+const DEFAULT_POLL_INTERVAL_MS = 5000;
+const MAX_POLL_BACKOFF_MS = 30000;
+
 /** One in-flight read cycle, one queued refresh, bounded backoff and abort cleanup. */
-export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Promise<T>) {
+export function useOnlinePoll<T>(
+  key: string,
+  load: (signal: AbortSignal) => Promise<T>,
+  { intervalMs = DEFAULT_POLL_INTERVAL_MS }: PollOptions = {},
+) {
   const empty: Snapshot<T> = { key, data: null, phase: 'loading', error: null, refreshing: false };
   const [snapshot, setSnapshot] = useState<Snapshot<T>>(empty);
   const controls = useRef<Controls<T> | null>(null);
@@ -33,6 +48,11 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
     const schedule = (delay: number) => {
       clearTimeout(timer);
       if (alive && !held) timer = setTimeout(() => void run(), delay);
+    };
+    /** `null` means no recurring read: an interval of 0 is event-driven only. */
+    const nextDelay = (queuedRun: boolean): number | null => {
+      if (queuedRun) return 0;
+      return intervalMs > 0 ? Math.min(intervalMs * 2 ** failures, MAX_POLL_BACKOFF_MS) : null;
     };
     const run = async () => {
       if (!alive || held) return;
@@ -74,7 +94,10 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
         recipients.forEach((resolve) => resolve(accepted));
         running = false;
         if (controller === attempt) controller = null;
-        if (alive && !held) schedule(queued ? 0 : Math.min(5000 * 2 ** failures, 30000));
+        if (alive && !held) {
+          const delay = nextDelay(queued);
+          if (delay !== null) schedule(delay);
+        }
       }
     };
     const refresh = () =>
@@ -146,7 +169,7 @@ export function useOnlinePoll<T>(key: string, load: (signal: AbortSignal) => Pro
       window.removeEventListener('offline', offline);
       if (controls.current === active) controls.current = null;
     };
-  }, [key, load]);
+  }, [key, load, intervalMs]);
   const refresh = useCallback(() => controls.current?.refresh() ?? Promise.resolve(null), []);
   const hold = useCallback(() => controls.current?.hold(), []);
   const accept = useCallback((data: T) => controls.current?.accept(data), []);

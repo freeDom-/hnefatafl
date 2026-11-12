@@ -102,7 +102,7 @@ function RulesetRating({
       api<RatingHistoryData>(ratingHistoryPath(ruleset), undefined, undefined, signal),
     [ruleset],
   );
-  const poll = useOnlinePoll(`rating-history:${accountId}:${ruleset}`, load);
+  const poll = useOnlinePoll(`rating-history:${accountId}:${ruleset}`, load, { intervalMs: 0 });
   const data = poll.data;
   const items = data?.items ?? [];
   const name = t(statisticRuleNames[ruleset] ?? ruleset);
@@ -193,7 +193,9 @@ export default function RatingHistory({ ruleset }: { ruleset: string }) {
       api<PersonalProgress>('/personal/progress', undefined, undefined, signal),
     [],
   );
-  const progress = useOnlinePoll(`rating-progress:${account?.id ?? 'anonymous'}`, load);
+  const progress = useOnlinePoll(`rating-progress:${account?.id ?? 'anonymous'}`, load, {
+    intervalMs: 0,
+  });
   const streaks = progress.data?.streaks;
   return (
     <section className="rating-history" aria-labelledby="rating-history-heading">

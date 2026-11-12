@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { ratingGeometry, type RatingChartInput } from './RatingChart';
+import { createElement } from 'react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render } from '@testing-library/react';
+import RatingChart, { ratingGeometry, type RatingChartInput } from './RatingChart';
+
+afterEach(cleanup);
 
 const point = (rating: number, recorded: string | null, corrected = false): RatingChartInput => ({
   rating_after: rating,
@@ -51,5 +55,31 @@ describe('ratingGeometry', () => {
 
   it('returns nothing for an empty series rather than inventing a baseline', () => {
     expect(ratingGeometry([])).toBeNull();
+  });
+});
+
+describe('RatingChart markers', () => {
+  it('shows both the corrected diamond and the gap ring for a corrected entry with no date', () => {
+    const { container } = render(
+      createElement(RatingChart, { entries: [point(1510, null, true)], label: 'progression' }),
+    );
+    expect(container.querySelector('.rating-chart-corrected')).not.toBeNull();
+    expect(container.querySelector('.rating-chart-gap')).not.toBeNull();
+    // The ring is hollow so it never paints over the diamond.
+    expect(container.querySelector('.rating-chart-corrected-gap')).not.toBeNull();
+    expect(container.querySelectorAll('.rating-chart-point')).toHaveLength(2);
+  });
+
+  it('keeps one marker when only one state applies', () => {
+    const { container } = render(
+      createElement(RatingChart, {
+        entries: [point(1530, '2025-01-03T00:00:00Z', true), point(1510, null, false)],
+        label: 'progression',
+      }),
+    );
+    expect(container.querySelectorAll('.rating-chart-corrected')).toHaveLength(1);
+    expect(container.querySelectorAll('.rating-chart-gap')).toHaveLength(1);
+    expect(container.querySelectorAll('.rating-chart-corrected-gap')).toHaveLength(0);
+    expect(container.querySelectorAll('.rating-chart-point')).toHaveLength(2);
   });
 });

@@ -377,6 +377,14 @@
 .rating-chart-corrected {
   fill: var(--gold);
 }
+/* A point that is both corrected and missing a trusted date keeps both markers:
+   the gold diamond marks the correction, the hollow ring marks the date gap.
+   The ring drops the opaque gap fill so it never hides the diamond. */
+.rating-chart-corrected-gap {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
 .rating-gap-note {
   margin: 0 0 var(--gap-inline);
   color: var(--muted);
