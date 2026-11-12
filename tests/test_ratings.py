@@ -883,6 +883,92 @@ def test_completed_online_analysis_is_authorized_and_ongoing_is_rejected(tmp_pat
                 assert denied.status_code == 404
 
 
+def test_completed_online_analysis_uses_the_game_id_and_full_move_history(tmp_path):
+    from fastapi.testclient import TestClient
+
+    app, archer = api_client(tmp_path)
+    with archer:
+        verified_login(app, archer, "Archer")
+        keeper = TestClient(app)
+        with keeper:
+            verified_login(app, keeper, "Keeper")
+            created = archer.post(
+                "/api/online/games",
+                json={
+                    "request_id": str(uuid4()),
+                    "ruleset": "brandubh",
+                    "side_selection": "attackers",
+                    "time_per_move": 60,
+                },
+            ).json()["game"]
+            game = keeper.post(
+                f"/api/online/games/{created['id']}/join", json={"version": 0}
+            ).json()["game"]
+            # Play several legal moves, alternating the side to move.
+            for _ in range(3):
+                turn = game["position"]["turn"]
+                mover = archer if turn == "attackers" else keeper
+                move = legal_moves(State.from_dict(game["position"]))[0]
+                moved = mover.post(
+                    f"/api/online/games/{created['id']}/moves",
+                    json={
+                        "version": game["version"],
+                        "source": move.source,
+                        "target": move.target,
+                    },
+                )
+                assert moved.status_code == 200, moved.text
+                game = moved.json()["game"]
+            turn = game["position"]["turn"]
+            conceder = archer if turn == "attackers" else keeper
+            completed = conceder.post(
+                f"/api/online/games/{created['id']}/concede", json={"version": game["version"]}
+            ).json()["game"]
+            assert completed["status"] == "completed"
+            recorded = len(completed["moves"])
+            assert recorded >= 3
+
+            # Both the opening and the final recorded position must reconstruct;
+            # this only succeeds when the move query keys on the game id rather
+            # than a participant account id.
+            for cursor in (0, recorded):
+                response = archer.post(
+                    f"/api/history/online/{created['id']}/analysis",
+                    json={
+                        "version": completed["version"],
+                        "cursor": cursor,
+                        "background": True,
+                    },
+                )
+                assert response.status_code == 200, (cursor, response.text)
+                body = response.json()
+                assert body["cursor"] == cursor
+                assert body["ply"] == cursor
+                assert body["status"] in {"pending", "complete"}
+
+            # Analytics and retained advisor state are stored under the game id,
+            # never a participant account id.
+            saved = archer.put(
+                f"/api/history/online/{created['id']}/analytics",
+                json={
+                    "advisor": {"name": "Analyst", "profile_id": "baseline", "config": {}},
+                    "time_limit": 5,
+                    "show_win_chances": True,
+                },
+            )
+            assert saved.status_code == 200, saved.text
+            settings = archer.get(f"/api/history/online/{created['id']}/analytics").json()
+            assert settings["advisor"]["name"] == "Analyst"
+            assert app.state.store.analytics(created["id"]) is not None
+            with app.state.store.connection() as c:
+                row = c.execute(
+                    "SELECT attackers_id,defenders_id FROM online_games WHERE id=?",
+                    (created["id"],),
+                ).fetchone()
+            for account_id in (row["attackers_id"], row["defenders_id"]):
+                assert app.state.store.analytics(account_id) is None
+
+
 # --- Personal rating history and progress --------------------------------------
 
 
