@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import Leaderboard from './Leaderboard';
+import Leaderboard, { avatarInitial } from './Leaderboard';
 import { setLanguage } from './i18n';
 
 const identity = vi.hoisted(() => ({ id: 'archer' }));
@@ -179,6 +179,43 @@ it('reports the page count and stops on the last page', async () => {
   await screen.findByText('Player 25');
   expect(screen.getByText('Page 2 of 2')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+});
+
+it('returns to the first page when the pool shrinks below the current offset', async () => {
+  const entries = Array.from({ length: 30 }, (_, index) =>
+    entry(`account-${index}`, `Player ${index}`, 2000 - index, 20, index + 1),
+  );
+  let total = 30;
+  serve = (url) => {
+    const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? '0');
+    return respond({
+      ...board(),
+      entries: entries.slice(offset, offset + 25),
+      total,
+      offset,
+      me: null,
+    });
+  };
+  render(<Leaderboard />);
+  await screen.findByText('Player 0');
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+  await screen.findByText('Player 25');
+  expect(screen.getByText('Page 2 of 2')).toBeVisible();
+
+  // The pool shrinks while the view is on the last page: the clamp returns to
+  // the first page instead of stranding an empty slice.
+  total = 20;
+  fetcher.mockClear();
+  fireEvent(window, new Event('focus'));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([url]) => url.includes('offset=0'))).toBe(true),
+  );
+  expect(screen.getByText('Page 1 of 1')).toBeVisible();
+});
+
+it('falls back to a question mark for a missing avatar initial', () => {
+  expect(avatarInitial('')).toBe('?');
+  expect(avatarInitial(undefined)).toBe('?');
 });
 
 it('marks the decorative initial outside the accessible name', async () => {

@@ -49,6 +49,7 @@ const statistics: Record<string, string> = {
   'Rating progress unavailable or stale. Retry to load current streaks.':
     'Der Wertungsfortschritt ist nicht verfügbar oder veraltet. Erneut versuchen, um aktuelle Serien zu laden.',
   '{ruleset} rating progression': '{ruleset}: Wertungsverlauf',
+  '{ruleset} rating history': '{ruleset}: Wertungsverlauf',
   '{count} entries have no recorded date; the ledger order still applies to them.':
     '{count} Einträge haben kein gespeichertes Datum; die Reihenfolge des Journals gilt weiterhin.',
   'Some rated games have no recorded date; the ledger order still applies to them.':

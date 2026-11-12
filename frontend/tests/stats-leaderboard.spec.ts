@@ -165,3 +165,45 @@ test('the statistics page renders the applied ledger with gaps and corrections l
     true,
   );
 });
+
+test('keeps the rating chart tick labels readable at every viewport width', async ({ page }) => {
+  await page.route(/\/api\/personal\/online\?/, (route) =>
+    route.fulfill({
+      json: { category: 'online', statistics: { groups: [], coverage: { unattributed_games: 0 } } },
+    }),
+  );
+  await page.route(/\/api\/personal\/progress$/, (route) =>
+    route.fulfill({
+      json: {
+        as_of: '2025-02-01T00:00:00Z',
+        streaks: {
+          rated_win_current: 2,
+          rated_win_best: 4,
+          by_ruleset: [
+            { ruleset: 'brandubh', rated_win_current: 2, rated_win_best: 3, rated_games: 3 },
+          ],
+        },
+      },
+    }),
+  );
+  await page.route(/\/api\/personal\/ratings\/([a-z]+)\/history/, (route) =>
+    route.fulfill({ json: ratingHistory(/ratings\/([a-z]+)\//.exec(route.request().url())![1]) }),
+  );
+  for (const width of [320, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/statistics?mode=multiplayer&ruleset=brandubh');
+    await expect(page.locator('.rating-chart')).toBeVisible();
+    // The SVG viewBox follows the measured card width, so 10px ticks stay 10px
+    // instead of being scaled down to ~4px inside a narrow card.
+    await expect
+      .poll(
+        () =>
+          page
+            .locator('.rating-chart text')
+            .first()
+            .evaluate((node) => node.getBoundingClientRect().height),
+        { message: `tick label height at ${width}px` },
+      )
+      .toBeGreaterThanOrEqual(9);
+  }
+});

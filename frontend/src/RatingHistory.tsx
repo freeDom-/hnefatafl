@@ -124,7 +124,7 @@ function RulesetRating({
   return (
     <section
       className={`panel rating-ruleset-card${selected ? ' rating-ruleset-selected' : ''}`}
-      aria-label={name}
+      aria-label={t('{ruleset} rating history', { ruleset: name })}
     >
       <div className="section-heading">
         <div>

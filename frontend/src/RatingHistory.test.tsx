@@ -113,8 +113,8 @@ it('renders verified progression for all three pools with gaps and corrections l
   expect(screen.getByRole('heading', { name: 'Copenhagen' })).toBeVisible();
   // Only the applied ledger values are plotted: 1510 → 1520 → 1530.
   const chart = screen.getByRole('img', { name: 'Brandubh rating progression' });
-  expect(within(chart).getByText('1530')).toBeVisible();
-  expect(within(chart).getByText('1510')).toBeVisible();
+  expect(within(chart).getByText('1,530')).toBeVisible();
+  expect(within(chart).getByText('1,510')).toBeVisible();
   expect(
     screen.getByText('1 entries have no recorded date; the ledger order still applies to them.'),
   ).toBeVisible();

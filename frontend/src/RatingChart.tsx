@@ -1,3 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
+import { useI18n } from './i18n';
+
 /** Lightweight SVG rating line, so no charting dependency is added.
  *
  * Only authoritative `rating_after` values are plotted. A point with no trusted
@@ -89,12 +92,27 @@ export default function RatingChart({
   entries: readonly RatingChartInput[];
   label: string;
 }) {
-  const geometry = ratingGeometry(entries);
+  const { locale } = useI18n();
+  const chart = useRef<SVGSVGElement>(null);
+  const [width, setWidth] = useState(RATING_CHART_WIDTH);
+  // The fixed viewBox is scaled into a narrow card, so tick text would render
+  // unreadably small. Match the viewBox to the measured card width instead.
+  useEffect(() => {
+    if (!chart.current || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) =>
+      setWidth(Math.max(270, Math.round(entry.contentRect.width))),
+    );
+    observer.observe(chart.current);
+    return () => observer.disconnect();
+  }, []);
+  const geometry = ratingGeometry(entries, width);
   if (!geometry) return null;
+  const number = new Intl.NumberFormat(locale);
   return (
     <svg
+      ref={chart}
       className="rating-chart"
-      viewBox={`0 0 ${RATING_CHART_WIDTH} ${RATING_CHART_HEIGHT}`}
+      viewBox={`0 0 ${width} ${RATING_CHART_HEIGHT}`}
       role="img"
       aria-label={label}
     >
@@ -102,12 +120,12 @@ export default function RatingChart({
         <g key={tick.value} className="rating-chart-tick">
           <line
             x1={RATING_CHART_PADDING.left}
-            x2={RATING_CHART_WIDTH - RATING_CHART_PADDING.right}
+            x2={width - RATING_CHART_PADDING.right}
             y1={tick.y}
             y2={tick.y}
           />
           <text x={RATING_CHART_PADDING.left - 6} y={tick.y + 3}>
-            {tick.value}
+            {number.format(tick.value)}
           </text>
         </g>
       ))}

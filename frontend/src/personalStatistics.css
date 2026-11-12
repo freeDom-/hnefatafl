@@ -390,8 +390,10 @@
   cursor: pointer;
   min-height: 2rem;
 }
-.rating-entries-table {
-  min-width: 34rem;
+@media (min-width: 601px) {
+  .rating-entries-table {
+    min-width: 34rem;
+  }
 }
 .rating-entries-table th,
 .rating-entries-table td {
