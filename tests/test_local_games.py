@@ -1,5 +1,6 @@
 """Account-owned same-device local 1v1: seats, rules, guards and category split."""
 
+import json
 import sqlite3
 
 import pytest
@@ -38,6 +39,14 @@ def login(client, name="Owner"):
 
 def make_local(client, **changes):
     response = client.post("/api/games/local", json={"ruleset": "brandubh", **changes})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def make_single_player(client, **changes):
+    response = client.post(
+        "/api/games", json={"ruleset": "brandubh", "human_side": "attackers", **changes}
+    )
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -170,6 +179,115 @@ def test_owner_only_history_replay_and_moves(application):
         )
 
 
+def test_replay_categories_never_cross_and_owners_stay_isolated(application):
+    account(application, name="Owner")
+    account(application, name="Other")
+    account(application, "ADMIN", name="Odin")
+    with (
+        TestClient(application) as owner,
+        TestClient(application) as other,
+        TestClient(application) as admin,
+    ):
+        login(owner, "Owner")
+        login(other, "Other")
+        login(admin, "Odin")
+        solo = make_single_player(owner)
+        local = make_local(owner, attackers_label="Raven", defenders_label="Wolf")
+
+        # Each personal replay route accepts only its own persisted category.
+        own_solo = owner.get(f"/api/personal/single-player/{solo['id']}/replay")
+        assert own_solo.status_code == 200, own_solo.text
+        assert own_solo.json()["game"]["category"] == "account-single-player"
+        assert owner.get(f"/api/personal/single-player/{local['id']}/replay").status_code == 404
+        own_local = owner.get(f"/api/personal/local/{local['id']}/replay")
+        assert own_local.status_code == 200, own_local.text
+        assert own_local.json()["game"]["category"] == "local"
+        assert owner.get(f"/api/personal/local/{solo['id']}/replay").status_code == 404
+
+        # Hall replay validates the requested category against the persisted row.
+        assert (
+            owner.get(f"/api/history/account-single-player/{solo['id']}/replay").status_code == 200
+        )
+        assert (
+            owner.get(f"/api/history/account-single-player/{local['id']}/replay").status_code == 404
+        )
+        assert owner.get(f"/api/history/local/{local['id']}/replay").status_code == 200
+        assert owner.get(f"/api/history/local/{solo['id']}/replay").status_code == 404
+
+        # Unrelated accounts never reach another owner's record on any route.
+        for path in (
+            f"/api/personal/single-player/{solo['id']}/replay",
+            f"/api/personal/local/{local['id']}/replay",
+            f"/api/history/account-single-player/{solo['id']}/replay",
+            f"/api/history/local/{local['id']}/replay",
+        ):
+            assert other.get(path).status_code == 404, path
+
+        # Trusted all-data administrators read either category, but a local
+        # game still never accepts a category or mutation it does not own.
+        assert (
+            admin.get(f"/api/history/account-single-player/{solo['id']}/replay").status_code == 200
+        )
+        assert admin.get(f"/api/history/local/{local['id']}/replay").status_code == 200
+        assert admin.get(f"/api/history/local/{solo['id']}/replay").status_code == 404
+        assert admin.get(f"/api/personal/local/{local['id']}/replay").status_code == 404
+        assert move(admin, local, 3, 1).status_code == 403
+        assert admin.delete(f"/api/games/{local['id']}?version=0").status_code == 403
+
+
+def test_legacy_single_player_record_survives_category_migration(tmp_path):
+    application = create_app(tmp_path, online_background=False, account_background=False)
+    account(application, name="Owner")
+    with TestClient(application) as client:
+        login(client, "Owner")
+        solo = make_single_player(client)
+
+    # Rewind to schema 15: no additive category column, the single-player row
+    # keeping its historical, pre-local meaning.
+    with application.state.store.connection() as c:
+        c.execute("DROP INDEX IF EXISTS games_category_owner")
+        c.execute("ALTER TABLE games DROP COLUMN category")
+        c.execute("PRAGMA user_version=15")
+
+    upgraded = create_app(tmp_path, online_background=False, account_background=False)
+    with TestClient(upgraded) as client:
+        login(client, "Owner")
+        assert upgraded.state.store.get_game(solo["id"]) is not None
+        response = client.get(f"/api/personal/single-player/{solo['id']}/replay")
+        assert response.status_code == 200, response.text
+        assert response.json()["game"]["category"] == "account-single-player"
+        assert (
+            client.get(f"/api/history/account-single-player/{solo['id']}/replay").status_code == 200
+        )
+        # The migrated record is never reclassified as a local game.
+        assert client.get(f"/api/personal/local/{solo['id']}/replay").status_code == 404
+        assert client.get(f"/api/history/local/{solo['id']}/replay").status_code == 404
+
+
+def test_hall_replay_trusts_the_persisted_category_over_payload_mode(application):
+    account(application)
+    with TestClient(application) as client:
+        login(client)
+        local = make_local(client)
+        # Force a payload/column disagreement: only the persisted category column
+        # may classify the record, so the local board is never served as an
+        # account-single-player replay.
+        with application.state.store.connection() as c:
+            row = c.execute("SELECT data FROM games WHERE id=?", (local["id"],)).fetchone()
+            payload = json.loads(row[0])
+            payload["mode"] = "human-ai"
+            c.execute("UPDATE games SET data=? WHERE id=?", (json.dumps(payload), local["id"]))
+            assert (
+                c.execute("SELECT category FROM games WHERE id=?", (local["id"],)).fetchone()[0]
+                == "local"
+            )
+        assert (
+            client.get(f"/api/history/account-single-player/{local['id']}/replay").status_code
+            == 404
+        )
+        assert client.get(f"/api/history/local/{local['id']}/replay").status_code == 200
+
+
 def test_local_play_is_out_of_stats_and_never_touches_elo(application):
     account(application)
     with TestClient(application) as client:
@@ -241,3 +359,22 @@ def test_schema15_upgrade_adds_local_category_without_rewriting_history(tmp_path
     assert Store(store.path).get_game("old")["id"] == "old"
     with sqlite3.connect(store.path) as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+
+
+def test_category_migration_is_idempotent_on_schema16(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    with store.connection() as c:
+        c.execute(
+            "INSERT INTO games(id,version,created_at,data,owner_account_id,category) "
+            "VALUES('local',0,'now',?,NULL,'local')",
+            ('{"id":"local","mode":"local","ruleset":"tablut","moves":[]}',),
+        )
+    # Re-opening an already-migrated schema-16 database re-runs the additive
+    # migration without duplicating the column or rewriting the stored category.
+    for _ in range(2):
+        reopened = Store(store.path)
+        with reopened.connection() as c:
+            assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+            assert [row[1] for row in c.execute("PRAGMA table_info(games)")].count("category") == 1
+            assert c.execute("SELECT category FROM games WHERE id='local'").fetchone()[0] == "local"
+    assert Store(store.path).get_game("local")["mode"] == "local"

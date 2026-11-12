@@ -383,6 +383,7 @@ class PersonalHistory:
         }
 
     def local_replay(self, credential, identifier):
+        """Own local 1v1 replay; the persisted category keeps single-player out."""
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
@@ -396,11 +397,19 @@ class PersonalHistory:
             return self._single_replay(c, json.loads(row[0]), category="local")
 
     def single_replay(self, credential, identifier):
+        """Own account-single-player replay; local 1v1 records are never exposed.
+
+        The persisted ``games.category`` column is authoritative, so a local game
+        requested through this route returns 404 instead of leaking its board.
+        Historical rows carry the ``account-single-player`` column default and
+        stay reachable.
+        """
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
             row = c.execute(
-                "SELECT data FROM games WHERE id=? AND owner_account_id=?",
+                "SELECT data FROM games WHERE id=? AND games.category='account-single-player' "
+                "AND owner_account_id=?",
                 (identifier, account["id"]),
             ).fetchone()
             if row is None:

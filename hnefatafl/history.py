@@ -190,19 +190,24 @@ class RecordedHistory:
                     self.online._participant(c, account["id"], identifier)
                 return self.online._replay(c, identifier)
             # Account single-player and local 1v1 review: owners and
-            # administrators only, with the persisted category deciding which
-            # records a given category exposes.
+            # administrators only. The persisted ``games.category`` column, never
+            # JSON mode inference, decides which records a category exposes, so a
+            # request for the wrong category returns 404 for everyone.
             if admin:
-                row = c.execute("SELECT data FROM games WHERE id=?", (identifier,)).fetchone()
+                row = c.execute(
+                    "SELECT category,data FROM games WHERE id=?", (identifier,)
+                ).fetchone()
             else:
                 row = c.execute(
-                    "SELECT data FROM games WHERE id=? AND owner_account_id=?",
+                    "SELECT category,data FROM games WHERE id=? AND owner_account_id=?",
                     (identifier, account["id"]),
                 ).fetchone()
             if row is None:
                 raise OnlineError(404, "Recorded game not found.")
-            game = json.loads(row[0])
-            recorded_category = "local" if game.get("mode") == "local" else "account-single-player"
+            # Historical rows defaulted to the single-player category on upgrade.
+            recorded_category = row["category"] or "account-single-player"
             if recorded_category != category:
                 raise OnlineError(404, "Recorded game not found.")
-            return self.personal._single_replay(c, game, category=category)
+            return self.personal._single_replay(
+                c, json.loads(row["data"]), category=recorded_category
+            )
