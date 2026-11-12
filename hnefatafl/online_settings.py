@@ -16,6 +16,12 @@ class OnlineSettings:
     waiting_limit: int = 5
     creation_limit: int = 10
     creation_window_seconds: int = 900
+    # Public online discovery is an explicit deployment switch so the whole
+    # additive /api/public/online/* namespace can be withdrawn without a code
+    # change. Product decision Q6 approved it enabled by default.
+    public_discovery_enabled: bool = True
+    public_rate_limit: int = 60
+    public_rate_window_seconds: int = 60
 
     def __post_init__(self):
         if type(self.sweep_seconds) is not int or not 1 <= self.sweep_seconds <= 300:
@@ -31,6 +37,15 @@ class OnlineSettings:
             or not 60 <= self.creation_window_seconds <= 86400
         ):
             raise ValueError("Online creation window must be 60–86400 seconds")
+        if type(self.public_discovery_enabled) is not bool:
+            raise ValueError("Public discovery flag must be a boolean")
+        if type(self.public_rate_limit) is not int or not 1 <= self.public_rate_limit <= 100000:
+            raise ValueError("Public rate limit must be 1–100000 requests")
+        if (
+            type(self.public_rate_window_seconds) is not int
+            or not 1 <= self.public_rate_window_seconds <= 86400
+        ):
+            raise ValueError("Public rate window must be 1–86400 seconds")
 
     @classmethod
     def environment(cls):
@@ -48,5 +63,13 @@ class OnlineSettings:
             creation_limit=int(os.environ.get("HNEFATAFL_ONLINE_CREATION_LIMIT", "10")),
             creation_window_seconds=int(
                 os.environ.get("HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS", "900")
+            ),
+            # Q6 default is enabled; an operator sets this to "false" to withdraw
+            # the public namespace at runtime without a redeploy.
+            public_discovery_enabled=os.environ.get("HNEFATAFL_PUBLIC_ONLINE_ENABLED", "true")
+            == "true",
+            public_rate_limit=int(os.environ.get("HNEFATAFL_PUBLIC_RATE_LIMIT", "60")),
+            public_rate_window_seconds=int(
+                os.environ.get("HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS", "60")
             ),
         )

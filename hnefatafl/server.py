@@ -1521,6 +1521,19 @@ def create_app(
 
     attach_personal(app, online, replay=validated_account_replay)
 
+    def public_stored_analysis(game_id: str, state: State) -> dict | None:
+        """Read-only stored analysis for a completed online game; never computes.
+
+        Anonymous replay may surface analysis that already exists. The reader
+        only projects retained snapshots and reserves no runes, so a public
+        request cannot trigger inference or write any row.
+        """
+        return current_analysis({"id": game_id, "advisor": None}, state=state)
+
+    from .public_api import attach_public
+
+    attach_public(app, online, stored_analysis=public_stored_analysis)
+
     @app.post("/api/games/{game_id}/moves")
     def make_move(game_id: str, request: MoveRequest):
         from .security_context import principal

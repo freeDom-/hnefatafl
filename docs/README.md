@@ -78,6 +78,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Phase 6 handoff and rating policy decisions](designs/online-phase6-handoff.md)
 - [Phase 5 personal dashboard contract and dependency](designs/personal-dashboard-phase5.md)
 - [Durable online game core, match modes, timeout controls and schema-10 recovery](ONLINE.md)
+- [Signed-out public online discovery: endpoints, filters, paging, limits and switch](PUBLIC_ONLINE.md)
 - [Phase 2 implementation checklist and validation](validation/online-phase2.md)
 - [Phase 3 backend/API/reconnect contract](designs/online-phase3-handoff.md)
 - [Phase 3 UI validation](validation/online-phase3.md)

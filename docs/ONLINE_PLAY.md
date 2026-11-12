@@ -8,7 +8,10 @@ Dashboard with online setup selected. Admission is disabled by default; the lobb
 operator has disabled new games or your account is not eligible. Creating/joining
 requires the backend's current active/verified/play eligibility. An existing seat
 can keep playing after verification is removed, while its account/session remains
-valid. Visibility is authenticated: this is not an anonymous spectator service.
+valid. Play, joining and mutation remain authenticated. A separate additive
+[public read-only namespace](PUBLIC_ONLINE.md) lets signed-out visitors browse
+online games and completed replays; it never exposes single-player or local
+records and never generates analysis.
 
 Single-player is a separate authenticated surface; it never feeds online
 results, and online IDs never enter its replay/AI adapter.

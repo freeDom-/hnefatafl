@@ -9,8 +9,10 @@ Authenticated online gameplay reuses the existing engine, pure lifecycle, accoun
 and SQLite transactions. The lobby and playable UI are described in
 [Playing online](ONLINE_PLAY.md); the versioned Elo pool and authenticated
 leaderboard are described in [Rated games](RATINGS.md). Analysis is available only
-through the completed-game history adapter. Anonymous access, ongoing-game
-assistance, aggregate match scoring and rewards are not provided.
+through the completed-game history adapter. Signed-out visitors may browse online
+games and completed replays through the additive, read-only
+[public online namespace](PUBLIC_ONLINE.md); ongoing-game assistance, aggregate
+match scoring and rewards are not provided.
 Singleplayer, training, workers and model records keep their existing
 tables and behavior. The old local `game_participants` scaffold references local
 `games`; online seats therefore live in the separate authoritative online tables.
@@ -39,9 +41,13 @@ The owner explicitly refined/approved these Phase 2 policies in conversation:
   retains existing-seat moves/concession while active with a valid session. This
   includes the already-agreed return game; it is not another open join/admission.
 
-Anonymous visibility, waiting-lobby retention/lifetime and the production
-outage-resolution procedure remain **unapproved**. Anonymous access is rejected;
-the approved rated-only creation policy is described in [Rated games](RATINGS.md).
+Anonymous read-only visibility is approved and shipped through the additive
+[public online namespace](PUBLIC_ONLINE.md): signed-out and signed-in spectators
+read live games and completed replays, never single-player or local records, with
+no assistance and no generated analysis. Waiting-lobby retention/lifetime and the
+production outage-resolution procedure remain **unapproved**; anonymous
+create/join/mutation stays rejected. The approved rated-only creation policy is
+described in [Rated games](RATINGS.md).
 No automatic waiting-game expiry or deadline extension is implemented. Keeping a
 durable waiting record is not approval of a future public-lobby retention policy.
 Automatic timeout losses are enabled by default.
@@ -64,6 +70,9 @@ must inspect both linked games when deciding an incident's resolution.
 | `HNEFATAFL_ONLINE_WAITING_LIMIT` | `5` | Maximum outstanding waiting lobbies per creator, integer 1–1000 |
 | `HNEFATAFL_ONLINE_CREATION_LIMIT` | `10` | Successful new matches per account/window, integer 1–1000 |
 | `HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS` | `900` | Rolling creation window, integer 60–86400 seconds |
+| `HNEFATAFL_PUBLIC_ONLINE_ENABLED` | `true` | Enables the read-only `/api/public/online/*` namespace; `false` returns 404 |
+| `HNEFATAFL_PUBLIC_RATE_LIMIT` | `60` | Public requests per window per IP, integer 1–100000 |
+| `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60` | Public rate window, integer 1–86400 seconds |
 
 Admission still defaults off. Timeout processing defaults on; both the environment
 control and persistent administrator gate must allow finalization. Existing explicit

@@ -182,7 +182,8 @@ after reviewing new permissions, regenerate with `--write`. Persistence flags
 conservatively include GET routes that can reserve identity runes or reconcile jobs.
 
 Login, registration availability, the five declared registration/verification/reset
-POST routes, minimal database readiness, the login shell and compiled `/assets/`
+POST routes, the three read-only `/api/public/online/*` GET routes, minimal
+database readiness, the login shell and compiled `/assets/`
 files are public. Mutating public routes require same-origin JSON and bounded
 request bodies; signup cannot assign roles or verification and creates no session.
 Token pages require explicit POST confirmation and exclude tokens from URL request
@@ -234,3 +235,15 @@ scope before its three-row limit, including administrators. List/count/category
 statistics and direct canonical review recheck current sessions in read transactions.
 No history route adds mutation, exports, assistance or public access. See
 [Dashboard](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).
+
+Signed-out visitors may read online games and completed replays through the
+additive `/api/public/online/*` namespace described in
+[Public online discovery](PUBLIC_ONLINE.md). It is online-only, read-only and
+analysis-free for live games: no single-player or local record, email, account or
+session identifier, private profile field, private audit note or unpublished name
+is exposed, and there is no public join/move/concede/void/analysis route. Unknown,
+malformed and live-replay identifiers return a consistent 404; the index uses
+keyset cursors with `limit` 1–100 and a stricter per-IP limit than authenticated
+lobby polling. Completed reads set a short `Cache-Control`, and the namespace is
+gated by `HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
+`SCHEMA_VERSION` change.

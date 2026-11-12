@@ -521,6 +521,30 @@
   },
   {
     "method": "GET",
+    "route": "/api/public/online/games",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/public/online/games/{game_id}",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/public/online/games/{game_id}/replay",
+    "authentication": "public",
+    "permission": "public",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
     "route": "/api/rulesets",
     "authentication": "session",
     "permission": "play",
