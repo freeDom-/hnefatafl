@@ -55,7 +55,13 @@ export default function PlayLanding({
   }
   const target = games.data?.includes(remembered) ? remembered : games.data?.[0];
   useEffect(() => {
-    if (games.phase === 'ready' && target && !creation && !creatingSingle) navigate(target);
+    if (games.phase !== 'ready' || !target || creation || creatingSingle) return;
+    // Resuming a saved game is an automatic redirect. It must never override a
+    // newer user navigation, so only act while the Play entry is still current.
+    // `location` is updated synchronously by `navigate`/`surfaceLink`, so this
+    // guard is correct even before React commits the route change.
+    if (location.pathname !== '/play') return;
+    navigate(target);
   }, [games.phase, target, creation, creatingSingle]);
   return (
     <section className="personal-dashboard play-home">

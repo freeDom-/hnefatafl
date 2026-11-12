@@ -100,13 +100,14 @@ test.describe('one primary navigation per viewport', () => {
 test('the compact bottom navigation reaches every destination in both workspaces', async ({
   page,
 }) => {
+  // Deterministic Play entry: with no saved games, Play settles on its own route
+  // instead of racing an auto-resume from a game another test left behind.
+  await page.route('**/api/personal/**', (route) => route.fulfill({ json: { games: [] } }));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/dashboard');
   await expect(page.locator(bottomNav)).toBeVisible();
 
   for (const [destination, path] of [
-    // Play resumes a running game another test may have left behind, so only the
-    // routes below have a single canonical landing URL.
     ['play', null],
     ['statistics', '/statistics'],
     ['leaderboard', '/leaderboard'],
