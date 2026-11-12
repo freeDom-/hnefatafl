@@ -4,6 +4,8 @@ import {
   gameTab,
   openGameOptions,
   openGameNavigation,
+  openDestination,
+  primaryNavigation,
 } from '../tests/play-helpers';
 const password = 'personal-browser-fixture-password';
 test.beforeEach(async ({ request }) => {
@@ -46,9 +48,8 @@ test('default landing, shared latest three and exact review survive filtering an
   await login(page);
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  const nav = page.getByRole('navigation', { name: 'Main navigation' });
-  await expect(nav.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
-  await expect(nav.getByRole('button', { name: 'Online', exact: true })).toHaveCount(0);
+  await expect(primaryNavigation(page).locator('[data-destination="play"]')).toBeVisible();
+  await expect(primaryNavigation(page).locator('[data-destination="online"]')).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
@@ -120,7 +121,7 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
         })
       ).status(),
     ).toBe(409);
-    await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
+    await openDestination(page, 'archive');
     if (name === 'PersonalOdin') {
       await page.getByLabel('Game type').selectOption('account-single-player');
       await page.getByLabel('Player name').fill('PersonalArcher');
@@ -230,7 +231,7 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
   expect(new URL(page.url()).pathname).toBe(path);
   const back = page.getByRole('link', { name: 'Back to dashboard', exact: true });
   if (await back.isVisible()) await back.click();
-  else await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  else await openDestination(page, 'dashboard');
   const game = await (await context.request.get('/api' + path)).json();
   const me = await (await context.request.get('/api/auth/me')).json();
   const changed = await context.request.post('/api' + path + '/moves', {
@@ -650,9 +651,9 @@ test('statistics deep links retain login protection and show only the signed-in 
   ).toEqual([]);
   await page.reload();
   await expect(page.getByLabel('Ruleset', { exact: true })).toHaveValue('brandubh');
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await expect(page.locator('.performance-badge')).toHaveCount(6);
   await expect(page.locator('.dashboard-performance').getByText(/Elo/)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Statistics', exact: true }).click();
+  await openDestination(page, 'statistics');
   await expect(page.getByText('No games recorded yet.')).toBeVisible();
 });
