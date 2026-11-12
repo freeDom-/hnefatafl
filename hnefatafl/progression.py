@@ -14,6 +14,7 @@ scope, and a milestone that was already confirmed is never revoked.
 
 from __future__ import annotations
 
+import fcntl
 import sqlite3
 from dataclasses import dataclass
 
@@ -407,50 +408,57 @@ class Progression:
 
     def achievements(self, credential: str) -> dict:
         """Complete own progress; a fresh account receives every item at zero."""
-        with self.store.connection() as c:
-            # Reading progress confirms awards, so it takes the writer lock and
-            # commits the confirmations together with the projection it returns.
-            c.execute("BEGIN IMMEDIATE")
-            account = self.online._identity(c, credential)
-            now = micros(self.online.clock())
-            self._materialize(c, account["id"], now)
-            awards = {
-                row["achievement_id"]: row["awarded_at"]
-                for row in c.execute(
-                    "SELECT achievement_id,awarded_at FROM achievement_awards WHERE account_id=?",
-                    (account["id"],),
-                )
-            }
-            cache: dict = {}
-            items = []
-            for achievement in ACHIEVEMENTS:
-                awarded_at = awards.get(achievement.id)
-                items.append(
-                    {
-                        "id": achievement.id,
-                        "name": achievement.name,
-                        "description": achievement.description,
-                        "category": achievement.category,
-                        "scope": achievement.scope,
-                        "threshold": achievement.threshold,
-                        "progress": self._measure(c, account["id"], achievement, cache),
-                        "unlocked": awarded_at is not None,
-                        "awarded_at": stamp(instant(awarded_at))
-                        if awarded_at is not None
-                        else None,
-                        "portrait_id": PORTRAIT_BY_ACHIEVEMENT.get(achievement.id),
-                    }
-                )
-            return {
-                "catalog_version": ACHIEVEMENT_CATALOG_VERSION,
-                "portrait_catalog_version": PORTRAIT_CATALOG_VERSION,
-                "items": items,
-                "summary": {
-                    "unlocked": sum(1 for item in items if item["unlocked"]),
-                    "total": len(items),
-                },
-                "as_of": stamp(instant(now)),
-            }
+        # Reading progress confirms awards, so it is a write and obeys the same
+        # deployment freeze as OnlineCore._write and the HTTP middleware.
+        with self.online.auth.gate_path.open("rb") as gate:
+            try:
+                fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise OnlineError(503, "Deployment in progress. Please retry shortly.") from None
+            with self.store.connection() as c:
+                # It also takes the writer lock and commits the confirmations
+                # together with the projection it returns.
+                c.execute("BEGIN IMMEDIATE")
+                account = self.online._identity(c, credential)
+                now = micros(self.online.clock())
+                self._materialize(c, account["id"], now)
+                awards = {
+                    row["achievement_id"]: row["awarded_at"]
+                    for row in c.execute(
+                        "SELECT achievement_id,awarded_at FROM achievement_awards WHERE account_id=?",
+                        (account["id"],),
+                    )
+                }
+                cache: dict = {}
+                items = []
+                for achievement in ACHIEVEMENTS:
+                    awarded_at = awards.get(achievement.id)
+                    items.append(
+                        {
+                            "id": achievement.id,
+                            "name": achievement.name,
+                            "description": achievement.description,
+                            "category": achievement.category,
+                            "scope": achievement.scope,
+                            "threshold": achievement.threshold,
+                            "progress": self._measure(c, account["id"], achievement, cache),
+                            "unlocked": awarded_at is not None,
+                            "awarded_at": stamp(instant(awarded_at))
+                            if awarded_at is not None
+                            else None,
+                            "portrait_id": PORTRAIT_BY_ACHIEVEMENT.get(achievement.id),
+                        }
+                    )
+                return {
+                    "catalog_version": ACHIEVEMENT_CATALOG_VERSION,
+                    "portrait_catalog_version": PORTRAIT_CATALOG_VERSION,
+                    "items": items,
+                    "summary": {
+                        "unlocked": sum(1 for item in items if item["unlocked"]),
+                        "total": len(items),
+                    },
+                    "as_of": stamp(instant(now)),
+                }
 
     def select(self, c: sqlite3.Connection, account_id: str, portrait_id: str) -> str:
         """Select an earned, currently offered portrait inside the caller's write.

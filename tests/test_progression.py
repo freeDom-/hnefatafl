@@ -5,6 +5,7 @@ games, real voids/corrections, real account games and real sessions, and assert
 that a reward is confirmed at most once and never revoked or leaked.
 """
 
+import fcntl
 import json
 import sqlite3
 
@@ -160,6 +161,17 @@ def test_progression_reads_require_a_current_authenticated_session(web):
             ).status_code
             == 401
         )
+
+
+def test_achievement_read_confirms_awards_only_outside_the_deployment_freeze(web):
+    app, client = web
+    with app.state.auth.gate_path.open("rb") as gate:
+        fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # The read confirms awards, so a frozen deployment refuses it like a write.
+        assert client.get("/api/personal/achievements").status_code == 503
+        # A pure catalog read writes nothing and stays available under the freeze.
+        assert client.get("/api/portraits/catalog").status_code == 200
+    assert client.get("/api/personal/achievements").status_code == 200
 
 
 def test_achievement_empty_state_lists_every_milestone_at_zero(web):
