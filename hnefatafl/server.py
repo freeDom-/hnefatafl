@@ -1383,22 +1383,26 @@ def create_app(
         from .online_core import OnlineError
         from .security_context import allowed, session_identity
 
+        # The requested online game id must stay distinct from the participant
+        # account ids read below, or the move query and returned game object end
+        # up keyed by an account id instead of the game.
+        game_id = identifier
         try:
             with store.connection() as c:
                 c.execute("BEGIN")
                 account = online._identity(c, session_identity.get())
                 if not allowed(account, "all_data"):
-                    online._participant(c, account["id"], identifier)
-                row, game = online._load(c, identifier)
+                    online._participant(c, account["id"], game_id)
+                row, game = online._load(c, game_id)
                 if game.status.value != "completed" or game.result is None:
                     fail("Analysis is available only for completed online games.", 403)
                 players = {}
                 accounts = resolve_accounts(c, (row[side + "_id"] for side in SIDES))
                 for side in SIDES:
-                    identifier = row[side + "_id"]
+                    account_id = row[side + "_id"]
                     players[side] = {
-                        **accounts.get(identifier, public_identity(None)),
-                        "account_id": identifier,
+                        **accounts.get(account_id, public_identity(None)),
+                        "account_id": account_id,
                         "kind": "human",
                         "config": {},
                     }
@@ -1406,13 +1410,13 @@ def create_app(
                     {"source": item["source"], "target": item["target"]}
                     for item in c.execute(
                         "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
-                        (identifier,),
+                        (game_id,),
                     )
                 ]
         except OnlineError as error:
             fail(str(error), error.status)
         return {
-            "id": identifier,
+            "id": game_id,
             "online": True,
             "ruleset": row["ruleset"],
             "mode": "human-human",
