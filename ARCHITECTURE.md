@@ -673,8 +673,13 @@ reject late responses. The Dashboard's compact leaderboard and the full
 `/leaderboard` view share authenticated qualified/provisional standings and the
 viewer's own standing; see [Rated games](docs/RATINGS.md).
 
-`personal_api.py` retains five own-account GET adapters under `/api/personal`, including
-administrators. Two additional read-only `/api/history` routes use `history.py`:
+`personal_api.py` retains seven own-account GET adapters under `/api/personal`, including
+administrators. Beyond the existing single-player/online history reads, two rating
+projections reuse the immutable ledger: `GET /api/personal/ratings/{ruleset}/history`
+returns sequence-ordered applied events with an opaque cursor, and
+`GET /api/personal/progress` returns per-ruleset current/best rated win streaks.
+Both are strictly self-scoped and add no schema or rating-math change; a durable
+login/activity-day streak remains deferred to a future progression migration. Two additional read-only `/api/history` routes use `history.py`:
 normal-user lists/review cover own account games and participating online games;
 trusted current `all_data` sessions can filter/review all server-recorded online/account records. Dashboard
 history always applies own-account scope, visibility and eligible completion before

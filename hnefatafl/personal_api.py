@@ -162,3 +162,20 @@ def attach_personal(app, online, *, replay):
             "online_review",
             lambda credential: online.replay(credential, game_id, participant_only=True),
         )
+
+    @app.get("/api/personal/ratings/{ruleset}/history")
+    def rating_history(
+        ruleset: Rule,
+        limit: int = Query(default=25, ge=1, le=100),
+        cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    ):
+        return execute(
+            "rating_history",
+            lambda credential: history.rating_history(
+                credential, ruleset, limit=limit, cursor=cursor
+            ),
+        )
+
+    @app.get("/api/personal/progress")
+    def progress():
+        return execute("progress", lambda credential: history.progress(credential))

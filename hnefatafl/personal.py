@@ -4,7 +4,9 @@ import base64
 import hashlib
 import json
 
+from . import rating
 from .account_policy import account_player_sql, attributed_name, game_accounts, game_players
+from .engine import RULESETS
 from .online_core import OnlineError, instant, micros, stamp
 
 
@@ -650,4 +652,133 @@ class PersonalHistory:
                 "statistics": self._online_statistics(c, actor),
                 "as_of": stamp(instant(now)),
                 **paging,
+            }
+
+    # Rating history projects the immutable rating ledger, never a time series of
+    # start-rating snapshots. Only currently applied events appear: a void removes
+    # its entry, and a corrected result keeps its immutable sequence while the
+    # applied applications are recomputed by the pool rebuild.
+    _RATING_HISTORY_BASE = """
+        SELECT e.sequence AS order_at,a.game_id AS id,e.game_id,e.sequence,e.pool AS ruleset,
+          e.winner,e.completed_at,e.effective_revision,a.rating_after,a.delta,a.score,
+          a.policy_version,
+          public_account_name(o.username,o.display_name,o.profile_private_fields) AS opponent_name,
+          o.username AS opponent_username
+        FROM rating_events e
+        JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
+        LEFT JOIN accounts o ON o.id=a.opponent_id
+        WHERE e.pool=? AND e.state='applied'"""
+
+    @staticmethod
+    def _recorded_at(completed_at):
+        """Trusted completion stamp, or `None` for a missing/non-positive one.
+
+        A `NULL`, zero or negative stamp is an explicit legacy gap, never a
+        fabricated date; the ledger sequence still orders the entry
+        authoritatively.
+        """
+        return stamp(instant(completed_at)) if completed_at and completed_at > 0 else None
+
+    @classmethod
+    def _rating_history_entry(cls, row):
+        return {
+            "sequence": row["sequence"],
+            "game_id": row["game_id"],
+            "recorded_at": cls._recorded_at(row["completed_at"]),
+            "rating_after": row["rating_after"],
+            "delta": row["delta"],
+            "result": "draw" if row["score"] == 0.5 else "win" if row["score"] == 1.0 else "loss",
+            "opponent_display_name": row["opponent_name"],
+            "opponent_username": row["opponent_username"],
+            "corrected": row["effective_revision"] > 1,
+        }
+
+    def rating_history(self, credential, pool, *, limit=25, cursor=None):
+        if pool not in RULESETS:
+            raise OnlineError(422, "A supported ruleset is required.")
+        filters = {"ruleset": pool}
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            actor = account["id"]
+            rows, paging = page(
+                c,
+                self._RATING_HISTORY_BASE,
+                (actor, pool),
+                [],
+                [],
+                limit=limit,
+                cursor=cursor,
+                context=context_key(actor, "rating-history", filters),
+                online=True,
+            )
+            now = micros(self.online.clock())
+            current = c.execute(
+                "SELECT rating FROM player_ratings WHERE account_id=? AND pool=?", (actor, pool)
+            ).fetchone()
+            gaps = c.execute(
+                f"WITH records AS ({self._RATING_HISTORY_BASE}) "
+                "SELECT count(*) FROM records WHERE completed_at IS NULL OR completed_at<=0",
+                (actor, pool),
+            ).fetchone()[0]
+            return {
+                "ruleset": pool,
+                "policy_version": rating.RATING_POLICY_VERSION,
+                "current_rating": current["rating"] if current else None,
+                "as_of": stamp(instant(now)),
+                "legacy_timestamp_gaps": bool(gaps),
+                "items": [self._rating_history_entry(row) for row in rows],
+                "next_cursor": paging["next_cursor"],
+                "limit": paging["limit"],
+                "matching": paging["matching"],
+            }
+
+    @staticmethod
+    def _streaks(c, actor):
+        """Every rated win streak from one ordered pass over the ledger.
+
+        Only applied events count, so a void or correction recomputes the streak
+        rather than patching an incremental counter. The account's applied events
+        are read once in immutable ledger sequence order and folded immediately:
+        each pool keeps its own running run, and the aggregate run follows the
+        global sequence across pools. A win extends a run; a loss or draw ends it.
+        """
+        pools = {
+            pool: {"rated_win_current": 0, "rated_win_best": 0, "rated_games": 0}
+            for pool in sorted(RULESETS)
+        }
+        aggregate_current = aggregate_best = 0
+        rows = c.execute(
+            """SELECT e.pool,e.winner,
+              CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
+            FROM rating_events e
+            JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
+            WHERE e.state='applied' ORDER BY e.sequence""",
+            (actor, actor),
+        )
+        for row in rows:
+            won = row["winner"] == row["side"]
+            aggregate_current = aggregate_current + 1 if won else 0
+            aggregate_best = max(aggregate_best, aggregate_current)
+            pool = pools.get(row["pool"])
+            if pool is None:
+                continue
+            pool["rated_games"] += 1
+            pool["rated_win_current"] = pool["rated_win_current"] + 1 if won else 0
+            pool["rated_win_best"] = max(pool["rated_win_best"], pool["rated_win_current"])
+        return pools, aggregate_current, aggregate_best
+
+    def progress(self, credential):
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            pools, current, best = self._streaks(c, account["id"])
+            now = micros(self.online.clock())
+            return {
+                "as_of": stamp(instant(now)),
+                "streaks": {
+                    "rated_win_current": current,
+                    "rated_win_best": best,
+                    "by_ruleset": [{"ruleset": pool, **pools[pool]} for pool in sorted(RULESETS)],
+                },
             }
