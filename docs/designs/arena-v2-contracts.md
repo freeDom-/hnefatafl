@@ -72,7 +72,7 @@ It does not:
 - `hnefatafl/history.py`
   - Hall listing/review authorization and account-vs-online category split
 - `hnefatafl/online_migrations.py`
-  - current schema version `15`; online/rating tables already present
+  - current schema version `16`; online/rating tables and the account-game category column already present
 - `hnefatafl/profile_migrations.py`
   - profile publication and privacy exception migration
 - `hnefatafl/account_migrations.py`
@@ -558,17 +558,21 @@ export interface PersonalProgress {
 
 ### Migration IDs and database sequencing freeze
 
-Current audited database schema version is `15` in `hnefatafl/online_migrations.py`.
+Current audited database schema version is `16` in `hnefatafl/online_migrations.py`.
 
 Frozen sequencing for future additive schema work:
 
-- schema `16`: Arena v2 progression foundations only
+- schema `16`: local 1v1 account-owned history (consumed by the B2 local 1v1 branch: the additive `games.category` column plus the `games_category_owner` index)
+- schema `17`: Arena v2 progression foundations
   - portrait catalog / selected portrait / achievement ledger / activity-day ledger if approved
-- schema `17`: local 1v1 account-owned history if approved
 - schema `18`: player tournaments
 - schema `19`: leagues
 
-Do not create parallel PRs that both claim the same schema number. If branches diverge, later branches must rebase and renumber before merge.
+Schema `16` was originally reserved for progression foundations but shipped with
+the local 1v1 branch first. An already deployed migration is never renumbered, so
+progression work takes the next free number (`17`) instead of reclaiming `16`.
+
+Do not create parallel PRs that both claim the same schema number. If branches diverge, later branches must rebase and renumber before merge, and a merged/shipped migration keeps its number regardless of which branch reserved it first.
 
 ## Progression policy freeze
 
@@ -719,12 +723,12 @@ To avoid conflicting migrations and auth/router collisions:
    - must not alter `/api/online/*` authentication behavior by default
 2. **B2 local 1v1 branch**
    - add account-owned local mode under game/history APIs
-   - likely schema `17`
+   - shipped as schema `16` (`games.category`); see the migration sequencing freeze above
 3. **B3 progress branch**
    - add rating history/progress projections from existing ledger
-   - likely schema `16` only if new activity-day ledger is approved
+   - reserved schema `17` only if new activity-day ledger is approved
 4. **B4 portraits/achievements branch**
-   - builds on schema `16`
+   - builds on the progress schema (`17`)
 5. **B5 player tournaments branch**
    - separate namespace and schema `18`
 6. **B6 leagues branch**

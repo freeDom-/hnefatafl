@@ -22,7 +22,9 @@ class RecordedHistory:
         at = "coalesce(json_extract(data,'$.ended_at'),games.created_at)"
         attacker_name, attacker_username = account_player_sql("attackers")
         defender_name, defender_username = account_player_sql("defenders")
-        account = f"""SELECT games.id,'account-single-player' AS category,
+        # The persisted category column separates account single-player history
+        # from account-owned local 1v1, so the Hall never merges the two.
+        account = f"""SELECT games.id,games.category AS category,
             CAST(strftime('%s',substr({at},1,19)) AS INTEGER)*1000000 +
             CASE WHEN substr({at},20,1)='.' THEN CAST(substr({at},21,6) AS INTEGER) ELSE 0 END AS order_at,
             games.created_at,coalesce(json_extract(data,'$.ended_at'),games.created_at) AS recorded_at,
@@ -98,12 +100,17 @@ class RecordedHistory:
                 raise OnlineError(403, "Administrator history permission is required.")
             base, params = self._base(account["id"], admin=admin, own=dashboard)
             conditions, values = [], []
-            for key, value in (
-                ("category", category),
-                ("ruleset", ruleset),
-                ("status", status),
-                ("winner", winner),
-            ):
+            # Local 1v1 keeps its own category. It is available only when
+            # explicitly requested, so the default Hall/dashboard projection is
+            # unchanged, while owners and all-data admins can still read it.
+            if category == "local":
+                conditions.append("category='local'")
+            elif category:
+                conditions.append("category=?")
+                values.append(category)
+            else:
+                conditions.append("category<>'local'")
+            for key, value in (("ruleset", ruleset), ("status", status), ("winner", winner)):
                 if value:
                     conditions.append(key + "=?")
                     values.append(value)
@@ -182,14 +189,25 @@ class RecordedHistory:
                 if not admin:
                     self.online._participant(c, account["id"], identifier)
                 return self.online._replay(c, identifier)
-            # Account single-player review: owners and administrators only.
+            # Account single-player and local 1v1 review: owners and
+            # administrators only. The persisted ``games.category`` column, never
+            # JSON mode inference, decides which records a category exposes, so a
+            # request for the wrong category returns 404 for everyone.
             if admin:
-                row = c.execute("SELECT data FROM games WHERE id=?", (identifier,)).fetchone()
+                row = c.execute(
+                    "SELECT category,data FROM games WHERE id=?", (identifier,)
+                ).fetchone()
             else:
                 row = c.execute(
-                    "SELECT data FROM games WHERE id=? AND owner_account_id=?",
+                    "SELECT category,data FROM games WHERE id=? AND owner_account_id=?",
                     (identifier, account["id"]),
                 ).fetchone()
             if row is None:
                 raise OnlineError(404, "Recorded game not found.")
-            return self.personal._single_replay(c, json.loads(row[0]))
+            # Historical rows defaulted to the single-player category on upgrade.
+            recorded_category = row["category"] or "account-single-player"
+            if recorded_category != category:
+                raise OnlineError(404, "Recorded game not found.")
+            return self.personal._single_replay(
+                c, json.loads(row["data"]), category=recorded_category
+            )

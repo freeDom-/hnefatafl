@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from contextlib import asynccontextmanager, contextmanager, ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,9 +24,15 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
-from .account_policy import game_accounts, game_players, public_identity, resolve_accounts
+from .account_policy import (
+    BIDI_CONTROLS,
+    game_accounts,
+    game_players,
+    public_identity,
+    resolve_accounts,
+)
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .identities import agent_identity, effective_ai_config
 from .training_identity import OPERATIONAL_TRAINING_FIELDS
@@ -306,6 +313,28 @@ class GameRequest(BaseModel):
     players: dict[str, OpponentRequest] = Field(default_factory=dict)
 
 
+class LocalGameRequest(BaseModel):
+    """Same-device pass-and-play: two labelled human seats, no AI opponent."""
+
+    model_config = ConfigDict(extra="forbid")
+    ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
+    attackers_label: str = Field(default="Player 1", min_length=1, max_length=40)
+    defenders_label: str = Field(default="Player 2", min_length=1, max_length=40)
+
+    @field_validator("attackers_label", "defenders_label")
+    @classmethod
+    def seat_label(cls, value: str) -> str:
+        # Labels are rendered verbatim next to the board, so control and bidi
+        # formatting characters could spoof or garble the other seat's name.
+        # Ordinary international letters and punctuation stay allowed.
+        if any(unicodedata.category(char) == "Cc" or char in BIDI_CONTROLS for char in value):
+            raise ValueError("Seat labels cannot contain control or bidirectional characters.")
+        value = value.strip()
+        if not value:
+            raise ValueError("Both local seats need a label.")
+        return value
+
+
 class ModelNameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=100)
@@ -469,6 +498,19 @@ def create_app(
         if version is not None and game["version"] != version:
             fail("This game changed. Reload it before moving again.", 409)
         return game
+
+    def require_local_owner(game: dict) -> None:
+        """Local pass-and-play mutations belong to the creating account only.
+
+        Administrators retain read-only access for support; they never move a
+        local game on someone else's behalf. Non-owners already fail owner scope.
+        """
+        if game.get("mode") != "local":
+            return
+        from .security_context import principal
+
+        if store.game_owner(game["id"]) != (principal.get() or {}).get("id"):
+            fail("Only the creating account may change this local game.", 403)
 
     def state_of(game: dict) -> State:
         return State.from_dict(game["state"])
@@ -864,6 +906,39 @@ def create_app(
         )
         return game
 
+    def insert_local_game(c, account, request: LocalGameRequest):
+        """Create an account-owned same-device game with two labelled human seats.
+
+        No seat carries an account_id: both sides belong to the one signed-in
+        account, so the existing owner scope plus the explicit local owner guard
+        authorise every move. The category keeps it out of single-player stats.
+        """
+        from .game_records import game_record
+
+        labels = {
+            "attackers": request.attackers_label.strip(),
+            "defenders": request.defenders_label.strip(),
+        }
+        if not labels["attackers"] or not labels["defenders"]:
+            fail("Both local seats need a label.", 422)
+        players = {
+            side: {"name": labels[side], "label": labels[side], "kind": "human", "config": {}}
+            for side in SIDES
+        }
+        seed = secrets.randbits(32)
+        game = game_record(request.ruleset, "local", "attackers", players, seed)
+        # Local play has no AI opponent, so it never runs or records analysis.
+        game["analysis_enabled"] = False
+        game["category"] = "local"
+        game["creation_policy"] = 2
+        game["creation"] = request.model_dump()
+        c.execute(
+            "INSERT INTO games(id,version,created_at,data,owner_account_id,category) "
+            "VALUES(?,?,?,?,?,?)",
+            (game["id"], 0, game["created_at"], json.dumps(game), account["id"], "local"),
+        )
+        return game
+
     def restart_setup(prior: dict) -> GameRequest:
         """Rebuild the original creation request, falling back for legacy records."""
         stored = prior.get("creation")
@@ -900,13 +975,24 @@ def create_app(
             game = insert_account_game(c, account, request)
         return response(game)
 
+    @app.post("/api/games/local", status_code=201)
+    def create_local_game(request: LocalGameRequest):
+        with catalog_lock, store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            account = account_creator(c)
+            game = insert_local_game(c, account, request)
+        return response(game)
+
     @app.get("/api/games")
     def games(ruleset: str | None = None, mode: str | None = None, kind: str | None = None):
         if kind not in (None, "human", "ai"):
             fail("Kind must be human or ai.")
         selected = [
             g
-            for g in store.list_games()
+            for g in store.list_games(category="account-single-player")
+            # Ordinary account games are exactly the persisted single-player
+            # category; local pass-and-play and any future category never appear
+            # in the single-player/vs-AI launcher or statistics.
             if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(player["kind"] == kind for player in g["players"].values()))
@@ -1054,6 +1140,8 @@ def create_app(
     def set_analytics(game_id: str, request: AnalyticsRequest):
         with catalog_lock:
             game = game_or_404(game_id)
+            if game.get("mode") == "local":
+                fail("Local games have no move advisor.", 400)
             existing = analytics_settings(game)["advisor"]
             same_advisor = bool(
                 existing
@@ -1396,7 +1484,7 @@ def create_app(
     ):
         with catalog_lock:
             expected_version = int(version)
-            game_or_404(game_id, expected_version)
+            require_local_owner(game_or_404(game_id, expected_version))
             try:
                 store.delete_game(game_id, expected_version)
             except ConflictError as exc:
@@ -1434,6 +1522,7 @@ def create_app(
         from .security_context import principal
 
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         player = game["players"][state_of(game).turn]
         if player["kind"] != "human":
             fail("It is the computer's turn.", 409)
@@ -1475,6 +1564,7 @@ def create_app(
     @app.post("/api/games/{game_id}/seek")
     def seek(game_id: str, request: SeekRequest):
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         if request.cursor > len(game["moves"]):
             fail("This move is outside the recorded game.")
         state = state_at(game, request.cursor)
@@ -1485,6 +1575,7 @@ def create_app(
     @app.post("/api/games/{game_id}/undo")
     def undo(game_id: str, request: VersionRequest):
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         if not game["cursor"]:
             fail("There is no move to undo.")
         return seek(game_id, SeekRequest(version=request.version, cursor=game["cursor"] - 1))
@@ -1492,6 +1583,7 @@ def create_app(
     @app.post("/api/games/{game_id}/redo")
     def redo(game_id: str, request: VersionRequest):
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         if game["cursor"] >= len(game["moves"]):
             fail("There is no move to redo.")
         return seek(game_id, SeekRequest(version=request.version, cursor=game["cursor"] + 1))
@@ -1500,8 +1592,23 @@ def create_app(
     def restart(game_id: str, request: VersionRequest):
         with catalog_lock:
             prior = game_or_404(game_id, request.version)
+            require_local_owner(prior)
             if recorded_outcome(prior)["winner"] or state_of(prior).winner:
                 fail("Completed games cannot be restarted. Start a new game instead.", 409)
+            if prior.get("mode") == "local":
+                # Restart keeps the two local seat labels and starts a fresh
+                # record; local games never copy advisor/AI preferences.
+                local_setup = LocalGameRequest.model_validate(prior["creation"])
+                with store.connection() as c:
+                    c.execute("BEGIN IMMEDIATE")
+                    account = account_creator(c)
+                    if not c.execute(
+                        "SELECT 1 FROM games WHERE id=? AND version=? AND owner_account_id=?",
+                        (game_id, request.version, account["id"]),
+                    ).fetchone():
+                        fail("The game changed. Reload before restarting.", 409)
+                    game = insert_local_game(c, account, local_setup)
+                return response(game)
             if prior.get("creation_policy") != 1:
                 fail(
                     "Start a new account game with the supported opponents; this saved setup is read/play compatible only.",
@@ -1545,7 +1652,10 @@ def create_app(
             fail("Kind must be human or ai.")
         selected = [
             g
-            for g in store.list_games()
+            for g in store.list_games(category="account-single-player")
+            # Local pass-and-play and future categories must never mix into vs-AI
+            # or account single-player statistics; the positive category filter
+            # keeps the lookup on the indexed column before deserialization.
             if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(p["kind"] == kind for p in g["players"].values()))
@@ -1924,7 +2034,10 @@ def create_app(
     def unfinished_model_games(model_id: str) -> list[dict]:
         return [
             game
-            for game in store.list_games()
+            for game in store.list_games(category="account-single-player")
+            # Local games have no AI opponent, so they can never reference a
+            # model; filtering to the single-player category at the storage level
+            # only avoids needless JSON work, it never changes the result.
             if not recorded_outcome(game)["winner"]
             and any(
                 player.get("config", {}).get("model_id") == model_id

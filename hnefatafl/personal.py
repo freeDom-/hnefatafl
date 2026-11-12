@@ -91,7 +91,8 @@ class PersonalHistory:
             json_extract(data,'$.players.defenders.account_id') AS defender_account_id,
             json_extract(data,'$.players.attackers') AS attacker_player,
             json_extract(data,'$.players.defenders') AS defender_player
-            FROM games LEFT JOIN accounts a ON a.id=games.owner_account_id WHERE owner_account_id=?
+            FROM games LEFT JOIN accounts a ON a.id=games.owner_account_id
+            WHERE games.category='account-single-player' AND owner_account_id=?
               AND coalesce(json_extract(data,'$.mode'),'') <> 'ai-ai'"""
 
     @staticmethod
@@ -304,19 +305,118 @@ class PersonalHistory:
                 **paging,
             }
 
-    def single_replay(self, credential, identifier):
+    @staticmethod
+    def _local_base():
+        return """SELECT games.id,games.created_at AS order_at,games.created_at,
+            json_extract(data,'$.ruleset') AS ruleset,
+            json_extract(data,'$.recorded_result.winner') AS winner,
+            coalesce(json_extract(data,'$.recorded_result.plies'),json_array_length(data,'$.moves')) AS plies,
+            json_extract(data,'$.ended_at') AS ended_at,
+            json_extract(data,'$.players.attackers.name') AS attacker_name,
+            json_extract(data,'$.players.defenders.name') AS defender_name
+            FROM games WHERE games.category='local' AND owner_account_id=?"""
+
+    def local_games(
+        self, credential, *, limit=25, cursor=None, ruleset=None, status=None, winner=None
+    ):
+        """Own account local 1v1 history, kept separate from single-player stats."""
+        filters = {"ruleset": ruleset, "status": status, "winner": winner}
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            base = self._local_base()
+            totals = dict(
+                c.execute(
+                    f"""WITH records AS ({base}) SELECT
+                count(*) AS total_games,
+                count(winner) AS completed_games,
+                count(*)-count(winner) AS in_progress,
+                coalesce(sum(winner='attackers'),0) AS attackers_wins,
+                coalesce(sum(winner='defenders'),0) AS defenders_wins,
+                coalesce(sum(winner='draw'),0) AS draws,
+                coalesce(avg(CASE WHEN winner IS NOT NULL THEN plies END),0) AS average_game_length
+                FROM records""",
+                    (account["id"],),
+                ).fetchone()
+            )
+            conditions, values = [], []
+            for key, value in (("ruleset", ruleset), ("winner", winner)):
+                if value is not None:
+                    conditions.append(f"{key}=?")
+                    values.append(value)
+            if status:
+                conditions.append(
+                    "winner IS NOT NULL" if status == "completed" else "winner IS NULL"
+                )
+            rows, paging = page(
+                c,
+                base,
+                (account["id"],),
+                conditions,
+                values,
+                limit=limit,
+                cursor=cursor,
+                context=context_key(account["id"], "local", filters),
+            )
+            return {
+                "category": "local",
+                "games": [self._local_summary(r) for r in rows],
+                "totals": totals,
+                **paging,
+            }
+
+    @staticmethod
+    def _local_summary(row):
+        return {
+            "id": row["id"],
+            "category": "local",
+            "ruleset": row["ruleset"],
+            "created_at": row["created_at"],
+            "ended_at": row["ended_at"],
+            "status": "completed" if row["winner"] else "in_progress",
+            "winner": row["winner"],
+            "plies": row["plies"],
+            "players": {
+                side: {"name": row[prefix + "_name"] or "", "kind": "human"}
+                for side, prefix in (("attackers", "attacker"), ("defenders", "defender"))
+            },
+        }
+
+    def local_replay(self, credential, identifier):
+        """Own local 1v1 replay; the persisted category keeps single-player out."""
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
             row = c.execute(
-                "SELECT data FROM games WHERE id=? AND owner_account_id=?",
+                "SELECT data FROM games WHERE id=? AND games.category='local' "
+                "AND owner_account_id=?",
+                (identifier, account["id"]),
+            ).fetchone()
+            if row is None:
+                raise OnlineError(404, "Local game not found.")
+            return self._single_replay(c, json.loads(row[0]), category="local")
+
+    def single_replay(self, credential, identifier):
+        """Own account-single-player replay; local 1v1 records are never exposed.
+
+        The persisted ``games.category`` column is authoritative, so a local game
+        requested through this route returns 404 instead of leaking its board.
+        Historical rows carry the ``account-single-player`` column default and
+        stay reachable.
+        """
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            row = c.execute(
+                "SELECT data FROM games WHERE id=? AND games.category='account-single-player' "
+                "AND owner_account_id=?",
                 (identifier, account["id"]),
             ).fetchone()
             if row is None:
                 raise OnlineError(404, "Account game not found.")
             return self._single_replay(c, json.loads(row[0]))
 
-    def _single_replay(self, c, game):
+    def _single_replay(self, c, game, *, category="account-single-player"):
         replay = self.account_replay(game)
         players = game_players(game, game_accounts(c, [game["id"]]))
         # Canonical replay validates the board, never reconstructs result metadata.
@@ -324,7 +424,7 @@ class PersonalHistory:
         winner = result.get("winner")
         summary = {
             "id": game["id"],
-            "category": "account-single-player",
+            "category": category,
             "ruleset": game["ruleset"],
             "mode": game["mode"],
             "created_at": game["created_at"],

@@ -207,6 +207,14 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def game_owner(self, game_id: str) -> str | None:
+        """Trusted creating-account lookup, independent of the caller's owner scope."""
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT owner_account_id FROM games WHERE id=?", (game_id,)
+            ).fetchone()
+        return row["owner_account_id"] if row else None
+
     def online_game_exists(self, game_id: str) -> bool:
         with self.connection() as connection:
             return (
@@ -214,14 +222,40 @@ class Store:
                 is not None
             )
 
-    def list_games(self) -> list[dict]:
+    def list_games(
+        self,
+        *,
+        category: str | None = None,
+        exclude_category: str | None = None,
+    ) -> list[dict]:
+        """Return owned games, optionally filtered by the persisted category column.
+
+        The category lives in its own ``games.category`` column, not the JSON
+        payload, so callers that exclude a category never fetch or deserialize
+        its rows. Legacy rows predate the column and read as the historical
+        single-player category.
+        """
         owner = owner_scope()
+        conditions: list[str] = []
+        values: list[str] = []
+        if owner:
+            conditions.append("owner_account_id=?")
+            values.append(owner)
+        if category is not None:
+            # Schema 16 declares `category` NOT NULL, so a plain equality both
+            # matches migrated legacy rows (defaulted to the single-player
+            # category) and lets SQLite use the games_category_owner index
+            # instead of scanning every owned game.
+            conditions.append("category=?")
+            values.append(category)
+        if exclude_category is not None:
+            conditions.append("category<>?")
+            values.append(exclude_category)
+        where = "WHERE " + " AND ".join(conditions) + " " if conditions else ""
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT data FROM games "
-                + ("WHERE owner_account_id=? " if owner else "")
-                + "ORDER BY created_at DESC,id",
-                (owner,) if owner else (),
+                "SELECT data FROM games " + where + "ORDER BY created_at DESC,id",
+                tuple(values),
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
