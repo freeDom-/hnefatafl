@@ -1,4 +1,5 @@
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
+import { primaryNavigation } from './play-helpers';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
 
@@ -7,7 +8,8 @@ const api = 'http://127.0.0.1:8001/api';
 async function openWorkshop(page: Page) {
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await page.getByRole('button', { name: 'Workshop', exact: true }).click();
+  await expect(page).toHaveURL(/\/training$/);
 }
 
 async function queue(page: Page, name: string) {
@@ -132,7 +134,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
 
     await page.reload();
     await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-    await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+    await expect(primaryNavigation(page)).toBeVisible();
     await expect(page.getByLabel('Worker token', { exact: true })).toHaveCount(0);
     await selectWorkshopJob(page, second.id, `Cloud Freydis ${info.project.name}`);
     await expect(

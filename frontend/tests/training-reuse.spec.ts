@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 import { openCollection, selectWorkshopJob } from './workshop-helpers';
 
 const endpoint = 'http://127.0.0.1:8001/api/training/jobs';
@@ -45,7 +46,7 @@ test('real CPU counters, editable parameter reuse, independent jobs and checkpoi
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await selectWorkshopJob(page, original.id, name);
   const counts = page.getByLabel('Self-play games generated', { exact: true });
   await expect(counts.locator('dd')).toHaveText(['1', '1']);

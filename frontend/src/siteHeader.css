@@ -151,7 +151,7 @@
   min-width: 9em;
 }
 
-:root[data-color-mode='wood'] .site-header {
+:root[data-color-mode='wood']:not([data-ui-theme]) .site-header {
   background-image: repeating-linear-gradient(2deg, #e6ba7c08 0 1px, transparent 1px 5px);
   border-bottom: 3px double #9a7349;
   box-shadow: 0 4px 16px #0c08053d;
@@ -215,16 +215,13 @@
     padding: 8px 4px;
     min-height: 44px;
   }
+  /* One primary navigation per viewport: the workspace bottom bar takes over, so
+     the header navigation leaves the layout entirely. `display: none` (not
+     visibility/opacity) also keeps its links out of the tab order. Keep this
+     query identical to the matching block in arenaShell.css that reveals
+     `.workspace-bottom-nav`. */
   .site-header nav {
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: thin;
-    gap: 0;
-  }
-  .site-nav-link {
-    padding-inline: 12px;
+    display: none;
   }
 }
 

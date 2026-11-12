@@ -1,6 +1,7 @@
 import { historicalGame } from './historical-fixture';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
+import { openDestination, openWorkshop } from './play-helpers';
 
 async function finishVariant(
   request: import('@playwright/test').APIRequestContext,
@@ -57,7 +58,7 @@ test('account-bound setup and historical custom AI variants preserve records', a
   await expect(page.locator(`.recorded-games a[href*="selected=${game.id}"]`)).toBeVisible();
   await finishVariant(request, aiName, 1);
   await finishVariant(request, aiName, 2);
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
+  await openDestination(page, 'archive');
   await page.getByLabel('Player name').fill(aiName);
   await expect(page.locator('.recorded-games tbody tr')).toHaveCount(2);
   const stats = await (await request.get('http://127.0.0.1:8001/api/stats')).json();
@@ -81,7 +82,7 @@ test('workshop suggests Viking names and deletes a model only after confirmation
   );
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await openCreation(page);
   await openCollection(page);
   await expect(

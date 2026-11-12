@@ -184,11 +184,11 @@ it('training cleanup clears the current game and ignores its late in-flight move
   render(<App />);
   fireEvent.click(await screen.findByRole('gridcell', { name: 'a3, attacker' }));
   fireEvent.click(screen.getByRole('gridcell', { name: 'b3, empty, legal move' }));
-  fireEvent.click(screen.getByRole('button', { name: 'AI workshop' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Workshop' }));
   fireEvent.click(screen.getByRole('button', { name: 'Discard fixture model games' }));
   await waitFor(() => expect(localStorage.getItem('hnefatafl-game')).toBeNull());
   await act(async () => finish(await json({ ...initial, version: 1 })));
-  fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Arena' }));
   expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
   expect(screen.queryByRole('grid')).not.toBeInTheDocument();
 });

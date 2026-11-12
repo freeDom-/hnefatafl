@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openGameNavigation, openProfile } from '../tests/play-helpers';
+import { openDestination, openGameNavigation, openProfile } from '../tests/play-helpers';
 
 test('profile edits update existing games, reviews and mounted identities without rewriting game history', async ({
   page,
@@ -46,7 +46,7 @@ test('profile edits update existing games, reviews and mounted identities withou
     await page.getByRole('textbox', { name: 'Display name', exact: true }).fill(currentName);
     await page.getByRole('button', { name: 'Save Profile', exact: true }).click();
     await expect(page.getByText('Profile saved.')).toBeVisible();
-    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await openDestination(page, 'play');
     await expect(page).toHaveURL(new RegExp(`/games/${identifier}$`));
     await expect(page.getByRole('heading', { name: currentName, exact: true })).toBeVisible();
     for (const width of [320, 375, 760, 1440]) {

@@ -1,5 +1,30 @@
 import { expect, type Page } from '@playwright/test';
 
+/**
+ * Whether the shell collapses to its compact navigation at this viewport. The
+ * breakpoint is shared by `siteHeader.css` (header navigation) and
+ * `arenaShell.css` (bottom navigation), so both must agree on it.
+ */
+export async function isCompactShell(page: Page) {
+  return page.evaluate(
+    () => matchMedia('(max-width: 760px), (max-height: 480px) and (pointer: coarse)').matches,
+  );
+}
+
+/** The single primary workspace navigation a viewport actually shows. */
+export function primaryNavigation(page: Page) {
+  return page.locator('.site-header nav:visible, .workspace-bottom-nav:visible');
+}
+
+/**
+ * Activate a workspace destination in whichever primary navigation the viewport
+ * shows: the compact bottom bar on phones, the full header navigation otherwise.
+ * Destinations carry their stable id, so this works in every language.
+ */
+export async function openDestination(page: Page, destination: string) {
+  await primaryNavigation(page).locator(`[data-destination="${destination}"]`).click();
+}
+
 export async function openGameOptions(page: Page) {
   if (/^\/(games|online\/games)\//.test(new URL(page.url()).pathname))
     await expect(page.getByRole('grid')).toBeVisible();
@@ -63,6 +88,17 @@ export async function openGameNavigation(page: Page) {
   }
 }
 
+/**
+ * Enter the permission-gated Workshop through the shared workspace switch. The
+ * Arena navigation deliberately exposes no Workshop destination, so the switch
+ * is the only shell-level entry point.
+ */
+export async function openWorkshop(page: Page, destination?: string) {
+  await page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }).click();
+  await expect(page).toHaveURL(/\/training$/);
+  if (destination) await openDestination(page, destination);
+}
+
 export async function returnToGame(page: Page, path: string) {
   if (new URL(page.url()).pathname !== path) {
     await page.goto(path);
@@ -71,9 +107,7 @@ export async function returnToGame(page: Page, path: string) {
 }
 
 export async function openMyGames(page: Page) {
-  const compact = await page.evaluate(
-    () => matchMedia('(max-width: 760px), (max-height: 480px) and (pointer: coarse)').matches,
-  );
+  const compact = await isCompactShell(page);
   if (compact) {
     await expect(page.locator('.mobile-game-layout')).toBeVisible();
   }

@@ -1,4 +1,11 @@
-import { openGameNavigation, openGameOptions, closeGameOptions, gameTab } from './play-helpers';
+import {
+  openDestination,
+  openGameNavigation,
+  openGameOptions,
+  closeGameOptions,
+  gameTab,
+  openWorkshop,
+} from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
@@ -103,7 +110,7 @@ test('new games receive fresh seeds; record deletion refreshes prominent statist
   const active = await currentGame(page, request);
   expect(active.seed).not.toBe(first.seed);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
+  await openDestination(page, 'archive');
 
   const removed = await request.delete(`${api}/games/${active.id}?version=${active.version}`);
   expect(removed.ok()).toBe(true);
@@ -184,7 +191,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await openCollection(page);
   const card = page
     .locator('.model-card')
@@ -232,7 +239,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect((await request.delete(`${api}/models/${model.id}`)).status()).toBe(409);
   const before = await statistics(request);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await openCollection(page);
   await page.getByRole('button', { name: `Delete model ${modelName}`, exact: true }).click();
   const confirmation = page.getByRole('dialog', {
@@ -268,7 +275,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect(savedJob.checkpoint).toBeTruthy();
   expect(savedJob.status).toBe('completed');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBeNull();
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await page.getByRole('button', { name: 'Arena', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.getByRole('grid')).toHaveCount(0);
   expect(errors).toEqual([]);

@@ -1,4 +1,4 @@
-import { openGameNavigation } from './play-helpers';
+import { openDestination, openGameNavigation, primaryNavigation } from './play-helpers';
 import { test, expect } from '@playwright/test';
 
 test('login, registration placeholder, regular-user navigation, reload and logout', async ({
@@ -12,9 +12,9 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await page.getByLabel('Password', { exact: true }).fill('browser-fixture-only-password');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'AI workshop', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Tournaments', exact: true })).toHaveCount(0);
+  await expect(primaryNavigation(page)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Workshop', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'AI testing', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
   await expect(setup.getByText('BrowserUser', { exact: true })).toHaveCount(0);
@@ -43,7 +43,7 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   const session = await (await page.request.get('/api/auth/me')).json();
   expect(game.players.attackers.account_id).toBe(session.account.id);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account menu for BrowserUser' })).toBeVisible();

@@ -1,0 +1,142 @@
+/* Arena/Workshop shell: skip link, workspace switch and compact mobile navigation. */
+:root {
+  /* Height reserved for the fixed mobile navigation, including its border. */
+  --bottom-nav-h: 56px;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  z-index: 100;
+  padding: 10px 16px;
+  border: 1px solid var(--ui-border, #e2e4d8);
+  border-radius: 0 0 8px 0;
+  background: var(--surface, #fffefa);
+  color: var(--text, #26352e);
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+.workspace-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  min-height: 36px;
+  padding: var(--pad-control);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--green);
+  font-size: var(--text-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.workspace-switch svg {
+  width: 16px;
+  height: 16px;
+}
+.workspace-switch:hover {
+  background: var(--surface-raised);
+}
+.workspace-switch[aria-pressed='true'] {
+  border-color: var(--green);
+  color: var(--green-dark);
+  background: var(--surface-raised);
+}
+
+.workspace-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
+  .workspace-bottom-nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 30;
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 0;
+    margin: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    border-top: 1px solid var(--line);
+    background: var(--ui-header, #fbfaf5);
+  }
+  .workspace-bottom-nav a {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    min-height: var(--bottom-nav-h);
+    padding: 6px 4px;
+    border-top: 2px solid transparent;
+    color: var(--ui-copy, #81877a);
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-decoration: none;
+    text-align: center;
+  }
+  .workspace-bottom-nav a[aria-current='page'] {
+    border-top-color: var(--green);
+    color: var(--green);
+  }
+  .workspace-bottom-nav svg {
+    width: 20px;
+    height: 20px;
+  }
+  .workspace-bottom-nav a > span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Reserve the bar's space only where the bar actually exists: signed-out,
+     loading and permission-denied views render no bottom navigation, so they must
+     not keep a phantom strip below their content. Gameplay reserves the same space
+     through the play layouts instead (see mobilePlay.css / desktopPlay.css). */
+  body:has(.workspace-bottom-nav) {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Short landscape phones cannot spare a tall bar. */
+@media (max-height: 480px) and (pointer: coarse) {
+  :root {
+    --bottom-nav-h: 48px;
+  }
+  .workspace-bottom-nav a {
+    min-height: 44px;
+    padding: 2px 4px;
+    font-size: 0.5625rem;
+  }
+  .workspace-bottom-nav svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Narrow devices (320–360px) keep five Arena destinations on one row. */
+@media (max-width: 380px) {
+  .workspace-bottom-nav a {
+    padding: 6px 2px;
+    font-size: 0.5625rem;
+    letter-spacing: -0.1px;
+  }
+  .workspace-bottom-nav svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-switch > span {
+    display: none;
+  }
+}

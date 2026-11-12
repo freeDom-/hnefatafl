@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { openProfile, logoutFromAccount } from '../tests/play-helpers';
+import { openDestination, openProfile, logoutFromAccount } from '../tests/play-helpers';
 
 test.use({ screenshot: 'only-on-failure' });
 test.beforeEach(async ({ request }) => {
@@ -66,7 +66,7 @@ test('account menu, private profile, verification, password and device preferenc
   await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveValue('Þór 東京');
   await expect(page.getByRole('combobox', { name: 'Country', exact: true })).toHaveValue('DE');
   await expect(page.getByLabel('Date of birth', { exact: true })).toHaveValue('1990-03-15');
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await page.getByRole('link', { name: 'Verify your email in your profile.' }).click();
   await expect(page).toHaveURL(/\/profile#email-verification$/);
   await expect(page.locator('#email-verification')).toBeFocused();
@@ -97,7 +97,7 @@ test('account menu, private profile, verification, password and device preferenc
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByText('Verified', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send Verification Email' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await expect(page.locator('.dashboard-verification-warning')).toHaveCount(0);
   await openProfile(page);
   await page.getByLabel('Current password').fill('incorrect-password');

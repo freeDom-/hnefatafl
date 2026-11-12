@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 import { selectWorkshopJob } from './workshop-helpers';
 
 const endpoint = 'http://127.0.0.1:8001/api/training/jobs';
@@ -58,7 +59,7 @@ test('applies a real Optuna winner through Resume Training to a real CPU checkpo
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await selectWorkshopJob(page, tuned.id, studyName);
   await page.getByRole('tab', { name: 'Tuning results', exact: true }).click();
   await page.getByLabel('Additional iterations', { exact: true }).fill('1');

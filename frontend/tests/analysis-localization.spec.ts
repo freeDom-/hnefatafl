@@ -1,4 +1,5 @@
 import {
+  openDestination,
   openGameNavigation,
   openProfile,
   returnToGame,
@@ -461,7 +462,7 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await openGameNavigation(page);
   await openProfile(page);
   await page.getByRole('radio', { name: 'Holz', exact: true }).check();
-  await page.getByRole('button', { name: 'Übersicht', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
   await returnToGame(page, gamePath);
   await page.reload();

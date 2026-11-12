@@ -240,3 +240,38 @@ it('names active optimization dependencies and blocks model deletion', async () 
   expect(dialog.getByRole('checkbox')).toBeDisabled();
   expect(fetcher.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
 });
+
+describe('workshop navigation deep links', () => {
+  it('opens, scrolls to and focuses the worker section named by the deep link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json([])),
+    );
+    history.replaceState(null, '', '/training#workshop-workers');
+    const scroll = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    show();
+    const section = document.getElementById('workshop-workers')!;
+    await waitFor(() => expect(section).not.toHaveAttribute('hidden'));
+    await waitFor(() => expect(section).toHaveFocus());
+    expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    history.replaceState(null, '', '/training');
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it('focuses the model collection section named by the deep link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json([])),
+    );
+    history.replaceState(null, '', '/training#model-collection');
+    const scroll = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    show();
+    const section = document.getElementById('model-collection')!;
+    await waitFor(() => expect(section).toHaveFocus());
+    expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    history.replaceState(null, '', '/training');
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+});

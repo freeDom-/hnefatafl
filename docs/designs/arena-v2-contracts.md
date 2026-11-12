@@ -324,11 +324,11 @@ interface AppearanceV2 {
 
 Migration rules:
 
-1. Missing `uiTheme` defaults to `kings-table`.
-2. Invalid `uiTheme` falls back to `kings-table`.
+1. Missing `uiTheme` is **not** written and does **not** set `data-ui-theme`. The picker's catalog default is `kings-table`, but with no attribute the existing `mode`/`tokens`/`board`/`density` surface treatment (including `wood`) applies unchanged. This supersedes the earlier wording that a missing value "defaults to `kings-table`" as an always-applied attribute: the additive layer is applied only for an explicit, valid selection.
+2. Invalid `uiTheme` is ignored and left unset, so the stored document keeps working field-by-field; it is not silently coerced to a theme.
 3. Invalid existing `mode`/`tokens`/`board`/`density` continue to fall back exactly as `parseAppearance()` already does.
 4. Stored `mode: 'wood'` remains a valid color mode and is not converted into `saga-hall`.
-5. `wood` color mode continues to own current surface treatment semantics until a later implementation deliberately layers `uiTheme` and `mode` together.
+5. `wood` color mode continues to own current surface treatment semantics until a later implementation deliberately layers `uiTheme` and `mode` together. Selecting a named theme is that deliberate layering: the named theme then owns the shell surface variables while `mode`/`tokens`/`board`/`density` stay independent.
 6. Unsupported old future values must be ignored field-by-field, not wipe the entire object.
 
 Compatibility note:

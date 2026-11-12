@@ -6,6 +6,25 @@ export const COLOR_MODES = [
   { id: 'wood', name: 'Wood', description: 'Timber, bronze and northern sagas' },
 ] as const;
 
+/** Named app-shell themes. Optional and additive: absent means the existing mode styling applies. */
+export const UI_THEMES = [
+  {
+    id: 'kings-table',
+    name: 'The King’s Table',
+    description: 'Clean tabletop, parchment and pine',
+  },
+  {
+    id: 'iron-ash',
+    name: 'Iron & Ash',
+    description: 'Dark slate, understated metal and warm gold',
+  },
+  {
+    id: 'saga-hall',
+    name: 'Saga Hall',
+    description: 'Carved timber, leather and Nordic knotwork',
+  },
+] as const;
+
 export const TOKEN_THEMES = [
   { id: 'classic', name: 'Classic stones', description: 'Smooth dark, ivory and gold pieces' },
   { id: 'viking', name: 'Viking figures', description: 'Shield bearers and a crowned king' },
@@ -85,13 +104,18 @@ export type ColorMode = (typeof COLOR_MODES)[number]['id'];
 export type TokenTheme = (typeof TOKEN_THEMES)[number]['id'];
 export type BoardTheme = (typeof BOARD_THEMES)[number]['id'];
 export type Density = (typeof DENSITIES)[number]['id'];
+export type UiTheme = (typeof UI_THEMES)[number]['id'];
 export interface Appearance {
+  /** Absent until the user explicitly chooses a named theme; see UI_THEMES. */
+  uiTheme?: UiTheme;
   mode: ColorMode;
   tokens: TokenTheme;
   board: BoardTheme;
   density: Density;
 }
 export const APPEARANCE_KEY = 'hnefatafl-appearance';
+/** Catalog default shown in the picker, not applied until the user selects it. */
+export const DEFAULT_UI_THEME: UiTheme = 'kings-table';
 export const DEFAULT_APPEARANCE: Appearance = {
   mode: 'system',
   tokens: 'wood',
@@ -99,10 +123,21 @@ export const DEFAULT_APPEARANCE: Appearance = {
   density: 'default',
 };
 
+/** The active named theme, or the catalog default when the user has not chosen one. */
+export function resolveUiTheme(appearance: Appearance): UiTheme {
+  return appearance.uiTheme ?? DEFAULT_UI_THEME;
+}
+
 export function parseAppearance(value: unknown): Appearance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_APPEARANCE };
   const candidate = value as Record<string, unknown>;
+  // Only an explicit, valid uiTheme is kept; absent or invalid stays unset so the
+  // legacy data-color-mode styling continues to apply unchanged.
+  const uiTheme = UI_THEMES.some((theme) => theme.id === candidate.uiTheme)
+    ? (candidate.uiTheme as UiTheme)
+    : undefined;
   return {
+    ...(uiTheme ? { uiTheme } : {}),
     mode: COLOR_MODES.some((mode) => mode.id === candidate.mode)
       ? (candidate.mode as ColorMode)
       : DEFAULT_APPEARANCE.mode,

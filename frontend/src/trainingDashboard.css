@@ -774,16 +774,16 @@
   --chart-value: #217894;
   --chart-evaluation: #37763e;
 }
-:root[data-color-mode='wood'] .training-workshop,
-:root[data-color-mode='dark'] .training-workshop {
+:root[data-color-mode='wood']:not([data-ui-theme]) .training-workshop,
+:root[data-color-mode='dark']:not([data-ui-theme]) .training-workshop {
   --chart-policy: #efb16b;
   --chart-value: #81c7e5;
   --chart-evaluation: #a2ce8a;
 }
-:root[data-color-mode='wood'] .training-workshop .training-history,
-:root[data-color-mode='wood'] .training-workshop .training-job-dashboard,
-:root[data-color-mode='dark'] .training-workshop .training-history,
-:root[data-color-mode='dark'] .training-workshop .training-job-dashboard {
+:root[data-color-mode='wood']:not([data-ui-theme]) .training-workshop .training-history,
+:root[data-color-mode='wood']:not([data-ui-theme]) .training-workshop .training-job-dashboard,
+:root[data-color-mode='dark']:not([data-ui-theme]) .training-workshop .training-history,
+:root[data-color-mode='dark']:not([data-ui-theme]) .training-workshop .training-job-dashboard {
   --chart-policy: #efb16b;
   --chart-value: #81c7e5;
   --chart-evaluation: #a2ce8a;

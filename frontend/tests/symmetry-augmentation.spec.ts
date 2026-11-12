@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 import { selectWorkshopJob } from './workshop-helpers';
 
 const endpoint = 'http://127.0.0.1:8001/api/training/jobs';
@@ -50,7 +51,7 @@ test('real random_d4 training, workshop control, reuse and reviewed resume', asy
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await selectWorkshopJob(page, job.id, name);
   const control = page.getByRole('combobox', {
     name: 'Training symmetry augmentation',

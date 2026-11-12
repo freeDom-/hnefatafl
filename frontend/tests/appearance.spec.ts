@@ -1,4 +1,4 @@
-import { openGameNavigation, openProfile, returnToGame } from './play-helpers';
+import { openDestination, openGameNavigation, openProfile, returnToGame } from './play-helpers';
 import { expect, test } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
 
@@ -19,11 +19,11 @@ test('interface scale changes spacing and text, persists and composes with respo
   await openProfile(page);
   await page.getByRole('radio', { name: 'Compact', exact: true }).check();
   await expect(root).toHaveAttribute('data-density', 'compact');
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   const compact = await measure();
   expect(compact.padding).toBeLessThan(initial.padding);
   expect(compact.font).toBeLessThan(initial.font);
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await page.reload();
   await expect(root).toHaveAttribute('data-density', 'compact');
   expect(await measure()).toEqual(compact);
@@ -31,11 +31,11 @@ test('interface scale changes spacing and text, persists and composes with respo
   await expect(page.getByRole('radio', { name: 'Compact', exact: true })).toBeChecked();
   await page.getByRole('radio', { name: 'Large', exact: true }).check();
   await expect(root).toHaveAttribute('data-density', 'large');
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   const large = await measure();
   expect(large.padding).toBeGreaterThan(initial.padding);
   expect(large.font).toBeGreaterThan(initial.font);
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -74,7 +74,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
     .boundingBox();
   expect(previewKing!.width).toBeLessThan(50);
   expect(previewKing!.height).toBeLessThan(55);
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
   await expect(root).toHaveAttribute('data-color-mode', 'light');
   await expect(board.locator('svg[data-token-art="viking"]')).toHaveCount(25);
@@ -89,7 +89,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await page.getByRole('radio', { name: 'Dark', exact: true }).check();
   await page.getByRole('radio', { name: 'Carved wood' }).check();
   await page.getByRole('radio', { name: 'Fjord slate' }).check();
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
   await expect(board.locator('.token-wood')).toHaveCount(25);
   expect(await empty.evaluate((cell) => getComputedStyle(cell).backgroundColor)).not.toBe(oakColor);
@@ -106,7 +106,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await openGameNavigation(page);
   await openProfile(page);
   await page.getByRole('radio', { name: 'Wood', exact: true }).check();
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
   await expect(root).toHaveAttribute('data-color-mode', 'wood');
   await expect(root).toHaveCSS('color-scheme', 'dark');
@@ -122,7 +122,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await openGameNavigation(page);
   await openProfile(page);
   await page.getByRole('radio', { name: 'Follow device' }).check();
-  await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(root).toHaveAttribute('data-color-mode', 'light');

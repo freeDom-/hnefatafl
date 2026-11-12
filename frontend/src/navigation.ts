@@ -32,7 +32,13 @@ export function canonicalLocation() {
   }
   return location.pathname + location.search;
 }
-export function navigate(path: string) {
-  history.pushState(null, '', path);
+/**
+ * Same-origin in-app navigation. Ordinary user actions push a new history entry;
+ * `replace` rewrites the current entry instead (used for automatic redirects that
+ * must not leave an intermediate route behind for Browser Back to land on).
+ */
+export function navigate(path: string, options: { replace?: boolean } = {}) {
+  if (options.replace) history.replaceState(null, '', path);
+  else history.pushState(null, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }

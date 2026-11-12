@@ -9,6 +9,13 @@ import { clearNotifications } from './notifications';
 // weakening what they check.
 configure({ asyncUtilTimeout: 5000 });
 
+// jsdom does not implement object-URL revocation. A component may schedule the
+// revocation from a timer that fires after its test file has finished, so provide
+// a no-op to keep teardown deterministic when the full suite runs in parallel.
+if (typeof URL.revokeObjectURL !== 'function') {
+  (URL as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => {};
+}
+
 // Existing component regressions render an authenticated administrator. Auth.test
 // explicitly unmocks this hook to exercise real session restoration and login.
 vi.mock('./Auth', async (original) => {

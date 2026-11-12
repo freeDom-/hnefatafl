@@ -13,8 +13,8 @@
   font-size: 0.875rem;
   line-height: 1.5;
 }
-:root[data-color-mode='dark'] .dashboard-verification-warning,
-:root[data-color-mode='wood'] .dashboard-verification-warning {
+:root[data-color-mode='dark']:not([data-ui-theme]) .dashboard-verification-warning,
+:root[data-color-mode='wood']:not([data-ui-theme]) .dashboard-verification-warning {
   color: #ffb4a5;
 }
 .play-home > p {
