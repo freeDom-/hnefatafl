@@ -61,7 +61,9 @@ export default function PlayLanding({
     // `location` is updated synchronously by `navigate`/`surfaceLink`, so this
     // guard is correct even before React commits the route change.
     if (location.pathname !== '/play') return;
-    navigate(target);
+    // Replace the Play entry so Browser Back returns to the page before Play
+    // instead of landing on /play and resuming the game again.
+    navigate(target, { replace: true });
   }, [games.phase, target, creation, creatingSingle]);
   return (
     <section className="personal-dashboard play-home">

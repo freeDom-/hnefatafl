@@ -141,4 +141,63 @@ test.describe('Play auto-resume respects newer navigation', () => {
     await page.goForward();
     await expect(page).toHaveURL(/\/statistics$/);
   });
+
+  test('auto-resume then Browser Back returns to the previous page', async ({ page }) => {
+    await page.route('**/api/personal/**', (route) =>
+      route.fulfill({ json: inProgress('backresume') }),
+    );
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    await openDestination(page, 'play');
+    await expect(page).toHaveURL(/\/games\/backresume$/);
+    await page.goBack();
+    // The automatic resume replaces the /play entry, so Back must not land on
+    // /play and immediately reopen the game.
+    await expect(page).toHaveURL(/\/dashboard$/);
+  });
+
+  test('Browser Forward returns to the resumed game', async ({ page }) => {
+    await page.route('**/api/personal/**', (route) =>
+      route.fulfill({ json: inProgress('forwardresume') }),
+    );
+    await page.goto('/dashboard');
+    await openDestination(page, 'play');
+    await expect(page).toHaveURL(/\/games\/forwardresume$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goForward();
+    await expect(page).toHaveURL(/\/games\/forwardresume$/);
+  });
+
+  test('auto-resume with an online game survives Browser Back', async ({ page }) => {
+    const id = `online-${'b'.repeat(32)}`;
+    await page.route('**/api/personal/single-player**', (route) => route.fulfill({ json: empty }));
+    await page.route('**/api/personal/online**', (route) =>
+      route.fulfill({ json: activeOnline(id) }),
+    );
+    await page.goto('/dashboard');
+    await openDestination(page, 'play');
+    await expect(page).toHaveURL(new RegExp(`/online/games/${id}$`));
+    await page.goBack();
+    await expect(page).toHaveURL(/\/dashboard$/);
+  });
+
+  test('resumes one of several active games', async ({ page }) => {
+    await page.route('**/api/personal/single-player**', (route) =>
+      route.fulfill({
+        json: {
+          games: [
+            { id: 'multia', status: 'in_progress' },
+            { id: 'multib', status: 'in_progress' },
+          ],
+        },
+      }),
+    );
+    await page.route('**/api/personal/online**', (route) => route.fulfill({ json: empty }));
+    await page.goto('/dashboard');
+    await openDestination(page, 'play');
+    await expect(page).toHaveURL(/\/games\/multi[ab]$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/dashboard$/);
+  });
 });
