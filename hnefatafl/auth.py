@@ -335,6 +335,8 @@ grant(
     "/api/stats",
     "/api/personal/single-player",
     "/api/personal/single-player/{game_id}/replay",
+    "/api/personal/local",
+    "/api/personal/local/{game_id}/replay",
     "/api/personal/online",
     "/api/personal/online/{game_id}",
     "/api/personal/online/{game_id}/replay",
@@ -349,6 +351,7 @@ grant(
     "play",
     "POST",
     "/api/games",
+    "/api/games/local",
     *(
         f"/api/games/{{game_id}}/{action}"
         for action in ("analysis", "moves", "ai-move", "seek", "undo", "redo", "restart")

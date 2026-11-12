@@ -207,6 +207,14 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def game_owner(self, game_id: str) -> str | None:
+        """Trusted creating-account lookup, independent of the caller's owner scope."""
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT owner_account_id FROM games WHERE id=?", (game_id,)
+            ).fetchone()
+        return row["owner_account_id"] if row else None
+
     def online_game_exists(self, game_id: str) -> bool:
         with self.connection() as connection:
             return (

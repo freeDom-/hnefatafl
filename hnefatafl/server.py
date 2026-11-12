@@ -306,6 +306,15 @@ class GameRequest(BaseModel):
     players: dict[str, OpponentRequest] = Field(default_factory=dict)
 
 
+class LocalGameRequest(BaseModel):
+    """Same-device pass-and-play: two labelled human seats, no AI opponent."""
+
+    model_config = ConfigDict(extra="forbid")
+    ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
+    attackers_label: str = Field(default="Player 1", min_length=1, max_length=40)
+    defenders_label: str = Field(default="Player 2", min_length=1, max_length=40)
+
+
 class ModelNameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=100)
@@ -469,6 +478,19 @@ def create_app(
         if version is not None and game["version"] != version:
             fail("This game changed. Reload it before moving again.", 409)
         return game
+
+    def require_local_owner(game: dict) -> None:
+        """Local pass-and-play mutations belong to the creating account only.
+
+        Administrators retain read-only access for support; they never move a
+        local game on someone else's behalf. Non-owners already fail owner scope.
+        """
+        if game.get("mode") != "local":
+            return
+        from .security_context import principal
+
+        if store.game_owner(game["id"]) != (principal.get() or {}).get("id"):
+            fail("Only the creating account may change this local game.", 403)
 
     def state_of(game: dict) -> State:
         return State.from_dict(game["state"])
@@ -864,6 +886,39 @@ def create_app(
         )
         return game
 
+    def insert_local_game(c, account, request: LocalGameRequest):
+        """Create an account-owned same-device game with two labelled human seats.
+
+        No seat carries an account_id: both sides belong to the one signed-in
+        account, so the existing owner scope plus the explicit local owner guard
+        authorise every move. The category keeps it out of single-player stats.
+        """
+        from .game_records import game_record
+
+        labels = {
+            "attackers": request.attackers_label.strip(),
+            "defenders": request.defenders_label.strip(),
+        }
+        if not labels["attackers"] or not labels["defenders"]:
+            fail("Both local seats need a label.", 422)
+        players = {
+            side: {"name": labels[side], "label": labels[side], "kind": "human", "config": {}}
+            for side in SIDES
+        }
+        seed = secrets.randbits(32)
+        game = game_record(request.ruleset, "local", "attackers", players, seed)
+        # Local play has no AI opponent, so it never runs or records analysis.
+        game["analysis_enabled"] = False
+        game["category"] = "local"
+        game["creation_policy"] = 2
+        game["creation"] = request.model_dump()
+        c.execute(
+            "INSERT INTO games(id,version,created_at,data,owner_account_id,category) "
+            "VALUES(?,?,?,?,?,?)",
+            (game["id"], 0, game["created_at"], json.dumps(game), account["id"], "local"),
+        )
+        return game
+
     def restart_setup(prior: dict) -> GameRequest:
         """Rebuild the original creation request, falling back for legacy records."""
         stored = prior.get("creation")
@@ -900,6 +955,14 @@ def create_app(
             game = insert_account_game(c, account, request)
         return response(game)
 
+    @app.post("/api/games/local", status_code=201)
+    def create_local_game(request: LocalGameRequest):
+        with catalog_lock, store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            account = account_creator(c)
+            game = insert_local_game(c, account, request)
+        return response(game)
+
     @app.get("/api/games")
     def games(ruleset: str | None = None, mode: str | None = None, kind: str | None = None):
         if kind not in (None, "human", "ai"):
@@ -907,7 +970,10 @@ def create_app(
         selected = [
             g
             for g in store.list_games()
-            if (not ruleset or g["ruleset"] == ruleset)
+            # Local pass-and-play has its own /api/personal/local category and
+            # never appears in the single-player/vs-AI launcher or statistics.
+            if g.get("mode") != "local"
+            and (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(player["kind"] == kind for player in g["players"].values()))
         ]
@@ -1054,6 +1120,8 @@ def create_app(
     def set_analytics(game_id: str, request: AnalyticsRequest):
         with catalog_lock:
             game = game_or_404(game_id)
+            if game.get("mode") == "local":
+                fail("Local games have no move advisor.", 400)
             existing = analytics_settings(game)["advisor"]
             same_advisor = bool(
                 existing
@@ -1396,7 +1464,7 @@ def create_app(
     ):
         with catalog_lock:
             expected_version = int(version)
-            game_or_404(game_id, expected_version)
+            require_local_owner(game_or_404(game_id, expected_version))
             try:
                 store.delete_game(game_id, expected_version)
             except ConflictError as exc:
@@ -1434,6 +1502,7 @@ def create_app(
         from .security_context import principal
 
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         player = game["players"][state_of(game).turn]
         if player["kind"] != "human":
             fail("It is the computer's turn.", 409)
@@ -1475,6 +1544,7 @@ def create_app(
     @app.post("/api/games/{game_id}/seek")
     def seek(game_id: str, request: SeekRequest):
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         if request.cursor > len(game["moves"]):
             fail("This move is outside the recorded game.")
         state = state_at(game, request.cursor)
@@ -1485,6 +1555,7 @@ def create_app(
     @app.post("/api/games/{game_id}/undo")
     def undo(game_id: str, request: VersionRequest):
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         if not game["cursor"]:
             fail("There is no move to undo.")
         return seek(game_id, SeekRequest(version=request.version, cursor=game["cursor"] - 1))
@@ -1492,6 +1563,7 @@ def create_app(
     @app.post("/api/games/{game_id}/redo")
     def redo(game_id: str, request: VersionRequest):
         game = game_or_404(game_id, request.version)
+        require_local_owner(game)
         if game["cursor"] >= len(game["moves"]):
             fail("There is no move to redo.")
         return seek(game_id, SeekRequest(version=request.version, cursor=game["cursor"] + 1))
@@ -1500,8 +1572,23 @@ def create_app(
     def restart(game_id: str, request: VersionRequest):
         with catalog_lock:
             prior = game_or_404(game_id, request.version)
+            require_local_owner(prior)
             if recorded_outcome(prior)["winner"] or state_of(prior).winner:
                 fail("Completed games cannot be restarted. Start a new game instead.", 409)
+            if prior.get("mode") == "local":
+                # Restart keeps the two local seat labels and starts a fresh
+                # record; local games never copy advisor/AI preferences.
+                local_setup = LocalGameRequest.model_validate(prior["creation"])
+                with store.connection() as c:
+                    c.execute("BEGIN IMMEDIATE")
+                    account = account_creator(c)
+                    if not c.execute(
+                        "SELECT 1 FROM games WHERE id=? AND version=? AND owner_account_id=?",
+                        (game_id, request.version, account["id"]),
+                    ).fetchone():
+                        fail("The game changed. Reload before restarting.", 409)
+                    game = insert_local_game(c, account, local_setup)
+                return response(game)
             if prior.get("creation_policy") != 1:
                 fail(
                     "Start a new account game with the supported opponents; this saved setup is read/play compatible only.",
@@ -1546,7 +1633,10 @@ def create_app(
         selected = [
             g
             for g in store.list_games()
-            if (not ruleset or g["ruleset"] == ruleset)
+            # Local pass-and-play is reported under its own category and must
+            # never mix into vs-AI or account single-player statistics.
+            if g.get("mode") != "local"
+            and (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(p["kind"] == kind for p in g["players"].values()))
             and (

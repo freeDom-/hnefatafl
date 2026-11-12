@@ -8,11 +8,12 @@ read-only history. Hall visibility depends on role; see the dashboard guide.
 ## Choose where to play
 
 **Singleplayer** uses the authenticated server and account history, as described
-below. **Online** uses separate authenticated multiplayer routes; see
-[online play](ONLINE_PLAY.md). Both render the same play-screen sections, so the
-game-details panel, armies panel, board toolbar and move list stay identical
-between them; the single-player sidebar additionally offers post-game analysis and
-the online room adds its lifecycle and replay controls.
+below. **Local 1v1** is a same-device pass-and-play mode owned by the creating
+account, described below. **Online** uses separate authenticated multiplayer
+routes; see [online play](ONLINE_PLAY.md). All render the same play-screen
+sections, so the game-details panel, armies panel, board toolbar and move list
+stay identical between them; the single-player sidebar additionally offers
+post-game analysis and the online room adds its lifecycle and replay controls.
 
 ## Mobile play screen
 
@@ -92,6 +93,36 @@ The last successful battlefield, permitted mode, side and preset choices are sav
 failed creation does not replace it. Games live on the server; browser preferences
 hold the current selection, language and appearance. Clearing browser storage
 is not deletion of saved games. A connection to the server is required.
+
+## Play local 1v1 on one device
+
+**Local 1v1** is a same-device pass-and-play mode for two humans sharing one
+screen. Create it from the Dashboard (or `POST /api/games/local`), choose a
+battlefield and label both seats. The creating account owns the record; both seats
+belong to it, so no second account, lobby, matchmaking or clock is involved. The
+server keeps the authoritative turn, validates every move through the shared
+engine and guards each move with the same optimistic `version` as single-player.
+The two seats are labelled distinctly and alternate automatically on the server's
+turn, so a handoff never depends on client state.
+
+Local games never run an AI opponent, background search or advisor, and they are
+never rated: they create no online match, rating event or leaderboard change, and
+they are excluded from `/api/stats`, `/api/games` and personal vs-AI statistics.
+Their saved history has its own `local` category, readable only by the creating
+account and trusted all-data administrators:
+
+- `GET /api/personal/local` lists the account's own local games.
+- `GET /api/personal/local/{game_id}/replay` returns validated read-only replay.
+- `GET /api/history/games?category=local` and
+  `GET /api/history/local/{game_id}/replay` expose the category to owners and
+  trusted administrators; the default Hall projection never mixes local games in.
+
+The generic game routes (`GET /api/games/{id}`, `/moves`, `/seek`, `/undo`,
+`/redo`, `/restart`, `DELETE`) continue to work for local games, but only the
+creating account may mutate them; administrators retain read-only access. Restart
+starts a fresh local game with the same two seat labels. Local games are stored in
+the account-game table with schema-16 `category='local'`; the shared engine, rules
+and version guard are unchanged.
 
 ## Read-only history and live play
 

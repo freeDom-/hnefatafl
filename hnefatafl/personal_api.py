@@ -45,7 +45,7 @@ def attach_personal(app, online, *, replay):
     def recorded_games(
         limit: int = Query(default=25, ge=1, le=100),
         cursor: str | None = Query(default=None, min_length=1, max_length=512),
-        category: Literal["online", "account-single-player"] | None = None,
+        category: Literal["online", "account-single-player", "local"] | None = None,
         ruleset: Rule | None = None,
         # 80 display-name + 64 username code points + " (@" and ")".
         player: str | None = Query(default=None, min_length=1, max_length=148),
@@ -70,7 +70,9 @@ def attach_personal(app, online, *, replay):
         )
 
     @app.get("/api/history/{category}/{game_id}/replay")
-    def recorded_review(category: Literal["online", "account-single-player"], game_id: str):
+    def recorded_review(
+        category: Literal["online", "account-single-player", "local"], game_id: str
+    ):
         return execute(
             "recorded_review", lambda credential: recorded.review(credential, category, game_id)
         )
@@ -100,6 +102,30 @@ def attach_personal(app, online, *, replay):
         return execute(
             "account_review", lambda credential: history.single_replay(credential, game_id)
         )
+
+    @app.get("/api/personal/local")
+    def local_games(
+        limit: int = Query(default=25, ge=1, le=100),
+        cursor: str | None = Query(default=None, min_length=1, max_length=512),
+        ruleset: Rule | None = None,
+        status: Literal["in_progress", "completed"] | None = None,
+        winner: Literal["attackers", "defenders", "draw"] | None = None,
+    ):
+        return execute(
+            "local_games",
+            lambda credential: history.local_games(
+                credential,
+                limit=limit,
+                cursor=cursor,
+                ruleset=ruleset,
+                status=status,
+                winner=winner,
+            ),
+        )
+
+    @app.get("/api/personal/local/{game_id}/replay")
+    def local_review(game_id: str):
+        return execute("local_review", lambda credential: history.local_replay(credential, game_id))
 
     @app.get("/api/personal/online")
     def online_games(

@@ -3,7 +3,7 @@
 import sqlite3
 import time
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -256,6 +256,22 @@ def migrate_online(c: sqlite3.Connection) -> None:
             c.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_{action.lower()}_immutable
                 BEFORE {action} ON {table}
                 BEGIN SELECT RAISE(ABORT,'Online audit and accepted moves are append-only'); END""")
+    # Schema 16: account-owned same-device local 1v1 games share the account-game
+    # engine, so they live in `games` beside single-player records. A dedicated
+    # category keeps them out of single-player/vs-AI statistics and gives them
+    # their own history category. Existing rows default to the single-player
+    # category, so historical records keep their meaning and are never rewritten.
+    if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='games'").fetchone():
+        local_columns = {row[1] for row in c.execute("PRAGMA table_info(games)")}
+        if "category" not in local_columns:
+            c.execute(
+                "ALTER TABLE games ADD COLUMN category TEXT NOT NULL "
+                "DEFAULT 'account-single-player'"
+            )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS games_category_owner "
+            "ON games(category,owner_account_id,created_at DESC)"
+        )
 
 
 def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connection) -> None:

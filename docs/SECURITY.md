@@ -93,8 +93,10 @@ seat to the current account and resolves one of four server presets for ordinary
 players. Only a trusted current administrator can create/restart AI vs AI or
 supply a custom opponent configuration; a non-administrator's raw configuration
 is rejected before it is stored, and every configuration is revalidated with the
-tournament rules. Seeds are server-chosen; pass-and-play, arbitrary identity and
-client-supplied seeds are rejected in this creation API.
+tournament rules. Seeds are server-chosen; arbitrary identity and client-supplied
+seeds are rejected in this creation API. Pass-and-play is not accepted through
+`POST /api/games`; it has its own `POST /api/games/local` route with two labelled
+human seats and no AI opponent (see below).
 Identity/session/role are rechecked inside the creation transaction. Historical
 setups remain read/play compatible, with no restart creation bypass. Local-player
 CRUD routes are removed (unknown routes remain default-denied); historical storage
@@ -112,6 +114,20 @@ authorization; the reserved relation does not confer access today.
 Schema 9 adds unknown/unverified legacy email state, version/address-bound token
 digests, leased mail intents and limiter state. IDs, ownership and existing sessions
 survive forward migration; safe rollback has an explicit account-schema boundary.
+
+Schema 16 adds a `category` column to the account-game table so same-device local
+1v1 records stay separate from single-player history. Existing rows default to
+`account-single-player`, so historical records are never rewritten. Local games
+live in the same table and reuse the same engine, optimistic version guard and
+restart path, but carry `category='local'`, `mode='local'` and
+`analysis_enabled=false`. They create no online match or rating event, and they are
+excluded from `/api/stats` and `/api/games`. The dedicated owner-scoped reads are
+`GET /api/personal/local` and `GET /api/personal/local/{game_id}/replay`; trusted
+`all_data` administrators read the same records through
+`GET /api/history/games?category=local` and
+`GET /api/history/local/{game_id}/replay`. Only the creating account may move,
+seek, undo/redo, restart or delete a local game; administrators retain read-only
+access. The default Hall and dashboard projections never mix local games in.
 
 Schema 15 adds private full birth dates and one-time publication exceptions for
 legacy-private profile values. Populated fields submitted under the new policy
