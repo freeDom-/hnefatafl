@@ -157,15 +157,19 @@ ledger without a migration and without changing any rating math.
   (never an incremental counter). A win extends the streak; a draw or loss ends
   it. All three pools appear even with no rated games, and the aggregate streak
   follows the global ledger sequence across pools.
+- [Achievement milestones](PROGRESSION.md#award-rules) derive their rated wins,
+  defender wins, ruleset milestones and best streak from the same applied ledger,
+  so a void or correction changes what a later read derives. A confirmed award is
+  permanent even when the evidence is later withdrawn.
 
 ### Deferred: login and activity-day streaks
 
 A login/activity streak needs a durable, deduplicated UTC-day event ledger with
 idempotent writes, timezone rules and anti-spam limits. That ledger needs its own
-migration and is **not** implemented here: schema `16` is already allocated to
-account-owned same-device local 1v1 games, so the deferred progression
-foundations must reserve the next free schema number before the activity ledger
-can land. No activity or login streak field is returned, and historic streaks are
+migration and is **not** implemented here: schema `17` now holds the
+[portrait and achievement foundations](PROGRESSION.md), so the deferred activity
+ledger must reserve the next free schema number before it can land. No activity or
+login streak field is returned, and historic streaks are
 never backfilled from old sessions. See the
 [Arena v2 contracts](designs/arena-v2-contracts.md#utc-day-loginactivity-policy).
 

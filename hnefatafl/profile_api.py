@@ -5,10 +5,12 @@ import json
 import unicodedata
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 from .auth import password_hash, verify
 from .account_policy import BIDI_CONTROLS, birth_date, unpublished_fields
+from .online_core import OnlineError
+from .progression import selected_portrait_id
 from .security_context import session_identity
 
 # ISO 3166-1 alpha-2 (including territories); labels are localized by the browser.
@@ -64,6 +66,21 @@ class ProfileUpdate(BaseModel):
         return birth_date(value)
 
 
+class PortraitSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Only a stable catalog ID is accepted; there is no image, URL or
+    # entitlement field a client could supply.
+    portrait_id: StrictStr = Field(min_length=1, max_length=64)
+
+    @field_validator("portrait_id")
+    @classmethod
+    def identifier(cls, value):
+        value = value.strip()
+        if not 1 <= len(value) <= 64 or any(char.isspace() for char in value):
+            raise ValueError("Invalid portrait ID")
+        return value
+
+
 class ProfileResponse(BaseModel):
     # Response validation must also accept pre-existing optional names as stored.
     display_name: str | None
@@ -76,6 +93,7 @@ class ProfileResponse(BaseModel):
     email: str
     email_verified: bool
     country_codes: list[str]
+    portrait_id: str
 
 
 class PasswordChange(BaseModel):
@@ -96,7 +114,7 @@ class PasswordResult(BaseModel):
     message: str
 
 
-def projection(account) -> dict:
+def projection(account, portrait_id: str) -> dict:
     fields = ProfileUpdate.model_fields
     return {
         **{key: account[key] for key in fields},
@@ -108,7 +126,15 @@ def projection(account) -> dict:
         "email": account["email"],
         "email_verified": account["email_verified_at"] is not None,
         "country_codes": list(COUNTRY_CODES),
+        # The effective portrait: the stored selection while the catalog still
+        # offers it, otherwise the always-available default. Never the
+        # achievement progress that unlocked it.
+        "portrait_id": portrait_id,
     }
+
+
+def current_projection(c, account) -> dict:
+    return projection(account, selected_portrait_id(c, account["id"]))
 
 
 def attach_profiles(app, auth, registration):
@@ -116,7 +142,8 @@ def attach_profiles(app, auth, registration):
     def profile():
         with auth.store.connection() as c:
             c.execute("BEGIN")
-            return projection(auth.current_account(c))
+            account = auth.current_account(c)
+            return current_projection(c, account)
 
     @app.patch("/api/profile", response_model=ProfileResponse)
     def update_profile(body: ProfileUpdate):
@@ -139,7 +166,20 @@ def attach_profiles(app, auth, registration):
                     f"UPDATE accounts SET {','.join(key + '=?' for key in changes)} WHERE id=?",
                     (*changes.values(), account["id"]),
                 )
-            return projection(auth.current_account(c))
+            return current_projection(c, auth.current_account(c))
+
+    @app.patch("/api/profile/portrait", response_model=ProfileResponse)
+    def select_portrait(body: PortraitSelection):
+        # Selection confirms any award the authoritative records already prove,
+        # then validates the catalog ID inside the same write transaction.
+        with auth.store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            account = auth.current_account(c)
+            try:
+                portrait_id = app.state.progression.select(c, account["id"], body.portrait_id)
+            except OnlineError as error:
+                raise HTTPException(error.status, str(error)) from None
+            return projection(account, portrait_id)
 
     @app.post("/api/profile/password", response_model=PasswordResult)
     def change_password(body: PasswordChange, request: Request):

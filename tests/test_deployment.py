@@ -320,12 +320,34 @@ def test_restore_retains_live_online_results_return_games_and_pauses_timeout_gat
     core.mutate(digest(second_token), game["id"], 0, "join")
     finished = core.mutate(digest(first_token), game["id"], 1, "concede")["game"]
     core.set_gate(digest(first_token), 0, True, "Disposable approved outage fixture")
+    # Schema-17 progression belongs to the retained live online authority: a
+    # confirmed award, its entitlement and the selected portrait are player state
+    # a compatible restore must keep instead of rewinding to the snapshot.
+    with deployment.store.connection() as c:
+        c.execute(
+            "INSERT INTO achievement_awards(account_id,achievement_id,awarded_at,catalog_version) "
+            "VALUES(?,?,?,?)",
+            (deployment.admin["id"], "first-rated-win", 456, 1),
+        )
+        c.execute(
+            "INSERT INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id) "
+            "VALUES(?,?,?,?)",
+            (deployment.admin["id"], "shieldmaiden", 456, "first-rated-win"),
+        )
+        c.execute(
+            "INSERT INTO account_portrait_selection(account_id,portrait_id,updated_at) "
+            "VALUES(?,?,?)",
+            (deployment.admin["id"], "shieldmaiden", 456),
+        )
     tables = (
         "online_matches",
         "online_games",
         "online_moves",
         "online_results",
         "online_void_audit",
+        "achievement_awards",
+        "account_portraits",
+        "account_portrait_selection",
     )
     with deployment.store.connection() as c:
         before = {
