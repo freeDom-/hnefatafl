@@ -5,9 +5,14 @@ import { historicalGame } from './historical-fixture';
 // Chromium is the only configured browser, so these checks run wherever
 // `npm --prefix frontend run test:e2e` is available with an installed Chromium.
 const themes = [
-  { id: 'kings-table', accent: 'rgb(30, 80, 55)', colorScheme: 'light' },
-  { id: 'iron-ash', accent: 'rgb(233, 194, 126)', colorScheme: 'dark' },
-  { id: 'saga-hall', accent: 'rgb(233, 191, 121)', colorScheme: 'dark' },
+  {
+    id: 'kings-table',
+    accent: 'rgb(30, 80, 55)',
+    line: 'rgb(199, 176, 139)',
+    colorScheme: 'light',
+  },
+  { id: 'iron-ash', accent: 'rgb(233, 194, 126)', line: 'rgb(86, 100, 106)', colorScheme: 'dark' },
+  { id: 'saga-hall', accent: 'rgb(233, 191, 121)', line: 'rgb(146, 112, 80)', colorScheme: 'dark' },
 ] as const;
 const viewports = [
   { name: '320', width: 320, height: 640 },
@@ -73,6 +78,11 @@ for (const theme of themes) {
       expect(await primary.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
         theme.accent,
       );
+      // The Play cards must read the theme's own line token, never a hard-coded
+      // light fallback that would break the dark named themes.
+      const card = page.locator('.play-mode-card').first();
+      await expect(card).toBeVisible();
+      expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(theme.line);
       expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
         theme.colorScheme,
       );

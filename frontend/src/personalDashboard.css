@@ -254,12 +254,12 @@
   align-items: center;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border: 1px solid var(--border, #d8cdb8);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--surface, #fffaf1);
+  background: var(--surface);
 }
 .play-continue > li.your-turn {
-  border-color: var(--accent, #a5703c);
+  border-color: var(--green);
 }
 .play-continue-detail {
   font-size: 0.8125rem;
@@ -276,9 +276,9 @@
   flex-direction: column;
   gap: 8px;
   padding: var(--pad-panel);
-  border: 1px solid var(--border, #d8cdb8);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--surface, #fffaf1);
+  background: var(--surface);
 }
 .play-mode-card h3 {
   margin: 0;
