@@ -7,6 +7,8 @@ results. No client-side bracket arithmetic is trusted.
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import base64
+import json
 import shutil
 from types import SimpleNamespace
 
@@ -16,6 +18,7 @@ import pytest
 from hnefatafl.auth import COOKIE, Auth, SecuritySettings, digest
 from hnefatafl.engine import State, apply_move, legal_moves
 from hnefatafl.online_settings import OnlineSettings
+from hnefatafl.player_tournaments import DISPLACED_GAME_NOTE, encode_cursor
 from hnefatafl.server import create_app
 
 POLICY = OnlineSettings(
@@ -294,6 +297,12 @@ def assert_no_duplicate_matches_or_legs(rig):
             ).fetchone()[0]
             == 0
         )
+
+
+def raw_cursor(payload) -> str:
+    """Encode a cursor without the production encoder, to forge malformed payloads."""
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
 # -- complete tournaments ------------------------------------------------
@@ -588,7 +597,7 @@ def test_rebuild_recreates_the_reset_after_a_voided_reset_leg(rig):
     assert len(bracket["reset"]["legs"]) == 1
 
 
-def test_rebuild_reseats_a_downstream_match_after_a_voided_leg(rig):
+def test_rebuild_reseats_a_downstream_match_after_a_voided_leg(rig, monkeypatch):
     names = [*PLAYERS, ADMIN][:4]
     tournament = tournament_with_entrants(rig, names, capacity=4)
     rig.core.start(rig.admin, tournament["id"], tournament["version"])
@@ -618,10 +627,43 @@ def test_rebuild_reseats_a_downstream_match_after_a_voided_leg(rig):
     assert len(upper_final["legs"]) == 1
     stale_game = upper_final["legs"][0]["game_id"]
 
+    # An accepted move on the game that is about to be displaced is history a
+    # rebuild must keep, not rewrite.
+    stale = rig.online.read(rig.admin, stale_game)
+    mover = stale["participants"][stale["position"]["turn"]]["account_id"]
+    move = safe_move(stale)
+    rig.online.mutate(
+        rig.by_id[mover],
+        stale_game,
+        stale["version"],
+        "move",
+        source=move.source,
+        target=move.target,
+    )
+
     game = rig.online.read(rig.admin, target["legs"][0]["game_id"])
     rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="corrected result")
     disputed = rig.core.settle(rig.admin, tournament["id"])
     assert disputed["review_state"] == "disputed"
+
+    # A rebuild that fails while retiring the displaced game commits nothing:
+    # the leg link, the live game and the disputed review state all survive.
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("injected retirement failure")
+
+    monkeypatch.setattr(rig.online, "void_game", explode)
+    with pytest.raises(RuntimeError, match="injected"):
+        rig.core.rebuild(
+            rig.admin, tournament["id"], disputed["version"], note="fails mid-transaction"
+        )
+    monkeypatch.undo()
+    assert rig.online.read(rig.admin, stale_game)["status"] == "active"
+    rolled_back = rig.core.bracket(rig.admin, tournament["id"])
+    upper_final = rolled_back["upper"][-1]["matches"][0]
+    assert [leg["game_id"] for leg in upper_final["legs"]] == [stale_game]
+    still_disputed = rig.core.detail(rig.admin, tournament["id"])
+    assert still_disputed["review_state"] == "disputed"
+    assert still_disputed["version"] == disputed["version"]
 
     rebuilt = rig.core.rebuild(
         rig.admin, tournament["id"], disputed["version"], note="re-derive after correction"
@@ -639,6 +681,212 @@ def test_rebuild_reseats_a_downstream_match_after_a_voided_leg(rig):
         reseated["participants"]["attackers"]["account_id"],
         reseated["participants"]["defenders"]["account_id"],
     } == {upper_final["participants"]["a"]["account_id"], higher_seed}
+
+    # The displaced game is retired through the authoritative online lifecycle:
+    # terminal, unplayable, unable to expire, with its move and void audit kept.
+    retired = rig.online.read(rig.admin, stale_game)
+    assert retired["status"] == "voided" and retired["deadline"] is None
+    assert retired["result"]["winner"] is None
+    assert retired["result"]["termination_reason"] == "administrative_void"
+    with pytest.raises(Exception, match="active game"):
+        rig.online.mutate(rig.by_id[mover], stale_game, retired["version"], "concede")
+    with rig.store.connection() as c:
+        moves = c.execute(
+            "SELECT COUNT(*) FROM online_moves WHERE game_id=?", (stale_game,)
+        ).fetchone()[0]
+        results = c.execute(
+            "SELECT COUNT(*) FROM online_results WHERE game_id=?", (stale_game,)
+        ).fetchone()[0]
+        void_audit = c.execute(
+            "SELECT actor_id,note FROM online_void_audit WHERE game_id=?", (stale_game,)
+        ).fetchone()
+    assert moves == 1
+    assert results == 1
+    assert void_audit is not None
+    assert void_audit["actor_id"] == rig.accounts[ADMIN]["id"]
+    assert void_audit["note"] == DISPLACED_GAME_NOTE
+
+    # Only the replacement leg is linked, so only it can advance the bracket.
+    linked = {
+        leg["game_id"]
+        for match in [
+            *[m for entry in bracket["upper"] + bracket["lower"] for m in entry["matches"]],
+            *[m for m in (bracket["final"], bracket["reset"]) if m is not None],
+        ]
+        for leg in match["legs"]
+    }
+    assert stale_game not in linked
+
+    # Repeated settlement is idempotent and never duplicates games or links.
+    counts = table_counts(rig)
+    for _ in range(2):
+        again = rig.core.settle(rig.admin, tournament["id"])
+        assert again["version"] == rebuilt["version"]
+    assert table_counts(rig) == counts
+    assert_no_duplicate_matches_or_legs(rig)
+
+    # A repeated rebuild re-derives the same bracket: no extra games, no second
+    # void of the same leg and no rating event for a tournament game.
+    rig.core.rebuild(
+        rig.admin,
+        tournament["id"],
+        rig.core.detail(rig.admin, tournament["id"])["version"],
+        note="rebuild again",
+    )
+    assert table_counts(rig) == counts
+    assert_no_duplicate_matches_or_legs(rig)
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_void_audit WHERE game_id=?", (stale_game,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert c.execute("SELECT COUNT(*) FROM rating_events").fetchone()[0] == 0
+
+    # A retired leg can never expire into a fresh result.
+    rig.clock.value += timedelta(seconds=601)
+    rig.online.sweep()
+    assert rig.online.read(rig.admin, stale_game)["status"] == "voided"
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_results WHERE game_id=?", (stale_game,)
+            ).fetchone()[0]
+            == results
+        )
+
+
+def test_rebuild_keeps_a_completed_game_that_the_reseat_detaches(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    tournament = tournament_with_entrants(rig, names, capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    seeds = seeds_of(rig, tournament["id"])
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    opening = {
+        match["id"]: match
+        for entry in bracket["upper"]
+        if entry["round"] == 1
+        for match in entry["matches"]
+    }
+    first = opening[f"{tournament['id']}:upper:1:0"]
+    target = opening[f"{tournament['id']}:upper:1:1"]
+    force_match(rig, first, first["participants"]["a"]["account_id"])
+    seat_a = target["participants"]["a"]["account_id"]
+    seat_b = target["participants"]["b"]["account_id"]
+    lower_seed = seat_a if seeds[seat_a] > seeds[seat_b] else seat_b
+    higher_seed = seat_b if lower_seed == seat_a else seat_a
+    force_match(rig, target, lower_seed)
+    rig.core.settle(rig.admin, tournament["id"])
+
+    # Play the downstream match out so its leg is a completed game before the
+    # upstream correction changes who belongs in it.
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    upper_final = bracket["upper"][-1]["matches"][0]
+    force_match(rig, upper_final, upper_final["participants"]["a"]["account_id"])
+    rig.core.settle(rig.admin, tournament["id"])
+    completed_game = upper_final["legs"][0]["game_id"]
+    assert rig.online.read(rig.admin, completed_game)["status"] == "completed"
+
+    game = rig.online.read(rig.admin, target["legs"][0]["game_id"])
+    rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="corrected result")
+    disputed = rig.core.settle(rig.admin, tournament["id"])
+    assert disputed["review_state"] == "disputed"
+    rebuilt = rig.core.rebuild(
+        rig.admin, tournament["id"], disputed["version"], note="re-derive after correction"
+    )
+    assert rebuilt["review_state"] == "ok"
+
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    upper_final = bracket["upper"][-1]["matches"][0]
+    assert upper_final["participants"]["b"]["account_id"] == higher_seed
+    assert len(upper_final["legs"]) == 1
+    assert upper_final["legs"][0]["game_id"] != completed_game
+    assert rig.online.read(rig.admin, upper_final["legs"][0]["game_id"])["status"] == "active"
+
+    # The completed game keeps its result and history: a rebuild detaches the
+    # link but never voids or rewrites a game that already finished.
+    preserved = rig.online.read(rig.admin, completed_game)
+    assert preserved["status"] == "completed"
+    assert preserved["result"]["winner"] is not None
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_void_audit WHERE game_id=?", (completed_game,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_results WHERE game_id=?", (completed_game,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert c.execute("SELECT COUNT(*) FROM rating_events").fetchone()[0] == 0
+
+
+def test_rebuild_retires_an_obsolete_grand_final_reset_game(rig):
+    names = [*PLAYERS, ADMIN][:8]
+    tournament = tournament_with_entrants(rig, names, capacity=8)
+    final = advance_to_grand_final(rig, tournament["id"])
+    challenger = final["participants"]["b"]["account_id"]
+    rig.core.override(
+        rig.admin,
+        tournament["id"],
+        final["id"],
+        rig.core.detail(rig.admin, tournament["id"])["version"],
+        challenger,
+        "challenger awarded the grand final",
+    )
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert bracket["reset"]["status"] == "ready"
+    assert len(bracket["reset"]["legs"]) == 1
+    reset_game = bracket["reset"]["legs"][0]["game_id"]
+    assert rig.online.read(rig.admin, reset_game)["status"] == "active"
+
+    # An upstream correction disputes the bracket, so the rematch the override
+    # created is re-derived from the authoritative results.
+    upstream = bracket["upper"][0]["matches"][0]
+    game = rig.online.read(rig.admin, upstream["legs"][0]["game_id"])
+    rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="corrected result")
+    disputed = rig.core.settle(rig.admin, tournament["id"])
+    assert disputed["review_state"] == "disputed"
+
+    rebuilt = rig.core.rebuild(
+        rig.admin, tournament["id"], disputed["version"], note="re-derive after correction"
+    )
+    assert rebuilt["review_state"] == "ok"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    # The rebuild clears the override, so the undefeated finalist wins and the
+    # rematch is obsolete rather than merely re-created.
+    assert bracket["reset"] is None
+
+    retired = rig.online.read(rig.admin, reset_game)
+    assert retired["status"] == "voided" and retired["deadline"] is None
+    assert retired["result"]["winner"] is None
+    mover = retired["participants"][retired["position"]["turn"]]["account_id"]
+    with pytest.raises(Exception, match="active game"):
+        rig.online.mutate(rig.by_id[mover], reset_game, retired["version"], "concede")
+    with rig.store.connection() as c:
+        void_audit = c.execute(
+            "SELECT actor_id,note FROM online_void_audit WHERE game_id=?", (reset_game,)
+        ).fetchone()
+    assert void_audit is not None
+    assert void_audit["actor_id"] == rig.accounts[ADMIN]["id"]
+    assert void_audit["note"] == DISPLACED_GAME_NOTE
+
+    # Exactly the obsolete rematch was retired: every other game is untouched.
+    audit = rig.core.audit(rig.admin, tournament["id"])
+    entry = next(item for item in audit["items"] if item["action"] == "rebuild")
+    assert entry["note"] == "re-derive after correction"
+    assert entry["details"] == {"retired_games": 1}
+    with rig.store.connection() as c:
+        voided = {row[0] for row in c.execute("SELECT game_id FROM online_void_audit")}
+    assert voided == {
+        final["legs"][0]["game_id"],  # voided by the override
+        upstream["legs"][0]["game_id"],  # the corrected upstream leg
+        reset_game,  # the obsolete rematch
+    }
 
 
 def test_dispute_freezes_the_whole_bracket_until_rebuild(rig):
@@ -1104,6 +1352,99 @@ def test_listing_filters_and_cursor_pagination(rig):
         rig.core.listing(rig.admin, status="bogus")
     with pytest.raises(Exception, match="cursor"):
         rig.core.listing(rig.admin, cursor="not-a-cursor")
+
+
+def test_listing_cursor_is_bounded_and_bound_to_its_filter(rig):
+    ids = [create(rig, name=f"Cup {index}")["id"] for index in range(3)]
+    first = rig.core.listing(rig.admin, limit=2)
+    assert len(first["items"]) == 2 and first["next_cursor"]
+
+    # Oversized, empty, non-base64 and malformed payloads are all refused before
+    # any query runs.
+    for cursor in (
+        "x" * 257,
+        "",
+        "not-a-cursor",
+        "!!!",
+        raw_cursor([1, 2, 3]),
+        raw_cursor({"k": "listing"}),
+        raw_cursor({"k": "listing", "s": None, "t": "not-an-integer", "i": ids[0]}),
+        raw_cursor({"k": "listing", "s": None, "t": 1, "i": 5}),
+        raw_cursor({"k": "listing", "s": None, "t": True, "i": ids[0]}),
+        encode_cursor({"k": "listing", "s": "cancelled", "t": 1, "i": ids[0]}),
+    ):
+        with pytest.raises(Exception, match="cursor"):
+            rig.core.listing(rig.admin, cursor=cursor)
+
+    # A cursor is bound to the filter it was produced under, so it cannot be
+    # replayed against a different listing.
+    assert rig.core.listing(rig.admin, cursor=first["next_cursor"])["items"]
+    with pytest.raises(Exception, match="cursor"):
+        rig.core.listing(rig.admin, status="registration", cursor=first["next_cursor"])
+    with pytest.raises(Exception, match="cursor"):
+        rig.core.listing(rig.admin, status="cancelled", cursor=first["next_cursor"])
+
+    # The final page is explicit and an empty filter keeps the list shape.
+    second = rig.core.listing(rig.admin, limit=2, cursor=first["next_cursor"])
+    assert len(second["items"]) == 1 and second["next_cursor"] is None
+    empty = rig.core.listing(rig.admin, status="complete")
+    assert empty["items"] == [] and empty["next_cursor"] is None
+    assert rig.core.listing(rig.admin, status="cancelled")["items"] == []
+
+
+def test_match_cursor_is_bounded_and_bound_to_its_tournament(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    first = tournament_with_entrants(rig, names, capacity=4)
+    second = tournament_with_entrants(rig, names, capacity=4)
+    for tournament in (first, second):
+        rig.core.start(rig.admin, tournament["id"], tournament["version"])
+
+    page = rig.core.matches(rig.admin, first["id"], limit=1)
+    assert len(page["items"]) == 1 and page["next_cursor"]
+    assert rig.core.matches(rig.admin, first["id"], limit=1, cursor=page["next_cursor"])["items"]
+
+    for cursor in (
+        "x" * 257,
+        "",
+        raw_cursor({"k": "matches", "t": first["id"], "i": 5}),
+        raw_cursor({"k": "matches", "t": 5, "i": page["items"][0]["id"]}),
+        raw_cursor({"k": "listing", "s": None, "t": 1, "i": first["id"]}),
+    ):
+        with pytest.raises(Exception, match="cursor"):
+            rig.core.matches(rig.admin, first["id"], cursor=cursor)
+
+    # A match cursor names one tournament, so it cannot be replayed on another.
+    with pytest.raises(Exception, match="cursor"):
+        rig.core.matches(rig.admin, second["id"], cursor=page["next_cursor"])
+
+    seen, cursor = [], None
+    while True:
+        page = rig.core.matches(rig.admin, first["id"], limit=2, cursor=cursor)
+        seen.extend(item["id"] for item in page["items"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert len(seen) == len(set(seen))
+    assert len(seen) == sum(rig.core.detail(rig.admin, first["id"])["match_counts"].values())
+
+
+def test_listing_pagination_is_stable_while_tournaments_change(rig):
+    known = {create(rig, name=f"Cup {index}")["id"] for index in range(4)}
+    seen, cursor, pages = [], None, 0
+    while True:
+        page = rig.core.listing(rig.admin, limit=2, cursor=cursor)
+        seen.extend(item["id"] for item in page["items"])
+        pages += 1
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+        assert pages < 20
+        # A tournament created between two page reads never shifts the cursor or
+        # repeats a row: the keyset walks strictly down (created_at, id).
+        known.add(create(rig, name=f"Late {pages}")["id"])
+    assert pages > 1
+    assert len(seen) == len(set(seen))
+    assert set(seen) <= known
 
 
 def test_legs_link_authoritative_online_games_and_never_rate_them(rig):

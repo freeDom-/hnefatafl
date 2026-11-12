@@ -38,6 +38,9 @@ MAX_MATCH_LEGS = 5
 MAX_AUDIT_PAGE = 100
 MAX_LIST_PAGE = 50
 MAX_MATCH_PAGE = 200
+MAX_CURSOR_LENGTH = 256
+
+DISPLACED_GAME_NOTE = "Tournament bracket rebuild detached this game."
 
 BRACKET_ORDER = {"upper": 0, "lower": 1, "grand_final": 2, "reset": 3}
 
@@ -63,18 +66,54 @@ def seed_order(size: int) -> list[int]:
 
 def encode_cursor(payload: dict) -> str:
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    cursor = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    if len(cursor) > MAX_CURSOR_LENGTH:
+        # Generated cursors must stay decodable; a longer payload is a bug, not input.
+        raise OnlineError(500, "Pagination cursor exceeds the supported length.")
+    return cursor
 
 
 def decode_cursor(cursor: str) -> dict:
+    if not isinstance(cursor, str) or not 0 < len(cursor) <= MAX_CURSOR_LENGTH:
+        raise OnlineError(422, "Invalid pagination cursor.")
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        raw = base64.b64decode(padded.encode(), altchars=b"-_", validate=True)
+        payload = json.loads(raw)
     except (ValueError, TypeError):
         raise OnlineError(422, "Invalid pagination cursor.") from None
     if not isinstance(payload, dict):
         raise OnlineError(422, "Invalid pagination cursor.")
     return payload
+
+
+def listing_cursor(cursor: str, status: str | None) -> tuple[int, str]:
+    """Decode a listing cursor, bound to the requested status filter."""
+    payload = decode_cursor(cursor)
+    created, identifier = payload.get("t"), payload.get("i")
+    if (
+        payload.get("k") != "listing"
+        or payload.get("s") != status
+        or type(created) is not int
+        or not isinstance(identifier, str)
+        or not identifier
+    ):
+        raise OnlineError(422, "Invalid pagination cursor.")
+    return created, identifier
+
+
+def match_cursor(cursor: str, identifier: str) -> str:
+    """Decode a match cursor, bound to the requested tournament."""
+    payload = decode_cursor(cursor)
+    last = payload.get("i")
+    if (
+        payload.get("k") != "matches"
+        or payload.get("t") != identifier
+        or not isinstance(last, str)
+        or not last
+    ):
+        raise OnlineError(422, "Invalid pagination cursor.")
+    return last
 
 
 def _rounds(bracket_size: int) -> int:
@@ -338,7 +377,7 @@ class PlayerTournaments:
                 now,
                 details={"entrants": len(ordered), "bracket_size": size},
             )
-            self._advance(c, identifier, now)
+            self._advance(c, identifier, account["id"], now)
             return self._detail(c, identifier)
 
     def cancel(self, credential: str, identifier: str, version: int) -> dict:
@@ -379,12 +418,12 @@ class PlayerTournaments:
 
     def settle(self, credential: str, identifier: str) -> dict:
         with self._write() as c:
-            self._identity(c, credential)
+            account = self._identity(c, credential)
             row = self._load(c, identifier)
             if row["status"] not in ("running", "complete"):
                 return self._detail(c, identifier)
             now = self._now()
-            self._advance(c, identifier, now)
+            self._advance(c, identifier, account["id"], now)
             return self._detail(c, identifier)
 
     def override(
@@ -442,7 +481,7 @@ class PlayerTournaments:
                 note=note,
                 details={"winner": winner},
             )
-            self._advance(c, identifier, now)
+            self._advance(c, identifier, account["id"], now)
             return self._detail(c, identifier)
 
     def rebuild(self, credential: str, identifier: str, version: int, note: str) -> dict:
@@ -458,6 +497,17 @@ class PlayerTournaments:
             now = self._now()
             # Deterministic match identities keep valid legs attached; only the
             # derived participants/results and any bracket reset are discarded.
+            # A reset's outstanding game is detached here, so retire it before
+            # the reset is deleted or it would stay playable outside the bracket.
+            reset_games = [
+                leg["game_id"]
+                for leg in c.execute(
+                    """SELECT l.game_id FROM player_tournament_legs l
+                       JOIN player_tournament_matches m ON m.id=l.match_id
+                       WHERE m.tournament_id=? AND m.bracket='reset'""",
+                    (identifier,),
+                )
+            ]
             c.execute(
                 "DELETE FROM player_tournament_legs WHERE match_id IN (SELECT id FROM player_tournament_matches WHERE tournament_id=? AND bracket='reset')",
                 (identifier,),
@@ -466,6 +516,7 @@ class PlayerTournaments:
                 "DELETE FROM player_tournament_matches WHERE tournament_id=? AND bracket='reset'",
                 (identifier,),
             )
+            retired = self._retire(c, reset_games, account["id"], now)
             c.execute(
                 "UPDATE player_tournament_matches SET status='pending',participant_a=NULL,participant_b=NULL,winner=NULL,loser=NULL,decided_by=NULL,settled_at=NULL WHERE tournament_id=?",
                 (identifier,),
@@ -476,8 +527,16 @@ class PlayerTournaments:
             )
             if c.execute("SELECT changes()").fetchone()[0] != 1:
                 raise OnlineError(409, "This tournament changed. Reload before retrying.")
-            self._audit(c, identifier, account["id"], "rebuild", now, note=note)
-            self._advance(c, identifier, now)
+            retired += self._advance(c, identifier, account["id"], now)
+            self._audit(
+                c,
+                identifier,
+                account["id"],
+                "rebuild",
+                now,
+                note=note,
+                details={"retired_games": retired},
+            )
             return self._detail(c, identifier)
 
     # -- bracket construction --------------------------------------------
@@ -599,8 +658,27 @@ class PlayerTournaments:
             return None
         return first, second
 
-    def _prepare_legs(self, c, identifier: str, match, now: datetime) -> None:
+    def _retire(self, c, game_ids: list[str], actor_id: str, now: datetime) -> int:
+        """Void live games that a rebuild or reseat detached from the bracket.
+
+        Displaced games are retired through the authoritative online lifecycle so
+        they can no longer be played, settled or expired. A game that already
+        reached a terminal state keeps its immutable result and audit history;
+        only the leg link is removed.
+        """
+        actor = lifecycle.Actor(actor_id, True)
+        retired = 0
+        for game_id in game_ids:
+            row = c.execute("SELECT status FROM online_games WHERE id=?", (game_id,)).fetchone()
+            if row is None or row["status"] not in ("waiting", "active"):
+                continue
+            if self.online.void_game(c, game_id, actor, DISPLACED_GAME_NOTE, now):
+                retired += 1
+        return retired
+
+    def _prepare_legs(self, c, identifier: str, match, actor_id: str, now: datetime) -> int:
         participants = {match["participant_a"], match["participant_b"]}
+        displaced: list[str] = []
         for leg in c.execute(
             "SELECT * FROM player_tournament_legs WHERE match_id=? ORDER BY leg",
             (match["id"],),
@@ -613,10 +691,12 @@ class PlayerTournaments:
                     "DELETE FROM player_tournament_legs WHERE match_id=? AND leg=?",
                     (match["id"], leg["leg"]),
                 )
+                displaced.append(leg["game_id"])
+        retired = self._retire(c, displaced, actor_id, now)
         if c.execute(
             "SELECT 1 FROM player_tournament_legs WHERE match_id=?", (match["id"],)
         ).fetchone():
-            return
+            return retired
         tournament = self._load(c, identifier)
         for index in range(1, tournament["match_legs"] + 1):
             side = "attackers" if index % 2 == 1 else "defenders"
@@ -636,6 +716,7 @@ class PlayerTournaments:
                 "INSERT INTO player_tournament_legs(match_id,leg,game_id,attackers_id,defenders_id,created_at) VALUES(?,?,?,?,?,?)",
                 (match["id"], index, game_id, attackers, defenders, micros(now)),
             )
+        return retired
 
     def _settle_legs(self, c, match, now: datetime) -> bool:
         changed = False
@@ -751,12 +832,14 @@ class PlayerTournaments:
             details={"reason": "authoritative result revision changed"},
         )
 
-    def _advance(self, c, identifier: str, now: datetime) -> None:
+    def _advance(self, c, identifier: str, actor_id: str, now: datetime) -> int:
+        """Derive the bracket; returns the number of displaced games retired."""
         if self._load(c, identifier)["review_state"] != "ok":
             # Bracket-wide freeze: a disputed tournament creates no new games or
             # downstream matches and does not advance any branch, including
             # unaffected ones, until a rebuild re-derives it.
-            return
+            return 0
+        retired = 0
         seeds = {
             entry["account_id"]: entry["seed"]
             for entry in c.execute(
@@ -787,7 +870,7 @@ class PlayerTournaments:
                     if self._settle_legs(c, row, now) and row["decided_by"] != "admin_override":
                         self._dispute(c, identifier, row, now)
                         # Freeze the whole bracket now that review is required.
-                        return
+                        return retired
                     continue
                 if row["status"] in ("bye", "disputed"):
                     continue
@@ -818,7 +901,7 @@ class PlayerTournaments:
                     )
                     changed = True
                     continue
-                self._prepare_legs(c, identifier, row, now)
+                retired += self._prepare_legs(c, identifier, row, actor_id, now)
                 if self._settle_legs(c, row, now):
                     changed = True
                 legs = c.execute(
@@ -829,6 +912,7 @@ class PlayerTournaments:
                     self._decide_from_legs(c, identifier, row, legs, seeds, now)
                     changed = True
         self._finalize(c, identifier, now)
+        return retired
 
     def _finalize(self, c, identifier: str, now: datetime) -> None:
         row = self._load(c, identifier)
@@ -940,10 +1024,7 @@ class PlayerTournaments:
                 clauses.append("status=?")
                 params.append(status)
             if cursor is not None:
-                decoded = decode_cursor(cursor)
-                created, identifier = decoded.get("t"), decoded.get("i")
-                if not isinstance(created, int) or not isinstance(identifier, str):
-                    raise OnlineError(422, "Invalid pagination cursor.")
+                created, identifier = listing_cursor(cursor, status)
                 clauses.append("(created_at,id) < (?,?)")
                 params.extend([created, identifier])
             where = "WHERE " + " AND ".join(clauses) if clauses else ""
@@ -959,7 +1040,9 @@ class PlayerTournaments:
             accounts = resolve_accounts(c, [row["official_winner"] for row in rows])
             items = [self._summary(c, row, accounts) for row in rows]
             next_cursor = (
-                encode_cursor({"t": rows[-1]["created_at"], "i": rows[-1]["id"]})
+                encode_cursor(
+                    {"k": "listing", "s": status, "t": rows[-1]["created_at"], "i": rows[-1]["id"]}
+                )
                 if has_more and rows
                 else None
             )
@@ -1076,10 +1159,7 @@ class PlayerTournaments:
             params: list = [identifier]
             clause = ""
             if cursor is not None:
-                decoded = decode_cursor(cursor)
-                last = decoded.get("i")
-                if not isinstance(last, str):
-                    raise OnlineError(422, "Invalid pagination cursor.")
+                last = match_cursor(cursor, identifier)
                 clause = " AND id>?"
                 params.append(last)
             rows = c.execute(
@@ -1103,7 +1183,11 @@ class PlayerTournaments:
             )
             games = self._games(c, identifier)
             items = [self._match_projection(c, match, accounts, games) for match in rows]
-            next_cursor = encode_cursor({"i": rows[-1]["id"]}) if has_more and rows else None
+            next_cursor = (
+                encode_cursor({"k": "matches", "t": identifier, "i": rows[-1]["id"]})
+                if has_more and rows
+                else None
+            )
             return {"items": items, "next_cursor": next_cursor, "limit": limit}
 
     def match(self, credential: str, identifier: str, match_id: str) -> dict:

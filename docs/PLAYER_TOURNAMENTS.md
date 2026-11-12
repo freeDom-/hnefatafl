@@ -125,8 +125,12 @@ re-derives the bracket from the authoritative results: it clears every derived
 participant, winner and settlement, deletes any bracket reset, re-resolves the
 bracket and re-settles the legs. Legs whose recorded game no longer matches the
 recomputed participants are unlinked, so a game played by the wrong pairing can
-never be credited twice. Because match identities are deterministic, legs that
-are still valid stay attached.
+never be credited twice. A displaced leg whose game is still `waiting` or
+`active` is retired in the same transaction through the authoritative online
+lifecycle and recorded in `online_void_audit`, so an obsolete game can neither be
+played, settled nor expired into a result; a leg that already reached a terminal
+state keeps its immutable result. Because match identities are deterministic,
+legs that are still valid stay attached.
 
 Rebuild is the only safe path after a dispute, and it clears earlier
 administrative overrides, which must be re-applied afterwards. Overriding a
@@ -135,7 +139,8 @@ administrative overrides, which must be re-applied afterwards. Overriding a
 An override is an administrative decision independent of the recorded legs. It
 voids the match's outstanding games (recorded in `online_void_audit`) and is never
 reopened by a later settlement, so no live game can contradict it and no leg can
-credit a second result.
+credit a second result. Downstream legs it displaces by reseating a match are
+retired the same way.
 
 ## API
 
