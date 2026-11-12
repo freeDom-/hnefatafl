@@ -4,7 +4,9 @@ import base64
 import hashlib
 import json
 
+from . import rating
 from .account_policy import account_player_sql, attributed_name, game_accounts, game_players
+from .engine import RULESETS
 from .online_core import OnlineError, instant, micros, stamp
 
 
@@ -550,4 +552,128 @@ class PersonalHistory:
                 "statistics": self._online_statistics(c, actor),
                 "as_of": stamp(instant(now)),
                 **paging,
+            }
+
+    # Rating history projects the immutable rating ledger, never a time series of
+    # start-rating snapshots. Only currently applied events appear: a void removes
+    # its entry, and a corrected result keeps its immutable sequence while the
+    # applied applications are recomputed by the pool rebuild.
+    _RATING_HISTORY_BASE = """
+        SELECT e.sequence AS order_at,a.game_id AS id,e.game_id,e.sequence,e.pool AS ruleset,
+          e.winner,e.completed_at,e.effective_revision,a.rating_after,a.delta,a.score,
+          a.policy_version,
+          public_account_name(o.username,o.display_name,o.profile_private_fields) AS opponent_name,
+          o.username AS opponent_username
+        FROM rating_events e
+        JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
+        LEFT JOIN accounts o ON o.id=a.opponent_id
+        WHERE e.pool=? AND e.state='applied'"""
+
+    @staticmethod
+    def _rating_history_entry(row):
+        return {
+            "sequence": row["sequence"],
+            "game_id": row["game_id"],
+            # A non-positive completion stamp is an explicit legacy gap, never a
+            # fabricated date; the sequence still orders the entry authoritatively.
+            "recorded_at": stamp(instant(row["completed_at"])) if row["completed_at"] else None,
+            "rating_after": row["rating_after"],
+            "delta": row["delta"],
+            "result": "draw" if row["score"] == 0.5 else "win" if row["score"] == 1.0 else "loss",
+            "opponent_display_name": row["opponent_name"],
+            "opponent_username": row["opponent_username"],
+            "corrected": row["effective_revision"] > 1,
+        }
+
+    def rating_history(self, credential, pool, *, limit=25, cursor=None):
+        if pool not in RULESETS:
+            raise OnlineError(422, "A supported ruleset is required.")
+        filters = {"ruleset": pool}
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            actor = account["id"]
+            rows, paging = page(
+                c,
+                self._RATING_HISTORY_BASE,
+                (actor, pool),
+                [],
+                [],
+                limit=limit,
+                cursor=cursor,
+                context=context_key(actor, "rating-history", filters),
+                online=True,
+            )
+            now = micros(self.online.clock())
+            current = c.execute(
+                "SELECT rating FROM player_ratings WHERE account_id=? AND pool=?", (actor, pool)
+            ).fetchone()
+            gaps = c.execute(
+                f"WITH records AS ({self._RATING_HISTORY_BASE}) "
+                "SELECT count(*) FROM records WHERE completed_at IS NULL OR completed_at<=0",
+                (actor, pool),
+            ).fetchone()[0]
+            return {
+                "ruleset": pool,
+                "policy_version": rating.RATING_POLICY_VERSION,
+                "current_rating": current["rating"] if current else None,
+                "as_of": stamp(instant(now)),
+                "legacy_timestamp_gaps": bool(gaps),
+                "items": [self._rating_history_entry(row) for row in rows],
+                "next_cursor": paging["next_cursor"],
+                "limit": paging["limit"],
+                "matching": paging["matching"],
+            }
+
+    @staticmethod
+    def _rated_outcomes(c, actor, pool=None):
+        # Effective rated results in immutable ledger sequence order. Only applied
+        # events count, so a void or correction recomputes the streak rather than
+        # patching an incremental counter.
+        sql = """SELECT e.winner,CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
+            FROM rating_events e
+            JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
+            WHERE e.state='applied'"""
+        params: list = [actor, actor]
+        if pool is not None:
+            sql += " AND e.pool=?"
+            params.append(pool)
+        sql += " ORDER BY e.sequence"
+        return [row["winner"] == row["side"] for row in c.execute(sql, params)]
+
+    @staticmethod
+    def _win_streak(wins):
+        # A draw or loss ends the current win streak; the best is the longest run.
+        current = best = 0
+        for won in wins:
+            current = current + 1 if won else 0
+            best = max(best, current)
+        return current, best
+
+    def progress(self, credential):
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            actor = account["id"]
+            by_ruleset = []
+            for pool in sorted(RULESETS):
+                wins = self._rated_outcomes(c, actor, pool)
+                current, best = self._win_streak(wins)
+                by_ruleset.append(
+                    {
+                        "ruleset": pool,
+                        "rated_win_current": current,
+                        "rated_win_best": best,
+                        "rated_games": len(wins),
+                    }
+                )
+            current, best = self._win_streak(self._rated_outcomes(c, actor))
+            now = micros(self.online.clock())
+            return {
+                "as_of": stamp(instant(now)),
+                "streaks": {
+                    "rated_win_current": current,
+                    "rated_win_best": best,
+                    "by_ruleset": by_ruleset,
+                },
             }

@@ -338,6 +338,8 @@ grant(
     "/api/personal/online",
     "/api/personal/online/{game_id}",
     "/api/personal/online/{game_id}/replay",
+    "/api/personal/progress",
+    "/api/personal/ratings/{ruleset}/history",
     "/api/history/games",
     "/api/history/{category}/{game_id}/replay",
     "/api/history/online/{game_id}/analytics",

@@ -878,3 +878,211 @@ def test_completed_online_analysis_is_authorized_and_ongoing_is_rejected(tmp_pat
                     json={"version": completed["version"], "cursor": 0, "background": True},
                 )
                 assert denied.status_code == 404
+
+
+# --- Personal rating history and progress --------------------------------------
+
+
+def personal_history(rig):
+    from hnefatafl.personal import PersonalHistory
+
+    return PersonalHistory(rig.core, replay=None)
+
+
+def fabricate_correction(rig, game, winner):
+    """Apply a new eligible result revision through the durable rating layer."""
+    with rig.core._write() as c:
+        row = c.execute("SELECT * FROM online_games WHERE id=?", (game["id"],)).fetchone()
+        now = rig.clock.value
+        result = lifecycle.Result(
+            game_id=game["id"],
+            revision=2,
+            supersedes=1,
+            category="online",
+            ruleset=row["ruleset"],
+            ruleset_version=row["ruleset_version"],
+            attackers=row["attackers_id"],
+            defenders=row["defenders_id"],
+            started_at=now,
+            completed_at=now,
+            revised_at=now,
+            winner=winner,
+            termination_reason="correction",
+            move_count=10,
+            competitive_eligible=True,
+            abandoned_account_id=None,
+        )
+        c.execute(
+            "INSERT INTO online_results VALUES(?,?,?,?,?,?,?,?)",
+            (
+                game["id"],
+                2,
+                1,
+                1,
+                None,
+                micros(now),
+                micros(now),
+                json.dumps(result_payload(result)),
+            ),
+        )
+        rig.core.ratings.apply(c, row["match_id"], game["id"], result, now)
+
+
+def test_rating_history_reports_sequence_rating_delta_and_opponent(rig):
+    game = finish(rig, active(rig), "attackers")
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    assert page["ruleset"] == "brandubh"
+    assert page["policy_version"] == rating.RATING_POLICY_VERSION == 1
+    assert page["as_of"].endswith("Z")
+    assert page["matching"] == 1 and page["next_cursor"] is None
+    assert page["legacy_timestamp_gaps"] is False
+    assert page["current_rating"] == pytest.approx(1516.0)
+    (item,) = page["items"]
+    assert item["sequence"] == 1 and item["game_id"] == game["id"]
+    assert item["recorded_at"] is not None and item["recorded_at"].endswith("Z")
+    assert item["rating_after"] == pytest.approx(1516.0)
+    assert item["delta"] == pytest.approx(16.0)
+    assert item["result"] == "win" and item["corrected"] is False
+    assert item["opponent_display_name"] == "Keeper"
+    assert item["opponent_username"] == "Keeper"
+    # The opponent's own history mirrors the loss without leaking other pools.
+    other = personal_history(rig).rating_history(rig.credentials["Keeper"], "brandubh")
+    assert other["items"][0]["result"] == "loss"
+    assert other["items"][0]["delta"] == pytest.approx(-16.0)
+
+
+def test_rating_history_orders_by_immutable_sequence_newest_first(rig):
+    finish(rig, active(rig), "attackers")
+    finish(rig, active(rig), "defenders")
+    finish(rig, active(rig), "attackers")
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    assert [item["sequence"] for item in page["items"]] == [3, 2, 1]
+    assert [item["result"] for item in page["items"]] == ["win", "loss", "win"]
+    assert all(item["corrected"] is False for item in page["items"])
+
+
+def test_rating_history_cursor_pagination_is_opaque_and_stable(rig):
+    for _ in range(3):
+        finish(rig, active(rig), "attackers")
+    history = personal_history(rig)
+    first = history.rating_history(rig.credentials["Archer"], "brandubh", limit=2)
+    assert [item["sequence"] for item in first["items"]] == [3, 2]
+    assert first["matching"] == 3 and first["next_cursor"]
+    second = history.rating_history(
+        rig.credentials["Archer"], "brandubh", limit=2, cursor=first["next_cursor"]
+    )
+    assert [item["sequence"] for item in second["items"]] == [1]
+    assert second["next_cursor"] is None
+    # A cursor is bound to its ruleset; reusing it for another pool is rejected.
+    with pytest.raises(OnlineError):
+        history.rating_history(rig.credentials["Archer"], "tablut", cursor=first["next_cursor"])
+
+
+def test_rating_history_marks_corrections_and_recomputes(rig):
+    game = finish(rig, active(rig), "attackers")
+    fabricate_correction(rig, game, "defenders")
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    (item,) = page["items"]
+    assert item["corrected"] is True and item["result"] == "loss"
+    assert item["rating_after"] == pytest.approx(1484.0)
+    assert item["sequence"] == 1  # The immutable ledger position never changes.
+    assert page["current_rating"] == pytest.approx(1484.0)
+
+
+def test_rating_history_excludes_voided_events_and_recomputes_later(rig):
+    first = finish(rig, active(rig), "attackers")
+    second = finish(rig, active(rig), "attackers")
+    rig.core.mutate(
+        rig.credentials["Archer"], first["id"], first["version"], "void", note="Incident"
+    )
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    (item,) = page["items"]
+    assert item["game_id"] == second["id"] and item["sequence"] == 2
+    # The remaining game is replayed from the initial rating after the rebuild.
+    assert item["rating_after"] == pytest.approx(1516.0)
+    assert page["matching"] == 1 and page["current_rating"] == pytest.approx(1516.0)
+
+
+def test_rating_history_flags_legacy_missing_timestamps(rig):
+    game = finish(rig, active(rig), "attackers")
+    with rig.store.connection() as c:
+        c.execute("UPDATE rating_events SET completed_at=0 WHERE game_id=?", (game["id"],))
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    assert page["legacy_timestamp_gaps"] is True
+    assert page["items"][0]["recorded_at"] is None
+    assert page["items"][0]["sequence"] == 1
+
+
+def test_rating_history_empty_state_and_ruleset_validation(rig):
+    history = personal_history(rig)
+    page = history.rating_history(rig.credentials["Archer"], "copenhagen")
+    assert page["items"] == [] and page["next_cursor"] is None and page["matching"] == 0
+    assert page["current_rating"] is None and page["legacy_timestamp_gaps"] is False
+    with pytest.raises(OnlineError) as error:
+        history.rating_history(rig.credentials["Archer"], "unknown")
+    assert error.value.status == 422
+
+
+def test_progress_win_streaks_are_per_ruleset_and_recomputed(rig):
+    for winner in ("attackers", "attackers", "defenders", "attackers"):
+        finish(rig, active(rig, "brandubh"), winner)
+    finish(rig, active(rig, "tablut"), "attackers")
+    fabricate_draw(rig, active(rig, "tablut"))
+    finish(rig, active(rig, "tablut"), "attackers")
+    progress = personal_history(rig).progress(rig.credentials["Archer"])
+    groups = {row["ruleset"]: row for row in progress["streaks"]["by_ruleset"]}
+    assert set(groups) == {"brandubh", "tablut", "copenhagen"}
+    assert groups["brandubh"] == {
+        "ruleset": "brandubh",
+        "rated_win_current": 1,
+        "rated_win_best": 2,
+        "rated_games": 4,
+    }
+    # A draw ends the streak; the later win starts a new one.
+    assert groups["tablut"] == {
+        "ruleset": "tablut",
+        "rated_win_current": 1,
+        "rated_win_best": 1,
+        "rated_games": 3,
+    }
+    assert groups["copenhagen"]["rated_games"] == 0
+    assert groups["copenhagen"]["rated_win_best"] == 0
+    # Aggregate streaks follow the global ledger sequence across pools.
+    assert progress["streaks"]["rated_win_current"] == 1
+    assert progress["streaks"]["rated_win_best"] == 2
+    assert progress["as_of"].endswith("Z")
+
+
+def test_progress_is_strictly_self_scoped(rig):
+    finish(rig, active(rig), "attackers")
+    finish(rig, active(rig), "attackers")
+    history = personal_history(rig)
+    archer = history.progress(rig.credentials["Archer"])["streaks"]
+    keeper = history.progress(rig.credentials["Keeper"])["streaks"]
+    archer_group = next(r for r in archer["by_ruleset"] if r["ruleset"] == "brandubh")
+    keeper_group = next(r for r in keeper["by_ruleset"] if r["ruleset"] == "brandubh")
+    assert archer_group["rated_win_current"] == 2 and archer_group["rated_win_best"] == 2
+    assert keeper_group["rated_win_current"] == 0 and keeper_group["rated_win_best"] == 0
+    assert keeper_group["rated_games"] == 2
+
+
+def test_personal_progress_and_rating_history_api(tmp_path):
+    app, client = api_client(tmp_path)
+    with client:
+        assert client.get("/api/personal/progress").status_code == 401
+        assert client.get("/api/personal/ratings/brandubh/history").status_code == 401
+        verified_login(app, client)
+        progress = client.get("/api/personal/progress")
+        assert progress.status_code == 200, progress.text
+        assert [row["ruleset"] for row in progress.json()["streaks"]["by_ruleset"]] == [
+            "brandubh",
+            "copenhagen",
+            "tablut",
+        ]
+        assert progress.json()["streaks"]["rated_win_current"] == 0
+        history = client.get("/api/personal/ratings/brandubh/history")
+        assert history.status_code == 200, history.text
+        body = history.json()
+        assert body["items"] == [] and body["next_cursor"] is None
+        assert body["current_rating"] is None and body["policy_version"] == 1
+        assert client.get("/api/personal/ratings/unknown/history").status_code == 422

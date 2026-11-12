@@ -132,6 +132,40 @@ exposed.
   a field withdraws it on the next read. See [profile transition](PROFILE.md).
 - Loading, stale/error and empty states are explicit.
 
+## Personal rating history and progress
+
+Two authenticated, strictly self-scoped read projections build on the existing
+ledger without a migration and without changing any rating math.
+
+- `GET /api/personal/ratings/{ruleset}/history` — opaque cursor pagination over
+  the account's currently **applied** rating events for one pool, ordered by the
+  immutable ledger `sequence` (newest first). Each item carries its explicit
+  `sequence`, `game_id`, `rating_after`, `delta`, `result` (`win`/`loss`/`draw`),
+  the trusted recorded `recorded_at` completion stamp and the public opponent
+  label. A void removes its entry; a corrected result keeps its sequence position
+  and sets `corrected`. The page also returns `as_of`, `policy_version` and the
+  account's `current_rating` (or `null` while unrated). History is never derived
+  from start-rating snapshots or game timestamps.
+- Legacy fidelity: an applied event with a missing or non-positive completion
+  stamp yields `recorded_at: null` for that entry and sets `legacy_timestamp_gaps`
+  on the page; dates are never fabricated and the `sequence` still orders the
+  entry authoritatively.
+- `GET /api/personal/progress` — current and best **rated win streak** per
+  ruleset, recomputed from effective applied events in ledger `sequence` order
+  (never an incremental counter). A win extends the streak; a draw or loss ends
+  it. All three pools appear even with no rated games, and the aggregate streak
+  follows the global ledger sequence across pools.
+
+### Deferred: login and activity-day streaks
+
+A login/activity streak needs a durable, deduplicated UTC-day event ledger with
+idempotent writes, timezone rules and anti-spam limits. That requires schema work
+reserved for the Arena v2 progression foundations migration (schema `16`, owned
+by the local 1v1 lane) and is **not** implemented here. No activity or login
+streak field is returned, and historic streaks are never backfilled from old
+sessions. See the
+[Arena v2 contracts](designs/arena-v2-contracts.md#utc-day-loginactivity-policy).
+
 ## Reconciliation and recovery
 
 The deterministic rebuild is also exposed to administrators:
