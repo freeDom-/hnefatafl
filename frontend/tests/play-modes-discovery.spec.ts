@@ -101,5 +101,7 @@ test('Replays & Analysis keeps private records in their own server-side scope', 
   await expect(page.getByRole('tab', { name: 'Analytics' })).toHaveCount(0);
 
   const saved = await (await request.get(`${API}/games/${game.id}`)).json();
-  expect((await request.delete(`${API}/games/${game.id}?version=${saved.version}`)).ok()).toBe(true);
+  expect((await request.delete(`${API}/games/${game.id}?version=${saved.version}`)).ok()).toBe(
+    true,
+  );
 });
