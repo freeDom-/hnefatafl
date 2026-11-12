@@ -6,6 +6,12 @@ const identity = vi.hoisted(() => ({ id: 'archer', permissions: ['play'], email_
 vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
 const fetcher = vi.fn();
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  });
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.removeAttribute('open');
+  });
   identity.email_verified = true;
   history.replaceState(null, '', '/play');
   localStorage.clear();
@@ -57,4 +63,97 @@ it('does not resume a finished or inaccessible cached game and disables online c
   expect(location.pathname).toBe('/play');
   expect(screen.getByRole('button', { name: 'New online game' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'New single-player game' })).toBeEnabled();
+});
+it('shows the continue list and the three equal-start play modes', async () => {
+  const onlineId = 'online-' + 'b'.repeat(32);
+  fetcher.mockImplementation((url: string) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        games: url.includes('/personal/online')
+          ? [{ id: onlineId, status: 'active', ruleset: 'tablut', your_turn: true }]
+          : url.includes('/personal/local')
+            ? [{ id: 'local-running', status: 'in_progress', ruleset: 'brandubh' }]
+            : [
+                {
+                  id: 'own-single',
+                  status: 'in_progress',
+                  ruleset: 'copenhagen',
+                  mode: 'human-ai',
+                },
+              ],
+      }),
+    }),
+  );
+  // An open creation dialog suppresses the automatic resume, so the hierarchy stays visible.
+  render(<PlayLanding onNewSingle={vi.fn()} creatingSingle />);
+  await screen.findByRole('heading', { name: 'Your turn / Continue' });
+  expect(screen.getByRole('heading', { name: 'Play online' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Local 1v1' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Play vs AI' })).toBeVisible();
+  const continueLinks = screen.getAllByRole('link', { name: /^Continue/ });
+  expect(continueLinks.map((link) => link.getAttribute('href'))).toEqual([
+    `/online/games/${onlineId}`,
+    '/games/local-running',
+    '/games/own-single',
+  ]);
+  // Only the server-confirmed turn is presented as awaiting this account.
+  expect(continueLinks[0].closest('li')).toHaveTextContent('Your turn');
+  expect(continueLinks[2].closest('li')).not.toHaveTextContent('Your turn');
+});
+it('creates a local 1v1 game with server-owned seat labels', async () => {
+  fetcher.mockImplementation((url: string, options?: RequestInit) => {
+    if (options?.method === 'POST')
+      return Promise.resolve({
+        ok: true,
+        status: 201,
+        json: async () => ({ id: 'local-created' }),
+      } as Response);
+    if (url === '/api/rulesets')
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => [{ id: 'tablut', name: 'Tablut', size: 9 }],
+      } as Response);
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ games: [] }),
+    } as Response);
+  });
+  render(<PlayLanding onNewSingle={vi.fn()} creatingSingle={false} />);
+  await screen.findByText('No games are currently running.');
+  fireEvent.click(screen.getByRole('button', { name: 'New local 1v1 game' }));
+  await screen.findByRole('dialog', { name: 'Start a local 1v1 game' });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start game' })).toBeEnabled());
+  fireEvent.change(screen.getByLabelText('Attackers seat label'), { target: { value: 'Odin' } });
+  fireEvent.change(screen.getByLabelText('Defenders seat label'), { target: { value: 'Jarl' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start game' }));
+  await waitFor(() => expect(location.pathname).toBe('/games/local-created'));
+  const call = fetcher.mock.calls.find(([, options]) => options?.method === 'POST');
+  expect(call![0]).toBe('/api/games/local');
+  expect(JSON.parse(String(call![1]?.body))).toEqual({
+    ruleset: 'tablut',
+    attackers_label: 'Odin',
+    defenders_label: 'Jarl',
+  });
+});
+it('requires both local seat labels before creating the game', async () => {
+  fetcher.mockImplementation((url: string) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () =>
+        url === '/api/rulesets' ? [{ id: 'tablut', name: 'Tablut', size: 9 }] : { games: [] },
+    }),
+  );
+  render(<PlayLanding onNewSingle={vi.fn()} creatingSingle={false} />);
+  await screen.findByText('No games are currently running.');
+  fireEvent.click(screen.getByRole('button', { name: 'New local 1v1 game' }));
+  await screen.findByRole('dialog', { name: 'Start a local 1v1 game' });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start game' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Start game' }));
+  expect(await screen.findByText('Both local seats need a label.')).toBeVisible();
+  expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
 });

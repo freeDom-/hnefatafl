@@ -75,7 +75,8 @@ test('compact records filter server-side by names and category with independent 
   }
 
   await page.goto('/archive');
-  await page.getByLabel('Game type').selectOption('account-single-player');
+  await page.getByRole('tab', { name: 'Singleplayer' }).click();
+  await expect(page).toHaveURL(/category=account-single-player/);
   await page.getByLabel('Player name').fill(names[2].toUpperCase());
   await expect(page.locator('.recorded-games tbody tr')).toHaveCount(2);
   await expect(page.locator('.hall-totals')).toContainText('2 Games');

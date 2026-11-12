@@ -15,6 +15,16 @@ sections, so the game-details panel, armies panel, board toolbar and move list
 stay identical between them; the single-player sidebar additionally offers
 post-game analysis and the online room adds its lifecycle and replay controls.
 
+Dashboard and `/play` share one hierarchy: **Your turn / Continue** lists the
+running games of the signed-in account (single-player, online and local 1v1,
+with the server-confirmed turn marked), followed by the three equal-start modes
+**Play online**, **Local 1v1** and **Play vs AI**. Only online creation requires
+a verified account; the mode stays disabled and a verification prompt links to
+the profile. `/play` keeps its automatic resume: with a running game it replaces
+the Play entry with that game, so Browser Back never lands on Play and reopens
+it. **Local 1v1** opens a dialog that labels both seats and calls
+`POST /api/games/local`; the created game opens on the shared play screen.
+
 ## Mobile play screen
 
 On phones, the shared site navigation remains available above the game toolbar
@@ -97,8 +107,8 @@ is not deletion of saved games. A connection to the server is required.
 ## Play local 1v1 on one device
 
 **Local 1v1** is a same-device pass-and-play mode for two humans sharing one
-screen. Create it from the Dashboard (or `POST /api/games/local`), choose a
-battlefield and label both seats. The creating account owns the record; both seats
+screen. Create it from Dashboard or `/play` (or `POST /api/games/local`), choose
+a battlefield and label both seats. The creating account owns the record; both seats
 belong to it, so no second account, lobby, matchmaking or clock is involved. The
 server keeps the authoritative turn, validates every move through the shared
 engine and guards each move with the same optimistic `version` as single-player.

@@ -196,5 +196,40 @@ const personal: Record<string, string> = {
   Player: 'Spieler',
   Rating: 'Wertung',
   You: 'Du',
+  'Your turn / Continue': 'Du bist am Zug / Fortsetzen',
+  Continue: 'Fortsetzen',
+  'Your turn': 'Du bist am Zug',
+  'Play online': 'Online spielen',
+  'Rated multiplayer with clocks. Create a game or join the lobby.':
+    'Gewertetes Mehrspielerspiel mit Uhren. Erstelle eine Partie oder tritt der Lobby bei.',
+  'Local 1v1': 'Lokal 1v1',
+  'Pass and play on one device. Never rated.': 'Abwechselnd an einem Gerät. Nie gewertet.',
+  'New local 1v1 game': 'Neues lokales 1v1-Spiel',
+  'Play vs AI': 'Gegen KI spielen',
+  'Single-player against a computer opponent. Never rated.':
+    'Einzelspiel gegen einen Computergegner. Nie gewertet.',
+  'Local 1v1 game': 'Lokales 1v1-Spiel',
+  'Start a local 1v1 game': 'Lokales 1v1-Spiel starten',
+  'Pass and play on this device. Local games are never rated.':
+    'Abwechselnd an diesem Gerät. Lokale Spiele werden nie gewertet.',
+  'Local 1v1 settings': 'Einstellungen für lokales 1v1',
+  'Attackers seat label': 'Bezeichnung des Angreifer-Platzes',
+  'Defenders seat label': 'Bezeichnung des Verteidiger-Platzes',
+  'Player 1': 'Spieler 1',
+  'Player 2': 'Spieler 2',
+  'Both local seats need a label.': 'Beide lokalen Plätze brauchen eine Bezeichnung.',
+  'The local game could not be created.': 'Das lokale Spiel konnte nicht erstellt werden.',
+  'Start game': 'Spiel starten',
+  'Online multiplayer': 'Online-Mehrspieler',
+  'All records': 'Alle Einträge',
+  'Record scope': 'Umfang der Einträge',
+  'Active online games open the live board; completed records open read-only replay with analysis.':
+    'Aktive Onlinepartien öffnen das Livebrett; abgeschlossene Einträge öffnen die schreibgeschützte Wiederholung mit Analyse.',
+  'Your participating online games and your private single-player and local 1v1 records.':
+    'Deine Onlinepartien als Teilnehmer und deine privaten Einzelspieler- und lokalen 1v1-Einträge.',
+  Live: 'Live',
+  'Watch live: {attacker} vs {defender}': 'Live ansehen: {attacker} gegen {defender}',
+  'Live game. This is the current position; analysis is not available while a game is running.':
+    'Live-Partie. Dies ist der aktuelle Stand; während einer laufenden Partie ist keine Analyse verfügbar.',
 };
 export default personal;

@@ -6,7 +6,8 @@ import { useOnlinePoll } from './useOnlinePoll';
 import type { AccountHistory, PersonalOnlineHistory } from './personalTypes';
 import { navigate } from './navigation';
 import { surfaceLink } from './surfaceNavigation';
-import GameCreationActions from './GameCreationActions';
+import PlayModes from './PlayModes';
+import { runningGames, type LocalHistory } from './playModeGames';
 import { Lobby } from './Online';
 import PageHeading from './PageHeading';
 
@@ -21,7 +22,7 @@ export default function PlayLanding({
   const { t } = useI18n();
   const [creation, setCreation] = useState(0);
   const load = useCallback(async (signal: AbortSignal) => {
-    const [single, online] = await Promise.all([
+    const [single, online, local] = await Promise.all([
       api<AccountHistory>(
         '/personal/single-player?limit=100&status=in_progress',
         undefined,
@@ -34,17 +35,17 @@ export default function PlayLanding({
         undefined,
         signal,
       ),
+      api<LocalHistory>(
+        '/personal/local?limit=100&status=in_progress',
+        undefined,
+        undefined,
+        signal,
+      ),
     ]);
-    return [
-      ...(single.games ?? [])
-        .filter((game) => game.status === 'in_progress')
-        .map((game) => `/games/${game.id}`),
-      ...(online.games ?? [])
-        .filter((game) => game.status === 'active' || game.status === 'waiting')
-        .map((game) => `/online/games/${game.id}`),
-    ];
+    return runningGames({ single, online, local });
   }, []);
   const games = useOnlinePoll(`play-home:${account?.id}`, load);
+  const running = games.data ?? [];
   let remembered = '';
   try {
     remembered =
@@ -53,7 +54,9 @@ export default function PlayLanding({
   } catch {
     /* The server-owned list remains usable without browser storage. */
   }
-  const target = games.data?.includes(remembered) ? remembered : games.data?.[0];
+  const target = running.some((game) => game.href === remembered) ? remembered : running[0]?.href;
+  // A suppressed resume (open creation dialog) keeps the hierarchy visible.
+  const resuming = !!target && !creation && !creatingSingle;
   useEffect(() => {
     if (games.phase !== 'ready' || !target || creation || creatingSingle) return;
     // Resuming a saved game is an automatic redirect. It must never override a
@@ -68,7 +71,7 @@ export default function PlayLanding({
   return (
     <section className="personal-dashboard play-home">
       <PageHeading title={t('Play')} />
-      {games.phase === 'loading' || (games.phase === 'ready' && target) ? (
+      {games.phase === 'loading' || resuming ? (
         <p role="status">{t('Loading your games…')}</p>
       ) : games.phase === 'stale' ? (
         <div role="alert">
@@ -78,18 +81,19 @@ export default function PlayLanding({
           </button>
         </div>
       ) : (
-        <>
-          <p>{t('No games are currently running.')}</p>
-          <p>
-            <a href="/dashboard" onClick={surfaceLink}>
-              {t('Find online games on Dashboard')}
-            </a>
-          </p>
-          <GameCreationActions
-            onNewOnline={() => setCreation((value) => value + 1)}
-            onNewSingle={onNewSingle}
-          />
-        </>
+        <PlayModes
+          onNewOnline={() => setCreation((value) => value + 1)}
+          onNewSingle={onNewSingle}
+          games={running}
+        >
+          {!running.length && (
+            <p>
+              <a href="/dashboard" onClick={surfaceLink}>
+                {t('Find online games on Dashboard')}
+              </a>
+            </p>
+          )}
+        </PlayModes>
       )}
       {creation > 0 && account && (
         <Lobby

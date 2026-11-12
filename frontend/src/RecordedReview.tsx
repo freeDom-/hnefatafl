@@ -12,6 +12,7 @@ import type { AIProfile, Game, GameMove, Model, PlayerConfig, Side } from './typ
 import type { OnlinePosition, OnlineReplay } from './onlineTypes';
 import type { AccountReviewData } from './personalTypes';
 import { resultName } from './RecordedGames';
+import type { RecordedCategory } from './RecordedGames';
 import { sideGlyph } from './sideGlyph';
 import { modeNames as onlineModeNames } from './Online';
 import PlayPage from './PlayPage';
@@ -34,6 +35,7 @@ const modeNames: Record<string, string> = {
   'human-ai': 'Human vs AI',
   'ai-ai': 'AI vs AI',
   'human-human': 'Pass & play',
+  local: 'Local 1v1',
   ...onlineModeNames,
 };
 const statusNames: Record<string, string> = {
@@ -48,7 +50,7 @@ const statusNames: Record<string, string> = {
 type ReviewParticipant = { name: string; kind: 'human' | 'ai'; username?: string };
 type ReviewGame = {
   id: string;
-  category: 'online' | 'account-single-player';
+  category: RecordedCategory;
   ruleset: string;
   mode: string;
   status: string;
@@ -121,7 +123,7 @@ function normalize(data: OnlineReplay | AccountReviewData): {
   return {
     game: {
       id: account.id,
-      category: 'account-single-player',
+      category: account.category as RecordedCategory,
       ruleset: account.ruleset,
       mode: account.mode,
       status: account.status,
@@ -154,14 +156,14 @@ export default function RecordedReview({
   backTo,
 }: {
   id: string;
-  category: 'online' | 'account-single-player';
+  category: RecordedCategory;
   accountId: string;
   personal?: boolean;
   backTo?: string;
 }) {
   const { t } = useI18n();
   const url = personal
-    ? `/personal/single-player/${id}/replay`
+    ? `/personal/${category === 'local' ? 'local' : 'single-player'}/${id}/replay`
     : `/history/${category}/${id}/replay`;
   const load = useCallback(
     (signal: AbortSignal) =>
@@ -177,6 +179,8 @@ export default function RecordedReview({
   const position = normalized?.states[index];
   const accountReview = normalized?.game.category === 'account-single-player';
   const onlineReview = normalized?.game.category === 'online';
+  // Local 1v1 runs no advisor or background search, and an active online game
+  // must never receive live assistance. Only stored analysis is ever shown.
   const analysisAllowed =
     accountReview || (onlineReview && normalized?.game.status === 'completed');
 
@@ -382,6 +386,13 @@ export default function RecordedReview({
       label={t('Selected game review')}
       gameId={game.id}
     >
+      {onlineReview && normalized.game.status !== 'completed' && (
+        <p role="status">
+          {t(
+            'Live game. This is the current position; analysis is not available while a game is running.',
+          )}
+        </p>
+      )}
       <GameLayout
         key={game.id}
         sidebar={

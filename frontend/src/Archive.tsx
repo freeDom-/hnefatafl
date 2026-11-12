@@ -5,10 +5,24 @@ import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import { useOnlinePoll } from './useOnlinePoll';
 import { navigate } from './navigation';
-import RecordedGames, { type RecordedPage, type RecordedGame } from './RecordedGames';
+import RecordedGames, {
+  categoryName,
+  type RecordedCategory,
+  type RecordedPage,
+  type RecordedGame,
+} from './RecordedGames';
 import RecordedReview from './RecordedReview';
+import Tabs, { type TabItem } from './Tabs';
 import './personalDashboard.css';
 import { surfaceLink } from './surfaceNavigation';
+
+/** One scope per authorized record family; local never mixes into online. */
+const scopeTabs: readonly TabItem[] = [
+  { id: 'all', label: 'All records' },
+  { id: 'online', label: 'Online multiplayer' },
+  { id: 'account-single-player', label: 'Singleplayer' },
+  { id: 'local', label: 'Local 1v1' },
+];
 
 export default function Archive() {
   const { account } = useAuth();
@@ -38,7 +52,11 @@ export default function Archive() {
   };
   const selected = params.get('selected');
   const review = params.get('review');
-  const selectedCategory = review === 'account-single-player' ? review : 'online';
+  const scope = params.get('category') ?? 'all';
+  const selectedCategory =
+    review === 'account-single-player' || review === 'local'
+      ? (review as RecordedCategory)
+      : 'online';
   const link = (game: RecordedGame) => {
     const next = new URLSearchParams(query);
     next.set('review', game.category);
@@ -75,35 +93,37 @@ export default function Archive() {
         subtitle={t(
           admin
             ? 'All server-recorded games.'
-            : 'Your participating online games and single-player records.',
+            : 'Your participating online games and your private single-player and local 1v1 records.',
         )}
+      />
+      <p className="subtle">
+        {t(
+          'Active online games open the live board; completed records open read-only replay with analysis.',
+        )}
+      </p>
+      <Tabs
+        id="hall-scope"
+        items={scopeTabs.map((item) =>
+          item.id === 'all' && admin ? { ...item, label: 'All server games' } : item,
+        )}
+        active={scope}
+        onChange={(value) => update('category', value === 'all' ? '' : value)}
+        label="Record scope"
+        className="hall-scope"
       />
       <div className="personal-filters">
         {admin && (
-          <>
-            <label>
-              {t('Game type')}
-              <select
-                value={params.get('category') ?? ''}
-                onChange={(e) => update('category', e.target.value)}
-              >
-                <option value="">{t('All server games')}</option>
-                <option value="online">{t('Online multiplayer')}</option>
-                <option value="account-single-player">{t('Singleplayer')}</option>
-              </select>
-            </label>
-            <label>
-              {t('Player name')}
-              <input
-                value={params.get('player') ?? ''}
-                onChange={(e) => {
-                  // Match the API's 80 + 64 + 4 code-point label bound;
-                  // native maxLength counts UTF-16 units and truncates emoji.
-                  if ([...e.target.value].length <= 148) update('player', e.target.value);
-                }}
-              />
-            </label>
-          </>
+          <label>
+            {t('Player name')}
+            <input
+              value={params.get('player') ?? ''}
+              onChange={(e) => {
+                // Match the API's 80 + 64 + 4 code-point label bound;
+                // native maxLength counts UTF-16 units and truncates emoji.
+                if ([...e.target.value].length <= 148) update('player', e.target.value);
+              }}
+            />
+          </label>
         )}
         <label>
           {t('Ruleset')}
@@ -173,12 +193,9 @@ export default function Archive() {
       <div className="hall-totals">
         {poll.data?.totals.map((total) => (
           <p key={total.category}>
-            <strong>
-              {t(total.category === 'online' ? 'Online multiplayer' : 'Singleplayer')}
-            </strong>
-            : {total.games} {t('Games')} · {total.completed} {t('Completed')} ·{' '}
-            {total.attackers_wins} {t('Attacker wins')} · {total.defenders_wins}{' '}
-            {t('Defender wins')} · {total.draws} {t('Draws')}
+            <strong>{t(categoryName(total.category))}</strong>: {total.games} {t('Games')} ·{' '}
+            {total.completed} {t('Completed')} · {total.attackers_wins} {t('Attacker wins')} ·{' '}
+            {total.defenders_wins} {t('Defender wins')} · {total.draws} {t('Draws')}
           </p>
         ))}
       </div>

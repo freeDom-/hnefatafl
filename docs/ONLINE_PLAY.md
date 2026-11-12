@@ -53,7 +53,11 @@ The lobby uses three tabs: **All games** shows every nonterminal game visible to
 your authenticated account, **My games** includes nonterminal games you created or
 in which you have a seat, and **My turn** shows active games where you are the
 participant whose move is required. Completed, cancelled and voided games never
-appear in any tab. Previous/next page buttons use bounded server pagination. Open
+appear in any tab. A **Filter by ruleset** select narrows the tab server-side
+(`GET /api/online/games?ruleset=…`), so no unbounded page is filtered in the
+browser. Previous/next page buttons use bounded server pagination. The lobby
+lists live games only and links to **Replays & Analysis** for completed records;
+a live card opens the board, where no analysis is offered. Open
 a waiting game to join it; creators can cancel their own waiting game. Players
 cannot edit its settings in place. Active cards show the remaining time from the
 authoritative deadline using the shared formatter.
