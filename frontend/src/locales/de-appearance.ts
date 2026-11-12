@@ -7,6 +7,18 @@ const appearance: Record<string, string> = {
   'Choose the light, the pieces and the battlefield. Your games stay just as you left them.':
     'Wähle Beleuchtung, Figuren und Spielfeld. Deine Partien bleiben dabei erhalten.',
   'Color mode': 'Farbmodus',
+  'UI theme': 'Oberflächendesign',
+  'Appearance default': 'Standarddarstellung',
+  'Keeps the current color mode without a named theme':
+    'Behält den aktuellen Farbmodus ohne benanntes Design',
+  'The King’s Table': 'Der Königstisch',
+  'Clean tabletop, parchment and pine': 'Klarer Spieltisch, Pergament und Kiefer',
+  'Iron & Ash': 'Eisen & Asche',
+  'Dark slate, understated metal and warm gold':
+    'Dunkler Schiefer, zurückhaltendes Metall und warmes Gold',
+  'Saga Hall': 'Sagahalle',
+  'Carved timber, leather and Nordic knotwork':
+    'Geschnitztes Holz, Leder und nordische Knotenmuster',
   'Follow device': 'Wie auf dem Gerät',
   'Light or dark with your device': 'Hell oder dunkel gemäß Geräteeinstellung',
   Light: 'Hell',

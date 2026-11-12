@@ -276,4 +276,43 @@ describe('appearance preferences', () => {
     fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
     expect(dialog).not.toHaveAttribute('open');
   });
+
+  it('applies a named UI theme only after an explicit choice and can return to the default', () => {
+    const view = renderTable();
+    expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Appearance default' })).toBeChecked();
+    fireEvent.click(screen.getByRole('radio', { name: 'Iron & Ash' }));
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
+      ...DEFAULT_APPEARANCE,
+      uiTheme: 'iron-ash',
+    });
+    // The independent appearance dimensions are untouched.
+    expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
+    expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
+    expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
+    expect(document.documentElement).toHaveAttribute('data-density', 'default');
+    view.unmount();
+    renderTable();
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Iron & Ash' })).toBeChecked();
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
+    fireEvent.click(screen.getByRole('radio', { name: 'Appearance default' }));
+    expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(DEFAULT_APPEARANCE);
+  });
+
+  it('keeps the wood color mode out of the named-theme layer', () => {
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ mode: 'wood' }));
+    renderTable();
+    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+    expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
+    expect(document.querySelector('[data-wood-ornaments]')).toBeInTheDocument();
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    openSettings();
+    fireEvent.click(screen.getByRole('radio', { name: 'Saga Hall' }));
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
+    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+  });
 });

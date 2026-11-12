@@ -1,0 +1,175 @@
+/* Hnefatafl Arena v2 UI themes, imported after appearance.css in main.tsx.
+ * `data-ui-theme` is set only when the user explicitly chooses a named theme
+ * (see appearanceConfig.ts / Appearance.tsx). With no attribute the existing
+ * data-color-mode / data-board-theme / data-token-theme behavior is untouched.
+ * A named theme owns the shell surface variables; mode, token, board and density
+ * choices stay independent. Asset URLs resolve under the copied public path:
+ *   frontend/public/assets/arena-v2/assets/
+ */
+:root[data-ui-theme='kings-table'] {
+  color-scheme: light;
+  --arena-ink: #183a2c;
+  --arena-ink-muted: #4e594c;
+  --arena-ambient: #f3edde;
+  --arena-panel: #fff8e9;
+  --arena-raised: #efe4d1;
+  --arena-accent: #1e5037;
+  --arena-accent-contrast: #fffaf0;
+  --arena-metal: #b58b47;
+  --arena-line: #c7b08b;
+  --arena-hero-ink: #142f25;
+  --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
+  --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --page: var(--arena-ambient);
+  --text: var(--arena-ink);
+  --surface: var(--arena-panel);
+  --surface-raised: var(--arena-raised);
+  --green: var(--arena-accent);
+  --green-dark: #17402c;
+  --gold: #96723a;
+  --line: var(--arena-line);
+  --muted: #65705e;
+  --ui-header: #eee5d5;
+  --ui-dialog: #fff8e9;
+  --ui-tint: #e9eadb;
+  --ui-selected: #d9e6d7;
+  --ui-gold-tint: #f2e3c4;
+  --ui-border: var(--arena-line);
+  --ui-heading: var(--arena-ink);
+  --ui-copy: var(--arena-ink-muted);
+  --ui-subtle: #5a685c;
+  --focus-ring: #946019;
+}
+:root[data-ui-theme='iron-ash'] {
+  color-scheme: dark;
+  --arena-ink: #f2eadf;
+  --arena-ink-muted: #c4ced0;
+  --arena-ambient: #13191d;
+  --arena-panel: #212b31;
+  --arena-raised: #2b363d;
+  --arena-accent: #e9c27e;
+  --arena-accent-contrast: #201b14;
+  --arena-metal: #c69c5c;
+  --arena-line: #56646a;
+  --arena-hero-ink: #f1e7d6;
+  --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
+  --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --page: var(--arena-ambient);
+  --text: var(--arena-ink);
+  --surface: var(--arena-panel);
+  --surface-raised: var(--arena-raised);
+  --green: var(--arena-accent);
+  --green-dark: #f5d69c;
+  --gold: #e9c27e;
+  --line: var(--arena-line);
+  --muted: #b1bcc0;
+  --ui-header: #1b2328;
+  --ui-dialog: #232c32;
+  --ui-tint: #323e46;
+  --ui-selected: #4a4032;
+  --ui-gold-tint: #443a2b;
+  --ui-border: var(--arena-line);
+  --ui-heading: var(--arena-ink);
+  --ui-copy: var(--arena-ink-muted);
+  --ui-subtle: #b7c4c2;
+  --focus-ring: #f1cc82;
+}
+:root[data-ui-theme='saga-hall'] {
+  color-scheme: dark;
+  --arena-ink: #f8ead4;
+  --arena-ink-muted: #e0cdb1;
+  --arena-ambient: #1d1714;
+  --arena-panel: #33271f;
+  --arena-raised: #483328;
+  --arena-accent: #e9bf79;
+  --arena-accent-contrast: #24170f;
+  --arena-metal: #cda064;
+  --arena-line: #927050;
+  --arena-hero-ink: #f5dec1;
+  --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
+  --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --page: var(--arena-ambient);
+  --text: var(--arena-ink);
+  --surface: var(--arena-panel);
+  --surface-raised: var(--arena-raised);
+  --green: var(--arena-accent);
+  --green-dark: #f5d7a0;
+  --gold: #efc481;
+  --line: var(--arena-line);
+  --muted: #d2bda2;
+  --ui-header: #281d18;
+  --ui-dialog: #35271f;
+  --ui-tint: #473326;
+  --ui-selected: #5a3829;
+  --ui-gold-tint: #634731;
+  --ui-border: var(--arena-line);
+  --ui-heading: var(--arena-ink);
+  --ui-copy: var(--arena-ink-muted);
+  --ui-subtle: #dcc9ad;
+  --focus-ring: #f3d397;
+}
+
+:root[data-ui-theme] {
+  background: var(--arena-ambient);
+  color: var(--arena-ink);
+}
+:root[data-ui-theme] body {
+  background-color: var(--arena-ambient);
+}
+/* Scoped components that an agent may reuse; do not blanket-style every panel until
+ * checking contrast and specific gameplay/training layouts. */
+.arena-surface {
+  background-color: var(--arena-panel);
+  color: var(--arena-ink);
+  border: 1px solid var(--arena-line);
+  border-radius: 12px;
+  box-shadow: 0 4px 18px #0002;
+  min-width: 0;
+}
+.arena-textured {
+  background-image: linear-gradient(to bottom, #0000, #00000009), var(--arena-texture);
+  background-repeat: no-repeat, repeat;
+}
+.arena-primary-action {
+  background: var(--arena-accent);
+  color: var(--arena-accent-contrast);
+  border: 1px solid var(--arena-metal);
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.arena-primary-action:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+:root[data-ui-theme='saga-hall'] .arena-surface {
+  box-shadow:
+    inset 0 0 0 1px #efb97425,
+    0 5px 24px #0005;
+}
+:root[data-ui-theme='iron-ash'] .arena-surface {
+  box-shadow:
+    inset 0 1px 0 #effaff0f,
+    0 5px 18px #0004;
+}
+/* Respect reduced motion and all three density settings. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-theme] .arena-surface,
+  :root[data-ui-theme] .arena-primary-action {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}
+/* A named theme owns the shell surface treatment, including the legacy wood
+ * overlays: drop those background images so the theme's panel color is not
+ * mixed with the old timber texture. Mode, tokens, board and density stay
+ * independent and the board palette is untouched. */
+:root[data-ui-theme] .panel,
+:root[data-ui-theme] .metric,
+:root[data-ui-theme] .welcome-panel,
+:root[data-ui-theme] .modal {
+  background-image: none;
+}

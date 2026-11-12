@@ -7,6 +7,7 @@ import { I18nProvider } from './i18n';
 import { NotificationProvider } from './notifications';
 import './style.css';
 import './appearance.css';
+import './arena-themes.css';
 import './identity.css';
 import './ui.css';
 

@@ -624,4 +624,34 @@
     height: 38px;
   }
 }
+/* Named UI-theme swatches. Colors mirror arena-themes.css so the choice is
+   previewable before the theme is applied to the document root. */
+.appearance-themes {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.theme-preview {
+  width: 100%;
+  height: 46px;
+  margin: 6px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #0000000f;
+}
+.theme-preview-default {
+  background: linear-gradient(135deg, #f6f5ef 50%, #151d19 50%);
+}
+.theme-preview-kings-table {
+  background: linear-gradient(135deg, #f3edde 55%, #1e5037 55%);
+}
+.theme-preview-iron-ash {
+  background: linear-gradient(135deg, #13191d 55%, #e9c27e 55%);
+}
+.theme-preview-saga-hall {
+  background: linear-gradient(135deg, #1d1714 55%, #e9bf79 55%);
+}
+@media (max-width: 760px) {
+  .appearance-themes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 /* Keep navigation and language/appearance controls inside tablet viewports. */

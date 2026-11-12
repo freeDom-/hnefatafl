@@ -1,0 +1,99 @@
+/* Arena/Workshop shell: skip link, workspace switch and mobile bottom navigation. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  z-index: 100;
+  padding: 10px 16px;
+  border: 1px solid var(--ui-border, #e2e4d8);
+  border-radius: 0 0 8px 0;
+  background: var(--surface, #fffefa);
+  color: var(--text, #26352e);
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+.workspace-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  min-height: 36px;
+  padding: var(--pad-control);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--green);
+  font-size: var(--text-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.workspace-switch svg {
+  width: 16px;
+  height: 16px;
+}
+.workspace-switch:hover {
+  background: var(--surface-raised);
+}
+.workspace-switch[aria-pressed='true'] {
+  border-color: var(--green);
+  color: var(--green-dark);
+  background: var(--surface-raised);
+}
+
+.arena-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
+  .arena-bottom-nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 30;
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    border-top: 1px solid var(--line);
+    background: var(--ui-header, #fbfaf5);
+  }
+  .arena-bottom-nav a {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 56px;
+    padding: 6px 4px;
+    border-top: 2px solid transparent;
+    color: var(--ui-copy, #81877a);
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .arena-bottom-nav a[aria-current='page'] {
+    border-top-color: var(--green);
+    color: var(--green);
+  }
+  .arena-bottom-nav svg {
+    width: 20px;
+    height: 20px;
+  }
+  /* Leave room for the fixed bar, but never cover the board during gameplay. */
+  body:not(:has(.game-layout)) {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+  #root:has(.game-layout) .arena-bottom-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-switch > span {
+    display: none;
+  }
+}

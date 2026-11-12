@@ -1,4 +1,4 @@
-import SiteHeader from './SiteHeader';
+import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
 import NewGame from './NewGame';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
@@ -487,237 +487,237 @@ export default function App() {
     />
   );
   const agentAnalysis = game && analysis.show ? <AgentAnalysis game={game} {...analysis} /> : null;
+  const workshop = tab === 'training' || tab === 'tournaments';
+  const shellCurrent = tab === 'online' ? 'play' : tab;
+  const Shell = workshop ? WorkshopShell : ArenaShell;
 
   return (
     <PlayTabsProvider key={account?.id}>
-      <SiteHeader account={account} logout={logout} current={tab === 'online' ? 'play' : tab} />
-      <main>
-        {tab === 'statistics' && <StatisticsPage />}
-        {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
-        {tab === 'play' &&
-          (playEntry ? (
-            <PlayLanding onNewSingle={startSinglePlayer} creatingSingle={newOpen} />
-          ) : (
-            <PlayPage className="play-page" heading={t('Single player game')}>
-              {initializing ? (
-                <div className="empty-state">
-                  <div className="spinner" />
-                  <h2>{t('Setting the table…')}</h2>
-                </div>
-              ) : !game ? (
-                <section className="welcome-panel">
-                  <div className="welcome-rune">ᛟ</div>
-                  <h2>{t('The king awaits.')}</h2>
-                  <p>
-                    {t(
-                      'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
-                    )}
-                  </p>
-                  <button className="button primary" onClick={() => navigate('/dashboard')}>
-                    {t('Back to dashboard')}
-                    <span aria-hidden="true">↗</span>
-                  </button>
-                  <div className="variant-pills">
-                    {rulesets.map((r) => (
-                      <span key={r.id}>
-                        {t(r.name)}{' '}
-                        <small>
-                          {r.size} × {r.size}
-                        </small>
-                      </span>
-                    ))}
+      <Shell account={account} logout={logout} current={shellCurrent}>
+        <main id={SHELL_MAIN_ID} tabIndex={-1}>
+          {tab === 'statistics' && <StatisticsPage />}
+          {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
+          {tab === 'play' &&
+            (playEntry ? (
+              <PlayLanding onNewSingle={startSinglePlayer} creatingSingle={newOpen} />
+            ) : (
+              <PlayPage className="play-page" heading={t('Single player game')}>
+                {initializing ? (
+                  <div className="empty-state">
+                    <div className="spinner" />
+                    <h2>{t('Setting the table…')}</h2>
                   </div>
-                </section>
-              ) : (
-                <GameLayout
-                  key={game.id}
-                  switcher={switcher}
-                  desktop={{
-                    sidebar: (
+                ) : !game ? (
+                  <section className="welcome-panel">
+                    <div className="welcome-rune">ᛟ</div>
+                    <h2>{t('The king awaits.')}</h2>
+                    <p>
+                      {t(
+                        'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
+                      )}
+                    </p>
+                    <button className="button primary" onClick={() => navigate('/dashboard')}>
+                      {t('Back to dashboard')}
+                      <span aria-hidden="true">↗</span>
+                    </button>
+                    <div className="variant-pills">
+                      {rulesets.map((r) => (
+                        <span key={r.id}>
+                          {t(r.name)}{' '}
+                          <small>
+                            {r.size} × {r.size}
+                          </small>
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                ) : (
+                  <GameLayout
+                    key={game.id}
+                    switcher={switcher}
+                    desktop={{
+                      sidebar: (
+                        <>
+                          {gameDetails}
+                          {armies}
+                        </>
+                      ),
+                      analytics: (
+                        <>
+                          {agentAnalysis}
+                          {analyticsSettings}
+                        </>
+                      ),
+                      moveCount: game.total_moves,
+                    }}
+                    mobile={{
+                      title:
+                        game.ruleset === 'tablut'
+                          ? t('Tablut')
+                          : game.ruleset === 'copenhagen'
+                            ? t('Copenhagen')
+                            : t(activeRules?.name ?? game.ruleset),
+                      subtitle: (
+                        <>
+                          {game.size} × {game.size} ·{' '}
+                          {outcome
+                            ? outcome === 'draw'
+                              ? t('Draw')
+                              : t('{side} win', { side: t(titles[outcome]) })
+                            : t('{side} to move', { side: t(titles[game.turn]) })}{' '}
+                          · {t('Move')} {game.cursor}
+                        </>
+                      ),
+                      players: armies,
+                      analytics: agentAnalysis,
+                      settings: analyticsSettings,
+                      moveCount: game.total_moves,
+                    }}
+                    sidebar={
                       <>
                         {gameDetails}
                         {armies}
-                      </>
-                    ),
-                    analytics: (
-                      <>
                         {agentAnalysis}
-                        {analyticsSettings}
-                      </>
-                    ),
-                    moveCount: game.total_moves,
-                  }}
-                  mobile={{
-                    title:
-                      game.ruleset === 'tablut'
-                        ? t('Tablut')
-                        : game.ruleset === 'copenhagen'
-                          ? t('Copenhagen')
-                          : t(activeRules?.name ?? game.ruleset),
-                    subtitle: (
-                      <>
-                        {game.size} × {game.size} ·{' '}
-                        {outcome
-                          ? outcome === 'draw'
-                            ? t('Draw')
-                            : t('{side} win', { side: t(titles[outcome]) })
-                          : t('{side} to move', { side: t(titles[game.turn]) })}{' '}
-                        · {t('Move')} {game.cursor}
-                      </>
-                    ),
-                    players: armies,
-                    analytics: agentAnalysis,
-                    settings: analyticsSettings,
-                    moveCount: game.total_moves,
-                  }}
-                  sidebar={
-                    <>
-                      {gameDetails}
-                      {armies}
-                      {agentAnalysis}
-                      <div className="strategy-note">
-                        <span aria-hidden="true">ᛉ</span>
-                        <p>
-                          {game.turn === 'attackers'
-                            ? t('Close the circle. Cut off the king’s path to freedom.')
-                            : t('Protect the king. Find the opening in the siege.')}
-                        </p>
-                      </div>
-                    </>
-                  }
-                  battlefield={
-                    <Battlefield
-                      label={t('Game')}
-                      board={
-                        <Board
-                          game={game}
-                          selected={selected}
-                          onSelect={selectSquare}
-                          disabled={busy || !mayPlay || !!game.winner || !!game.recorded_winner}
-                          readOnly={playHistory.reviewing || !mayPlay}
-                          hint={analysis.report?.hint?.move ?? null}
-                        />
-                      }
-                    />
-                  }
-                  history={
-                    <HistoryPanel
-                      status={
-                        playHistory.reviewing && (
-                          <div className="history-review-status">
-                            <span>{t('Read-only history')}</span>
-                            <button
-                              className="button secondary small"
-                              onClick={() => void returnToLive()}
-                              disabled={busy}
-                            >
-                              {t('Return to live board')}
-                            </button>
-                            {playHistory.loading && (
-                              <span role="status">{t('Loading history…')}</span>
-                            )}
-                            {playHistory.error && (
-                              <>
-                                <span role="alert">{t('Replay unavailable.')}</span>
-                                <button className="text-button" onClick={playHistory.retry}>
-                                  {t('Retry')}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )
-                      }
-                      count={game.total_moves}
-                      entries={game.moves.map((move, i) => ({
-                        ply: i + 1,
-                        notation:
-                          move.notation ??
-                          `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
-                        side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
-                        current: i === game.cursor - 1,
-                        future: i >= game.cursor,
-                        onSeek: () => showHistory(i + 1),
-                        disabled: busy,
-                      }))}
-                      startAction={{
-                        onClick: () => showHistory(0),
-                        disabled: busy || game.cursor === 0,
-                      }}
-                      footer={
-                        <div className="history-footer">
-                          <span className="status-dot" /> {t('Game saved automatically')}
+                        <div className="strategy-note">
+                          <span aria-hidden="true">ᛉ</span>
+                          <p>
+                            {game.turn === 'attackers'
+                              ? t('Close the circle. Cut off the king’s path to freedom.')
+                              : t('Protect the king. Find the opening in the siege.')}
+                          </p>
                         </div>
-                      }
-                    >
-                      {analyticsSettings}
-                    </HistoryPanel>
-                  }
-                />
-              )}
-            </PlayPage>
-          ))}
-        {tab === 'online' && <Online />}
-        {tab === 'leaderboard' && <Leaderboard />}
-        {tab === 'profile' && <ProfilePage />}
-        {tab === 'archive' && <Archive />}
-        {tab === 'tournaments' && permissions.includes('tournaments') && (
-          <Tournaments
+                      </>
+                    }
+                    battlefield={
+                      <Battlefield
+                        label={t('Game')}
+                        board={
+                          <Board
+                            game={game}
+                            selected={selected}
+                            onSelect={selectSquare}
+                            disabled={busy || !mayPlay || !!game.winner || !!game.recorded_winner}
+                            readOnly={playHistory.reviewing || !mayPlay}
+                            hint={analysis.report?.hint?.move ?? null}
+                          />
+                        }
+                      />
+                    }
+                    history={
+                      <HistoryPanel
+                        status={
+                          playHistory.reviewing && (
+                            <div className="history-review-status">
+                              <span>{t('Read-only history')}</span>
+                              <button
+                                className="button secondary small"
+                                onClick={() => void returnToLive()}
+                                disabled={busy}
+                              >
+                                {t('Return to live board')}
+                              </button>
+                              {playHistory.loading && (
+                                <span role="status">{t('Loading history…')}</span>
+                              )}
+                              {playHistory.error && (
+                                <>
+                                  <span role="alert">{t('Replay unavailable.')}</span>
+                                  <button className="text-button" onClick={playHistory.retry}>
+                                    {t('Retry')}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )
+                        }
+                        count={game.total_moves}
+                        entries={game.moves.map((move, i) => ({
+                          ply: i + 1,
+                          notation:
+                            move.notation ??
+                            `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
+                          side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
+                          current: i === game.cursor - 1,
+                          future: i >= game.cursor,
+                          onSeek: () => showHistory(i + 1),
+                          disabled: busy,
+                        }))}
+                        startAction={{
+                          onClick: () => showHistory(0),
+                          disabled: busy || game.cursor === 0,
+                        }}
+                        footer={
+                          <div className="history-footer">
+                            <span className="status-dot" /> {t('Game saved automatically')}
+                          </div>
+                        }
+                      >
+                        {analyticsSettings}
+                      </HistoryPanel>
+                    }
+                  />
+                )}
+              </PlayPage>
+            ))}
+          {tab === 'online' && <Online />}
+          {tab === 'leaderboard' && <Leaderboard />}
+          {tab === 'profile' && <ProfilePage />}
+          {tab === 'archive' && <Archive />}
+          {tab === 'tournaments' && permissions.includes('tournaments') && (
+            <Tournaments
+              rulesets={rulesets}
+              profiles={profiles}
+              models={models}
+              onError={reportError}
+            />
+          )}
+          {tab === 'training' && permissions.includes('training') && (
+            <Training
+              rulesets={rulesets}
+              models={models}
+              onModelsChanged={() => void refreshOptions().catch((e) => reportError(e))}
+              onGamesDeleted={removeGames}
+              onError={reportError}
+            />
+          )}
+        </main>
+        {tab !== 'online' && newOpen && (
+          <NewGame
             rulesets={rulesets}
             profiles={profiles}
             models={models}
-            onError={reportError}
+            onRefreshModels={refreshModels}
+            initialRuleset={
+              rulesets.find(
+                (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
+              )?.id ?? game?.ruleset
+            }
+            onClose={() => setNewOpen(false)}
+            onCreated={(next) => {
+              currentGame.current = next;
+              loadedRoute.current = next.id;
+              setGame(next);
+              setSelected(null);
+              setAiRetryDelay(900);
+              setNewOpen(false);
+              setInitializing(false);
+              navigate(`/games/${next.id}`);
+            }}
           />
         )}
-        {tab === 'training' && permissions.includes('training') && (
-          <Training
-            rulesets={rulesets}
-            models={models}
-            onModelsChanged={() => void refreshOptions().catch((e) => reportError(e))}
-            onGamesDeleted={removeGames}
-            onError={reportError}
-          />
+        {tab !== 'online' && rulesOpen && activeRules && (
+          <Modal
+            title={t('{name} rules', { name: t(activeRules.name) })}
+            onClose={() => setRulesOpen(false)}
+          >
+            <article className="rules-document">
+              <ReactMarkdown>
+                {localizedRules(activeRules.id, activeRules.rules_markdown)}
+              </ReactMarkdown>
+            </article>
+          </Modal>
         )}
-      </main>
-      <footer className="site-footer">
-        <span>{t('ᛟ HNEFATAFL')}</span>
-        <p>{t('An ancient game. An open horizon.')}</p>
-        <span>{t('Made for thoughtful moves.')}</span>
-      </footer>
-      {tab !== 'online' && newOpen && (
-        <NewGame
-          rulesets={rulesets}
-          profiles={profiles}
-          models={models}
-          onRefreshModels={refreshModels}
-          initialRuleset={
-            rulesets.find((rule) => rule.id === new URLSearchParams(location.search).get('ruleset'))
-              ?.id ?? game?.ruleset
-          }
-          onClose={() => setNewOpen(false)}
-          onCreated={(next) => {
-            currentGame.current = next;
-            loadedRoute.current = next.id;
-            setGame(next);
-            setSelected(null);
-            setAiRetryDelay(900);
-            setNewOpen(false);
-            setInitializing(false);
-            navigate(`/games/${next.id}`);
-          }}
-        />
-      )}
-      {tab !== 'online' && rulesOpen && activeRules && (
-        <Modal
-          title={t('{name} rules', { name: t(activeRules.name) })}
-          onClose={() => setRulesOpen(false)}
-        >
-          <article className="rules-document">
-            <ReactMarkdown>
-              {localizedRules(activeRules.id, activeRules.rules_markdown)}
-            </ReactMarkdown>
-          </article>
-        </Modal>
-      )}
+      </Shell>
     </PlayTabsProvider>
   );
 }

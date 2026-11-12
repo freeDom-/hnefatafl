@@ -16,6 +16,7 @@ import {
   DEFAULT_APPEARANCE,
   DENSITIES,
   TOKEN_THEMES,
+  UI_THEMES,
   parseAppearance,
   type Appearance,
   type ColorMode,
@@ -73,7 +74,12 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.dataset.density = appearance.density;
     root.dataset.tokenTheme = appearance.tokens;
     root.dataset.boardTheme = appearance.board;
-    root.style.colorScheme = resolvedMode === 'wood' ? 'dark' : resolvedMode;
+    // A named UI theme is applied only when the user explicitly chose one. With no
+    // attribute the existing data-color-mode surface treatment (including wood) applies.
+    if (appearance.uiTheme) root.dataset.uiTheme = appearance.uiTheme;
+    else delete root.dataset.uiTheme;
+    if (appearance.uiTheme) root.style.removeProperty('color-scheme');
+    else root.style.colorScheme = resolvedMode === 'wood' ? 'dark' : resolvedMode;
     const board = BOARD_THEMES.find((theme) => theme.id === appearance.board)!;
     for (const [key, value] of Object.entries(board.palette))
       root.style.setProperty(
@@ -262,6 +268,45 @@ export function AppearancePreferences() {
           'Choose the light, the pieces and the battlefield. Your games stay just as you left them.',
         )}
       </p>
+      <fieldset className="appearance-section">
+        <legend>{t('UI theme')}</legend>
+        <div className="appearance-choices appearance-themes">
+          <label
+            className={`appearance-choice ${appearance.uiTheme ? '' : 'chosen'}`}
+            key="default"
+          >
+            <input
+              type="radio"
+              name={`${groupId}-ui-theme`}
+              value=""
+              checked={!appearance.uiTheme}
+              onChange={() => updateAppearance({ uiTheme: undefined })}
+              aria-label={t('Appearance default')}
+            />
+            <span className="theme-preview theme-preview-default" aria-hidden="true" />
+            <strong>{t('Appearance default')}</strong>
+            <small>{t('Keeps the current color mode without a named theme')}</small>
+          </label>
+          {UI_THEMES.map((theme) => (
+            <label
+              className={`appearance-choice ${appearance.uiTheme === theme.id ? 'chosen' : ''}`}
+              key={theme.id}
+            >
+              <input
+                type="radio"
+                name={`${groupId}-ui-theme`}
+                value={theme.id}
+                checked={appearance.uiTheme === theme.id}
+                onChange={() => updateAppearance({ uiTheme: theme.id })}
+                aria-label={t(theme.name)}
+              />
+              <span className={`theme-preview theme-preview-${theme.id}`} aria-hidden="true" />
+              <strong>{t(theme.name)}</strong>
+              <small>{t(theme.description)}</small>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <fieldset className="appearance-section">
         <legend>{t('Color mode')}</legend>
         <div className="appearance-modes">

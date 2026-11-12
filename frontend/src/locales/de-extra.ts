@@ -1,4 +1,12 @@
 const translations: Record<string, string> = {
+  'Skip to main content': 'Zum Hauptinhalt springen',
+  'Mobile navigation': 'Mobile Navigation',
+  Home: 'Start',
+  Stats: 'Statistik',
+  Compete: 'Wettkampf',
+  Replays: 'Wiederholungen',
+  Workshop: 'Werkstatt',
+  Arena: 'Arena',
   'No games are currently running.': 'Derzeit laufen keine Partien.',
   'Your running games could not be loaded.':
     'Deine laufenden Partien konnten nicht geladen werden.',
