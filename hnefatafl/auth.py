@@ -380,8 +380,10 @@ grant(
     ),
 )
 grant("play", "GET", "/api/leaderboard")
-# Schema 17 progression: catalog metadata and own achievement progress.
+# Schema 17 progression: catalog metadata, a read-only own-progress read and an
+# explicit CSRF-protected confirmation of the awards the records already prove.
 grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
+grant("play", "POST", "/api/personal/achievements/confirm")
 grant("accounts", "POST", "/api/online/games/{game_id}/void")
 grant("accounts", "POST", "/api/online/ratings/rebuild")
 grant("accounts", "GET", "/api/online/timeout-gate")
@@ -484,9 +486,11 @@ class SecurityBoundary:
         permission = POLICY.get((method, route_path), "deny")
         online_mutation = method not in SAFE and route_path.startswith("/api/online/")
         profile_mutation = method not in SAFE and route_path.startswith("/api/profile")
+        personal_mutation = method not in SAFE and route_path.startswith("/api/personal/")
         if (
             (method == "POST" and route_path.startswith("/api/auth/"))
             or profile_mutation
+            or personal_mutation
             or online_mutation
         ):
             size_error = (
@@ -494,6 +498,8 @@ class SecurityBoundary:
                 if online_mutation
                 else "Profile request too large."
                 if profile_mutation
+                else "Progression request too large."
+                if personal_mutation
                 else "Login request too large"
             )
             try:

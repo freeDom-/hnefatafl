@@ -1,9 +1,10 @@
-"""Authenticated portrait catalog and own-achievement progress adapters.
+"""Authenticated portrait catalog, own-achievement progress and confirmation.
 
-Both reads are self-scoped: they take the session credential from the trusted
+The reads are self-scoped: they take the session credential from the trusted
 request context and never accept an account, entitlement or award from the
-client. Selecting a portrait is a profile mutation and lives with the other
-profile routes.
+client. Confirming awards is an explicit non-SAFE mutation (origin, CSRF, body
+size and the deployment freeze apply at the security boundary); selecting a
+portrait is a profile mutation and lives with the other profile routes.
 """
 
 import logging
@@ -48,3 +49,7 @@ def attach_progression(app, online):
     @app.get("/api/personal/achievements")
     def achievements():
         return execute("achievements", progression.achievements)
+
+    @app.post("/api/personal/achievements/confirm")
+    def confirm_achievements():
+        return execute("confirm_achievements", progression.confirm)

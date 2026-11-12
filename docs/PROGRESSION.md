@@ -13,7 +13,9 @@ grant itself a reward, supply a portrait image or read another account's progres
 Delivered:
 
 - `GET /api/portraits/catalog` — stable catalog IDs and metadata
-- `GET /api/personal/achievements` — own progress and confirmed awards
+- `GET /api/personal/achievements` — read-only own progress and confirmed awards
+- `POST /api/personal/achievements/confirm` — CSRF-protected confirmation of the
+  awards the authoritative records already prove
 - `PATCH /api/profile/portrait` — CSRF-protected selection of an earned portrait
 
 Deliberately out of scope: paid currency, any XP or soft-currency economy, client
@@ -42,8 +44,9 @@ artwork mapping and may localize labels, exactly like the ruleset catalog.
 
 Policy:
 
-- exactly one non-retired default portrait always exists; a database index enforces
-  it, so the catalog can never lose its always-available default
+- exactly one non-retired default portrait is declared in code, so the catalog can
+  never lose its always-available default (see
+  [catalog integrity guarantees](#catalog-integrity-guarantees))
 - a client sends a catalog ID only; there is no image, URL, path or MIME field
 - unknown and retired IDs are rejected (`422`); an ID that is not earned yet is
   rejected (`403`)
@@ -54,6 +57,45 @@ Policy:
   history, so a later catalog change cannot silently reinterpret an old grant
 - the catalog response excludes retired portraits, so it is never a list of
   unselectable IDs
+
+## Catalog integrity guarantees
+
+Uniqueness and existence are enforced by different layers, and neither can silently
+invalidate a stored selection:
+
+- **uniqueness is enforced by the database**: catalog IDs are `PRIMARY KEY`s, the
+  award and entitlement tables key on `(account_id, achievement_id)` and
+  `(account_id, portrait_id)`, and the partial unique index `portrait_catalog_default`
+  allows **at most one** non-retired always-available portrait. It can reject a
+  second default, but it cannot by itself guarantee that one exists.
+- **existence and validity are enforced by the validated code catalogs plus startup
+  seeding**: `_validate_catalogs()` runs at import and fails loudly if IDs are not
+  unique, if a criterion/category/scope is unknown, if a threshold is not positive,
+  if a portrait unlocks an unknown achievement, or if there is not **exactly one**
+  non-retired default. `seed_catalog()` then mirrors both catalogs into the database
+  on every startup with `INSERT ... ON CONFLICT DO UPDATE` and **never deletes a row**,
+  so a catalog row for a stored reference always exists and IDs are never removed.
+
+What that means for a stored selection (`account_portrait_selection`):
+
+- **evolution** (a renamed portrait, a changed unlock) updates the catalog row in
+  place without touching any ID, so the stored selection still resolves and its
+  entitlement history is unchanged
+- **retirement** only sets `retired=1`; the row and the selection are retained, so
+  the stored selection is unpublished while retired (the default is published
+  instead) and would resolve again if the portrait were ever un-retired. `select()`
+  rejects a retired ID, so it can never be re-selected in the meantime.
+- **default replacement** must keep the previous default as a retired entry: if a new
+  default were seeded while the old default row is still non-retired, the partial
+  unique index aborts the startup loudly instead of leaving the catalog without a
+  usable default. `seed_catalog()` writes the default last so the retiring and
+  replacement rows never both count as non-retired within one transaction.
+- a stored selection whose portrait is somehow absent from the catalog still falls
+  back to the default, because `selected_portrait_id` joins `portrait_catalog` rather
+  than trusting the raw id.
+
+No schema migration is added for this: the existing constraints and the code
+catalog already cover the invariants, so there is no actual failure to repair.
 
 ## Achievement catalog
 
@@ -93,16 +135,21 @@ Awards are derived from authoritative records only:
 Unrated/casual games, unfinished games, AI-vs-AI self-play, another account's games
 and client-supplied claims never contribute.
 
-Confirmation is idempotent and permanent:
+Confirmation is explicit, idempotent and permanent:
 
-- reading own progress confirms every milestone the authoritative records already
-  prove inside one write transaction; the award key is `(account_id, achievement_id)`
-  with `INSERT OR IGNORE`, so a repeated read, a duplicated result update, a replay
-  or a pool rebuild can never duplicate a reward
+- the read never writes: `GET /api/personal/achievements` only projects the
+  catalog, the account's already-confirmed awards and the progress it derives, so
+  it is safe as a repeatable `GET`
+- an explicit `POST /api/personal/achievements/confirm` evaluates the same records
+  and confirms every milestone they already prove inside one `BEGIN IMMEDIATE`
+  transaction, then returns the same projection; the award key is
+  `(account_id, achievement_id)` with `INSERT OR IGNORE`, so a repeated
+  confirmation, a duplicated result update, a replay or a pool rebuild can never
+  duplicate a reward
 - confirmed awards and granted portraits are append-only: no update or delete path
   exists, so a later void or correction never revokes an unlock
-- a result withdrawn **before** the first read never awards anything, so a leaked or
-  voided result cannot hand out a reward
+- a result withdrawn **before** the first confirmation never awards anything, so a
+  leaked or voided result cannot hand out a reward
 - `awarded_at` is the server time of first confirmation, not the source event time;
   the source evidence remains the ledger or the completed game record
 - `progress` is the current derived count and may later fall below the threshold
@@ -119,7 +166,7 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 - a changed name, unlock or retirement is applied to the stored catalog row on the
   next startup without renumbering any ID, and the published catalog version is
   bumped in code when the catalog changes
-- an existing account's first progress read confirms only milestones its
+- an existing account's first confirmation confirms only milestones its
   authoritative records already prove (for example historical rated wins in the
   retained rating ledger or completed owned account games); nothing is invented
   from missing evidence, and no milestone is granted from a claim, a seed or an
@@ -134,20 +181,29 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 | Method/path | Permission | Behavior |
 | --- | --- | --- |
 | `GET /api/portraits/catalog` | `play` | `catalog_version`, `default_portrait_id`, `items[{id,name,unlock_achievement_id}]` |
-| `GET /api/personal/achievements` | `play` | own `items` with `progress`, `unlocked`, `awarded_at`, `portrait_id`, plus `summary` and `as_of` |
+| `GET /api/personal/achievements` | `play` | read-only own `items` with `progress`, `unlocked`, `awarded_at`, `portrait_id`, plus `summary` and `as_of` |
+| `POST /api/personal/achievements/confirm` | `play` | confirms the awards the records already prove; returns the same projection as the read |
 | `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; returns the profile projection |
 
-- all three routes require a current authenticated session and take the account from
-  that session; none accepts an account parameter
-- the selection mutation keeps the existing origin, CSRF, body-size and deployment
+- all four routes require a current authenticated session and take the account from
+  that session; none accepts an account parameter, so a client can never confirm or
+  read another account's awards
+- `GET /api/personal/achievements` is a pure projection: it opens a read transaction
+  and never inserts, updates or deletes, so a top-level cross-site `GET` cannot
+  confirm an award
+- `POST /api/personal/achievements/confirm` is a non-SAFE mutation, so the security
+  boundary requires the matching origin and `X-CSRF-Token`, bounds the request body
+  and refuses it (`503`) during a deployment freeze before it reaches the service
+- the selection mutation keeps the same origin, CSRF, body-size and deployment
   freeze checks, and strict request allowlists reject unknown fields (`422`)
 - unknown, retired and URL-shaped IDs return `422`; a not-yet-earned ID returns
   `403`; a missing session returns `401`
 - the profile projection publishes the effective `portrait_id` only — the stored
   selection while the catalog still offers it, otherwise the default. Detailed
   achievement progress stays private to `GET /api/personal/achievements`
-- `GET /api/personal/achievements` is a read that confirms awards, so it is listed as
-  persistent state in the [endpoint inventory](API_PERMISSIONS.json)
+- `POST /api/personal/achievements/confirm` is the only route that confirms awards,
+  so it is the one listed as persistent state in the
+  [endpoint inventory](API_PERMISSIONS.json); the read is not
 
 ### Empty states
 
@@ -166,6 +222,9 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 - `GET /api/personal/achievements` is the lock explanation and the entitlement
   source: a portrait is selectable when it is the default or when its unlocking
   achievement reports `unlocked: true`
+- F4 must persist a new unlock with `POST /api/personal/achievements/confirm`; the
+  read alone never confirms anything, so the UI confirms first (for example when the
+  achievements view opens) and renders the projection that comes back
 - `PATCH /api/profile/portrait` returns the same projection as `GET /api/profile`, so
   the client can update its profile state from one response
 - never derive an unlock from client state or a local "best streak"; the backend
@@ -173,8 +232,9 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 
 ## Known limitations
 
-- awards are confirmed when progress is first read (or first selected), not by a
-  background job, so `awarded_at` is the confirmation time
+- awards are confirmed by an explicit `POST /api/personal/achievements/confirm` (or
+  when a portrait is first selected), not by a background job, so `awarded_at` is
+  the confirmation time and the read never confirms anything
 - no unlock notification, history entry or audit trail beyond the confirmed award row
 - only the aggregate best rated win streak has achievements; per-ruleset streaks stay
   a progress projection

@@ -14,7 +14,6 @@ scope, and a milestone that was already confirmed is never revoked.
 
 from __future__ import annotations
 
-import fcntl
 import sqlite3
 from dataclasses import dataclass
 
@@ -381,9 +380,10 @@ class Progression:
     def _materialize(self, c: sqlite3.Connection, account_id: str, now: int) -> None:
         """Confirm every milestone the authoritative records already prove.
 
-        Idempotent: a repeated read, a duplicated result update or a rebuilt pool
-        can only re-insert the same primary keys, so an award is written once and
-        an award that was already granted is never removed by a later correction.
+        Idempotent: a repeated confirmation, a duplicated result update or a
+        rebuilt pool can only re-insert the same primary keys, so an award is
+        written once and an award that was already granted is never removed by a
+        later correction.
         """
         cache: dict = {}
         for achievement in ACHIEVEMENTS:
@@ -406,59 +406,76 @@ class Progression:
             (account_id, now, account_id),
         )
 
+    def _projection(self, c: sqlite3.Connection, account_id: str, now: int) -> dict:
+        """Complete own progress from stored awards and authoritative records.
+
+        Read-only: it never confirms an award or writes anything, so the caller
+        owns the transaction it runs in. ``now`` is the server time reported as
+        ``as_of`` and is the confirmation time when a caller confirms first.
+        """
+        awards = {
+            row["achievement_id"]: row["awarded_at"]
+            for row in c.execute(
+                "SELECT achievement_id,awarded_at FROM achievement_awards WHERE account_id=?",
+                (account_id,),
+            )
+        }
+        cache: dict = {}
+        items = []
+        for achievement in ACHIEVEMENTS:
+            awarded_at = awards.get(achievement.id)
+            items.append(
+                {
+                    "id": achievement.id,
+                    "name": achievement.name,
+                    "description": achievement.description,
+                    "category": achievement.category,
+                    "scope": achievement.scope,
+                    "threshold": achievement.threshold,
+                    "progress": self._measure(c, account_id, achievement, cache),
+                    "unlocked": awarded_at is not None,
+                    "awarded_at": stamp(instant(awarded_at)) if awarded_at is not None else None,
+                    "portrait_id": PORTRAIT_BY_ACHIEVEMENT.get(achievement.id),
+                }
+            )
+        return {
+            "catalog_version": ACHIEVEMENT_CATALOG_VERSION,
+            "portrait_catalog_version": PORTRAIT_CATALOG_VERSION,
+            "items": items,
+            "summary": {
+                "unlocked": sum(1 for item in items if item["unlocked"]),
+                "total": len(items),
+            },
+            "as_of": stamp(instant(now)),
+        }
+
     def achievements(self, credential: str) -> dict:
-        """Complete own progress; a fresh account receives every item at zero."""
-        # Reading progress confirms awards, so it is a write and obeys the same
-        # deployment freeze as OnlineCore._write and the HTTP middleware.
-        with self.online.auth.gate_path.open("rb") as gate:
-            try:
-                fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise OnlineError(503, "Deployment in progress. Please retry shortly.") from None
-            with self.store.connection() as c:
-                # It also takes the writer lock and commits the confirmations
-                # together with the projection it returns.
-                c.execute("BEGIN IMMEDIATE")
-                account = self.online._identity(c, credential)
-                now = micros(self.online.clock())
-                self._materialize(c, account["id"], now)
-                awards = {
-                    row["achievement_id"]: row["awarded_at"]
-                    for row in c.execute(
-                        "SELECT achievement_id,awarded_at FROM achievement_awards WHERE account_id=?",
-                        (account["id"],),
-                    )
-                }
-                cache: dict = {}
-                items = []
-                for achievement in ACHIEVEMENTS:
-                    awarded_at = awards.get(achievement.id)
-                    items.append(
-                        {
-                            "id": achievement.id,
-                            "name": achievement.name,
-                            "description": achievement.description,
-                            "category": achievement.category,
-                            "scope": achievement.scope,
-                            "threshold": achievement.threshold,
-                            "progress": self._measure(c, account["id"], achievement, cache),
-                            "unlocked": awarded_at is not None,
-                            "awarded_at": stamp(instant(awarded_at))
-                            if awarded_at is not None
-                            else None,
-                            "portrait_id": PORTRAIT_BY_ACHIEVEMENT.get(achievement.id),
-                        }
-                    )
-                return {
-                    "catalog_version": ACHIEVEMENT_CATALOG_VERSION,
-                    "portrait_catalog_version": PORTRAIT_CATALOG_VERSION,
-                    "items": items,
-                    "summary": {
-                        "unlocked": sum(1 for item in items if item["unlocked"]),
-                        "total": len(items),
-                    },
-                    "as_of": stamp(instant(now)),
-                }
+        """Read-only own progress; a fresh account receives every item at zero.
+
+        Confirmation is a separate, explicit operation (``confirm``), so this
+        read never mutates state and is safe as an idempotent GET. Progress is
+        derived live, so an award already confirmed by ``confirm`` is still
+        reported as ``unlocked``.
+        """
+        with self.store.connection() as c:
+            c.execute("BEGIN")
+            account = self.online._identity(c, credential)
+            return self._projection(c, account["id"], micros(self.online.clock()))
+
+    def confirm(self, credential: str) -> dict:
+        """Confirm every milestone the authoritative records already prove.
+
+        The whole confirmation runs inside one ``BEGIN IMMEDIATE`` and returns
+        the same projection as the read. It is a state change, so the HTTP
+        boundary requires a non-SAFE method (origin, CSRF, body size) and obeys
+        the deployment freeze before this is reached.
+        """
+        with self.store.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            account = self.online._identity(c, credential)
+            now = micros(self.online.clock())
+            self._materialize(c, account["id"], now)
+            return self._projection(c, account["id"], now)
 
     def select(self, c: sqlite3.Connection, account_id: str, portrait_id: str) -> str:
         """Select an earned, currently offered portrait inside the caller's write.

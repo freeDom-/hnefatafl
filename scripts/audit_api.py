@@ -11,9 +11,6 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--write", action="store_true")
 args = parser.parse_args()
 previous = os.environ.get("HNEFATAFL_DATA_DIR")
-# GET routes that also persist derived state: reading personal achievements
-# confirms idempotent award and entitlement rows.
-PERSISTENT_READS = {"/api/personal/achievements"}
 with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
     os.environ["HNEFATAFL_DATA_DIR"] = root
     from hnefatafl.auth import POLICY
@@ -32,7 +29,6 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                 "authentication": "worker bearer + lease" if permission == "worker" else "public" if permission == "public" else "session",
                 "permission": permission,
                 "persistent_state": method not in {"GET", "HEAD", "OPTIONS"}
-                or route.path in PERSISTENT_READS
                 or (
                     not route.path.startswith(
                         ("/api/online/", "/api/personal/", "/api/history/", "/api/profile")

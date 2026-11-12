@@ -428,6 +428,14 @@
     "route": "/api/personal/achievements",
     "authentication": "session",
     "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/personal/achievements/confirm",
+    "authentication": "session",
+    "permission": "play",
     "persistent_state": true,
     "user_specific": true
   },

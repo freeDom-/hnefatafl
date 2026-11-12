@@ -2,7 +2,9 @@
 
 Awards are derived from authoritative records only. These tests drive real rated
 games, real voids/corrections, real account games and real sessions, and assert
-that a reward is confirmed at most once and never revoked or leaked.
+that the progress read is read-only, that confirmation is an explicit
+CSRF-protected operation, and that a reward is confirmed at most once and never
+revoked or leaked.
 """
 
 import fcntl
@@ -49,6 +51,26 @@ def items_of(payload):
 
 def progression(rig):
     return Progression(rig.core)
+
+
+def confirm(client):
+    """The explicit CSRF-protected confirmation; returns its projection."""
+    response = client.post("/api/personal/achievements/confirm")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def progression_rows(store):
+    """Every stored award, entitlement and selection row, order-stable."""
+    with store.connection() as c:
+        return {
+            table: [tuple(row) for row in c.execute(f"SELECT * FROM {table} ORDER BY 1")]
+            for table in (
+                "achievement_awards",
+                "account_portraits",
+                "account_portrait_selection",
+            )
+        }
 
 
 def login(client, name="Archer"):
@@ -155,6 +177,7 @@ def test_progression_reads_require_a_current_authenticated_session(web):
     with TestClient(app) as anonymous:
         assert anonymous.get("/api/portraits/catalog").status_code == 401
         assert anonymous.get("/api/personal/achievements").status_code == 401
+        assert anonymous.post("/api/personal/achievements/confirm").status_code == 401
         assert (
             anonymous.patch(
                 "/api/profile/portrait", json={"portrait_id": "shieldbearer"}, headers=ORIGIN
@@ -163,15 +186,18 @@ def test_progression_reads_require_a_current_authenticated_session(web):
         )
 
 
-def test_achievement_read_confirms_awards_only_outside_the_deployment_freeze(web):
+def test_achievement_read_stays_available_under_the_freeze_but_confirmation_does_not(web):
     app, client = web
     with app.state.auth.gate_path.open("rb") as gate:
         fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        # The read confirms awards, so a frozen deployment refuses it like a write.
-        assert client.get("/api/personal/achievements").status_code == 503
+        # The read is read-only, so a frozen deployment still serves it.
+        assert client.get("/api/personal/achievements").status_code == 200
+        # Confirmation is a non-SAFE mutation, so the freeze refuses it like a write.
+        assert client.post("/api/personal/achievements/confirm").status_code == 503
         # A pure catalog read writes nothing and stays available under the freeze.
         assert client.get("/api/portraits/catalog").status_code == 200
     assert client.get("/api/personal/achievements").status_code == 200
+    assert client.post("/api/personal/achievements/confirm").status_code == 200
 
 
 def test_achievement_empty_state_lists_every_milestone_at_zero(web):
@@ -188,12 +214,68 @@ def test_achievement_empty_state_lists_every_milestone_at_zero(web):
     )
     assert payload["summary"] == {"unlocked": 0, "total": len(ACHIEVEMENTS)}
     assert payload["as_of"].endswith("Z")
-    # A fresh account confirms nothing: no award, entitlement or selection exists.
+    # A fresh account's read confirms nothing: no award, entitlement or selection.
     with app.state.store.connection() as c:
         for table in ("achievement_awards", "account_portraits", "account_portrait_selection"):
             assert c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
     assert by_progress(payload, "ai-first-victory")["portrait_id"] == "forge-keeper"
     assert by_progress(payload, "local-first-game")["portrait_id"] is None
+
+
+def test_achievement_read_never_writes_and_confirmation_is_the_only_write(rig):
+    # The authoritative ledger already proves the milestone, but the read only
+    # projects it: no award, entitlement or selection row is created.
+    finish(rig, active(rig), "attackers")
+    before = progression_rows(rig.store)
+    read = items_of(progression(rig).achievements(rig.credentials["Archer"]))
+    assert read["first-rated-win"]["progress"] == 1
+    assert read["first-rated-win"]["unlocked"] is False
+    assert progression_rows(rig.store) == before
+    # Only the explicit confirmation writes, and it returns the same projection.
+    confirmed = items_of(progression(rig).confirm(rig.credentials["Archer"]))
+    assert confirmed["first-rated-win"]["unlocked"] is True
+    assert progression_rows(rig.store) != before
+
+
+def test_achievement_confirmation_requires_csrf_and_a_same_origin(web):
+    app, client = web
+    csrf = client.headers.pop("X-CSRF-Token")
+    # A non-SAFE confirmation without the session CSRF token is refused.
+    assert client.post("/api/personal/achievements/confirm").status_code == 403
+    client.headers["X-CSRF-Token"] = "forged"
+    assert client.post("/api/personal/achievements/confirm").status_code == 403
+    client.headers["X-CSRF-Token"] = csrf
+    assert (
+        client.post(
+            "/api/personal/achievements/confirm", headers={"Origin": "https://evil.test"}
+        ).status_code
+        == 403
+    )
+    assert client.post("/api/personal/achievements/confirm").status_code == 200
+
+
+def test_achievement_confirmation_is_self_scoped_and_idempotent(rig):
+    app = create_app(rig.store.path.parent, online_background=False, account_background=False)
+    with TestClient(app) as archer, TestClient(app) as keeper:
+        login(archer, "Archer")
+        login(keeper, "Keeper")
+        finish(rig, active(rig), "attackers")
+        # Archer confirms only their own award; Keeper's account stays untouched.
+        first = items_of(confirm(archer))
+        assert first["first-rated-win"]["unlocked"] is True
+        keeper_read = items_of(keeper.get("/api/personal/achievements").json())
+        assert keeper_read["first-rated-win"]["unlocked"] is False
+        assert keeper_read["first-rated-win"]["progress"] == 0
+        # Repeating the confirmation re-inserts the same key: one row, same time.
+        second = items_of(confirm(archer))
+        assert second["first-rated-win"]["awarded_at"] == first["first-rated-win"]["awarded_at"]
+        with app.state.store.connection() as c:
+            assert (
+                c.execute(
+                    "SELECT COUNT(*) FROM achievement_awards WHERE achievement_id='first-rated-win'"
+                ).fetchone()[0]
+                == 1
+            )
 
 
 def by_progress(payload, identifier):
@@ -204,8 +286,8 @@ def test_rated_milestones_are_derived_from_the_applied_ledger(rig):
     service = progression(rig)
     finish(rig, active(rig, "brandubh"), "attackers")
     finish(rig, active(rig, "tablut"), "defenders")
-    archer = items_of(service.achievements(rig.credentials["Archer"]))
-    keeper = items_of(service.achievements(rig.credentials["Keeper"]))
+    archer = items_of(service.confirm(rig.credentials["Archer"]))
+    keeper = items_of(service.confirm(rig.credentials["Keeper"]))
     assert archer["first-rated-win"]["unlocked"] is True
     assert archer["first-rated-win"]["progress"] == 1
     assert archer["first-rated-win"]["awarded_at"].endswith("Z")
@@ -224,7 +306,7 @@ def test_rated_milestones_are_derived_from_the_applied_ledger(rig):
 
 def test_unrated_games_never_award_rated_milestones(rig):
     finish(rig, make_historical_casual(rig, active(rig)), "attackers")
-    items = items_of(progression(rig).achievements(rig.credentials["Archer"]))
+    items = items_of(progression(rig).confirm(rig.credentials["Archer"]))
     assert all(item["unlocked"] is False for item in items.values())
     assert items["first-rated-win"]["progress"] == 0
 
@@ -235,18 +317,18 @@ def test_voided_results_never_leak_rewards_and_confirmed_awards_are_permanent(ri
     rig.core.mutate(
         rig.credentials["Archer"], voided["id"], voided["version"], "void", note="Incident"
     )
-    # A result withdrawn before the first read can never confirm an award.
-    leaked = items_of(service.achievements(rig.credentials["Archer"]))
+    # A result withdrawn before the first confirmation can never award anything.
+    leaked = items_of(service.confirm(rig.credentials["Archer"]))
     assert leaked["first-rated-win"]["unlocked"] is False
     assert leaked["first-rated-win"]["progress"] == 0
 
     confirmed = finish(rig, active(rig), "attackers")
-    first = items_of(service.achievements(rig.credentials["Archer"]))
+    first = items_of(service.confirm(rig.credentials["Archer"]))
     assert first["first-rated-win"]["unlocked"] is True
     rig.core.mutate(
         rig.credentials["Archer"], confirmed["id"], confirmed["version"], "void", note="Incident"
     )
-    after = items_of(service.achievements(rig.credentials["Archer"]))
+    after = items_of(service.confirm(rig.credentials["Archer"]))
     # The confirmed unlock is permanent even though the current evidence is gone.
     assert after["first-rated-win"]["unlocked"] is True
     assert after["first-rated-win"]["awarded_at"] == first["first-rated-win"]["awarded_at"]
@@ -257,21 +339,21 @@ def test_streak_awards_follow_the_corrected_ledger(rig):
     service = progression(rig)
     games = [finish(rig, active(rig), "attackers") for _ in range(5)]
     assert (
-        items_of(service.achievements(rig.credentials["Archer"]))["rated-win-streak-5"]["unlocked"]
+        items_of(service.confirm(rig.credentials["Archer"]))["rated-win-streak-5"]["unlocked"]
         is True
     )
     fabricate_correction(rig, games[-1], "defenders")
-    items = items_of(service.achievements(rig.credentials["Archer"]))
+    items = items_of(service.confirm(rig.credentials["Archer"]))
     assert items["rated-win-streak-5"]["unlocked"] is True
     assert items["rated-win-streak-5"]["progress"] == 4
     assert items["rated-wins-10"]["unlocked"] is False
 
 
-def test_repeated_reads_and_pool_rebuilds_never_duplicate_awards(rig):
+def test_repeated_confirmations_and_pool_rebuilds_never_duplicate_awards(rig):
     service = progression(rig)
     for _ in range(5):
         finish(rig, active(rig), "attackers")
-    first = items_of(service.achievements(rig.credentials["Archer"]))
+    first = items_of(service.confirm(rig.credentials["Archer"]))
     assert first["rated-win-streak-5"]["unlocked"] is True
 
     def stored():
@@ -295,7 +377,7 @@ def test_repeated_reads_and_pool_rebuilds_never_duplicate_awards(rig):
 
     awards, entitlements = stored()
     assert awards and entitlements
-    repeated = items_of(service.achievements(rig.credentials["Archer"]))
+    repeated = items_of(service.confirm(rig.credentials["Archer"]))
     assert {key: item["awarded_at"] for key, item in repeated.items()} == {
         key: item["awarded_at"] for key, item in first.items()
     }
@@ -304,16 +386,14 @@ def test_repeated_reads_and_pool_rebuilds_never_duplicate_awards(rig):
         rig.core.ratings.rebuild_all(c, rig.clock.value)
     assert stored() == (awards, entitlements)
     assert (
-        items_of(service.achievements(rig.credentials["Archer"]))["rated-win-streak-5"][
-            "awarded_at"
-        ]
+        items_of(service.confirm(rig.credentials["Archer"]))["rated-win-streak-5"]["awarded_at"]
         == first["rated-win-streak-5"]["awarded_at"]
     )
 
 
 def test_confirmed_awards_and_entitlements_are_append_only(rig):
     finish(rig, active(rig), "attackers")
-    progression(rig).achievements(rig.credentials["Archer"])
+    progression(rig).confirm(rig.credentials["Archer"])
     with rig.store.connection() as c:
         with pytest.raises(sqlite3.IntegrityError):
             c.execute("UPDATE achievement_awards SET awarded_at=0")
@@ -329,30 +409,24 @@ def test_local_and_vs_ai_milestones_require_completed_owned_games(web):
     persist_game(app.state.store, account, human_side="defenders", winner=None)
     persist_game(app.state.store, account, human_side="defenders", winner="attackers")
     persist_game(app.state.store, account, mode="ai-ai", human_side="defenders", winner="defenders")
-    items = items_of(client.get("/api/personal/achievements").json())
+    items = items_of(confirm(client))
     assert items["ai-first-victory"]["progress"] == 0
     assert items["ai-first-victory"]["unlocked"] is False
     assert items["local-first-game"]["unlocked"] is False
 
     persist_game(app.state.store, account, human_side="defenders", winner="defenders")
-    items = items_of(client.get("/api/personal/achievements").json())
+    items = items_of(confirm(client))
     assert items["ai-first-victory"]["unlocked"] is True
     assert items["ai-first-victory"]["progress"] == 1
     # Another account's completed games never count for this account.
     other = app.state.auth.account(rig_other_account(app))
     persist_game(app.state.store, other, human_side="defenders", winner="defenders")
-    assert (
-        items_of(client.get("/api/personal/achievements").json())["ai-first-victory"]["progress"]
-        == 1
-    )
+    assert items_of(confirm(client))["ai-first-victory"]["progress"] == 1
 
     # A finished same-device local game confirms the local milestone end to end.
     local = play_local_draw(client)
     assert local["recorded_result"]["winner"] == "draw"
-    assert (
-        items_of(client.get("/api/personal/achievements").json())["local-first-game"]["unlocked"]
-        is True
-    )
+    assert items_of(confirm(client))["local-first-game"]["unlocked"] is True
 
 
 def rig_other_account(app):
@@ -418,10 +492,7 @@ def test_selection_requires_csrf_and_sessions_stay_self_scoped(rig):
         login(archer, "Archer")
         login(keeper, "Keeper")
         finish(rig, active(rig), "attackers")
-        assert (
-            items_of(archer.get("/api/personal/achievements").json())["first-rated-win"]["unlocked"]
-            is True
-        )
+        assert items_of(confirm(archer))["first-rated-win"]["unlocked"] is True
         assert (
             items_of(keeper.get("/api/personal/achievements").json())["first-rated-win"]["unlocked"]
             is False
@@ -474,8 +545,8 @@ def test_schema17_migration_seeds_catalogs_without_granting_awards(rig):
     Store(path)
     with migrated.connection() as c:
         assert c.execute("SELECT COUNT(*) FROM achievement_awards").fetchone()[0] == 0
-    # The historical rated win stays authoritative evidence, so the first read
-    # confirms it instead of leaving progress and unlock disagreeing.
-    items = items_of(progression(rig).achievements(rig.credentials["Archer"]))
+    # The historical rated win stays authoritative evidence, so the first
+    # confirmation confirms it instead of leaving progress and unlock disagreeing.
+    items = items_of(progression(rig).confirm(rig.credentials["Archer"]))
     assert items["first-rated-win"]["unlocked"] is True
     assert items["first-rated-win"]["progress"] == 1

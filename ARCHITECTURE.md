@@ -681,8 +681,9 @@ returns sequence-ordered applied events with an opaque cursor, and
 `GET /api/personal/progress` returns per-ruleset current/best rated win streaks.
 Both are strictly self-scoped and add no schema or rating-math change; a durable
 login/activity-day streak remains deferred to a future progression migration.
-Schema 17 adds the own-progress read `GET /api/personal/achievements` beside the
-authenticated `GET /api/portraits/catalog` and the `profile`-scoped
+Schema 17 adds the read-only own-progress read `GET /api/personal/achievements`
+beside the authenticated `GET /api/portraits/catalog`, an explicit CSRF-protected
+`POST /api/personal/achievements/confirm` and the `profile`-scoped
 `PATCH /api/profile/portrait`; awards and entitlements are confirmed idempotently
 from the applied rating ledger and completed account games only. See
 [portraits and achievements](docs/PROGRESSION.md). Two additional read-only `/api/history` routes use `history.py`:
