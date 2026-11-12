@@ -323,7 +323,7 @@ grant("public", "POST", "/api/auth/login", *ACCOUNT_ACTIONS)
 grant("profile", "GET", "/api/auth/me")
 grant("profile", "POST", "/api/auth/logout")
 grant("profile", "GET", "/api/profile")
-grant("profile", "PATCH", "/api/profile")
+grant("profile", "PATCH", "/api/profile", "/api/profile/portrait")
 grant("profile", "POST", "/api/profile/password")
 grant(
     "play",
@@ -380,6 +380,8 @@ grant(
     ),
 )
 grant("play", "GET", "/api/leaderboard")
+# Schema 17 progression: catalog metadata and own achievement progress.
+grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
 grant("accounts", "POST", "/api/online/games/{game_id}/void")
 grant("accounts", "POST", "/api/online/ratings/rebuild")
 grant("accounts", "GET", "/api/online/timeout-gate")

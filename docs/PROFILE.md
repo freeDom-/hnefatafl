@@ -165,8 +165,9 @@ budget. Invalid current passwords return a form error without ending the session
 
 | Method/path | Behavior |
 | --- | --- |
-| `GET /api/profile` | Own optional fields, read-only legacy transition metadata, username, email, verification status and country catalog |
+| `GET /api/profile` | Own optional fields, read-only legacy transition metadata, username, email, verification status, country catalog and the effective `portrait_id` |
 | `PATCH /api/profile` | Atomic update of explicitly supplied `display_name`, `country_code`, `city`, `date_of_birth`; omitted fields stay unchanged |
+| `PATCH /api/profile/portrait` | Select an earned portrait by stable catalog ID; unknown, retired, unearned or URL-shaped IDs are rejected |
 | `POST /api/profile/password` | `current_password`, `new_password`, `confirm_password`; safe acknowledgment only |
 
 These routes use the existing `profile` permission for both ordinary users and
@@ -176,6 +177,11 @@ fields. Mutations retain CSRF, origin checks and deployment freeze protection,
 and are limited to 8192 bytes. Validation responses suppress raw inputs. Session,
 activation and permissions are reloaded inside the update transaction; password
 replacement additionally compares the previously verified hash under the lock.
+
+The published `portrait_id` is the effective portrait: the stored selection while
+the catalog still offers it, otherwise the always-available default. Achievement
+detail and entitlements stay private to
+[portraits and achievements](PROGRESSION.md#api-contract).
 
 Schema **15** adds nullable `date_of_birth` and an internal `profile_private_fields`
 JSON list to `accounts`. Its one-time, idempotent migration records populated

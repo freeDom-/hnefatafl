@@ -23,6 +23,7 @@ Commands assume the repository root unless a different directory is shown.
 
 - [Personal ruleset, AI-opponent and side statistics](DASHBOARD.md#compact-badges-and-detailed-personal-statistics)
 - [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
+- [Earnable portraits, achievement progress, catalog IDs and award permanence](PROGRESSION.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
 

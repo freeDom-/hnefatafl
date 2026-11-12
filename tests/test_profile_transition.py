@@ -40,7 +40,7 @@ def test_schema14_migration_preserves_private_values_public_values_and_account_s
     Store(app.state.store.path)
     Store(app.state.store.path)
     with app.state.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 17
         assert c.execute("SELECT enabled FROM online_timeout_gate").fetchone()[0] == 0
         rows = [dict(r) for r in c.execute("SELECT * FROM accounts ORDER BY id")]
         for old, row in zip(before, rows, strict=True):

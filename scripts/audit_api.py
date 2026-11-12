@@ -11,6 +11,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--write", action="store_true")
 args = parser.parse_args()
 previous = os.environ.get("HNEFATAFL_DATA_DIR")
+# GET routes that also persist derived state: reading personal achievements
+# confirms idempotent award and entitlement rows.
+PERSISTENT_READS = {"/api/personal/achievements"}
 with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
     os.environ["HNEFATAFL_DATA_DIR"] = root
     from hnefatafl.auth import POLICY
@@ -28,7 +31,21 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                 "method": method, "route": route.path,
                 "authentication": "worker bearer + lease" if permission == "worker" else "public" if permission == "public" else "session",
                 "permission": permission,
-                "persistent_state": method not in {"GET", "HEAD", "OPTIONS"} or (not route.path.startswith(("/api/online/", "/api/personal/", "/api/history/", "/api/profile")) and route.path not in {"/api/health", "/api/auth/registration", "/api/auth/me", "/api/games/{game_id}/analytics", "/api/leaderboard"}),
+                "persistent_state": method not in {"GET", "HEAD", "OPTIONS"}
+                or route.path in PERSISTENT_READS
+                or (
+                    not route.path.startswith(
+                        ("/api/online/", "/api/personal/", "/api/history/", "/api/profile")
+                    )
+                    and route.path
+                    not in {
+                        "/api/health",
+                        "/api/auth/registration",
+                        "/api/auth/me",
+                        "/api/games/{game_id}/analytics",
+                        "/api/leaderboard",
+                    }
+                ),
                 "user_specific": (route.path.startswith(("/api/games", "/api/stats", "/api/auth/", "/api/online/", "/api/personal/", "/api/history/", "/api/profile")) or route.path == "/api/leaderboard") and route.path not in {"/api/auth/registration", "/api/online/ratings/rebuild"},
             })
     target = Path(__file__).resolve().parents[1] / "docs/API_PERMISSIONS.json"

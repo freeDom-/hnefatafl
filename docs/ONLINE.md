@@ -329,7 +329,7 @@ schema-10 installation or silently discard accepted online moves/results.
 
 For a compatible stopped-writer restore with a live database, the restore candidate
 retains **current live** accounts, limiter state and all authoritative online match,
-game, move, result, audit and rating rows. It restores other snapshot data, revokes all
+game, move, result, audit, rating and [progression](PROGRESSION.md#migration-and-existing-accounts) rows. It restores other snapshot data, revokes all
 sessions/verification-reset tokens/mail and worker credentials, then pauses timeout
 finalization with a new private restore audit. Online deadlines/results are retained,
 not rewound or extended. Append-only guards are reinstated before commit/cutover.

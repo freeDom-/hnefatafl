@@ -171,6 +171,16 @@ abort cleanup and session epochs prevent stale account responses entering the ne
 account. See the
 [personal API contract](designs/personal-dashboard-phase5.md#api-contract).
 
+Schema-17 progression adds an authenticated `play` catalog read
+(`GET /api/portraits/catalog`), an authenticated `play` own-progress read
+(`GET /api/personal/achievements`) and a `profile` CSRF-protected selection
+(`PATCH /api/profile/portrait`). All three take the account from the session; none
+accepts an account parameter, and a client can only send a stable catalog ID. The
+progress read confirms awards derived from authoritative records inside one write
+transaction, which is why the inventory marks that GET as persistent state; awards
+and entitlements are append-only. See
+[portraits and achievements](PROGRESSION.md).
+
 ## Coverage and explicit exceptions
 
 The complete [JSON inventory](API_PERMISSIONS.json) records every API method/path,
