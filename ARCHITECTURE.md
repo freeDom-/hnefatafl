@@ -45,6 +45,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
+| [player_tournaments.py](hnefatafl/player_tournaments.py), [player_tournament_api.py](hnefatafl/player_tournament_api.py) | Double-elimination human tournaments over authoritative online games: bracket derivation, idempotent advancement, disputes/rebuilds and authenticated bounded projections |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
@@ -186,6 +187,17 @@ adapter: `server.py` reconstructs a terminal game from `online_games`/`online_mo
 `analysis_service.py` and `storage.py` accept the online identity, and the advisor
 reports persist in the existing `advisor_analysis`/`game_analytics` tables. Ongoing
 online games are rejected by the backend and never expose assistance.
+
+Schema 18 adds double-elimination human player tournaments in a namespace and
+storage separate from the workshop AI tournaments (`tournaments` table and
+`/api/tournaments`). `player_tournaments.py` builds the upper/lower bracket with
+byes and a grand-final reset, seats each match leg as a real casual online game
+inside the same write transaction, and derives advancement from the authoritative
+online result revision. A corrected or voided result marks the affected match
+`disputed` instead of silently rewriting advancement; an administrator `rebuild`
+re-derives the whole bracket from the authoritative games and unlinks legs whose
+participants no longer match. Schema 17 is reserved for the progression branch.
+See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
 
 ## Training execution and inference
 

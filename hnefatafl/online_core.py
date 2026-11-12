@@ -287,6 +287,78 @@ class OnlineCore:
         assert response is not None
         return {"game": response, "transition": "created", "action_accepted": True}
 
+    def seat_game(
+        self,
+        c: sqlite3.Connection,
+        *,
+        creator_id: str,
+        opponent_id: str,
+        ruleset: str,
+        creator_side: str,
+        control: lifecycle.TimeControl,
+        now: datetime,
+        request_id: str,
+    ) -> str:
+        """Insert an active, unrated online game for a server-owned match.
+
+        Called only from the player-tournament write transaction, which already
+        holds the writer lock, so the game, its match and the bracket commit
+        together. Tournament games are casual: they never write rating events.
+        """
+        match_id = "match-" + uuid4().hex
+        c.execute(
+            "INSERT INTO online_matches(id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,activated_at,first_creator_side,rated,time_control,increment_seconds) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                match_id,
+                creator_id,
+                opponent_id,
+                creator_side,
+                "single",
+                ruleset,
+                RULESETS[ruleset].version,
+                control.seconds,
+                micros(now),
+                micros(now),
+                creator_side,
+                0,
+                control.mode,
+                control.increment_seconds,
+            ),
+        )
+        game = lifecycle.waiting(
+            "online-" + uuid4().hex,
+            lifecycle.Actor(creator_id),
+            ruleset,
+            creator_side,
+            now,
+            control,
+        )
+        game = lifecycle.join(game, lifecycle.Actor(opponent_id), now).game
+        self._insert_game(c, game, request_id, match_id, 1, now, assigned_side=creator_side)
+        return game.id
+
+    def void_game(
+        self,
+        c: sqlite3.Connection,
+        identifier: str,
+        actor: lifecycle.Actor,
+        note: str,
+        now: datetime,
+    ) -> bool:
+        """Administrative void inside a caller-owned write transaction.
+
+        Player tournaments use this to retire the outstanding games of an
+        overridden match so no live game outlives its bracket decision.
+        """
+        row, game = self._load(c, identifier)
+        if game.status == lifecycle.Status.VOIDED:
+            return False
+        transition = lifecycle.void(game, actor, now, note)
+        if transition.game is game:
+            return False
+        self._persist(c, row, transition, now, actor=actor.account_id, note=note)
+        return True
+
     def monitoring(self, credential: str) -> dict:
         with self.store.connection() as c:
             c.execute("BEGIN")

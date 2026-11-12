@@ -386,6 +386,32 @@ grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
 grant("play", "GET", "/api/online/availability")
 grant("accounts", "PATCH", "/api/online/timeout-gate")
+grant(
+    "play",
+    "GET",
+    "/api/player-tournaments",
+    "/api/player-tournaments/{tournament_id}",
+    "/api/player-tournaments/{tournament_id}/bracket",
+    "/api/player-tournaments/{tournament_id}/matches",
+    "/api/player-tournaments/{tournament_id}/matches/{match_id}",
+)
+grant(
+    "play",
+    "POST",
+    "/api/player-tournaments/{tournament_id}/register",
+    "/api/player-tournaments/{tournament_id}/withdraw",
+    "/api/player-tournaments/{tournament_id}/settle",
+)
+grant("tournaments", "POST", "/api/player-tournaments")
+grant(
+    "tournaments",
+    "POST",
+    "/api/player-tournaments/{tournament_id}/start",
+    "/api/player-tournaments/{tournament_id}/cancel",
+    "/api/player-tournaments/{tournament_id}/rebuild",
+    "/api/player-tournaments/{tournament_id}/matches/{match_id}/override",
+)
+grant("accounts", "GET", "/api/player-tournaments/{tournament_id}/audit")
 grant("play", "DELETE", "/api/games/{game_id}")
 grant(
     "tournaments",
@@ -637,7 +663,9 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
-        if request.url.path.startswith(("/api/auth/", "/api/online/", "/api/profile")):
+        if request.url.path.startswith(
+            ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments/")
+        ):
             # Pydantic's default errors include raw inputs, potentially passwords.
             return JSONResponse(
                 {
@@ -647,6 +675,8 @@ def attach_auth(app, store):
                     if request.url.path.startswith("/api/online/")
                     else "Invalid profile request. Check the fields and try again."
                     if request.url.path.startswith("/api/profile")
+                    else "Invalid tournament request."
+                    if request.url.path.startswith("/api/player-tournaments/")
                     else "Invalid account request."
                 },
                 422,

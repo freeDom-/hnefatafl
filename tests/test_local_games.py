@@ -348,7 +348,7 @@ def test_schema15_upgrade_adds_local_category_without_rewriting_history(tmp_path
         c.execute("PRAGMA user_version=15")
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
         columns = {row[1] for row in c.execute("PRAGMA table_info(games)")}
         assert "category" in columns
         assert c.execute("SELECT category FROM games WHERE id='old'").fetchone()[0] == (
@@ -359,7 +359,7 @@ def test_schema15_upgrade_adds_local_category_without_rewriting_history(tmp_path
         ).fetchone()
     assert Store(store.path).get_game("old")["id"] == "old"
     with sqlite3.connect(store.path) as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
 
 
 def test_category_migration_is_idempotent_on_schema16(tmp_path):
@@ -375,7 +375,7 @@ def test_category_migration_is_idempotent_on_schema16(tmp_path):
     for _ in range(2):
         reopened = Store(store.path)
         with reopened.connection() as c:
-            assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+            assert c.execute("PRAGMA user_version").fetchone()[0] == 18
             assert [row[1] for row in c.execute("PRAGMA table_info(games)")].count("category") == 1
             assert c.execute("SELECT category FROM games WHERE id='local'").fetchone()[0] == "local"
     assert Store(store.path).get_game("local")["mode"] == "local"

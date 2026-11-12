@@ -85,6 +85,13 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 | training, tournaments, models management | No | Yes |
 | accounts, all_data | No | Yes (account management is local CLI only) |
 
+Double-elimination player tournaments (`/api/player-tournaments/*`) use the same
+model: any authenticated account may read tournaments and register, while
+creation, starting, cancellation, rebuilding and match overrides require the
+administrator-only `tournaments` permission and the audit trail requires
+`accounts`. The backend rechecks the permission inside the write transaction, so
+a frontend role check is advisory only.
+
 SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators

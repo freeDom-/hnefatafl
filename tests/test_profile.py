@@ -420,7 +420,7 @@ def test_schema13_upgrade_preserves_accounts_sessions_and_optional_legacy_names(
     Store(store.path)  # Idempotent restart.
     with store.connection() as c:
         after = dict(c.execute("SELECT * FROM accounts WHERE id=?", (account["id"],)).fetchone())
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
         assert all(
             after[field] is None
             for field in ("country_code", "city", "birth_year", "date_of_birth")

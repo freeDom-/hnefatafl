@@ -274,7 +274,7 @@ def test_schema14_profile_backup_requires_manual_upgrade_after_schema15_transiti
     with pytest.raises(ValueError, match="Account schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
         assert tuple(
             c.execute("SELECT city,profile_private_fields,date_of_birth FROM accounts").fetchone()
         ) == ("Legacy private", '["city"]', None)
@@ -381,7 +381,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
     with pytest.raises(ValueError, match="Online schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
 
 
@@ -415,7 +415,7 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
 
 
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])
