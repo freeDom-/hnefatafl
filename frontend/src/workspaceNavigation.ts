@@ -90,7 +90,14 @@ export function useLocationHash() {
   return hash;
 }
 
-/** The navigation id that owns the current route, including `#` section anchors. */
+/** Route path a destination belongs to, without its `#` section anchor or query. */
+function destinationPath(href: string): string {
+  return href.split('#')[0].split('?')[0];
+}
+
+/** The navigation id that owns the current route, including `#` section anchors.
+ * A section anchor only wins on the route that owns it, so `/tournaments#model-collection`
+ * keeps `tournaments` active instead of the Workshop section of `/training`. */
 export function activeDestination(
   workspace: Workspace,
   current: string | undefined,
@@ -98,6 +105,16 @@ export function activeDestination(
 ): string | undefined {
   const destinations = workspace === 'workshop' ? WORKSHOP_DESTINATIONS : ARENA_DESTINATIONS;
   const section = hash.replace(/^#/, '');
-  if (section && destinations.some((destination) => destination.id === section)) return section;
+  const anchored = destinations.find(
+    (destination) => destination.id === section && destination.href.includes('#'),
+  );
+  const ownsSection =
+    anchored !== undefined &&
+    destinations.some(
+      (destination) =>
+        destination.id === current &&
+        destinationPath(destination.href) === destinationPath(anchored.href),
+    );
+  if (ownsSection) return anchored.id;
   return destinations.some((destination) => destination.id === current) ? current : undefined;
 }

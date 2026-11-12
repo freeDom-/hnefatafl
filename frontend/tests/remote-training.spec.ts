@@ -1,4 +1,5 @@
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
+import { primaryNavigation } from './play-helpers';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext, type Page } from './auth-fixture';
 
@@ -133,7 +134,7 @@ test('remote worker setup queues parallel jobs and retains independent reported 
 
     await page.reload();
     await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-    await expect(page.getByRole('navigation', { name: 'Workshop navigation' })).toBeVisible();
+    await expect(primaryNavigation(page)).toBeVisible();
     await expect(page.getByLabel('Worker token', { exact: true })).toHaveCount(0);
     await selectWorkshopJob(page, second.id, `Cloud Freydis ${info.project.name}`);
     await expect(

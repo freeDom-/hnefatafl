@@ -1,4 +1,5 @@
 import {
+  openDestination,
   openGameNavigation,
   openGameOptions,
   closeGameOptions,
@@ -60,7 +61,7 @@ test('real gameplay, read-only history, rules, records and mobile layout', async
       .click();
   }
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
+  await openDestination(page, 'archive');
   await expect(page.getByRole('heading', { name: 'Hall of records', exact: true })).toBeVisible();
   await expect(page.getByText('Local players', { exact: true })).toHaveCount(0);
   await page.locator('.recorded-games a').first().click();
@@ -113,7 +114,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   await showMove(page, 2);
   await expect(page.getByRole('button', { name: 'Replay to move 2', exact: true })).toBeVisible();
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
+  await openDestination(page, 'archive');
   const savedGame = page.locator('.recorded-games tbody tr').first();
   await expect(savedGame).toContainText('Brandubh');
   await expect(savedGame).toContainText(

@@ -1,6 +1,6 @@
 import { expect, test } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
-import { gameTab, openGameNavigation } from './play-helpers';
+import { openDestination, gameTab, openGameNavigation } from './play-helpers';
 
 test('Play has the shared creation dialogs when no game is running', async ({ page }) => {
   await page.route('**/api/personal/**', (route) => route.fulfill({ json: { games: [] } }));
@@ -49,10 +49,7 @@ test('switching games and returning through Play preserves the selected tab', as
     'true',
   );
   await openGameNavigation(page);
-  await page
-    .getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('button', { name: 'Play', exact: true })
-    .click();
+  await openDestination(page, 'play');
   await expect(page).toHaveURL(new RegExp(`/games/${two.id}$`));
   await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
     'aria-selected',

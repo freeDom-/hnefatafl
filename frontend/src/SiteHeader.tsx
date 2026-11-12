@@ -50,6 +50,7 @@ export default function SiteHeader({
             <button
               type="button"
               key={destination.id}
+              data-destination={destination.id}
               onClick={() => navigate(destination.href)}
               className="site-nav-link"
               aria-current={active === destination.id ? 'page' : undefined}

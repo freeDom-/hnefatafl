@@ -1,4 +1,5 @@
 import {
+  openDestination,
   openGameNavigation,
   openGameOptions,
   closeGameOptions,
@@ -109,7 +110,7 @@ test('new games receive fresh seeds; record deletion refreshes prominent statist
   const active = await currentGame(page, request);
   expect(active.seed).not.toBe(first.seed);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'Hall of records', exact: true }).click();
+  await openDestination(page, 'archive');
 
   const removed = await request.delete(`${api}/games/${active.id}?version=${active.version}`);
   expect(removed.ok()).toBe(true);

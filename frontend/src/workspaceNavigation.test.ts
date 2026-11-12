@@ -64,6 +64,17 @@ it('resolves the active destination from the route and from workshop section anc
   expect(activeDestination('workshop', 'training', '#unknown')).toBe('training');
 });
 
+it('keeps a workshop section anchor active only on the route that owns it', () => {
+  expect(activeDestination('workshop', 'tournaments', '#model-collection')).toBe('tournaments');
+  expect(activeDestination('workshop', 'tournaments', '#workshop-workers')).toBe('tournaments');
+  expect(activeDestination('arena', 'dashboard', '#model-collection')).toBe('dashboard');
+  expect(activeDestination('arena', 'play', '#workshop-workers')).toBe('play');
+  // A hash that names a plain destination never steals the current route either.
+  expect(activeDestination('workshop', 'tournaments', '#training')).toBe('tournaments');
+  expect(activeDestination('workshop', 'training', '#training')).toBe('training');
+  expect(activeDestination('arena', 'play', '#dashboard')).toBe('play');
+});
+
 it('keeps every destination inside the same-origin route allowlist', () => {
   for (const destination of [...ARENA_DESTINATIONS, ...WORKSHOP_DESTINATIONS]) {
     expect(safeDestination(destination.href)).toBe(destination.href);

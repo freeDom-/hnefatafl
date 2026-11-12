@@ -35,6 +35,7 @@ function WorkspaceBottomNav({
         <a
           key={destination.id}
           href={destination.href}
+          data-destination={destination.id}
           onClick={surfaceLink}
           aria-current={active === destination.id ? 'page' : undefined}
         >

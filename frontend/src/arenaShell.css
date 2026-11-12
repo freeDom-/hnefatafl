@@ -97,10 +97,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Reserve the bar's space so it never covers the footer, replay controls or
-     any other end-of-page action. Gameplay reserves the same space through the
-     play layouts instead (see mobilePlay.css / desktopPlay.css). */
-  body {
+  /* Reserve the bar's space only where the bar actually exists: signed-out,
+     loading and permission-denied views render no bottom navigation, so they must
+     not keep a phantom strip below their content. Gameplay reserves the same space
+     through the play layouts instead (see mobilePlay.css / desktopPlay.css). */
+  body:has(.workspace-bottom-nav) {
     padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
   }
 }

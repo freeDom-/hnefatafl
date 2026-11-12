@@ -34,9 +34,11 @@ test('pages keep accessible titles and share navigation and section typography w
         await page.locator('html').evaluate((node, value) => {
           node.dataset.density = value;
         }, density);
+        // Exactly one primary navigation is visible: the header navigation on
+        // wide viewports, the compact bottom bar on phones.
         await expect(
-          page.getByRole('navigation', { name: /^(Main|Workshop) navigation$/ }),
-        ).toBeVisible();
+          page.locator('.site-header nav:visible, .workspace-bottom-nav:visible'),
+        ).toHaveCount(1);
         const state = await page.evaluate(() => {
           const header = document.querySelector('.site-header')!;
           const nav = header.querySelector('nav')!;

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
-import { openWorkshop } from './play-helpers';
+import { openDestination, openWorkshop } from './play-helpers';
 import { openProfile } from './play-helpers';
 import { fixtureModel } from './historical-fixture';
 import type { Tournament } from '../src/tournamentTypes';
@@ -9,7 +9,7 @@ const tournamentApi = 'http://127.0.0.1:8001/api/tournaments';
 async function openTournaments(page: Page) {
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await openWorkshop(page, 'AI testing');
+  await openWorkshop(page, 'tournaments');
 }
 
 async function setUpTournament(
@@ -207,7 +207,7 @@ test('battlefield win matrices show directed wins and runes, and survive reload'
 
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expectWinMatrices(page, saved);
   if (info.project.name === 'mobile') {
@@ -272,7 +272,7 @@ test('tournaments retain results, expose parameters and replay moves, and delete
 
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expect(detail.locator('.tournament-standing h3')).toHaveText([
     'Shield bearer',
@@ -487,7 +487,7 @@ test('four opponents complete every balanced pairing and retain the last pair fo
   await expect(lastMatch).toContainText(recorded.config.players[last.defender_player].name);
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page.getByRole('button', { name: `View tournament ${name}`, exact: true }).click();
   await expect(detail.locator('.tournament-standing')).toHaveCount(4);
   await detail.getByRole('button', { name: 'Match log', exact: true }).click();
