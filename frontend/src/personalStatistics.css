@@ -294,3 +294,123 @@
     color: var(--muted);
   }
 }
+
+.rating-history {
+  margin-top: var(--gap-card);
+}
+.rating-history .section-heading {
+  align-items: flex-start;
+}
+.rating-history .statistics-explanation {
+  margin-block: 0.3rem 0;
+}
+.rating-history-streak,
+.rating-ruleset-headline {
+  display: grid;
+  justify-items: end;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.rating-history-streak strong,
+.rating-ruleset-headline strong {
+  color: var(--ui-heading, #26352e);
+  font-size: 1.3rem;
+}
+.rating-ruleset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: var(--gap-card);
+  margin-top: var(--gap-stack);
+}
+.rating-ruleset-card {
+  padding: var(--pad-panel);
+  min-width: 0;
+}
+.rating-ruleset-card h3 {
+  margin: 0;
+  font-size: var(--text-subsection);
+}
+.rating-ruleset-selected {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+.rating-streak {
+  margin: var(--gap-inline) 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.rating-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 12rem;
+  margin-block: var(--gap-inline);
+  overflow: visible;
+}
+.rating-chart-tick line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.rating-chart-tick text {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: end;
+}
+.rating-chart-line {
+  fill: none;
+  stroke: var(--arena-chart-value, var(--green));
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.rating-chart-point {
+  fill: var(--arena-chart-value, var(--green));
+}
+/* A hollow point marks an explicit ledger timestamp gap, never a guessed date. */
+.rating-chart-gap {
+  fill: var(--surface);
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+.rating-chart-corrected {
+  fill: var(--gold);
+}
+.rating-gap-note {
+  margin: 0 0 var(--gap-inline);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.rating-entries {
+  border-top: 1px solid var(--line);
+  padding-top: var(--pad-panel-sm, var(--pad-row));
+}
+.rating-entries summary {
+  cursor: pointer;
+  min-height: 2rem;
+}
+.rating-entries-table {
+  min-width: 34rem;
+}
+.rating-entries-table th,
+.rating-entries-table td {
+  text-align: right;
+}
+.rating-entries-table th:first-child,
+.rating-entries-table td:first-child {
+  text-align: left;
+}
+.rating-entries-table tbody tr:first-child {
+  background: none;
+  font-weight: normal;
+}
+.rating-corrected {
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+@media (max-width: 600px) {
+  .rating-ruleset-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
