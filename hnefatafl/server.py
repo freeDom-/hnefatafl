@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from contextlib import asynccontextmanager, contextmanager, ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,9 +24,15 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
-from .account_policy import game_accounts, game_players, public_identity, resolve_accounts
+from .account_policy import (
+    BIDI_CONTROLS,
+    game_accounts,
+    game_players,
+    public_identity,
+    resolve_accounts,
+)
 from .engine import Move, RULESETS, State, apply_move, legal_moves, new_game
 from .identities import agent_identity, effective_ai_config
 from .training_identity import OPERATIONAL_TRAINING_FIELDS
@@ -313,6 +320,19 @@ class LocalGameRequest(BaseModel):
     ruleset: Literal["tablut", "brandubh", "copenhagen"] = "tablut"
     attackers_label: str = Field(default="Player 1", min_length=1, max_length=40)
     defenders_label: str = Field(default="Player 2", min_length=1, max_length=40)
+
+    @field_validator("attackers_label", "defenders_label")
+    @classmethod
+    def seat_label(cls, value: str) -> str:
+        # Labels are rendered verbatim next to the board, so control and bidi
+        # formatting characters could spoof or garble the other seat's name.
+        # Ordinary international letters and punctuation stay allowed.
+        if any(unicodedata.category(char) == "Cc" or char in BIDI_CONTROLS for char in value):
+            raise ValueError("Seat labels cannot contain control or bidirectional characters.")
+        value = value.strip()
+        if not value:
+            raise ValueError("Both local seats need a label.")
+        return value
 
 
 class ModelNameRequest(BaseModel):
@@ -969,11 +989,11 @@ def create_app(
             fail("Kind must be human or ai.")
         selected = [
             g
-            for g in store.list_games()
+            for g in store.list_games(exclude_category="local")
             # Local pass-and-play has its own /api/personal/local category and
-            # never appears in the single-player/vs-AI launcher or statistics.
-            if g.get("mode") != "local"
-            and (not ruleset or g["ruleset"] == ruleset)
+            # never appears in the single-player/vs-AI launcher or statistics;
+            # the persisted category column excludes it before deserialization.
+            if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(player["kind"] == kind for player in g["players"].values()))
         ]
@@ -1632,11 +1652,11 @@ def create_app(
             fail("Kind must be human or ai.")
         selected = [
             g
-            for g in store.list_games()
+            for g in store.list_games(exclude_category="local")
             # Local pass-and-play is reported under its own category and must
-            # never mix into vs-AI or account single-player statistics.
-            if g.get("mode") != "local"
-            and (not ruleset or g["ruleset"] == ruleset)
+            # never mix into vs-AI or account single-player statistics; the
+            # persisted category column excludes it before deserialization.
+            if (not ruleset or g["ruleset"] == ruleset)
             and (not mode or g["mode"] == mode)
             and (not kind or any(p["kind"] == kind for p in g["players"].values()))
             and (
@@ -2014,7 +2034,10 @@ def create_app(
     def unfinished_model_games(model_id: str) -> list[dict]:
         return [
             game
-            for game in store.list_games()
+            for game in store.list_games(exclude_category="local")
+            # Local games have no AI opponent, so they can never reference a
+            # model; excluding them at the storage level only avoids needless
+            # JSON work, it never changes the result.
             if not recorded_outcome(game)["winner"]
             and any(
                 player.get("config", {}).get("model_id") == model_id

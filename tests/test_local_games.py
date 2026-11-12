@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
+from hnefatafl.security_context import principal
 from hnefatafl.server import create_app
 from hnefatafl.storage import Store
 
@@ -378,3 +379,160 @@ def test_category_migration_is_idempotent_on_schema16(tmp_path):
             assert [row[1] for row in c.execute("PRAGMA table_info(games)")].count("category") == 1
             assert c.execute("SELECT category FROM games WHERE id='local'").fetchone()[0] == "local"
     assert Store(store.path).get_game("local")["mode"] == "local"
+
+
+def test_list_games_category_filter_preserves_owner_scope(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    owner = {"id": "owner-1", "role": "USER", "active": 1}
+    records = [
+        ("solo-1", "owner-1", "account-single-player"),
+        ("local-1", "owner-1", "local"),
+        ("solo-2", "owner-2", "account-single-player"),
+        ("local-2", "owner-2", "local"),
+    ]
+    with store.connection() as c:
+        for index, (game_id, account_id, category) in enumerate(records):
+            c.execute(
+                "INSERT INTO games(id,version,created_at,data,owner_account_id,category) "
+                "VALUES(?,0,?,?,?,?)",
+                (
+                    game_id,
+                    f"{index:04d}",
+                    json.dumps(
+                        {
+                            "id": game_id,
+                            "mode": "local" if category == "local" else "human-ai",
+                        }
+                    ),
+                    account_id,
+                    category,
+                ),
+            )
+    token = principal.set(owner)
+    try:
+        # Owner scoping survives every filter combination.
+        assert {g["id"] for g in store.list_games()} == {"solo-1", "local-1"}
+        assert {g["id"] for g in store.list_games(exclude_category="local")} == {"solo-1"}
+        assert {g["id"] for g in store.list_games(category="local")} == {"local-1"}
+    finally:
+        principal.reset(token)
+
+
+def test_list_games_exclusion_keeps_migrated_legacy_records(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    with store.connection() as c:
+        c.execute("DROP INDEX IF EXISTS games_category_owner")
+        c.execute("ALTER TABLE games DROP COLUMN category")
+        c.execute(
+            "INSERT INTO games(id,version,created_at,data,owner_account_id) "
+            "VALUES('legacy',0,'then',?,NULL)",
+            ('{"id":"legacy","mode":"human-ai"}',),
+        )
+        c.execute("PRAGMA user_version=15")
+    # The legacy row keeps its historical single-player meaning and is never
+    # dropped by the local-exclusion filter after the additive migration.
+    upgraded = Store(store.path)
+    assert [g["id"] for g in upgraded.list_games(exclude_category="local")] == ["legacy"]
+    assert upgraded.list_games(category="local") == []
+
+
+def test_unrelated_listings_never_deserialize_local_games(application, monkeypatch):
+    account(application)
+    with TestClient(application) as client:
+        login(client)
+        solo = make_single_player(client)
+        for _ in range(25):
+            make_local(client)
+
+        import hnefatafl.storage as storage
+
+        real_loads = storage.json.loads
+        parsed_games: list[dict] = []
+
+        def recording_loads(value, *args, **kwargs):
+            parsed = real_loads(value, *args, **kwargs)
+            if isinstance(parsed, dict) and "mode" in parsed and "players" in parsed:
+                parsed_games.append(parsed)
+            return parsed
+
+        monkeypatch.setattr(storage.json, "loads", recording_loads)
+
+        assert [g["id"] for g in client.get("/api/games").json()] == [solo["id"]]
+        assert client.get("/api/stats").json()["total_games"] == 1
+
+        # The spy saw the surviving single-player payload but no local one:
+        # local rows are excluded by SQL before any JSON deserialization.
+        assert {game["id"] for game in parsed_games} == {solo["id"]}
+        assert all(game["mode"] != "local" for game in parsed_games)
+
+
+REJECTED_SEAT_LABELS = [
+    "Raven\nWolf",
+    "Raven\r",
+    "Raven\t",
+    "Raven\x00",
+    "Raven\x1b[31m",
+    "Raven\x7f",
+    "Raven\x9b",
+    "\u202eRaven",
+    "\u202aRaven",
+    "\u2066Raven",
+    "\u2069Raven",
+    "\u200eRaven",
+    "\u200fRaven",
+    "\u061cRaven",
+    "   ",
+]
+
+
+@pytest.mark.parametrize("label", REJECTED_SEAT_LABELS)
+def test_local_seat_labels_reject_control_and_bidi_input(application, label):
+    account(application)
+    with TestClient(application) as client:
+        login(client)
+        response = client.post(
+            "/api/games/local",
+            json={"ruleset": "brandubh", "attackers_label": label, "defenders_label": "Wolf"},
+        )
+        assert response.status_code == 422, response.text
+        assert client.get("/api/games").json() == []
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Éowyn",
+        "Ólafr",
+        "Ольга",
+        "李雷",
+        "こんにちは",
+        "Níðhǫggr",
+        "Bjørn",
+        "Renée O'Brien",
+        "Иван Петров",
+        "Ṣalāḥ al-Dīn",
+    ],
+)
+def test_local_seat_labels_accept_international_names(application, label):
+    account(application)
+    with TestClient(application) as client:
+        login(client)
+        game = make_local(client, attackers_label=label, defenders_label="Wolf")
+        assert game["players"]["attackers"]["label"] == label
+        assert game["players"]["defenders"]["label"] == "Wolf"
+
+
+def test_local_seat_labels_trim_surrounding_space_and_keep_length_limits(application):
+    account(application)
+    with TestClient(application) as client:
+        login(client)
+        trimmed = make_local(client, attackers_label="  Renée O'Brien  ", defenders_label="Wolf")
+        assert trimmed["players"]["attackers"]["label"] == "Renée O'Brien"
+
+        longest = make_local(client, attackers_label="A" * 40)
+        assert longest["players"]["attackers"]["label"] == "A" * 40
+        too_long = client.post(
+            "/api/games/local",
+            json={"ruleset": "brandubh", "attackers_label": "A" * 41},
+        )
+        assert too_long.status_code == 422, too_long.text

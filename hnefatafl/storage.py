@@ -222,14 +222,36 @@ class Store:
                 is not None
             )
 
-    def list_games(self) -> list[dict]:
+    def list_games(
+        self,
+        *,
+        category: str | None = None,
+        exclude_category: str | None = None,
+    ) -> list[dict]:
+        """Return owned games, optionally filtered by the persisted category column.
+
+        The category lives in its own ``games.category`` column, not the JSON
+        payload, so callers that exclude a category never fetch or deserialize
+        its rows. Legacy rows predate the column and read as the historical
+        single-player category.
+        """
         owner = owner_scope()
+        conditions: list[str] = []
+        values: list[str] = []
+        if owner:
+            conditions.append("owner_account_id=?")
+            values.append(owner)
+        if category is not None:
+            conditions.append("COALESCE(category,'account-single-player')=?")
+            values.append(category)
+        if exclude_category is not None:
+            conditions.append("COALESCE(category,'account-single-player')<>?")
+            values.append(exclude_category)
+        where = "WHERE " + " AND ".join(conditions) + " " if conditions else ""
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT data FROM games "
-                + ("WHERE owner_account_id=? " if owner else "")
-                + "ORDER BY created_at DESC,id",
-                (owner,) if owner else (),
+                "SELECT data FROM games " + where + "ORDER BY created_at DESC,id",
+                tuple(values),
             ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
