@@ -113,7 +113,8 @@ authoritative revision changes (including a void after the match was decided):
 1. the match becomes `disputed`,
 2. the tournament `review_state` becomes `disputed`,
 3. an audit entry with action `disputed` is written,
-4. the bracket stops advancing.
+4. the disputed match stops advancing, so every match fed by it stays unresolved
+   until a rebuild.
 
 `POST /api/player-tournaments/{id}/rebuild` (administrator, with a private note)
 re-derives the bracket from the authoritative results: it clears every derived

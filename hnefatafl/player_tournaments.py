@@ -410,6 +410,8 @@ class PlayerTournaments:
                 "UPDATE player_tournament_matches SET status='complete',winner=?,loser=?,decided_by='admin_override',settled_at=? WHERE id=?",
                 (winner, loser, micros(now), match_id),
             )
+            if match["bracket"] == "grand_final" and winner == match["participant_b"]:
+                self._ensure_reset(c, identifier, match, now)
             self._bump(c, identifier, version)
             self._audit(
                 c,
@@ -607,7 +609,7 @@ class PlayerTournaments:
                 creator_side=side,
                 control=lifecycle.TimeControl(tournament["time_per_move"], "per_move", 0),
                 now=now,
-                request_id=f"tournament:{match['id']}:{index}",
+                request_id=f"tournament:{match['id']}:{index}:{uuid4().hex}",
             )
             attackers = match["participant_a"] if side == "attackers" else match["participant_b"]
             defenders = match["participant_b"] if side == "attackers" else match["participant_a"]
@@ -738,7 +740,8 @@ class PlayerTournaments:
                 (identifier,),
             )
         }
-        ordered: list[str] = [""] * max(seeds.values(), default=0)
+        assigned = [value for value in seeds.values() if value is not None]
+        ordered: list[str] = [""] * (max(assigned) if assigned else 0)
         for account_id, seed in seeds.items():
             if seed is not None:
                 ordered[seed - 1] = account_id

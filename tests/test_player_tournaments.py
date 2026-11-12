@@ -212,6 +212,33 @@ def play_out(rig, tournament_id, chooser=None, limit=200):
     raise AssertionError("tournament did not settle")
 
 
+def advance_to_grand_final(rig, tournament_id):
+    """Play every match except the grand final until the grand final is ready."""
+    tournament = rig.core.detail(rig.admin, tournament_id)
+    if tournament["status"] == "registration":
+        rig.core.start(rig.admin, tournament_id, tournament["version"])
+    seeds = seeds_of(rig, tournament_id)
+    for _ in range(100):
+        bracket = rig.core.bracket(rig.admin, tournament_id)
+        final = bracket["final"]
+        if final is not None and final["status"] == "ready":
+            return final
+        pending = [
+            match
+            for match in ready_matches(rig, tournament_id)
+            if final is None or match["id"] != final["id"]
+        ]
+        if not pending:
+            rig.core.settle(rig.admin, tournament_id)
+            continue
+        for match in pending:
+            first = match["participants"]["a"]["account_id"]
+            second = match["participants"]["b"]["account_id"]
+            force_match(rig, match, first if seeds[first] < seeds[second] else second)
+        rig.core.settle(rig.admin, tournament_id)
+    raise AssertionError("the grand final never became ready")
+
+
 def loss_counts(rig, tournament_id):
     bracket = rig.core.bracket(rig.admin, tournament_id)
     counts: dict[str, int] = {}
@@ -495,6 +522,94 @@ def test_voided_result_after_completion_reopens_the_tournament(rig):
     assert rebuilt["official_winner"] is not None
 
 
+def test_rebuild_recreates_the_reset_after_a_voided_reset_leg(rig):
+    names = [*PLAYERS, ADMIN][:8]
+    tournament = tournament_with_entrants(rig, names, capacity=8)
+    started = rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    seeds = seeds_of(rig, tournament["id"])
+    favourite = next(entry for entry in started["entrants"] if entry["seed"] == 1)
+    state = {"lost": False}
+
+    def chooser(_match, a, b):
+        if not state["lost"] and favourite["account_id"] in (a, b):
+            state["lost"] = True
+            return b if favourite["account_id"] == a else a
+        return a if seeds[a] < seeds[b] else b
+
+    finished = play_out(rig, tournament["id"], chooser)
+    assert finished["status"] == "complete"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert bracket["final"]["winner"]["account_id"] == favourite["account_id"]
+    assert bracket["reset"]["winner"]["account_id"] == favourite["account_id"]
+
+    game = rig.online.read(rig.admin, bracket["reset"]["legs"][0]["game_id"])
+    rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="late correction")
+    disputed = rig.core.settle(rig.admin, tournament["id"])
+    assert disputed["review_state"] == "disputed" and disputed["status"] == "running"
+
+    rebuilt = rig.core.rebuild(
+        rig.admin, tournament["id"], disputed["version"], note="re-derive after correction"
+    )
+    assert rebuilt["review_state"] == "ok"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert bracket["final"]["winner"]["account_id"] == favourite["account_id"]
+    assert bracket["reset"] is not None and bracket["reset"]["status"] == "ready"
+    assert len(bracket["reset"]["legs"]) == 1
+
+
+def test_rebuild_reseats_a_downstream_match_after_a_voided_leg(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    tournament = tournament_with_entrants(rig, names, capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    seeds = seeds_of(rig, tournament["id"])
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    opening = {
+        match["id"]: match
+        for entry in bracket["upper"]
+        if entry["round"] == 1
+        for match in entry["matches"]
+    }
+    first = opening[f"{tournament['id']}:upper:1:0"]
+    target = opening[f"{tournament['id']}:upper:1:1"]
+    force_match(rig, first, first["participants"]["a"]["account_id"])
+    seat_a = target["participants"]["a"]["account_id"]
+    seat_b = target["participants"]["b"]["account_id"]
+    lower_seed = seat_a if seeds[seat_a] > seeds[seat_b] else seat_b
+    higher_seed = seat_b if lower_seed == seat_a else seat_a
+    force_match(rig, target, lower_seed)
+    rig.core.settle(rig.admin, tournament["id"])
+
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    upper_final = bracket["upper"][-1]["matches"][0]
+    assert upper_final["id"] == f"{tournament['id']}:upper:2:0"
+    assert upper_final["status"] == "ready"
+    assert upper_final["participants"]["b"]["account_id"] == lower_seed
+    assert len(upper_final["legs"]) == 1
+    stale_game = upper_final["legs"][0]["game_id"]
+
+    game = rig.online.read(rig.admin, target["legs"][0]["game_id"])
+    rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="corrected result")
+    disputed = rig.core.settle(rig.admin, tournament["id"])
+    assert disputed["review_state"] == "disputed"
+
+    rebuilt = rig.core.rebuild(
+        rig.admin, tournament["id"], disputed["version"], note="re-derive after correction"
+    )
+    assert rebuilt["review_state"] == "ok"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    upper_final = bracket["upper"][-1]["matches"][0]
+    assert upper_final["status"] == "ready"
+    assert upper_final["participants"]["b"]["account_id"] == higher_seed
+    assert len(upper_final["legs"]) == 1
+    assert upper_final["legs"][0]["game_id"] != stale_game
+    reseated = rig.online.read(rig.admin, upper_final["legs"][0]["game_id"])
+    assert reseated["status"] == "active"
+    assert {
+        reseated["participants"]["attackers"]["account_id"],
+        reseated["participants"]["defenders"]["account_id"],
+    } == {upper_final["participants"]["a"]["account_id"], higher_seed}
+
+
 def test_admin_override_decides_a_ready_match(rig):
     names = [*PLAYERS, ADMIN][:4]
     tournament = tournament_with_entrants(rig, names, capacity=4)
@@ -523,6 +638,28 @@ def test_admin_override_decides_a_ready_match(rig):
     assert override["note"] == "opponent failed to appear"
     # Settling again never reopens the administrative decision.
     assert rig.core.settle(rig.admin, tournament["id"])["review_state"] == "ok"
+
+
+def test_override_of_the_grand_final_for_the_challenger_forces_a_reset(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    tournament = tournament_with_entrants(rig, names, capacity=4)
+    final = advance_to_grand_final(rig, tournament["id"])
+    challenger = final["participants"]["b"]["account_id"]
+    overridden = rig.core.override(
+        rig.admin,
+        tournament["id"],
+        final["id"],
+        rig.core.detail(rig.admin, tournament["id"])["version"],
+        challenger,
+        "challenger awarded the grand final",
+    )
+    assert overridden["status"] == "running"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert bracket["reset"] is not None and bracket["reset"]["status"] == "ready"
+    force_match(rig, bracket["reset"], challenger)
+    finished = rig.core.settle(rig.admin, tournament["id"])
+    assert finished["status"] == "complete"
+    assert finished["official_winner"]["account_id"] == challenger
 
 
 # -- registration, capacity and deadlines --------------------------------
@@ -572,6 +709,19 @@ def test_start_requires_two_entrants_and_freezes_seeding(rig):
     bad = tournament_with_entrants(rig, ["P01", "P02"], capacity=4)
     with pytest.raises(Exception, match="exactly once"):
         rig.core.start(rig.admin, bad["id"], bad["version"], [rig.accounts["P01"]["id"]])
+
+
+def test_start_ignores_null_seeds_left_by_withdrawn_entrants(rig):
+    tournament = create(rig, capacity=4)
+    for name in ("P01", "P02", "P03"):
+        rig.core.register(rig.credentials[name], tournament["id"])
+    rig.core.withdraw(rig.credentials["P02"], tournament["id"])
+    started = rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    assert started["bracket_size"] == 2
+    assert {entry["account_id"] for entry in started["entrants"]} == {
+        rig.accounts["P01"]["id"],
+        rig.accounts["P03"]["id"],
+    }
 
 
 def test_cancel_records_audit_and_stops_mutation(rig):

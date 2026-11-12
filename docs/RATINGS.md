@@ -50,6 +50,8 @@ Every newly created online game is **rated**. There is no Casual selector and no
 obvious casual-mode UI. The API accepts an omitted `rated` field and rejects an
 explicit `false` (or any non-boolean value), so a legacy or forged request cannot
 create an unrated game. The stored `online_matches.rated` flag remains immutable.
+The one exception is a player-tournament leg: the server seats those games unrated
+through `OnlineCore.seat_game`, so they never enter a rating pool.
 
 Historical casual games are never altered, reclassified or backfilled, and
 existing in-progress legacy casual games finish under their original policy with
