@@ -16,7 +16,7 @@ from typing import Literal
 
 from fastapi import HTTPException, Path, Query, Request, Response
 
-from .account_policy import attributed_name, public_identity
+from .account_policy import attributed_name, case_fold, public_identity
 from .engine import Move, RULESETS, apply_move, new_game
 from .online_core import OnlineCore, OnlineError, instant, safe_position, stamp
 from .personal import context_key, page
@@ -64,6 +64,65 @@ LEFT JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision
 LEFT JOIN accounts a ON a.id=g.attackers_id
 LEFT JOIN accounts d ON d.id=g.defenders_id
 """
+
+# Public analysis projection. A stored report is internal: each evaluation entry
+# carries the effective search configuration (including model filesystem paths
+# and seeds), reserved identity runes and search diagnostics. Only the fields
+# below are copied into a signed-out response, and the copy is recursive so a
+# future stored field cannot leak by default. The stored report itself is never
+# modified, and no public request recomputes or writes analysis.
+_ANALYSIS_FIELDS = ("cursor", "ply", "side_to_move", "created_at")
+_EVALUATION_FIELDS = (
+    "agent_id",
+    "role",
+    "name",
+    "profile_name",
+    "model_name",
+    "source",
+    "value",
+    "win_probability",
+    "best_move",
+    "estimated",
+    "calibrated",
+    "unavailable_reason",
+)
+_MOVE_FIELDS = ("source", "target")
+
+
+def public_move(value) -> dict | None:
+    """Project a stored move onto its two public coordinates."""
+    if not isinstance(value, dict):
+        return None
+    return {key: value[key] for key in _MOVE_FIELDS if key in value}
+
+
+def public_evaluation(entry) -> dict | None:
+    """Project one stored evaluation entry; unknown keys are dropped."""
+    if not isinstance(entry, dict):
+        return None
+    projected = {key: entry[key] for key in _EVALUATION_FIELDS if key in entry}
+    if "best_move" in projected:
+        projected["best_move"] = public_move(projected["best_move"])
+    return projected
+
+
+def public_analysis(report) -> dict | None:
+    """Project a stored analysis report onto the public field allowlist."""
+    if not isinstance(report, dict):
+        return None
+    projected = {key: report[key] for key in _ANALYSIS_FIELDS if key in report}
+    projected["evaluations"] = [
+        entry
+        for entry in (public_evaluation(item) for item in report.get("evaluations", ()))
+        if entry is not None
+    ]
+    hint = report.get("hint")
+    projected["hint"] = (
+        {"agent_id": hint.get("agent_id"), "move": public_move(hint.get("move"))}
+        if isinstance(hint, dict)
+        else None
+    )
+    return projected
 
 
 class PublicRateLimiter:
@@ -136,12 +195,15 @@ class PublicOnline:
             c.execute("BEGIN")
             if player is not None:
                 # Literal substring matching on the same public label returned
-                # below; SQL wildcards are not a capability.
+                # below; SQL wildcards are not a capability. ``case_fold`` gives
+                # the documented case-insensitive contract full Unicode folding
+                # instead of SQLite's ASCII-only ``lower()``.
                 c.create_function("attributed_name", 2, attributed_name, deterministic=True)
+                c.create_function("case_fold", 1, case_fold, deterministic=True)
                 conditions.append(
                     "("
                     + " OR ".join(
-                        f"instr(lower(coalesce({field},'')),lower(?))>0"
+                        f"instr(case_fold(coalesce({field},'')),case_fold(?))>0"
                         for field in (
                             "attributed_name(attacker_name,attacker_username)",
                             "attributed_name(defender_name,defender_username)",
@@ -202,8 +264,9 @@ class PublicOnline:
                 "validated": True,
                 "states": states,
                 "moves": self._moves(c, row),
-                # Only already-stored analysis; the reader never computes or writes.
-                "analysis": self.stored_analysis(game.id, state),
+                # Only already-stored analysis; the reader never computes or
+                # writes, and the projection is the sole public DTO.
+                "analysis": public_analysis(self.stored_analysis(game.id, state)),
             }
 
     @staticmethod

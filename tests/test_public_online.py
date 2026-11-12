@@ -178,7 +178,7 @@ def test_public_request_generates_no_analysis_and_reserves_no_runes(rig, api):
         ) == before
 
 
-def test_public_replay_surfaces_only_already_stored_analysis(rig, api):
+def test_public_replay_projects_stored_analysis_onto_the_public_allowlist(rig, api):
     _, client = api
     game = completed(rig)
     state = new_game(game["ruleset"])
@@ -187,21 +187,165 @@ def test_public_replay_surfaces_only_already_stored_analysis(rig, api):
     key = hashlib.sha256(
         json.dumps(state.to_dict(), sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    snapshot = {
+    # A realistic stored report: public values, a nested agent configuration
+    # (filesystem path, seed, search block), internal metadata and unexpected
+    # extra properties at every level.
+    report = {
         "cursor": len(game["moves"]),
         "ply": state.ply,
         "side_to_move": state.turn,
         "position_key": key,
         "created_at": "2027-01-02T03:04:05.123456Z",
-        "evaluations": [],
+        "partial": True,
+        "status": "pending",
+        "advisor_revision": 7,
+        "private_notes": "operator only",
+        "unexpected_internal_field": "must not survive",
+        "evaluations": [
+            {
+                "agent_id": "defenders",
+                "role": "defenders",
+                "name": "Keeper",
+                "rune": "ᚠᛇ",
+                "profile_id": "seer",
+                "profile_name": "Seer",
+                "model_name": "trained-model",
+                "config": {
+                    "algorithm": "mcts",
+                    "seed": 12345,
+                    "iterations": 1024,
+                    "model_id": "registered-model-id",
+                    "model_path": "/srv/hnefatafl/models/secret.pt",
+                    "search": {"depth": 5, "internal": True},
+                },
+                "source": "mcts_rollout",
+                "value": 0.5,
+                "win_probability": 0.75,
+                "estimated": True,
+                "calibrated": False,
+                "best_move": {"source": 3, "target": 11, "note": "internal"},
+                "search_seed": 4242,
+                "nodes": 9999,
+                "transposition_hits": 12,
+                "private_note": "operator only",
+                "unexpected": {"token": "secret"},
+            }
+        ],
+        "hint": {
+            "agent_id": "advisor",
+            "move": {"source": 3, "target": 11, "ply": 1},
+            "note": "internal",
+        },
+    }
+    with rig.store.connection() as c:
+        c.execute(
+            "INSERT INTO game_analysis(game_id,position_key,data) VALUES(?,?,?)",
+            (game["id"], key, json.dumps(report)),
+        )
+
+    def snapshot():
+        with rig.store.connection() as c:
+            return (
+                c.execute("SELECT COUNT(*) FROM game_analysis").fetchone()[0],
+                c.execute("SELECT COUNT(*) FROM advisor_analysis").fetchone()[0],
+                c.execute("SELECT COUNT(*) FROM entity_runes").fetchone()[0],
+                c.execute(
+                    "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
+                    (game["id"], key),
+                ).fetchone()[0],
+            )
+
+    before = snapshot()
+    response = client.get(f"{PUBLIC}/{game['id']}/replay")
+    assert response.status_code == 200
+    analysis = response.json()["analysis"]
+    assert analysis == {
+        "cursor": len(game["moves"]),
+        "ply": state.ply,
+        "side_to_move": state.turn,
+        "created_at": "2027-01-02T03:04:05.123456Z",
+        "evaluations": [
+            {
+                "agent_id": "defenders",
+                "role": "defenders",
+                "name": "Keeper",
+                "profile_name": "Seer",
+                "model_name": "trained-model",
+                "source": "mcts_rollout",
+                "value": 0.5,
+                "win_probability": 0.75,
+                "best_move": {"source": 3, "target": 11},
+                "estimated": True,
+                "calibrated": False,
+            }
+        ],
+        "hint": {"agent_id": "advisor", "move": {"source": 3, "target": 11}},
+    }
+    # The projection is recursive, so no nested key escapes the allowlist.
+    scan_not_present(
+        analysis,
+        {
+            "config",
+            "rune",
+            "profile_id",
+            "search_seed",
+            "nodes",
+            "transposition_hits",
+            "private_note",
+            "private_notes",
+            "unexpected",
+            "unexpected_internal_field",
+            "model_path",
+            "position_key",
+            "partial",
+            "status",
+            "advisor_revision",
+            "token",
+        },
+    )
+    # A public GET neither rewrites the stored report nor touches the counters.
+    assert snapshot() == before
+
+
+def test_active_games_expose_no_cached_analysis_through_any_public_endpoint(rig, api):
+    _, client = api
+    game = active(rig)
+    state = new_game(game["ruleset"])
+    key = hashlib.sha256(
+        json.dumps(state.to_dict(), sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    stored = {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": state.turn,
+        "position_key": key,
+        "created_at": "2027-01-02T03:04:05.123456Z",
+        "evaluations": [
+            {
+                "agent_id": "attackers",
+                "name": "Keeper",
+                "config": {"model_path": "/srv/hnefatafl/models/secret.pt"},
+            }
+        ],
         "hint": None,
     }
     with rig.store.connection() as c:
         c.execute(
             "INSERT INTO game_analysis(game_id,position_key,data) VALUES(?,?,?)",
-            (game["id"], key, json.dumps(snapshot)),
+            (game["id"], key, json.dumps(stored)),
         )
-    assert client.get(f"{PUBLIC}/{game['id']}/replay").json()["analysis"] == snapshot
+    detail = client.get(f"{PUBLIC}/{game['id']}")
+    assert detail.status_code == 200
+    scan_not_present(detail.json(), {"analysis", "evaluations", "hint"})
+    assert client.get(f"{PUBLIC}/{game['id']}/replay").status_code == 404
+    # There is no public analysis route; an unknown path is denied, not served.
+    assert client.get(f"{PUBLIC}/{game['id']}/analysis").status_code in {401, 403, 404, 405}
+    assert all("analysis" not in item for item in client.get(PUBLIC).json()["items"])
+    with rig.store.connection() as c:
+        assert c.execute(
+            "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
+            (game["id"], key),
+        ).fetchone()[0] == json.dumps(stored)
 
 
 def test_single_player_and_local_records_never_reach_the_public_namespace(rig, api):
@@ -254,9 +398,55 @@ def test_player_search_matches_public_names_and_handles_only(rig, api):
     assert client.get(f"{PUBLIC}?player=nobody").json()["items"] == []
     # Wildcards and quotes are literal input, not a capability or an error.
     assert client.get(f"{PUBLIC}?player=%25").json()["items"] == []
+    assert client.get(f"{PUBLIC}?player=_").json()["items"] == []
     assert client.get(f"{PUBLIC}?player=%27%20OR%201%3D1--").json()["items"] == []
     assert client.get(f"{PUBLIC}?player={'a' * 149}").status_code == 422
     assert client.get(f"{PUBLIC}?player=").status_code == 422
+
+
+def test_player_search_folds_non_ascii_case_in_published_names(rig, api):
+    _, client = api
+    game = active(rig)
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE accounts SET display_name=? WHERE id=?",
+            ("JÖRG MÜLLER", rig.accounts["Keeper"]["id"]),
+        )
+    # A lowercase query matches an uppercase accented published label.
+    assert {item["id"] for item in client.get(f"{PUBLIC}?player=müller").json()["items"]} == {
+        game["id"]
+    }
+    assert {item["id"] for item in client.get(f"{PUBLIC}?player=jörg").json()["items"]} == {
+        game["id"]
+    }
+    assert {item["id"] for item in client.get(f"{PUBLIC}?player=MÜLLER").json()["items"]} == {
+        game["id"]
+    }
+    # Full case folding also folds the German sharp s (Straße -> strasse).
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE accounts SET display_name=? WHERE id=?",
+            ("Straße", rig.accounts["Keeper"]["id"]),
+        )
+    assert {item["id"] for item in client.get(f"{PUBLIC}?player=STRASSE").json()["items"]} == {
+        game["id"]
+    }
+    assert client.get(f"{PUBLIC}?player=nobody").json()["items"] == []
+
+
+def test_player_search_only_covers_published_labels(rig, api):
+    _, client = api
+    active(rig)
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE accounts SET display_name=?, profile_private_fields='[\"display_name\"]' "
+            "WHERE id=?",
+            ("Verborgener Öl", rig.accounts["Keeper"]["id"]),
+        )
+    # A withheld display name is not searchable, but the public handle stays so.
+    assert client.get(f"{PUBLIC}?player=Verborgener").json()["items"] == []
+    assert client.get(f"{PUBLIC}?player=Öl").json()["items"] == []
+    assert client.get(f"{PUBLIC}?player=keeper").json()["items"]
 
 
 def test_cursor_paging_is_opaque_and_bound_to_the_filter_set(rig, api):

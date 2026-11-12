@@ -28,8 +28,12 @@ lookup.
 - `status`: `waiting`, `active`, `completed`, `cancelled` or `voided`.
 - `outcome`: the effective winner `attackers`, `defenders` or `draw`.
 - `player`: case-insensitive literal substring over the public display names and
-  handles only; `%` and `_` are ordinary characters, never wildcards. Bounded to
+  handles only; `%` and `_` are ordinary characters, never wildcards. Matching
+  applies full Unicode case folding, so `müller` matches `MÜLLER` and `STRASSE`
+  matches `Straße`. It is not accent-insensitive or transliterating: `muller`
+  does not match `Müller` and `Mueller` is a distinct spelling. Bounded to
   148 code points (a full attributed label), matching the authenticated Hall.
+  A withheld display name is not searchable; only the public handle remains so.
 - `limit`: `1..100` (default `25`).
 - `cursor`: opaque keyset cursor minted by the previous page. It is bound to the
   filter set and sort key, so reusing it under different filters returns `422`.
@@ -59,7 +63,18 @@ current pool `current_rating`. The result exposes `winner`,
   position before returning `states`. A stored-history mismatch returns `409`.
 - Replay may surface analysis that is **already stored** for the terminal
   position; a public request never runs inference, writes analysis, or reserves
-  identity runes.
+  identity runes. Only completed games expose it, and only the terminal
+  position's own report is read.
+- A stored report is projected onto a fixed public allowlist before it is
+  returned; the stored report itself is never modified. A public evaluation
+  exposes `agent_id`, `role`, `name`, `profile_name`, `model_name`, `source`,
+  `value`, `win_probability`, `best_move` (`source`/`target`), `estimated`,
+  `calibrated` and `unavailable_reason`. The report exposes the position's
+  `cursor`, `ply`, `side_to_move` and `created_at`, the projected `evaluations`
+  and the projected `hint` (`agent_id` and its move). The effective agent
+  `config` (including model filesystem paths and seeds), reserved identity
+  runes, search diagnostics, private notes and any other stored property are
+  dropped recursively, so a future stored field cannot leak by default.
 
 ## Caching and rate limiting
 
