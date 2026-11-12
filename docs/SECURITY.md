@@ -241,9 +241,10 @@ additive `/api/public/online/*` namespace described in
 [Public online discovery](PUBLIC_ONLINE.md). It is online-only, read-only and
 analysis-free for live games: no single-player or local record, email, account or
 session identifier, private profile field, private audit note or unpublished name
-is exposed, and there is no public join/move/concede/void/analysis route. Unknown,
-malformed and live-replay identifiers return a consistent 404; the index uses
-keyset cursors with `limit` 1–100 and a stricter per-IP limit than authenticated
-lobby polling. Completed reads set a short `Cache-Control`, and the namespace is
-gated by `HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
+is exposed, and there is no public join/move/concede/void/analysis route. Unknown
+and live-replay identifiers return a consistent 404; malformed identifiers are
+rejected with 422 before any lookup. The index uses keyset cursors with `limit`
+1–100 and a stricter per-IP limit than authenticated lobby polling. Completed
+reads set a short `Cache-Control`, and the namespace is gated by
+`HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
 `SCHEMA_VERSION` change.

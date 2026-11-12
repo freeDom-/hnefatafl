@@ -18,8 +18,9 @@ deployment switch and bounded per connecting IP.
 | `GET /api/public/online/games/{game_id}/replay` | Completed-game replay with validated states |
 
 No `POST`, `PATCH` or `DELETE` route exists under this namespace, and there is no
-public analysis endpoint. Unknown, malformed or live-replay identifiers return a
-consistent `404`; an over-long identifier returns `422` before any lookup.
+public analysis endpoint. Unknown and live-replay identifiers return a consistent
+`404`. Malformed or over-long identifiers fail validation with `422` before any
+lookup.
 
 ## Index filters, search and paging
 
@@ -77,11 +78,12 @@ schema.
 | `HNEFATAFL_PUBLIC_RATE_LIMIT` | `60` | Public requests allowed per window per IP, integer 1–100000 |
 | `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60` | Public rate window in seconds, integer 1–86400 |
 
-Setting `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` withdraws the namespace at runtime
-without a redeploy: every public handler then returns `404`, while all
-authenticated `/api/online/*`, `/api/history/*`, `/api/personal/*` and
-`/api/leaderboard` routes keep their existing behavior. The switch does not
-require a database migration; no schema version changes for this feature.
+Setting `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` withdraws the namespace on the next
+service start (no code change or migration needed): every public handler then
+returns `404`, while all authenticated `/api/online/*`, `/api/history/*`,
+`/api/personal/*` and `/api/leaderboard` routes keep their existing behavior. The
+switch does not require a database migration; no schema version changes for this
+feature.
 
 ## Security guarantees
 

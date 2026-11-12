@@ -33,6 +33,9 @@ COMPLETED_CACHE = "public, max-age=60"
 # delta and the current pool rating. Never email, account/session ids, private
 # profile fields or unpublished names. ``portrait_id`` is a reserved contract
 # key: portrait storage ships with schema 17 (B4) and is never client supplied.
+# ``rated`` and ``winner_delta`` are published only when the effective result
+# revision applied a rating event; a completed rated match with an ineligible or
+# unverified participant carries no applied event and is published unrated.
 _BASE = """
 SELECT g.id, g.updated_at AS order_at, g.created_at, g.updated_at, g.completed_at,
   g.ruleset, g.ruleset_version, g.status, g.leg, g.attackers_id, g.defenders_id,
@@ -52,7 +55,9 @@ SELECT g.id, g.updated_at AS order_at, g.created_at, g.updated_at, g.completed_a
      WHERE pr.account_id=g.defenders_id AND pr.pool=g.ruleset) AS defender_current,
   (SELECT ra.delta FROM rating_applications ra
      WHERE ra.game_id=g.id AND ra.account_id = CASE json_extract(r.payload,'$.winner')
-       WHEN 'attackers' THEN g.attackers_id WHEN 'defenders' THEN g.defenders_id END) AS winner_delta
+       WHEN 'attackers' THEN g.attackers_id WHEN 'defenders' THEN g.defenders_id END) AS winner_delta,
+  EXISTS(SELECT 1 FROM rating_events e
+     WHERE e.game_id=g.id AND e.state='applied' AND e.effective_revision=r.revision) AS rating_applied
 FROM online_games g
 JOIN online_matches m ON m.id=g.match_id
 LEFT JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision
@@ -216,12 +221,16 @@ class PublicOnline:
 
         result = None
         if row["revision"] is not None:
-            eligible = bool(row["competitive_eligible"])
+            rated = (
+                bool(row["rated"])
+                and bool(row["competitive_eligible"])
+                and bool(row["rating_applied"])
+            )
             result = {
                 "winner": row["winner"],
                 "termination_reason": row["reason"],
-                "rated": bool(row["rated"]) and eligible,
-                "winner_delta": row["winner_delta"] if eligible else None,
+                "rated": rated,
+                "winner_delta": row["winner_delta"] if rated else None,
             }
         recorded_at = row["completed_at"] if row["completed_at"] is not None else row["updated_at"]
         return {
@@ -277,12 +286,16 @@ class PublicOnline:
         )
         result = None
         if game.result is not None:
-            eligible = bool(game.result.competitive_eligible)
+            rated = (
+                bool(match["rated"])
+                and bool(game.result.competitive_eligible)
+                and self._rating_applied(c, game.id, game.result.revision)
+            )
             result = {
                 "winner": game.result.winner,
                 "termination_reason": game.result.termination_reason,
-                "rated": bool(match["rated"]) and eligible,
-                "winner_delta": self._winner_delta(c, game.id, game.result.winner, eligible),
+                "rated": rated,
+                "winner_delta": self._winner_delta(c, game.id, game.result.winner, rated),
             }
         start = new_game(row["ruleset"])
         terminal_king_square = None
@@ -350,8 +363,18 @@ class PublicOnline:
         }
 
     @staticmethod
-    def _winner_delta(c, game_id, winner, eligible):
-        if not eligible or winner not in ("attackers", "defenders"):
+    def _rating_applied(c, game_id, revision) -> bool:
+        """True only when the effective result revision applied a rating event."""
+        row = c.execute(
+            "SELECT state,effective_revision FROM rating_events WHERE game_id=?", (game_id,)
+        ).fetchone()
+        return bool(
+            row is not None and row["state"] == "applied" and row["effective_revision"] == revision
+        )
+
+    @staticmethod
+    def _winner_delta(c, game_id, winner, rated):
+        if not rated or winner not in ("attackers", "defenders"):
             return None
         side = "attackers_id" if winner == "attackers" else "defenders_id"
         row = c.execute(

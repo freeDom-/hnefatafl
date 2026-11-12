@@ -95,9 +95,13 @@ def test_complete_registered_route_matrix(application, identity):
                 headers=ORIGIN,
             )
             if permission == "public":
-                # Public routes need no session; a public detail/replay route
-                # returns 404 for the substituted unknown identifier.
-                assert response.status_code in {200, 404, 422}, (method, path, response.text)
+                # Public routes need no session; only the public online detail and
+                # replay routes return 404 for the substituted unknown identifier.
+                # Any other public 404 (for example a login regression) must fail.
+                allowed = {200, 422}
+                if path.startswith("/api/public/"):
+                    allowed.add(404)
+                assert response.status_code in allowed, (method, path, response.text)
             elif permission == "worker":
                 assert response.status_code == 401, (method, path, response.text)
             elif identity in {"anonymous", "disabled", "unknown"}:

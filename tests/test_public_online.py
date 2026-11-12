@@ -311,6 +311,28 @@ def test_unknown_and_live_replay_ids_return_a_consistent_404(rig, api):
     assert client.get(f"{PUBLIC}/{game['id'] + '!'}").status_code == 422
 
 
+def test_rated_match_without_an_applied_rating_event_is_published_unrated(rig, api):
+    _, client = api
+    game = active(rig)
+    # An unverified participant makes the rated match ineligible for the ledger,
+    # so no rating event is applied even though the match itself stays rated.
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE accounts SET email_verified_at=NULL WHERE id=?",
+            (rig.accounts["Keeper"]["id"],),
+        )
+    finished = rig.core.mutate(actor(rig, game), game["id"], game["version"], "concede")["game"]
+    assert finished["result"]["rated_eligible"] is False
+    with rig.store.connection() as c:
+        assert c.execute("SELECT COUNT(*) FROM rating_events").fetchone()[0] == 0
+    detail = client.get(f"{PUBLIC}/{game['id']}").json()
+    assert detail["rated"] is True  # The match-level intent is unchanged.
+    assert detail["result"]["rated"] is False
+    assert detail["result"]["winner_delta"] is None
+    item = next(row for row in client.get(PUBLIC).json()["items"] if row["id"] == game["id"])
+    assert item["result"]["rated"] is False and item["result"]["winner_delta"] is None
+
+
 def test_voided_results_are_published_as_ineligible_not_as_a_win(rig, api):
     _, client = api
     game = completed(rig)

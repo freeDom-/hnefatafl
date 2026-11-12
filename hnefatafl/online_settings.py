@@ -65,7 +65,8 @@ class OnlineSettings:
                 os.environ.get("HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS", "900")
             ),
             # Q6 default is enabled; an operator sets this to "false" to withdraw
-            # the public namespace at runtime without a redeploy.
+            # the public namespace on the next service start (no code change or
+            # migration needed).
             public_discovery_enabled=os.environ.get("HNEFATAFL_PUBLIC_ONLINE_ENABLED", "true")
             == "true",
             public_rate_limit=int(os.environ.get("HNEFATAFL_PUBLIC_RATE_LIMIT", "60")),
