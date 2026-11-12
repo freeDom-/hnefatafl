@@ -265,10 +265,41 @@ def assert_double_elimination(rig, tournament_id):
             assert losses.get(entry["account_id"], 0) == 2
 
 
+def table_counts(rig):
+    with rig.store.connection() as c:
+        return {
+            "matches": c.execute("SELECT COUNT(*) FROM player_tournament_matches").fetchone()[0],
+            "legs": c.execute("SELECT COUNT(*) FROM player_tournament_legs").fetchone()[0],
+            "games": c.execute("SELECT COUNT(*) FROM online_games").fetchone()[0],
+        }
+
+
+def assert_no_duplicate_matches_or_legs(rig):
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM (SELECT id FROM player_tournament_matches GROUP BY id HAVING COUNT(*)>1)"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM (SELECT match_id,leg FROM player_tournament_legs GROUP BY match_id,leg HAVING COUNT(*)>1)"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM (SELECT game_id FROM player_tournament_legs GROUP BY game_id HAVING COUNT(*)>1)"
+            ).fetchone()[0]
+            == 0
+        )
+
+
 # -- complete tournaments ------------------------------------------------
 
 
-@pytest.mark.parametrize("entrants", [4, 5, 8, 16])
+@pytest.mark.parametrize("entrants", [2, 4, 5, 8, 16])
 def test_complete_tournaments_eliminate_after_two_losses(rig, entrants):
     names = [*PLAYERS, ADMIN][:entrants]
     tournament = tournament_with_entrants(rig, names, capacity=max(entrants, 2))
@@ -610,6 +641,101 @@ def test_rebuild_reseats_a_downstream_match_after_a_voided_leg(rig):
     } == {upper_final["participants"]["a"]["account_id"], higher_seed}
 
 
+def test_dispute_freezes_the_whole_bracket_until_rebuild(rig):
+    names = [*PLAYERS, ADMIN][:8]
+    tournament = tournament_with_entrants(rig, names, capacity=8)
+    identifier = tournament["id"]
+    rig.core.start(rig.admin, identifier, tournament["version"])
+    for match in ready_matches(rig, identifier):
+        force_match(rig, match, match["participants"]["a"]["account_id"])
+    rig.core.settle(rig.admin, identifier)
+    for match in ready_matches(rig, identifier):
+        force_match(rig, match, match["participants"]["a"]["account_id"])
+    rig.core.settle(rig.admin, identifier)
+
+    bracket = rig.core.bracket(rig.admin, identifier)
+    disputed_target = next(
+        match for match in bracket["upper"][1]["matches"] if match["id"].endswith(":2:1")
+    )
+    unaffected = next(
+        match for match in bracket["lower"][1]["matches"] if match["id"].endswith(":2:1")
+    )
+    assert disputed_target["status"] == "complete"
+    assert unaffected["status"] == "ready" and unaffected["legs"]
+    # The unaffected lower match does not depend on the upper match we dispute.
+    force_match(rig, unaffected, unaffected["participants"]["a"]["account_id"])
+    before = table_counts(rig)
+
+    game = rig.online.read(rig.admin, disputed_target["legs"][0]["game_id"])
+    rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="corrected result")
+    disputed = rig.core.settle(rig.admin, identifier)
+    assert disputed["review_state"] == "disputed"
+    assert table_counts(rig) == before  # no new games, legs or matches
+
+    bracket = rig.core.bracket(rig.admin, identifier)
+    broken = next(
+        match
+        for entry in bracket["upper"]
+        for match in entry["matches"]
+        if match["id"] == disputed_target["id"]
+    )
+    assert broken["status"] == "disputed"
+    # The unaffected branch is frozen too: it stays ready instead of completing.
+    frozen = next(
+        match
+        for entry in bracket["lower"]
+        for match in entry["matches"]
+        if match["id"] == unaffected["id"]
+    )
+    assert frozen["status"] == "ready"
+    for entry in bracket["upper"] + bracket["lower"]:
+        for match in entry["matches"]:
+            if match["status"] == "pending":
+                assert match["legs"] == []
+
+    # Repeated settlement stays frozen.
+    for _ in range(3):
+        again = rig.core.settle(rig.admin, identifier)
+        assert again["review_state"] == "disputed"
+    assert table_counts(rig) == before
+
+    # Rebuild re-derives the bracket and the unaffected branch advances without
+    # duplicate matches or legs.
+    rebuilt = rig.core.rebuild(
+        rig.admin, identifier, disputed["version"], note="re-derive after correction"
+    )
+    assert rebuilt["status"] == "running" and rebuilt["review_state"] == "ok"
+    assert_no_duplicate_matches_or_legs(rig)
+    finished = play_out(rig, identifier)
+    assert finished["status"] == "complete"
+    assert_no_duplicate_matches_or_legs(rig)
+
+
+def test_disputed_completed_tournament_reopens_and_freezes_until_rebuild(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    tournament = tournament_with_entrants(rig, names, capacity=4)
+    finished = play_out(rig, tournament["id"])
+    assert finished["status"] == "complete"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    game = rig.online.read(rig.admin, bracket["final"]["legs"][0]["game_id"])
+    rig.online.mutate(rig.admin, game["id"], game["version"], "void", note="late correction")
+
+    disputed = rig.core.settle(rig.admin, tournament["id"])
+    assert disputed["status"] == "running" and disputed["review_state"] == "disputed"
+    assert disputed["official_winner"] is None and disputed["completed_at"] is None
+    # Frozen: no further settlement can re-crown a champion while disputed.
+    frozen = rig.core.settle(rig.admin, tournament["id"])
+    assert frozen["status"] == "running" and frozen["review_state"] == "disputed"
+    assert frozen["official_winner"] is None
+
+    rebuilt = rig.core.rebuild(
+        rig.admin, tournament["id"], disputed["version"], note="re-derive after correction"
+    )
+    assert rebuilt["status"] == "complete" and rebuilt["review_state"] == "ok"
+    assert rebuilt["official_winner"] is not None
+    assert_no_duplicate_matches_or_legs(rig)
+
+
 def test_admin_override_decides_a_ready_match(rig):
     names = [*PLAYERS, ADMIN][:4]
     tournament = tournament_with_entrants(rig, names, capacity=4)
@@ -734,6 +860,100 @@ def test_cancel_records_audit_and_stops_mutation(rig):
         rig.core.register(rig.credentials["P03"], tournament["id"])
     audit = rig.core.audit(rig.admin, tournament["id"])
     assert any(entry["action"] == "cancelled" for entry in audit["items"])
+
+
+def test_cancel_retires_running_legs_and_blocks_play_settlement_and_timeout(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    tournament = tournament_with_entrants(rig, names, capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    matches = ready_matches(rig, tournament["id"])
+    assert matches
+    games = [leg["game_id"] for match in matches for leg in match["legs"]]
+    assert games
+
+    cancelled = rig.core.cancel(
+        rig.admin, tournament["id"], rig.core.detail(rig.admin, tournament["id"])["version"]
+    )
+    assert cancelled["status"] == "cancelled"
+
+    # Every outstanding leg is retired through the authoritative online core.
+    for game_id in games:
+        assert rig.online.read(rig.admin, game_id)["status"] == "voided"
+
+    # A retired leg can no longer be played or conceded.
+    game = rig.online.read(rig.admin, games[0])
+    mover = game["participants"][game["position"]["turn"]]["account_id"]
+    with pytest.raises(Exception, match="active game"):
+        rig.online.mutate(rig.by_id[mover], games[0], game["version"], "concede")
+
+    # A retired leg cannot be settled and its match keeps no result.
+    settled = rig.core.settle(rig.admin, tournament["id"])
+    assert settled["status"] == "cancelled"
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    target = next(
+        match
+        for entry in bracket["upper"]
+        for match in entry["matches"]
+        if match["legs"] and match["legs"][0]["game_id"] == games[0]
+    )
+    assert target["status"] == "ready"
+    assert all(leg["outcome"] is None for leg in target["legs"])
+
+    # Timeout processing cannot create a result for a retired leg.
+    rig.clock.value += timedelta(seconds=100000)
+    assert rig.online.sweep()["finalized"] == 0
+    with rig.store.connection() as c:
+        assert c.execute("SELECT COUNT(*) FROM rating_events").fetchone()[0] == 0
+        voided_results = c.execute(
+            "SELECT COUNT(*) FROM online_results r JOIN online_games g ON g.id=r.game_id WHERE g.status='voided'"
+        ).fetchone()[0]
+        assert voided_results == len(games)
+
+    audit = rig.core.audit(rig.admin, tournament["id"])
+    entry = next(e for e in audit["items"] if e["action"] == "cancelled")
+    assert entry["details"] == {"voided_games": len(games)}
+
+
+def test_cancel_preserves_completed_results_and_voids_only_outstanding_legs(rig):
+    names = [*PLAYERS, ADMIN][:4]
+    tournament = tournament_with_entrants(rig, names, capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    matches = ready_matches(rig, tournament["id"])
+    assert len(matches) == 2
+    finished, outstanding = matches[0], matches[1]
+    force_match(rig, finished, finished["participants"]["a"]["account_id"])
+    rig.core.settle(rig.admin, tournament["id"])
+    completed_game = finished["legs"][0]["game_id"]
+    outstanding_game = outstanding["legs"][0]["game_id"]
+    assert rig.online.read(rig.admin, completed_game)["status"] == "completed"
+
+    rig.core.cancel(
+        rig.admin, tournament["id"], rig.core.detail(rig.admin, tournament["id"])["version"]
+    )
+
+    # Completed history survives: the game, its result and its recorded outcome.
+    assert rig.online.read(rig.admin, completed_game)["status"] == "completed"
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_results WHERE game_id=?", (completed_game,)
+            ).fetchone()[0]
+            == 1
+        )
+        outcome = c.execute(
+            "SELECT outcome FROM player_tournament_legs WHERE game_id=?", (completed_game,)
+        ).fetchone()[0]
+    assert outcome in {"a", "b"}
+    # Only the outstanding leg is retired; a single void per leg is recorded.
+    assert rig.online.read(rig.admin, outstanding_game)["status"] == "voided"
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM online_results WHERE game_id=?", (outstanding_game,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert c.execute("SELECT COUNT(*) FROM rating_events").fetchone()[0] == 0
 
 
 def test_create_validates_bounds(rig):

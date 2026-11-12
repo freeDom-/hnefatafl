@@ -71,7 +71,10 @@ registration ──start──▶ running ──champion decided──▶ comple
 - `running`: the bracket is seeded; matches advance as authoritative results
   settle.
 - `complete`: the grand final (or its reset) produced an official winner.
-- `cancelled`: an administrator stopped the tournament.
+- `cancelled`: an administrator stopped the tournament. Every outstanding leg
+  is retired through the authoritative online core in the same transaction, so a
+  cancelled tournament has no playable, settleable or expirable game left;
+  completed legs and their results stay as history.
 
 `review_state` is `ok` or `disputed`. It becomes `disputed` when a settled leg's
 authoritative result revision changes after it was recorded, or when a voided
@@ -113,8 +116,9 @@ authoritative revision changes (including a void after the match was decided):
 1. the match becomes `disputed`,
 2. the tournament `review_state` becomes `disputed`,
 3. an audit entry with action `disputed` is written,
-4. the disputed match stops advancing, so every match fed by it stays unresolved
-   until a rebuild.
+4. the whole bracket freezes: no new games or downstream matches are created
+   and no further advancement happens on any branch (unaffected ones included)
+   until a rebuild re-derives the bracket.
 
 `POST /api/player-tournaments/{id}/rebuild` (administrator, with a private note)
 re-derives the bracket from the authoritative results: it clears every derived

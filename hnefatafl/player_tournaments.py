@@ -349,13 +349,32 @@ class PlayerTournaments:
             if row["status"] not in ("registration", "running"):
                 raise OnlineError(409, "This tournament can no longer be cancelled.")
             now = self._now()
+            # Retire outstanding legs through the authoritative online core so a
+            # cancelled competition has no playable, settleable or expirable game
+            # left. Completed legs and their results stay as history; already
+            # voided legs are skipped so a leg is never voided twice.
+            actor = lifecycle.Actor(account["id"], True)
+            void_note = "Tournament cancelled by administrator."
+            voided = 0
+            outstanding = c.execute(
+                """SELECT l.game_id FROM player_tournament_legs l
+                   JOIN player_tournament_matches m ON m.id=l.match_id
+                   JOIN online_games g ON g.id=l.game_id
+                   WHERE m.tournament_id=? AND g.status IN ('waiting','active')""",
+                (identifier,),
+            ).fetchall()
+            for leg in outstanding:
+                if self.online.void_game(c, leg["game_id"], actor, void_note, now):
+                    voided += 1
             c.execute(
                 "UPDATE player_tournaments SET status='cancelled',version=version+1 WHERE id=? AND version=?",
                 (identifier, version),
             )
             if c.execute("SELECT changes()").fetchone()[0] != 1:
                 raise OnlineError(409, "This tournament changed. Reload before retrying.")
-            self._audit(c, identifier, account["id"], "cancelled", now)
+            self._audit(
+                c, identifier, account["id"], "cancelled", now, details={"voided_games": voided}
+            )
             return self._detail(c, identifier)
 
     def settle(self, credential: str, identifier: str) -> dict:
@@ -733,6 +752,11 @@ class PlayerTournaments:
         )
 
     def _advance(self, c, identifier: str, now: datetime) -> None:
+        if self._load(c, identifier)["review_state"] != "ok":
+            # Bracket-wide freeze: a disputed tournament creates no new games or
+            # downstream matches and does not advance any branch, including
+            # unaffected ones, until a rebuild re-derives it.
+            return
         seeds = {
             entry["account_id"]: entry["seed"]
             for entry in c.execute(
@@ -762,7 +786,8 @@ class PlayerTournaments:
                     # legs, so settling them never reopens it.
                     if self._settle_legs(c, row, now) and row["decided_by"] != "admin_override":
                         self._dispute(c, identifier, row, now)
-                        changed = True
+                        # Freeze the whole bracket now that review is required.
+                        return
                     continue
                 if row["status"] in ("bye", "disputed"):
                     continue
