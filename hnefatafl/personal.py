@@ -570,13 +570,21 @@ class PersonalHistory:
         WHERE e.pool=? AND e.state='applied'"""
 
     @staticmethod
-    def _rating_history_entry(row):
+    def _recorded_at(completed_at):
+        """Trusted completion stamp, or `None` for a missing/non-positive one.
+
+        A `NULL`, zero or negative stamp is an explicit legacy gap, never a
+        fabricated date; the ledger sequence still orders the entry
+        authoritatively.
+        """
+        return stamp(instant(completed_at)) if completed_at and completed_at > 0 else None
+
+    @classmethod
+    def _rating_history_entry(cls, row):
         return {
             "sequence": row["sequence"],
             "game_id": row["game_id"],
-            # A non-positive completion stamp is an explicit legacy gap, never a
-            # fabricated date; the sequence still orders the entry authoritatively.
-            "recorded_at": stamp(instant(row["completed_at"])) if row["completed_at"] else None,
+            "recorded_at": cls._recorded_at(row["completed_at"]),
             "rating_after": row["rating_after"],
             "delta": row["delta"],
             "result": "draw" if row["score"] == 0.5 else "win" if row["score"] == 1.0 else "loss",
@@ -626,54 +634,51 @@ class PersonalHistory:
             }
 
     @staticmethod
-    def _rated_outcomes(c, actor, pool=None):
-        # Effective rated results in immutable ledger sequence order. Only applied
-        # events count, so a void or correction recomputes the streak rather than
-        # patching an incremental counter.
-        sql = """SELECT e.winner,CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
+    def _streaks(c, actor):
+        """Every rated win streak from one ordered pass over the ledger.
+
+        Only applied events count, so a void or correction recomputes the streak
+        rather than patching an incremental counter. The account's applied events
+        are read once in immutable ledger sequence order and folded immediately:
+        each pool keeps its own running run, and the aggregate run follows the
+        global sequence across pools. A win extends a run; a loss or draw ends it.
+        """
+        pools = {
+            pool: {"rated_win_current": 0, "rated_win_best": 0, "rated_games": 0}
+            for pool in sorted(RULESETS)
+        }
+        aggregate_current = aggregate_best = 0
+        rows = c.execute(
+            """SELECT e.pool,e.winner,
+              CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
             FROM rating_events e
             JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
-            WHERE e.state='applied'"""
-        params: list = [actor, actor]
-        if pool is not None:
-            sql += " AND e.pool=?"
-            params.append(pool)
-        sql += " ORDER BY e.sequence"
-        return [row["winner"] == row["side"] for row in c.execute(sql, params)]
-
-    @staticmethod
-    def _win_streak(wins):
-        # A draw or loss ends the current win streak; the best is the longest run.
-        current = best = 0
-        for won in wins:
-            current = current + 1 if won else 0
-            best = max(best, current)
-        return current, best
+            WHERE e.state='applied' ORDER BY e.sequence""",
+            (actor, actor),
+        )
+        for row in rows:
+            won = row["winner"] == row["side"]
+            aggregate_current = aggregate_current + 1 if won else 0
+            aggregate_best = max(aggregate_best, aggregate_current)
+            pool = pools.get(row["pool"])
+            if pool is None:
+                continue
+            pool["rated_games"] += 1
+            pool["rated_win_current"] = pool["rated_win_current"] + 1 if won else 0
+            pool["rated_win_best"] = max(pool["rated_win_best"], pool["rated_win_current"])
+        return pools, aggregate_current, aggregate_best
 
     def progress(self, credential):
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
-            actor = account["id"]
-            by_ruleset = []
-            for pool in sorted(RULESETS):
-                wins = self._rated_outcomes(c, actor, pool)
-                current, best = self._win_streak(wins)
-                by_ruleset.append(
-                    {
-                        "ruleset": pool,
-                        "rated_win_current": current,
-                        "rated_win_best": best,
-                        "rated_games": len(wins),
-                    }
-                )
-            current, best = self._win_streak(self._rated_outcomes(c, actor))
+            pools, current, best = self._streaks(c, account["id"])
             now = micros(self.online.clock())
             return {
                 "as_of": stamp(instant(now)),
                 "streaks": {
                     "rated_win_current": current,
                     "rated_win_best": best,
-                    "by_ruleset": by_ruleset,
+                    "by_ruleset": [{"ruleset": pool, **pools[pool]} for pool in sorted(RULESETS)],
                 },
             }

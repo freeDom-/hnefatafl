@@ -1,6 +1,7 @@
 """Phase 6 rating policy, durable application, rebuild and leaderboard contracts."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
@@ -15,8 +16,10 @@ from hnefatafl.engine import RULESETS, State, legal_moves
 from hnefatafl.online_core import (
     OnlineCore,
     OnlineError,
+    instant,
     micros,
     result_payload,
+    stamp,
     stored_result,
 )
 from hnefatafl.online_settings import OnlineSettings
@@ -1013,6 +1016,31 @@ def test_rating_history_flags_legacy_missing_timestamps(rig):
     assert page["items"][0]["sequence"] == 1
 
 
+@pytest.mark.parametrize("legacy_stamp", [0, -1, -1_000_000])
+def test_rating_history_treats_non_positive_timestamps_as_legacy_gaps(rig, legacy_stamp):
+    game = finish(rig, active(rig), "attackers")
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE rating_events SET completed_at=? WHERE game_id=?", (legacy_stamp, game["id"])
+        )
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    assert page["legacy_timestamp_gaps"] is True
+    (item,) = page["items"]
+    assert item["recorded_at"] is None
+    # The immutable ledger sequence still orders the entry authoritatively.
+    assert item["sequence"] == 1 and item["rating_after"] == pytest.approx(1516.0)
+
+
+def test_rating_history_keeps_a_valid_completion_stamp(rig):
+    game = finish(rig, active(rig), "attackers")
+    moment = micros(rig.clock.value) - 1_000_000
+    with rig.store.connection() as c:
+        c.execute("UPDATE rating_events SET completed_at=? WHERE game_id=?", (moment, game["id"]))
+    page = personal_history(rig).rating_history(rig.credentials["Archer"], "brandubh")
+    assert page["legacy_timestamp_gaps"] is False
+    assert page["items"][0]["recorded_at"] == stamp(instant(moment))
+
+
 def test_rating_history_empty_state_and_ruleset_validation(rig):
     history = personal_history(rig)
     page = history.rating_history(rig.credentials["Archer"], "copenhagen")
@@ -1051,6 +1079,67 @@ def test_progress_win_streaks_are_per_ruleset_and_recomputed(rig):
     assert progress["streaks"]["rated_win_current"] == 1
     assert progress["streaks"]["rated_win_best"] == 2
     assert progress["as_of"].endswith("Z")
+
+
+def test_progress_recomputes_streaks_after_void_and_correction(rig):
+    voided = finish(rig, active(rig), "attackers")
+    corrected = finish(rig, active(rig), "attackers")
+    history = personal_history(rig)
+    assert history.progress(rig.credentials["Archer"])["streaks"]["rated_win_best"] == 2
+    # A void removes its event from every streak and rebuilds the pool.
+    rig.core.mutate(
+        rig.credentials["Archer"], voided["id"], voided["version"], "void", note="Incident"
+    )
+    streaks = history.progress(rig.credentials["Archer"])["streaks"]
+    assert streaks["rated_win_current"] == 1 and streaks["rated_win_best"] == 1
+    assert streaks["by_ruleset"][0] == {
+        "ruleset": "brandubh",
+        "rated_win_current": 1,
+        "rated_win_best": 1,
+        "rated_games": 1,
+    }
+    # A corrected result uses its current effective outcome, not its first one.
+    fabricate_correction(rig, corrected, "defenders")
+    streaks = history.progress(rig.credentials["Archer"])["streaks"]
+    assert streaks["rated_win_current"] == 0 and streaks["rated_win_best"] == 0
+    assert streaks["by_ruleset"][0]["rated_games"] == 1
+
+
+def test_progress_ignores_unrated_games(rig):
+    # Only the rated ledger feeds streaks: a historical casual game writes no
+    # rating event, so every pool and the aggregate stay at zero.
+    finish(rig, make_historical_casual(rig, active(rig)), "attackers")
+    streaks = personal_history(rig).progress(rig.credentials["Archer"])["streaks"]
+    assert streaks["rated_win_current"] == 0 and streaks["rated_win_best"] == 0
+    assert all(row["rated_games"] == 0 for row in streaks["by_ruleset"])
+
+
+def test_progress_reads_the_applied_ledger_once_in_sequence_order(rig, monkeypatch):
+    for ruleset in sorted(RULESETS):
+        for winner in ("attackers", "defenders", "attackers"):
+            finish(rig, active(rig, ruleset), winner)
+    history = personal_history(rig)
+    statements: list[str] = []
+    original = rig.store.connection
+
+    @contextmanager
+    def traced():
+        with original() as c:
+            c.set_trace_callback(statements.append)
+            yield c
+
+    monkeypatch.setattr(rig.store, "connection", traced)
+    streaks = history.progress(rig.credentials["Archer"])["streaks"]
+    reads = [statement for statement in statements if "rating_events" in statement]
+    # One ordered ledger read serves all three pools and the aggregate.
+    assert len(reads) == 1 and "ORDER BY e.sequence" in reads[0]
+    assert sum(s.lstrip().upper().startswith(("SELECT", "WITH")) for s in statements) <= 3
+    assert streaks["rated_win_current"] == 1 and streaks["rated_win_best"] == 2
+    assert {row["ruleset"]: row["rated_games"] for row in streaks["by_ruleset"]} == {
+        "brandubh": 3,
+        "copenhagen": 3,
+        "tablut": 3,
+    }
 
 
 def test_progress_is_strictly_self_scoped(rig):
