@@ -92,10 +92,10 @@
   --chart-value: #217894;
   --chart-evaluation: #37763e;
 }
-:root[data-color-mode='wood'] .training-job-dashboard,
-:root[data-color-mode='dark'] .training-job-dashboard,
-:root[data-color-mode='wood'] .training-history,
-:root[data-color-mode='dark'] .training-history {
+:root[data-color-mode='wood']:not([data-ui-theme]) .training-job-dashboard,
+:root[data-color-mode='dark']:not([data-ui-theme]) .training-job-dashboard,
+:root[data-color-mode='wood']:not([data-ui-theme]) .training-history,
+:root[data-color-mode='dark']:not([data-ui-theme]) .training-history {
   --chart-policy: #efb16b;
   --chart-value: #81c7e5;
   --chart-evaluation: #a2ce8a;

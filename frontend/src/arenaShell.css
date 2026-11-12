@@ -1,4 +1,9 @@
-/* Arena/Workshop shell: skip link, workspace switch and mobile bottom navigation. */
+/* Arena/Workshop shell: skip link, workspace switch and compact mobile navigation. */
+:root {
+  /* Height reserved for the fixed mobile navigation, including its border. */
+  --bottom-nav-h: 56px;
+}
+
 .skip-link {
   position: absolute;
   top: 0;
@@ -43,12 +48,12 @@
   background: var(--surface-raised);
 }
 
-.arena-bottom-nav {
+.workspace-bottom-nav {
   display: none;
 }
 
 @media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
-  .arena-bottom-nav {
+  .workspace-bottom-nav {
     position: fixed;
     inset: auto 0 0 0;
     z-index: 30;
@@ -56,39 +61,76 @@
     align-items: stretch;
     justify-content: space-around;
     gap: 0;
+    margin: 0;
     padding-bottom: env(safe-area-inset-bottom, 0);
     border-top: 1px solid var(--line);
     background: var(--ui-header, #fbfaf5);
   }
-  .arena-bottom-nav a {
+  .workspace-bottom-nav a {
     display: flex;
     flex: 1 1 0;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 2px;
-    min-height: 56px;
+    min-width: 0;
+    min-height: var(--bottom-nav-h);
     padding: 6px 4px;
     border-top: 2px solid transparent;
     color: var(--ui-copy, #81877a);
     font-size: 0.625rem;
     font-weight: 600;
     text-decoration: none;
+    text-align: center;
   }
-  .arena-bottom-nav a[aria-current='page'] {
+  .workspace-bottom-nav a[aria-current='page'] {
     border-top-color: var(--green);
     color: var(--green);
   }
-  .arena-bottom-nav svg {
+  .workspace-bottom-nav svg {
     width: 20px;
     height: 20px;
   }
-  /* Leave room for the fixed bar, but never cover the board during gameplay. */
-  body:not(:has(.game-layout)) {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  .workspace-bottom-nav a > span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  #root:has(.game-layout) .arena-bottom-nav {
-    display: none;
+  /* Reserve the bar's space so it never covers the footer, replay controls or
+     any other end-of-page action. Gameplay reserves the same space through the
+     play layouts instead (see mobilePlay.css / desktopPlay.css). */
+  body {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Short landscape phones cannot spare a tall bar. */
+@media (max-height: 480px) and (pointer: coarse) {
+  :root {
+    --bottom-nav-h: 48px;
+  }
+  .workspace-bottom-nav a {
+    min-height: 44px;
+    padding: 2px 4px;
+    font-size: 0.5625rem;
+  }
+  .workspace-bottom-nav svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Narrow devices (320–360px) keep five Arena destinations on one row. */
+@media (max-width: 380px) {
+  .workspace-bottom-nav a {
+    padding: 6px 2px;
+    font-size: 0.5625rem;
+    letter-spacing: -0.1px;
+  }
+  .workspace-bottom-nav svg {
+    width: 18px;
+    height: 18px;
   }
 }
 

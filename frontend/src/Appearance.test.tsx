@@ -315,4 +315,47 @@ describe('appearance preferences', () => {
     expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
     expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
   });
+
+  it('keeps every named theme independent from every color mode and restores the pair', () => {
+    const themes = [
+      ['The King’s Table', 'kings-table'],
+      ['Iron & Ash', 'iron-ash'],
+      ['Saga Hall', 'saga-hall'],
+    ] as const;
+    const view = renderTable();
+    openSettings();
+    for (const [label, id] of themes) {
+      for (const [mode, resolved] of [
+        ['Light', 'light'],
+        ['Dark', 'dark'],
+        ['Wood', 'wood'],
+        ['Follow device', 'light'],
+      ] as const) {
+        fireEvent.click(screen.getByRole('radio', { name: mode }));
+        fireEvent.click(screen.getByRole('radio', { name: label }));
+        const root = document.documentElement;
+        expect(root).toHaveAttribute('data-ui-theme', id);
+        expect(root).toHaveAttribute('data-color-mode', resolved);
+        // The named theme owns color-scheme through its CSS; no inline mode wins.
+        expect(root.style.colorScheme).toBe('');
+        // Token, board and density choices stay independent of the UI theme.
+        expect(root).toHaveAttribute('data-token-theme', 'wood');
+        expect(root).toHaveAttribute('data-board-theme', 'walnut');
+        expect(root).toHaveAttribute('data-density', 'default');
+        expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
+          ...DEFAULT_APPEARANCE,
+          uiTheme: id,
+          mode: mode === 'Follow device' ? 'system' : mode.toLowerCase(),
+        });
+      }
+    }
+    view.unmount();
+    renderTable();
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
+    expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
+    expect(document.documentElement.style.colorScheme).toBe('');
+    openSettings();
+    expect(screen.getByRole('radio', { name: 'Saga Hall' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
+  });
 });

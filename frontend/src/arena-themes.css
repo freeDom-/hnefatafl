@@ -1,9 +1,11 @@
 /* Hnefatafl Arena v2 UI themes, imported after appearance.css in main.tsx.
  * `data-ui-theme` is set only when the user explicitly chooses a named theme
  * (see appearanceConfig.ts / Appearance.tsx). With no attribute the existing
- * data-color-mode / data-board-theme / data-token-theme behavior is untouched.
- * A named theme owns the shell surface variables; mode, token, board and density
- * choices stay independent. Asset URLs resolve under the copied public path:
+ * data-color-mode / data-board-theme / data-token-theme behavior is untouched:
+ * every legacy mode-scoped component override is guarded by :not([data-ui-theme]).
+ * A named theme owns the shell surface variables, its controls, its chart colors
+ * and its own color-scheme; mode, token, board and density choices stay
+ * independent. Asset URLs resolve under the copied public path:
  *   frontend/public/assets/arena-v2/assets/
  */
 :root[data-ui-theme='kings-table'] {
@@ -19,7 +21,11 @@
   --arena-line: #c7b08b;
   --arena-hero-ink: #142f25;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
+  --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --arena-chart-policy: #9c5919;
+  --arena-chart-value: #217894;
+  --arena-chart-evaluation: #37763e;
   --page: var(--arena-ambient);
   --text: var(--arena-ink);
   --surface: var(--arena-panel);
@@ -34,6 +40,8 @@
   --ui-tint: #e9eadb;
   --ui-selected: #d9e6d7;
   --ui-gold-tint: #f2e3c4;
+  --ui-error: #a8452f;
+  --ui-error-surface: #f7e3da;
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
@@ -53,7 +61,12 @@
   --arena-line: #56646a;
   --arena-hero-ink: #f1e7d6;
   --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
+  /* Iron & Ash stays restrained: no ornament band, a metal hairline instead. */
+  --arena-band: none;
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --arena-chart-policy: #efb16b;
+  --arena-chart-value: #81c7e5;
+  --arena-chart-evaluation: #a2ce8a;
   --page: var(--arena-ambient);
   --text: var(--arena-ink);
   --surface: var(--arena-panel);
@@ -68,6 +81,8 @@
   --ui-tint: #323e46;
   --ui-selected: #4a4032;
   --ui-gold-tint: #443a2b;
+  --ui-error: #f0b0a0;
+  --ui-error-surface: #3b2a24;
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
@@ -87,7 +102,11 @@
   --arena-line: #927050;
   --arena-hero-ink: #f5dec1;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
+  --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --arena-chart-policy: #f0c184;
+  --arena-chart-value: #8fd0e8;
+  --arena-chart-evaluation: #a9d69a;
   --page: var(--arena-ambient);
   --text: var(--arena-ink);
   --surface: var(--arena-panel);
@@ -102,6 +121,8 @@
   --ui-tint: #473326;
   --ui-selected: #5a3829;
   --ui-gold-tint: #634731;
+  --ui-error: #f6c1a4;
+  --ui-error-surface: #45291d;
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
@@ -172,4 +193,67 @@
 :root[data-ui-theme] .welcome-panel,
 :root[data-ui-theme] .modal {
   background-image: none;
+}
+
+/* A named theme also owns its primary control and its error surfaces. The
+ * legacy mode-scoped button variants are disabled by the :not([data-ui-theme])
+ * guards in appearance.css; these rules keep the contrast pair explicit so
+ * every theme stays readable in every color mode. */
+:root[data-ui-theme] .button.primary {
+  background: var(--arena-accent);
+  border-color: var(--arena-accent);
+  color: var(--arena-accent-contrast);
+}
+:root[data-ui-theme] .button.primary:hover {
+  background: var(--green-dark);
+}
+/* Workshop charts read the theme's chart colors instead of the light/dark
+ * defaults, so dense training charts stay legible in every named theme. */
+:root[data-ui-theme] .training-workshop,
+:root[data-ui-theme] .training-workshop .training-history,
+:root[data-ui-theme] .training-workshop .training-job-dashboard,
+:root[data-ui-theme] .training-history,
+:root[data-ui-theme] .training-job-dashboard {
+  --chart-policy: var(--arena-chart-policy);
+  --chart-value: var(--arena-chart-value);
+  --chart-evaluation: var(--arena-chart-evaluation);
+}
+
+/* Theme material and ornament. Both layers are decorative, never interactive:
+ * a low-opacity tile behind real text, and a thin band that cannot cover a
+ * focus ring or a hit target. */
+:root[data-ui-theme] .site-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--arena-texture);
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+:root[data-ui-theme] .site-header::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 5px;
+  background-image: var(--arena-band);
+  background-repeat: repeat-x;
+  background-size: auto 100%;
+  opacity: 0.85;
+  pointer-events: none;
+}
+/* Restrained metal rule instead of a carved band. */
+:root[data-ui-theme='iron-ash'] .site-header::after {
+  height: 1px;
+  background-image: none;
+  background-color: var(--arena-metal);
+  opacity: 1;
+}
+@media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
+  /* The compact header has no bottom padding of its own. */
+  :root[data-ui-theme] .site-header {
+    padding-bottom: 6px;
+  }
 }

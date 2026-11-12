@@ -63,6 +63,17 @@ export async function openGameNavigation(page: Page) {
   }
 }
 
+/**
+ * Enter the permission-gated Workshop through the shared workspace switch. The
+ * Arena navigation deliberately exposes no Workshop destination, so the switch
+ * is the only shell-level entry point.
+ */
+export async function openWorkshop(page: Page, destination?: string) {
+  await page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }).click();
+  await expect(page).toHaveURL(/\/training$/);
+  if (destination) await page.getByRole('button', { name: destination, exact: true }).click();
+}
+
 export async function returnToGame(page: Page, path: string) {
   if (new URL(page.url()).pathname !== path) {
     await page.goto(path);

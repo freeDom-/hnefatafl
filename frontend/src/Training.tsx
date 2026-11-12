@@ -425,6 +425,33 @@ export default function Training({
     );
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
+  // The workshop navigation deep-links into the sections that already live on
+  // this page; open the matching section and move focus there.
+  useEffect(() => {
+    const focusSection = () => {
+      const target =
+        location.hash === '#model-collection'
+          ? 'model-collection'
+          : location.hash === '#workshop-workers'
+            ? 'workshop-workers'
+            : null;
+      if (!target) return;
+      if (target === 'model-collection') setModelsOpen(true);
+      else setWorkersOpen(true);
+      requestAnimationFrame(() => {
+        const section = document.getElementById(target);
+        section?.scrollIntoView?.({ block: 'start' });
+        section?.focus({ preventScroll: true });
+      });
+    };
+    focusSection();
+    window.addEventListener('hashchange', focusSection);
+    window.addEventListener('popstate', focusSection);
+    return () => {
+      window.removeEventListener('hashchange', focusSection);
+      window.removeEventListener('popstate', focusSection);
+    };
+  }, []);
   /** Drop the rejections that a form input identity owns. */
   const clearRejectedFields = (identity: string) =>
     setRejectedFields((previous) =>
@@ -948,7 +975,7 @@ export default function Training({
           </button>
         </div>
       )}
-      <div id="workshop-workers" hidden={!workersOpen}>
+      <div id="workshop-workers" tabIndex={-1} hidden={!workersOpen}>
         <TrainingWorkers
           workers={workers}
           onChanged={(revokedId) => {
@@ -1151,7 +1178,7 @@ export default function Training({
             />
           </label>
         </div>
-        <div id="model-collection" hidden={modelsOpen === false}>
+        <div id="model-collection" tabIndex={-1} hidden={modelsOpen === false}>
           <p className="subtle">
             {t(
               'Compatible checkpoints are validated before registration. Select a trained model under “Neural network” when starting a game.',

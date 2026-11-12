@@ -4,9 +4,14 @@ import { Crown } from './Board';
 import { LanguageSelect, useI18n } from './i18n';
 import { navigate } from './navigation';
 import { surfaceLink } from './surfaceNavigation';
+import {
+  activeDestination,
+  useLocationHash,
+  workshopEntry,
+  workspaceDestinations,
+  type Workspace,
+} from './workspaceNavigation';
 import './siteHeader.css';
-
-export type Workspace = 'arena' | 'workshop';
 
 export default function SiteHeader({
   account,
@@ -20,12 +25,14 @@ export default function SiteHeader({
   workspace?: Workspace;
 }) {
   const { t } = useI18n();
+  const hash = useLocationHash();
   if (!account) return null;
-  const mayEnterWorkshop = account.permissions.some(
-    (permission) => permission === 'training' || permission === 'tournaments',
-  );
+  const destinations = workspaceDestinations(workspace, account.permissions);
+  const active = activeDestination(workspace, current, hash);
+  const entry = workshopEntry(account.permissions);
+  const label = workspace === 'workshop' ? t('Arena') : t('Workshop');
   return (
-    <header className="site-header">
+    <header className="site-header" data-workspace={workspace}>
       <a className="brand" href="/dashboard" onClick={surfaceLink}>
         <span className="brand-emblem">
           <Crown />
@@ -35,43 +42,32 @@ export default function SiteHeader({
           <small>{t('THE KING’S TABLE')}</small>
         </span>
       </a>
-      <nav aria-label={t('Main navigation')}>
-        {(
-          [
-            ['dashboard', 'Dashboard'],
-            ['play', 'Play'],
-            ['statistics', 'Statistics'],
-            ['leaderboard', 'Leaderboard'],
-            ['archive', 'Hall of records'],
-            ['training', 'AI workshop'],
-            ['tournaments', 'Tournaments'],
-          ] as const
-        )
-          .filter(
-            ([item]) =>
-              (item !== 'training' && item !== 'tournaments') || account.permissions.includes(item),
-          )
-          .map(([item, label]) => (
+      {destinations.length > 0 && (
+        <nav
+          aria-label={workspace === 'workshop' ? t('Workshop navigation') : t('Main navigation')}
+        >
+          {destinations.map((destination) => (
             <button
               type="button"
-              key={item}
-              onClick={() => navigate(`/${item}`)}
+              key={destination.id}
+              onClick={() => navigate(destination.href)}
               className="site-nav-link"
-              aria-current={current === item ? 'page' : undefined}
+              aria-current={active === destination.id ? 'page' : undefined}
             >
-              {t(label)}
+              {t(destination.label)}
             </button>
           ))}
-      </nav>
+        </nav>
+      )}
       <div className="header-controls">
-        {mayEnterWorkshop && (
+        {entry && (
           <button
             type="button"
             className="workspace-switch"
             aria-pressed={workspace === 'workshop'}
-            aria-label={workspace === 'workshop' ? t('Arena') : t('Workshop')}
-            title={workspace === 'workshop' ? t('Arena') : t('Workshop')}
-            onClick={() => navigate(workspace === 'workshop' ? '/dashboard' : '/training')}
+            aria-label={label}
+            title={label}
+            onClick={() => navigate(workspace === 'workshop' ? '/dashboard' : entry)}
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               {workspace === 'workshop' ? (

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 import { workshopFixture } from './workshop-fixtures';
 import { learningHistory } from './learning-fixtures';
 import { selectWorkshopJob } from './workshop-helpers';
@@ -13,7 +14,7 @@ async function open(page: Page, mode = 'light') {
   }, mode);
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
 }
 
 for (const mode of ['light', 'dark']) {

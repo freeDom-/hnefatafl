@@ -7,7 +7,8 @@ async function openWorkshop(page: Page) {
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await page.getByRole('button', { name: 'Workshop', exact: true }).click();
+  await expect(page).toHaveURL(/\/training$/);
 }
 
 /**

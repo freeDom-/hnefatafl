@@ -1,9 +1,23 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test } from './auth-fixture';
+import { historicalGame } from './historical-fixture';
 
-// Chromium is the only configured browser, so these screenshots run wherever
+// Chromium is the only configured browser, so these checks run wherever
 // `npm --prefix frontend run test:e2e` is available with an installed Chromium.
-const themes = ['kings-table', 'iron-ash', 'saga-hall'] as const;
+const themes = [
+  { id: 'kings-table', accent: 'rgb(30, 80, 55)', colorScheme: 'light' },
+  { id: 'iron-ash', accent: 'rgb(233, 194, 126)', colorScheme: 'dark' },
+  { id: 'saga-hall', accent: 'rgb(233, 191, 121)', colorScheme: 'dark' },
+] as const;
+const viewports = [
+  { name: '320', width: 320, height: 640 },
+  { name: '390', width: 390, height: 844 },
+  { name: '768', width: 768, height: 1024 },
+  { name: '1024', width: 1024, height: 768 },
+  { name: '1440', width: 1440, height: 900 },
+  { name: 'landscape', width: 740, height: 360 },
+];
+const modes = ['light', 'dark', 'system', 'wood'] as const;
 const output = 'test-results/arena-themes';
 
 test.beforeAll(() => {
@@ -11,22 +25,64 @@ test.beforeAll(() => {
 });
 
 for (const theme of themes) {
-  test(`captures the ${theme} UI theme on desktop and mobile`, async ({ page }) => {
+  test(`captures the ${theme.id} UI theme at every required viewport`, async ({ page }) => {
     await page.addInitScript((value) => {
       localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: value }));
-    }, theme);
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-    await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
-    await page.screenshot({ path: `${output}/${theme}-desktop.png`, fullPage: true });
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-    await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
-    await page.screenshot({ path: `${output}/${theme}-mobile.png`, fullPage: true });
+    }, theme.id);
+    for (const viewport of viewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme.id);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+      ).toBe(true);
+      await page.screenshot({
+        path: `${output}/${theme.id}-${viewport.name}.png`,
+        fullPage: true,
+      });
+    }
   });
+
+  for (const mode of modes) {
+    test(`keeps the ${theme.id} controls and color-scheme on the theme in ${mode} mode`, async ({
+      page,
+    }) => {
+      // `wood` is an application color mode, not a browser preference; the stored
+      // mode still drives data-color-mode and the theme's own color-scheme.
+      await page.emulateMedia({
+        colorScheme: mode === 'dark' || mode === 'system' ? 'dark' : 'light',
+      });
+      await page.addInitScript(
+        ([id, selected]) => {
+          localStorage.setItem(
+            'hnefatafl-appearance',
+            JSON.stringify({ uiTheme: id, mode: selected }),
+          );
+        },
+        [theme.id, mode],
+      );
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto('/dashboard');
+      const root = page.locator('html');
+      await expect(root).toHaveAttribute('data-ui-theme', theme.id);
+      await expect(root).toHaveAttribute('data-color-mode', mode === 'system' ? 'dark' : mode);
+      // The legacy data-color-mode button variants must not repaint the theme.
+      const primary = page.getByRole('button', { name: 'New online game' });
+      await expect(primary).toBeVisible();
+      expect(await primary.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+        theme.accent,
+      );
+      expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
+        theme.colorScheme,
+      );
+      expect(await root.evaluate((node) => node.style.colorScheme)).toBe('');
+      await page.screenshot({
+        path: `${output}/${theme.id}-${mode}-mode.png`,
+        fullPage: false,
+      });
+    });
+  }
 }
 
 test('keeps the legacy appearance when no UI theme is stored', async ({ page }) => {
@@ -35,4 +91,40 @@ test('keeps the legacy appearance when no UI theme is stored', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.locator('html')).not.toHaveAttribute('data-ui-theme');
   await page.screenshot({ path: `${output}/legacy-default-desktop.png`, fullPage: true });
+});
+
+test('keeps the compact navigation clear of the mobile board', async ({ page, request }, info) => {
+  test.skip(
+    info.project.name !== 'mobile',
+    'Phone-specific screen layout; desktop gameplay has separate coverage.',
+  );
+  const response = await historicalGame(request, {
+    data: { ruleset: 'tablut', mode: 'human-human' },
+  });
+  expect(response.ok()).toBe(true);
+  const game = await response.json();
+  await page.addInitScript((id) => {
+    localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: id }));
+  }, 'saga-hall');
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.goto(`/games/${game.id}`);
+  await expect(page.getByRole('grid', { name: 'tablut game board' })).toBeVisible();
+  const overlap = await page.evaluate(() => {
+    const nav = document.querySelector('.workspace-bottom-nav')!.getBoundingClientRect();
+    const board = document.querySelector('.board')!.getBoundingClientRect();
+    const inspector = document.querySelector('.mobile-inspector')!.getBoundingClientRect();
+    const intersects = (a: DOMRect, b: DOMRect) =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    return {
+      board: intersects(nav, board),
+      inspector: intersects(nav, inspector),
+      scrolls: document.documentElement.scrollHeight > innerHeight + 1,
+      navVisible: nav.height > 0,
+    };
+  });
+  expect(overlap.navVisible).toBe(true);
+  expect(overlap.board).toBe(false);
+  expect(overlap.inspector).toBe(false);
+  expect(overlap.scrolls).toBe(false);
+  await page.screenshot({ path: `${output}/saga-hall-mobile-gameplay.png`, fullPage: false });
 });

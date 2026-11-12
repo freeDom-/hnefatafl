@@ -4,6 +4,7 @@ import {
   closeGameOptions,
   showMove,
   gameTab,
+  openWorkshop,
 } from './play-helpers';
 import { historicalGame } from './historical-fixture';
 import { openCreation, openCollection } from './workshop-helpers';
@@ -177,7 +178,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await openGameNavigation(page);
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await openCreation(page);
   await openCollection(page);
   await page.getByLabel('Model name', { exact: true }).fill('Browser smoke strategist');
@@ -365,7 +366,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await expect(card.getByRole('heading', { name: renamedName, exact: true })).toBeVisible();
   expect(await (await request.get(`${api}/games/${history.id}`)).json()).toEqual(history);
 
-  await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
+  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
   await page.getByRole('button', { name: 'New tournament', exact: true }).click();
   const tournamentSetup = page.getByRole('dialog', { name: 'Set up a tournament', exact: true });
   await expect(tournamentSetup.getByRole('textbox')).toHaveCount(1);
@@ -424,7 +425,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toContainText('4 channels · 0 blocks');
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Tournaments', exact: true }).click();
+  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
   await page
     .getByRole('button', { name: 'View tournament Fjord model provenance', exact: true })
     .click();

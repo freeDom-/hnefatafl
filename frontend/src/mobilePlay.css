@@ -5,7 +5,9 @@
 
 @media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
   #root:has(.mobile-game-layout) {
-    height: 100dvh;
+    /* The fixed shell navigation reserves its own space, so it never covers the
+       board, move list, replay controls or game options. */
+    height: calc(100dvh - var(--bottom-nav-h, 56px) - env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
   }

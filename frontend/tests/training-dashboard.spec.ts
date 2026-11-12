@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 import { workshopFixture, workshopFixtures } from './workshop-fixtures';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
 async function open(
@@ -12,7 +13,7 @@ async function open(
   }, appearance);
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -400,8 +401,8 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
   await page.getByRole('tab', { name: 'Leistung', exact: true }).click();
   await expect(page.getByLabel('Leistungskennzahl', { exact: true })).toBeVisible();
   jobs = [];
-  await page.getByRole('button', { name: 'Übersicht', exact: true }).click();
-  await page.getByRole('button', { name: 'KI-Werkstatt', exact: true }).click();
+  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  await page.getByRole('button', { name: 'Werkstatt', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Schmiede einen neuen Strategen', exact: true }),
   ).toHaveAttribute('aria-expanded', 'true');
@@ -591,7 +592,7 @@ test('names and marks a rejected training field in every appearance', async ({ p
   );
   await page.goto('/dashboard');
   await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   const darkChannels = await rejectTrainingFields(page);
   const darkMarker = await darkChannels.evaluate(marker);
   expect(darkMarker).not.toBe('none');

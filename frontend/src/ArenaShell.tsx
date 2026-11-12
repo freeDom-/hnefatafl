@@ -1,41 +1,47 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { Account } from './Auth';
-import SiteHeader, { type Workspace } from './SiteHeader';
+import SiteHeader from './SiteHeader';
 import { useI18n } from './i18n';
 import { surfaceLink } from './surfaceNavigation';
+import {
+  activeDestination,
+  useLocationHash,
+  workspaceDestinations,
+  type Workspace,
+} from './workspaceNavigation';
 import './arenaShell.css';
 
 const MAIN_ID = 'main-content';
 
-type NavItem = { id: string; label: string; href: string };
-
-/** Mobile bottom navigation; desktop keeps the persistent header navigation. */
-function ArenaBottomNav({ current, account }: { current?: string; account: Account | null }) {
+/** One compact primary navigation per workspace; desktop keeps the header. */
+function WorkspaceBottomNav({
+  workspace,
+  current,
+  account,
+}: {
+  workspace: Workspace;
+  current?: string;
+  account: Account | null;
+}) {
   const { t } = useI18n();
+  const hash = useLocationHash();
   if (!account) return null;
-  const items: NavItem[] = [
-    { id: 'dashboard', label: 'Home', href: '/dashboard' },
-    { id: 'play', label: 'Play', href: '/play' },
-    { id: 'statistics', label: 'Stats', href: '/statistics' },
-    { id: 'leaderboard', label: 'Compete', href: '/leaderboard' },
-    { id: 'archive', label: 'Replays', href: '/archive' },
-  ];
+  const destinations = workspaceDestinations(workspace, account.permissions);
+  if (!destinations.length) return null;
+  const active = activeDestination(workspace, current, hash);
   return (
-    <nav className="arena-bottom-nav" aria-label={t('Mobile navigation')}>
-      {items.map((item) => {
-        const active = current === item.id || (item.id === 'play' && current === 'online');
-        return (
-          <a
-            key={item.id}
-            href={item.href}
-            onClick={surfaceLink}
-            aria-current={active ? 'page' : undefined}
-          >
-            <BottomNavIcon id={item.id} />
-            <span>{t(item.label)}</span>
-          </a>
-        );
-      })}
+    <nav className="workspace-bottom-nav" aria-label={t('Mobile navigation')}>
+      {destinations.map((destination) => (
+        <a
+          key={destination.id}
+          href={destination.href}
+          onClick={surfaceLink}
+          aria-current={active === destination.id ? 'page' : undefined}
+        >
+          <BottomNavIcon id={destination.id} />
+          <span>{t(destination.short)}</span>
+        </a>
+      ))}
     </nav>
   );
 }
@@ -65,6 +71,36 @@ function BottomNavIcon({ id }: { id: string }) {
       ) : id === 'leaderboard' ? (
         <path
           d="M8 4h8v5a4 4 0 0 1-8 0Zm0 0H5v2a3 3 0 0 0 3 3m8-5h3v2a3 3 0 0 1-3 3m-4 3v3m-3 0h6"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+      ) : id === 'training' ? (
+        <path
+          d="M4 5h16v12H4Zm0 16h16M8 9h8m-8 4h5"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ) : id === 'tournaments' ? (
+        <path
+          d="M7 4h10v3a5 5 0 0 1-10 0Zm5 8v4m-4 4h8m-6-4h4M5 5h2M17 5h2"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ) : id === 'model-collection' ? (
+        <path
+          d="m12 3 8 4.5v9L12 21l-8-4.5v-9Zm0 0v18m8-13.5-8 4.5-8-4.5"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+      ) : id === 'workshop-workers' ? (
+        <path
+          d="M12 3.5 4 8v8l8 4.5 8-4.5V8Zm0 0v17m8-12.5-8 4.5-8-4.5m4-2 8 4.5"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinejoin="round"
@@ -115,7 +151,7 @@ function AppShell({
       </a>
       <SiteHeader account={account} logout={logout} current={current} workspace={workspace} />
       {children}
-      <ArenaBottomNav current={current} account={account} />
+      <WorkspaceBottomNav workspace={workspace} current={current} account={account} />
       <footer className="site-footer">
         <span>{t('ᛟ HNEFATAFL')}</span>
         <p>{t('An ancient game. An open horizon.')}</p>

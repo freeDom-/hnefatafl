@@ -1,6 +1,7 @@
 import { historicalGame } from './historical-fixture';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 
 async function finishVariant(
   request: import('@playwright/test').APIRequestContext,
@@ -81,7 +82,7 @@ test('workshop suggests Viking names and deletes a model only after confirmation
   );
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await openCreation(page);
   await openCollection(page);
   await expect(

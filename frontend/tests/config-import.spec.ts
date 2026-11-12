@@ -1,4 +1,5 @@
 import { expect, test } from './auth-fixture';
+import { openWorkshop } from './play-helpers';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
 
 const api = 'http://127.0.0.1:8001/api';
@@ -41,7 +42,7 @@ test('imports an exporter-compatible config.json into new and resume forms witho
 
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'AI workshop', exact: true }).click();
+  await openWorkshop(page);
   await openCreation(page);
   await page.getByLabel('Import config.json', { exact: true }).setInputFiles({
     name: 'config.json',

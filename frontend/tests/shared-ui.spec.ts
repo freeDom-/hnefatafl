@@ -34,7 +34,9 @@ test('pages keep accessible titles and share navigation and section typography w
         await page.locator('html').evaluate((node, value) => {
           node.dataset.density = value;
         }, density);
-        await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+        await expect(
+          page.getByRole('navigation', { name: /^(Main|Workshop) navigation$/ }),
+        ).toBeVisible();
         const state = await page.evaluate(() => {
           const header = document.querySelector('.site-header')!;
           const nav = header.querySelector('nav')!;
