@@ -47,14 +47,33 @@ with no completed results shows an em dash. Badges link to its mode/ruleset on
 the Statistics page; detailed tables do not appear on Dashboard.
 
 **Statistics** (`/statistics`) is personal and relative to the signed-in
-account's authoritative seat. The Singleplayer/Multiplayer tabs and ruleset
-selector are retained in the URL, including through login and reload. Each ruleset
-has an outcome distribution and a comparison table for overall, attacker and
-defender results: games played, wins, losses, draws, win rate and average length.
-On phones the tables become labelled metric cards without horizontal panning.
-Singleplayer adds expandable AI-opponent breakdowns with the same metrics and
-sides. Opponents use the persisted seed-independent effective configuration
+account's authoritative seat. The Singleplayer/Multiplayer/Local 1v1 tabs and the
+ruleset selector are retained in the URL, including through login and reload. Each
+ruleset has an outcome distribution and a comparison table for overall, attacker
+and defender results: games played, wins, losses, draws, win rate and average
+length. On phones the tables become labelled metric cards without horizontal
+panning. Singleplayer adds expandable AI-opponent breakdowns with the same metrics
+and sides. Opponents use the persisted seed-independent effective configuration
 identity, so changing only a random seed does not split an agent's results.
+
+**Local 1v1** is a third, non-Elo tab backed by the owner-scoped
+`/api/personal/local` category. Both seats belong to the signed-in account, so it
+reports account-wide totals (games played, completed, in progress, attacker wins,
+defender wins and draws) with the average game length instead of personal wins.
+Its one totals table covers every ruleset, so the tab hides the ruleset selector
+and never affects Elo.
+
+**Rating history** (Multiplayer) renders the applied rating ledger for each pool
+from `/api/personal/ratings/{ruleset}/history` and `/api/personal/progress` as a
+lightweight SVG progression. Only authoritative `rating_after` values are plotted;
+no curve is derived from a game's start-rating snapshot. A ledger entry with no
+trusted completion stamp is drawn as an explicit gap marker and a corrected result
+as a diamond, and the expandable entry list repeats both labels ("Date
+unavailable", "Corrected result") while keeping the ledger sequence. The section
+shows the current rating, the pool's rated-game count, the current and best rated
+win streaks, and the newest bounded page of entries. A pool with no applied events
+stays empty, a loading read is announced, and a failed or stale read offers Retry
+without inventing a baseline.
 
 Both views use complete account-scoped aggregates, independent of history
 pagination and filters:
@@ -88,7 +107,10 @@ unified top-five list (provisional players carry a badge) for the selected
 ruleset. The ruleset selector sits in the section's top-right corner; it defaults
 to **Copenhagen** and persists the last valid choice in browser storage, restored
 after reload and navigation and ignored when storage is unavailable. It requires a
-session and exposes public account attribution, ratings and rated-game counts.
+session and exposes public account attribution, ratings and rated-game counts. The
+full leaderboard keeps the signed-in **Your rank** summary outside the table, so
+the standing (rank, Elo, rated games and any provisional threshold) stays readable
+when the account is not on the visible page.
 
 On the Dashboard grid **Online games** follows the compact performance strip,
 then **Leaderboard** and the final **Recorded games** row. The redundant visible
@@ -198,6 +220,9 @@ their auth guard. See
 [the Phase 5 refinement evidence](validation/dashboard-consolidation.md).
 
 The full leaderboard adds country, city and integer **Age**; the compact Dashboard
-keeps its four columns. Populated optional fields are public after any required
-one-time legacy confirmation. Birth dates remain private and age uses completed
-years on the UTC date; see [profile publication and migration](PROFILE.md).
+keeps its four columns. It paginates with an explicit **Page X of Y** counter and
+stops on the last page, and clamps back to the first page when the pool shrinks
+below the current offset instead of stranding an empty slice. Populated optional
+fields are public after any required one-time legacy confirmation. Birth dates
+remain private and age uses completed years on the UTC date; see
+[profile publication and migration](PROFILE.md).

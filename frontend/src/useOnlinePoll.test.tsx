@@ -143,3 +143,51 @@ it('resynchronizes immediately when a backgrounded tab becomes visible and remov
   expect(load).toHaveBeenCalledTimes(2);
   visibility.mockRestore();
 });
+
+it('loads once under an intervalMs of 0 and reloads only on an explicit signal', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue('ledger');
+  const { result, unmount } = renderHook(() => useOnlinePoll('history', load, { intervalMs: 0 }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(result.current.data).toBe('ledger');
+  expect(load).toHaveBeenCalledTimes(1);
+  // No recurring timer: two minutes of the old cadence issues nothing.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  load.mockResolvedValue('refreshed');
+  await act(async () => {
+    await result.current.refresh();
+  });
+  expect(result.current.data).toBe('refreshed');
+  expect(load).toHaveBeenCalledTimes(2);
+  load.mockResolvedValue('focused');
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+  });
+  expect(result.current.data).toBe('focused');
+  expect(load).toHaveBeenCalledTimes(3);
+  unmount();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(load).toHaveBeenCalledTimes(3);
+});
+
+it('aborts the in-flight read and stops under an intervalMs of 0 when unmounted', async () => {
+  vi.useFakeTimers();
+  const pending = deferred<string>();
+  const load = vi.fn().mockReturnValue(pending.promise);
+  const { unmount } = renderHook(() => useOnlinePoll('history', load, { intervalMs: 0 }));
+  const signal = load.mock.calls[0][0] as AbortSignal;
+  expect(signal.aborted).toBe(false);
+  unmount();
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+});
