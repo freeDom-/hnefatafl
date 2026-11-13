@@ -97,6 +97,40 @@ FORBIDDEN = {
 }
 
 
+def replay_state(game):
+    state = new_game(game["ruleset"])
+    for move in game["moves"]:
+        state = apply_move(state, Move(move["source"], move["target"]))
+    return state
+
+
+def stored_analysis_key(state):
+    return hashlib.sha256(
+        json.dumps(state.to_dict(), sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def store_analysis(rig, game, key, report):
+    with rig.store.connection() as c:
+        c.execute(
+            "INSERT INTO game_analysis(game_id,position_key,data) VALUES(?,?,?)",
+            (game["id"], key, json.dumps(report)),
+        )
+
+
+def analysis_snapshot(rig, game, key):
+    with rig.store.connection() as c:
+        return (
+            c.execute("SELECT COUNT(*) FROM game_analysis").fetchone()[0],
+            c.execute("SELECT COUNT(*) FROM advisor_analysis").fetchone()[0],
+            c.execute("SELECT COUNT(*) FROM entity_runes").fetchone()[0],
+            c.execute(
+                "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
+                (game["id"], key),
+            ).fetchone()[0],
+        )
+
+
 def test_signed_out_and_signed_in_spectators_read_the_same_public_index(rig, api):
     app, anonymous = api
     live = active(rig)
@@ -305,6 +339,198 @@ def test_public_replay_projects_stored_analysis_onto_the_public_allowlist(rig, a
     )
     # A public GET neither rewrites the stored report nor touches the counters.
     assert snapshot() == before
+
+
+def test_public_replay_omits_malformed_stored_analysis_fields(rig, api):
+    _, client = api
+    game = completed(rig)
+    state = replay_state(game)
+    key = stored_analysis_key(state)
+    # Valid public values alongside deliberately malformed ones: an approved key
+    # holding a nested object, array or wrong scalar must be dropped rather than
+    # copied into the signed-out response.
+    report = {
+        "cursor": len(game["moves"]),
+        "ply": {"value": state.ply},
+        "side_to_move": state.turn,
+        "created_at": "2027-01-02T03:04:05.123456Z",
+        "evaluations": [
+            {
+                "agent_id": "defenders",
+                "role": "defenders",
+                "name": "Keeper",
+                "profile_name": "Seer",
+                "model_name": "trained-model",
+                "source": "mcts_rollout",
+                "value": 0.5,
+                "win_probability": 0.75,
+                "best_move": {"source": 3, "target": 11},
+                "estimated": True,
+                "calibrated": False,
+            },
+            {
+                "agent_id": {"id": "defenders"},
+                "role": ["defenders"],
+                "name": 7,
+                "profile_name": {"profile": "seer"},
+                "model_name": {"model_path": "/srv/hnefatafl/models/secret.pt"},
+                "source": {"algorithm": "mcts"},
+                "value": {"value": 0.5},
+                "win_probability": {"model_path": "/srv/hnefatafl/models/secret.pt"},
+                "best_move": {"source": {"square": 3}, "target": [11]},
+                "estimated": "yes",
+                "calibrated": 1,
+                "unavailable_reason": {"reason": "evaluation_failed"},
+            },
+            "not-an-entry",
+            None,
+        ],
+        "hint": {
+            "agent_id": "advisor",
+            "move": {"source": [3], "target": {"square": 11}},
+        },
+    }
+    store_analysis(rig, game, key, report)
+    before = analysis_snapshot(rig, game, key)
+
+    response = client.get(f"{PUBLIC}/{game['id']}/replay")
+    assert response.status_code == 200
+    assert response.json()["analysis"] == {
+        "cursor": len(game["moves"]),
+        "side_to_move": state.turn,
+        "created_at": "2027-01-02T03:04:05.123456Z",
+        "evaluations": [
+            {
+                "agent_id": "defenders",
+                "role": "defenders",
+                "name": "Keeper",
+                "profile_name": "Seer",
+                "model_name": "trained-model",
+                "source": "mcts_rollout",
+                "value": 0.5,
+                "win_probability": 0.75,
+                "best_move": {"source": 3, "target": 11},
+                "estimated": True,
+                "calibrated": False,
+            },
+            {},
+        ],
+        "hint": {"agent_id": "advisor"},
+    }
+    # No nested key, filesystem path or exception string from a malformed value
+    # survives the projection.
+    scan_not_present(
+        response.json()["analysis"],
+        {"id", "profile", "model_path", "algorithm", "square", "reason"},
+    )
+    assert "secret.pt" not in response.text and "evaluation_failed" not in response.text
+    # A public GET neither rewrites the stored report nor touches the counters.
+    assert analysis_snapshot(rig, game, key) == before
+
+
+def test_public_replay_rejects_bool_non_finite_and_out_of_range_analysis_values(rig, api):
+    _, client = api
+    game = completed(rig)
+    state = replay_state(game)
+    key = stored_analysis_key(state)
+    # ``bool`` is an ``int`` subclass, a win chance is bounded to a probability,
+    # move coordinates must fit the reported board and non-finite numbers cannot
+    # be serialised as JSON at all.
+    report = {
+        "cursor": True,
+        "ply": state.ply,
+        "side_to_move": state.turn,
+        "created_at": "not-a-timestamp",
+        "evaluations": [
+            {
+                "agent_id": "attackers",
+                "value": True,
+                "win_probability": 1.5,
+                "estimated": None,
+                "calibrated": True,
+                "best_move": {"source": 9999, "target": 3},
+            },
+            {
+                "agent_id": None,
+                "value": float("nan"),
+                "win_probability": float("inf"),
+                "best_move": None,
+            },
+        ],
+        "hint": {"agent_id": "advisor", "move": {"source": 0, "target": state.size**2}},
+    }
+    store_analysis(rig, game, key, report)
+    before = analysis_snapshot(rig, game, key)
+
+    response = client.get(f"{PUBLIC}/{game['id']}/replay")
+    assert response.status_code == 200
+    assert response.json()["analysis"] == {
+        "ply": state.ply,
+        "side_to_move": state.turn,
+        "evaluations": [
+            {"agent_id": "attackers", "estimated": None, "calibrated": True},
+            {"agent_id": None, "best_move": None},
+        ],
+        "hint": {"agent_id": "advisor"},
+    }
+    # A non-finite stored value never reaches the response as invalid JSON.
+    assert "NaN" not in response.text and "Infinity" not in response.text
+    assert analysis_snapshot(rig, game, key) == before
+
+
+def test_public_analysis_cannot_leak_an_internal_config_under_an_approved_key(rig, api):
+    _, client = api
+    game = completed(rig)
+    state = replay_state(game)
+    key = stored_analysis_key(state)
+    # The whole effective search configuration (model filesystem path, seed and
+    # nested search block) is smuggled into every approved key at every level.
+    configuration = {
+        "algorithm": "mcts",
+        "seed": 12345,
+        "model_id": "registered-model-id",
+        "model_path": "/srv/hnefatafl/models/secret.pt",
+        "search": {"depth": 5, "internal": True},
+    }
+    report = {
+        "cursor": configuration,
+        "ply": configuration,
+        "side_to_move": configuration,
+        "created_at": configuration,
+        "evaluations": [
+            {
+                field: configuration
+                for field in (
+                    "agent_id",
+                    "role",
+                    "name",
+                    "profile_name",
+                    "model_name",
+                    "source",
+                    "value",
+                    "win_probability",
+                    "best_move",
+                    "estimated",
+                    "calibrated",
+                    "unavailable_reason",
+                )
+            }
+        ],
+        "hint": {"agent_id": configuration, "move": configuration},
+    }
+    store_analysis(rig, game, key, report)
+    before = analysis_snapshot(rig, game, key)
+
+    response = client.get(f"{PUBLIC}/{game['id']}/replay")
+    assert response.status_code == 200
+    # Every approved key held the wrong type, so nothing is published but the
+    # fixed public shape.
+    assert response.json()["analysis"] == {"evaluations": [{}], "hint": {}}
+    scan_not_present(
+        response.json()["analysis"], set(configuration) | {"model_path", "seed", "search"}
+    )
+    assert "secret.pt" not in response.text and "registered-model-id" not in response.text
+    assert analysis_snapshot(rig, game, key) == before
 
 
 def test_active_games_expose_no_cached_analysis_through_any_public_endpoint(rig, api):

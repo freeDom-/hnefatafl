@@ -9,9 +9,11 @@ and bounded per connecting IP.
 
 from __future__ import annotations
 
+import math
 import sqlite3
 import threading
 import time
+from datetime import datetime
 from typing import Literal
 
 from fastapi import HTTPException, Path, Query, Request, Response
@@ -68,60 +70,186 @@ LEFT JOIN accounts d ON d.id=g.defenders_id
 # Public analysis projection. A stored report is internal: each evaluation entry
 # carries the effective search configuration (including model filesystem paths
 # and seeds), reserved identity runes and search diagnostics. Only the fields
-# below are copied into a signed-out response, and the copy is recursive so a
-# future stored field cannot leak by default. The stored report itself is never
+# below are copied into a signed-out response, and each copy is both allowlisted
+# and type-checked, so neither a future stored field nor a malformed value under
+# an approved key can leak by default. The stored report itself is never
 # modified, and no public request recomputes or writes analysis.
-_ANALYSIS_FIELDS = ("cursor", "ply", "side_to_move", "created_at")
-_EVALUATION_FIELDS = (
-    "agent_id",
-    "role",
-    "name",
-    "profile_name",
-    "model_name",
-    "source",
-    "value",
-    "win_probability",
-    "best_move",
-    "estimated",
-    "calibrated",
-    "unavailable_reason",
-)
+#
+# ``_OMIT`` marks "do not publish this key at all", which is distinct from a
+# legitimately null public value. A stored value of the wrong type is dropped
+# rather than copied, so a nested object, array or exception string stored under
+# an approved scalar key never reaches the response.
+_OMIT = object()
+_MAX_TEXT = 256
+_MAX_TIMESTAMP = 64
+_MAX_COUNT = 1_000_000
+_SIDES = ("attackers", "defenders")
 _MOVE_FIELDS = ("source", "target")
 
 
-def public_move(value) -> dict | None:
-    """Project a stored move onto its two public coordinates."""
-    if not isinstance(value, dict):
+def _text(value):
+    """Bounded string; ``None`` stays an explicit null."""
+    if value is None:
         return None
-    return {key: value[key] for key in _MOVE_FIELDS if key in value}
+    if not isinstance(value, str) or len(value) > _MAX_TEXT:
+        return _OMIT
+    return value
 
 
-def public_evaluation(entry) -> dict | None:
-    """Project one stored evaluation entry; unknown keys are dropped."""
-    if not isinstance(entry, dict):
+def _count(value):
+    """Bounded non-negative integer; ``bool`` is rejected as an ``int`` subclass."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return _OMIT
+    return value if 0 <= value <= _MAX_COUNT else _OMIT
+
+
+def _side(value):
+    """One of the two known sides to move."""
+    return value if isinstance(value, str) and value in _SIDES else _OMIT
+
+
+def _number(value, *, low=None, high=None):
+    """Finite number in an optional range; ``None`` stays null and ``bool`` is
+    rejected as an ``int`` subclass."""
+    if value is None:
         return None
-    projected = {key: entry[key] for key in _EVALUATION_FIELDS if key in entry}
-    if "best_move" in projected:
-        projected["best_move"] = public_move(projected["best_move"])
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return _OMIT
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:  # An integer too large to convert to a float.
+        return _OMIT
+    if not finite:
+        return _OMIT
+    if (low is not None and value < low) or (high is not None and value > high):
+        return _OMIT
+    return value
+
+
+def _probability(value):
+    """A win chance is a probability, so an out-of-range value is not published."""
+    return _number(value, low=0.0, high=1.0)
+
+
+def _flag(value):
+    """A real boolean or an explicit null; an integer or string is not a flag."""
+    if value is None:
+        return None
+    return value if isinstance(value, bool) else _OMIT
+
+
+def _timestamp(value):
+    """ISO-8601 timestamp string; ``None`` stays an explicit null."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > _MAX_TIMESTAMP:
+        return _OMIT
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return _OMIT
+    return value
+
+
+_ANALYSIS_CHECKS = {
+    "cursor": _count,
+    "ply": _count,
+    "side_to_move": _side,
+    "created_at": _timestamp,
+}
+_EVALUATION_CHECKS = {
+    "agent_id": _text,
+    "role": _text,
+    "name": _text,
+    "profile_name": _text,
+    "model_name": _text,
+    "source": _text,
+    "value": _number,
+    "win_probability": _probability,
+    "estimated": _flag,
+    "calibrated": _flag,
+    "unavailable_reason": _text,
+}
+
+
+def _copy(source: dict, checks: dict) -> dict:
+    """Copy the approved keys of ``source`` whose values pass their type check."""
+    projected = {}
+    for key, check in checks.items():
+        if key not in source:
+            continue
+        value = check(source[key])
+        if value is not _OMIT:
+            projected[key] = value
     return projected
 
 
-def public_analysis(report) -> dict | None:
-    """Project a stored analysis report onto the public field allowlist."""
+def _copy_move(projected: dict, source: dict, key: str, *, size: int) -> None:
+    """Copy a move-valued key: an explicit null stays null, a valid move is
+    projected onto its two coordinates and a malformed move is omitted."""
+    if key not in source:
+        return
+    raw = source[key]
+    if raw is None:
+        projected[key] = None
+        return
+    coordinates = public_move(raw, size=size)
+    if coordinates is not None:
+        projected[key] = coordinates
+
+
+def public_move(value, *, size: int) -> dict | None:
+    """Project a stored move onto its two validated public coordinates.
+
+    ``size`` is the reported game's board edge. A coordinate must be a bounded
+    integer square index for that board, so a partial, negative, boolean or
+    out-of-range move is dropped instead of copied.
+    """
+    if not isinstance(value, dict):
+        return None
+    move = {}
+    for key in _MOVE_FIELDS:
+        coordinate = value.get(key)
+        if isinstance(coordinate, bool) or not isinstance(coordinate, int):
+            return None
+        if not 0 <= coordinate < size * size:
+            return None
+        move[key] = coordinate
+    return move
+
+
+def public_evaluation(entry, *, size: int) -> dict | None:
+    """Project one stored evaluation entry; unknown or malformed keys are dropped."""
+    if not isinstance(entry, dict):
+        return None
+    projected = _copy(entry, _EVALUATION_CHECKS)
+    _copy_move(projected, entry, "best_move", size=size)
+    return projected
+
+
+def public_analysis(report, *, size: int) -> dict | None:
+    """Project a stored analysis report onto the typed public allowlist.
+
+    ``size`` is the reported game's board edge, used to bound move coordinates.
+    """
     if not isinstance(report, dict):
         return None
-    projected = {key: report[key] for key in _ANALYSIS_FIELDS if key in report}
+    projected = _copy(report, _ANALYSIS_CHECKS)
+    evaluations = report.get("evaluations")
     projected["evaluations"] = [
         entry
-        for entry in (public_evaluation(item) for item in report.get("evaluations", ()))
+        for entry in (
+            public_evaluation(item, size=size)
+            for item in (evaluations if isinstance(evaluations, list) else [])
+        )
         if entry is not None
     ]
     hint = report.get("hint")
-    projected["hint"] = (
-        {"agent_id": hint.get("agent_id"), "move": public_move(hint.get("move"))}
-        if isinstance(hint, dict)
-        else None
-    )
+    projected["hint"] = None
+    if isinstance(hint, dict):
+        hint_fields = _copy(hint, {"agent_id": _text})
+        _copy_move(hint_fields, hint, "move", size=size)
+        projected["hint"] = hint_fields
     return projected
 
 
@@ -267,7 +395,10 @@ class PublicOnline:
                 "moves": self._moves(c, row),
                 # Only already-stored analysis; the reader never computes or
                 # writes, and the projection is the sole public DTO.
-                "analysis": public_analysis(self.stored_analysis(game.id, state)),
+                "analysis": public_analysis(
+                    self.stored_analysis(game.id, state),
+                    size=RULESETS[row["ruleset"]].size,
+                ),
             }
 
     @staticmethod
