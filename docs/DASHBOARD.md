@@ -160,7 +160,10 @@ Hall (`/archive`) provides bounded server-side category/ruleset/lifecycle/result
 filters and pagination. Every account gets a **Record scope** tab list — **All
 records**, **Online multiplayer**, **Singleplayer** and **Local 1v1** — which sets
 the server-side category and resets the cursor; the private local scope is never
-mixed into the default projection. Normal users see their own single-player,
+mixed into the default projection. The scope also owns the available lifecycle
+values: a direct or bookmarked URL whose lifecycle the scope cannot return is
+canonicalized in place (status and cursor dropped) so the hidden filter is never
+applied to the backend query. Normal users see their own single-player,
 local 1v1 and participating online records and have no player-name filter.
 Administrators with trusted current `all_data` permission can inspect online and
 account-single-player records across accounts. A nonterminal online record is

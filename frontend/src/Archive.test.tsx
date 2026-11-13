@@ -183,6 +183,137 @@ it('keeps a supported lifecycle and clears an incompatible one when the scope ch
   ).toBe(true);
 });
 
+it('drops an incompatible lifecycle and cursor from a direct URL, keeping other filters', async () => {
+  history.replaceState(
+    null,
+    '',
+    '/archive?category=online&status=in_progress&ruleset=tablut&winner=draw&cursor=page-two',
+  );
+  render(<Archive />);
+  await waitFor(() => expect(new URLSearchParams(location.search).has('status')).toBe(false));
+  const search = new URLSearchParams(location.search);
+  expect(search.get('category')).toBe('online');
+  expect(search.get('ruleset')).toBe('tablut');
+  expect(search.get('winner')).toBe('draw');
+  expect(search.has('cursor')).toBe(false);
+  expect(
+    fetcher.mock.calls.some(([url]) => {
+      const params = new URL(url, 'http://test').searchParams;
+      return (
+        params.get('category') === 'online' &&
+        !params.has('status') &&
+        !params.has('cursor') &&
+        params.get('ruleset') === 'tablut' &&
+        params.get('winner') === 'draw'
+      );
+    }),
+  ).toBe(true);
+  // The hidden lifecycle never reaches the backend, and normalization adds no read.
+  expect(fetcher.mock.calls.every(([url]) => !url.includes('status='))).toBe(true);
+  expect(fetcher.mock.calls).toHaveLength(1);
+});
+
+it('drops an incompatible lifecycle from a direct local URL', async () => {
+  history.replaceState(null, '', '/archive?category=local&status=active');
+  render(<Archive />);
+  await waitFor(() => expect(new URLSearchParams(location.search).has('status')).toBe(false));
+  expect(new URLSearchParams(location.search).get('category')).toBe('local');
+  expect(
+    fetcher.mock.calls.some(([url]) => {
+      const params = new URL(url, 'http://test').searchParams;
+      return params.get('category') === 'local' && !params.has('status');
+    }),
+  ).toBe(true);
+});
+
+it.each([
+  ['online', 'active'],
+  ['local', 'in_progress'],
+  ['account-single-player', 'completed'],
+])('preserves the compatible %s lifecycle from a direct URL', async (category, status) => {
+  history.replaceState(null, '', `/archive?category=${category}&status=${status}`);
+  render(<Archive />);
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(([url]) => {
+        const params = new URL(url, 'http://test').searchParams;
+        return params.get('category') === category && params.get('status') === status;
+      }),
+    ).toBe(true),
+  );
+  const search = new URLSearchParams(location.search);
+  expect(search.get('category')).toBe(category);
+  expect(search.get('status')).toBe(status);
+});
+
+it('canonicalizes an invalid direct URL in place so Back cannot revisit it', async () => {
+  history.replaceState(null, '', '/archive?category=online&status=in_progress');
+  const push = vi.spyOn(history, 'pushState');
+  const replace = vi.spyOn(history, 'replaceState');
+  render(<Archive />);
+  await waitFor(() => expect(new URLSearchParams(location.search).has('status')).toBe(false));
+  expect(replace).toHaveBeenCalledWith(null, '', '/archive?category=online');
+  expect(push).not.toHaveBeenCalled();
+  push.mockRestore();
+  replace.mockRestore();
+});
+
+it('preserves a selected review deep link while dropping an incompatible lifecycle', async () => {
+  history.replaceState(
+    null,
+    '',
+    `/archive?category=online&status=in_progress&review=online&selected=${row.id}`,
+  );
+  render(<Archive />);
+  await screen.findByRole('grid');
+  const search = new URLSearchParams(location.search);
+  expect(search.get('selected')).toBe(row.id);
+  expect(search.get('review')).toBe('online');
+  expect(search.get('category')).toBe('online');
+  expect(search.has('status')).toBe(false);
+});
+
+it('resets the cursor and drops the lifecycle when a scope change makes it incompatible', async () => {
+  history.replaceState(null, '', '/archive?category=local&status=in_progress&cursor=page-two');
+  render(<Archive />);
+  await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Online multiplayer' }));
+  await waitFor(() => expect(new URLSearchParams(location.search).get('category')).toBe('online'));
+  const search = new URLSearchParams(location.search);
+  expect(search.has('status')).toBe(false);
+  expect(search.has('cursor')).toBe(false);
+  expect(
+    fetcher.mock.calls.some(([url]) => {
+      const params = new URL(url, 'http://test').searchParams;
+      return params.get('category') === 'online' && !params.has('status') && !params.has('cursor');
+    }),
+  ).toBe(true);
+});
+
+it('normalizes an incompatible lifecycle for administrators while keeping their filters', async () => {
+  identity.permissions = ['play', 'all_data'];
+  history.replaceState(
+    null,
+    '',
+    '/archive?category=account-single-player&status=active&player=Keeper',
+  );
+  render(<Archive />);
+  await waitFor(() => expect(new URLSearchParams(location.search).has('status')).toBe(false));
+  const search = new URLSearchParams(location.search);
+  expect(search.get('category')).toBe('account-single-player');
+  expect(search.get('player')).toBe('Keeper');
+  expect(
+    fetcher.mock.calls.some(([url]) => {
+      const params = new URL(url, 'http://test').searchParams;
+      return (
+        params.get('category') === 'account-single-player' &&
+        params.get('player') === 'Keeper' &&
+        !params.has('status')
+      );
+    }),
+  ).toBe(true);
+});
+
 it('clears old history and aborts a delayed read on account changes', async () => {
   let finish!: (value: Response) => void;
   let signal: AbortSignal | null = null;

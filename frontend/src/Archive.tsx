@@ -38,6 +38,23 @@ const scopeStatuses: Record<string, readonly string[]> = {
 
 const statusesForScope = (scope: string) => scopeStatuses[scope] ?? scopeStatuses.all;
 
+/**
+ * A direct or bookmarked URL can carry a lifecycle its scope never returns; the
+ * `<select>` then hides the option while the backend still applies the filter.
+ * Returns the corrected search with the incompatible status and cursor removed,
+ * or `null` when the URL already matches the scope policy. Idempotent: the
+ * corrected search no longer carries an incompatible status.
+ */
+function normalizeScopeStatus(search: string): string | null {
+  const params = new URLSearchParams(search);
+  const status = params.get('status');
+  if (!status || statusesForScope(params.get('category') ?? 'all').includes(status)) return null;
+  params.delete('status');
+  params.delete('cursor');
+  const next = params.toString();
+  return next ? '?' + next : '';
+}
+
 const lifecycleLabels: Record<string, string> = {
   waiting: 'Waiting',
   active: 'Active',
@@ -56,7 +73,15 @@ export default function Archive() {
     window.addEventListener('popstate', changed);
     return () => window.removeEventListener('popstate', changed);
   }, []);
-  const params = new URLSearchParams(query);
+  // Canonicalize once per URL: replaceState keeps the corrected URL on the same
+  // history entry, so Browser Back never revisits the invalid intermediate state.
+  const normalized = normalizeScopeStatus(query);
+  useEffect(() => {
+    if (normalized === null) return;
+    history.replaceState(null, '', location.pathname + normalized + location.hash);
+    setQuery(normalized);
+  }, [normalized]);
+  const params = new URLSearchParams(normalized ?? query);
   const admin = account?.permissions.includes('all_data');
   const request = new URLSearchParams({ limit: '20' });
   for (const key of ['category', 'player', 'ruleset', 'status', 'winner', 'cursor'])
