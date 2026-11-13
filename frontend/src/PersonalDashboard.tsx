@@ -294,10 +294,7 @@ function DashboardHome({
       )}
       <div className="dashboard-layout">
         <div className="dashboard-main">
-          <section
-            className="arena-hero arena-surface arena-textured"
-            aria-labelledby="dashboard-hero-heading"
-          >
+          <section className="arena-hero arena-surface" aria-labelledby="dashboard-hero-heading">
             <div className="arena-hero-copy">
               <p className="arena-kicker">
                 {active ? `${t('YOUR TURN')} · ${focusName}` : t('THE TABLE IS SET')}
@@ -384,7 +381,7 @@ function DashboardHome({
             </div>
           </section>
           <section
-            className="arena-surface arena-textured dashboard-needs-you"
+            className="arena-surface dashboard-needs-you"
             aria-labelledby="needs-you-heading"
           >
             <div className="section-heading">
@@ -442,7 +439,7 @@ function DashboardHome({
         </div>
         <aside className="dashboard-aside">
           <section
-            className="arena-surface arena-textured dashboard-profile"
+            className="arena-surface dashboard-profile"
             aria-labelledby="warrior-profile-heading"
           >
             <div className="section-heading">
@@ -495,10 +492,7 @@ function DashboardHome({
               </a>
             </div>
             <div className="dashboard-stat-grid">
-              <article
-                className="arena-surface arena-textured dashboard-stat"
-                aria-labelledby="stat-elo-heading"
-              >
+              <article className="arena-surface dashboard-stat" aria-labelledby="stat-elo-heading">
                 <h3 id="stat-elo-heading">{t('{ruleset} Elo', { ruleset: focusName })}</h3>
                 <strong>{elo === null ? '—' : number.format(elo)}</strong>
                 <small>
@@ -510,7 +504,7 @@ function DashboardHome({
                 </small>
               </article>
               <article
-                className="arena-surface arena-textured dashboard-stat"
+                className="arena-surface dashboard-stat"
                 aria-labelledby="stat-win-rate-heading"
               >
                 <h3 id="stat-win-rate-heading">{t('Win rate')}</h3>
@@ -526,7 +520,7 @@ function DashboardHome({
                 </small>
               </article>
               <article
-                className="arena-surface arena-textured dashboard-stat"
+                className="arena-surface dashboard-stat"
                 aria-labelledby="stat-streak-heading"
               >
                 <h3 id="stat-streak-heading">{t('Current streak')}</h3>
@@ -542,7 +536,7 @@ function DashboardHome({
                 </small>
               </article>
               <article
-                className="arena-surface arena-textured dashboard-stat"
+                className="arena-surface dashboard-stat"
                 aria-labelledby="stat-portraits-heading"
               >
                 <h3 id="stat-portraits-heading">{t('Unlocked portraits')}</h3>

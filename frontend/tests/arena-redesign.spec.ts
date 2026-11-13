@@ -22,11 +22,51 @@ const appearances = [
 
 const viewports = [
   { name: '1440', width: 1440, height: 900 },
+  { name: '1366', width: 1366, height: 768 },
   { name: '1024', width: 1024, height: 768 },
   { name: '768', width: 768, height: 1024 },
   { name: '390', width: 390, height: 844 },
   { name: '320', width: 320, height: 640 },
 ] as const;
+
+/**
+ * The two desktop viewports the primary reference composition must fit without a
+ * page scroll. The preserved Lobby and recent-record sections stay below the fold.
+ */
+const primaryFitViewports = viewports.filter((viewport) => viewport.width >= 1366);
+
+/**
+ * The per-theme hero illustration, applied as a contained cover backdrop instead
+ * of tiling the 512x512 texture behind the hero copy.
+ */
+const heroArt: Record<string, string> = {
+  'kings-table': 'northern-hall-vignette.webp',
+  'iron-ash': 'iron-ash-forged-panel.webp',
+  'saga-hall': 'saga-hall-carved-banner.webp',
+};
+
+/**
+ * Measure the primary composition: the intro plus the reference grid (hero and
+ * your games on the left, profile, standing cards and standings on the right).
+ * Its bottom edge must stay inside the viewport; the Lobby and record sections
+ * below it may scroll.
+ */
+async function primaryComposition(page: Page) {
+  return page.evaluate(() => {
+    const box = (selector: string) => {
+      const node = document.querySelector(selector);
+      if (!node) throw new Error(`missing ${selector}`);
+      return node.getBoundingClientRect();
+    };
+    return {
+      introTop: Math.round(box('.dashboard-intro').top + window.scrollY),
+      layoutBottom: Math.round(box('.dashboard-layout').bottom + window.scrollY),
+      overviewTop: Math.round(box('.dashboard-overview').top + window.scrollY),
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    };
+  });
+}
 
 /**
  * A real captured active game (the `active` snapshot from
@@ -301,6 +341,31 @@ for (const appearance of appearances) {
         ),
       ).toBe('none');
 
+      // The hero uses the theme's illustration as a contained cover backdrop
+      // instead of tiling the 512px texture, and the knot band is a real trim
+      // (not a 1px hairline) on the hero and on the primary section headings.
+      if (appearance.id !== 'legacy') {
+        const art = await page.evaluate(() => {
+          const hero = document.querySelector('.arena-hero')!;
+          const heading = document.querySelector('.dashboard-needs-you .section-heading')!;
+          const heroStyle = getComputedStyle(hero);
+          return {
+            image: heroStyle.backgroundImage,
+            size: heroStyle.backgroundSize,
+            heroBand: getComputedStyle(hero, '::after'),
+            headingBand: getComputedStyle(heading, '::after'),
+          };
+        });
+        expect(art.image).toContain(heroArt[appearance.id]);
+        expect(art.image).not.toContain('textures/');
+        expect(art.size).toContain('cover');
+        expect(art.heroBand.backgroundImage).toContain('knot-band.webp');
+        expect(parseFloat(art.heroBand.height)).toBeGreaterThanOrEqual(10);
+        expect(art.headingBand.backgroundImage).toContain('knot-band.webp');
+        expect(parseFloat(art.headingBand.height)).toBeGreaterThanOrEqual(6);
+        expect(art.headingBand.pointerEvents).toBe('none');
+      }
+
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       ).toBe(true);
@@ -308,6 +373,22 @@ for (const appearance of appearances) {
         path: `${output}/${appearance.id}-${viewport.name}.png`,
         fullPage: true,
       });
+
+      // Fix A: the primary composition (intro plus the reference grid) fits both
+      // desktop viewports with no page scroll; the Lobby and record sections stay
+      // below the fold, which is why the document itself still scrolls.
+      if (viewport.width >= 1366) {
+        const fit = await primaryComposition(page);
+        expect(
+          fit.layoutBottom,
+          `${appearance.id} ${viewport.name} primary grid bottom`,
+        ).toBeLessThanOrEqual(fit.innerHeight);
+        expect(fit.introTop, `${appearance.id} ${viewport.name} intro top`).toBeLessThan(
+          fit.innerHeight,
+        );
+        expect(fit.overviewTop).toBeGreaterThanOrEqual(fit.layoutBottom - 1);
+        expect(fit.scrollHeight).toBeGreaterThan(fit.innerHeight);
+      }
     }
   });
 
@@ -349,5 +430,18 @@ for (const appearance of appearances) {
       path: `${output}/${appearance.id}-dashboard-active-full.png`,
       fullPage: true,
     });
+    // The hero board makes the primary grid its tallest, so the fit has to hold
+    // in this state at both desktop viewports too.
+    for (const viewport of primaryFitViewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const fit = await primaryComposition(page);
+      expect(
+        fit.layoutBottom,
+        `${appearance.id} ${viewport.name} active primary grid bottom`,
+      ).toBeLessThanOrEqual(fit.innerHeight);
+      await page.screenshot({
+        path: `${output}/${appearance.id}-dashboard-active-${viewport.name}.png`,
+      });
+    }
   });
 }

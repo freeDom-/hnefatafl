@@ -4,9 +4,12 @@
  * data-board-theme / data-token-theme behavior is untouched. Every legacy
  * mode-scoped component override is guarded by :not([data-ui-theme]).
  * A named theme owns the shell surface variables, its rail, its fonts, its
- * controls, its chart colors and its own color-scheme; mode, token, board and
- * density choices stay independent. Asset URLs resolve under the copied public
- * path: frontend/public/assets/arena-v2/assets/
+ * controls, its chart colors, its knot band (`--arena-band`), its contained hero
+ * illustration (`--arena-hero-art` plus the `--arena-hero-scrim*` contrast
+ * overlays) and its own color-scheme; mode, token, board and density choices stay
+ * independent. The tiled `--arena-texture` stays a single low-key layer on the
+ * page and the shell chrome instead of covering every panel. Asset URLs resolve
+ * under the copied public path: frontend/public/assets/arena-v2/assets/
  * Palettes follow the approved references in docs/DESIGN_SYSTEM.md: King's Table
  * parchment/gold, Iron & Ash slate/gold, Saga Hall timber/copper.
  */
@@ -35,6 +38,31 @@
   --arena-display-tracking: 0.02em;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
   --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
+  /* Hero illustration (502x228 northern-hall vignette) as a contained cover
+   * backdrop. `--arena-hero-scrim` is the theme-aware overlay that keeps the hero
+   * copy readable: a radial wash centred on the copy column that stays flat over
+   * the copy rows and fades towards the hero's edges, so the artwork still shows
+   * around the text. The stack variant washes the copy row on the narrow layout,
+   * where the board moves below the copy. Both alphas are the measured worst case
+   * of this theme art against the hero's `--muted` copy over the whole copy box,
+   * so the copy stays at or above the 4.5:1 AA ratio. */
+  --arena-hero-art: url('/assets/arena-v2/assets/art/northern-hall-vignette.webp');
+  --arena-hero-scrim: radial-gradient(
+    115% 48% at 5% 33%,
+    #fbf2dfd9 0%,
+    #fbf2dfd9 65%,
+    #fbf2df80 80%,
+    #fbf2df33 92%,
+    #fbf2df0f 100%
+  );
+  --arena-hero-scrim-stack: linear-gradient(
+    180deg,
+    #fbf2dfd6 0%,
+    #fbf2dfd6 47%,
+    #fbf2df7d 62%,
+    #fbf2df33 80%,
+    #fbf2df0f 100%
+  );
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
   --arena-chart-policy: #9c5919;
   --arena-chart-value: #217894;
@@ -85,8 +113,26 @@
   --arena-display-weight: 600;
   --arena-display-tracking: 0.01em;
   --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
-  /* Iron & Ash stays restrained: no ornament band, a metal hairline instead. */
-  --arena-band: none;
+  /* Iron & Ash keeps its restrained forged-slate identity, but with the pack's
+   * own knot band and forged-panel illustration instead of a bare hairline. */
+  --arena-band: url('/assets/arena-v2/assets/art/iron-ash-knot-band.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/art/iron-ash-forged-panel.webp');
+  --arena-hero-scrim: radial-gradient(
+    115% 48% at 5% 33%,
+    #1b2225c7 0%,
+    #1b2225c7 65%,
+    #1b22256e 80%,
+    #1b222533 92%,
+    #1b22250f 100%
+  );
+  --arena-hero-scrim-stack: linear-gradient(
+    180deg,
+    #1b2225cf 0%,
+    #1b2225cf 47%,
+    #1b222575 62%,
+    #1b222533 80%,
+    #1b22250f 100%
+  );
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
   --arena-chart-policy: #efb16b;
   --arena-chart-value: #81c7e5;
@@ -138,6 +184,23 @@
   --arena-display-tracking: 0.09em;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
   --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/art/saga-hall-carved-banner.webp');
+  --arena-hero-scrim: radial-gradient(
+    115% 48% at 5% 33%,
+    #351d14c7 0%,
+    #351d14c7 65%,
+    #351d146e 80%,
+    #351d1433 92%,
+    #351d140f 100%
+  );
+  --arena-hero-scrim-stack: linear-gradient(
+    180deg,
+    #351d14c4 0%,
+    #351d14c4 47%,
+    #351d146b 62%,
+    #351d1433 80%,
+    #351d140f 100%
+  );
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
   --arena-chart-policy: #f0c184;
   --arena-chart-value: #8fd0e8;
@@ -270,7 +333,7 @@
 }
 
 /* Theme material and ornament. Both layers are decorative, never interactive:
- * a low-opacity tile behind real text, and a thin band that cannot cover a
+ * a low-opacity tile behind real text, and a knot band that cannot cover a
  * focus ring or a hit target. The compact header keeps them; the desktop rail
  * and top bar carry the same treatment in arenaSidebar.css. */
 :root[data-ui-theme] .site-header::before {
@@ -288,19 +351,12 @@
   content: '';
   position: absolute;
   inset: auto 0 0 0;
-  height: 5px;
+  height: 8px;
   background-image: var(--arena-band);
   background-repeat: repeat-x;
   background-size: auto 100%;
   opacity: 0.85;
   pointer-events: none;
-}
-/* Restrained metal rule instead of a carved band. */
-:root[data-ui-theme='iron-ash'] .site-header::after {
-  height: 1px;
-  background-image: none;
-  background-color: var(--arena-metal);
-  opacity: 1;
 }
 @media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
   /* The compact header has no bottom padding of its own. */

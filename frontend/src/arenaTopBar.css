@@ -53,19 +53,13 @@
 /* Decorative knot band between the wordmark and the controls. */
 .arena-topbar-band {
   flex: 1 1 auto;
-  height: 6px;
+  height: 10px;
   min-width: 24px;
   background-image: var(--arena-band, none);
   background-repeat: repeat-x;
   background-size: auto 100%;
   opacity: 0.7;
   pointer-events: none;
-}
-:root[data-ui-theme='iron-ash'] .arena-topbar-band {
-  height: 1px;
-  background-image: none;
-  background-color: var(--arena-metal);
-  opacity: 1;
 }
 .arena-topbar-controls {
   display: flex;

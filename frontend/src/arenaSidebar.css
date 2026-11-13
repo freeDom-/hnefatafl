@@ -91,21 +91,16 @@ body:has(.arena-sidebar) {
   color: var(--arena-rail-muted, var(--ui-copy, #899083));
 }
 
-/* Knot-band strip: the theme's section ornament, or nothing in the legacy look. */
+/* Knot-band strip: the theme's section ornament, sized so the 499x45 asset keeps
+ * its aspect ratio instead of collapsing into a hairline. */
 .sidebar-band {
   display: block;
-  height: 8px;
+  height: 10px;
   margin-inline: -8px;
   background-image: var(--arena-band, none);
   background-repeat: repeat-x;
   background-size: auto 100%;
   opacity: 0.85;
-}
-:root[data-ui-theme='iron-ash'] .sidebar-band {
-  height: 1px;
-  background-image: none;
-  background-color: var(--arena-metal);
-  opacity: 1;
 }
 
 .sidebar-nav {

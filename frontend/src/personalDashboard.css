@@ -55,13 +55,18 @@
    the four standing cards and the standings on the right. Legacy appearances keep
    the shared theme tokens as a fallback so `.arena-*` surfaces never render
    transparent. */
+.arena-dashboard {
+  /* Compact scale for the primary reference composition only. The preserved
+     Lobby and record sections below keep the shared `--gap-*`/`--pad-*` spacing,
+     so this is what keeps the primary grid inside 1440x900 and 1366x768. */
+  --dash-gap: 8px;
+  --dash-pad: 12px;
+  --dash-pad-sm: 8px;
+}
 .arena-dashboard .arena-surface {
   background-color: var(--arena-panel, var(--surface));
   border: 1px solid var(--arena-line, var(--line));
   color: var(--arena-ink, var(--text));
-}
-.arena-dashboard .arena-textured {
-  background-image: linear-gradient(to bottom, #0000, #00000009), var(--arena-texture, none);
 }
 .arena-dashboard .arena-primary-action {
   background: var(--arena-accent, var(--green));
@@ -80,9 +85,9 @@
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--gap-stack);
-  margin-block: var(--gap-card) var(--gap-stack);
-  padding-bottom: var(--gap-stack);
+  gap: var(--dash-gap);
+  margin-block: 10px var(--dash-gap);
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--arena-metal, var(--line));
 }
 .dashboard-kicker,
@@ -96,15 +101,15 @@
   color: var(--muted);
 }
 .dashboard-intro-title {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   font-family: var(--font-display);
-  font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.4rem);
+  font-size: clamp(1.4rem, 1.1rem + 1vw, 1.85rem);
   font-weight: var(--arena-display-weight, 600);
   line-height: 1.15;
   color: var(--arena-ink, var(--text));
 }
 .dashboard-intro-subtitle {
-  margin: 6px 0 0;
+  margin: 3px 0 0;
   max-width: 46ch;
   color: var(--muted);
 }
@@ -121,24 +126,39 @@
 }
 .dashboard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
-  gap: var(--gap-stack);
+  grid-template-columns: minmax(0, 1.7fr) minmax(240px, 0.8fr);
+  gap: var(--dash-gap);
   align-items: start;
 }
 .dashboard-main,
 .dashboard-aside {
   display: grid;
-  gap: var(--gap-stack);
+  gap: var(--dash-gap);
   min-width: 0;
 }
 .arena-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 340px);
-  gap: var(--gap-card);
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 290px);
+  gap: var(--dash-pad);
   align-items: center;
-  padding: var(--pad-panel);
+  padding: var(--dash-pad);
   overflow: hidden;
+  /* The theme illustration is a contained cover backdrop, not a tiled 512px
+   * texture: `--arena-hero-scrim` is the theme-aware overlay that keeps the copy
+   * readable, and the playable Board stays the live React component on top. */
+  background-color: var(--arena-panel, var(--surface));
+  background-image: var(--arena-hero-scrim), var(--arena-hero-art);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+/* Stacked narrow layout: the copy sits above the board, so the scrim washes the
+   top rows instead of the left column. */
+@media (max-width: 800px) {
+  .arena-hero {
+    background-image: var(--arena-hero-scrim-stack), var(--arena-hero-art);
+  }
 }
 /* Restrained ornament: four short metal brackets inside the hero edge. Each
    corner is two solid gradient bars; they sit in the panel padding, never over
@@ -179,27 +199,22 @@
     bottom right,
     bottom right;
 }
-/* Restrained ornament: the theme knot band under the hero copy, never over it. */
+/* Restrained ornament: the theme knot band trims the hero's bottom edge. Sized
+ * so the 499x45 asset keeps its aspect ratio instead of reading as a hairline. */
 .arena-hero::after {
   content: '';
   position: absolute;
   inset: auto 0 0 0;
-  height: 5px;
+  height: 12px;
   background-image: var(--arena-band, none);
   background-repeat: repeat-x;
   background-size: auto 100%;
   opacity: 0.85;
   pointer-events: none;
 }
-:root[data-ui-theme='iron-ash'] .arena-hero::after {
-  height: 1px;
-  background-image: none;
-  background-color: var(--arena-metal);
-  opacity: 1;
-}
 .arena-hero-copy {
   display: grid;
-  gap: var(--gap-stack);
+  gap: var(--dash-gap);
   min-width: 0;
 }
 .arena-hero-headline {
@@ -230,61 +245,86 @@
 }
 .arena-hero-board .board-with-labels {
   margin: 0;
-  width: min(100%, 320px);
+  width: min(100%, 290px);
 }
 .arena-hero-empty {
-  width: min(100%, 320px);
-  min-height: 180px;
+  width: min(100%, 290px);
+  /* The placeholder reserves the board's own footprint, so the hero keeps one
+   * height with and without a running game and the scrim's copy band stays put. */
+  min-height: 290px;
   display: grid;
   place-items: center;
-  padding: var(--pad-panel-sm);
+  padding: var(--dash-pad-sm);
   border: 1px dashed var(--arena-line, var(--line));
   border-radius: 12px;
+  /* Translucent panel over the hero illustration so the empty-state copy keeps
+   * its contrast in every theme. */
+  background: color-mix(in srgb, var(--arena-panel, var(--surface)) 82%, transparent);
   color: var(--muted);
   text-align: center;
 }
 .dashboard-stats {
   display: grid;
-  gap: var(--gap-stack);
+  gap: var(--dash-gap);
 }
 .dashboard-stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--gap-stack);
+  gap: var(--dash-gap);
 }
 /* The standing cards live in the narrower right column, so they pair up 2x2. */
 .dashboard-aside .dashboard-stat-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-/* Metal hairline under every section title in the reference layout. */
-.arena-dashboard .section-heading {
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--arena-metal, var(--line));
+/* The theme knot band trims every primary section title. It sits inside the
+ * heading's own padding, so it never covers the title, the section link or a
+ * focus ring, and it keeps the 499x45 asset's aspect ratio. The shared
+ * `.section-heading` margin is dropped here because the compact columns already
+ * space their children with their own grid gap. */
+.arena-dashboard .dashboard-main .section-heading,
+.arena-dashboard .dashboard-aside .section-heading {
+  position: relative;
+  margin-bottom: 0;
+  padding-bottom: 8px;
+  border-bottom: 0;
+}
+.arena-dashboard .dashboard-main .section-heading::after,
+.arena-dashboard .dashboard-aside .section-heading::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 8px;
+  background-image: var(--arena-band, none);
+  background-repeat: repeat-x;
+  background-size: auto 100%;
+  opacity: 0.8;
+  pointer-events: none;
 }
 .dashboard-stat {
   display: grid;
-  gap: 6px;
-  padding: var(--pad-panel-sm);
+  gap: 4px;
+  padding: var(--dash-pad-sm);
 }
 .dashboard-stat h3 {
   margin: 0;
   color: var(--muted);
-  font-size: var(--text-label);
+  font-size: var(--text-caption);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
 }
 .dashboard-stat strong {
   font-family: var(--font-display);
-  font-size: 1.6rem;
+  font-size: 1.25rem;
   line-height: 1.1;
 }
 .dashboard-stat small {
   color: var(--muted);
+  font-size: var(--text-caption);
 }
 .dashboard-needs-you {
   display: grid;
-  gap: var(--gap-stack);
-  padding: var(--pad-panel);
+  gap: var(--dash-gap);
+  padding: var(--dash-pad);
 }
 .dashboard-game-list {
   display: grid;
@@ -298,7 +338,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--gap-inline);
-  padding: var(--pad-panel-sm);
+  padding: var(--dash-pad-sm);
   border: 1px solid var(--arena-line, var(--line));
   border-radius: 10px;
 }
@@ -321,26 +361,26 @@
 }
 .dashboard-profile {
   display: grid;
-  gap: var(--gap-stack);
-  padding: var(--pad-panel);
+  gap: var(--dash-gap);
+  padding: var(--dash-pad);
 }
 .dashboard-profile-identity {
   display: flex;
   align-items: center;
-  gap: var(--gap-stack);
+  gap: var(--dash-gap);
 }
 .dashboard-portrait {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   overflow: hidden;
   border: 1px solid var(--arena-metal, var(--line));
   border-radius: 50%;
   background: var(--arena-raised, var(--surface-raised));
   font-family: var(--font-display);
-  font-size: 1.4rem;
+  font-size: 1.15rem;
 }
 .dashboard-portrait img {
   width: 100%;
@@ -392,6 +432,27 @@
 .recorded-review {
   min-width: 0;
   padding: var(--pad-panel);
+}
+/* The compact standings card belongs to the primary composition, so it shares the
+   dashboard's compact scale; the Lobby and record sections keep the full shared
+   padding that `personal-tests/dashboard.spec.ts` pins to `.dashboard-recent`. */
+.arena-dashboard .leaderboard-compact {
+  padding: var(--dash-pad);
+}
+.arena-dashboard .leaderboard-compact .leaderboard-you {
+  margin-block: 6px;
+}
+.arena-dashboard .leaderboard-compact .section-heading {
+  row-gap: 6px;
+}
+/* Desktop keeps the ruleset filter on one compact row; it stays a full-size
+   control on touch layouts, and 34px still clears the WCAG 2.2 24px target. */
+@media (min-width: 1101px) {
+  .arena-dashboard .leaderboard-compact .leaderboard-filter select {
+    min-height: 34px;
+    padding: 4px 8px;
+    font-size: var(--text-label);
+  }
 }
 .personal-section h2,
 .leaderboard-compact h2 {
