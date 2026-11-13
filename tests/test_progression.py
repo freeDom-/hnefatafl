@@ -527,7 +527,9 @@ def test_schema17_migration_seeds_catalogs_without_granting_awards(rig):
         c.execute("PRAGMA user_version=16")
     migrated = Store(path)
     with migrated.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 17
+        # Combined schema-18 migration: schema-16 upgrade reaches 18 while the
+        # schema-17 progression tables are (re)created and seeded.
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
         assert c.execute("SELECT COUNT(*) FROM portrait_catalog").fetchone()[0] == len(PORTRAITS)
         assert c.execute("SELECT COUNT(*) FROM achievement_catalog").fetchone()[0] == len(
             ACHIEVEMENTS
