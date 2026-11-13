@@ -3,7 +3,7 @@
 import sqlite3
 import time
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -20,8 +20,25 @@ ONLINE_TABLES = (
     "rating_events",
     "rating_applications",
     "player_ratings",
+    # Schema 17 progression: the code-owned catalogs are re-seeded on startup,
+    # while awards, entitlements and the selected portrait are retained player
+    # state that a compatible restore must keep from live authority.
+    "achievement_catalog",
+    "portrait_catalog",
+    "achievement_awards",
+    "account_portraits",
+    "account_portrait_selection",
 )
-APPEND_ONLY = ("online_moves", "online_results", "online_void_audit", "online_gate_audit")
+APPEND_ONLY = (
+    "online_moves",
+    "online_results",
+    "online_void_audit",
+    "online_gate_audit",
+    # A confirmed achievement and a granted portrait are permanent: no update or
+    # delete path exists, including for a later result correction or void.
+    "achievement_awards",
+    "account_portraits",
+)
 
 
 def migrate_online(c: sqlite3.Connection) -> None:
@@ -251,6 +268,60 @@ def migrate_online(c: sqlite3.Connection) -> None:
           OR (OLD.activated_at IS NOT NULL AND (NEW.activated_at IS NOT OLD.activated_at
               OR NEW.opponent_id IS NOT OLD.opponent_id OR NEW.first_creator_side IS NOT OLD.first_creator_side))
         BEGIN SELECT RAISE(ABORT,'Match configuration and admitted participants are immutable'); END""")
+    # Schema 17: Arena v2 progression foundations. The catalogs are mirrored from
+    # `progression.py` on every startup; no account receives an award, entitlement
+    # or selection here, so migrating an existing account grants nothing.
+    for statement in (
+        """CREATE TABLE IF NOT EXISTS achievement_catalog (
+            id TEXT PRIMARY KEY,
+            catalog_version INTEGER NOT NULL CHECK(catalog_version>=1),
+            ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+            name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 80),
+            description TEXT NOT NULL CHECK(length(description) BETWEEN 1 AND 300),
+            category TEXT NOT NULL,
+            criterion TEXT NOT NULL,
+            scope TEXT,
+            threshold INTEGER NOT NULL CHECK(threshold>=1)
+        )""",
+        "CREATE INDEX IF NOT EXISTS achievement_catalog_order ON achievement_catalog(ordinal,id)",
+        """CREATE TABLE IF NOT EXISTS portrait_catalog (
+            id TEXT PRIMARY KEY,
+            catalog_version INTEGER NOT NULL CHECK(catalog_version>=1),
+            ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+            name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 80),
+            unlock_achievement_id TEXT REFERENCES achievement_catalog(id),
+            retired INTEGER NOT NULL DEFAULT 0 CHECK(retired IN (0,1))
+        )""",
+        "CREATE INDEX IF NOT EXISTS portrait_catalog_order ON portrait_catalog(ordinal,id)",
+        # At most one non-retired always-available portrait may exist, so the
+        # catalog can never lose its default; a retired default is replaced
+        # rather than reused.
+        """CREATE UNIQUE INDEX IF NOT EXISTS portrait_catalog_default
+            ON portrait_catalog((unlock_achievement_id IS NULL))
+            WHERE unlock_achievement_id IS NULL AND retired=0""",
+        """CREATE TABLE IF NOT EXISTS achievement_awards (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            achievement_id TEXT NOT NULL REFERENCES achievement_catalog(id),
+            awarded_at BLOB NOT NULL CHECK(typeof(awarded_at)='integer'),
+            catalog_version INTEGER NOT NULL CHECK(catalog_version>=1),
+            PRIMARY KEY(account_id,achievement_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS achievement_awards_account ON achievement_awards(account_id)",
+        """CREATE TABLE IF NOT EXISTS account_portraits (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            portrait_id TEXT NOT NULL REFERENCES portrait_catalog(id),
+            granted_at BLOB NOT NULL CHECK(typeof(granted_at)='integer'),
+            source_achievement_id TEXT REFERENCES achievement_catalog(id),
+            PRIMARY KEY(account_id,portrait_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS account_portraits_account ON account_portraits(account_id)",
+        """CREATE TABLE IF NOT EXISTS account_portrait_selection (
+            account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+            portrait_id TEXT NOT NULL REFERENCES portrait_catalog(id),
+            updated_at BLOB NOT NULL CHECK(typeof(updated_at)='integer')
+        )""",
+    ):
+        c.execute(statement)
     for table in APPEND_ONLY:
         for action in ("UPDATE", "DELETE"):
             c.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_{action.lower()}_immutable
@@ -272,6 +343,11 @@ def migrate_online(c: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS games_category_owner "
             "ON games(category,owner_account_id,created_at DESC)"
         )
+    # Import locally: the catalog content belongs to `progression`, which must not
+    # join the import graph of every `Store` user.
+    from .progression import seed_catalog
+
+    seed_catalog(c)
 
 
 def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connection) -> None:

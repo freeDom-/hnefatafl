@@ -43,6 +43,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [profile_api.py](hnefatafl/profile_api.py), [profile_migrations.py](hnefatafl/profile_migrations.py) | Owned optional profiles, automatic publication with legacy privacy protection, private birth dates and additive schema-15 fields |
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
+| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned portrait/achievement catalogs (schema 17), idempotent awards derived only from authoritative records, permanent entitlements and CSRF-protected portrait selection |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
@@ -673,13 +674,19 @@ reject late responses. The Dashboard's compact leaderboard and the full
 `/leaderboard` view share authenticated qualified/provisional standings and the
 viewer's own standing; see [Rated games](docs/RATINGS.md).
 
-`personal_api.py` retains seven own-account GET adapters under `/api/personal`, including
+`personal_api.py` retains own-account GET adapters under `/api/personal`, including
 administrators. Beyond the existing single-player/online history reads, two rating
 projections reuse the immutable ledger: `GET /api/personal/ratings/{ruleset}/history`
 returns sequence-ordered applied events with an opaque cursor, and
 `GET /api/personal/progress` returns per-ruleset current/best rated win streaks.
 Both are strictly self-scoped and add no schema or rating-math change; a durable
-login/activity-day streak remains deferred to a future progression migration. Two additional read-only `/api/history` routes use `history.py`:
+login/activity-day streak remains deferred to a future progression migration.
+Schema 17 adds the read-only own-progress read `GET /api/personal/achievements`
+beside the authenticated `GET /api/portraits/catalog`, an explicit CSRF-protected
+`POST /api/personal/achievements/confirm` and the `profile`-scoped
+`PATCH /api/profile/portrait`; awards and entitlements are confirmed idempotently
+from the applied rating ledger and completed account games only. See
+[portraits and achievements](docs/PROGRESSION.md). Two additional read-only `/api/history` routes use `history.py`:
 normal-user lists/review cover own account games and participating online games;
 trusted current `all_data` sessions can filter/review all server-recorded online/account records. Dashboard
 history always applies own-account scope, visibility and eligible completion before

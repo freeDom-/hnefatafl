@@ -274,7 +274,7 @@ def test_schema14_profile_backup_requires_manual_upgrade_after_schema15_transiti
     with pytest.raises(ValueError, match="Account schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 17
         assert tuple(
             c.execute("SELECT city,profile_private_fields,date_of_birth FROM accounts").fetchone()
         ) == ("Legacy private", '["city"]', None)
@@ -320,12 +320,34 @@ def test_restore_retains_live_online_results_return_games_and_pauses_timeout_gat
     core.mutate(digest(second_token), game["id"], 0, "join")
     finished = core.mutate(digest(first_token), game["id"], 1, "concede")["game"]
     core.set_gate(digest(first_token), 0, True, "Disposable approved outage fixture")
+    # Schema-17 progression belongs to the retained live online authority: a
+    # confirmed award, its entitlement and the selected portrait are player state
+    # a compatible restore must keep instead of rewinding to the snapshot.
+    with deployment.store.connection() as c:
+        c.execute(
+            "INSERT INTO achievement_awards(account_id,achievement_id,awarded_at,catalog_version) "
+            "VALUES(?,?,?,?)",
+            (deployment.admin["id"], "first-rated-win", 456, 1),
+        )
+        c.execute(
+            "INSERT INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id) "
+            "VALUES(?,?,?,?)",
+            (deployment.admin["id"], "shieldmaiden", 456, "first-rated-win"),
+        )
+        c.execute(
+            "INSERT INTO account_portrait_selection(account_id,portrait_id,updated_at) "
+            "VALUES(?,?,?)",
+            (deployment.admin["id"], "shieldmaiden", 456),
+        )
     tables = (
         "online_matches",
         "online_games",
         "online_moves",
         "online_results",
         "online_void_audit",
+        "achievement_awards",
+        "account_portraits",
+        "account_portrait_selection",
     )
     with deployment.store.connection() as c:
         before = {
@@ -381,7 +403,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
     with pytest.raises(ValueError, match="Online schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 17
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
 
 
@@ -415,7 +437,7 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 17
 
 
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])

@@ -69,6 +69,41 @@ def page(c, base, params, conditions, values, *, limit, cursor, context, online=
     return selected, {"limit": limit, "next_cursor": next_cursor, "matching": matching}
 
 
+def rated_streaks(c, actor):
+    """Every rated win streak from one ordered pass over the ledger.
+
+    Only applied events count, so a void or correction recomputes the streak
+    rather than patching an incremental counter. The account's applied events
+    are read once in immutable ledger sequence order and folded immediately:
+    each pool keeps its own running run, and the aggregate run follows the
+    global sequence across pools. A win extends a run; a loss or draw ends it.
+    """
+    pools = {
+        pool: {"rated_win_current": 0, "rated_win_best": 0, "rated_games": 0}
+        for pool in sorted(RULESETS)
+    }
+    aggregate_current = aggregate_best = 0
+    rows = c.execute(
+        """SELECT e.pool,e.winner,
+          CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
+        FROM rating_events e
+        JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
+        WHERE e.state='applied' ORDER BY e.sequence""",
+        (actor, actor),
+    )
+    for row in rows:
+        won = row["winner"] == row["side"]
+        aggregate_current = aggregate_current + 1 if won else 0
+        aggregate_best = max(aggregate_best, aggregate_current)
+        pool = pools.get(row["pool"])
+        if pool is None:
+            continue
+        pool["rated_games"] += 1
+        pool["rated_win_current"] = pool["rated_win_current"] + 1 if won else 0
+        pool["rated_win_best"] = max(pool["rated_win_best"], pool["rated_win_current"])
+    return pools, aggregate_current, aggregate_best
+
+
 class PersonalHistory:
     def __init__(self, online, *, replay):
         self.online, self.store = online, online.store
@@ -733,46 +768,11 @@ class PersonalHistory:
                 "matching": paging["matching"],
             }
 
-    @staticmethod
-    def _streaks(c, actor):
-        """Every rated win streak from one ordered pass over the ledger.
-
-        Only applied events count, so a void or correction recomputes the streak
-        rather than patching an incremental counter. The account's applied events
-        are read once in immutable ledger sequence order and folded immediately:
-        each pool keeps its own running run, and the aggregate run follows the
-        global sequence across pools. A win extends a run; a loss or draw ends it.
-        """
-        pools = {
-            pool: {"rated_win_current": 0, "rated_win_best": 0, "rated_games": 0}
-            for pool in sorted(RULESETS)
-        }
-        aggregate_current = aggregate_best = 0
-        rows = c.execute(
-            """SELECT e.pool,e.winner,
-              CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
-            FROM rating_events e
-            JOIN rating_applications a ON a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool
-            WHERE e.state='applied' ORDER BY e.sequence""",
-            (actor, actor),
-        )
-        for row in rows:
-            won = row["winner"] == row["side"]
-            aggregate_current = aggregate_current + 1 if won else 0
-            aggregate_best = max(aggregate_best, aggregate_current)
-            pool = pools.get(row["pool"])
-            if pool is None:
-                continue
-            pool["rated_games"] += 1
-            pool["rated_win_current"] = pool["rated_win_current"] + 1 if won else 0
-            pool["rated_win_best"] = max(pool["rated_win_best"], pool["rated_win_current"])
-        return pools, aggregate_current, aggregate_best
-
     def progress(self, credential):
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
-            pools, current, best = self._streaks(c, account["id"])
+            pools, current, best = rated_streaks(c, account["id"])
             now = micros(self.online.clock())
             return {
                 "as_of": stamp(instant(now)),

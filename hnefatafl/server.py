@@ -414,6 +414,9 @@ def create_app(
     from .online_api import attach_online
 
     online = attach_online(app, auth, settings=online_settings, clock=online_clock)
+    from .progression_api import attach_progression
+
+    attach_progression(app, online)
     processes: dict[str, subprocess.Popen] = {}
     job_lock = threading.RLock()
     # Catalog changes and new references must be atomic with respect to each
