@@ -299,13 +299,17 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Live status reuses the shared `.badge` surface/ink tokens plus the theme
+   accent. `--ui-copy` is only defined by the dark, wood and named themes, so
+   the legacy light mode falls back to the always-defined `--text` ink. */
 .record-live {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #7d4f28;
-  color: #fff;
+  background: var(--surface-raised);
+  color: var(--ui-copy, var(--text));
+  border: 1px solid var(--green);
   font-size: 0.625rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
