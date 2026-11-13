@@ -46,9 +46,10 @@ returns `items: []` and `next_cursor: null`, never omitted list fields.
 Each item carries only public attribution: `id`, `ruleset`, `ruleset_version`,
 `status`, `mode`, `leg`, `rated`, `created_at`, `recorded_at`, the two public
 participants and the effective `result`. A participant exposes `display_name`
-(the canonical public label), `username`, a reserved `portrait_id` (`null` until
-portrait storage ships with schema 17) and the game's `start_rating` and the
-current pool `current_rating`. The result exposes `winner`,
+(the canonical public label), `username`, the effective published `portrait_id`
+(the server-resolved catalog ID from the schema-17 selection, falling back to the
+always-available default, or `null` when the seat is empty) and the game's
+`start_rating` and the current pool `current_rating`. The result exposes `winner`,
 `termination_reason`, `rated` and the effective `winner_delta`.
 
 ## Live versus completed reads
@@ -113,6 +114,9 @@ feature.
   list, counts, detail or replay paths, and requesting one returns `404`.
 - No email, account or session identifier, private profile field, date of birth,
   private administrative note, CSRF detail or unpublished name is exposed.
+- A participant's `portrait_id` is a catalog ID resolved server-side from the
+  stored selection; the request never supplies it and no achievement progress,
+  entitlement or account-private field is returned.
 - No join, cancel, move, concede, void, analysis generation or personal scope is
   reachable through this namespace.
 - Existing authenticated lobby, personal and Hall routes keep their current

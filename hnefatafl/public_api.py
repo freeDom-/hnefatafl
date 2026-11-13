@@ -23,6 +23,7 @@ from .auth import PUBLIC_CACHE
 from .engine import Move, RULESETS, apply_move, new_game
 from .online_core import OnlineCore, OnlineError, instant, safe_position, stamp
 from .personal import context_key, page
+from .progression import selected_portrait_id, selected_portrait_ids
 
 Rule = Literal["brandubh", "tablut", "copenhagen"]
 Status = Literal["waiting", "active", "completed", "cancelled", "voided"]
@@ -34,8 +35,9 @@ Outcome = Literal["attackers", "defenders", "draw"]
 
 # Only public attribution, the game's own start rating, the effective winner
 # delta and the current pool rating. Never email, account/session ids, private
-# profile fields or unpublished names. ``portrait_id`` is a reserved contract
-# key: portrait storage ships with schema 17 (B4) and is never client supplied.
+# profile fields or unpublished names. ``portrait_id`` is the effective published
+# portrait resolved from the schema-17 catalog/selection (``selected_portrait_id``)
+# and is never client supplied.
 # ``rated`` and ``winner_delta`` are published only when the effective result
 # revision applied a rating event; a completed rated match with an ineligible or
 # unverified participant carries no applied event and is published unrated.
@@ -355,8 +357,9 @@ class PublicOnline:
                 online=True,
                 count=False,
             )
+            portraits = self._portraits(c, rows)
             return {
-                "items": [self._item(row) for row in rows],
+                "items": [self._item(row, portraits) for row in rows],
                 "next_cursor": paging["next_cursor"],
                 "limit": paging["limit"],
             }
@@ -376,24 +379,24 @@ class PublicOnline:
             # A replay is completed-only; a live game has no public replay yet.
             if row["status"] != "completed":
                 raise OnlineError(404, "Online replay not found.")
+            # Read the accepted history once: validation, the summary overlay and
+            # the replay move list all consume the same ordered rows.
+            move_rows = self._load_moves(c, game.id)
             state = new_game(row["ruleset"])
             states = [safe_position(state)]
             try:
-                for move in c.execute(
-                    "SELECT source,target FROM online_moves WHERE game_id=? ORDER BY ply",
-                    (identifier,),
-                ):
-                    state = apply_move(state, Move(*move))
+                for move in move_rows:
+                    state = apply_move(state, Move(move["source"], move["target"]))
                     states.append(safe_position(state))
             except (ValueError, IndexError):
                 raise OnlineError(409, "Stored online history requires operator review.") from None
             if state != game.position:
                 raise OnlineError(409, "Stored online history requires operator review.")
             return {
-                "game": self._summary(c, row, game),
+                "game": self._summary(c, row, game, move_rows),
                 "validated": True,
                 "states": states,
-                "moves": self._moves(c, row),
+                "moves": self._move_payload(row["ruleset"], move_rows),
                 # Only already-stored analysis; the reader never computes or
                 # writes, and the projection is the sole public DTO.
                 "analysis": public_analysis(
@@ -403,14 +406,30 @@ class PublicOnline:
             }
 
     @staticmethod
-    def _item(row) -> dict:
+    def _portraits(c, rows) -> dict[str, str]:
+        """The effective published portrait for each participant on the page.
+
+        One batched lookup over the page's account ids keeps a listing bounded:
+        no query is issued per participant, and the always-available default is
+        read once. ``selected_portrait_ids`` owns the selection/fallback rules.
+        """
+        identifiers = [
+            row[side]
+            for row in rows
+            for side in ("attackers_id", "defenders_id")
+            if row[side] is not None
+        ]
+        return selected_portrait_ids(c, identifiers)
+
+    @staticmethod
+    def _item(row, portraits) -> dict:
         def participant(identifier, name, username, start, current):
             if identifier is None:
                 return None
             return {
                 "display_name": name or "",
                 "username": username,
-                "portrait_id": None,
+                "portrait_id": portraits.get(identifier),
                 "start_rating": start,
                 "current_rating": current,
             }
@@ -459,7 +478,7 @@ class PublicOnline:
             "result": result,
         }
 
-    def _summary(self, c, row, game) -> dict:
+    def _summary(self, c, row, game, move_rows=None) -> dict:
         match = c.execute(
             "SELECT mode,rated FROM online_matches WHERE id=?", (row["match_id"],)
         ).fetchone()
@@ -472,14 +491,10 @@ class PublicOnline:
             for side in ("attackers", "defenders")
         }
         completed = row["status"] == "completed"
-        move_rows = (
-            c.execute(
-                "SELECT ply,source,target,accepted_at FROM online_moves WHERE game_id=? ORDER BY ply",
-                (game.id,),
-            ).fetchall()
-            if completed
-            else []
-        )
+        # A replay passes the history it already read; the standalone detail read
+        # loads it here once. A live game never carries a move list.
+        if move_rows is None:
+            move_rows = self._load_moves(c, game.id) if completed else []
         result = None
         if game.result is not None:
             rated = (
@@ -552,8 +567,9 @@ class PublicOnline:
         return {
             "display_name": identity["name"],
             "username": identity.get("username"),
-            # Reserved until portrait storage ships (schema 17, B4).
-            "portrait_id": None,
+            # The server-authoritative effective portrait; a retired stored
+            # selection falls back to the always-available default.
+            "portrait_id": selected_portrait_id(c, account_id),
             "start_rating": started["rating"] if started else None,
             "current_rating": current["rating"] if current else None,
         }
@@ -580,12 +596,13 @@ class PublicOnline:
         ).fetchone()
         return row["delta"] if row else None
 
-    def _moves(self, c, row) -> list[dict]:
-        move_rows = c.execute(
+    @staticmethod
+    def _load_moves(c, game_id) -> list:
+        """The ordered accepted move rows; read once and reused by a caller."""
+        return c.execute(
             "SELECT ply,source,target,accepted_at FROM online_moves WHERE game_id=? ORDER BY ply",
-            (row["id"],),
+            (game_id,),
         ).fetchall()
-        return self._move_payload(row["ruleset"], move_rows)
 
     @staticmethod
     def _move_payload(ruleset, move_rows) -> list[dict]:

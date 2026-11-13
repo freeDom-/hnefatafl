@@ -15,6 +15,7 @@ scope, and a milestone that was already confirmed is never revoked.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .engine import RULESETS
@@ -325,6 +326,30 @@ def selected_portrait_id(c: sqlite3.Connection, account_id: str) -> str:
         (account_id,),
     ).fetchone()
     return row["portrait_id"] if row is not None else default_portrait_id(c)
+
+
+def selected_portrait_ids(c: sqlite3.Connection, account_ids: Iterable[str]) -> dict[str, str]:
+    """The effective published portrait for each account, in one batched read.
+
+    The public listing resolves a whole page of participants without a query per
+    participant. A stored selection the catalog still offers is published; a
+    retired or absent selection resolves to the always-available default, exactly
+    as ``selected_portrait_id`` does for a single account. A caller that passes an
+    unknown account id gets the default, never an error.
+    """
+    identifiers = list(dict.fromkeys(account_ids))
+    if not identifiers:
+        return {}
+    default = default_portrait_id(c)
+    marks = ",".join("?" * len(identifiers))
+    rows = c.execute(
+        f"""SELECT s.account_id,s.portrait_id FROM account_portrait_selection s
+            JOIN portrait_catalog p ON p.id=s.portrait_id AND p.retired=0
+            WHERE s.account_id IN ({marks})""",
+        identifiers,
+    )
+    selected = {row["account_id"]: row["portrait_id"] for row in rows}
+    return {account_id: selected.get(account_id, default) for account_id in identifiers}
 
 
 class Progression:

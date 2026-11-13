@@ -5,6 +5,7 @@ shared online fixture. No test claims a stronger guarantee than the request it
 actually performs.
 """
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import timedelta
 import hashlib
@@ -18,12 +19,14 @@ import pytest
 from hnefatafl.auth import COOKIE, digest
 from hnefatafl.engine import Move, apply_move, new_game
 from hnefatafl.server import create_app
+from hnefatafl.storage import Store
 from test_online_core import (
     POLICY,
     account_template as account_template,
     active,
     actor,
     dump,
+    move_for,
     rig as rig,
 )
 
@@ -62,6 +65,66 @@ def completed(rig, rule="brandubh"):
     return rig.core.mutate(actor(rig, game), game["id"], 1, "concede")["game"]
 
 
+def played(rig, rule="brandubh", plies=20):
+    """A completed game reached through real legal play, with a move history."""
+    game = active(rig, rule)
+    for _ in range(plies):
+        if game["status"] != "active":
+            break
+        move = move_for(game)
+        game = rig.core.mutate(
+            actor(rig, game),
+            game["id"],
+            game["version"],
+            "move",
+            source=move.source,
+            target=move.target,
+        )["game"]
+    if game["status"] != "completed":
+        game = rig.core.mutate(actor(rig, game), game["id"], game["version"], "concede")["game"]
+    return game
+
+
+def grant_and_select(rig, name, portrait_id, *, achievement_id=None):
+    """Record an earned entitlement and a stored selection for one account."""
+    with rig.store.connection() as c:
+        c.execute(
+            "INSERT INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id) "
+            "VALUES(?,?,?,?)",
+            (rig.accounts[name]["id"], portrait_id, 1, achievement_id),
+        )
+        c.execute(
+            "INSERT INTO account_portrait_selection(account_id,portrait_id,updated_at) VALUES(?,?,?)",
+            (rig.accounts[name]["id"], portrait_id, 1),
+        )
+
+
+@contextmanager
+def sql_reads(monkeypatch, needle):
+    """Every SQL statement the app runs that mentions ``needle``, in order.
+
+    Each unit of work opens a fresh connection, so the trace is installed on the
+    connection factory rather than on one connection. The count is exact for the
+    request under test and is restored when the block exits.
+    """
+    statements = []
+    original = Store.connection
+
+    @contextmanager
+    def traced(self):
+        with original(self) as connection:
+            connection.set_trace_callback(
+                lambda statement: statements.append(statement) if needle in statement else None
+            )
+            yield connection
+
+    monkeypatch.setattr(Store, "connection", traced)
+    try:
+        yield statements
+    finally:
+        monkeypatch.setattr(Store, "connection", original)
+
+
 def scan_not_present(value, forbidden):
     if isinstance(value, dict):
         assert not (forbidden & set(value))
@@ -95,6 +158,23 @@ FORBIDDEN = {
     "best_move",
     "suggestion",
     "legality",
+}
+
+# Account-private progression state that the public DTO must never carry: only the
+# resolved catalog ID is published, never the selection row, entitlement or award.
+PRIVATE_PORTRAIT_FIELDS = {
+    "achievement_id",
+    "achievements",
+    "awarded_at",
+    "granted_at",
+    "source_achievement_id",
+    "unlocked",
+    "progress",
+    "entitlements",
+    "catalog_version",
+    "portrait_name",
+    "image",
+    "image_url",
 }
 
 
@@ -181,6 +261,23 @@ def test_completed_detail_and_replay_are_cached_and_state_validated(rig, api):
     assert payload["states"][-1] == body["position"]
     assert payload["analysis"] is None
     scan_not_present(payload, FORBIDDEN - {"analysis"})
+
+
+def test_replay_reads_the_stored_history_once_for_a_short_and_a_long_game(rig, api, monkeypatch):
+    _, client = api
+    short = completed(rig)
+    long = played(rig, "tablut", plies=20)
+    assert len(long["moves"]) > len(short["moves"])
+    for game in (short, long):
+        with sql_reads(monkeypatch, "online_moves") as reads:
+            response = client.get(f"{PUBLIC}/{game['id']}/replay")
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["validated"] is True
+        assert len(payload["moves"]) == len(game["moves"])
+        assert len(payload["states"]) == len(game["moves"]) + 1
+        # Validation, the summary overlay and the replay move list share one read.
+        assert len(reads) == 1, reads
 
 
 def test_public_request_generates_no_analysis_and_reserves_no_runes(rig, api):
@@ -803,6 +900,79 @@ def test_public_participants_never_expose_an_unpublished_display_name(rig, api):
     assert "Withheld Secret" not in json.dumps(body)
     defender = body["participants"]["defenders"]
     assert defender["display_name"] == "Keeper" and defender["username"] == "Keeper"
+
+
+def test_public_participants_publish_the_effective_catalog_portrait(rig, api):
+    _, client = api
+    game = completed(rig)
+    # Keeper earned and selected a non-default catalog portrait; Archer has no
+    # stored selection, so the always-available default is published for it.
+    grant_and_select(rig, "Keeper", "berserker", achievement_id="rated-win-streak-5")
+
+    item = next(row for row in client.get(PUBLIC).json()["items"] if row["id"] == game["id"])
+    assert item["participants"]["attackers"]["portrait_id"] == "shieldbearer"
+    assert item["participants"]["defenders"]["portrait_id"] == "berserker"
+
+    detail = client.get(f"{PUBLIC}/{game['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["participants"]["attackers"]["portrait_id"] == "shieldbearer"
+    assert detail.json()["participants"]["defenders"]["portrait_id"] == "berserker"
+
+    replay = client.get(f"{PUBLIC}/{game['id']}/replay")
+    assert replay.status_code == 200
+    assert replay.json()["game"]["participants"]["attackers"]["portrait_id"] == "shieldbearer"
+    assert replay.json()["game"]["participants"]["defenders"]["portrait_id"] == "berserker"
+
+    # The response carries the resolved catalog ID only, never the entitlement,
+    # award or achievement progress behind it.
+    for payload in (item, detail.json(), replay.json()["game"]):
+        scan_not_present(payload, FORBIDDEN | PRIVATE_PORTRAIT_FIELDS)
+    assert "rated-win-streak-5" not in replay.text
+    # The portrait is never client supplied: an extra query parameter is ignored.
+    assert client.get(f"{PUBLIC}?portrait_id=valkyrie").json() == client.get(PUBLIC).json()
+
+
+def test_retired_stored_portrait_selection_falls_back_to_the_default(rig, api):
+    _, client = api
+    game = completed(rig)
+    grant_and_select(rig, "Keeper", "berserker", achievement_id="rated-win-streak-5")
+    with rig.store.connection() as c:
+        c.execute("UPDATE portrait_catalog SET retired=1 WHERE id='berserker'")
+
+    item = next(row for row in client.get(PUBLIC).json()["items"] if row["id"] == game["id"])
+    assert item["participants"]["defenders"]["portrait_id"] == "shieldbearer"
+    assert (
+        client.get(f"{PUBLIC}/{game['id']}").json()["participants"]["defenders"]["portrait_id"]
+        == "shieldbearer"
+    )
+    assert (
+        client.get(f"{PUBLIC}/{game['id']}/replay").json()["game"]["participants"]["defenders"][
+            "portrait_id"
+        ]
+        == "shieldbearer"
+    )
+    # The stored selection is retained; only the published portrait falls back.
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                "SELECT portrait_id FROM account_portrait_selection WHERE account_id=?",
+                (rig.accounts["Keeper"]["id"],),
+            ).fetchone()[0]
+            == "berserker"
+        )
+
+
+def test_public_listing_resolves_portraits_in_one_batched_lookup(rig, api, monkeypatch):
+    _, client = api
+    for _ in range(3):
+        active(rig)
+        rig.clock.value += timedelta(seconds=1)
+    with sql_reads(monkeypatch, "account_portrait_selection") as reads:
+        response = client.get(PUBLIC)
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 3
+    # One page, six participants: a single batched selection read, not one per row.
+    assert len(reads) == 1, reads
 
 
 def test_waiting_games_are_listed_without_a_move_list(rig, api):
