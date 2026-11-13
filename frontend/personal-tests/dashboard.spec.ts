@@ -37,8 +37,8 @@ const reviewResult = (page: Page) =>
     .or(page.locator('.mobile-play-subtitle'));
 const reviewLifecycle = (page: Page) =>
   page.locator('.detail-row', { hasText: 'Lifecycle' }).or(page.locator('.mobile-play-subtitle'));
-const accountPanel = (page: Page) => page.locator('[aria-labelledby="personal-account-heading"]');
-const onlinePanel = (page: Page) => page.locator('[aria-labelledby="personal-online-heading"]');
+/** The four reference standing cards keep the ruleset-scoped real values. */
+const standingCards = (page: Page) => page.locator('.dashboard-stat');
 
 test('default landing, shared latest three and exact review survive filtering and refresh on desktop/mobile', async ({
   page,
@@ -52,6 +52,12 @@ test('default landing, shared latest three and exact review survive filtering an
   await expect(primaryNavigation(page).locator('[data-destination="online"]')).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
+  // The reference layout is the dashboard's primary structure.
+  await expect(page.locator('.dashboard-intro-title')).toContainText('Your place at the table.');
+  await expect(page.locator('.arena-hero')).toBeVisible();
+  await expect(standingCards(page)).toHaveCount(4);
+  await expect(page.locator('.dashboard-needs-you')).toBeVisible();
+  await expect(page.locator('.dashboard-profile')).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
   await expect(rows(page)).toHaveCount(3);
   expect(
@@ -220,7 +226,7 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
   context,
 }) => {
   await login(page);
-  await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
+  await page.getByRole('button', { name: 'Play vs AI', exact: true }).click();
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('combobox', { name: 'Your side', exact: true }).selectOption('attackers');
   await page.getByRole('button', { name: 'To the table', exact: true }).click();
@@ -244,7 +250,7 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
     (response) =>
       new URL(response.url()).pathname === '/api' + path && response.request().method() === 'GET',
   );
-  await page.locator(`.play-continue a[href="${path}"]`).click();
+  await page.locator(`.dashboard-game-list a[href="${path}"]`).click();
   expect((await (await reload).json()).version).toBe((await changed.json()).version);
   await expect(page.getByRole('grid')).toBeVisible();
 });
@@ -280,13 +286,19 @@ test('late real history/statistics responses cannot populate a new account after
   await arrived;
   await logoutFromAccount(page);
   await credentials(page, 'PersonalObserver');
-  await expect(page.getByText('No completed games yet.')).toBeVisible();
+  await expect(
+    page.locator('.dashboard-recent').getByText('No completed games yet.'),
+  ).toBeVisible();
   release();
   await page.unrouteAll({ behavior: 'wait' });
   await expect(rows(page)).toHaveCount(0);
-  await expect(accountPanel(page).locator('.performance-badge')).toHaveCount(3);
-  await expect(onlinePanel(page).getByText(/Elo/)).toHaveCount(0);
-  await expect(accountPanel(page).getByRole('link').first()).toContainText('—');
+  await expect(standingCards(page)).toHaveCount(4);
+  // The observer has no rated pool, streak or running game, so every card keeps
+  // its explicit empty state instead of a fabricated value.
+  await expect(standingCards(page).first().locator('strong')).toHaveText('—');
+  await expect(page.getByText('No rated games in this pool yet.').first()).toBeVisible();
+  await expect(page.getByText('No rated win streak yet.')).toBeVisible();
+  await expect(page.getByText('No games are currently running.').first()).toBeVisible();
 });
 
 test('history review is read-only, validated and preserves authoritative records', async ({
@@ -354,10 +366,10 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
   const spacing = async (name: string) => {
     const dimensions = await page.evaluate(() => {
       const card = document.querySelector<HTMLElement>('.dashboard-lobby')!;
-      const reference = document.querySelector<HTMLElement>('.dashboard-performance')!;
+      const reference = document.querySelector<HTMLElement>('.dashboard-recent')!;
       const overview = document.querySelector<HTMLElement>('.dashboard-overview')!;
-      const panels = Array.from(document.querySelectorAll<HTMLElement>('.dashboard-performance'));
       const rect = card.getBoundingClientRect();
+      const referenceRect = reference.getBoundingClientRect();
       const css = getComputedStyle(card);
       return {
         left: parseFloat(css.paddingLeft),
@@ -367,7 +379,9 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
           card.querySelector('h2')!.getBoundingClientRect().left -
           rect.left -
           parseFloat(css.borderLeftWidth),
-        gap: rect.top - Math.max(...panels.map((panel) => panel.getBoundingClientRect().bottom)),
+        // The records card spans the row below the lobby, so the vertical gap
+        // between them is the overview grid's own row gap.
+        gap: Math.max(0, referenceRect.top - rect.bottom),
         expectedGap: parseFloat(getComputedStyle(overview).rowGap),
         contained: Array.from(card.querySelectorAll('h2, h3, p, button, article')).every((node) => {
           const child = node.getBoundingClientRect();
@@ -555,10 +569,14 @@ test('Large desktop play fits a wrapped administrator header', async ({ page, re
   }
 });
 
-test('compact dashboard badges link to detailed ruleset and AI statistics without empty-pool Elo', async ({
+test('dashboard standing cards read the real ruleset statistics and link to the detailed statistics page', async ({
   page,
 }, info) => {
   const { singleStatistics, multiplayerStatistics } = await import('./statistics-fixture');
+  // The standing cards follow the same stored pool as the compact leaderboard.
+  await page.addInitScript(() => {
+    localStorage.setItem('hnefatafl-leaderboard-ruleset', 'brandubh');
+  });
   await page.route(/\/api\/personal\/(single-player|online)\?/, async (route) => {
     const response = await route.fetch();
     const data = await response.json();
@@ -573,13 +591,14 @@ test('compact dashboard badges link to detailed ruleset and AI statistics withou
     });
   });
   await login(page);
-  const badges = page.locator('.dashboard-performance');
-  await expect(
-    badges.getByRole('link', { name: /Brandubh Singleplayer statistics.*20%/ }),
-  ).toBeVisible();
-  await expect(badges.locator('.performance-badge')).toHaveCount(6);
-  await expect(badges.getByText('Average game length')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Online lobby', exact: true })).toHaveCount(0);
+  const cards = page.locator('.dashboard-stat');
+  await expect(cards).toHaveCount(4);
+  await expect(cards.filter({ hasText: 'Brandubh Elo' })).toContainText('1,537');
+  await expect(cards.filter({ hasText: 'Brandubh Elo' })).toContainText('10 rated games');
+  await expect(cards.filter({ hasText: 'Win rate' })).toContainText('60%');
+  await expect(cards.filter({ hasText: 'Current streak' })).toBeVisible();
+  await expect(cards.filter({ hasText: 'Unlocked portraits' })).toBeVisible();
+  await expect(cards.getByText('Average game length')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Online games', exact: true })).toBeVisible();
   await expect(
     page
@@ -587,26 +606,15 @@ test('compact dashboard badges link to detailed ruleset and AI statistics withou
       .getByRole('button', { name: 'Open game', exact: true })
       .first(),
   ).toHaveClass(/primary/);
-  await expect(badges.getByRole('link', { name: /Brandubh Singleplayer/ })).toHaveClass(
-    /badge-bronze/,
-  );
-  await expect(badges.getByRole('link', { name: /Tablut Singleplayer/ })).toHaveClass(
-    /badge-silver/,
-  );
-  await expect(badges.getByRole('link', { name: /Copenhagen Singleplayer/ })).toHaveClass(
-    /badge-royal/,
-  );
-  await expect(badges.getByRole('link', { name: /Brandubh Multiplayer/ })).toContainText(
-    'Elo 1537',
-  );
-  await expect(badges.getByRole('link', { name: /Tablut Multiplayer/ })).not.toContainText('Elo');
-  expect((await badges.boundingBox())!.height).toBeLessThan(
-    info.project.name === 'mobile' ? 320 : 220,
-  );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await badges.screenshot({ path: info.outputPath('compact-performance-badges.png') });
-  await badges.getByRole('link', { name: /Brandubh Singleplayer/ }).click();
-  await expect(page).toHaveURL(/\/statistics\?mode=single-player&ruleset=brandubh$/);
+  await page.locator('.dashboard-stat-grid').screenshot({
+    path: info.outputPath('dashboard-standing-cards.png'),
+  });
+  await expect(page.getByRole('link', { name: 'Detailed statistics' })).toHaveAttribute(
+    'href',
+    '/statistics',
+  );
+  await page.goto('/statistics?mode=single-player&ruleset=brandubh');
   await expect(page.getByRole('heading', { name: 'Your statistics' })).toBeVisible();
   const table = page.getByRole('table', { name: 'Brandubh results by side' });
   await expect(table.getByRole('row', { name: /Overall/ })).toContainText('20 moves');
@@ -653,8 +661,9 @@ test('statistics deep links retain login protection and show only the signed-in 
   await page.reload();
   await expect(page.getByLabel('Ruleset', { exact: true })).toHaveValue('brandubh');
   await openDestination(page, 'dashboard');
-  await expect(page.locator('.performance-badge')).toHaveCount(6);
-  await expect(page.locator('.dashboard-performance').getByText(/Elo/)).toHaveCount(0);
+  await expect(page.locator('.dashboard-stat')).toHaveCount(4);
+  // No rated pool for this account, so the Elo card keeps its empty state.
+  await expect(page.locator('.dashboard-stat').first().locator('strong')).toHaveText('—');
   await openDestination(page, 'statistics');
   await expect(page.getByText('No games recorded yet.')).toBeVisible();
 });

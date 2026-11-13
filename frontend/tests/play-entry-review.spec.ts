@@ -165,6 +165,6 @@ test('an unverified account sees a red Dashboard warning instead of the lobby la
   );
   expect(color[0]).toBeGreaterThan(color[1]);
   await expect(page.getByRole('button', { name: 'New online game' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'New single-player game' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
   await expect(page.getByText(/Creating and joining require an active/)).toHaveCount(0);
 });

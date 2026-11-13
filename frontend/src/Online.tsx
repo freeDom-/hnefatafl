@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError } from './api';
 import { useAuth } from './Auth';
 import Board, { coordinate } from './Board';
@@ -273,6 +273,7 @@ export function Lobby({
   creationRequested = 0,
   dialogOnly = false,
   onCloseCreation,
+  createAction,
 }: {
   accountId: string;
   open: (id: string) => void;
@@ -280,6 +281,8 @@ export function Lobby({
   creationRequested?: number;
   dialogOnly?: boolean;
   onCloseCreation?: () => void;
+  /** Optional caller-owned creation control; the caller owns permission gating. */
+  createAction?: ReactNode;
 }) {
   const { t } = useI18n();
   const pageSize = embedded ? 10 : 25;
@@ -592,7 +595,14 @@ export function Lobby({
         )}
         {!dialogOnly && (
           <section className="online-games">
-            <h2>{t('Online games')}</h2>
+            {createAction ? (
+              <div className="section-heading">
+                <h2>{t('Online games')}</h2>
+                {createAction}
+              </div>
+            ) : (
+              <h2>{t('Online games')}</h2>
+            )}
             <p className="subtle">
               {t(
                 'Live games only. Completed games open read-only replay and analysis in the Hall of records.',

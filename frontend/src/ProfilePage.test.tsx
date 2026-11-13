@@ -32,6 +32,7 @@ const initial: Profile = {
   legacy_birth_year: null,
   legacy_private_fields: [],
   country_codes: ['DE', 'JP', 'SE'],
+  portrait_id: 'shieldbearer',
 };
 const apiMock = vi.mocked(api);
 let stored: Profile;

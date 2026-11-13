@@ -8,9 +8,16 @@ import LocalGameDialog from './LocalGameDialog';
 export type PlayModeGame = {
   id: string;
   href: string;
+  /** Localized ruleset display name. */
   label: string;
+  /** Persisted ruleset id; never a display name. */
+  ruleset: string;
+  /** Authoritative lifecycle status: `waiting`, `active` or `in_progress`. */
+  status: string;
   /** Optional: a partial response must never break the entry list. */
   detail?: string;
+  /** Real opponent display name, when the source record carries one. */
+  opponent?: string;
   /** True only when the authoritative server state says this account must move. */
   yourTurn: boolean;
 };

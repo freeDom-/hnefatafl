@@ -8,6 +8,7 @@ import type { Leaderboard as LeaderboardData, LeaderboardEntry } from './onlineT
 import './leaderboard.css';
 import { countryName } from './profileCountry';
 import { accountName } from './accountIdentity';
+import { surfaceLink } from './surfaceNavigation';
 
 const rulesets = ['brandubh', 'tablut', 'copenhagen'] as const;
 const ruleNames: Record<string, string> = {
@@ -142,7 +143,14 @@ function YourRank({ data, onPage }: { data: LeaderboardData; onPage: boolean }) 
   );
 }
 
-export default function Leaderboard({ compact = false }: { compact?: boolean }) {
+export default function Leaderboard({
+  compact = false,
+  fullStandings = false,
+}: {
+  compact?: boolean;
+  /** Adds the link to the full standings page; the compact card stays pageless. */
+  fullStandings?: boolean;
+}) {
   const { t, locale } = useI18n();
   const { account } = useAuth();
   const number = new Intl.NumberFormat(locale);
@@ -187,6 +195,11 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
           </h2>
         ) : (
           <PageHeading title={t('Leaderboard')} id="leaderboard-heading" />
+        )}
+        {compact && fullStandings && (
+          <a href="/leaderboard" onClick={surfaceLink}>
+            {t('Full standings')} →
+          </a>
         )}
         <div className="leaderboard-filter">
           <select

@@ -183,9 +183,9 @@ for (const theme of themes) {
       expect(await primary.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
         theme.accent,
       );
-      // The Play cards must read the theme's own line token, never a hard-coded
-      // light fallback that would break the dark named themes.
-      const card = page.locator('.play-mode-card').first();
+      // The dashboard standing cards must read the theme's own line token, never
+      // a hard-coded light fallback that would break the dark named themes.
+      const card = page.locator('.dashboard-stat').first();
       await expect(card).toBeVisible();
       expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(theme.line);
       expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
