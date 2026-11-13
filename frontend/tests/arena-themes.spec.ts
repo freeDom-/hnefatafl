@@ -7,26 +7,26 @@ import { historicalGame } from './historical-fixture';
 const themes = [
   {
     id: 'kings-table',
-    accent: 'rgb(30, 80, 55)',
-    line: 'rgb(199, 176, 139)',
-    raised: 'rgb(239, 228, 209)',
-    copy: 'rgb(78, 89, 76)',
+    accent: 'rgb(27, 74, 52)',
+    line: 'rgb(216, 196, 156)',
+    raised: 'rgb(240, 226, 198)',
+    copy: 'rgb(74, 85, 72)',
     colorScheme: 'light',
   },
   {
     id: 'iron-ash',
-    accent: 'rgb(233, 194, 126)',
-    line: 'rgb(86, 100, 106)',
-    raised: 'rgb(43, 54, 61)',
-    copy: 'rgb(196, 206, 208)',
+    accent: 'rgb(214, 165, 80)',
+    line: 'rgb(58, 69, 75)',
+    raised: 'rgb(35, 43, 47)',
+    copy: 'rgb(185, 194, 198)',
     colorScheme: 'dark',
   },
   {
     id: 'saga-hall',
-    accent: 'rgb(233, 191, 121)',
-    line: 'rgb(146, 112, 80)',
-    raised: 'rgb(72, 51, 40)',
-    copy: 'rgb(224, 205, 177)',
+    accent: 'rgb(164, 94, 43)',
+    line: 'rgb(107, 68, 41)',
+    raised: 'rgb(67, 37, 26)',
+    copy: 'rgb(216, 193, 156)',
     colorScheme: 'dark',
   },
 ] as const;
@@ -53,21 +53,21 @@ const liveBadgeAppearances: readonly {
   })),
   {
     id: 'legacy-light',
-    stored: { mode: 'light' },
+    stored: { uiTheme: 'legacy', mode: 'light' },
     background: 'rgb(240, 242, 232)',
     color: 'rgb(38, 53, 46)',
     border: 'rgb(23, 61, 55)',
   },
   {
     id: 'legacy-dark',
-    stored: { mode: 'dark' },
+    stored: { uiTheme: 'legacy', mode: 'dark' },
     background: 'rgb(41, 55, 45)',
     color: 'rgb(191, 204, 179)',
     border: 'rgb(167, 208, 187)',
   },
   {
     id: 'legacy-wood',
-    stored: { mode: 'wood' },
+    stored: { uiTheme: 'legacy', mode: 'wood' },
     background: 'rgb(71, 50, 37)',
     color: 'rgb(222, 204, 172)',
     border: 'rgb(230, 189, 125)',
@@ -228,7 +228,18 @@ for (const appearance of liveBadgeAppearances) {
   });
 }
 
-test('keeps the legacy appearance when no UI theme is stored', async ({ page }) => {
+test("applies King's Table when no UI theme is stored", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'kings-table');
+  await page.screenshot({ path: `${output}/default-kings-table-desktop.png`, fullPage: true });
+});
+
+test('keeps the legacy appearance when the legacy option is stored', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: 'legacy' }));
+  });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();

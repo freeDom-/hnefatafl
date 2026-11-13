@@ -8,9 +8,9 @@ const appearance: Record<string, string> = {
     'Wähle Beleuchtung, Figuren und Spielfeld. Deine Partien bleiben dabei erhalten.',
   'Color mode': 'Farbmodus',
   'UI theme': 'Oberflächendesign',
-  'Appearance default': 'Standarddarstellung',
-  'Keeps the current color mode without a named theme':
-    'Behält den aktuellen Farbmodus ohne benanntes Design',
+  'Classic look': 'Klassische Ansicht',
+  'The original color-mode appearance without a named theme':
+    'Die ursprüngliche Farbmodus-Darstellung ohne benanntes Design',
   'The King’s Table': 'Der Königstisch',
   'Clean tabletop, parchment and pine': 'Klarer Spieltisch, Pergament und Kiefer',
   'Iron & Ash': 'Eisen & Asche',

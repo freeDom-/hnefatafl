@@ -1,4 +1,5 @@
 import {
+  openArena,
   openDestination,
   openGameNavigation,
   openGameOptions,
@@ -275,7 +276,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect(savedJob.checkpoint).toBeTruthy();
   expect(savedJob.status).toBe('completed');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBeNull();
-  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  await openArena(page);
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.getByRole('grid')).toHaveCount(0);
   expect(errors).toEqual([]);

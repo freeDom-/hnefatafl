@@ -15,9 +15,13 @@ import {
   COLOR_MODES,
   DEFAULT_APPEARANCE,
   DENSITIES,
+  LEGACY_UI_THEME,
+  LEGACY_UI_THEME_OPTION,
   TOKEN_THEMES,
   UI_THEMES,
+  isNamedUiTheme,
   parseAppearance,
+  resolveUiTheme,
   type Appearance,
   type ColorMode,
 } from './appearanceConfig';
@@ -74,11 +78,12 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.dataset.density = appearance.density;
     root.dataset.tokenTheme = appearance.tokens;
     root.dataset.boardTheme = appearance.board;
-    // A named UI theme is applied only when the user explicitly chose one. With no
-    // attribute the existing data-color-mode surface treatment (including wood) applies.
-    if (appearance.uiTheme) root.dataset.uiTheme = appearance.uiTheme;
+    // The catalog default (King's Table) paints until another theme is chosen. Only
+    // the explicit legacy option leaves the attribute unset for the color modes.
+    const uiTheme = resolveUiTheme(appearance);
+    if (isNamedUiTheme(uiTheme)) root.dataset.uiTheme = uiTheme;
     else delete root.dataset.uiTheme;
-    if (appearance.uiTheme) root.style.removeProperty('color-scheme');
+    if (isNamedUiTheme(uiTheme)) root.style.removeProperty('color-scheme');
     else root.style.colorScheme = resolvedMode === 'wood' ? 'dark' : resolvedMode;
     const board = BOARD_THEMES.find((theme) => theme.id === appearance.board)!;
     for (const [key, value] of Object.entries(board.palette))
@@ -272,31 +277,35 @@ export function AppearancePreferences() {
         <legend>{t('UI theme')}</legend>
         <div className="appearance-choices appearance-themes">
           <label
-            className={`appearance-choice ${appearance.uiTheme ? '' : 'chosen'}`}
-            key="default"
+            className={`appearance-choice ${
+              appearance.uiTheme === LEGACY_UI_THEME ? 'chosen' : ''
+            }`}
+            key={LEGACY_UI_THEME_OPTION.id}
           >
             <input
               type="radio"
               name={`${groupId}-ui-theme`}
-              value=""
-              checked={!appearance.uiTheme}
-              onChange={() => updateAppearance({ uiTheme: undefined })}
-              aria-label={t('Appearance default')}
+              value={LEGACY_UI_THEME_OPTION.id}
+              checked={appearance.uiTheme === LEGACY_UI_THEME}
+              onChange={() => updateAppearance({ uiTheme: LEGACY_UI_THEME })}
+              aria-label={t(LEGACY_UI_THEME_OPTION.name)}
             />
             <span className="theme-preview theme-preview-default" aria-hidden="true" />
-            <strong>{t('Appearance default')}</strong>
-            <small>{t('Keeps the current color mode without a named theme')}</small>
+            <strong>{t(LEGACY_UI_THEME_OPTION.name)}</strong>
+            <small>{t(LEGACY_UI_THEME_OPTION.description)}</small>
           </label>
           {UI_THEMES.map((theme) => (
             <label
-              className={`appearance-choice ${appearance.uiTheme === theme.id ? 'chosen' : ''}`}
+              className={`appearance-choice ${
+                resolveUiTheme(appearance) === theme.id ? 'chosen' : ''
+              }`}
               key={theme.id}
             >
               <input
                 type="radio"
                 name={`${groupId}-ui-theme`}
                 value={theme.id}
-                checked={appearance.uiTheme === theme.id}
+                checked={resolveUiTheme(appearance) === theme.id}
                 onChange={() => updateAppearance({ uiTheme: theme.id })}
                 aria-label={t(theme.name)}
               />

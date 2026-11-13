@@ -65,6 +65,9 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
 
   await openGameNavigation(page);
   await openProfile(page);
+  // The color modes own their surfaces only in the legacy layer; a named theme
+  // (King's Table by default) keeps the theme tokens instead.
+  await page.getByRole('radio', { name: 'Classic look', exact: true }).check();
   await page.getByRole('radio', { name: 'Light', exact: true }).check();
   await page.getByRole('radio', { name: 'Viking figures' }).check();
   await page.getByRole('radio', { name: 'Golden oak' }).check();

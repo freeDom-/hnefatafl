@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_APPEARANCE, UI_THEMES, parseAppearance, resolveUiTheme } from './appearanceConfig';
+import {
+  DEFAULT_APPEARANCE,
+  LEGACY_UI_THEME,
+  UI_THEMES,
+  isNamedUiTheme,
+  parseAppearance,
+  resolveUiTheme,
+} from './appearanceConfig';
 
 describe('uiTheme preference', () => {
   it('lists the three frozen theme ids', () => {
@@ -31,8 +38,20 @@ describe('uiTheme preference', () => {
     expect(parseAppearance(null)).toStrictEqual(DEFAULT_APPEARANCE);
   });
 
-  it('resolves the picker default without applying it', () => {
+  it('keeps the explicit legacy option distinct from an unknown theme id', () => {
+    expect(parseAppearance({ uiTheme: LEGACY_UI_THEME })).toStrictEqual({
+      ...DEFAULT_APPEARANCE,
+      uiTheme: LEGACY_UI_THEME,
+    });
+  });
+
+  it('resolves the catalog default and the explicit legacy option', () => {
     expect(resolveUiTheme(DEFAULT_APPEARANCE)).toBe('kings-table');
     expect(resolveUiTheme({ ...DEFAULT_APPEARANCE, uiTheme: 'iron-ash' })).toBe('iron-ash');
+    expect(resolveUiTheme({ ...DEFAULT_APPEARANCE, uiTheme: LEGACY_UI_THEME })).toBe(
+      LEGACY_UI_THEME,
+    );
+    expect(isNamedUiTheme('kings-table')).toBe(true);
+    expect(isNamedUiTheme(LEGACY_UI_THEME)).toBe(false);
   });
 });

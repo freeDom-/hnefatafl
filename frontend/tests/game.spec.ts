@@ -367,7 +367,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await expect(card.getByRole('heading', { name: renamedName, exact: true })).toBeVisible();
   expect(await (await request.get(`${api}/games/${history.id}`)).json()).toEqual(history);
 
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page.getByRole('button', { name: 'New tournament', exact: true }).click();
   const tournamentSetup = page.getByRole('dialog', { name: 'Set up a tournament', exact: true });
   await expect(tournamentSetup.getByRole('textbox')).toHaveCount(1);
@@ -426,7 +426,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toContainText('4 channels · 0 blocks');
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page
     .getByRole('button', { name: 'View tournament Fjord model provenance', exact: true })
     .click();

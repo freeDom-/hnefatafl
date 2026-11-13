@@ -6,7 +6,10 @@ export const COLOR_MODES = [
   { id: 'wood', name: 'Wood', description: 'Timber, bronze and northern sagas' },
 ] as const;
 
-/** Named app-shell themes. Optional and additive: absent means the existing mode styling applies. */
+/** Legacy/classic UI appearance: no named theme, the color modes own the surfaces. */
+export const LEGACY_UI_THEME = 'legacy' as const;
+
+/** Named app-shell themes. The catalog default is applied when no theme was chosen. */
 export const UI_THEMES = [
   {
     id: 'kings-table',
@@ -100,13 +103,20 @@ export const BOARD_THEMES = [
   },
 ] as const;
 
+/** The classic/legacy picker option: keeps the color-mode surfaces without a named theme. */
+export const LEGACY_UI_THEME_OPTION = {
+  id: LEGACY_UI_THEME,
+  name: 'Classic look',
+  description: 'The original color-mode appearance without a named theme',
+} as const;
+
 export type ColorMode = (typeof COLOR_MODES)[number]['id'];
 export type TokenTheme = (typeof TOKEN_THEMES)[number]['id'];
 export type BoardTheme = (typeof BOARD_THEMES)[number]['id'];
 export type Density = (typeof DENSITIES)[number]['id'];
-export type UiTheme = (typeof UI_THEMES)[number]['id'];
+export type UiTheme = (typeof UI_THEMES)[number]['id'] | typeof LEGACY_UI_THEME;
 export interface Appearance {
-  /** Absent until the user explicitly chooses a named theme; see UI_THEMES. */
+  /** Absent until the user chooses a theme; the catalog default then applies. */
   uiTheme?: UiTheme;
   mode: ColorMode;
   tokens: TokenTheme;
@@ -114,7 +124,7 @@ export interface Appearance {
   density: Density;
 }
 export const APPEARANCE_KEY = 'hnefatafl-appearance';
-/** Catalog default shown in the picker, not applied until the user selects it. */
+/** Catalog default (`theme-catalog.json` → `suggestedDefault`), applied until another is chosen. */
 export const DEFAULT_UI_THEME: UiTheme = 'kings-table';
 export const DEFAULT_APPEARANCE: Appearance = {
   mode: 'system',
@@ -123,19 +133,26 @@ export const DEFAULT_APPEARANCE: Appearance = {
   density: 'default',
 };
 
-/** The active named theme, or the catalog default when the user has not chosen one. */
+/** The theme that actually paints: the user's choice, or the catalog default. */
 export function resolveUiTheme(appearance: Appearance): UiTheme {
   return appearance.uiTheme ?? DEFAULT_UI_THEME;
+}
+
+/** Whether a theme id selects the named-theme layer rather than the legacy one. */
+export function isNamedUiTheme(theme: UiTheme): theme is (typeof UI_THEMES)[number]['id'] {
+  return UI_THEMES.some((candidate) => candidate.id === theme);
 }
 
 export function parseAppearance(value: unknown): Appearance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_APPEARANCE };
   const candidate = value as Record<string, unknown>;
-  // Only an explicit, valid uiTheme is kept; absent or invalid stays unset so the
-  // legacy data-color-mode styling continues to apply unchanged.
-  const uiTheme = UI_THEMES.some((theme) => theme.id === candidate.uiTheme)
-    ? (candidate.uiTheme as UiTheme)
-    : undefined;
+  // Only an explicit, valid uiTheme is kept. Absent or invalid stays unset, which
+  // now resolves to the catalog default; the legacy layer needs its own value.
+  const uiTheme =
+    candidate.uiTheme === LEGACY_UI_THEME ||
+    UI_THEMES.some((theme) => theme.id === candidate.uiTheme)
+      ? (candidate.uiTheme as UiTheme)
+      : undefined;
   return {
     ...(uiTheme ? { uiTheme } : {}),
     mode: COLOR_MODES.some((mode) => mode.id === candidate.mode)

@@ -1,0 +1,263 @@
+/* Desktop Arena/Workshop rail. Rendered only above the desktop breakpoint (see
+ * `useDesktopSidebar` in ArenaShell.tsx), so the compact header and bottom bar
+ * stay the single primary navigation on phones and tablets. Rail colours and
+ * fonts come from `arena-themes.css`; the legacy option falls back to the
+ * existing header/line tokens. */
+:root {
+  --arena-sidebar-w: clamp(232px, 16.5vw, 280px);
+}
+
+/* Reserve the rail's width for the page content; the rail itself is fixed. */
+body:has(.arena-sidebar) {
+  padding-left: var(--arena-sidebar-w);
+}
+
+.arena-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+  width: var(--arena-sidebar-w);
+  padding: var(--gap-card) var(--gap-stack) var(--gap-stack);
+  overflow-y: auto;
+  border-right: 1px solid var(--arena-rail-line, var(--line));
+  background-color: var(--arena-rail, var(--ui-header, #fbfaf5));
+  color: var(--arena-rail-ink, var(--text, #26352e));
+  font-size: var(--text-body);
+}
+
+/* Decorative theme texture over the rail colour, never over its controls. */
+.arena-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--arena-texture);
+  background-repeat: repeat;
+  background-size: 220px 220px;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-stack);
+  min-height: 44px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+.sidebar-brand:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.sidebar-brand-emblem {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 48px;
+  border: 1px solid var(--arena-rail-line, var(--line));
+  border-radius: 10px;
+  background: #00000024;
+}
+.sidebar-brand-emblem img {
+  width: 32px;
+  height: 32px;
+}
+.sidebar-brand-text {
+  display: block;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: var(--arena-display-weight, 600);
+  letter-spacing: var(--arena-display-tracking, 2px);
+  text-transform: var(--arena-rail-transform, none);
+  color: var(--arena-rail-ink, var(--text, #26352e));
+}
+.sidebar-brand-text small {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-ui);
+  font-size: 0.5rem;
+  letter-spacing: 2px;
+  color: var(--arena-rail-muted, var(--ui-copy, #899083));
+}
+
+/* Knot-band strip: the theme's section ornament, or nothing in the legacy look. */
+.sidebar-band {
+  display: block;
+  height: 8px;
+  margin-inline: -8px;
+  background-image: var(--arena-band, none);
+  background-repeat: repeat-x;
+  background-size: auto 100%;
+  opacity: 0.85;
+}
+:root[data-ui-theme='iron-ash'] .sidebar-band {
+  height: 1px;
+  background-image: none;
+  background-color: var(--arena-metal);
+  opacity: 1;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar-group-label {
+  margin: 6px 10px 2px;
+  font-family: var(--font-ui);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--arena-rail-muted, var(--ui-copy, #899083));
+  opacity: 0.85;
+}
+.sidebar-nav a,
+.sidebar-group-toggle,
+.sidebar-nav-placeholder {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--arena-rail-muted, var(--ui-copy, #81877a));
+  font-family: var(--font-ui);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--arena-rail-tracking, normal);
+  text-transform: var(--arena-rail-transform, none);
+  text-align: left;
+  text-decoration: none;
+}
+.sidebar-nav a:hover,
+.sidebar-group-toggle:hover {
+  background: #ffffff14;
+  color: var(--arena-rail-ink, var(--text, #26352e));
+}
+.sidebar-nav a[aria-current='page'] {
+  background: #ffffff1f;
+  color: var(--arena-rail-ink, var(--text, #26352e));
+  box-shadow: inset 3px 0 0 var(--arena-metal, var(--gold));
+}
+.sidebar-nav a:focus-visible,
+.sidebar-group-toggle:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.sidebar-nav svg {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+.sidebar-nav a > span,
+.sidebar-group-toggle > span,
+.sidebar-nav-placeholder > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Placeholders are visibly inert: no hover, no focus, a plain "Soon" tag. */
+.sidebar-nav-placeholder {
+  cursor: default;
+  opacity: 0.6;
+}
+.sidebar-soon {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.5rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sidebar-chevron {
+  margin-left: auto;
+  font-size: 0.625rem;
+}
+.sidebar-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--arena-rail-line, var(--line));
+}
+.sidebar-divider {
+  display: block;
+  height: 1px;
+  margin: 8px 10px;
+  background: var(--arena-rail-line, var(--line));
+}
+.sidebar-external {
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+
+/* Static identity panel at the rail foot; the account menu lives in the top bar. */
+.sidebar-account {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  margin-top: auto;
+  padding: var(--gap-inline);
+  border: 1px solid var(--arena-rail-line, var(--line));
+  border-radius: 10px;
+  background: #0000001f;
+}
+.sidebar-account-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--arena-metal, var(--gold));
+  color: var(--arena-rail, #10291f);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.sidebar-account-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sidebar-account-identity strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--arena-rail-ink, var(--text));
+}
+.sidebar-account-identity small {
+  font-size: var(--text-caption);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--arena-rail-muted, var(--ui-copy, #899083));
+}
+
+/* The rail already carries navigation and identity, so the game's side panels
+ * give the square board back the width the rail takes. Without this the board
+ * drops below its documented desktop minimum at 1920px. */
+@media (min-width: 1101px) {
+  body:has(.arena-sidebar) .play-page .game-layout,
+  body:has(.arena-sidebar) .online-page .game-layout {
+    grid-template-columns:
+      clamp(220px, 16vw, 340px) minmax(0, 1fr)
+      clamp(230px, 17vw, 360px);
+  }
+}

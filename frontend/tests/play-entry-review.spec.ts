@@ -108,7 +108,10 @@ test('Hall replay uses the play layout at reduced desktop heights and on mobile 
           fits,
           height: document.documentElement.scrollHeight,
           width: document.documentElement.scrollWidth,
-          header: document.querySelector('.site-header')!.getBoundingClientRect().toJSON(),
+          header: document
+            .querySelector('.site-header, .arena-sidebar')
+            ?.getBoundingClientRect()
+            .toJSON(),
           board: board.toJSON(),
           sidebar: sidebar?.toJSON(),
           footer: footer.toJSON(),

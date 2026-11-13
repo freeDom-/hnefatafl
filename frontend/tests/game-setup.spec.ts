@@ -1,4 +1,4 @@
-import { openDestination, openGameNavigation, openWorkshop } from './play-helpers';
+import { openArena, openDestination, openGameNavigation, openWorkshop } from './play-helpers';
 import { fixtureModel, historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext } from './auth-fixture';
@@ -175,7 +175,7 @@ test('historical trained opponents retain names, runes and legal play while the 
     .getByRole('article')
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });
   await expect(ulfCard.locator('[data-rune]')).toHaveAttribute('data-rune', ulf.rune);
-  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  await openArena(page);
   await openDestination(page, 'archive');
   const row = page.locator('.recorded-games tbody tr').filter({ hasText: ulf.name });
   await expect(row).toContainText(freydis.name);

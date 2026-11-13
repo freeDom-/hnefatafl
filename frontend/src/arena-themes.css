@@ -1,25 +1,38 @@
 /* Hnefatafl Arena v2 UI themes, imported after appearance.css in main.tsx.
- * `data-ui-theme` is set only when the user explicitly chooses a named theme
- * (see appearanceConfig.ts / Appearance.tsx). With no attribute the existing
- * data-color-mode / data-board-theme / data-token-theme behavior is untouched:
- * every legacy mode-scoped component override is guarded by :not([data-ui-theme]).
- * A named theme owns the shell surface variables, its controls, its chart colors
- * and its own color-scheme; mode, token, board and density choices stay
- * independent. Asset URLs resolve under the copied public path:
- *   frontend/public/assets/arena-v2/assets/
+ * `data-ui-theme` is set by default to the catalog default (King's Table); only the
+ * explicit legacy option leaves it unset so the existing data-color-mode /
+ * data-board-theme / data-token-theme behavior is untouched. Every legacy
+ * mode-scoped component override is guarded by :not([data-ui-theme]).
+ * A named theme owns the shell surface variables, its rail, its fonts, its
+ * controls, its chart colors and its own color-scheme; mode, token, board and
+ * density choices stay independent. Asset URLs resolve under the copied public
+ * path: frontend/public/assets/arena-v2/assets/
+ * Palettes follow the approved references in docs/DESIGN_SYSTEM.md: King's Table
+ * parchment/gold, Iron & Ash slate/gold, Saga Hall timber/copper.
  */
 :root[data-ui-theme='kings-table'] {
   color-scheme: light;
-  --arena-ink: #183a2c;
-  --arena-ink-muted: #4e594c;
-  --arena-ambient: #f3edde;
-  --arena-panel: #fff8e9;
-  --arena-raised: #efe4d1;
-  --arena-accent: #1e5037;
-  --arena-accent-contrast: #fffaf0;
-  --arena-metal: #b58b47;
-  --arena-line: #c7b08b;
-  --arena-hero-ink: #142f25;
+  --arena-ink: #10291f;
+  --arena-ink-muted: #4a5548;
+  --arena-ambient: #f4e8d0;
+  --arena-panel: #fbf2df;
+  --arena-raised: #f0e2c6;
+  --arena-accent: #1b4a34;
+  --arena-accent-contrast: #fdf6e6;
+  --arena-metal: #b77a25;
+  --arena-line: #d8c49c;
+  --arena-hero-ink: #0b231a;
+  --arena-rail: #092d22;
+  --arena-rail-ink: #f4e8d0;
+  --arena-rail-muted: #b9cfc2;
+  --arena-rail-line: #1d4a3a;
+  --arena-rail-transform: none;
+  --arena-rail-tracking: 0.02em;
+  /* King's Table is serif throughout, like a printed saga. */
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-ui: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+  --arena-display-weight: 600;
+  --arena-display-tracking: 0.02em;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
   --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
@@ -31,13 +44,13 @@
   --surface: var(--arena-panel);
   --surface-raised: var(--arena-raised);
   --green: var(--arena-accent);
-  --green-dark: #17402c;
-  --gold: #96723a;
+  --green-dark: #123322;
+  --gold: #b77a25;
   --line: var(--arena-line);
-  --muted: #65705e;
-  --ui-header: #eee5d5;
-  --ui-dialog: #fff8e9;
-  --ui-tint: #e9eadb;
+  --muted: #6a7263;
+  --ui-header: #f0e2c6;
+  --ui-dialog: #fbf2df;
+  --ui-tint: #ece0c6;
   --ui-selected: #d9e6d7;
   --ui-gold-tint: #f2e3c4;
   --ui-error: #a8452f;
@@ -45,21 +58,32 @@
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
-  --ui-subtle: #5a685c;
+  --ui-subtle: #5f6a5c;
   --focus-ring: #946019;
 }
 :root[data-ui-theme='iron-ash'] {
   color-scheme: dark;
-  --arena-ink: #f2eadf;
-  --arena-ink-muted: #c4ced0;
-  --arena-ambient: #13191d;
-  --arena-panel: #212b31;
-  --arena-raised: #2b363d;
-  --arena-accent: #e9c27e;
-  --arena-accent-contrast: #201b14;
-  --arena-metal: #c69c5c;
-  --arena-line: #56646a;
+  --arena-ink: #e8e1d7;
+  --arena-ink-muted: #b9c2c6;
+  --arena-ambient: #111619;
+  --arena-panel: #1b2225;
+  --arena-raised: #232b2f;
+  --arena-accent: #d6a550;
+  --arena-accent-contrast: #17120a;
+  --arena-metal: #d6a550;
+  --arena-line: #3a454b;
   --arena-hero-ink: #f1e7d6;
+  --arena-rail: #202629;
+  --arena-rail-ink: #e8e1d7;
+  --arena-rail-muted: #a3adb2;
+  --arena-rail-line: #38454c;
+  --arena-rail-transform: uppercase;
+  --arena-rail-tracking: 0.06em;
+  /* Serif headings, neutral sans for the rail and controls. */
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --arena-display-weight: 600;
+  --arena-display-tracking: 0.01em;
   --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
   /* Iron & Ash stays restrained: no ornament band, a metal hairline instead. */
   --arena-band: none;
@@ -72,13 +96,13 @@
   --surface: var(--arena-panel);
   --surface-raised: var(--arena-raised);
   --green: var(--arena-accent);
-  --green-dark: #f5d69c;
-  --gold: #e9c27e;
+  --green-dark: #f0c477;
+  --gold: #d6a550;
   --line: var(--arena-line);
-  --muted: #b1bcc0;
-  --ui-header: #1b2328;
-  --ui-dialog: #232c32;
-  --ui-tint: #323e46;
+  --muted: #a9b3b7;
+  --ui-header: #1b2225;
+  --ui-dialog: #232c30;
+  --ui-tint: #2b353a;
   --ui-selected: #4a4032;
   --ui-gold-tint: #443a2b;
   --ui-error: #f0b0a0;
@@ -86,21 +110,32 @@
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
-  --ui-subtle: #b7c4c2;
+  --ui-subtle: #aeb8bc;
   --focus-ring: #f1cc82;
 }
 :root[data-ui-theme='saga-hall'] {
   color-scheme: dark;
-  --arena-ink: #f8ead4;
-  --arena-ink-muted: #e0cdb1;
-  --arena-ambient: #1d1714;
-  --arena-panel: #33271f;
-  --arena-raised: #483328;
-  --arena-accent: #e9bf79;
-  --arena-accent-contrast: #24170f;
-  --arena-metal: #cda064;
-  --arena-line: #927050;
-  --arena-hero-ink: #f5dec1;
+  --arena-ink: #f1ddbb;
+  --arena-ink-muted: #d8c19c;
+  --arena-ambient: #24130d;
+  --arena-panel: #351d14;
+  --arena-raised: #43251a;
+  --arena-accent: #a45e2b;
+  --arena-accent-contrast: #fdf3e2;
+  --arena-metal: #d6a044;
+  --arena-line: #6b4429;
+  --arena-hero-ink: #f7e6c8;
+  --arena-rail: #1e100a;
+  --arena-rail-ink: #f1ddbb;
+  --arena-rail-muted: #cfae86;
+  --arena-rail-line: #4a2a1b;
+  --arena-rail-transform: none;
+  --arena-rail-tracking: 0.09em;
+  /* Saga Hall is serif throughout, with wider tracking on display text. */
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-ui: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+  --arena-display-weight: 500;
+  --arena-display-tracking: 0.09em;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
   --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
   --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
@@ -112,13 +147,13 @@
   --surface: var(--arena-panel);
   --surface-raised: var(--arena-raised);
   --green: var(--arena-accent);
-  --green-dark: #f5d7a0;
-  --gold: #efc481;
+  --green-dark: #c9803f;
+  --gold: #d6a044;
   --line: var(--arena-line);
-  --muted: #d2bda2;
-  --ui-header: #281d18;
-  --ui-dialog: #35271f;
-  --ui-tint: #473326;
+  --muted: #c8ae8c;
+  --ui-header: #2a1509;
+  --ui-dialog: #351d14;
+  --ui-tint: #43251a;
   --ui-selected: #5a3829;
   --ui-gold-tint: #634731;
   --ui-error: #f6c1a4;
@@ -126,7 +161,7 @@
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
-  --ui-subtle: #dcc9ad;
+  --ui-subtle: #d8c1a0;
   --focus-ring: #f3d397;
 }
 
@@ -136,6 +171,21 @@
 }
 :root[data-ui-theme] body {
   background-color: var(--arena-ambient);
+}
+/* Each named theme sets its own display/body font pair and heading rhythm. */
+:root[data-ui-theme] h1,
+:root[data-ui-theme] h2,
+:root[data-ui-theme] .section-title {
+  font-family: var(--font-display);
+  font-weight: var(--arena-display-weight);
+  letter-spacing: var(--arena-display-tracking);
+}
+/* The board frame carries the theme's board material; the playable grid itself
+ * stays rendered from game state. */
+:root[data-ui-theme] .board-frame {
+  background-image: var(--arena-board-texture);
+  background-size: 180px 180px;
+  background-blend-mode: multiply;
 }
 /* Scoped components that an agent may reuse; do not blanket-style every panel until
  * checking contrast and specific gameplay/training layouts. */
@@ -221,7 +271,8 @@
 
 /* Theme material and ornament. Both layers are decorative, never interactive:
  * a low-opacity tile behind real text, and a thin band that cannot cover a
- * focus ring or a hit target. */
+ * focus ring or a hit target. The compact header keeps them; the desktop rail
+ * and top bar carry the same treatment in arenaSidebar.css. */
 :root[data-ui-theme] .site-header::before {
   content: '';
   position: absolute;

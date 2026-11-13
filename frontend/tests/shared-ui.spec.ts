@@ -34,22 +34,32 @@ test('pages keep accessible titles and share navigation and section typography w
         await page.locator('html').evaluate((node, value) => {
           node.dataset.density = value;
         }, density);
-        // Exactly one primary navigation is visible: the header navigation on
-        // wide viewports, the compact bottom bar on phones.
+        // Exactly one primary navigation is visible: the desktop rail on wide
+        // viewports, the header navigation on tablets, the compact bottom bar on
+        // phones.
         await expect(
-          page.locator('.site-header nav:visible, .workspace-bottom-nav:visible'),
+          page.locator(
+            '.arena-sidebar nav:visible, .site-header nav:visible, .workspace-bottom-nav:visible',
+          ),
         ).toHaveCount(1);
         const state = await page.evaluate(() => {
-          const header = document.querySelector('.site-header')!;
-          const nav = header.querySelector('nav')!;
-          const button = nav.querySelector('button')!;
+          const chrome =
+            document.querySelector('.arena-sidebar') ?? document.querySelector('.site-header')!;
+          const nav = chrome.querySelector('nav')!;
+          const button = nav.querySelector('button, a')!;
           const style = getComputedStyle(button);
-          const controls = header.querySelector('.header-controls')!.getBoundingClientRect();
-          const brand = header.querySelector('.brand > span:last-child')!.getBoundingClientRect();
+          const controls = chrome
+            .querySelector('.sidebar-account, .header-controls')!
+            .getBoundingClientRect();
+          const brand = chrome
+            .querySelector('.sidebar-brand-text, .brand > span:last-child')!
+            .getBoundingClientRect();
           const title = document.querySelector('.page-heading')!.getBoundingClientRect();
+          const intersects = (a: DOMRect, b: DOMRect) =>
+            a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
           return {
             chrome: {
-              height: header.getBoundingClientRect().height,
+              height: chrome.getBoundingClientRect().height,
               menuTop: nav.getBoundingClientRect().top,
               font: style.fontFamily,
               size: style.fontSize,
@@ -57,7 +67,7 @@ test('pages keep accessible titles and share navigation and section typography w
             },
             title: { width: title.width, height: title.height },
             width: document.documentElement.scrollWidth,
-            headerOverlap: brand.right > controls.left,
+            chromeOverlap: intersects(brand, controls),
             headings: [...document.querySelectorAll('h2:not(.dialog-title)')]
               .filter(
                 (node) =>
@@ -71,11 +81,13 @@ test('pages keep accessible titles and share navigation and section typography w
         });
         const context = `${viewport.width}, ${density}, ${path}`;
         reference ??= state.chrome;
-        expect(state.chrome, context).toEqual(reference);
+        // Live gameplay/replay is immersive (no rail) so its chrome intentionally
+        // differs; the shared-typography and single-navigation checks still apply.
+        if (!path.startsWith('/games/')) expect(state.chrome, context).toEqual(reference);
         expect(state.title.width, context).toBeLessThanOrEqual(1);
         expect(state.title.height, context).toBeLessThanOrEqual(1);
         expect(state.width, context).toBeLessThanOrEqual(viewport.width);
-        expect(state.headerOverlap, context).toBe(false);
+        expect(state.chromeOverlap, context).toBe(false);
         if (state.headings.length > 1)
           expect(new Set(state.headings.map((value) => JSON.stringify(value))).size, context).toBe(
             1,

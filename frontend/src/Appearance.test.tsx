@@ -86,6 +86,8 @@ describe('appearance preferences', () => {
     expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
     expect(document.documentElement).toHaveAttribute('data-density', 'default');
     expect(screen.getByRole('radio', { name: 'Default' })).toBeChecked();
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'kings-table');
+    expect(screen.getByRole('radio', { name: 'The King’s Table' })).toBeChecked();
     expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#b69570');
     expect(
       screen.getByRole('gridcell', { name: 'a3, attacker' }).querySelector('.token-wood'),
@@ -205,6 +207,8 @@ describe('appearance preferences', () => {
     const view = renderTable();
     expect(document.querySelector('[data-wood-ornaments]')).toBeNull();
     openSettings();
+    // Wood mode belongs to the legacy layer; the named themes own the surfaces.
+    fireEvent.click(screen.getByRole('radio', { name: 'Classic look' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Wood' }));
     expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
     expect(document.documentElement.style.colorScheme).toBe('dark');
@@ -277,11 +281,11 @@ describe('appearance preferences', () => {
     expect(dialog).not.toHaveAttribute('open');
   });
 
-  it('applies a named UI theme only after an explicit choice and can return to the default', () => {
+  it('applies the catalog default until another theme is chosen and can return to the legacy look', () => {
     const view = renderTable();
-    expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'kings-table');
     openSettings();
-    expect(screen.getByRole('radio', { name: 'Appearance default' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'The King’s Table' })).toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: 'Iron & Ash' }));
     expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
     expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
@@ -298,13 +302,16 @@ describe('appearance preferences', () => {
     openSettings();
     expect(screen.getByRole('radio', { name: 'Iron & Ash' })).toBeChecked();
     expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
-    fireEvent.click(screen.getByRole('radio', { name: 'Appearance default' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Classic look' }));
     expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(DEFAULT_APPEARANCE);
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
+      ...DEFAULT_APPEARANCE,
+      uiTheme: 'legacy',
+    });
   });
 
   it('keeps the wood color mode out of the named-theme layer', () => {
-    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ mode: 'wood' }));
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ mode: 'wood', uiTheme: 'legacy' }));
     renderTable();
     expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
     expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
@@ -324,6 +331,10 @@ describe('appearance preferences', () => {
     ] as const;
     const view = renderTable();
     openSettings();
+    // King's Table is the catalog default and already checked on a fresh browser,
+    // so clicking an already-selected radio would not fire a change. Prime the
+    // stored choice first, then the loop always exercises a real change.
+    fireEvent.click(screen.getByRole('radio', { name: 'Iron & Ash' }));
     for (const [label, id] of themes) {
       for (const [mode, resolved] of [
         ['Light', 'light'],
