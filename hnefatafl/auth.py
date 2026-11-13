@@ -38,6 +38,10 @@ from .account_policy import (
 
 COOKIE = "hnefatafl_session"
 SAFE = {"GET", "HEAD", "OPTIONS"}
+# The boundary owns Cache-Control: only an anonymous completed-game read under
+# this prefix may be shared, and only when its handler asks for public caching.
+PUBLIC_CACHE = "public, max-age=60"
+PUBLIC_CACHE_PATH = "/api/public/online/games/"
 # This module owns policy; account_api is imported only after Auth is defined.
 ACCOUNT_ACTIONS = {
     "/api/auth/register": "register",
@@ -384,6 +388,15 @@ grant("play", "GET", "/api/leaderboard")
 # explicit CSRF-protected confirmation of the awards the records already prove.
 grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
 grant("play", "POST", "/api/personal/achievements/confirm")
+# Signed-out read-only online discovery (Q1/Q2). No session is required, so the
+# additive namespace is public; the deployment feature flag gates it at runtime.
+grant(
+    "public",
+    "GET",
+    "/api/public/online/games",
+    "/api/public/online/games/{game_id}",
+    "/api/public/online/games/{game_id}/replay",
+)
 grant("accounts", "POST", "/api/online/games/{game_id}/void")
 grant("accounts", "POST", "/api/online/ratings/rebuild")
 grant("accounts", "GET", "/api/online/timeout-gate")
@@ -486,18 +499,43 @@ class SecurityBoundary:
 
         async def protected_send(message):
             if message["type"] == "http.response.start":
-                message["headers"] += [
+                # The boundary owns Cache-Control: strip every handler directive
+                # and emit exactly one. Only an anonymous completed-game read may
+                # be shared; every other /api/ response (including errors) is
+                # forced to no-store so no handler can weaken the policy. Non-API
+                # responses keep a handler directive, defaulting to no-store.
+                requested = b",".join(
+                    value.lower()
+                    for name, value in message["headers"]
+                    if name.lower() == b"cache-control"
+                )
+                headers = [
+                    (name, value)
+                    for name, value in message["headers"]
+                    if name.lower() != b"cache-control"
+                ]
+                if scope["path"].startswith("/api/"):
+                    shared = (
+                        scope["method"] == "GET"
+                        and message["status"] < 400
+                        and scope["path"].startswith(PUBLIC_CACHE_PATH)
+                        and b"public" in requested
+                    )
+                    cache = PUBLIC_CACHE.encode() if shared else b"no-store"
+                else:
+                    cache = requested or b"no-store"
+                message["headers"] = headers + [
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
                     (
                         b"referrer-policy",
                         b"no-referrer" if scope["path"] in ACCOUNT_PAGES else b"same-origin",
                     ),
-                    (b"cache-control", b"no-store"),
                     (
                         b"content-security-policy",
                         b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
                     ),
+                    (b"cache-control", cache),
                 ]
             await original_send(message)
 

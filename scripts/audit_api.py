@@ -31,7 +31,13 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                 "persistent_state": method not in {"GET", "HEAD", "OPTIONS"}
                 or (
                     not route.path.startswith(
-                        ("/api/online/", "/api/personal/", "/api/history/", "/api/profile")
+                        (
+                            "/api/online/",
+                            "/api/personal/",
+                            "/api/history/",
+                            "/api/profile",
+                            "/api/public/",
+                        )
                     )
                     and route.path
                     not in {

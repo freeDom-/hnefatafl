@@ -124,6 +124,16 @@ def attributed_name(name: str | None, username: str | None) -> str | None:
     return name
 
 
+def case_fold(value: str | None) -> str | None:
+    """SQLite adapter for Unicode-aware case-insensitive substring matching.
+
+    SQLite's built-in ``lower()`` folds ASCII only, so a published name such as
+    ``JÖRG MÜLLER`` never matches the query ``müller``. Python's ``casefold()``
+    applies full Unicode case folding, including ``ß`` -> ``ss``.
+    """
+    return None if value is None else str(value).casefold()
+
+
 def public_account_name(username, display_name, profile_private_fields):
     """SQLite adapter for the same public naming policy used by API projections."""
     if username is None:

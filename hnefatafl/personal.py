@@ -40,14 +40,21 @@ def cursor_value(cursor, context, *, online=False):
         raise OnlineError(422, "Invalid page cursor. Refresh the first page.") from None
 
 
-def page(c, base, params, conditions, values, *, limit, cursor, context, online=False):
+def page(c, base, params, conditions, values, *, limit, cursor, context, online=False, count=True):
     if type(limit) is not int or not 1 <= limit <= 100:
         raise OnlineError(422, "Page size must be between 1 and 100.")
     after = cursor_value(cursor, context, online=online)
     where = " AND ".join(conditions) or "1"
-    matching = c.execute(
-        f"WITH records AS ({base}) SELECT count(*) FROM records WHERE {where}", (*params, *values)
-    ).fetchone()[0]
+    # ``matching`` is only materialised when the caller returns it. The public
+    # index discards it, so it skips the otherwise full filtered count scan.
+    matching = (
+        c.execute(
+            f"WITH records AS ({base}) SELECT count(*) FROM records WHERE {where}",
+            (*params, *values),
+        ).fetchone()[0]
+        if count
+        else None
+    )
     if after:
         where += " AND (order_at < ? OR (order_at = ? AND id > ?))"
         values = [*values, after[0], after[0], after[1]]
