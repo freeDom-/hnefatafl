@@ -193,8 +193,9 @@ failures, `403` for missing permission and `401` for a missing session.
 
 Schema 18 adds `player_tournaments`, `player_tournament_entrants`,
 `player_tournament_matches`, `player_tournament_legs` and
-`player_tournament_audit`. Schema 17 is reserved for the parallel Arena v2
-progression branch and is deliberately skipped. The audit table is append-only
+`player_tournament_audit`. This branch also carries schema 17 (the Arena v2
+progression tables merged from PR #78), so the schema versions are monotonic
+(16 → 17 → 18) and neither is skipped. The audit table is append-only
 and every participant-visible mutation records an actor. The tournament tables
 participate in the online restore/retain boundary, so a restore keeps bracket
 state consistent with the online games it references.

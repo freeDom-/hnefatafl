@@ -197,7 +197,9 @@ inside the same write transaction, and derives advancement from the authoritativ
 online result revision. A corrected or voided result marks the affected match
 `disputed` instead of silently rewriting advancement; an administrator `rebuild`
 re-derives the whole bracket from the authoritative games and unlinks legs whose
-participants no longer match. Schema 17 is reserved for the progression branch.
+participants no longer match. This branch carries both schema 17 (progression:
+achievement/portrait catalogs, awards, entitlements and the selected portrait)
+and schema 18 (player tournaments).
 See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
 
 ## Training execution and inference

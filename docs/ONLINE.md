@@ -316,10 +316,14 @@ retain per-move timing with zero increment and their original deadlines. Only an
 untouched legacy default timeout gate (disabled at version 0) is enabled, with a
 new audit entry; explicit administrator and restore pauses remain paused.
 Legacy normalization collision checks still run and stop ambiguous upgrades.
-Schema 18 adds double-elimination player tournament tables. They are part of the
+Schema 16 adds local-game categorization (the account-owned pass-and-play
+`games.category`). Schema 17 adds the progression tables (achievement/portrait
+catalogs, awards, entitlements and the selected portrait). Schema 18 adds
+double-elimination player tournament tables. This branch includes PR #78's
+schema-17 implementation, so the versions are applied monotonically (16 → 17 →
+18) and authoritative state is preserved. The tournament tables are part of the
 online retain/restore boundary because tournament legs reference online games, so
 a compatible restore retains bracket state together with the games it references.
-Schema 17 is reserved for the progression branch and skipped here.
 No production database was inspected or migrated for development.
 
 Schema-9 code refuses schema 10; schema-10 code refuses schema 11; schema-11 code
