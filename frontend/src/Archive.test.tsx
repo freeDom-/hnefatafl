@@ -106,6 +106,83 @@ it('exposes administrator scope/name filters without fetching setup players', as
   );
   expect(fetcher.mock.calls.every(([url]) => !url.includes('/players'))).toBe(true);
 });
+it('offers category-aware lifecycles, including in_progress for ordinary private records', async () => {
+  render(<Archive />);
+  await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
+  const statuses = () =>
+    Array.from((screen.getByLabelText('Lifecycle') as HTMLSelectElement).options)
+      .map((option) => option.value)
+      .filter(Boolean);
+  // All records spans both the online and the private single-player lifecycles.
+  expect(statuses()).toEqual([
+    'waiting',
+    'active',
+    'in_progress',
+    'completed',
+    'cancelled',
+    'voided',
+  ]);
+  fireEvent.click(screen.getByRole('tab', { name: 'Online multiplayer' }));
+  await waitFor(() =>
+    expect(statuses()).toEqual(['waiting', 'active', 'completed', 'cancelled', 'voided']),
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Singleplayer' }));
+  await waitFor(() => expect(statuses()).toEqual(['in_progress', 'completed']));
+  fireEvent.click(screen.getByRole('tab', { name: 'Local 1v1' }));
+  await waitFor(() => expect(statuses()).toEqual(['in_progress', 'completed']));
+});
+
+it('keeps a supported lifecycle and clears an incompatible one when the scope changes', async () => {
+  render(<Archive />);
+  await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
+  const paramsOf = (url: string) => new URL(url, 'http://test').searchParams;
+  fireEvent.change(screen.getByLabelText('Lifecycle'), { target: { value: 'in_progress' } });
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(
+        ([url]) => paramsOf(url).get('status') === 'in_progress' && !paramsOf(url).has('cursor'),
+      ),
+    ).toBe(true),
+  );
+  // in_progress belongs to the private scopes, so it survives both scope changes.
+  fireEvent.click(screen.getByRole('tab', { name: 'Singleplayer' }));
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(([url]) => {
+        const params = paramsOf(url);
+        return (
+          params.get('category') === 'account-single-player' &&
+          params.get('status') === 'in_progress' &&
+          !params.has('cursor')
+        );
+      }),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Local 1v1' }));
+  await waitFor(() =>
+    expect(new URLSearchParams(location.search).get('status')).toBe('in_progress'),
+  );
+  // Online records never report in_progress, so the hidden filter is dropped.
+  fireEvent.click(screen.getByRole('tab', { name: 'Online multiplayer' }));
+  await waitFor(() => expect(new URLSearchParams(location.search).has('status')).toBe(false));
+  expect(
+    fetcher.mock.calls.some(([url]) => {
+      const params = paramsOf(url);
+      return params.get('category') === 'online' && !params.has('status') && !params.has('cursor');
+    }),
+  ).toBe(true);
+  fireEvent.change(screen.getByLabelText('Lifecycle'), { target: { value: 'active' } });
+  await waitFor(() => expect(new URLSearchParams(location.search).get('status')).toBe('active'));
+  fireEvent.click(screen.getByRole('tab', { name: 'Singleplayer' }));
+  await waitFor(() => expect(new URLSearchParams(location.search).has('status')).toBe(false));
+  expect(
+    fetcher.mock.calls.some(([url]) => {
+      const params = paramsOf(url);
+      return params.get('category') === 'account-single-player' && !params.has('status');
+    }),
+  ).toBe(true);
+});
+
 it('clears old history and aborts a delayed read on account changes', async () => {
   let finish!: (value: Response) => void;
   let signal: AbortSignal | null = null;
