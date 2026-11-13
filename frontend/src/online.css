@@ -154,3 +154,16 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.online-filter {
+  display: block;
+  max-width: 260px;
+  margin: var(--gap-stack) 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.online-filter select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  min-height: 44px;
+}

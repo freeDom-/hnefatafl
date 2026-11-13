@@ -399,11 +399,13 @@ export default function App() {
         {
           label: t('Game mode'),
           value:
-            game.mode === 'human-human'
-              ? t('Pass & play')
-              : game.mode === 'human-ai'
-                ? t('Human vs AI')
-                : t('AI vs AI'),
+            game.mode === 'local'
+              ? t('Local 1v1')
+              : game.mode === 'human-human'
+                ? t('Pass & play')
+                : game.mode === 'human-ai'
+                  ? t('Human vs AI')
+                  : t('AI vs AI'),
         },
         ...(game.seed !== undefined ? [{ label: t('Random seed'), value: game.seed }] : []),
       ]
@@ -501,7 +503,10 @@ export default function App() {
             (playEntry ? (
               <PlayLanding onNewSingle={startSinglePlayer} creatingSingle={newOpen} />
             ) : (
-              <PlayPage className="play-page" heading={t('Single player game')}>
+              <PlayPage
+                className="play-page"
+                heading={t(game?.mode === 'local' ? 'Local 1v1 game' : 'Single player game')}
+              >
                 {initializing ? (
                   <div className="empty-state">
                     <div className="spinner" />

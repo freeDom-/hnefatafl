@@ -460,3 +460,19 @@ def test_api_rejects_invalid_clock_configuration(rig, api, field, value):
     assert client().post("/api/online/games", json=creation(**{field: value})).status_code == 422
     with rig.store.connection() as c:
         assert c.execute("SELECT COUNT(*) FROM online_matches").fetchone()[0] == 0
+
+
+def test_lobby_ruleset_filter_is_applied_by_the_server(rig, api):
+    """Discovery filters narrow the SQL listing; no unbounded client filtering."""
+    _, client = api
+    archer = client()
+    brandubh = archer.post("/api/online/games", json=creation()).json()["game"]
+    tablut = archer.post("/api/online/games", json=creation(ruleset="tablut")).json()["game"]
+    filtered = archer.get("/api/online/games?section=all&ruleset=tablut")
+    assert filtered.status_code == 200
+    assert {game["id"] for game in filtered.json()["games"]} == {tablut["id"]}
+    unfiltered = archer.get("/api/online/games?section=all")
+    assert {game["id"] for game in unfiltered.json()["games"]} == {brandubh["id"], tablut["id"]}
+    mine = archer.get("/api/online/games?section=mine&ruleset=brandubh")
+    assert {game["id"] for game in mine.json()["games"]} == {brandubh["id"]}
+    assert archer.get("/api/online/games?ruleset=unknown").status_code == 422

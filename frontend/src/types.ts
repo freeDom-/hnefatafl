@@ -2,7 +2,8 @@ import type { Advisor, AnalyticsSettings, PositionAnalysis } from './analysisTyp
 import type { AlphaBetaSearchSettings } from './alphaBetaSearch';
 
 export type Side = 'attackers' | 'defenders';
-export type Mode = 'human-human' | 'human-ai' | 'ai-ai';
+/** `local` is same-device pass-and-play: two human seats owned by one account. */
+export type Mode = 'human-human' | 'human-ai' | 'ai-ai' | 'local';
 /**
  * A loose AI configuration. Primitive search budgets coexist with the single
  * structured nested `search` object accepted by alpha-beta opponents; the

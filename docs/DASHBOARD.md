@@ -145,11 +145,18 @@ and their own account single-player records; administrators can also see their o
 account single-player games. An administrator's Dashboard never becomes an
 all-account collection.
 
-Hall (`/archive`) provides bounded server-side category/name/ruleset/lifecycle/result
-filters and pagination. Normal users see their own single-player and participating online records and have
-no account-single-player or player-name filter. Administrators with trusted current
-`all_data` permission can inspect online and account-single-player records across
-accounts. Their player-name search accepts literal substrings of public display
+Hall (`/archive`) provides bounded server-side category/ruleset/lifecycle/result
+filters and pagination. Every account gets a **Record scope** tab list — **All
+records**, **Online multiplayer**, **Singleplayer** and **Local 1v1** — which sets
+the server-side category and resets the cursor; the private local scope is never
+mixed into the default projection. Normal users see their own single-player,
+local 1v1 and participating online records and have no player-name filter.
+Administrators with trusted current `all_data` permission can inspect online and
+account-single-player records across accounts. A nonterminal online record is
+marked **Live** and links to the live board (where no analysis is offered);
+completed records link to the read-only replay, which offers analysis only where
+the backend authorizes it. Local 1v1 records replay read-only without any
+advisor, because local games run no search. Their player-name search accepts literal substrings of public display
 names, canonical usernames and the displayed **Display Name (@username)** label,
 including its `@username` attribution. Full labels up to 148 Unicode code points
 can be typed or pasted without truncation. Search uses the same public formatter

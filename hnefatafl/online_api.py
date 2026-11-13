@@ -87,8 +87,13 @@ def attach_online(app, auth, *, settings=None, clock=None):
         limit: int = Query(default=25, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=100000),
         section: Literal["all", "mine", "my_turn"] = "all",
+        ruleset: Literal["brandubh", "tablut", "copenhagen"] | None = None,
     ):
-        return execute(lambda credential: core.listing(credential, limit, offset, section=section))
+        return execute(
+            lambda credential: core.listing(
+                credential, limit, offset, section=section, ruleset=ruleset
+            )
+        )
 
     @app.get("/api/online/availability")
     def availability():

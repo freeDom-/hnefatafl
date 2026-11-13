@@ -885,7 +885,9 @@ class OnlineCore:
                 "eligible": online_eligible(account),
             }
 
-    def listing(self, credential: str, limit=25, offset=0, *, mine=False, section=None) -> dict:
+    def listing(
+        self, credential: str, limit=25, offset=0, *, mine=False, section=None, ruleset=None
+    ) -> dict:
         if (
             type(limit) is not int
             or not 1 <= limit <= 100
@@ -895,13 +897,17 @@ class OnlineCore:
             raise OnlineError(422, "Invalid pagination.")
         if section is not None and section not in {"all", "mine", "my_turn"}:
             raise OnlineError(422, "Unknown lobby section.")
+        if ruleset is not None and ruleset not in {"brandubh", "tablut", "copenhagen"}:
+            raise OnlineError(422, "Unknown ruleset filter.")
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self._identity(c, credential)
             params: tuple = ()
             if section is None:
                 # Legacy read used by callers that need every lifecycle state.
-                condition = "WHERE creator_id=? OR attackers_id=? OR defenders_id=?" if mine else ""
+                condition = (
+                    "WHERE (creator_id=? OR attackers_id=? OR defenders_id=?)" if mine else ""
+                )
                 params = (account["id"],) * 3 if mine else ()
                 order = "ORDER BY created_at DESC,id"
             else:
@@ -923,6 +929,11 @@ class OnlineCore:
                     if section == "my_turn"
                     else "ORDER BY created_at DESC,id"
                 )
+            # Discovery filter: applied in SQL so an unbounded lobby is never
+            # filtered in the client. Omitted keeps the previous behaviour.
+            if ruleset is not None:
+                condition += (" AND " if condition else "WHERE ") + "ruleset=?"
+                params = (*params, ruleset)
             rows = c.execute(
                 f"SELECT id FROM online_games {condition} {order} LIMIT ? OFFSET ?",
                 (*params, limit, offset),

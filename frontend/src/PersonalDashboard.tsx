@@ -12,7 +12,8 @@ import RecordedGames, { type RecordedPage } from './RecordedGames';
 import RecordedReview from './RecordedReview';
 import PerformanceBadges from './PerformanceBadges';
 import Leaderboard from './Leaderboard';
-import GameCreationActions from './GameCreationActions';
+import PlayModes from './PlayModes';
+import { runningGames, type LocalHistory } from './playModeGames';
 import './personalDashboard.css';
 
 function DashboardHome({
@@ -23,7 +24,6 @@ function DashboardHome({
   onNewSingle?: () => void;
 }) {
   const { t } = useI18n();
-  const { account: identity } = useAuth();
   const [creation, setCreation] = useState(0);
   const loadAccount = useCallback(
     (signal: AbortSignal) =>
@@ -45,34 +45,28 @@ function DashboardHome({
       api<RecordedPage>('/history/games?dashboard=true', undefined, undefined, signal),
     [],
   );
+  const loadLocal = useCallback(
+    (signal: AbortSignal) =>
+      api<LocalHistory>('/personal/local?limit=5&status=in_progress', undefined, undefined, signal),
+    [],
+  );
   const account = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount);
   const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline);
   const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent);
+  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal);
+  const running = runningGames({
+    single: account.data ?? undefined,
+    online: online.data ?? undefined,
+    local: local.data ?? undefined,
+  });
   return (
     <section className="personal-dashboard">
       <PageHeading title={t('Dashboard')} />
-      {identity?.email_verified === false && (
-        <p role="alert" className="dashboard-verification-warning">
-          {t('Verify your email address before creating or joining online games.')}{' '}
-          <a href="/profile#email-verification" onClick={surfaceLink}>
-            {t('Verify your email in your profile.')}
-          </a>
-        </p>
-      )}
-      <GameCreationActions
+      <PlayModes
         onNewOnline={() => setCreation((value) => value + 1)}
         onNewSingle={onNewSingle}
-      >
-        {account.data?.games[0] && (
-          <a
-            className="button secondary"
-            href={`/games/${account.data.games[0].id}`}
-            onClick={surfaceLink}
-          >
-            {t('Resume single-player')}
-          </a>
-        )}
-      </GameCreationActions>
+        games={running}
+      />
       <div className="dashboard-overview">
         <section className="panel dashboard-performance" aria-labelledby="performance-heading">
           <div className="section-heading">

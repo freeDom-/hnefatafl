@@ -25,6 +25,8 @@ import ActiveGameSwitcher, { type ActiveGameEntry } from './ActiveGameSwitcher';
 import PlayPage from './PlayPage';
 import GameLayout from './GameLayout';
 import { useMediaQuery } from './mobilePlay';
+import { surfaceLink } from './surfaceNavigation';
+import { rulesetName } from './RecordedGames';
 import GameDetailsPanel from './GameDetailsPanel';
 import GameResult from './GameResult';
 import ArmiesPanel from './ArmiesPanel';
@@ -298,6 +300,14 @@ export function Lobby({
   }, [creationRequested]);
   const [tab, setTab] = useState<LobbyTab>(initialLobbyTab);
   const [offset, setOffset] = useState(0);
+  // Discovery filters are applied by the server, never to an unbounded page.
+  const [rulesetFilter, setRulesetFilter] = useState(
+    ['brandubh', 'tablut', 'copenhagen'].includes(
+      new URLSearchParams(location.search).get('ruleset') ?? '',
+    )
+      ? new URLSearchParams(location.search).get('ruleset')!
+      : '',
+  );
   const now = useNow();
   const [intent, setIntent] = useState<CreationIntent | null>(() => restoreIntent(accountId));
   const intentRef = useRef(intent);
@@ -345,7 +355,9 @@ export function Lobby({
       const [availability, listing] = await Promise.all([
         api<Availability>('/online/availability', undefined, undefined, signal),
         api<OnlineListing>(
-          `/online/games?section=${tab}&limit=${pageSize}&offset=${offset}`,
+          `/online/games?section=${tab}&limit=${pageSize}&offset=${offset}${
+            rulesetFilter ? `&ruleset=${rulesetFilter}` : ''
+          }`,
           undefined,
           undefined,
           signal,
@@ -353,9 +365,9 @@ export function Lobby({
       ]);
       return { availability, listing };
     },
-    [tab, offset, pageSize],
+    [tab, offset, pageSize, rulesetFilter],
   );
-  const poll = useOnlinePoll(`lobby:${accountId}:${tab}:${offset}`, load);
+  const poll = useOnlinePoll(`lobby:${accountId}:${tab}:${offset}:${rulesetFilter}`, load);
   const action = useOnlineAction(poll);
   const available =
     poll.phase === 'ready' && poll.data?.availability.enabled && poll.data.availability.eligible;
@@ -581,6 +593,31 @@ export function Lobby({
         {!dialogOnly && (
           <section className="online-games">
             <h2>{t('Online games')}</h2>
+            <p className="subtle">
+              {t(
+                'Live games only. Completed games open read-only replay and analysis in the Hall of records.',
+              )}{' '}
+              <a href="/archive" onClick={surfaceLink}>
+                {t('Open Replays & Analysis')}
+              </a>
+            </p>
+            <label className="online-filter">
+              {t('Filter by ruleset')}
+              <select
+                value={rulesetFilter}
+                onChange={(event) => {
+                  setRulesetFilter(event.target.value);
+                  setOffset(0);
+                }}
+              >
+                <option value="">{t('All rulesets')}</option>
+                {['brandubh', 'tablut', 'copenhagen'].map((id) => (
+                  <option key={id} value={id}>
+                    {t(rulesetName(id))}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Tabs
               id="online-lobby"
               items={lobbyTabs}

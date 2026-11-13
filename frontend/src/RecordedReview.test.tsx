@@ -253,3 +253,63 @@ it('keeps the captured king on the board in a recorded review', async () => {
   // The final board omits K, but the review retains the captured king marker.
   expect(screen.getByRole('gridcell', { name: /king/ })).toBeVisible();
 });
+
+it('reads a local 1v1 replay only through the owner route and offers no analysis', async () => {
+  const local = {
+    game: {
+      id: 'local-owned',
+      category: 'local',
+      ruleset: 'brandubh',
+      mode: 'local',
+      status: 'completed',
+      winner: 'attackers',
+      plies: 1,
+      players: {
+        attackers: { name: 'Player 1', kind: 'human' },
+        defenders: { name: 'Player 2', kind: 'human' },
+      },
+    },
+    game_id: 'local-owned',
+    version: 3,
+    validated: true,
+    cursor: 1,
+    states: fixture.replay.states,
+    moves: fixture.replay.game.moves,
+  };
+  fetcher.mockImplementation(() => respond(local));
+  render(<RecordedReview id="local-owned" category="local" accountId="odin" personal />);
+  await screen.findByRole('grid');
+  expect(fetcher.mock.calls.some(([url]) => url === '/api/personal/local/local-owned/replay')).toBe(
+    true,
+  );
+  expect(screen.getAllByText('Local 1v1').length).toBeGreaterThan(0);
+  // Local games run no advisor or background search, so no analysis surface exists.
+  expect(screen.queryByRole('heading', { name: 'Analytics' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Winning chances' })).toBeNull();
+  expect(screen.queryByText(/analysis is not available/i)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
+  expect(screen.getByText('Read-only replay')).toBeVisible();
+  expect(
+    fetcher.mock.calls.some(([url]) => url.includes('/analysis') || url.includes('/analytics')),
+  ).toBe(false);
+});
+
+it('never exposes live assistance while an online game is still running', async () => {
+  const live = structuredClone(fixture.replay);
+  live.game.status = 'active';
+  (live.game as { result: unknown }).result = null;
+  fetcher.mockImplementation(() => respond(live));
+  render(<RecordedReview id={live.game.id} category="online" accountId="archer" />);
+  await screen.findByRole('grid');
+  expect(
+    screen.getByText(
+      'Live game. This is the current position; analysis is not available while a game is running.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Analytics' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Winning chances' })).toBeNull();
+  expect(screen.getByText('Read-only replay')).toBeVisible();
+  expect(
+    fetcher.mock.calls.some(([url]) => url.includes('/analysis') || url.includes('/analytics')),
+  ).toBe(false);
+});
