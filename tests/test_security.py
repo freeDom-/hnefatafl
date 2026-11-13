@@ -7,6 +7,7 @@ import sqlite3
 import time
 
 import pytest
+from fastapi import Response
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -419,3 +420,54 @@ def test_ambiguous_account_status_cannot_reuse_session(application):
             with application.state.store.connection() as c:
                 c.execute("UPDATE accounts SET active=? WHERE id=?", (status, entry["id"]))
             assert client.get("/api/auth/me").status_code == 401
+
+
+def test_authenticated_profile_response_is_not_cacheable(application):
+    account(application)
+    with TestClient(application) as client:
+        login(client)
+        response = client.get("/api/profile")
+        assert response.status_code == 200
+        assert response.headers.get_list("cache-control") == ["no-store"]
+
+
+def test_authenticated_rating_history_and_login_cookie_are_not_cacheable(application):
+    account(application)
+    with TestClient(application) as client:
+        session = login(client)
+        assert session.headers.get_list("cache-control") == ["no-store"]
+        assert "set-cookie" in session.headers
+        response = client.get("/api/personal/ratings/brandubh/history")
+        assert response.status_code == 200
+        assert response.headers.get_list("cache-control") == ["no-store"]
+
+
+def test_authenticated_training_and_denied_routes_are_not_cacheable(application):
+    account(application, "ADMIN", "Odin")
+    with TestClient(application) as client:
+        login(client, "Odin")
+        granted = client.get("/api/training/jobs")
+        assert granted.status_code == 200
+        assert granted.headers.get_list("cache-control") == ["no-store"]
+    account(application, "USER", "Sparrow")
+    with TestClient(application) as client:
+        login(client, "Sparrow")
+        denied = client.get("/api/training/jobs")
+        assert denied.status_code == 403
+        assert denied.headers.get_list("cache-control") == ["no-store"]
+
+
+def test_a_private_handler_cannot_override_the_boundary_cache_policy(application, monkeypatch):
+    account(application)
+    monkeypatch.setitem(POLICY, ("GET", "/api/private-cache-probe"), "profile")
+
+    @application.get("/api/private-cache-probe")
+    def probe(response: Response):
+        response.headers["Cache-Control"] = "public, max-age=600"
+        return {"ok": True}
+
+    with TestClient(application) as client:
+        login(client)
+        response = client.get("/api/private-cache-probe")
+        assert response.status_code == 200 and response.json() == {"ok": True}
+        assert response.headers.get_list("cache-control") == ["no-store"]

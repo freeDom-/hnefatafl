@@ -38,6 +38,10 @@ from .account_policy import (
 
 COOKIE = "hnefatafl_session"
 SAFE = {"GET", "HEAD", "OPTIONS"}
+# The boundary owns Cache-Control: only an anonymous completed-game read under
+# this prefix may be shared, and only when its handler asks for public caching.
+PUBLIC_CACHE = "public, max-age=60"
+PUBLIC_CACHE_PATH = "/api/public/online/games/"
 # This module owns policy; account_api is imported only after Auth is defined.
 ACCOUNT_ACTIONS = {
     "/api/auth/register": "register",
@@ -465,10 +469,32 @@ class SecurityBoundary:
 
         async def protected_send(message):
             if message["type"] == "http.response.start":
-                # Public completed reads may opt into a short Cache-Control; every
-                # other response keeps the default no-store exactly as before.
-                present = {name.lower() for name, _ in message["headers"]}
-                additions = [
+                # The boundary owns Cache-Control: strip every handler directive
+                # and emit exactly one. Only an anonymous completed-game read may
+                # be shared; every other /api/ response (including errors) is
+                # forced to no-store so no handler can weaken the policy. Non-API
+                # responses keep a handler directive, defaulting to no-store.
+                requested = b",".join(
+                    value.lower()
+                    for name, value in message["headers"]
+                    if name.lower() == b"cache-control"
+                )
+                headers = [
+                    (name, value)
+                    for name, value in message["headers"]
+                    if name.lower() != b"cache-control"
+                ]
+                if scope["path"].startswith("/api/"):
+                    shared = (
+                        scope["method"] == "GET"
+                        and message["status"] < 400
+                        and scope["path"].startswith(PUBLIC_CACHE_PATH)
+                        and b"public" in requested
+                    )
+                    cache = PUBLIC_CACHE.encode() if shared else b"no-store"
+                else:
+                    cache = requested or b"no-store"
+                message["headers"] = headers + [
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
                     (
@@ -479,10 +505,8 @@ class SecurityBoundary:
                         b"content-security-policy",
                         b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
                     ),
+                    (b"cache-control", cache),
                 ]
-                if b"cache-control" not in present:
-                    additions.append((b"cache-control", b"no-store"))
-                message["headers"] += additions
             await original_send(message)
 
         send = protected_send

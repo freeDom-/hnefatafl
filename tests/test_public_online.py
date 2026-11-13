@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import timedelta
 import hashlib
 import json
+import sqlite3
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -831,3 +832,94 @@ def test_feature_flag_withdrawal_hides_the_whole_namespace(rig):
     assert client.get(f"{PUBLIC}/{game['id']}/replay").status_code == 404
     # The authenticated routes keep working exactly as before.
     assert signed_in(app, rig, "Visitor").get("/api/online/games").status_code == 200
+
+
+# The security boundary owns Cache-Control: it strips every handler directive and
+# emits exactly one. Only an anonymous completed read may be shared; every other
+# /api/ response, including errors, is forced to no-store.
+
+
+def cache_directives(response):
+    return response.headers.get_list("cache-control")
+
+
+def test_anonymous_completed_detail_is_publicly_cacheable(rig, api):
+    _, client = api
+    game = completed(rig)
+    response = client.get(f"{PUBLIC}/{game['id']}")
+    assert response.status_code == 200
+    assert cache_directives(response) == ["public, max-age=60"]
+
+
+def test_anonymous_completed_replay_is_publicly_cacheable(rig, api):
+    _, client = api
+    game = completed(rig)
+    response = client.get(f"{PUBLIC}/{game['id']}/replay")
+    assert response.status_code == 200
+    assert cache_directives(response) == ["public, max-age=60"]
+
+
+def test_anonymous_live_detail_is_not_cacheable(rig, api):
+    _, client = api
+    game = active(rig)
+    response = client.get(f"{PUBLIC}/{game['id']}")
+    assert response.status_code == 200
+    assert cache_directives(response) == ["no-store"]
+
+
+def test_anonymous_listing_is_not_cacheable(rig, api):
+    _, client = api
+    active(rig)
+    response = client.get(PUBLIC)
+    assert response.status_code == 200
+    assert cache_directives(response) == ["no-store"]
+
+
+def test_public_error_responses_are_never_publicly_cacheable(rig, api, monkeypatch):
+    app, client = api
+    game = completed(rig)
+    missing = client.get(f"{PUBLIC}/missing")
+    assert missing.status_code == 404 and cache_directives(missing) == ["no-store"]
+    malformed = client.get(f"{PUBLIC}/{game['id']}!")
+    assert malformed.status_code == 422 and cache_directives(malformed) == ["no-store"]
+
+    limited = create_app(
+        rig.root,
+        online_settings=replace(POLICY, public_rate_limit=1, public_rate_window_seconds=60),
+        online_clock=rig.clock,
+        online_background=False,
+        account_background=False,
+    )
+    throttled_client = TestClient(limited)
+    assert throttled_client.get(PUBLIC).status_code == 200
+    throttled = throttled_client.get(PUBLIC)
+    assert throttled.status_code == 429 and cache_directives(throttled) == ["no-store"]
+
+    def unavailable(*args, **kwargs):
+        raise sqlite3.Error("unavailable")
+
+    monkeypatch.setattr(app.state.public_online, "detail", unavailable)
+    broken = client.get(f"{PUBLIC}/{game['id']}")
+    assert broken.status_code == 503 and cache_directives(broken) == ["no-store"]
+
+    # The public namespace has no 403 path; a boundary denial is still no-store.
+    denied = signed_in(app, rig, "Visitor").get("/api/training/jobs")
+    assert denied.status_code == 403 and cache_directives(denied) == ["no-store"]
+
+
+def test_no_response_carries_duplicate_cache_control_directives(rig, api):
+    _, client = api
+    game = completed(rig)
+    live = active(rig)
+    responses = [
+        client.get(PUBLIC),
+        client.get(f"{PUBLIC}/{game['id']}"),
+        client.get(f"{PUBLIC}/{game['id']}/replay"),
+        client.get(f"{PUBLIC}/{live['id']}"),
+        client.get(f"{PUBLIC}/missing"),
+        client.get(f"{PUBLIC}/{game['id']}!"),
+        client.get("/api/profile"),
+        client.get("/play", follow_redirects=False),
+    ]
+    for response in responses:
+        assert len(cache_directives(response)) == 1, (response.url, response.headers)

@@ -244,7 +244,10 @@ session identifier, private profile field, private audit note or unpublished nam
 is exposed, and there is no public join/move/concede/void/analysis route. Unknown
 and live-replay identifiers return a consistent 404; malformed identifiers are
 rejected with 422 before any lookup. The index uses keyset cursors with `limit`
-1–100 and a stricter per-IP limit than authenticated lobby polling. Completed
-reads set a short `Cache-Control`, and the namespace is gated by
+1–100 and a stricter per-IP limit than authenticated lobby polling. The security
+boundary owns `Cache-Control`: only an anonymous completed read may be shared
+(`public, max-age=60`), while every other `/api/` response, including errors, is
+forced to `no-store` and no handler on a private route can override it. The
+namespace is gated by
 `HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
 `SCHEMA_VERSION` change.

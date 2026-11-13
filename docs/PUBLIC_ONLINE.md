@@ -83,7 +83,10 @@ current pool `current_rating`. The result exposes `winner`,
 ## Caching and rate limiting
 
 Completed detail and replay responses carry `Cache-Control: public, max-age=60`;
-live and index responses keep the default `no-store`. Every public request is
+live and index responses keep the default `no-store`. The security boundary owns
+the header: it strips any handler directive and emits exactly one, so every other
+`/api/` response (including 4xx/5xx errors) is forced to `no-store` and no private
+route can opt itself into shared caching. Every public request is
 bounded per connecting IP by an in-process sliding window (default 60 requests
 per 60 seconds), which is stricter than authenticated lobby polling. The
 deployment runs one API worker, so the limiter needs no durable state and adds no

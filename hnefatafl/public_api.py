@@ -19,6 +19,7 @@ from typing import Literal
 from fastapi import HTTPException, Path, Query, Request, Response
 
 from .account_policy import attributed_name, case_fold, public_identity
+from .auth import PUBLIC_CACHE
 from .engine import Move, RULESETS, apply_move, new_game
 from .online_core import OnlineCore, OnlineError, instant, safe_position, stamp
 from .personal import context_key, page
@@ -28,8 +29,8 @@ Status = Literal["waiting", "active", "completed", "cancelled", "voided"]
 Outcome = Literal["attackers", "defenders", "draw"]
 
 # Completed reads are immutable between rare corrections, so a short shared
-# window is safe; live reads keep the security boundary's default no-store.
-COMPLETED_CACHE = "public, max-age=60"
+# window is safe; the security boundary grants ``PUBLIC_CACHE`` only to this
+# completed read and forces ``no-store`` on live reads, the index and errors.
 
 # Only public attribution, the game's own start rating, the effective winner
 # delta and the current pool rating. Never email, account/session ids, private
@@ -645,7 +646,7 @@ def attach_public(app, online, *, stored_analysis):
     ):
         payload = execute(lambda: service.detail(request, game_id))
         if payload["status"] == "completed":
-            response.headers["Cache-Control"] = COMPLETED_CACHE
+            response.headers["Cache-Control"] = PUBLIC_CACHE
         return payload
 
     @app.get("/api/public/online/games/{game_id}/replay")
@@ -655,7 +656,7 @@ def attach_public(app, online, *, stored_analysis):
         game_id: str = Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"),
     ):
         payload = execute(lambda: service.replay(request, game_id))
-        response.headers["Cache-Control"] = COMPLETED_CACHE
+        response.headers["Cache-Control"] = PUBLIC_CACHE
         return payload
 
     return service
